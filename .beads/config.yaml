@@ -1,0 +1,6 @@
+# Beads Project Configuration
+# issue_prefix: madarch
+# default_priority: 2
+# default_type: task
+claim_exclusive: true
+actor: shady2k

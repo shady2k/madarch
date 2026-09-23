@@ -1,0 +1,15 @@
+#!/bin/sh
+# Commit-link check (shady2k-skills): every commit names the task it belongs to
+# with a line "Task: <id>" (several ids may be comma-separated). See .shady2k/integration.md.
+cd "$(git rev-parse --show-toplevel)" || exit 2
+node .shady2k/adapter.mjs commits --message "$1" > "${TMPDIR:-/tmp}/madarch-commits.$$.json" || { echo "commit-msg: cannot read the tracker export (.beads/issues.jsonl)"; exit 2; }
+node .shady2k/checks/check-commits.mjs "${TMPDIR:-/tmp}/madarch-commits.$$.json"
+status=$?
+rm -f "${TMPDIR:-/tmp}/madarch-commits.$$.json"
+if [ $status -ne 0 ]; then
+  echo
+  echo "Commit refused: the message must name an existing task (not an epic) on its own line,"
+  echo "for example:  Task: madarch-ge3"
+  echo "Find the task with \`br list\` or \`br search <words>\`; file a new one through the to-backlog skill."
+fi
+exit $status

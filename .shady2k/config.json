@@ -1,0 +1,30 @@
+{
+  "strength": "block",
+  "currentMilestone": "mvp",
+  "milestoneLabels": ["mvp"],
+  "areaLabels": ["model", "checks", "views", "tooling"],
+  "roadmapLabels": [],
+  "triageLabels": [],
+  "ideaLabels": ["idea"],
+  "ideaTitlePrefixes": [],
+  "findingLabels": ["finding"],
+  "findingBudget": 5,
+  "staleDays": 14,
+  "holdDays": 2,
+  "bulkCluster": 20,
+  "execution": {
+    "development": "tdd",
+    "runMode": "subagents",
+    "maxBranchDays": 2,
+    "landing": "push",
+    "maxWorkers": 1,
+    "mutationBudgetMinutes": 10,
+    "mutationFallback": "escalate",
+    "reviewPreference": "different-model",
+    "reviewFallback": "same-model independent reviewer, disclosed"
+  },
+  "scope": "personal",
+  "artifactLanguage": "en",
+  "projectWords": ["madarch"],
+  "trackerWords": ["beads", "beads_rust"]
+}

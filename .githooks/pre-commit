@@ -1,0 +1,15 @@
+#!/bin/sh
+# Backlog gate (shady2k-skills): the tracker state being committed must pass the
+# project's rules. See .shady2k/integration.md.
+cd "$(git rev-parse --show-toplevel)" || exit 2
+.githooks/privacy-guard.sh || exit 1
+node .shady2k/adapter.mjs backlog > "${TMPDIR:-/tmp}/madarch-backlog.$$.json" || { echo "pre-commit: cannot read the tracker export (.beads/issues.jsonl)"; exit 2; }
+node .shady2k/checks/check.mjs --config .shady2k/config.json "${TMPDIR:-/tmp}/madarch-backlog.$$.json"
+status=$?
+rm -f "${TMPDIR:-/tmp}/madarch-backlog.$$.json"
+if [ $status -ne 0 ]; then
+  echo
+  echo "Commit refused: the backlog breaks the rules above. Each rule says why and how to fix it."
+  echo "Fix the issues in the tracker (br), then commit again."
+fi
+exit $status
