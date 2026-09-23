@@ -8,7 +8,7 @@ are the repository's installation, and each person's plugin and hooks are theirs
 - **Config:** `.shady2k/config.json`; read current values there.
 - **Scope:** personal. Hooks run only in the owner's clone; nothing is enforced in CI.
 - **Vision, roadmap and charters:** `docs/vision.md` (roadmap as its section),
-  `docs/milestones/<milestone>.md`; status comes from the tracker. Vision written; no milestone charter yet.
+  `docs/milestones/<milestone>.md`; status comes from the tracker. Vision and the MVP charter (`docs/milestones/mvp.md`) written.
 - **Current specifications:** `docs/system/capabilities/<name>.md`. None yet: no accepted behaviour.
 - **Changes:** `docs/changes/<change>/change.md`, optional `design.md`; short deltas may live on tasks with a spec pointer.
 - **Document resources:** the skills' `documents.md` contract and templates; no local overrides.

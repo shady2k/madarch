@@ -1,8 +1,8 @@
 {
   "strength": "block",
   "currentMilestone": "mvp",
-  "milestoneLabels": ["mvp"],
-  "areaLabels": ["model", "checks", "views", "tooling"],
+  "milestoneLabels": ["mvp", "live-graph"],
+  "areaLabels": ["model", "checks", "views", "ingest", "tooling"],
   "roadmapLabels": [],
   "triageLabels": [],
   "ideaLabels": ["idea"],

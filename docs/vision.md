@@ -110,8 +110,7 @@ even if the views look good.
 - A proprietary query language; ad-hoc queries use Cypher through the query
   engine or an exported graph database.
 - Storing secret values; only references to them.
-- In the first milestone: authentication, a command-line client, fact upload
-  from CI, pull-request comments, runtime-observation plugins.
+- In the first milestone: see its charter, `docs/milestones/mvp.md`.
 
 ## Constraints and assumptions
 
@@ -132,12 +131,15 @@ Hypotheses to test:
 
 ## Direction
 
-Near:
-- The intended model format, the fact schema, the plugin protocol and ingest.
-- A server that reads repositories on webhooks, keeps the bitemporal fact log,
-  and answers queries.
-- The first extraction plugins (deployment configuration, API and event
-  contracts) and frontends (Mermaid, LikeC4).
+Near (MVP, `docs/milestones/mvp.md`):
+- The intended model format, the fact schema, the bitemporal fact log and ingest.
+- A large invented reference system rendered as Mermaid and LikeC4 views.
+- A real repository's graph from its address, by static plugins, then completed
+  by an agent skill that proposes the intended model.
+
+Next (`live-graph`):
+- Webhooks, CI and polling; pull-request checks; history queries; MCP; extraction
+  from code; authentication.
 
 Later hypotheses:
 - Pull-request comments on the git hosts; a runner for closed networks that

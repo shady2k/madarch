@@ -21,6 +21,10 @@ and by polling. Ingest is idempotent, orders by ref rather than arrival, and
 are closed, not deleted (see 0009). A pull-request check is the same replacement
 on a what-if overlay.
 
+Amended 2026-09-24 by the MVP charter: the first milestone adds sources on
+request by repository address (`POST /sources`); webhooks, CI calls and polling
+come in the next milestone. The server remains the target.
+
 ## Consequences
 - Operating a server (queue, retries, credentials) is needed from the start.
 - Closed networks the server cannot reach need a runner that uploads facts;
