@@ -8,13 +8,13 @@ are the repository's installation, and each person's plugin and hooks are theirs
 - **Config:** `.shady2k/config.json`; read current values there.
 - **Scope:** personal. Hooks run only in the owner's clone; nothing is enforced in CI.
 - **Vision, roadmap and charters:** `docs/vision.md` (roadmap as its section),
-  `docs/milestones/<milestone>.md`; status comes from the tracker. None written yet.
+  `docs/milestones/<milestone>.md`; status comes from the tracker. Vision written; no milestone charter yet.
 - **Current specifications:** `docs/system/capabilities/<name>.md`. None yet: no accepted behaviour.
 - **Changes:** `docs/changes/<change>/change.md`, optional `design.md`; short deltas may live on tasks with a spec pointer.
 - **Document resources:** the skills' `documents.md` contract and templates; no local overrides.
 - **Workflow ownership:** shady2k-skills owns the workflow; br is the only task list.
 - **Architecture and explorations:** `docs/system/architecture.md`; `docs/explorations/` only when retention is requested.
-- **Glossary and decisions:** `docs/glossary.md`, `docs/decisions/NNNN-<slug>.md` (MADR). None yet.
+- **Glossary and decisions:** `docs/glossary.md`, `docs/decisions/NNNN-<slug>.md` (MADR).
 - **Acceptance records:** a comment on the stage (epic) whose first line is
   `accepted:` with base and final revisions, included tasks, criteria, test,
   mutation and review evidence, and pending limitations.
