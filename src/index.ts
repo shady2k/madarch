@@ -80,7 +80,7 @@ export type {
   ViewRelation,
   ViewResult,
 } from './query/types.js';
-export { createLadybugEngine } from './adapters/ladybug-engine.js';
+export { createLadybugEngine, type LadybugEngineOptions } from './adapters/ladybug-engine.js';
 
 import type { CompiledModel } from './model/compile.js';
 import { compileModel } from './model/compile.js';

@@ -79,7 +79,16 @@ export interface DependenciesInput {
 /** One element a dependents/dependencies query answers, with the chain of relation ids joining it to the asked element. */
 export interface DependencyAnswer {
   id: string;
-  /** Relation ids, in hop order from the asked element to this one. */
+  /**
+   * Relation ids, in hop order — but the direction that order walks
+   * differs with which query asked for it, since each walks the relation
+   * graph the opposite way: `dependencies(x)` walks from `x` outward, so
+   * a chain here reads from the asked element `x` to `this` one;
+   * `dependents(x)` walks other elements reaching `x`, so a chain here
+   * reads from `this` element to the asked element `x` — the direction
+   * dependency naturally reads in either case (what `x` depends on, or
+   * what depends on `x`, each followed from its own start).
+   */
   chain: string[];
 }
 

@@ -568,6 +568,28 @@ describe('the LadybugDB query engine', () => {
     engine.close();
   });
 
+  test('as-of (minor 6): with no `at.valid`/`at.known`, a query defaults to the clock the engine was created with, not the real wall clock', () => {
+    const element1 = element('parent', 'domain', []);
+    const child1 = element('child', 'service', ['parent'], { parent: 'parent' });
+    const engine = createLadybugEngine({ clock: { now: () => DAY(5) } });
+    engine.rebuild([row('element', element1, { validFrom: DAY(1), validTo: DAY(3) }), row('element', child1, { validFrom: DAY(1), validTo: DAY(3) })]);
+
+    // Left out entirely, both `valid` and `known` come from the injected
+    // clock (day 5) — past the element's own `validTo` (day 3), so it no
+    // longer exists then — not `Date.now()`, which this fixture's days are
+    // nowhere near (a real "now" would see nothing recorded at all yet,
+    // a different refusal, or on a machine whose clock genuinely landed
+    // inside this fixture's own tiny range, the wrong answer entirely).
+    const result = engine.children('parent');
+    expect(result.error).toMatchObject({ id: 'parent', time: DAY(5) });
+
+    // An explicit `valid` still overrides the clock's own default.
+    const explicit = engine.children('parent', { valid: DAY(2), known: DAY(5) });
+    expect(explicit.elements?.map((e) => e.id)).toEqual(['child']);
+
+    engine.close();
+  });
+
   test('as-of: with no explicit state and no states ever recorded, a query defaults to "as-is"', () => {
     const engine = createLadybugEngine();
     engine.rebuild([row('element', element('a', 'domain', [])), row('element', element('b', 'service', ['a'], { parent: 'a' }))]);

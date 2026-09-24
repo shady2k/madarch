@@ -1,6 +1,6 @@
 import lbug from '@ladybugdb/core';
 import type { LbugValue, PreparedStatement, QueryResult } from '@ladybugdb/core';
-import type { AssertionChange, AssertionRecord } from '../history/types.js';
+import type { AssertionChange, AssertionRecord, Clock } from '../history/types.js';
 import { isOneStateChain } from '../history/assertions.js';
 import { byCodePoint } from '../model/order.js';
 import type {
@@ -230,7 +230,19 @@ function chainRoot(states: readonly { id: string; after?: string }[]): string | 
  * not modeled here at all — only elements, relations and (for resolving a
  * query's default state) states.
  */
-export function createLadybugEngine(): QueryEngine {
+export interface LadybugEngineOptions {
+  /**
+   * Supplies `valid`/`known`'s default when a query's own `at` leaves
+   * either out (the same convention `createSqliteHistory` uses, and the
+   * same `Clock` interface): a test injects a fake one to hold time still
+   * or move it by hand, the same way it would for the history this engine
+   * is built from. Left out, `Date.now()` is used directly.
+   */
+  clock?: Clock;
+}
+
+export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEngine {
+  const clock = options.clock ?? { now: () => Date.now() };
   // `Database`'s own defaults reserve an enormous virtual-memory mapping
   // (observed: an 8 TiB `mmap`) sized for a large on-disk deployment;
   // opening more than a handful of instances in one process — one engine
@@ -563,18 +575,16 @@ export function createLadybugEngine(): QueryEngine {
   }
 
   /**
-   * Resolves `{ valid, known, state }`: times default to the clock's
-   * current moment... but the engine has no clock (it is derived, purely
-   * from what `rebuild`/`update` gave it) — `valid`/`known` default to the
-   * caller's own "now" when left out, so a caller passes it explicitly.
-   * Left out entirely, `Date.now()` is used, matching `HistoryStore`'s own
-   * default when no clock is injected — the engine's tests, like the
-   * history's, inject a fake clock's reading through `at` instead of
-   * relying on this fallback.
+   * Resolves `{ valid, known, state }`: `valid`/`known` default to the
+   * clock this engine was created with (`LadybugEngineOptions.clock`,
+   * `Date.now()` when none was given — the same default `HistoryStore`
+   * itself uses when no clock is injected). A caller passes `at` explicitly
+   * to ask about a time other than "now"; the engine's own tests, like the
+   * history's, inject a fake clock instead of relying on this fallback.
    */
   function resolveTime(at: QueryTime | undefined): { time?: ResolvedTime; error?: QueryError } {
-    const valid = at?.valid ?? Date.now();
-    const known = at?.known ?? Date.now();
+    const valid = at?.valid ?? clock.now();
+    const known = at?.known ?? clock.now();
     if (at?.state !== undefined) {
       // Every state id the compiler ever produces satisfies `SAFE_ID` (the
       // model schema's own `ID_PATTERN`); a caller-given state that does
