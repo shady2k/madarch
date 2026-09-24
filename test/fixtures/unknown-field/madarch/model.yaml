@@ -1,0 +1,7 @@
+version: 1
+
+elements:
+  - id: shop
+    kind: domain
+    name: Shop
+    owner: alice

@@ -1,0 +1,22 @@
+{
+  "name": "madarch",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.2",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "typebox": "1.3.34",
+    "yaml": "2.9.1",
+    "@ladybugdb/core": "0.20.4"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "@types/bun": "1.4.2"
+  },
+  "trustedDependencies": [
+    "@ladybugdb/core"
+  ]
+}
