@@ -39,8 +39,14 @@ export interface HistoryError {
   source?: string;
 }
 
-/** One assertion a `store` call opened or closed, for a caller keeping its own derived index in step. */
+/**
+ * One assertion a `store` call opened or closed, for a caller keeping its
+ * own derived index in step. `source` is always the `StoreInput.source` the
+ * call was made for: a single `store` call only ever writes rows for its own
+ * source, never another's.
+ */
 export interface AssertionChange {
+  source: string;
   kind: AssertionKind;
   id: string;
   content: string;
@@ -52,7 +58,14 @@ export interface StoreResult {
   errors: HistoryError[];
   /** Rows newly current (`recorded_to` left open) after this store; empty on a refusal or a no-op repeat. */
   opened: AssertionChange[];
-  /** Rows this store closed on the recorded axis (superseded, not deleted); empty on a refusal or a no-op repeat. */
+  /**
+   * Rows this store closed on the recorded axis (superseded, not deleted);
+   * empty on a refusal or a no-op repeat. A row that is closed and
+   * immediately superseded at the very same valid-time instant (two commits
+   * sharing one `committedAt`) still appears here, with `validFrom` equal to
+   * `validTo`, even though no row for that zero-width span is ever written
+   * to storage: it was, however briefly, believed and is now superseded.
+   */
   closed: AssertionChange[];
 }
 

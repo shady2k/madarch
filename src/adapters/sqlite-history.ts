@@ -43,12 +43,20 @@ interface AssertionRow {
   recorded_from: number;
 }
 
-/** A row naming another source's currently-believed assertion overlapping the version being stored. */
+/**
+ * A row naming another source's currently-believed assertion overlapping
+ * the version being stored. `valid_from`/`valid_to` are carried so the
+ * state-chain check can tell apart rows that are each other's own currently
+ * believed replacement at different valid times (never true together) from
+ * rows genuinely true at the same moment.
+ */
 interface OtherCurrentRow {
   kind: AssertionKind;
   entity_id: string;
   content: string;
   source: string;
+  valid_from: number;
+  valid_to: number | null;
 }
 
 /** A row of `source_commits`, as read back to decide idempotence and ordering. */
@@ -67,6 +75,49 @@ interface SuccessorRow {
 class StoreRefused extends Error {
   constructor(public readonly errors: HistoryError[]) {
     super('store refused');
+  }
+}
+
+/**
+ * Whether the state chain stays one chain throughout our own new valid span
+ * `[committedAt, ourValidTo)`, checking the union of currently-believed
+ * state rows at each point within it where that union can change — never by
+ * flattening every other source's currently-believed state row into one set
+ * regardless of when each was actually true. Two rows of one other source
+ * are each other's own successor at different valid times (a state renamed
+ * partway through that source's own history) and so are never true
+ * together; a union built by id alone, ignoring `valid_from`/`valid_to`,
+ * would see a false branch that no single moment in time ever has. Rows
+ * outside our own span never matter here: nothing this store does reaches
+ * past it. Throws `StoreRefused` on the first checked moment where the
+ * union branches or cycles.
+ */
+function checkStateChain(otherCurrent: readonly OtherCurrentRow[], newAssertions: readonly Assertion[], committedAt: number, ourValidTo: number | null): void {
+  const otherStates = otherCurrent.filter((row) => row.kind === 'state');
+  const ourStates = newAssertions.filter((assertion) => assertion.kind === 'state');
+
+  // One moment per distinct configuration of `otherStates`: our own span's
+  // start, plus every other row's `valid_from`/`valid_to` that falls
+  // strictly inside it. Checking the union at each of these representative
+  // moments covers every interval between them too, since nothing changes
+  // in between.
+  const moments = new Set<number>([committedAt]);
+  for (const row of otherStates) {
+    if (row.valid_from > committedAt && (ourValidTo === null || row.valid_from < ourValidTo)) moments.add(row.valid_from);
+    if (row.valid_to !== null && row.valid_to > committedAt && (ourValidTo === null || row.valid_to < ourValidTo)) moments.add(row.valid_to);
+  }
+
+  for (const moment of moments) {
+    const union = new Map<string, { id: string; after?: string }>();
+    for (const row of otherStates) {
+      if (row.valid_from <= moment && (row.valid_to === null || row.valid_to > moment)) {
+        union.set(row.entity_id, JSON.parse(row.content) as { id: string; after?: string });
+      }
+    }
+    for (const assertion of ourStates) union.set(assertion.id, JSON.parse(assertion.content) as { id: string; after?: string });
+    if (!isOneStateChain([...union.values()])) {
+      throw new StoreRefused([{ message: 'combining every source\'s states would leave the state chain branching or cyclic, not one chain' }]);
+    }
   }
 }
 
@@ -186,11 +237,12 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
   // bind as parameters.
   const relevantKindsList = [...CLASHABLE_KINDS, ...SHARED_KINDS].map((kind) => `'${kind}'`).join(', ');
   const selectOtherCurrentOverlapping: Statement<OtherCurrentRow, [string, number | null, number | null, number]> = db.query(
-    `SELECT kind, entity_id, content, source FROM assertions
+    `SELECT kind, entity_id, content, source, valid_from, valid_to FROM assertions
      WHERE source != ? AND kind IN (${relevantKindsList}) AND recorded_to IS NULL
        AND (? IS NULL OR valid_from < ?)
        AND (valid_to IS NULL OR valid_to > ?)`,
   );
+  const selectMaxRecordedAt: Statement<{ max_recorded: number | null }, []> = db.query('SELECT MAX(recorded_at) AS max_recorded FROM source_commits');
   const selectReadAllSources: Statement<OtherCurrentRow, [number, number, number, number]> = db.query(
     `SELECT kind, entity_id, content, source FROM assertions
      WHERE valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)
@@ -228,19 +280,26 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
 
   /**
    * The recorded moment to use for this store: the clock's own reading,
-   * unless that reading would not be strictly after `notBefore` — the
-   * latest `recorded_from` among the rows this very store is about to
-   * close. A clock that has gone backwards (or simply not moved since the
-   * row being closed was opened) would otherwise give that row the same
-   * `recorded_to` as its own `recorded_from`, making it unreadable at any
-   * known time; clamped one millisecond past it instead, recorded time
-   * stays not just non-decreasing but distinguishable. Rows this store only
-   * opens, closing nothing, are never affected: two unrelated sources
-   * stored at the very same recorded moment is ordinary, not a clash.
+   * first floored at `historicalFloor` — the latest `recorded_at` any store
+   * has ever used, across every source — and then, if this store is about
+   * to close rows, clamped to strictly after `notBefore`, the latest
+   * `recorded_from` among them. The floor alone keeps recorded time from
+   * running backwards even for a store that only opens rows and closes
+   * nothing (a clock reading earlier than history already recorded is
+   * simply brought up to it; landing exactly on it is fine, since nothing
+   * of this store's own is being closed at that same instant). The
+   * strict-after clamp exists only for a store that does close rows: a
+   * clock that has gone backwards (or simply not moved since the row being
+   * closed was opened) would otherwise give that row the same `recorded_to`
+   * as its own `recorded_from`, making it unreadable at any known time;
+   * clamped one millisecond past it instead, recorded time stays not just
+   * non-decreasing but distinguishable there too.
    */
-  function recordingNow(notBefore: number | undefined): number {
-    const wallClock = clock.now();
-    return notBefore === undefined || wallClock > notBefore ? wallClock : notBefore + 1;
+  function recordingNow(notBefore: number | undefined, historicalFloor: number | undefined): number {
+    let now = clock.now();
+    if (historicalFloor !== undefined && now < historicalFloor) now = historicalFloor;
+    if (notBefore !== undefined && now <= notBefore) now = notBefore + 1;
+    return now;
   }
 
   function digestOf(assertions: readonly Assertion[]): string {
@@ -335,13 +394,17 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
 
       // The state chain must still be one chain once this version's states
       // join every other source's currently-believed ones (already known,
-      // from the check above, to agree wherever an id is shared).
-      const unionStates = new Map<string, { id: string; after?: string }>();
-      for (const row of otherCurrent) if (row.kind === 'state') unionStates.set(row.entity_id, JSON.parse(row.content) as { id: string; after?: string });
-      for (const assertion of newAssertions) if (assertion.kind === 'state') unionStates.set(assertion.id, JSON.parse(assertion.content) as { id: string; after?: string });
-      if (!isOneStateChain([...unionStates.values()])) {
-        throw new StoreRefused([{ message: 'combining every source\'s states would leave the state chain branching or cyclic, not one chain' }]);
-      }
+      // from the check above, to agree wherever an id is shared) — checked
+      // at each point in our own valid span where the set of other sources'
+      // currently-believed state rows changes, never by merging every
+      // other-source row into one flat set regardless of when each was
+      // true. Two rows of one other source can be each other's own
+      // successor at different valid times (a state renamed partway through
+      // that source's own history) and so never coexist; flattening them
+      // together would see a false branch no moment in time ever has. Other
+      // sources' state rows outside our own span are never this store's
+      // concern: it neither reads nor writes anything there.
+      checkStateChain(otherCurrent, newAssertions, committedAt, ourValidTo);
 
       // What this source's history currently believes was true right at
       // this commit's own position in its order — empty for a source's
@@ -353,15 +416,18 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
       }
 
       // The recorded moment used for every write this store makes: the
-      // clock's own reading, unless a row this store is about to close was
-      // itself recorded at or after that reading (see `recordingNow`).
+      // clock's own reading, floored at the latest recorded moment history
+      // has ever used, and — if this store is about to close rows — also
+      // clamped to strictly after the latest `recorded_from` among them
+      // (see `recordingNow`).
       let notBefore: number | undefined;
       for (const [slot, oldRow] of stateAtSlot) {
         const stillAsserted = newBySlot.get(slot);
         if (stillAsserted !== undefined && stillAsserted.content === oldRow.content) continue;
         if (notBefore === undefined || oldRow.recorded_from > notBefore) notBefore = oldRow.recorded_from;
       }
-      const storingNow = recordingNow(notBefore);
+      const historicalFloor = selectMaxRecordedAt.get()?.max_recorded ?? undefined;
+      const storingNow = recordingNow(notBefore, historicalFloor);
 
       const opened: AssertionChange[] = [];
       const closed: AssertionChange[] = [];
@@ -378,13 +444,17 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
         if (stillAsserted !== undefined && stillAsserted.content === oldRow.content) continue;
 
         closeAssertion.run(storingNow, source, oldRow.kind, oldRow.entity_id, oldRow.valid_from, oldRow.opened_by);
+        // Reported as closed regardless of whether a row is written for it
+        // below: a commit sharing another's exact time, sorting immediately
+        // after it, still supersedes what was — however briefly — believed,
+        // even though no zero-width row for that instant is ever stored.
+        closed.push({ source, kind: oldRow.kind, id: oldRow.entity_id, content: oldRow.content, validFrom: oldRow.valid_from, validTo: committedAt });
 
         // No empty row (`valid_from` = `valid_to`): a commit sharing
         // another's exact time, sorting immediately after it by commit id,
         // never gets a zero-width slice of its own.
         if (committedAt !== oldRow.valid_from) {
           insertAssertion.run(source, oldRow.kind, oldRow.entity_id, oldRow.content, oldRow.valid_from, committedAt, oldRow.opened_by, commit, storingNow);
-          closed.push({ kind: oldRow.kind, id: oldRow.entity_id, content: oldRow.content, validFrom: oldRow.valid_from, validTo: committedAt });
         }
 
         // The old row's own end reached past this commit's successor
@@ -400,7 +470,7 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
         // same-instant tie-break, which must not reopen a zero-width row).
         if (successor !== null && oldRow.valid_to !== ourValidTo) {
           insertAssertion.run(source, oldRow.kind, oldRow.entity_id, oldRow.content, ourValidTo!, oldRow.valid_to, successor.commit_id, oldRow.closed_by, storingNow);
-          opened.push({ kind: oldRow.kind, id: oldRow.entity_id, content: oldRow.content, validFrom: ourValidTo!, validTo: oldRow.valid_to });
+          opened.push({ source, kind: oldRow.kind, id: oldRow.entity_id, content: oldRow.content, validFrom: ourValidTo!, validTo: oldRow.valid_to });
         }
       }
 
@@ -412,7 +482,7 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
           const oldRow = stateAtSlot.get(slot);
           if (oldRow !== undefined && oldRow.content === assertion.content) continue;
           insertAssertion.run(source, assertion.kind, assertion.id, assertion.content, committedAt, ourValidTo, commit, successor?.commit_id ?? null, storingNow);
-          opened.push({ kind: assertion.kind, id: assertion.id, content: assertion.content, validFrom: committedAt, validTo: ourValidTo });
+          opened.push({ source, kind: assertion.kind, id: assertion.id, content: assertion.content, validFrom: committedAt, validTo: ourValidTo });
         }
       }
 

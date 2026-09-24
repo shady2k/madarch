@@ -19,8 +19,7 @@ export type AssertionKind = (typeof ASSERTION_KINDS)[number];
  * The kinds one source claims exclusively (the `sources` requirement): a
  * second source declaring an already-declared id of one of these kinds is
  * refused outright. Elements, interfaces and relations are the graph's own
- * nodes and edges (see the glossary's "Graph"), each source's exclusive
- * claim.
+ * nodes and edges, each source's exclusive claim.
  */
 export const CLASHABLE_KINDS: readonly AssertionKind[] = ['element', 'interface', 'relation'];
 
@@ -30,8 +29,9 @@ export const CLASHABLE_KINDS: readonly AssertionKind[] = ['element', 'interface'
  * id, `as-is` (see `compileStates`), and independent sources routinely
  * reuse zone, category and environment ids (`pci`, `personal`,
  * `production`) on purpose. A second source declaring one of these ids does
- * not clash; it must agree with what is already declared (see
- * `SHARED_MERGE_RULE` and `checkSharedVocabularyConflicts`), except
+ * not clash; it must agree with what is already declared (checked at store
+ * time by `checkEnvironmentConflict`, for `environment`, and inline for the
+ * others in `src/adapters/sqlite-history.ts`'s `store`), except
  * `environment`, whose `bindings` merge variable by variable.
  */
 export const SHARED_KINDS: readonly AssertionKind[] = ['category', 'zone', 'environment', 'state'];
@@ -96,13 +96,13 @@ export function environmentDefinitionWithoutBindings(content: string): string {
  * `environment` rows sharing an id are merged, their `bindings` unioned
  * variable by variable.
  *
- * This function is the last line of defence the `sources` requirement
- * names: "the union read never picks silently" — if it ever meets two
- * different definitions of a shared id (elements, interfaces and relations
- * cannot: a clash there is refused before it is written), or two sources'
- * bindings disagree on one variable's value, it reports an error instead of
- * guessing, naming the id, the disagreeing field, and both sources when
- * they are known.
+ * This function is the last line of defence for the `sources` requirement:
+ * the union read must never pick silently between disagreeing sources. If
+ * it ever meets two different definitions of a shared id (elements,
+ * interfaces and relations cannot: a clash there is refused before it is
+ * written), or two sources' bindings disagree on one variable's value, it
+ * reports an error instead of guessing, naming the id, the disagreeing
+ * field, and both sources when they are known.
  */
 export function assembleCompiledModel(rows: readonly Assertion[]): { model?: CompiledModel; errors: HistoryError[] } {
   const byKind = new Map<AssertionKind, Assertion[]>(ASSERTION_KINDS.map((kind) => [kind, []]));
@@ -162,9 +162,9 @@ export function assembleCompiledModel(rows: readonly Assertion[]): { model?: Com
  * agree (checked, and refused, at store time — this is the same safety net
  * `plainKind` applies), and `bindings` is the union of every source's
  * variables. Two sources binding the same variable to different values is a
- * conflict `checkSharedVocabularyConflicts` already refuses before it can
- * be written; met here regardless, it is reported rather than resolved by
- * picking one source's value over the other's.
+ * conflict `store`'s own `checkEnvironmentConflict` already refuses before
+ * it can be written; met here regardless, it is reported rather than
+ * resolved by picking one source's value over the other's.
  */
 function assembleEnvironments(rows: readonly Assertion[], errors: HistoryError[]): CompiledEnvironment[] {
   const result: CompiledEnvironment[] = [];

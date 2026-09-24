@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import {
   createSqliteHistory,
   isOneStateChain,
+  type AssertionChange,
   type Clock,
   type CompiledElement,
   type CompiledEnvironment,
@@ -74,6 +75,41 @@ function model(elements: CompiledElement[], extra: Partial<CompiledModel> = {}):
   };
 }
 
+/**
+ * Checks a `store` call's reported `opened`/`closed` against the store's own
+ * `assertions()` afterward: every opened change must be the currently open
+ * row it claims to be, and every closed change must name a row that really
+ * is closed (`recordedTo` set), by the same source, kind, id, content and
+ * `validFrom` — not merely a read that happens to agree.
+ */
+function verifyReport(h: HistoryStore, opened: readonly AssertionChange[], closed: readonly AssertionChange[]): void {
+  const rows = h.assertions();
+  for (const change of opened) {
+    expect(rows).toContainEqual({
+      source: change.source,
+      kind: change.kind,
+      id: change.id,
+      content: change.content,
+      validFrom: change.validFrom,
+      validTo: change.validTo,
+      recordedFrom: expect.any(Number),
+      recordedTo: null,
+    });
+  }
+  for (const change of closed) {
+    const match = rows.find(
+      (row) =>
+        row.source === change.source &&
+        row.kind === change.kind &&
+        row.id === change.id &&
+        row.content === change.content &&
+        row.validFrom === change.validFrom &&
+        row.recordedTo !== null,
+    );
+    expect(match).toBeDefined();
+  }
+}
+
 describe('1. a late commit between two stored commits does not change what the newer commit asserts', () => {
   test('a late commit that removes an element the newer commit still (implicitly) asserts does not erase it after the newer commit\'s time', () => {
     const clock = fakeClock(DAY(2));
@@ -138,13 +174,6 @@ describe('1. a late commit between two stored commits does not change what the n
     expect(ids(h, { source: 's', valid: DAY(12), known: DAY(23) })).toBe('');
     expect(ids(h, { source: 's', valid: DAY(17), known: DAY(23) })).toBe('X:Q');
     expect(ids(h, { source: 's', valid: DAY(25), known: DAY(23) })).toBe('X');
-  });
-
-  test('the module comment describes the fix, not a review code', () => {
-    // A smoke check that the rule is explained in the adapter's own words.
-    // (Read separately in code review; nothing to assert at runtime beyond
-    // the fixed behaviour already covered above.)
-    expect(true).toBe(true);
   });
 });
 
@@ -266,6 +295,146 @@ describe('2. shared vocabulary: elements/interfaces/relations are exclusive, cat
     expect(graph.states.map((s) => s.id).sort()).toEqual(['as-is', 'future', 'to-be']);
   });
 
+  test('the state-chain check unions other rows at each point in valid time, never merging rows from different valid times of one source into one set', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    // `o`'s own chain changes over its own history: as-is>x until day 5, then as-is>y from day 5 on. The two never coexist.
+    h.store({ source: 'o', commit: 'o1', committedAt: DAY(1), model: model([], { states: [state('as-is'), state('x', 'as-is')] }) });
+    clock.set(DAY(6));
+    h.store({ source: 'o', commit: 'o2', committedAt: DAY(5), model: model([], { states: [state('as-is'), state('y', 'as-is')] }) });
+
+    // `s` only ever asserts `as-is`. Flattening `o`'s history-wide rows
+    // would see `x` and `y` both naming `as-is` at once — a false branch —
+    // and wrongly refuse this.
+    const result = h.store({ source: 's', commit: 's1', committedAt: DAY(1), model: model([element('S')]) });
+    expect(result.errors).toEqual([]);
+
+    expect(readModel(h, { valid: DAY(2), known: DAY(7) }).states.map((st) => st.id).sort()).toEqual(['as-is', 'x']);
+    expect(readModel(h, { valid: DAY(7), known: DAY(7) }).states.map((st) => st.id).sort()).toEqual(['as-is', 'y']);
+  });
+
+  test('the state-chain check still catches a branch that is real at every point in the new commit\'s own span', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    h.store({ source: 'o', commit: 'o1', committedAt: DAY(1), model: model([], { states: [state('as-is'), state('x', 'as-is')] }) });
+
+    // `s` asserts `y` after `as-is` too, throughout the very same span `o`'s `x` occupies: a real, simultaneous branch.
+    const result = h.store({ source: 's', commit: 's1', committedAt: DAY(1), model: model([], { states: [state('as-is'), state('y', 'as-is')] }) });
+    expect(result.errors).toEqual([{ message: expect.any(String) }]);
+  });
+
+  test('the state-chain check adds a later moment when another source opens a new state without closing anything, and checks it too', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    // `o` adds `n` (after `m`) on day 10, without touching `m` at all: `m`'s
+    // own row stays open past day 10 (no valid_to boundary is involved
+    // here), so the only way this store sees `n` is a fresh `valid_from`
+    // boundary at day 10.
+    h.store({ source: 'o', commit: 'o1', committedAt: DAY(1), model: model([], { states: [state('root2'), state('m', 'root2')] }) });
+    clock.set(DAY(11));
+    h.store({ source: 'o', commit: 'o2', committedAt: DAY(10), model: model([], { states: [state('root2'), state('m', 'root2'), state('n', 'm')] }) });
+
+    // `s` asserts `k` after `m` too: compatible with `m` alone (day 1 to
+    // day 10, one child of `m`), but from day 10 on `m` has two children,
+    // `n` and `k` — a branch that starts only there. A check that never adds
+    // that later moment would miss it and wrongly accept this store.
+    clock.set(DAY(20));
+    const result = h.store({ source: 's', commit: 's1', committedAt: DAY(1), model: model([], { states: [state('root2'), state('k', 'm')] }) });
+    expect(result.errors).toEqual([{ message: expect.any(String) }]);
+  });
+
+  test('the state-chain check never adds a moment earlier than the new commit\'s own start, even for a row that started well before it', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    // `o` extends its own chain twice, well before `s` ever stores: both
+    // `m1` and `m2` are already open by day 3.
+    h.store({ source: 'o', commit: 'o1', committedAt: DAY(1), model: model([], { states: [state('root2'), state('m1', 'root2')] }) });
+    clock.set(DAY(4));
+    h.store({ source: 'o', commit: 'o2', committedAt: DAY(3), model: model([], { states: [state('root2'), state('m1', 'root2'), state('m2', 'm1')] }) });
+
+    // `s` extends the chain further, `k` after `m2` — compatible with the
+    // real, current state of `o`'s chain (`m1` and `m2` both already
+    // exist). A check that wrongly added a moment at `m1`'s own start (day
+    // 1, well before `s`'s own commit at day 5, when `m2` did not exist
+    // yet) would see `k` dangling there and wrongly refuse a store that is
+    // really fine throughout its own span.
+    clock.set(DAY(10));
+    const result = h.store({ source: 's', commit: 's1', committedAt: DAY(5), model: model([], { states: [state('root2'), state('k', 'm2')] }) });
+    expect(result.errors).toEqual([]);
+  });
+
+  test('the state-chain check never adds a moment at or past the new commit\'s own successor, even for another source\'s row that starts exactly there', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    // `o` replaces `m` with `z` (also after `root2`) exactly on day 10.
+    h.store({ source: 'o', commit: 'o1', committedAt: DAY(1), model: model([], { states: [state('root2'), state('m', 'root2')] }) });
+    clock.set(DAY(11));
+    h.store({ source: 'o', commit: 'o2', committedAt: DAY(10), model: model([], { states: [state('root2'), state('z', 'root2')] }) });
+
+    // `s` has an existing commit at day 10 (giving a late commit its own
+    // successor there), and now stores a late one at day 5, `k` after `m` —
+    // compatible with `m`, which is what `o` still asserts throughout `s`'s
+    // own real span [5, 10). A check that wrongly reached one instant past
+    // that span (day 10, `s`'s own successor, where `o` has already moved
+    // on to `z`) would see `k` dangling there and wrongly refuse a store
+    // that is really fine throughout its own span.
+    clock.set(DAY(12));
+    h.store({ source: 's', commit: 'c10', committedAt: DAY(10), model: model([], { states: [state('root2')] }) });
+    clock.set(DAY(20));
+    const result = h.store({ source: 's', commit: 'c5', committedAt: DAY(5), model: model([], { states: [state('root2'), state('k', 'm')] }) });
+    expect(result.errors).toEqual([]);
+  });
+
+  test('the state-chain check still adds and checks a moment strictly inside the new commit\'s own span even when that span is closed by a successor, not open-ended', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    h.store({ source: 'o', commit: 'o1', committedAt: DAY(1), model: model([], { states: [state('root2'), state('m', 'root2')] }) });
+    clock.set(DAY(7));
+    // `n` opens mid-span (day 6), without touching `m` (its row stays open): purely a `valid_from` boundary again, this time with `s`'s own span closed by a successor rather than open-ended.
+    h.store({ source: 'o', commit: 'o2', committedAt: DAY(6), model: model([], { states: [state('root2'), state('m', 'root2'), state('n', 'm')] }) });
+
+    clock.set(DAY(21));
+    // Gives the next store (dated day 1) a successor at day 20, so its own span is [1, 20) — closed, not open-ended.
+    h.store({ source: 's', commit: 'c20', committedAt: DAY(20), model: model([], { states: [state('root2')] }) });
+    clock.set(DAY(30));
+    const result = h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([], { states: [state('root2'), state('k', 'm')] }) });
+    expect(result.errors).toEqual([{ message: expect.any(String) }]);
+  });
+
+  test('the state-chain check still adds and checks a `valid_to` moment strictly inside the new commit\'s own closed span, not only when the span is open-ended', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    h.store({ source: 'o', commit: 'o1', committedAt: DAY(1), model: model([], { states: [state('root2'), state('m', 'root2')] }) });
+    clock.set(DAY(11));
+    // `m` is dropped entirely on day 10, strictly inside what will be `s`'s own [1, 20) span, with nothing replacing it.
+    h.store({ source: 'o', commit: 'o2', committedAt: DAY(10), model: model([], { states: [state('root2')] }) });
+
+    clock.set(DAY(21));
+    h.store({ source: 's', commit: 'c20', committedAt: DAY(20), model: model([], { states: [state('root2')] }) });
+    clock.set(DAY(30));
+    const result = h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([], { states: [state('root2'), state('k', 'm')] }) });
+    expect(result.errors).toEqual([{ message: expect.any(String) }]);
+  });
+
+  test('the state-chain check adds a later moment when another source closes a state without opening a replacement, and checks it too', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    // `o` drops `m` entirely on day 10 (no replacement state opens then):
+    // `m`'s row gets a real `valid_to` of day 10, the only boundary this
+    // introduces.
+    h.store({ source: 'o', commit: 'o1', committedAt: DAY(1), model: model([], { states: [state('root2'), state('m', 'root2')] }) });
+    clock.set(DAY(11));
+    h.store({ source: 'o', commit: 'o2', committedAt: DAY(10), model: model([], { states: [state('root2')] }) });
+
+    // `s` asserts `k` after `m`: reachable while `m` still exists (day 1 to
+    // day 10), but orphaned from day 10 on, once `o` drops `m`. A check
+    // that never adds that later moment would miss the orphan and wrongly
+    // accept this store.
+    clock.set(DAY(20));
+    const result = h.store({ source: 's', commit: 's1', committedAt: DAY(1), model: model([], { states: [state('root2'), state('k', 'm')] }) });
+    expect(result.errors).toEqual([{ message: expect.any(String) }]);
+  });
+
   test('isOneStateChain: the pure chain check used by the store, directly', () => {
     expect(isOneStateChain([{ id: 'as-is' }])).toBe(true);
     expect(isOneStateChain([{ id: 'as-is' }, { id: 'to-be', after: 'as-is' }])).toBe(true);
@@ -372,12 +541,12 @@ describe('4. HistoryStore\'s public interface for stage 3 and the server', () =>
     const h = history(clock);
     const first = h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
     expect(first.closed).toEqual([]);
-    expect(first.opened.filter((c) => c.kind === 'element')).toEqual([{ kind: 'element', id: 'a', content: expect.any(String), validFrom: DAY(1), validTo: null }]);
+    expect(first.opened.filter((c) => c.kind === 'element')).toEqual([{ source: 'shop', kind: 'element', id: 'a', content: expect.any(String), validFrom: DAY(1), validTo: null }]);
 
     clock.set(DAY(11));
     const second = h.store({ source: 'shop', commit: 'c2', committedAt: DAY(10), model: model([element('a', { technology: 'x' })]) });
-    expect(second.closed.filter((c) => c.kind === 'element')).toEqual([{ kind: 'element', id: 'a', content: expect.any(String), validFrom: DAY(1), validTo: DAY(10) }]);
-    expect(second.opened.filter((c) => c.kind === 'element')).toEqual([{ kind: 'element', id: 'a', content: expect.any(String), validFrom: DAY(10), validTo: null }]);
+    expect(second.closed.filter((c) => c.kind === 'element')).toEqual([{ source: 'shop', kind: 'element', id: 'a', content: expect.any(String), validFrom: DAY(1), validTo: DAY(10) }]);
+    expect(second.opened.filter((c) => c.kind === 'element')).toEqual([{ source: 'shop', kind: 'element', id: 'a', content: expect.any(String), validFrom: DAY(10), validTo: null }]);
   });
 
   test('sources() lists every source that has ever stored a commit', () => {
@@ -483,6 +652,32 @@ describe('5. a commit id already stored under a different time or model is refus
     // recorded time), it must not.
     expect(ids(h, { source: 's', valid: DAY(4), known: DAY(5) })).toBe('A');
     expect(ids(h, { source: 's', valid: DAY(4), known: DAY(20) })).toBe('B');
+  });
+
+  test('a clock reading earlier than the last recorded time is clamped even for a store that only opens rows, closing nothing', () => {
+    const clock = fakeClock(DAY(10));
+    const h = history(clock);
+    h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('X')]) });
+
+    clock.set(DAY(5)); // the wall clock goes backwards; this store only adds Y, closing nothing
+    h.store({ source: 's', commit: 'c2', committedAt: DAY(3), model: model([element('X'), element('Y')]) });
+
+    // If Y had truly been recorded at day 5, a known time of day 7 would
+    // already see it. Clamped up to c1's own recorded time (day 10), it
+    // must not — a state with Y but not X never existed.
+    expect(ids(h, { source: 's', valid: DAY(4), known: DAY(7) })).toBe('');
+    expect(ids(h, { source: 's', valid: DAY(4), known: DAY(20) })).toBe('X,Y');
+  });
+
+  test('a clock reading exactly equal to the last recorded time is not pushed further forward: equal values are fine', () => {
+    const clock = fakeClock(DAY(10));
+    const h = history(clock);
+    h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('X')]) });
+
+    // The wall clock has not moved at all: still exactly c1's own recorded time.
+    h.store({ source: 's', commit: 'c2', committedAt: DAY(3), model: model([element('X'), element('Y')]) });
+
+    expect(ids(h, { source: 's', valid: DAY(4), known: DAY(10) })).toBe('X,Y');
   });
 });
 
@@ -597,6 +792,18 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     expect(ids(h, { source: 's', valid: DAY(3), known: DAY(6) })).toBe('B');
   });
 
+  test('a clock reading that has not moved is still bumped forward when closing a row whose content changed, not merely one that disappeared', () => {
+    const clock = fakeClock(DAY(5));
+    const h = history(clock);
+    h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('A', { technology: 'x' })]) });
+
+    // The clock did not move: still exactly the moment `A` was recorded. Unlike the test above, `A` is not removed — it is replaced, same id, different content.
+    h.store({ source: 's', commit: 'c2', committedAt: DAY(2), model: model([element('A', { technology: 'y' })]) });
+
+    expect(ids(h, { source: 's', valid: DAY(3), known: DAY(5) })).toBe('A:x');
+    expect(ids(h, { source: 's', valid: DAY(3), known: DAY(6) })).toBe('A:y');
+  });
+
   test('closing several rows recorded at different times in one store uses the latest of them, not merely the last one iterated', () => {
     const clock = fakeClock(DAY(5));
     const h = history(clock);
@@ -670,7 +877,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     // Only one row opens for this late store: X:C from day 5 to day 10. No
     // redundant copy of X:A is reopened past day 10 — c2's own X:B row
     // already covers that, undisturbed.
-    expect(result.opened.filter((c) => c.kind === 'element')).toEqual([{ kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(5), validTo: DAY(10) }]);
+    expect(result.opened.filter((c) => c.kind === 'element')).toEqual([{ source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(5), validTo: DAY(10) }]);
 
     const raw = new Database(path);
     const empty = raw.query('SELECT * FROM assertions WHERE valid_from = valid_to').all();
@@ -698,8 +905,8 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     // not stop short at c1's own successor.
     const elementChanges = result.opened.filter((c) => c.kind === 'element' && c.id === 'X').sort((a, b) => a.validFrom - b.validFrom);
     expect(elementChanges).toEqual([
-      { kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(5), validTo: DAY(10) },
-      { kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(10), validTo: DAY(20) },
+      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(5), validTo: DAY(10) },
+      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(10), validTo: DAY(20) },
     ]);
     expect(elementChanges[1]?.content).toContain('"technology":"A"');
 
@@ -732,7 +939,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     // the row 'm' closes was really ended by 'q', not by 'm''s own
     // successor 'p' — both fall at the exact same instant.
     expect(result.opened.filter((c) => c.kind === 'element' && c.id === 'X')).toEqual([
-      { kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(5), validTo: DAY(10) },
+      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(5), validTo: DAY(10) },
     ]);
 
     const raw = new Database(path);
@@ -787,6 +994,28 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     expect(result.errors[0]).toMatchObject({ id: 'production', field: 'TIMEOUT' });
   });
 
+  test('the union read does not report a conflict when two sources bind the same variable to the same value (safety net stays silent when there is truly nothing to disagree about)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
+    const path = join(dir, 'history.sqlite');
+    const clock = fakeClock(DAY(2));
+    const h = history(clock, path);
+    h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: model([], { environments: [environment('production', { TIMEOUT: '30' })] }) });
+    h.close();
+
+    const raw = new Database(path);
+    raw.run(
+      `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to)
+       VALUES ('b', 'environment', 'production', ?, ?, NULL, 'c1', NULL, ?, NULL)`,
+      [JSON.stringify({ id: 'production', bindings: { TIMEOUT: '30' } }), DAY(1), clock.now()],
+    );
+    raw.close();
+
+    const h2 = history(clock, path);
+    const result = h2.read({ valid: DAY(2), known: DAY(2) });
+    expect(result.errors).toEqual([]);
+    expect(result.model?.environments).toEqual([{ id: 'production', bindings: { TIMEOUT: '30' } }]);
+  });
+
   test('sources() sorts by code point regardless of storage or arrival order', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
@@ -827,5 +1056,121 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     const unrecordable = h.store({ source: 's', commit: 'c2', committedAt: DAY(1), model: model([broken as unknown as CompiledElement]) });
     expect(unrecordable.opened).toEqual([]);
     expect(unrecordable.closed).toEqual([]);
+    expect(unrecordable.errors).toEqual([{ message: expect.stringContaining('could not be recorded') }]);
+  });
+});
+
+describe('9. store()\'s reported opened/closed carry their source and always match assertions() afterward', () => {
+  test('a single store: every opened row is current, carries its source', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    const result = h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a'), element('b')]) });
+    expect(result.closed).toEqual([]);
+    expect(result.opened.every((c) => c.source === 'shop')).toBe(true);
+    verifyReport(h, result.opened, result.closed);
+  });
+
+  test('a replace: the closed row and the opened row both carry their source, and both match assertions()', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
+    clock.set(DAY(11));
+    const result = h.store({ source: 'shop', commit: 'c2', committedAt: DAY(10), model: model([element('a', { technology: 'x' })]) });
+    expect(result.closed.every((c) => c.source === 'shop')).toBe(true);
+    expect(result.opened.every((c) => c.source === 'shop')).toBe(true);
+    verifyReport(h, result.opened, result.closed);
+  });
+
+  test('a late commit: the restored, split rows it opens all match assertions(), each carrying its source', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    h.store({ source: 's', commit: 'c0', committedAt: DAY(1), model: model([element('X', { technology: 'A' })]) });
+    clock.set(DAY(11));
+    h.store({ source: 's', commit: 'c2', committedAt: DAY(10), model: model([element('X', { technology: 'A' }), element('Y')]) });
+    clock.set(DAY(21));
+    h.store({ source: 's', commit: 'c4', committedAt: DAY(20), model: model([element('X', { technology: 'D' }), element('Y')]) });
+
+    clock.set(DAY(30));
+    const result = h.store({ source: 's', commit: 'c1', committedAt: DAY(5), model: model([element('X', { technology: 'C' }), element('Y')]) });
+    expect(result.errors).toEqual([]);
+    expect(result.closed.every((c) => c.source === 's')).toBe(true);
+    expect(result.opened.every((c) => c.source === 's')).toBe(true);
+    verifyReport(h, result.opened, result.closed);
+  });
+
+  test('same-time commits: the row closed only on the recorded axis (zero-width) still appears in closed, and matches assertions()', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    h.store({ source: 's', commit: 'a', committedAt: DAY(1), model: model([element('X', { technology: 'A' })]) });
+    clock.set(DAY(3));
+    const result = h.store({ source: 's', commit: 'b', committedAt: DAY(1), model: model([element('X', { technology: 'B' })]) });
+
+    const closedX = result.closed.find((c) => c.kind === 'element' && c.id === 'X');
+    expect(closedX).toMatchObject({ source: 's', validFrom: DAY(1), validTo: DAY(1) });
+    verifyReport(h, result.opened, result.closed);
+
+    // No row was ever persisted for that zero-width span.
+    expect(h.assertions().some((r) => r.validTo !== null && r.validTo === r.validFrom)).toBe(false);
+  });
+});
+
+describe('10. a seeded random sequence of stores matches an independently computed model (kept cheap: one fixed seed, not the review\'s full fuzz run)', () => {
+  test('regardless of arrival order, the final read at every checked valid time matches "the latest commit at or before that time"; no empty or overlapping current rows for one id', () => {
+    let seed = 1;
+    const rnd = () => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed / 2147483648;
+    };
+    const ri = (n: number) => Math.floor(rnd() * n);
+
+    for (let trial = 0; trial < 40; trial++) {
+      const n = 1 + ri(6);
+      const commits = Array.from({ length: n }, (_, i) => {
+        const els: CompiledElement[] = [];
+        for (const id of ['A', 'B', 'C']) {
+          if (rnd() < 0.6) els.push(element(id, rnd() < 0.5 ? {} : { technology: `t${ri(2)}` }));
+        }
+        return { id: `c${ri(100)}_${i}`, t: 1000 * (1 + ri(5)), els };
+      });
+
+      const clock = fakeClock(100000);
+      const h = history(clock);
+      const stored: { id: string; t: number; els: CompiledElement[] }[] = [];
+      for (const cm of commits) {
+        clock.set(100000 + stored.length * 10 + (rnd() < 0.2 ? -50 : 0)); // sometimes jumps back
+        const result = h.store({ source: 's', commit: cm.id, committedAt: cm.t, model: model(cm.els) });
+        expect(result.errors).toEqual([]);
+        stored.push(cm);
+      }
+
+      // The independent oracle: sort the commits actually stored so far by
+      // (time, id), and take the last one at or before `v` — exactly what
+      // "ordered by commit time, not arrival" (the `order-by-commit`
+      // requirement) means the history should settle on.
+      const oracle = (v: number): string => {
+        const candidates = stored.filter((x) => x.t <= v).sort((a, b) => a.t - b.t || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+        if (candidates.length === 0) return '';
+        return candidates[candidates.length - 1]!.els
+          .map((e) => e.id + (e.technology ? `:${e.technology}` : ''))
+          .sort()
+          .join(',');
+      };
+
+      for (let v = 500; v <= 6500; v += 500) {
+        expect(ids(h, { valid: v, known: 1e9 })).toBe(oracle(v));
+      }
+
+      const current = h.assertions().filter((r) => r.recordedTo === null);
+      for (const row of current) {
+        expect(row.validTo === null || row.validTo > row.validFrom).toBe(true);
+      }
+      for (const a of current) {
+        for (const b of current) {
+          if (a === b || a.id !== b.id || a.kind !== b.kind) continue;
+          const overlap = a.validFrom < (b.validTo ?? Infinity) && b.validFrom < (a.validTo ?? Infinity);
+          expect(overlap).toBe(false);
+        }
+      }
+    }
   });
 });
