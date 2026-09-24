@@ -58,9 +58,21 @@ interface StateContent {
   after?: string;
 }
 
-/** The `AssertionChange`/`AssertionRecord` identity `store()`'s report uses: unique within one engine's rows. */
-function rowKey(source: string, kind: string, id: string, validFrom: number): string {
-  return [source, kind, id, validFrom].join('\u0000');
+/**
+ * A row's own primary key inside the engine: `(source, kind, id,
+ * validFrom)` alone is `store()`'s own identity for a row (`AssertionChange`
+ * never needs more, since only one row can ever be open for that tuple at
+ * once — the `sources` requirement's own invariant), but `rebuild` loads
+ * every row `assertions()` holds, current or not, for `known`-axis time
+ * travel to work through the engine at all: the very "closed, then a
+ * shortened replacement reopened at the same `validFrom`" pattern
+ * `store()` itself produces (see `sqlite-history.ts`) can leave several
+ * historical rows sharing one `(source, kind, id, validFrom)`, told apart
+ * only by `recordedFrom`. It is folded into the key so two such rows never
+ * collide on a node table's own primary key.
+ */
+function rowKey(source: string, kind: string, id: string, validFrom: number, recordedFrom: number): string {
+  return [source, kind, id, validFrom, recordedFrom].join('\u0000');
 }
 
 /** An element id, restricted to `ID_PATTERN` in `model/schema.ts` (letters, digits, `.`, `_`, `-`): never a Cypher-quote-breaking character. */
@@ -201,17 +213,25 @@ export function createLadybugEngine(): QueryEngine {
   const insertElement = conn.prepareSync(
     `CREATE (e:Element {pk: $pk, elementId: $elementId, kind: $kind, name: $name, parentId: $parentId, ancestors: $ancestors, states: $states, validFrom: $validFrom, validTo: $validTo, recordedFrom: $recordedFrom, recordedTo: $recordedTo, source: $source})`,
   );
-  const deleteElement = conn.prepareSync(`MATCH (e:Element {pk: $pk}) DELETE e`);
+  // Deletes by identity, not by `pk`: `pk` now includes `recordedFrom` (see
+  // `rowKey`'s own comment), which `update`'s `AssertionChange` never
+  // carries — `recordedTo IS NULL` picks out the one row that can ever be
+  // open for this `(source, elementId, validFrom)` at once instead.
+  const deleteElement = conn.prepareSync(`MATCH (e:Element) WHERE e.source = $source AND e.elementId = $id AND e.validFrom = $validFrom AND e.recordedTo IS NULL DELETE e`);
   const insertRelation = conn.prepareSync(
     `CREATE (r:Relation {pk: $pk, relationId: $relationId, fromId: $fromId, toId: $toId, refines: $refines, states: $states, validFrom: $validFrom, validTo: $validTo, recordedFrom: $recordedFrom, recordedTo: $recordedTo, source: $source})`,
   );
-  const deleteRelation = conn.prepareSync(`MATCH (r:Relation {pk: $pk}) DELETE r`);
+  const deleteRelation = conn.prepareSync(
+    `MATCH (r:Relation) WHERE r.source = $source AND r.relationId = $id AND r.validFrom = $validFrom AND r.recordedTo IS NULL DELETE r`,
+  );
   const mergeAnchor = conn.prepareSync(`MERGE (a:Anchor {elementId: $elementId})`);
   const insertEdge = conn.prepareSync(
     `MATCH (f:Anchor {elementId: $fromId}), (t:Anchor {elementId: $toId})
      CREATE (f)-[:RELATES_TO {pk: $pk, relationId: $relationId, states: $states, validFrom: $validFrom, validTo: $validTo, recordedFrom: $recordedFrom, recordedTo: $recordedTo, source: $source}]->(t)`,
   );
-  const deleteEdge = conn.prepareSync(`MATCH ()-[r:RELATES_TO {pk: $pk}]->() DELETE r`);
+  const deleteEdge = conn.prepareSync(
+    `MATCH ()-[r:RELATES_TO]->() WHERE r.source = $source AND r.relationId = $id AND r.validFrom = $validFrom AND r.recordedTo IS NULL DELETE r`,
+  );
 
   const existsQuery = conn.prepareSync(`MATCH (e:Element) WHERE e.elementId = $id AND ${filterOf('e')} RETURN e.elementId AS id LIMIT 1`);
   const scopeAncestorsQuery = conn.prepareSync(`MATCH (e:Element) WHERE e.elementId = $id AND ${filterOf('e')} RETURN e.ancestors AS ancestors LIMIT 1`);
@@ -305,7 +325,7 @@ export function createLadybugEngine(): QueryEngine {
     const parsed = JSON.parse(row.content) as ElementContent;
     conn.executeSync(mergeAnchor, { elementId: parsed.id });
     conn.executeSync(insertElement, {
-      pk: rowKey(row.source, 'element', parsed.id, row.validFrom),
+      pk: rowKey(row.source, 'element', parsed.id, row.validFrom, row.recordedFrom),
       elementId: parsed.id,
       kind: parsed.kind,
       name: parsed.name ?? null,
@@ -322,7 +342,7 @@ export function createLadybugEngine(): QueryEngine {
 
   function writeRelation(row: { source: string; content: string; validFrom: number; validTo: number | null; recordedFrom: number; recordedTo: number | null }): void {
     const parsed = JSON.parse(row.content) as RelationContent;
-    const pk = rowKey(row.source, 'relation', parsed.id, row.validFrom);
+    const pk = rowKey(row.source, 'relation', parsed.id, row.validFrom, row.recordedFrom);
     conn.executeSync(mergeAnchor, { elementId: parsed.from });
     conn.executeSync(mergeAnchor, { elementId: parsed.to });
     conn.executeSync(insertRelation, {
@@ -363,23 +383,27 @@ export function createLadybugEngine(): QueryEngine {
   }
 
   function removeElement(source: string, id: string, validFrom: number): void {
-    conn.executeSync(deleteElement, { pk: rowKey(source, 'element', id, validFrom) });
+    conn.executeSync(deleteElement, { source, id, validFrom });
   }
 
   function removeRelation(source: string, id: string, validFrom: number): void {
-    const pk = rowKey(source, 'relation', id, validFrom);
-    conn.executeSync(deleteEdge, { pk });
-    conn.executeSync(deleteRelation, { pk });
+    conn.executeSync(deleteEdge, { source, id, validFrom });
+    conn.executeSync(deleteRelation, { source, id, validFrom });
   }
 
   function removeState(source: string, id: string, validFrom: number): void {
     states = states.filter((s) => !(s.source === source && s.id === id && s.validFrom === validFrom));
   }
 
+  // Every row is loaded, current or not: a row the history has since
+  // closed (`recordedTo` set) is still exactly what a query with a `known`
+  // time before that closing must see (the `as-of` requirement's known
+  // axis) — loading only what is current today would make every such
+  // historical `known` query behave as if `known` were always "now",
+  // silently dropping the very axis this capability exists to answer.
   function rebuild(assertions: readonly AssertionRecord[]): void {
     reset();
     for (const row of assertions) {
-      if (row.recordedTo !== null) continue; // only what the history currently holds as current
       if (row.kind === 'element') writeElement(row);
       else if (row.kind === 'relation') writeRelation(row);
       else if (row.kind === 'state') writeState(row);

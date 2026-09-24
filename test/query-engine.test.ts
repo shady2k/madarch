@@ -475,4 +475,31 @@ describe('the LadybugDB query engine', () => {
       engine.close();
     });
   });
+
+  test('rebuild: known-axis time travel works through the engine, not only through the history — a correction made after the fact is invisible at a known time before it was made', () => {
+    // Mirrors the model-history capability's own "what-we-knew" scenario,
+    // through the query engine this time: `legacy` is removed from `shop`
+    // in a later commit, but the removal (a correction to the record) was
+    // only recorded on day 11 — asking as of a known time before that must
+    // still see the history as it stood then, `legacy` included.
+    const engine = createLadybugEngine();
+    engine.rebuild([
+      row('element', element('shop', 'domain', [])),
+      // `legacy` was believed to exist [day1, +inf) until day 11, when the
+      // correction closed that belief and opened a narrower one instead —
+      // both rows are in the history, only one of them current today.
+      row('element', element('legacy', 'service', ['shop'], { parent: 'shop' }), { validFrom: DAY(1), validTo: null, recordedFrom: DAY(2), recordedTo: DAY(11) }),
+      row('element', element('legacy', 'service', ['shop'], { parent: 'shop' }), { validFrom: DAY(1), validTo: DAY(10), recordedFrom: DAY(11), recordedTo: null }),
+    ]);
+
+    // As of a known time before the correction: legacy is still believed to exist at day 20.
+    const before = engine.children('shop', { valid: DAY(20), known: DAY(5), state: 'as-is' });
+    expect(before.elements?.map((e) => e.id)).toEqual(['legacy']);
+
+    // As of now (after the correction): legacy is known to have ended at day 10.
+    const after = engine.children('shop', { valid: DAY(20), known: DAY(20), state: 'as-is' });
+    expect(after.elements?.map((e) => e.id)).toEqual([]);
+
+    engine.close();
+  });
 });
