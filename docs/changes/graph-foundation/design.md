@@ -152,3 +152,43 @@ flowchart LR
 - Commands: `bun run check` (type check), `bun test`.
 - CI: a GitHub Actions workflow on push and pull request running install,
   check and test on Linux.
+
+## Readings decided during the run
+
+Stage 1's review turned up questions the requirements answer only in spirit.
+The run decided them as follows; each is a reading of an approved requirement,
+not a new one.
+
+- **Presence is inherited.** An element exists in an environment and a state
+  only where its parent does, narrowed by its own `environments`, `since` and
+  `until`. A relation exists where both its ends exist, narrowed by its own
+  `since`/`until`; a refinement only where the relation it refines exists. An
+  element or relation left existing nowhere is refused, as is an element that
+  names an environment its parent is absent from, and `environments: []`.
+- **No environments declared.** Compiled presence then says `"*"` (every
+  environment) rather than an empty list, which would read as "none"; the
+  compiled schema documents it. `"*"` cannot collide with an id.
+- **Zones per environment.** An environment's zone change is checked like an
+  element's own and is inherited by descendants; changing the zones of an
+  element absent from the environment is refused. `zonesByEnvironment` lists
+  only the environments an element exists in.
+- **Strict YAML refuses every explicit tag**, core ones such as `!!str`
+  included: the simpler strict reading of "custom tags".
+- **Files.** Only `*.yaml` is read; a `*.yml` file in `madarch/` is an error
+  naming it, and an empty or missing folder is "no model". Filesystem failures
+  are errors, never exceptions. `parseModel(files)` is the pure core; the folder
+  loader is a thin adapter over it, so stage 2 can read files from git.
+- **Contracts.** An HTTP contract's method is one of GET, HEAD, POST, PUT,
+  PATCH, DELETE, OPTIONS, TRACE, CONNECT (any case before normalization) and its
+  path starts with `/`.
+- **Values.** Evidence `line` is an integer from 1; `confidentiality` and a
+  zone's `kind` are non-empty; an unknown `version` is refused.
+- **Bytes.** `serializeCompiledModel` writes model.json's exact text; every
+  object is rebuilt in a fixed key order and every sort compares code points,
+  never the locale.
+- **Relations carry `bindingByEnvironment`**: the bound variable's value in
+  each environment where the relation exists; an environment that leaves it
+  unset has no entry (not an error).
+- **Not enforced, on purpose:** an interface's provider need not be the
+  relation's `to` end; two interfaces may share a contract; a secret value
+  written into `bindings` is published as written, so authors keep secrets out.
