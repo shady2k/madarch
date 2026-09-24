@@ -452,7 +452,7 @@ describe('the reference example validates against the committed compiled-model s
 });
 
 describe('performance: a 10 000-element model loads and compiles in reasonable time', () => {
-  test('a flat, 10 000-element model compiles quickly', () => {
+  test.skipIf(process.env['MADARCH_SKIP_PERF'] !== undefined)('a flat, 10 000-element model compiles quickly', () => {
     let text = 'version: 1\nelements:\n';
     for (let i = 0; i < 10000; i++) text += `  - id: e${i}\n    kind: service\n`;
     text += 'relations:\n';

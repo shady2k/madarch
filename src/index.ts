@@ -40,6 +40,8 @@ export {
   CompiledElement as CompiledElementSchema,
   COMPILED_SCHEMA_VERSION,
 } from './model/compiled-schema.js';
+export type { Clock, HistoryError, HistoryStore, ReadInput, StoreInput, StoreResult } from './history/types.js';
+export { createSqliteHistory, type SqliteHistoryOptions } from './adapters/sqlite-history.js';
 
 import type { CompiledModel } from './model/compile.js';
 import { compileModel } from './model/compile.js';
