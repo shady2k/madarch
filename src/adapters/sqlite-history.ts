@@ -232,21 +232,43 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
    * first floored at `historicalFloor` — the latest `recorded_at` any store
    * has ever used, across every source — and then, if this store is about
    * to close rows, clamped to strictly after `notBefore`, the latest
-   * `recorded_from` among them. The floor alone keeps recorded time from
-   * running backwards even for a store that only opens rows and closes
-   * nothing (a clock reading earlier than history already recorded is
-   * simply brought up to it; landing exactly on it is fine, since nothing
-   * of this store's own is being closed at that same instant). The
-   * strict-after clamp exists only for a store that does close rows: a
-   * clock that has gone backwards (or simply not moved since the row being
-   * closed was opened) would otherwise give that row the same `recorded_to`
-   * as its own `recorded_from`, making it unreadable at any known time;
-   * clamped one millisecond past it instead, recorded time stays not just
-   * non-decreasing but distinguishable there too.
+   * `recorded_from` among them.
+   *
+   * The floor keeps recorded time from running backwards even for a store
+   * that only opens rows and closes nothing, but it must land *strictly
+   * after* the floor when the clock's own reading needed correcting at all
+   * (`now < historicalFloor`), never exactly on it: landing exactly on the
+   * floor is only ever right when the clock's own reading already, and
+   * genuinely, equalled it — two stores truly recorded at the very same
+   * real moment (the `not-pushed-forward` case: the wall clock simply had
+   * not moved since the last store, so both belong together). A clock
+   * reading *behind* the floor is a different case entirely: nothing
+   * connects this store's own moment to whichever earlier store last used
+   * that exact floor value, so landing exactly on it would make this
+   * store's own new rows indistinguishable, at every `known` boundary,
+   * from that unrelated earlier store's — a `read` at the known time
+   * right after that earlier store would wrongly already see this one's
+   * effects too, even though nothing yet connects the two (the
+   * `what-we-knew` requirement: reading at a known time in the past must
+   * reproduce exactly what history held right then, no more). Landing one
+   * millisecond past the floor instead keeps every corrected store its own,
+   * distinguishable point in recorded time.
+   *
+   * The strict-after clamp for `notBefore` exists for the same reason,
+   * narrowed to rows this store is about to close: a clock that has gone
+   * backwards (or simply not moved since the row being closed was opened)
+   * would otherwise give that row the same `recorded_to` as its own
+   * `recorded_from`, making it unreadable at any known time; clamped one
+   * millisecond past it instead, recorded time stays not just
+   * non-decreasing but distinguishable there too. It is checked after the
+   * floor (not before): a row this store closes was itself recorded no
+   * earlier than the floor already in force when it was opened, so
+   * `notBefore` can only ever demand landing later than the floor already
+   * has, never earlier.
    */
   function recordingNow(notBefore: number | undefined, historicalFloor: number | undefined): number {
     let now = clock.now();
-    if (historicalFloor !== undefined && now < historicalFloor) now = historicalFloor;
+    if (historicalFloor !== undefined && now < historicalFloor) now = historicalFloor + 1;
     if (notBefore !== undefined && now <= notBefore) now = notBefore + 1;
     return now;
   }

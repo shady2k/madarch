@@ -1174,3 +1174,92 @@ describe('11. the review\'s own scenarios (t8, t9): both stores succeed; the uni
     expect(after.model?.environments).toEqual([{ id: 'production', bindingsBySource: { orders: { PAYMENTS_URL: 'https://new' }, shop: { PAYMENTS_URL: 'https://new' } } }]);
   });
 });
+
+describe('12. known-time correctness: a read at an earlier known time reproduces exactly what history held right then (madarch-ozp.8)', () => {
+  test('a store whose clock, once corrected up to the recorded-time floor, would otherwise land exactly on an unrelated earlier store\'s own moment is bumped strictly past it, not tied to it', () => {
+    // The smallest sequence the review's fuzz2.ts (seed 1, trial 9) found
+    // still failing at fd94e36: a third store's clock, after going
+    // backwards, gets floored up to *exactly* a second store's own
+    // (unrelated) recorded moment — because landing exactly on the floor
+    // was, at that commit, treated as fine. A `read` at the known time
+    // right after the second store then wrongly already saw the third
+    // store's effects too, even though nothing yet connected the two.
+    const clock = fakeClock(100000);
+    const h = history(clock);
+
+    h.store({ source: 's', commit: 'c46_0', committedAt: 4000, model: model([element('A', { technology: 't0' }), element('B'), element('C', { technology: 't1' })]) });
+    clock.set(100010);
+    h.store({ source: 's', commit: 'c11_1', committedAt: 3000, model: model([element('A', { technology: 't1' }), element('B')]) });
+    clock.set(100020);
+    h.store({ source: 's', commit: 'c51_2', committedAt: 3000, model: model([element('A')]) });
+
+    // The known moment right after the third store above: nothing later has happened yet.
+    const knownAfterThirdStore = Math.max(...h.assertions().map((a) => a.recordedFrom), ...h.assertions().map((a) => a.recordedTo ?? 0));
+
+    // The wall clock goes backwards for the fourth store, well behind the
+    // recorded-time floor (100020): it must not tie with it.
+    clock.set(99980);
+    const result = h.store({ source: 's', commit: 'c97_3', committedAt: 2000, model: model([element('B')]) });
+    expect(result.errors).toEqual([]);
+
+    // At v = 2500, nothing was known yet as of `knownAfterThirdStore`: `B`'s
+    // early row (valid 2000–3000) is the fourth store's own doing, recorded
+    // strictly after it.
+    expect(ids(h, { valid: 2500, known: knownAfterThirdStore })).toBe('');
+    // Once known time reaches the fourth store's own (later) recorded moment, it appears.
+    expect(ids(h, { valid: 2500, known: 1e9 })).toBe('B');
+  });
+
+  test('a clock reading that genuinely, not just after correction, equals the recorded-time floor still ties with it (the accepted case stays accepted)', () => {
+    const clock = fakeClock(DAY(10));
+    const h = history(clock);
+    h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('X')]) });
+    // The wall clock has genuinely not moved: still exactly DAY(10), the same reading `c1` itself used — not a correction up from behind it.
+    const result = h.store({ source: 's', commit: 'c2', committedAt: DAY(2), model: model([element('X'), element('Y')]) });
+    expect(result.errors).toEqual([]);
+    expect(ids(h, { valid: DAY(3), known: DAY(10) })).toBe('X,Y');
+  });
+
+  test('a seeded sequence of stores, some with a clock that jumps backwards: a read at the known time right after each store matches a read taken at that point in the sequence, for every valid time checked (the review\'s own property, one fixed seed)', () => {
+    let seed = 1;
+    const rnd = () => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed / 2147483648;
+    };
+    const ri = (n: number) => Math.floor(rnd() * n);
+    const validPoints = [500, 1500, 2500, 3500, 4500, 5500];
+
+    for (let trial = 0; trial < 200; trial++) {
+      const n = 1 + ri(6);
+      const commits = Array.from({ length: n }, (_, i) => {
+        const els: CompiledElement[] = [];
+        for (const id of ['A', 'B', 'C']) {
+          if (rnd() < 0.6) els.push(element(id, rnd() < 0.5 ? {} : { technology: `t${ri(2)}` }));
+        }
+        return { id: `c${ri(100)}_${i}`, t: 1000 * (1 + ri(5)), els };
+      });
+
+      const clock = fakeClock(100000);
+      const h = history(clock);
+      const knownAt: number[] = [];
+      const snapshots: string[] = [];
+      for (const cm of commits) {
+        clock.set(100000 + knownAt.length * 10 + (rnd() < 0.2 ? -50 : 0));
+        const result = h.store({ source: 's', commit: cm.id, committedAt: cm.t, model: model(cm.els) });
+        expect(result.errors).toEqual([]);
+        const rows = h.assertions();
+        knownAt.push(Math.max(...rows.map((a) => a.recordedFrom), ...rows.map((a) => a.recordedTo ?? 0)));
+        snapshots.push(validPoints.map((v) => ids(h, { valid: v, known: 1e9 })).join('|'));
+      }
+
+      // Every store's own known-time boundary, read back from the FINAL
+      // history (every commit stored, including later ones), must
+      // reproduce exactly the snapshot taken right after that store — no
+      // later store's effects leaking in through a tied recorded moment.
+      for (let i = 0; i < commits.length; i++) {
+        const replay = validPoints.map((v) => ids(h, { valid: v, known: knownAt[i]! })).join('|');
+        expect(replay).toBe(snapshots[i]!);
+      }
+    }
+  });
+});
