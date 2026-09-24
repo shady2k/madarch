@@ -397,7 +397,16 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
         // the row that is gone (`source`, `kind`, `id`, `validFrom` identify
         // it) and know what it looked like a moment ago, independent of
         // whatever replaces it below.
-        closed.push({ source, kind: oldRow.kind, id: oldRow.entity_id, content: oldRow.content, validFrom: oldRow.valid_from, validTo: oldRow.valid_to });
+        closed.push({
+          source,
+          kind: oldRow.kind,
+          id: oldRow.entity_id,
+          content: oldRow.content,
+          validFrom: oldRow.valid_from,
+          validTo: oldRow.valid_to,
+          recordedFrom: oldRow.recorded_from,
+          recordedTo: storingNow,
+        });
 
         // No empty row (`valid_from` = `valid_to`): a commit sharing
         // another's exact time, sorting immediately after it by commit id,
@@ -408,7 +417,7 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
         // written by the store").
         if (committedAt !== oldRow.valid_from) {
           insertAssertion.run(source, oldRow.kind, oldRow.entity_id, oldRow.content, oldRow.valid_from, committedAt, oldRow.opened_by, commit, storingNow);
-          opened.push({ source, kind: oldRow.kind, id: oldRow.entity_id, content: oldRow.content, validFrom: oldRow.valid_from, validTo: committedAt });
+          opened.push({ source, kind: oldRow.kind, id: oldRow.entity_id, content: oldRow.content, validFrom: oldRow.valid_from, validTo: committedAt, recordedFrom: storingNow, recordedTo: null });
         }
 
         // The old row's own end reached past this commit's successor
@@ -424,7 +433,7 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
         // same-instant tie-break, which must not reopen a zero-width row).
         if (successor !== null && oldRow.valid_to !== ourValidTo) {
           insertAssertion.run(source, oldRow.kind, oldRow.entity_id, oldRow.content, ourValidTo!, oldRow.valid_to, successor.commit_id, oldRow.closed_by, storingNow);
-          opened.push({ source, kind: oldRow.kind, id: oldRow.entity_id, content: oldRow.content, validFrom: ourValidTo!, validTo: oldRow.valid_to });
+          opened.push({ source, kind: oldRow.kind, id: oldRow.entity_id, content: oldRow.content, validFrom: ourValidTo!, validTo: oldRow.valid_to, recordedFrom: storingNow, recordedTo: null });
         }
       }
 
@@ -436,7 +445,7 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
           const oldRow = stateAtSlot.get(slot);
           if (oldRow !== undefined && oldRow.content === assertion.content) continue;
           insertAssertion.run(source, assertion.kind, assertion.id, assertion.content, committedAt, ourValidTo, commit, successor?.commit_id ?? null, storingNow);
-          opened.push({ source, kind: assertion.kind, id: assertion.id, content: assertion.content, validFrom: committedAt, validTo: ourValidTo });
+          opened.push({ source, kind: assertion.kind, id: assertion.id, content: assertion.content, validFrom: committedAt, validTo: ourValidTo, recordedFrom: storingNow, recordedTo: null });
         }
       }
 

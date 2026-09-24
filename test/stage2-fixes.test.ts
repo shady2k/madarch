@@ -505,20 +505,20 @@ describe('4. HistoryStore\'s public interface for stage 3 and the server', () =>
     const h = history(clock);
     const first = h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
     expect(first.closed).toEqual([]);
-    expect(first.opened.filter((c) => c.kind === 'element')).toEqual([{ source: 'shop', kind: 'element', id: 'a', content: expect.any(String), validFrom: DAY(1), validTo: null }]);
+    expect(first.opened.filter((c) => c.kind === 'element')).toEqual([{ source: 'shop', kind: 'element', id: 'a', content: expect.any(String), validFrom: DAY(1), validTo: null, recordedFrom: expect.any(Number), recordedTo: null }]);
 
     clock.set(DAY(11));
     const second = h.store({ source: 'shop', commit: 'c2', committedAt: DAY(10), model: model([element('a', { technology: 'x' })]) });
     // `closed` reports the row exactly as it stood before this store: its
     // own valid end (still open, `null`), not the point this commit
     // truncates it to.
-    expect(second.closed.filter((c) => c.kind === 'element')).toEqual([{ source: 'shop', kind: 'element', id: 'a', content: expect.any(String), validFrom: DAY(1), validTo: null }]);
+    expect(second.closed.filter((c) => c.kind === 'element')).toEqual([{ source: 'shop', kind: 'element', id: 'a', content: expect.any(String), validFrom: DAY(1), validTo: null, recordedFrom: expect.any(Number), recordedTo: expect.any(Number) }]);
     // `opened` carries every row this store wrote: the shortened
     // replacement (the old content, now ending at day 10) as well as the
     // brand-new one.
     expect(second.opened.filter((c) => c.kind === 'element')).toEqual([
-      { source: 'shop', kind: 'element', id: 'a', content: expect.any(String), validFrom: DAY(1), validTo: DAY(10) },
-      { source: 'shop', kind: 'element', id: 'a', content: expect.any(String), validFrom: DAY(10), validTo: null },
+      { source: 'shop', kind: 'element', id: 'a', content: expect.any(String), validFrom: DAY(1), validTo: DAY(10), recordedFrom: expect.any(Number), recordedTo: null },
+      { source: 'shop', kind: 'element', id: 'a', content: expect.any(String), validFrom: DAY(10), validTo: null, recordedFrom: expect.any(Number), recordedTo: null },
     ]);
   });
 
@@ -947,8 +947,8 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     // reopened past day 10 — c2's own X:B row already covers that,
     // undisturbed.
     expect(result.opened.filter((c) => c.kind === 'element')).toEqual([
-      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(1), validTo: DAY(5) },
-      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(5), validTo: DAY(10) },
+      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(1), validTo: DAY(5), recordedFrom: expect.any(Number), recordedTo: null },
+      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(5), validTo: DAY(10), recordedFrom: expect.any(Number), recordedTo: null },
     ]);
 
     const raw = new Database(path);
@@ -977,9 +977,9 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     // not stop short at c1's own successor.
     const elementChanges = result.opened.filter((c) => c.kind === 'element' && c.id === 'X').sort((a, b) => a.validFrom - b.validFrom);
     expect(elementChanges).toEqual([
-      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(1), validTo: DAY(5) },
-      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(5), validTo: DAY(10) },
-      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(10), validTo: DAY(20) },
+      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(1), validTo: DAY(5), recordedFrom: expect.any(Number), recordedTo: null },
+      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(5), validTo: DAY(10), recordedFrom: expect.any(Number), recordedTo: null },
+      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(10), validTo: DAY(20), recordedFrom: expect.any(Number), recordedTo: null },
     ]);
     expect(elementChanges[0]?.content).toContain('"technology":"A"');
     expect(elementChanges[2]?.content).toContain('"technology":"A"');
@@ -1013,8 +1013,8 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     // the row 'm' closes was really ended by 'q', not by 'm''s own
     // successor 'p' — both fall at the exact same instant.
     expect(result.opened.filter((c) => c.kind === 'element' && c.id === 'X')).toEqual([
-      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(1), validTo: DAY(5) },
-      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(5), validTo: DAY(10) },
+      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(1), validTo: DAY(5), recordedFrom: expect.any(Number), recordedTo: null },
+      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(5), validTo: DAY(10), recordedFrom: expect.any(Number), recordedTo: null },
     ]);
 
     const raw = new Database(path);
@@ -1192,7 +1192,7 @@ describe('9. store()\'s reported opened/closed carry their source and always mat
     const closedX = result.closed.find((c) => c.kind === 'element' && c.id === 'X');
     expect(closedX).toMatchObject({ source: 's', validFrom: DAY(1), validTo: null });
     expect(result.opened.filter((c) => c.kind === 'element' && c.id === 'X')).toEqual([
-      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(1), validTo: null },
+      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(1), validTo: null, recordedFrom: expect.any(Number), recordedTo: null },
     ]);
     verifyReport(h, result.opened, result.closed);
 

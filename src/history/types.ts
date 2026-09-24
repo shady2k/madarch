@@ -74,6 +74,23 @@ export interface AssertionChange {
   content: string;
   validFrom: number;
   validTo: number | null;
+  /**
+   * When this row started being recorded: for an `opened` row, the moment
+   * this store wrote it (`storingNow`); for a `closed` row, the row's own
+   * original `recorded_from`, unchanged by this store. A caller keeping a
+   * derived index in step (the query engine's `update()`) needs this to
+   * carry the row's real recorded start forward, rather than guessing "now".
+   */
+  recordedFrom: number;
+  /**
+   * When this row stopped being recorded: `null` for an `opened` row (still
+   * current); for a `closed` row, the moment this store closed it
+   * (`storingNow`) — the row's own recorded end, now set. A derived index
+   * can close its own copy of the row at exactly this moment instead of
+   * discarding it outright, keeping known-axis time travel through the
+   * index itself, not only through the history.
+   */
+  recordedTo: number | null;
 }
 
 export interface StoreResult {

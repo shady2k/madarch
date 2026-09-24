@@ -83,8 +83,12 @@ describe('the LadybugDB query engine', () => {
       }),
     ]);
 
-    // depth 1 shows domains and services (checkout-web, payments, payments-api) but not modules.
-    const result = engine.view({ depth: 1 }, { valid: DAY(2), known: DAY(2), state: 'as-is' });
+    // depth 0 shows only checkout-web and payments (both top-level); the
+    // refinement's own ends (checkout-cart, payments-api) both lift to the
+    // very same pair the general relation already occupies, so it stands
+    // for both, not beside it (the coordinator's reading of
+    // graph-queries/view, design.md "Readings decided during the run").
+    const result = engine.view({ depth: 0 }, { valid: DAY(2), known: DAY(2), state: 'as-is' });
     expect(result.relations).toEqual([{ from: 'checkout-web', to: 'payments', relationIds: ['checkout-uses-payments'] }]);
 
     engine.close();
@@ -174,6 +178,40 @@ describe('the LadybugDB query engine', () => {
     engine.close();
   });
 
+  test("as-of: two sources declaring the very same state chain agree — a query with no explicit state succeeds (B3: duplicate rows across sources are one declaration, not a disagreement)", () => {
+    const engine = createLadybugEngine();
+    engine.rebuild([
+      row('element', element('a', 'service', [])),
+      // Both sources declare exactly the same trivial chain — the ordinary
+      // case for a repository of independent sources that never mention
+      // "state" at all, since the compiler always emits the default
+      // `as-is` root for every source. Two identical declarations must
+      // still count as one root, not two.
+      row('state', JSON.stringify({ id: 'as-is' }), { source: 'x' }),
+      row('state', JSON.stringify({ id: 'as-is' }), { source: 'y' }),
+    ]);
+
+    const result = engine.children('a', { valid: DAY(2), known: DAY(2) });
+    expect(result.error).toBeUndefined();
+    expect(result.elements).toEqual([]);
+    engine.close();
+  });
+
+  test('as-of: two sources declaring the same longer chain (more than one state) still agree', () => {
+    const engine = createLadybugEngine();
+    engine.rebuild([
+      row('element', element('a', 'service', [])),
+      row('state', JSON.stringify({ id: 'as-is' }), { source: 'x' }),
+      row('state', JSON.stringify({ id: 'to-be', after: 'as-is' }), { source: 'x' }),
+      row('state', JSON.stringify({ id: 'as-is' }), { source: 'y' }),
+      row('state', JSON.stringify({ id: 'to-be', after: 'as-is' }), { source: 'y' }),
+    ]);
+
+    const result = engine.children('a', { valid: DAY(2), known: DAY(2) });
+    expect(result.error).toBeUndefined();
+    engine.close();
+  });
+
   test('dependencies: the elements an element depends on, transitively, with the chain of relation ids joining each', () => {
     const engine = createLadybugEngine();
     engine.rebuild([
@@ -218,13 +256,38 @@ describe('the LadybugDB query engine', () => {
 
     engine.rebuild([row('element', element('payments', 'domain', []))]);
     engine.update(
-      [{ source: 's', kind: 'element', id: 'payments-api', content: element('payments-api', 'service', ['payments'], { parent: 'payments' }), validFrom: DAY(1), validTo: null }],
+      [
+        {
+          source: 's',
+          kind: 'element',
+          id: 'payments-api',
+          content: element('payments-api', 'service', ['payments'], { parent: 'payments' }),
+          validFrom: DAY(1),
+          validTo: null,
+          recordedFrom: DAY(1),
+          recordedTo: null,
+        },
+      ],
       [],
     );
     expect(engine.children('payments', at).elements?.map((e) => e.id)).toEqual(['payments-api']);
 
     // Closing the element it just opened removes it again.
-    engine.update([], [{ source: 's', kind: 'element', id: 'payments-api', content: element('payments-api', 'service', ['payments'], { parent: 'payments' }), validFrom: DAY(1), validTo: null }]);
+    engine.update(
+      [],
+      [
+        {
+          source: 's',
+          kind: 'element',
+          id: 'payments-api',
+          content: element('payments-api', 'service', ['payments'], { parent: 'payments' }),
+          validFrom: DAY(1),
+          validTo: null,
+          recordedFrom: DAY(1),
+          recordedTo: DAY(2),
+        },
+      ],
+    );
     expect(engine.children('payments', at).elements?.map((e) => e.id)).toEqual([]);
 
     engine.close();
@@ -341,16 +404,68 @@ describe('the LadybugDB query engine', () => {
     engine.close();
   });
 
-  test('close: releases the underlying database so many engines can be opened and closed in one process without exhausting it', () => {
+  test('dependencies/dependents (transitive, B2): a cycle never lists an element as its own dependent or dependency', () => {
+    const engine = createLadybugEngine();
+    engine.rebuild([
+      row('element', element('a', 'service', [])),
+      row('element', element('b', 'service', [])),
+      row('element', element('c', 'service', [])),
+      row('relation', relation('a-to-b', 'a', 'b')),
+      row('relation', relation('b-to-c', 'b', 'c')),
+      row('relation', relation('c-to-a', 'c', 'a')),
+    ]);
+    const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
+
+    const dependencies = engine.dependencies('a', { transitive: true }, at);
+    expect(dependencies.error).toBeUndefined();
+    expect(dependencies.elements?.map((e) => e.id).sort()).toEqual(['b', 'c']);
+
+    const dependents = engine.dependents('a', { transitive: true }, at);
+    expect(dependents.error).toBeUndefined();
+    expect(dependents.elements?.map((e) => e.id).sort()).toEqual(['b', 'c']);
+
+    engine.close();
+  });
+
+  test('dependencies (transitive, B2): a realistic-sized graph with cycles answers quickly instead of enumerating every walk (a plain variable-length pattern explodes combinatorially on a cycle)', () => {
+    const engine = createLadybugEngine();
+    const rows: AssertionRecord[] = [];
+    const n = 10;
+    for (let i = 0; i < n; i++) rows.push(row('element', element(`e${i}`, 'service', [])));
+    // A ring plus a few chords: every node reaches every other, and several
+    // hops complete a cycle back to the start — the shape that made the
+    // review's e6/e7 experiments blow the buffer pool before B2's fix.
+    for (let i = 0; i < n; i++) rows.push(row('relation', relation(`ring${i}`, `e${i}`, `e${(i + 1) % n}`)));
+    for (let i = 0; i < n; i += 2) rows.push(row('relation', relation(`chord${i}`, `e${i}`, `e${(i + 5) % n}`)));
+    engine.rebuild(rows);
+    const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
+
+    const started = performance.now();
+    const result = engine.dependencies('e0', { transitive: true, maxHops: 30 }, at);
+    const elapsed = performance.now() - started;
+    expect(result.error).toBeUndefined();
+    expect(result.elements?.map((e) => e.id).sort()).toEqual(['e1', 'e2', 'e3', 'e4', 'e5', 'e6', 'e7', 'e8', 'e9']);
+    expect(result.elements?.every((e) => !e.chain.includes(''))).toBe(true);
+    expect(elapsed).toBeLessThan(5000);
+
+    engine.close();
+  });
+
+  test('close: releases the underlying database so many engines can be opened and closed in one process without exhausting it, and each one still answers correctly before its own close', () => {
+    const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
     for (let i = 0; i < 40; i++) {
       const engine = createLadybugEngine();
-      engine.rebuild([row('element', element('a', 'service', []))]);
+      engine.rebuild([row('element', element('a', 'domain', [])), row('element', element(`child${i}`, 'service', ['a'], { parent: 'a' }))]);
+      // If `close` failed to release its `Database`, this many instances
+      // would exhaust the process's own resources well before finishing the
+      // loop (observed directly while building this engine — see its
+      // module doc); a real query against each one, not merely opening and
+      // closing it, is what would actually surface that.
+      const result = engine.children('a', at);
+      expect(result.error).toBeUndefined();
+      expect(result.elements?.map((e) => e.id)).toEqual([`child${i}`]);
       engine.close();
     }
-    // If `close` failed to release its Database, this many instances would
-    // exhaust the process's own resources well before finishing the loop
-    // (observed directly while building this engine — see its module doc).
-    expect(true).toBe(true);
   });
 
   test("a row's own key does not collide across a source/kind/id/validFrom boundary that would coincide without a real separator", () => {
@@ -380,24 +495,24 @@ describe('the LadybugDB query engine', () => {
     const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
 
     engine.rebuild([row('element', element('a', 'service', [])), row('element', element('b', 'service', []))]);
-    engine.update([{ source: 's', kind: 'relation', id: 'a-to-b', content: relation('a-to-b', 'a', 'b'), validFrom: DAY(1), validTo: null }], []);
+    engine.update([{ source: 's', kind: 'relation', id: 'a-to-b', content: relation('a-to-b', 'a', 'b'), validFrom: DAY(1), validTo: null, recordedFrom: DAY(1), recordedTo: null }], []);
     expect(engine.dependencies('a', {}, at).elements?.map((e) => e.id)).toEqual(['b']);
 
-    engine.update([], [{ source: 's', kind: 'relation', id: 'a-to-b', content: relation('a-to-b', 'a', 'b'), validFrom: DAY(1), validTo: null }]);
+    engine.update([], [{ source: 's', kind: 'relation', id: 'a-to-b', content: relation('a-to-b', 'a', 'b'), validFrom: DAY(1), validTo: null, recordedFrom: DAY(1), recordedTo: DAY(2) }]);
     expect(engine.dependencies('a', {}, at).elements?.map((e) => e.id)).toEqual([]);
 
     // A state, opened then closed through `update`, changes what a query
     // with no explicit state defaults to.
     engine.update(
       [
-        { source: 's', kind: 'state', id: 'as-is', content: JSON.stringify({ id: 'as-is' }), validFrom: DAY(1), validTo: null },
-        { source: 's', kind: 'state', id: 'to-be', content: JSON.stringify({ id: 'to-be', after: 'as-is' }), validFrom: DAY(1), validTo: null },
+        { source: 's', kind: 'state', id: 'as-is', content: JSON.stringify({ id: 'as-is' }), validFrom: DAY(1), validTo: null, recordedFrom: DAY(1), recordedTo: null },
+        { source: 's', kind: 'state', id: 'to-be', content: JSON.stringify({ id: 'to-be', after: 'as-is' }), validFrom: DAY(1), validTo: null, recordedFrom: DAY(1), recordedTo: null },
       ],
       [],
     );
     engine.update(
       [],
-      [{ source: 's', kind: 'state', id: 'to-be', content: JSON.stringify({ id: 'to-be', after: 'as-is' }), validFrom: DAY(1), validTo: null }],
+      [{ source: 's', kind: 'state', id: 'to-be', content: JSON.stringify({ id: 'to-be', after: 'as-is' }), validFrom: DAY(1), validTo: null, recordedFrom: DAY(1), recordedTo: DAY(2) }],
     );
     const defaulted = engine.children('a', { valid: DAY(2), known: DAY(2) });
     expect(defaulted.error).toBeUndefined();

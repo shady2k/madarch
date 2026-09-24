@@ -17,19 +17,37 @@ import type {
 
 const { Database, Connection } = lbug;
 
-/** `Connection.executeSync` returns one `QueryResult`, or an array when the statement is a batch of several — this module always executes one statement, so the array case never arises in practice; the helper still narrows it defensively rather than asserting it away. */
+/**
+ * `Connection.executeSync` returns one `QueryResult`, or an array when the
+ * statement is a batch of several — this module always executes one
+ * statement, so the array case never arises in practice; the helper still
+ * narrows it defensively rather than asserting it away. The result is
+ * always closed once its rows are read: an unclosed `QueryResult` holds its
+ * own slice of the buffer pool, and a long-lived engine answering many
+ * queries (a repository's whole working life) leaks that pool to
+ * exhaustion otherwise (`Buffer manager exception: Unable to allocate
+ * memory!`, tried and confirmed after a few hundred queries — see the
+ * module doc's own account of `Database`'s fixed-size pool).
+ */
 function rowsOf(result: QueryResult | QueryResult[]): Record<string, LbugValue>[] {
   const single = Array.isArray(result) ? result[result.length - 1] : result;
-  return single === undefined ? [] : single.getAllSync();
+  if (single === undefined) return [];
+  const rows = single.getAllSync();
+  single.close();
+  return rows;
 }
 
 /**
  * How far a transitive search follows the relation graph when `maxHops` is
- * left out, and the hard ceiling any caller-given `maxHops` is clamped to:
- * this LadybugDB build refuses a recursive relationship pattern whose upper
- * bound exceeds 30 (`Binder exception: Upper bound of rel r exceeds
- * maximum: 30`, tried and confirmed) — not a limit this module chose, but
- * the engine's own.
+ * left out, and the hard ceiling any caller-given `maxHops` is clamped to.
+ * A plain (non-`SHORTEST`) recursive relationship pattern refuses an upper
+ * bound past 30 outright in this LadybugDB build (`Binder exception: Upper
+ * bound of rel r exceeds maximum: 30`, tried and confirmed); the `SHORTEST`
+ * pattern `dependencyQuery` now uses (see its own doc) accepts a far higher
+ * bound, but 30 is kept anyway as this module's own deliberate limit — the
+ * `graph-queries` capability itself never asks for more, and an unbounded
+ * hop count would let one query walk the whole graph regardless of what
+ * the caller meant by "transitive".
  */
 const MAX_HOPS_CEILING = 30;
 
@@ -125,18 +143,45 @@ interface LiveStateRow {
 }
 
 /**
+ * Two sources declaring the very same state row (the same id, the same
+ * `after`, or its absence) agree — one declaration, not two — so it must
+ * count once towards `isOneStateChain`'s own "did every state get reached
+ * from the one root" tally, not once per source. Without this, two sources
+ * that simply agree on a trivial single-state model (both declaring the
+ * default `as-is` with no `after`, the ordinary case) would each contribute
+ * their own "root" (`after === undefined`) row, `isOneStateChain` would see
+ * two roots where there is truly one, and every default-state query would
+ * refuse with "the chains disagree" even though nothing disagrees at all
+ * (tried and confirmed: two sources storing nothing but the implicit
+ * default state already triggered this). Two rows sharing an id but
+ * naming a genuinely different `after` are kept apart (their keys differ),
+ * exactly the real disagreement `isOneStateChain` must still catch.
+ */
+function dedupeStateRows<T extends { id: string; after?: string }>(states: readonly T[]): T[] {
+  const seen = new Map<string, T>();
+  for (const state of states) {
+    const key = `${state.id}\u0000${state.after ?? ''}`;
+    if (!seen.has(key)) seen.set(key, state);
+  }
+  return [...seen.values()];
+}
+
+/**
  * The chain's first state — the query default (design.md: "Readings
  * decided during the run") — or `undefined` when the states visible at the
  * asked time do not form one chain (`isOneStateChain`, the same check
  * `assembleCompiledModel` in `history/assertions.ts` uses for the union
- * read's own chain-wide discrepancy). A chain's one root is the one state
- * naming no `after`; `isOneStateChain` having already confirmed there is
- * exactly one such state and that every state is reached from it makes
- * finding it here just `find`, not a second walk of the chain.
+ * read's own chain-wide discrepancy), once rows every source agrees on are
+ * folded together (`dedupeStateRows`) so only a real disagreement ever
+ * counts as one. A chain's one root is the one state naming no `after`;
+ * `isOneStateChain` having already confirmed there is exactly one such
+ * state and that every state is reached from it makes finding it here just
+ * `find`, not a second walk of the chain.
  */
 function chainRoot(states: readonly { id: string; after?: string }[]): string | undefined {
-  if (!isOneStateChain(states)) return undefined;
-  return states.find((s) => s.after === undefined)?.id;
+  const deduped = dedupeStateRows(states);
+  if (!isOneStateChain(deduped)) return undefined;
+  return deduped.find((s) => s.after === undefined)?.id;
 }
 
 /**
@@ -213,24 +258,32 @@ export function createLadybugEngine(): QueryEngine {
   const insertElement = conn.prepareSync(
     `CREATE (e:Element {pk: $pk, elementId: $elementId, kind: $kind, name: $name, parentId: $parentId, ancestors: $ancestors, states: $states, validFrom: $validFrom, validTo: $validTo, recordedFrom: $recordedFrom, recordedTo: $recordedTo, source: $source})`,
   );
-  // Deletes by identity, not by `pk`: `pk` now includes `recordedFrom` (see
-  // `rowKey`'s own comment), which `update`'s `AssertionChange` never
-  // carries — `recordedTo IS NULL` picks out the one row that can ever be
-  // open for this `(source, elementId, validFrom)` at once instead.
-  const deleteElement = conn.prepareSync(`MATCH (e:Element) WHERE e.source = $source AND e.elementId = $id AND e.validFrom = $validFrom AND e.recordedTo IS NULL DELETE e`);
+  // `update`'s own closed rows are never deleted, only closed (`recordedTo`
+  // set, the same single mutation the history itself ever applies to a
+  // row — see the module doc): a row `store()` has since closed is still
+  // exactly what a `known` time before that closing must see (the same
+  // known-axis requirement `rebuild`'s own module doc already argues from
+  // loading every historical row). Matched by identity, not by `pk` (which
+  // now includes `recordedFrom` — see `rowKey`'s own comment, which
+  // `AssertionChange` never carries): `recordedTo IS NULL` picks out the
+  // one row that can ever be open for this `(source, elementId, validFrom)`
+  // at once instead.
+  const closeElement = conn.prepareSync(
+    `MATCH (e:Element) WHERE e.source = $source AND e.elementId = $id AND e.validFrom = $validFrom AND e.recordedTo IS NULL SET e.recordedTo = $recordedTo`,
+  );
   const insertRelation = conn.prepareSync(
     `CREATE (r:Relation {pk: $pk, relationId: $relationId, fromId: $fromId, toId: $toId, refines: $refines, states: $states, validFrom: $validFrom, validTo: $validTo, recordedFrom: $recordedFrom, recordedTo: $recordedTo, source: $source})`,
   );
-  const deleteRelation = conn.prepareSync(
-    `MATCH (r:Relation) WHERE r.source = $source AND r.relationId = $id AND r.validFrom = $validFrom AND r.recordedTo IS NULL DELETE r`,
+  const closeRelation = conn.prepareSync(
+    `MATCH (r:Relation) WHERE r.source = $source AND r.relationId = $id AND r.validFrom = $validFrom AND r.recordedTo IS NULL SET r.recordedTo = $recordedTo`,
   );
   const mergeAnchor = conn.prepareSync(`MERGE (a:Anchor {elementId: $elementId})`);
   const insertEdge = conn.prepareSync(
     `MATCH (f:Anchor {elementId: $fromId}), (t:Anchor {elementId: $toId})
      CREATE (f)-[:RELATES_TO {pk: $pk, relationId: $relationId, states: $states, validFrom: $validFrom, validTo: $validTo, recordedFrom: $recordedFrom, recordedTo: $recordedTo, source: $source}]->(t)`,
   );
-  const deleteEdge = conn.prepareSync(
-    `MATCH ()-[r:RELATES_TO]->() WHERE r.source = $source AND r.relationId = $id AND r.validFrom = $validFrom AND r.recordedTo IS NULL DELETE r`,
+  const closeEdge = conn.prepareSync(
+    `MATCH ()-[r:RELATES_TO]->() WHERE r.source = $source AND r.relationId = $id AND r.validFrom = $validFrom AND r.recordedTo IS NULL SET r.recordedTo = $recordedTo`,
   );
 
   const existsQuery = conn.prepareSync(`MATCH (e:Element) WHERE e.elementId = $id AND ${filterOf('e')} RETURN e.elementId AS id LIMIT 1`);
@@ -244,6 +297,30 @@ export function createLadybugEngine(): QueryEngine {
        AND ($hasScope = false OR e.elementId = $scope OR list_contains(e.ancestors, $scope))
      RETURN e.elementId AS id, e.kind AS kind, e.name AS name, e.parentId AS parent ORDER BY e.elementId`,
   );
+
+  // `viewRelationsQuery` and `dependencyQuery` both build their own query
+  // text per call (a literal shown-id list, or a literal hop bound and
+  // time/state filter — see each's own doc for why a `$` parameter cannot
+  // stand in for them here) — `conn.prepareSync` on the very same text
+  // twice reprepares it from scratch, and this LadybugDB build never frees
+  // a prepared statement's own share of the buffer pool on its own (there
+  // is no `PreparedStatement.close`): asking it to reprepare the same
+  // query text again and again, the ordinary case for an engine answering
+  // the same shape of question repeatedly (a view kept open, an agent
+  // polling the same dependents query), exhausted the pool outright after
+  // a few hundred calls (tried and confirmed). Caching by the exact query
+  // text — the same text can only ever mean the same statement — keeps a
+  // repeated call to one bounded amount of memory instead; `close()` drops
+  // every reference so they can be collected once this engine is done.
+  const preparedByText = new Map<string, PreparedStatement>();
+  function cachedPrepare(text: string): PreparedStatement {
+    const cached = preparedByText.get(text);
+    if (cached !== undefined) return cached;
+    const prepared = conn.prepareSync(text);
+    preparedByText.set(text, prepared);
+    return prepared;
+  }
+
   /**
    * `view`'s relation query needs the shown-id set *inside* a `list_filter`
    * lambda (to find, for each end, the nearest ancestor — itself included —
@@ -252,61 +329,103 @@ export function createLadybugEngine(): QueryEngine {
    * `Assertion failed ... UNREACHABLE_CODE` panic, not a refused query, for
    * `list_filter(..., x -> list_contains($shownIds, x))` — a parameter used
    * directly, outside any lambda, works fine). So the shown-id set is
-   * built into the query text as a literal list instead, one prepared
-   * statement per `view` call; safe because every element id is already
-   * restricted to `ID_PATTERN` (`schema.ts`: letters, digits, `.`, `_`,
-   * `-`) by the model schema, so none can ever break out of a quoted Cypher
-   * string literal — `literalIdList` still asserts that pattern rather than
-   * trusting it silently, in case a row ever reached the engine unvalidated.
+   * built into the query text as a literal list instead, cached (see
+   * `cachedPrepare`) by that literal text; safe because every element id is
+   * already restricted to `ID_PATTERN` (`schema.ts`: letters, digits, `.`,
+   * `_`, `-`) by the model schema, so none can ever break out of a quoted
+   * Cypher string literal — `literalIdList` still asserts that pattern
+   * rather than trusting it silently, in case a row ever reached the engine
+   * unvalidated.
+   *
+   * A relation whose `refines` names another relation is only ever counted
+   * beside it when the two lift to a genuinely different shown pair (the
+   * coordinator's reading of `graph-queries/view`, design.md "Readings
+   * decided during the run"): `g`/`gf`/`gt` (`OPTIONAL MATCH`, since a
+   * refinement's own target may not exist at this time, or may exist
+   * outside what this view shows at all — either way it is drawn on its
+   * own, standing for itself) look up the refined relation and lift its own
+   * ends the same way; `r` is kept only when it does not refine anything,
+   * or its own lifted pair differs from the refined relation's (`gLiftedFrom`
+   * / `gLiftedTo`, `NULL` when the refined relation is absent or its own
+   * ends do not lift into this view at all) — the one case dropped is a
+   * refinement whose lifted pair exactly matches its general relation's,
+   * where the general relation already stands for it (`refinement-counted-
+   * once`).
    */
   function viewRelationsQuery(shownIds: readonly string[]): PreparedStatement {
-    return conn.prepareSync(
-      `MATCH (r:Relation), (f:Element), (t:Element)
-       WHERE r.refines IS NULL AND ${filterOf('r')}
-         AND f.elementId = r.fromId AND ${filterOf('f')}
-         AND t.elementId = r.toId AND ${filterOf('t')}
+    const shown = literalIdList(shownIds);
+    return cachedPrepare(
+      `MATCH (r:Relation) WHERE ${filterOf('r')}
+       MATCH (f:Element) WHERE f.elementId = r.fromId AND ${filterOf('f')}
+       MATCH (t:Element) WHERE t.elementId = r.toId AND ${filterOf('t')}
        WITH r,
-            list_filter([f.elementId] + list_reverse(f.ancestors), x -> list_contains(${literalIdList(shownIds)}, x)) AS fLift,
-            list_filter([t.elementId] + list_reverse(t.ancestors), x -> list_contains(${literalIdList(shownIds)}, x)) AS tLift
+            list_filter([f.elementId] + list_reverse(f.ancestors), x -> list_contains(${shown}, x)) AS fLift,
+            list_filter([t.elementId] + list_reverse(t.ancestors), x -> list_contains(${shown}, x)) AS tLift
        WHERE size(fLift) > 0 AND size(tLift) > 0
-       WITH fLift[1] AS liftedFrom, tLift[1] AS liftedTo, r
+       WITH r, fLift[1] AS liftedFrom, tLift[1] AS liftedTo
+       OPTIONAL MATCH (g:Relation) WHERE g.relationId = r.refines AND ${filterOf('g')}
+       OPTIONAL MATCH (gf:Element) WHERE gf.elementId = g.fromId AND ${filterOf('gf')}
+       OPTIONAL MATCH (gt:Element) WHERE gt.elementId = g.toId AND ${filterOf('gt')}
+       WITH r, liftedFrom, liftedTo,
+            CASE WHEN gf IS NULL THEN NULL ELSE list_filter([gf.elementId] + list_reverse(gf.ancestors), x -> list_contains(${shown}, x)) END AS gfLiftList,
+            CASE WHEN gt IS NULL THEN NULL ELSE list_filter([gt.elementId] + list_reverse(gt.ancestors), x -> list_contains(${shown}, x)) END AS gtLiftList
+       WITH r, liftedFrom, liftedTo,
+            CASE WHEN gfLiftList IS NULL OR size(gfLiftList) = 0 THEN NULL ELSE gfLiftList[1] END AS gLiftedFrom,
+            CASE WHEN gtLiftList IS NULL OR size(gtLiftList) = 0 THEN NULL ELSE gtLiftList[1] END AS gLiftedTo
        WHERE liftedFrom <> liftedTo
+         AND (r.refines IS NULL OR gLiftedFrom IS NULL OR gLiftedTo IS NULL OR gLiftedFrom <> liftedFrom OR gLiftedTo <> liftedTo)
        RETURN liftedFrom AS fromId, liftedTo AS toId, collect(DISTINCT r.relationId) AS relationIds
        ORDER BY fromId, toId`,
     );
   }
   // Direction is the only difference between `dependents` and
   // `dependencies`: dependents walks other-elements-that-reach `x`,
-  // dependencies walks `x`-reaches-other-elements. Every hop of the walk
-  // itself is filtered by time and state (`all(x IN rels(p) WHERE ...)`),
-  // the recursive Cypher traversal the owner's constraint asks for. Both the
-  // hop bound (`*1..N`) and the per-hop filter's `valid`/`known`/`state`
+  // dependencies walks `x`-reaches-other-elements. `SHORTEST`/`ALL
+  // SHORTEST` (not a plain `*1..N` pattern matching every walk) is what
+  // makes this the recursive Cypher traversal the owner's constraint asks
+  // for actually answer on a realistic graph: a plain variable-length
+  // pattern enumerates every walk up to `maxHops` hops, which explodes
+  // combinatorially the moment the graph has any cycle at all (a `Buffer
+  // manager exception: Unable to allocate memory!` from just ten nodes and
+  // thirty edges with a cycle among them, tried and confirmed), and even
+  // acyclic, revisits the same prefix once per continuation; `ALL SHORTEST`
+  // explores each node no more than its shortest distance from the start,
+  // so it stays polynomial. `ALL SHORTEST` (not the plainer `SHORTEST`,
+  // which this build already returns only one path per reachable node for,
+  // deterministically enough for every case this module has been able to
+  // construct) is used anyway and the tie broken here in TypeScript
+  // (`dependencyAnswer`, "shape the rows into the answer" — the owner's own
+  // allowance) by the lexicographically least joined chain, so the answer
+  // never depends on this build's own unspecified tie-break among equally
+  // short paths. The per-hop filter is threaded through the pattern's own
+  // relationship-filter clause (`(r, n | WHERE ...)`), so a hop the time or
+  // state filter rejects is pruned during the walk itself, not after
+  // enumerating it — the one construct this build has ever accepted a
+  // reference to the *per-hop* relationship variable from at all (a plain
+  // `WHERE` after the pattern, or `all(x IN rels(p) WHERE ...)`, both see
+  // only the finished path). `other.elementId <> $id` drops the one
+  // remaining case a cycle can produce: the start reaching itself back
+  // around, which must never count as its own dependent or dependency.
+  // Both the hop bound and the per-hop filter's `valid`/`known`/`state`
   // must be literals here, not `$` parameters: a variable-length bound
   // parameter is refused outright (`Parser exception` on `*1..$maxHops`,
   // tried and confirmed), and a parameter referenced from inside the
-  // `all(...)` lambda panics the binder (see `filterOfLiteral`'s own
-  // comment) — so the whole query is built fresh per call, from values this
-  // module computes itself (`maxHops` clamped in `dependencyAnswer`,
-  // `state` checked by `filterOfLiteral`), never from caller-supplied text.
+  // relationship-filter lambda panics the binder the same way `filterOfLiteral`'s
+  // own doc already found for `all(...)` — so the whole query is built
+  // fresh per distinct `(direction, maxHops, valid, known, state)` and
+  // cached by that text (`cachedPrepare`), from values this module computes
+  // itself (`maxHops` clamped in `dependencyAnswer`, `state` checked by
+  // `filterOfLiteral`), never from caller-supplied text.
   function dependencyQuery(direction: 'dependents' | 'dependencies', maxHops: number, valid: number, known: number, state: string): PreparedStatement {
+    const hopFilter = `(r, n | WHERE ${filterOfLiteral('r', valid, known, state)})`;
     const pattern =
       direction === 'dependents'
-        ? `(other:Anchor)-[r:RELATES_TO*1..${maxHops}]->(start:Anchor {elementId: $id})`
-        : `(start:Anchor {elementId: $id})-[r:RELATES_TO*1..${maxHops}]->(other:Anchor)`;
-    // The intermediate `ORDER BY` (shortest hop count first, so the
-    // `collect` right after keeps only the shortest chain per element) must
-    // be followed by a `LIMIT` inside a `WITH` clause in this Cypher
-    // dialect (`Binder exception: In WITH clause, ORDER BY must be followed
-    // by SKIP or LIMIT`, tried and confirmed) — the limit itself is not
-    // meaningful (there are at most `MAX_HOPS_CEILING` rows per element
-    // anyway), only large enough to never actually cut anything off.
-    return conn.prepareSync(
+        ? `(other:Anchor)-[r:RELATES_TO* ALL SHORTEST 1..${maxHops} ${hopFilter}]->(start:Anchor {elementId: $id})`
+        : `(start:Anchor {elementId: $id})-[r:RELATES_TO* ALL SHORTEST 1..${maxHops} ${hopFilter}]->(other:Anchor)`;
+    return cachedPrepare(
       `MATCH p = ${pattern}
-       WHERE all(x IN rels(p) WHERE ${filterOfLiteral('x', valid, known, state)})
-       WITH other.elementId AS id, list_transform(rels(p), x -> x.relationId) AS chain, length(p) AS hops
-       ORDER BY hops ASC LIMIT 100000000
-       WITH id, collect(chain)[1] AS chain
-       RETURN id, chain ORDER BY id`,
+       WHERE other.elementId <> $id
+       RETURN other.elementId AS id, list_transform(rels(p), x -> x.relationId) AS chain`,
     );
   }
 
@@ -382,17 +501,24 @@ export function createLadybugEngine(): QueryEngine {
     states.push({ source: row.source, id: parsed.id, after: parsed.after, validFrom: row.validFrom, validTo: row.validTo, recordedFrom: row.recordedFrom, recordedTo: row.recordedTo });
   }
 
-  function removeElement(source: string, id: string, validFrom: number): void {
-    conn.executeSync(deleteElement, { source, id, validFrom });
+  // `update`'s own "remove" is a close, never a delete (see `closeElement`'s
+  // own doc): every one of these only ever touches the one row that can
+  // still be current for this identity (`recordedTo IS NULL`, or — for
+  // `states`, held as a plain array rather than a LadybugDB table — the
+  // in-memory equivalent below), so a row `rebuild` would have already
+  // closed on an earlier pass is left alone rather than closed a second
+  // time or matched by mistake.
+  function removeElement(source: string, id: string, validFrom: number, recordedTo: number): void {
+    conn.executeSync(closeElement, { source, id, validFrom, recordedTo });
   }
 
-  function removeRelation(source: string, id: string, validFrom: number): void {
-    conn.executeSync(deleteEdge, { source, id, validFrom });
-    conn.executeSync(deleteRelation, { source, id, validFrom });
+  function removeRelation(source: string, id: string, validFrom: number, recordedTo: number): void {
+    conn.executeSync(closeEdge, { source, id, validFrom, recordedTo });
+    conn.executeSync(closeRelation, { source, id, validFrom, recordedTo });
   }
 
-  function removeState(source: string, id: string, validFrom: number): void {
-    states = states.filter((s) => !(s.source === source && s.id === id && s.validFrom === validFrom));
+  function removeState(source: string, id: string, validFrom: number, recordedTo: number): void {
+    states = states.map((s) => (s.source === source && s.id === id && s.validFrom === validFrom && s.recordedTo === null ? { ...s, recordedTo } : s));
   }
 
   // Every row is loaded, current or not: a row the history has since
@@ -410,21 +536,26 @@ export function createLadybugEngine(): QueryEngine {
     }
   }
 
+  // A closed row keeps both time axes going forward, never dropped: a
+  // `known` time before this `update` still needs the row it replaces, the
+  // very `as-of` known-axis requirement `rebuild`'s own doc already argues
+  // from (see `rebuild`) — deleting it outright the moment `store()`
+  // reports it closed would silently make every such historical `known`
+  // query behave as if `known` were always "now" through `update`, even
+  // though `rebuild` from the same history answers it correctly (tried and
+  // confirmed: exactly this mismatch, before `AssertionChange` carried its
+  // own `recordedFrom`/`recordedTo`). Every write below now uses the real
+  // recorded times `store()` reports (`change.recordedFrom`/`recordedTo`)
+  // rather than a guess.
   function update(opened: readonly AssertionChange[], closed: readonly AssertionChange[]): void {
     for (const change of closed) {
-      if (change.kind === 'element') removeElement(change.source, change.id, change.validFrom);
-      else if (change.kind === 'relation') removeRelation(change.source, change.id, change.validFrom);
-      else if (change.kind === 'state') removeState(change.source, change.id, change.validFrom);
+      const recordedTo = change.recordedTo ?? change.recordedFrom;
+      if (change.kind === 'element') removeElement(change.source, change.id, change.validFrom, recordedTo);
+      else if (change.kind === 'relation') removeRelation(change.source, change.id, change.validFrom, recordedTo);
+      else if (change.kind === 'state') removeState(change.source, change.id, change.validFrom, recordedTo);
     }
     for (const change of opened) {
-      const row = { source: change.source, content: change.content, validFrom: change.validFrom, validTo: change.validTo, recordedFrom: 0, recordedTo: null };
-      // `recordedFrom` for a row opened just now is "now", which the
-      // engine has no clock of its own to read (design.md: it is built
-      // from the history, never runs its own clock) — the caller always
-      // follows `update` with queries at `known` times at or after this
-      // moment, so 0 (the smallest possible) is always <= any `known` a
-      // query could sensibly ask, and `recordedTo: null` (still current)
-      // is exactly what `opened` reports.
+      const row = { source: change.source, content: change.content, validFrom: change.validFrom, validTo: change.validTo, recordedFrom: change.recordedFrom, recordedTo: change.recordedTo };
       if (change.kind === 'element') writeElement(row);
       else if (change.kind === 'relation') writeRelation(row);
       else if (change.kind === 'state') writeState(row);
@@ -479,53 +610,102 @@ export function createLadybugEngine(): QueryEngine {
     return rows.length > 0;
   }
 
-  function children(elementId: string, at?: QueryTime): ChildrenResult {
-    const { time, error } = resolveTime(at);
-    if (error !== undefined) return { error };
-    if (!elementExists(elementId, time!)) return { error: { message: `"${elementId}" does not exist at this time`, id: elementId, time: time!.valid } };
+  /**
+   * Runs one query's body, turning any exception the native binding throws
+   * (a resource exhaustion, a build-specific panic — see `rowsOf`'s and
+   * `viewRelationsQuery`'s own docs for cases already tried and confirmed)
+   * into a `QueryError` instead of letting it escape the public interface:
+   * the `B1` guarantee that `children`/`view`/`dependents`/`dependencies`
+   * always answer with a value, never a thrown exception, whatever
+   * LadybugDB itself does underneath.
+   */
+  function safely<T extends { error?: QueryError }>(run: () => T): T {
+    try {
+      return run();
+    } catch (err) {
+      return { error: { message: `the query engine could not answer: ${err instanceof Error ? err.message : String(err)}` } } as T;
+    }
+  }
 
-    const rows = rowsOf(conn.executeSync(childrenQuery, { id: elementId, valid: time!.valid, known: time!.known, state: time!.state }));
-    return { elements: rows.map((row) => toElementAnswer(row as never)) };
+  function children(elementId: string, at?: QueryTime): ChildrenResult {
+    return safely(() => {
+      const { time, error } = resolveTime(at);
+      if (error !== undefined) return { error };
+      if (!elementExists(elementId, time!)) return { error: { message: `"${elementId}" does not exist at this time`, id: elementId, time: time!.valid } };
+
+      const rows = rowsOf(conn.executeSync(childrenQuery, { id: elementId, valid: time!.valid, known: time!.known, state: time!.state }));
+      return { elements: rows.map((row) => toElementAnswer(row as never)) };
+    });
   }
 
   function view(input: ViewInput, at?: QueryTime): ViewResult {
-    const { time, error } = resolveTime(at);
-    if (error !== undefined) return { error };
-    const t = time!;
+    return safely(() => {
+      const { time, error } = resolveTime(at);
+      if (error !== undefined) return { error };
+      const t = time!;
 
-    let scopeDepth = 0;
-    if (input.scope !== undefined) {
-      if (!elementExists(input.scope, t)) return { error: { message: `"${input.scope}" does not exist at this time`, id: input.scope, time: t.valid } };
-      const rows = rowsOf(conn.executeSync(scopeAncestorsQuery, { id: input.scope, valid: t.valid, known: t.known, state: t.state }));
-      scopeDepth = ((rows[0]?.ancestors as string[] | undefined)?.length ?? 0) + 1;
+      let scopeDepth = 0;
+      if (input.scope !== undefined) {
+        if (!elementExists(input.scope, t)) return { error: { message: `"${input.scope}" does not exist at this time`, id: input.scope, time: t.valid } };
+        const rows = rowsOf(conn.executeSync(scopeAncestorsQuery, { id: input.scope, valid: t.valid, known: t.known, state: t.state }));
+        scopeDepth = ((rows[0]?.ancestors as string[] | undefined)?.length ?? 0) + 1;
+      }
+
+      const hasScope = input.scope !== undefined;
+      const shownRows = rowsOf(
+        conn.executeSync(shownQuery, { valid: t.valid, known: t.known, state: t.state, scopeDepth, depth: input.depth, hasScope, scope: input.scope ?? '' }),
+      );
+      const elements = shownRows.map((row) => toElementAnswer(row as never));
+      const shownIds = elements.map((e) => e.id);
+
+      const relationRows = rowsOf(conn.executeSync(viewRelationsQuery(shownIds), { valid: t.valid, known: t.known, state: t.state }));
+      const relations = relationRows.map((row) => ({
+        from: row.fromId as string,
+        to: row.toId as string,
+        relationIds: [...(row.relationIds as string[])].sort(byCodePoint),
+      }));
+
+      return { elements, relations };
+    });
+  }
+
+  /** Compares two relation-id chains the same deterministic way as every other sort in this package: code point, entry by entry, a shorter chain that is a prefix of a longer one sorting first. */
+  function compareChains(a: readonly string[], b: readonly string[]): number {
+    const length = Math.min(a.length, b.length);
+    for (let i = 0; i < length; i++) {
+      const cmp = byCodePoint(a[i]!, b[i]!);
+      if (cmp !== 0) return cmp;
     }
-
-    const hasScope = input.scope !== undefined;
-    const shownRows = rowsOf(
-      conn.executeSync(shownQuery, { valid: t.valid, known: t.known, state: t.state, scopeDepth, depth: input.depth, hasScope, scope: input.scope ?? '' }),
-    );
-    const elements = shownRows.map((row) => toElementAnswer(row as never));
-    const shownIds = elements.map((e) => e.id);
-
-    const relationRows = rowsOf(conn.executeSync(viewRelationsQuery(shownIds), { valid: t.valid, known: t.known, state: t.state }));
-    const relations = relationRows.map((row) => ({
-      from: row.fromId as string,
-      to: row.toId as string,
-      relationIds: [...(row.relationIds as string[])].sort(byCodePoint),
-    }));
-
-    return { elements, relations };
+    return a.length - b.length;
   }
 
   function dependencyAnswer(elementId: string, options: DependenciesInput, at: QueryTime | undefined, direction: 'dependents' | 'dependencies'): DependenciesResult {
-    const { time, error } = resolveTime(at);
-    if (error !== undefined) return { error };
-    if (!elementExists(elementId, time!)) return { error: { message: `"${elementId}" does not exist at this time`, id: elementId, time: time!.valid } };
+    return safely(() => {
+      const { time, error } = resolveTime(at);
+      if (error !== undefined) return { error };
+      if (!elementExists(elementId, time!)) return { error: { message: `"${elementId}" does not exist at this time`, id: elementId, time: time!.valid } };
 
-    const maxHops = options.transitive === true ? Math.min(MAX_HOPS_CEILING, Math.max(1, options.maxHops ?? MAX_HOPS_CEILING)) : 1;
-    const query = dependencyQuery(direction, maxHops, time!.valid, time!.known, time!.state);
-    const rows = rowsOf(conn.executeSync(query, { id: elementId }));
-    return { elements: rows.map((row) => ({ id: row.id as string, chain: row.chain as string[] })) };
+      const maxHops = options.transitive === true ? Math.min(MAX_HOPS_CEILING, Math.max(1, options.maxHops ?? MAX_HOPS_CEILING)) : 1;
+      const query = dependencyQuery(direction, maxHops, time!.valid, time!.known, time!.state);
+      const rows = rowsOf(conn.executeSync(query, { id: elementId }));
+
+      // `ALL SHORTEST` returns every shortest-length chain to a reachable
+      // element, ties included (see `dependencyQuery`'s own doc); exactly
+      // one is kept per element, the lexicographically least chain, so the
+      // answer never depends on this build's own unspecified order among
+      // equally short paths.
+      const bestChainById = new Map<string, string[]>();
+      for (const row of rows) {
+        const id = row.id as string;
+        const chain = row.chain as string[];
+        const existing = bestChainById.get(id);
+        if (existing === undefined || compareChains(chain, existing) < 0) bestChainById.set(id, chain);
+      }
+      const elements = [...bestChainById.entries()]
+        .sort(([a], [b]) => byCodePoint(a, b))
+        .map(([id, chain]) => ({ id, chain }));
+      return { elements };
+    });
   }
 
   function dependents(elementId: string, options: DependenciesInput, at?: QueryTime): DependenciesResult {
@@ -537,6 +717,13 @@ export function createLadybugEngine(): QueryEngine {
   }
 
   function close(): void {
+    // This LadybugDB build exposes no way to release a `PreparedStatement`
+    // on its own; dropping every reference here at least lets them (and
+    // whatever native memory they hold) be collected once nothing outside
+    // this closure can reach them any more, rather than living as long as
+    // the process — the closest this cache can come to "closed in
+    // `close()`" without a native call to make.
+    preparedByText.clear();
     conn.closeSync();
     db.closeSync();
   }

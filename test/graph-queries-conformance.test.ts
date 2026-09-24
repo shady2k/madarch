@@ -53,13 +53,32 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     history.close();
   });
 
-  test('refinement-counted-once: a general relation and its refinement, viewed at the depth of domains and services, show one relation standing for both', () => {
+  test('refinement-drawn-when-distinct: a refinement is drawn on its own once its own lifted pair differs from the relation it refines, alongside that relation', () => {
     const { engine, history } = engineFor('gq-refinement-once', 'c1', DAY(1), DAY(2));
     const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
 
-    const result = engine.view({ depth: 1 }, at);
-    expect(result.error).toBeUndefined();
-    expect(result.relations).toEqual([{ from: 'checkout-web', to: 'payments', relationIds: ['checkout-uses-payments'] }]);
+    // Depth 1 (domains and services): checkout-cart (a module) is hidden
+    // and lifts to checkout-web, but payments-api (a service) is itself
+    // shown — the refinement's own pair (checkout-web, payments-api)
+    // already differs from the general relation's (checkout-web, payments),
+    // so both are drawn (the coordinator's reading of graph-queries/view,
+    // design.md "Readings decided during the run").
+    const atDepth1 = engine.view({ depth: 1 }, at);
+    expect(atDepth1.error).toBeUndefined();
+    expect(atDepth1.relations).toEqual([
+      { from: 'checkout-web', to: 'payments', relationIds: ['checkout-uses-payments'] },
+      { from: 'checkout-web', to: 'payments-api', relationIds: ['checkout-charges-card'] },
+    ]);
+
+    // Depth 2 (down to modules): checkout-cart is shown too now, so the
+    // refinement draws its own full-detail pair, checkout-cart to
+    // payments-api, beside the general relation it refines.
+    const atDepth2 = engine.view({ depth: 2 }, at);
+    expect(atDepth2.error).toBeUndefined();
+    expect(atDepth2.relations).toEqual([
+      { from: 'checkout-cart', to: 'payments-api', relationIds: ['checkout-charges-card'] },
+      { from: 'checkout-web', to: 'payments', relationIds: ['checkout-uses-payments'] },
+    ]);
 
     engine.close();
     history.close();
