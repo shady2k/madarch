@@ -4,6 +4,8 @@ import { LineCounter, parseDocument } from 'yaml';
 import { Value } from 'typebox/value';
 import type { ModelError } from './errors.js';
 import { ModelFile, type Element, type IntendedModel } from './schema.js';
+import { checkStrictYaml } from './strict-yaml.js';
+import { validateElements, type PositionedElement } from './validate.js';
 import { jsonPointerToSegments, lineForPath, segmentsToPath } from './yaml-position.js';
 
 export interface LoadResult {
@@ -16,6 +18,14 @@ export interface LoadResult {
  * `madarch/` folder, read in sorted file-name order and combined into one
  * model. YAML is parsed with the `yaml` package, which keeps source
  * positions so every error can name its file and line.
+ *
+ * Every file is read and checked independently, and every problem found
+ * anywhere is collected before the loader gives up: one bad file does not
+ * stop the others from being checked too. Within one file, a strict-YAML
+ * violation or a parse error makes the rest of that file's content
+ * unreliable, so schema validation is skipped for it; once every file has
+ * parsed and matched the schema, ids and references are checked once
+ * across the whole model.
  */
 export function loadModel(repoRoot: string): LoadResult {
   const madarchDir = join(repoRoot, 'madarch');
@@ -32,16 +42,18 @@ export function loadModel(repoRoot: string): LoadResult {
   }
 
   const errors: ModelError[] = [];
-  const elements: Element[] = [];
+  const positionedElements: PositionedElement[] = [];
 
   for (const fileName of fileNames) {
     const filePath = join(madarchDir, fileName);
     const relativeFile = relative(repoRoot, filePath);
     const text = readFileSync(filePath, 'utf8');
     const lineCounter = new LineCounter();
-    const doc = parseDocument(text, { lineCounter, keepSourceTokens: true });
+    const doc = parseDocument(text, { lineCounter, keepSourceTokens: true, merge: false });
 
-    if (doc.errors.length > 0) {
+    const strictYamlErrors = checkStrictYaml(doc, lineCounter, relativeFile, text);
+    if (doc.errors.length > 0 || strictYamlErrors.length > 0) {
+      errors.push(...strictYamlErrors);
       for (const parseError of doc.errors) {
         const line = lineCounter.linePos(parseError.pos[0]).line;
         errors.push({ file: relativeFile, line, path: '', message: parseError.message });
@@ -61,14 +73,29 @@ export function loadModel(repoRoot: string): LoadResult {
     }
 
     const parsed = value as { version: 1; elements: Element[] };
-    elements.push(...parsed.elements);
+    parsed.elements.forEach((element, index) => {
+      positionedElements.push({
+        element,
+        file: relativeFile,
+        line: lineForPath(doc, lineCounter, ['elements', index]),
+        parentLine: lineForPath(doc, lineCounter, ['elements', index, 'parent']),
+      });
+    });
   }
 
   if (errors.length > 0) {
     return { errors };
   }
 
-  return { model: { version: 1, elements }, errors: [] };
+  const validationErrors = validateElements(positionedElements);
+  if (validationErrors.length > 0) {
+    return { errors: validationErrors };
+  }
+
+  return {
+    model: { version: 1, elements: positionedElements.map((entry) => entry.element) },
+    errors: [],
+  };
 }
 
 interface NormalizedError {

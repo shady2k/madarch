@@ -1,0 +1,6 @@
+version: 1
+
+elements:
+  - id: payments
+    kind: domain
+    parent: 5

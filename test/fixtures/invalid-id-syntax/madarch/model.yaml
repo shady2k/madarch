@@ -1,0 +1,5 @@
+version: 1
+
+elements:
+  - id: "checkout web"
+    kind: service

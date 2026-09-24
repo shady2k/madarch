@@ -1,0 +1,9 @@
+version: 1
+
+elements:
+  - id: a
+    kind: domain
+    parent: b
+  - id: b
+    kind: domain
+    parent: a

@@ -1,0 +1,9 @@
+version: 1
+
+elements:
+  - &shop
+    id: shop
+    kind: domain
+  - <<: *shop
+    id: shop2
+    kind: domain

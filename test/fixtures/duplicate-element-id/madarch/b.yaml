@@ -1,0 +1,5 @@
+version: 1
+
+elements:
+  - id: orders-api
+    kind: service

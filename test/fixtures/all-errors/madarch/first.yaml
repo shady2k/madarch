@@ -1,0 +1,8 @@
+version: 1
+
+elements:
+  - id: shop
+    kind: domain
+    owner: alice
+  - id: checkout
+    name: Checkout

@@ -23,7 +23,10 @@ export interface CompiledModel {
 export function compileModel(model: IntendedModel): CompiledModel {
   return {
     schemaVersion: SCHEMA_VERSION,
-    elements: model.elements.map(compileElement),
+    // Sorted by id so the compiled output never depends on which file (or
+    // which order of files) an element was written in: the same model
+    // split across files compiles to identical bytes.
+    elements: [...model.elements].sort((a, b) => a.id.localeCompare(b.id)).map(compileElement),
   };
 }
 
