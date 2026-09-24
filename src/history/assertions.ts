@@ -14,6 +14,24 @@ import { byCodePoint } from '../model/order.js';
 export const ASSERTION_KINDS = ['element', 'interface', 'relation', 'category', 'zone', 'environment', 'state'] as const;
 export type AssertionKind = (typeof ASSERTION_KINDS)[number];
 
+/**
+ * The kinds an id clash between sources is checked against (the `sources`
+ * requirement): elements, interfaces and relations are the graph's own
+ * nodes and edges (see the glossary's "Graph"), each source's exclusive
+ * claim. Categories, zones, environments and states are shared vocabulary,
+ * not claimed identities: a source that declares no states at all compiles
+ * the same default id, `as-is` (see `compileStates`), and independent
+ * sources routinely reuse zone, category and environment ids (`pci`,
+ * `personal`, `production`) on purpose — refusing that would make the
+ * `sources` requirement's own ordinary case, two unrelated sources
+ * combining, fail. This reading is a choice among the requirement's own
+ * words ("an id of a kind the compiled model keys by id"), made because the
+ * wider reading breaks that requirement's own normal-case scenario; see
+ * `assembleCompiledModel`, which still deduplicates the shared-vocabulary
+ * kinds by id so a `read` of the union never hands back the same id twice.
+ */
+export const CLASHABLE_KINDS: readonly AssertionKind[] = ['element', 'interface', 'relation'];
+
 const KIND_TO_FIELD: Record<AssertionKind, keyof CompiledModel> = {
   element: 'elements',
   interface: 'interfaces',

@@ -1,7 +1,7 @@
 import { Database, type Statement } from 'bun:sqlite';
 import type { CompiledModel } from '../model/compile.js';
-import { assembleCompiledModel, assertionsOf, type Assertion, type AssertionKind } from '../history/assertions.js';
-import type { Clock, HistoryStore, ReadInput, StoreInput, StoreResult } from '../history/types.js';
+import { CLASHABLE_KINDS, assembleCompiledModel, assertionsOf, type Assertion, type AssertionKind } from '../history/assertions.js';
+import type { Clock, HistoryError, HistoryStore, ReadInput, StoreInput, StoreResult } from '../history/types.js';
 
 export interface SqliteHistoryOptions {
   /** The database file's path; `':memory:'` (the default) for an in-memory database, as tests use. */
@@ -23,6 +23,20 @@ interface ReadRow {
   kind: AssertionKind;
   entity_id: string;
   content: string;
+}
+
+/** A row naming which other source currently declares a given (kind, id). */
+interface OtherCurrentRow {
+  kind: AssertionKind;
+  entity_id: string;
+  source: string;
+}
+
+/** Thrown inside `db.transaction` to roll it back on a refusal; never escapes `store`. */
+class StoreRefused extends Error {
+  constructor(public readonly errors: HistoryError[]) {
+    super('store refused');
+  }
 }
 
 /**
@@ -53,8 +67,18 @@ interface ReadRow {
  * left open if there is none yet). Storing a commit older than the newest
  * one stored therefore fills in a valid-time gap before it, and never
  * touches the newer commit's own rows — exactly the late-arrival scenario.
+ *
+ * Id clash (the `sources` requirement): before anything is written, a
+ * store is refused, and the history left exactly as it was, if the new
+ * version declares an element, interface or relation id another source's
+ * current version — as of right now, on both time axes — already
+ * declares. See `CLASHABLE_KINDS` for which kinds are checked and why.
  */
 export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore {
+  // `':memory:'` here is a documented convention, not load-bearing: an
+  // empty string opens an equally private, unshared temporary database
+  // under `bun:sqlite`, so there is no test that could tell the two apart
+  // from the outside.
   const db = new Database(options.path ?? ':memory:');
   const clock = options.clock;
 
@@ -91,6 +115,15 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
   const selectStateAt: Statement<AssertionRow, [string, number, number]> = db.query(
     `SELECT kind, entity_id, content, valid_from FROM assertions
      WHERE source = ? AND recorded_to IS NULL AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)`,
+  );
+  // `CLASHABLE_KINDS` is a fixed, code-defined list (never user input), so
+  // it is safe to inline into the SQL text rather than bind as parameters.
+  const clashableKindsList = CLASHABLE_KINDS.map((kind) => `'${kind}'`).join(', ');
+  const selectOtherCurrent: Statement<OtherCurrentRow, [string, number, number, number, number]> = db.query(
+    `SELECT kind, entity_id, source FROM assertions
+     WHERE source != ? AND kind IN (${clashableKindsList})
+       AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)
+       AND recorded_from <= ? AND (recorded_to IS NULL OR recorded_to > ?)`,
   );
   const selectReadAllSources: Statement<ReadRow, [number, number, number, number]> = db.query(
     `SELECT kind, entity_id, content FROM assertions
@@ -131,10 +164,36 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
       const storingNow = clock.now();
       const newAssertions = assertionsOf(model);
 
+      // Id clash: refused when this source's new version declares an id
+      // of a clashable kind that another source's current model — as of
+      // right now, on both time axes — already declares. Checked, and the
+      // whole store refused, before anything is written.
+      const otherCurrentBySlot = new Map<string, string>();
+      for (const row of selectOtherCurrent.all(source, storingNow, storingNow, storingNow, storingNow)) {
+        otherCurrentBySlot.set(slotOf(row.kind, row.entity_id), row.source);
+      }
+      const clashErrors: HistoryError[] = [];
+      const reportedSlots = new Set<string>();
+      for (const assertion of newAssertions) {
+        const slot = slotOf(assertion.kind, assertion.id);
+        if (reportedSlots.has(slot)) continue;
+        const otherSource = otherCurrentBySlot.get(slot);
+        if (otherSource === undefined) continue;
+        reportedSlots.add(slot);
+        clashErrors.push({
+          message: `"${assertion.id}" is already declared by source "${otherSource}"`,
+          id: assertion.id,
+          source: otherSource,
+        });
+      }
+      if (clashErrors.length > 0) throw new StoreRefused(clashErrors);
+
       // The next later commit already on record for this source, if any:
       // where this version's assertions close, open-ended otherwise.
-      const successor = selectSuccessorCommit.get(source, committedAt);
-      const validTo = successor?.min ?? null;
+      // `MIN(committed_at)` is an aggregate with no `GROUP BY`, so this
+      // always returns exactly one row, `{ min: null }` when there is no
+      // later commit yet — never no row at all.
+      const validTo = selectSuccessorCommit.get(source, committedAt)!.min;
 
       // What the history currently believes was true at this commit's own
       // valid time — empty for a source's first commit, or for a
@@ -173,6 +232,7 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
     try {
       return runStore();
     } catch (error) {
+      if (error instanceof StoreRefused) return { errors: error.errors };
       return { errors: [{ message: `the history could not be updated: ${error instanceof Error ? error.message : String(error)}` }] };
     }
   }

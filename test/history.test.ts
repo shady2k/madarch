@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   createSqliteHistory,
@@ -122,6 +125,105 @@ describe('replace: a new version replaces what the source asserted', () => {
     const atC1 = h.read({ source: 'shop', valid: DAY(1), known: DAY(20) }).elements.find((e) => e.id === 'checkout-web');
     const atC2 = h.read({ source: 'shop', valid: DAY(10), known: DAY(20) }).elements.find((e) => e.id === 'checkout-web');
     expect(atC1).toEqual(atC2);
+  });
+
+  test('an element whose content changes (same id, different fields) is closed and reopened with the new content', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('checkout-web', { technology: 'AAA' })]) });
+    clock.set(DAY(11));
+    h.store({ source: 'shop', commit: 'c2', committedAt: DAY(10), model: model([element('checkout-web', { technology: 'ZZZ' })]) });
+
+    const before = h.read({ source: 'shop', valid: DAY(5), known: DAY(20) }).elements.find((e) => e.id === 'checkout-web');
+    expect(before?.technology).toBe('AAA');
+
+    const after = h.read({ source: 'shop', valid: DAY(12), known: DAY(20) }).elements.find((e) => e.id === 'checkout-web');
+    expect(after?.technology).toBe('ZZZ');
+  });
+
+  test('an element unchanged across a version does not linger as a stray assertion once a later version removes it', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    // c1: two elements. c2 (10 September): the same two, unchanged — this
+    // must not open a redundant duplicate of the unchanged one. c3 (20
+    // September): only one left.
+    h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('checkout-web'), element('legacy-billing')]) });
+    clock.set(DAY(11));
+    h.store({ source: 'shop', commit: 'c2', committedAt: DAY(10), model: model([element('checkout-web'), element('legacy-billing')]) });
+    clock.set(DAY(21));
+    h.store({ source: 'shop', commit: 'c3', committedAt: DAY(20), model: model([element('checkout-web')]) });
+
+    const after = h.read({ source: 'shop', valid: DAY(25), known: DAY(21) });
+    expect(after.elements.map((e) => e.id)).toEqual(['checkout-web']);
+  });
+});
+
+describe('reading the union of an unsorted store: entities come back sorted by id, code point order', () => {
+  test('elements are sorted regardless of the order they were stored in, whether read by source or across every source', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    // Stored out of order across two separate commits, so neither
+    // insertion order nor a single commit's own array order could explain
+    // a sorted result by accident.
+    h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('c')]) });
+    h.store({ source: 'shop', commit: 'c2', committedAt: DAY(1) + 1, model: model([element('c'), element('a'), element('b')]) });
+
+    expect(h.read({ source: 'shop', valid: DAY(1) + 1, known: DAY(2) }).elements.map((e) => e.id)).toEqual(['a', 'b', 'c']);
+    expect(h.read({ valid: DAY(1) + 1, known: DAY(2) }).elements.map((e) => e.id)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('the database path option', () => {
+  test('an in-memory history (the default) is not shared between two independent instances', () => {
+    const clock = fakeClock(DAY(2));
+    const h1 = createSqliteHistory({ clock });
+    h1.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
+
+    const h2 = createSqliteHistory({ clock });
+    expect(h2.read({ source: 'shop', valid: DAY(1), known: DAY(2) }).elements).toEqual([]);
+  });
+
+  test('a file path persists the history: a second instance opened on the same path reads what the first stored', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'madarch-history-'));
+    const path = join(dir, 'history.sqlite');
+    const clock = fakeClock(DAY(2));
+
+    const h1 = createSqliteHistory({ path, clock });
+    h1.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
+
+    const h2 = createSqliteHistory({ path, clock });
+    expect(h2.read({ source: 'shop', valid: DAY(1), known: DAY(2) }).elements.map((e) => e.id)).toEqual(['a']);
+  });
+});
+
+describe('a store failure comes back as an error value, never thrown, and leaves the history as it was', () => {
+  test('an unrecordable model (here, one whose content cannot be turned into JSON) is reported, not thrown', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+
+    // A circular reference is not something `parseModel`/`compileModel`
+    // could ever produce, but `store` takes an already-compiled model, so
+    // this stands in for whatever a database or serialization failure
+    // looks like from `store`'s own boundary: something throws partway
+    // through, and it must still come back as an error value.
+    const broken = element('a') as Record<string, unknown>;
+    broken['self'] = broken;
+
+    let thrown: unknown;
+    let result: { errors: { message: string }[] } | undefined;
+    try {
+      result = h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([broken as unknown as CompiledElement]) });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeUndefined();
+    expect(result?.errors.length).toBe(1);
+    expect(typeof result?.errors[0]?.message).toBe('string');
+    expect(result?.errors[0]?.message.length).toBeGreaterThan(0);
+
+    // Nothing was written: the source has no commit at all.
+    expect(h.read({ source: 'shop', valid: DAY(1), known: DAY(2) }).elements).toEqual([]);
   });
 });
 
