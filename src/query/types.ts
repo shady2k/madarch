@@ -32,6 +32,8 @@ export interface QueryError {
   id?: string;
   /** The `valid` time the element could not be found at, when that is the problem. */
   time?: number;
+  /** The state ids visible at this time, when the problem is that their chains disagree and none was named explicitly — any one of these can be passed as `QueryTime.state` instead. */
+  states?: string[];
 }
 
 /** One element as a query answers it: only the fields views and chains need. */

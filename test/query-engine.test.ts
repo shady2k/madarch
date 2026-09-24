@@ -172,6 +172,10 @@ describe('the LadybugDB query engine', () => {
 
     const result = engine.children('a', { valid: DAY(2), known: DAY(2) });
     expect(result.error).toMatchObject({ message: expect.stringContaining('disagree') });
+    // Names every state id visible at this time, so a caller can pass one
+    // of them explicitly instead of guessing (item 5: the states the query
+    // could use).
+    expect(result.error?.states).toEqual(['as-is', 'other', 'to-be']);
 
     const explicit = engine.children('a', { valid: DAY(2), known: DAY(2), state: 'as-is' });
     expect(explicit.error).toBeUndefined();

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { createLadybugEngine, type AssertionRecord } from '../src/index.js';
+import { createLadybugEngine, preparedStatementCacheSizeForTests, type AssertionRecord, type Clock } from '../src/index.js';
 
 /**
  * B1's own repository test (stage3-fixes.md): 5 000 consecutive queries of
@@ -72,5 +72,105 @@ describe('B1: 5 000 consecutive queries of each kind answer without failure or u
       engine.close();
     },
     120_000,
+  );
+});
+
+/**
+ * The other half of B2's memory-growth fix (stage3-fixes-d.md item 3):
+ * `dependencyQuery`'s own text embeds `valid`/`known` as literals (params
+ * refused inside the relationship-filter lambda — tried again for this
+ * clause specifically, see `cachedPrepare`'s own doc), so a caller asking
+ * "now" through a clock that keeps advancing builds a new, distinct query
+ * text on every call — the prepared-statement cache would grow forever if
+ * it cached every one of those. `PREPARED_CACHE_LIMIT`'s small LRU is what
+ * this test holds to a bound instead of an unbounded map's own size.
+ */
+describe('B2: the prepared-statement cache stays bounded across many dependency queries at an advancing "now"', () => {
+  test.skipIf(process.env['MADARCH_SKIP_PERF'] !== undefined)(
+    '20 000 dependents() calls at the clock\'s own advancing "now" never grow the cache past its own limit',
+    () => {
+      let current = DAY(2);
+      const clock: Clock = { now: () => current };
+      const engine = createLadybugEngine({ clock });
+      engine.rebuild([
+        row('element', element('a', 'service', [])),
+        row('element', element('b', 'service', [])),
+        row('relation', relation('a-to-b', 'a', 'b')),
+      ]);
+
+      const iterations = 20_000;
+      let maxCacheSize = 0;
+      for (let i = 0; i < iterations; i++) {
+        current += 1; // a distinct `valid`/`known` (and so a distinct query text) every call
+        const result = engine.dependents('b', { transitive: true });
+        expect(result.error).toBeUndefined();
+        maxCacheSize = Math.max(maxCacheSize, preparedStatementCacheSizeForTests(engine));
+      }
+
+      // eslint-disable-next-line no-console
+      console.log(`B2 bounded cache: ${iterations} distinct-time dependents() calls, max cache size ${maxCacheSize}`);
+      // Comfortably below the count of distinct query texts 20 000 calls at
+      // a strictly advancing time would otherwise have produced (20 000,
+      // one per call) — bounded, not merely "smaller than that".
+      expect(maxCacheSize).toBeLessThanOrEqual(210);
+
+      engine.close();
+    },
+    150_000,
+  );
+});
+
+/**
+ * The recursive per-hop filter (`dependencyQuery`'s own `SHORTEST ... (r, n
+ * | WHERE ...)` clause) is the one construct in this engine LadybugDB
+ * itself does the most native work inside per query — this test measures,
+ * rather than asserts a bound on, its own RSS cost per query against a
+ * direct one-hop query on the very same relation as a baseline, so the
+ * native part `do not try to fix LadybugDB itself` (stage3-fixes-d.md)
+ * leaves alone is at least quantified.
+ */
+describe('B2: RSS per query for dependents, with and without the recursive (transitive) filter', () => {
+  test.skipIf(process.env['MADARCH_SKIP_PERF'] !== undefined)(
+    'measures and reports both',
+    () => {
+      const engine = createLadybugEngine();
+      engine.rebuild([
+        row('element', element('a', 'service', [])),
+        row('element', element('b', 'service', [])),
+        row('relation', relation('a-to-b', 'a', 'b')),
+      ]);
+      const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
+      const iterations = 5000;
+
+      const rssOf = () => {
+        Bun.gc(true);
+        return process.memoryUsage().rss;
+      };
+
+      // Without the recursive filter: `transitive: false` still goes
+      // through `dependencyQuery`, but bounded to one hop (`maxHops = 1`),
+      // the smallest instance of the same clause.
+      const directStart = rssOf();
+      for (let i = 0; i < iterations; i++) expect(engine.dependents('b', { transitive: false }, at).error).toBeUndefined();
+      const directEnd = rssOf();
+
+      // With the recursive filter doing real multi-hop work: `transitive:
+      // true` walks up to the engine's own 30-hop ceiling per call, even
+      // though this fixture's own longest chain is one hop.
+      const transitiveStart = rssOf();
+      for (let i = 0; i < iterations; i++) expect(engine.dependents('b', { transitive: true }, at).error).toBeUndefined();
+      const transitiveEnd = rssOf();
+
+      const directBytesPerCall = (directEnd - directStart) / iterations;
+      const transitiveBytesPerCall = (transitiveEnd - transitiveStart) / iterations;
+      // eslint-disable-next-line no-console
+      console.log(
+        `B2 RSS/query: direct (transitive:false) ${Math.round(directBytesPerCall)} bytes/call; ` +
+          `transitive (30-hop ceiling) ${Math.round(transitiveBytesPerCall)} bytes/call, over ${iterations} calls each`,
+      );
+
+      engine.close();
+    },
+    60_000,
   );
 });

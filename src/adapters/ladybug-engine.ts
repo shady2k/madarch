@@ -316,23 +316,53 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
   // `viewRelationsQuery` and `dependencyQuery` both build their own query
   // text per call (a literal shown-id list, or a literal hop bound and
   // time/state filter — see each's own doc for why a `$` parameter cannot
-  // stand in for them here) — `conn.prepareSync` on the very same text
-  // twice reprepares it from scratch, and this LadybugDB build never frees
-  // a prepared statement's own share of the buffer pool on its own (there
-  // is no `PreparedStatement.close`): asking it to reprepare the same
-  // query text again and again, the ordinary case for an engine answering
-  // the same shape of question repeatedly (a view kept open, an agent
-  // polling the same dependents query), exhausted the pool outright after
-  // a few hundred calls (tried and confirmed). Caching by the exact query
-  // text — the same text can only ever mean the same statement — keeps a
-  // repeated call to one bounded amount of memory instead; `close()` drops
-  // every reference so they can be collected once this engine is done.
+  // stand in for them here; tried again for `dependencyQuery`'s own
+  // relationship-filter clause specifically, not only assumed from
+  // `viewRelationsQuery`'s `list_filter` case — this build's binder refuses
+  // it too, cleanly this time: `Binder exception: Cannot evaluate $_..._
+  // because it does not depend on n or r`) — `conn.prepareSync` on the very
+  // same text twice reprepares it from scratch, and this LadybugDB build
+  // never frees a prepared statement's own share of the buffer pool on its
+  // own (there is no `PreparedStatement.close`): asking it to reprepare
+  // the same query text again and again, the ordinary case for an engine
+  // answering the same shape of question repeatedly (a view kept open, an
+  // agent polling the same dependents query), exhausted the pool outright
+  // after a few hundred calls (tried and confirmed). Caching by the exact
+  // query text — the same text can only ever mean the same statement —
+  // keeps a repeated call to one bounded amount of memory instead.
+  //
+  // `dependencyQuery`'s own text embeds `valid`/`known` as literals (see
+  // its own doc), so a caller that queries "now" through a clock that keeps
+  // advancing (the ordinary case for an agent watching the graph, or for
+  // `resolveTime`'s own default when no `at` is given) builds a distinct
+  // query text on every single call, forever — an unbounded cache would
+  // just move the same unbounded-growth problem from "reprepare every
+  // call" to "cache every distinct text forever" instead of actually
+  // bounding it. `preparedByText` is therefore a small LRU (insertion
+  // order in a `Map` already gives this for free: a hit is deleted and
+  // re-set to move it to the newest end, and the oldest entry — the map's
+  // first key — is dropped once the cache grows past `PREPARED_CACHE_LIMIT`).
+  // "Closed" on eviction can only mean dropping this module's own
+  // reference, the same limit `close()`'s own doc already notes: this
+  // build exposes no native release for a `PreparedStatement`, so an
+  // evicted entry's native memory is reclaimed only once nothing else
+  // reaches it, not synchronously — still strictly better than never
+  // dropping the reference at all, which is what an unbounded cache did.
+  const PREPARED_CACHE_LIMIT = 200;
   const preparedByText = new Map<string, PreparedStatement>();
   function cachedPrepare(text: string): PreparedStatement {
     const cached = preparedByText.get(text);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) {
+      preparedByText.delete(text);
+      preparedByText.set(text, cached);
+      return cached;
+    }
     const prepared = conn.prepareSync(text);
     preparedByText.set(text, prepared);
+    if (preparedByText.size > PREPARED_CACHE_LIMIT) {
+      const oldest = preparedByText.keys().next().value;
+      if (oldest !== undefined) preparedByText.delete(oldest);
+    }
     return prepared;
   }
 
@@ -624,7 +654,22 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
     if (visible.length === 0) return { time: { valid, known, state: 'as-is' } };
     const root = chainRoot(visible);
     if (root === undefined) {
-      return { error: { message: 'the state chains disagree at this time; a query with no explicit state cannot choose one', time: valid } };
+      // Names the states the query could pass explicitly instead (`at.state`
+      // above already shows the same query answers once one is named): the
+      // distinct state ids visible at this time, deduped the same way
+      // `chainRoot` itself deduped them before finding them not to form one
+      // chain, sorted by code point like every other id list this package
+      // orders.
+      const candidates = dedupeStateRows(visible)
+        .map((s) => s.id)
+        .sort(byCodePoint);
+      return {
+        error: {
+          message: `the state chains disagree at this time; a query with no explicit state cannot choose one — pass one of: ${candidates.join(', ')}`,
+          time: valid,
+          states: candidates,
+        },
+      };
     }
     return { time: { valid, known, state: root } };
   }
@@ -772,9 +817,25 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
     // the process — the closest this cache can come to "closed in
     // `close()`" without a native call to make.
     preparedByText.clear();
+    cacheSizeByEngine.delete(engine);
     conn.closeSync();
     db.closeSync();
   }
 
-  return { children, view, dependents, dependencies, rebuild, update, close };
+  const engine: QueryEngine = { children, view, dependents, dependencies, rebuild, update, close };
+  cacheSizeByEngine.set(engine, () => preparedByText.size);
+  return engine;
+}
+
+/**
+ * The prepared-statement cache's own current size, for the one test that
+ * needs to observe it staying bounded (`PREPARED_CACHE_LIMIT` — see
+ * `cachedPrepare`'s own doc): not part of `QueryEngine`, and never
+ * something the model, compiler or query logic itself reads — a bounded
+ * cache's own size is an implementation detail of this one adapter, not a
+ * capability this package's public interface has any reason to expose.
+ */
+const cacheSizeByEngine = new WeakMap<QueryEngine, () => number>();
+export function preparedStatementCacheSizeForTests(engine: QueryEngine): number {
+  return cacheSizeByEngine.get(engine)?.() ?? 0;
 }
