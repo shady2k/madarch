@@ -55,12 +55,20 @@ _Avoid_: classification (ambiguous between the two dimensions)
 
 **Zone**:
 A boundary elements belong to other than their parent: a network segment, a
-trust boundary, a regulatory scope. An element may be in several zones of
-different kinds.
+trust boundary, a regulatory scope. Its kind is a free word (`network`,
+`trust`, `regulatory`). An element may be in several zones of different kinds;
+it is in its parent's zones unless it adds, excludes or replaces them.
 
 **Environment**:
-A deployment of the system (production, test) in which interfaces have concrete
-bindings.
+A deployment of the system (test, preprod, production) in which interfaces have
+concrete bindings; it may differ in zones and in which elements it has.
+_Avoid_: stand (use environment)
+
+**Architecture state**:
+One point in a chain of states of the intended model, such as as-is, a
+transition stage or to-be, ordered by `after`. An element or relation may start
+or end at a state; with none given it exists in all of them.
+_Avoid_: version (that is a commit of the model), scenario (reserved)
 
 **Binding**:
 How an interaction reaches its interface in one environment: the variable the
@@ -90,7 +98,8 @@ _Avoid_: observation (reserved for runtime facts), evidence (the facts behind a
 derived relation)
 
 **Evidence**:
-The facts, with their files and lines, from which a derived relation was joined.
+The facts, with their files and lines, from which a derived relation was joined;
+in the intended model, the files an agent read to write an element or relation.
 
 **Proposal**:
 An assertion inferred by an AI agent or a heuristic that is not accepted yet.
@@ -143,4 +152,3 @@ frontend and agent reads.
 
 - The name of the file that lists the repositories composing the graph and
   their pinned refs.
-- The kinds of zones and the exact inheritance operations (0014).

@@ -21,7 +21,8 @@ LikeC4, arc42) who have outgrown a single diagram.
 
 ## Non-users
 
-- Teams whose system fits in one readable diagram: a Mermaid block serves them.
+- Teams whose system, the inside of its services included, fits in one
+  readable diagram: a Mermaid block serves them.
 - Anyone looking for a drawing tool. madarch computes views; it does not offer
   a canvas to arrange boxes by hand.
 - Code-level analysis for its own sake (call graphs, dead code): tools exist for
@@ -75,7 +76,13 @@ frontends.
    card data flows. madarch answers with every chain, the zones each crosses, the
    rule that allows it and the file each link was found in; and it shows how the
    answer differed at the date of the last audit.
-4. **An agent investigates an incident.** It asks the graph what depends,
+4. **Anna joins the team of one service.** She opens its architecture: the
+   systems around it, then its own parts (the application, its store, a helper
+   on remote hosts), then the modules of its core grouped by concern. Each
+   element and arrow names the file it was found in. When she updates the
+   service's documentation, she asks madarch for the view she needs and pastes
+   the Mermaid it returns.
+5. **An agent investigates an incident.** It asks the graph what depends,
    transitively, on the event bus in production and what that looked like at
    14:00 yesterday, and gets a chain with evidence instead of reading twenty
    repositories.
@@ -132,14 +139,18 @@ Hypotheses to test:
 ## Direction
 
 Near (MVP, `docs/milestones/mvp.md`):
-- The intended model format, the fact schema, the bitemporal fact log and ingest.
-- A large invented reference system rendered as Mermaid and LikeC4 views.
-- A real repository's graph from its address, by static plugins, then completed
-  by an agent skill that proposes the intended model.
+- The intended model format, with environments and architecture states designed
+  in; its storage with both time axes; LadybugDB as the query engine.
+- A large invented reference system rendered as Mermaid and LikeC4 views, down
+  to the modules of a service.
+- An agent skill that writes a repository's intended model, with evidence.
+- A server that turns a repository's address into diagrams and returns a view
+  on request.
 
 Next (`live-graph`):
-- Webhooks, CI and polling; pull-request checks; history queries; MCP; extraction
-  from code; authentication.
+- Webhooks, CI and polling; extraction plugins and the fact log's extracted
+  layer; pull-request checks; history queries; MCP; extraction from code; views
+  per environment and architecture state; authentication.
 
 Later hypotheses:
 - Pull-request comments on the git hosts; a runner for closed networks that

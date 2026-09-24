@@ -27,6 +27,11 @@ lines out). Every fact carries its source (plugin@version, repository@ref,
 file and line) and the basis of its valid time. Output plugins (Mermaid,
 LikeC4, graph databases) read the compiled model the same way.
 
+Amended 2026-09-24 by the revised MVP charter (madarch-tid): the first
+milestone has no extraction plugins or facts. An agent skill writes the
+intended model with its own tools and names its evidence; plugins arrive in
+`live-graph`. The decision stands for them.
+
 ## Consequences
 - Plugins are small, in any language, and licence-isolated: wrapping an AGPL
   tool's JSON output does not bind the core.

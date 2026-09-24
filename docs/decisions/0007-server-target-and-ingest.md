@@ -25,6 +25,12 @@ Amended 2026-09-24 by the MVP charter: the first milestone adds sources on
 request by repository address (`POST /sources`); webhooks, CI calls and polling
 come in the next milestone. The server remains the target.
 
+Amended again 2026-09-24 (madarch-tid): in the first milestone a source is a
+repository holding an intended model; ingest reads that model at a ref and
+replaces the source's model version. Facts from plugins join ingest in
+`live-graph`. The server also returns a view on request (`POST`, parameters in
+the body).
+
 ## Consequences
 - Operating a server (queue, retries, credentials) is needed from the start.
 - Closed networks the server cannot reach need a runner that uploads facts;

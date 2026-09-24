@@ -38,6 +38,14 @@ Both time axes are part of every interface from the start: queries take
 `asOf: { valid, known }`. Each fact states the basis of its valid time
 (commit time, deployment time, observation window).
 
+Amended 2026-09-24 by the revised MVP charter (madarch-tid): in the first
+milestone the log holds the intended model's versions read from git (valid
+time: the commit's time; recorded time: when it was read); extracted facts join
+it in `live-graph`. LadybugDB is part of the first milestone: it answers the
+views' traversals (collapsing relations to the visible level, drilling in,
+transitive dependencies), so the open question of its speed under Bun is
+answered early.
+
 ## Consequences
 - Two stores must stay in step; the query engine is derived and can be rebuilt
   from the log at any time.
