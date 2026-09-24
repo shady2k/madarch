@@ -237,7 +237,7 @@ export function buildInputs(root, { phase, change: changeId = null, candidate = 
   if (!changeId) throw new Error(`the ${phase} phase needs --change <id>`);
   let tgt;
   try { tgt = source(root, target); } catch {
-    throw new Error(`the target ${target} is not a revision here: the baseline is read from it. Create or update the local main line (git branch -f main origin/main), or pass --target <rev>`);
+    throw new Error(`the target ${target} is not a revision here: the baseline is read from it. Create or update the local main line (on another branch: git branch -f main origin/main; on main: git pull), or pass --target origin/main`);
   }
 
   const text = src.read(`${CHANGES}${changeId}/change.md`);
@@ -392,7 +392,7 @@ export function commitGate(root, message) {
         owners.set(cap, [...(owners.get(cap) ?? []), c]);
       }
     }
-    for (const path of specs) {
+    for (const path of specs.filter((p) => /^[^/]+\.md$/.test(p.slice(CAPABILITIES.length)))) {
       const cap = path.slice(CAPABILITIES.length, -3);
       if (!owners.has(cap)) {
         refuse([`Document gate refused this commit: it edits the current spec ${path}, and no change linked by its tasks (${ids.join(', ') || 'none'}) proposes capability ${cap}.`,

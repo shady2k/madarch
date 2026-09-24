@@ -398,7 +398,9 @@ test('commit gate: closing a change by syncing its capability passes; a non-Mark
   assert.equal(closed.ok, true, closed.text);
   r.write('docs/system/capabilities/views.yaml', 'show: yes\n');
   r.git('add', '-A');
-  assert.match(commitGate(r.root, 'Close views\n\nTask: m-leaf\n').text, /not a capability document/);
+  const refused = commitGate(r.root, 'Close views\n\nTask: m-leaf\n').text;
+  assert.match(refused, /not a capability document/);
+  assert.doesNotMatch(refused, /proposes capability views\.y/);
 });
 
 test('the product phase needs no main line; a phase that reads the baseline says how to get one', () => {

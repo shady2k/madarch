@@ -52,7 +52,7 @@ are the repository's installation, and each person's plugin and hooks are theirs
   - `node .shady2k/documents.mjs check --phase <product|feature|acceptance|close> [--change <id>] [--candidate index|worktree|<rev>] [--target <rev>]`;
     defaults: candidate the working tree (`HEAD` for `acceptance`), target the
     local `main`, which must exist and be current (`git branch -f main
-    origin/main` in a clone without it); only the phases that read a baseline
+    origin/main` from another branch, `git pull` on it); only the phases that read a baseline
     need it. `export` prints the checker's inputs; `revision [--candidate
     <rev>]` prints the revision evidence is recorded against. Exit 0 clean, 1
     refused, 2 unreadable input (never a pass). Settings, policy and
@@ -99,9 +99,11 @@ are the repository's installation, and each person's plugin and hooks are theirs
     change record, or anything else outside the tracker and current specs,
     after recording evidence makes a new revision and stales it. Until
     mutation tooling exists (see Mutation checks below), a `mutation` receipt
-    is a bounded manual mutation sample whose results are its reference, or
-    the owner's decision at acceptance (`mutationFallback: escalate`); a
-    skipped check is never recorded as passed.
+    is a bounded manual mutation sample, recorded as `passed` with its
+    results as the reference; without one, acceptance escalates to the owner
+    (`mutationFallback: escalate`), whose decision to accept is recorded as
+    `passed` with their words as the reference. A skipped check is never
+    recorded as passed.
   - **Baseline and synchronization:** the baseline is read from the target
     (`main`), deltas from the change's pinned `Base:`, so a requirement moved
     on the target since is refused as stale rather than reverted. Current specs
