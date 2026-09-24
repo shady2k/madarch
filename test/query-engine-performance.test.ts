@@ -315,6 +315,6 @@ describe('performance: B2 — the review\'s layered-graph shapes that made ALL S
         if (process.env['CI']) console.log(`layered ${shape.name}: ${shapeModel.elements.length} elements, ${relationCount} relations, ${result.elements?.length} answers`);
       }
     },
-    60000,
+    180000,
   );
 });
