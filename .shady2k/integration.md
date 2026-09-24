@@ -58,12 +58,13 @@ are the repository's installation, and each person's plugin and hooks are theirs
   `.shady2k/jsonl-clean.mjs` (declared in `.gitattributes`) commits it as `.`.
   Agent names use the public handle and a neutral machine name
   (`claude-<role>:shady2k@mbp:<branch>#<session>`); claim comments name the
-  checkout, never an absolute path. Commits use the GitHub noreply address.
+  checkout, never an absolute path. Commits are signed with the owner's public
+  email (the one on the GitHub profile; owner decision 2026-09-24, madarch-xh6).
 - **Fresh clone:** `git config core.hooksPath .githooks`;
   `git config filter.br-portable-path.clean "node .shady2k/jsonl-clean.mjs"`,
   `git config filter.br-portable-path.smudge cat`,
   `git config filter.br-portable-path.required true`; create
-  `.git/info/private-patterns`; set `user.email` to the noreply address;
+  `.git/info/private-patterns`; `user.email` is the owner's public email;
   `br sync --import-only` then `br sync --migrate-source-repo-path --apply` if br reports foreign paths.
 - **CI:** none (personal scope, no product code yet). The walking skeleton
   wires CI; there the backlog baseline is the previous head of a push or the
