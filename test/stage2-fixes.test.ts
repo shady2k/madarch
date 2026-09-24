@@ -4,6 +4,9 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  ASSERTION_KINDS,
+  CLASHABLE_KINDS,
+  SHARED_KINDS,
   createSqliteHistory,
   isOneStateChain,
   type AssertionChange,
@@ -279,6 +282,15 @@ describe('2. shared vocabulary: elements/interfaces/relations stay exclusive; ca
     expect('bindingsBySource' in graph.environments[0]!).toBe(false);
   });
 
+  test('a source that declares `bindings: {}` explicitly (not merely omitted) is still left out of `bindingsBySource`, exactly like a source that declares no bindings at all', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([], { environments: [{ id: 'production', bindings: {} }] }) });
+    const graph = readModel(h, { valid: DAY(2), known: DAY(2) });
+    expect(graph.environments).toEqual([{ id: 'production' }]);
+    expect('bindingsBySource' in graph.environments[0]!).toBe(false);
+  });
+
   test('a store that would make the union of every source\'s states branch succeeds — no longer refused — and the union read reports the one chain-wide discrepancy instead', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
@@ -356,6 +368,20 @@ describe('2. shared vocabulary: elements/interfaces/relations stay exclusive; ca
 
     const read = h.read({ valid: DAY(2), known: DAY(2) });
     expect(read.discrepancies).toEqual([{ kind: 'state', id: '*', sources: ['o', 's'], field: 'order' }]);
+  });
+
+  test('the chain discrepancy names its sources sorted code point order, regardless of which order they were stored in', () => {
+    // Stored in reverse alphabetical order (`z` before `m`), so a
+    // discrepancy that merely kept storage order would list them the wrong
+    // way round.
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    h.store({ source: 'z', commit: 'c1', committedAt: DAY(1), model: model([], { states: [state('as-is'), state('branch-z', 'as-is')] }) });
+    const result = h.store({ source: 'm', commit: 'c1', committedAt: DAY(1), model: model([], { states: [state('as-is'), state('branch-m', 'as-is')] }) });
+    expect(result.errors).toEqual([]);
+
+    const read = h.read({ valid: DAY(2), known: DAY(2) });
+    expect(read.discrepancies).toEqual([{ kind: 'state', id: '*', sources: ['m', 'z'], field: 'order' }]);
   });
 
   test('isOneStateChain: the pure chain check the union read uses, directly', () => {
@@ -445,6 +471,12 @@ describe('3. the id-clash check compares valid spans, not just "now"', () => {
 });
 
 describe('4. HistoryStore\'s public interface for stage 3 and the server', () => {
+  test('ASSERTION_KINDS, CLASHABLE_KINDS and SHARED_KINDS name exactly the seven, three and four kinds the design describes', () => {
+    expect(ASSERTION_KINDS).toEqual(['element', 'interface', 'relation', 'category', 'zone', 'environment', 'state']);
+    expect(CLASHABLE_KINDS).toEqual(['element', 'interface', 'relation']);
+    expect(SHARED_KINDS).toEqual(['category', 'zone', 'environment', 'state']);
+  });
+
   test('assertions() returns the raw rows with their four times, for one source or for all', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
@@ -457,6 +489,15 @@ describe('4. HistoryStore\'s public interface for stage 3 and the server', () =>
 
     const allElements = h.assertions().filter((r) => r.kind === 'element');
     expect(allElements.map((r) => r.id).sort()).toEqual(['a', 'b']);
+  });
+
+  test('a source-filtered read\'s `discrepancies` is always the empty array: a single source can never disagree with itself', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')], { zones: [zone('pci', 'compliance')] }) });
+    const result = h.read({ source: 'shop', valid: DAY(2), known: DAY(2) });
+    expect(result.errors).toEqual([]);
+    expect(result.discrepancies).toEqual([]);
   });
 
   test('store() reports what it opened and closed', () => {
@@ -746,6 +787,32 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     expect(ids(h, { source: 's', valid: DAY(4), known: DAY(8) })).toBe('');
   });
 
+  test('closing several rows recorded at different times still uses the true latest even when the alphabetically later id is the earlier-recorded one (iteration order is not sort order)', () => {
+    // Unlike the paired test above, `A` (alphabetically, and so in
+    // iteration order, first) is the one recorded LATER here, and `Z`
+    // (iterated last) is recorded EARLIER: a check that took whichever row
+    // it saw last, rather than the true maximum, would pick `Z`'s earlier
+    // moment and under-clamp.
+    const clock = fakeClock(DAY(5));
+    const h = history(clock);
+    h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('A'), element('Z')]) });
+    clock.set(DAY(7));
+    // `A` changes (recorded day 7); `Z` stays untouched, still recorded day 5.
+    h.store({ source: 's', commit: 'c2', committedAt: DAY(2), model: model([element('A', { technology: 'v2' }), element('Z')]) });
+
+    // The clock has not moved past day 7 (A's own recorded time): closing
+    // BOTH A and Z at once must bump past the later of the two (A's day 7),
+    // not merely past Z's day 5.
+    clock.set(DAY(7));
+    const result = h.store({ source: 's', commit: 'c3', committedAt: DAY(3), model: model([]) });
+    expect(result.errors).toEqual([]);
+
+    // Right at day 7 (A's own prior recorded moment, before c3's own),
+    // c3's removal must not be visible yet: both must still show.
+    expect(ids(h, { source: 's', valid: DAY(4), known: DAY(7) })).toBe('A:v2,Z');
+    expect(ids(h, { source: 's', valid: DAY(4), known: DAY(8) })).toBe('');
+  });
+
   test('a store whose content exactly matches what is already current opens and closes nothing at all', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
@@ -771,6 +838,68 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     const read = h.read({ valid: DAY(2), known: DAY(2) });
     expect(read.discrepancies).toEqual([{ kind: 'zone', id: 'pci', sources: ['a', 'b', 'c'], field: 'zone' }]);
     expect(read.model?.zones).toEqual([{ id: 'pci', kind: 'compliance', alsoDefinedAs: [{ source: 'c', definition: { id: 'pci', kind: 'regulatory' } }] }]);
+  });
+
+  test('two sources sharing one definition, with a third (alphabetically between them) source declaring a different one: the shared definition still wins as primary — every agreeing source counts toward the tie-break, not just whichever was seen last', () => {
+    // `x` and `z` agree ("compliance"); `y`, sorting alphabetically between
+    // them, disagrees ("regulatory"). Picking the primary by the first
+    // agreeing source (`x`) must still beat `y`: an implementation that
+    // only remembered the *last* source to agree (`z`) would wrongly let
+    // `y` win the tie-break instead, since 'y' < 'z'.
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    h.store({ source: 'x', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('shared', 'compliance')] }) });
+    h.store({ source: 'y', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('shared', 'regulatory')] }) });
+    h.store({ source: 'z', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('shared', 'compliance')] }) });
+
+    const read = h.read({ valid: DAY(2), known: DAY(2) });
+    expect(read.discrepancies).toEqual([{ kind: 'zone', id: 'shared', sources: ['x', 'y', 'z'], field: 'zone' }]);
+    expect(read.model?.zones).toEqual([{ id: 'shared', kind: 'compliance', alsoDefinedAs: [{ source: 'y', definition: { id: 'shared', kind: 'regulatory' } }] }]);
+  });
+
+  test('each content group\'s own sources are sorted before the tie-break compares them, not left in storage order', () => {
+    // `z` and `x` agree ("compliance"), stored in that order (`z` first);
+    // `y` (alphabetically between them) disagrees ("regulatory"). Sorting
+    // `z`/`x`'s own group down to `x` first is what lets "compliance" (x
+    // sorts before y) win the tie-break; left in storage order ("z" first),
+    // "regulatory" (y sorts before z) would wrongly win instead.
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    h.store({ source: 'z', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('shared2', 'compliance')] }) });
+    h.store({ source: 'y', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('shared2', 'regulatory')] }) });
+    h.store({ source: 'x', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('shared2', 'compliance')] }) });
+
+    const read = h.read({ valid: DAY(2), known: DAY(2) });
+    expect(read.model?.zones).toEqual([{ id: 'shared2', kind: 'compliance', alsoDefinedAs: [{ source: 'y', definition: { id: 'shared2', kind: 'regulatory' } }] }]);
+  });
+
+  test('a category id two sources declare differently is recorded, not refused: the union keeps both and reports a discrepancy with field "category"', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: model([], { categories: [{ id: 'pii', name: 'Personal data' }] }) });
+    const result = h.store({ source: 'b', commit: 'c1', committedAt: DAY(1), model: model([], { categories: [{ id: 'pii', name: 'PII' }] }) });
+    expect(result.errors).toEqual([]);
+
+    const read = h.read({ valid: DAY(2), known: DAY(2) });
+    expect(read.discrepancies).toEqual([{ kind: 'category', id: 'pii', sources: ['a', 'b'], field: 'category' }]);
+    expect(read.model?.categories).toEqual([{ id: 'pii', name: 'Personal data', alsoDefinedAs: [{ source: 'b', definition: { id: 'pii', name: 'PII' } }] }]);
+  });
+
+  test('a state id two sources declare differently (its own definition, not the chain order) is recorded, not refused: the union keeps both and reports a discrepancy with field "state"', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: model([], { states: [state('as-is'), { id: 'to-be', name: 'Target', after: 'as-is' }] }) });
+    const result = h.store({ source: 'b', commit: 'c1', committedAt: DAY(1), model: model([], { states: [state('as-is'), { id: 'to-be', name: 'Future', after: 'as-is' }] }) });
+    expect(result.errors).toEqual([]);
+
+    const read = h.read({ valid: DAY(2), known: DAY(2) });
+    expect(read.discrepancies).toEqual([{ kind: 'state', id: 'to-be', sources: ['a', 'b'], field: 'state' }]);
+    expect((read.model as ReadModel | undefined)?.states.find((s) => s.id === 'to-be')).toEqual({
+      id: 'to-be',
+      name: 'Target',
+      after: 'as-is',
+      alsoDefinedAs: [{ source: 'b', definition: { id: 'to-be', name: 'Future', after: 'as-is' } }],
+    });
   });
 
   test('every source currently declaring a shared binding is checked, not only whichever one is seen last: a conflict with the first of two agreeing sources is still caught', () => {
@@ -1262,4 +1391,58 @@ describe('12. known-time correctness: a read at an earlier known time reproduces
       }
     }
   });
+});
+
+describe('13. the exclusive-kind safety net names the right kind for every one of the seven kinds (data written outside store())', () => {
+  function insertRaw(path: string, rows: { source: string; kind: string; id: string; content: unknown }[]): void {
+    // Creates the schema (a fresh store, immediately closed) before writing raw rows into it.
+    createSqliteHistory({ clock: fakeClock(0), path }).close();
+    const raw = new Database(path);
+    const insert = raw.query(
+      `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to)
+       VALUES (?, ?, ?, ?, ?, NULL, 'c1', NULL, ?, NULL)`,
+    );
+    for (const row of rows) insert.run(row.source, row.kind, row.id, JSON.stringify(row.content), DAY(1), DAY(1));
+    raw.close();
+  }
+
+  for (const kind of ASSERTION_KINDS) {
+    test(`the union read's exclusive-kind safety net reports "${kind}" as the field when two sources' rows for the same id disagree`, () => {
+      const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
+      const path = join(dir, 'history.sqlite');
+      insertRaw(path, [
+        { source: 'a', kind, id: 'x', content: { id: 'x', v: 'A' } },
+        { source: 'b', kind, id: 'x', content: { id: 'x', v: 'B' } },
+      ]);
+
+      const clock = fakeClock(DAY(2));
+      const h = history(clock, path);
+      const result = h.read({ valid: DAY(2), known: DAY(2) });
+      if (CLASHABLE_KINDS.includes(kind)) {
+        // element/interface/relation: a real safety-net finding, reported as an error.
+        expect(result.model).toBeUndefined();
+        expect(result.errors).toEqual([{ message: expect.any(String), id: 'x', field: kind, source: expect.any(String) }]);
+      } else {
+        // category/zone/environment/state: kept, not refused — a Discrepancy, not an error.
+        expect(result.errors).toEqual([]);
+      }
+    });
+  }
+
+  for (const kind of ASSERTION_KINDS) {
+    test(`a source-filtered read's own exclusive-kind safety net reports "${kind}" as the field when one source's own two rows for the same id disagree (never happens through store(), which always closes the old row first)`, () => {
+      const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
+      const path = join(dir, 'history.sqlite');
+      insertRaw(path, [
+        { source: 's', kind, id: 'x', content: { id: 'x', v: 'A' } },
+        { source: 's', kind, id: 'x', content: { id: 'x', v: 'B' } },
+      ]);
+
+      const clock = fakeClock(DAY(2));
+      const h = history(clock, path);
+      const result = h.read({ source: 's', valid: DAY(2), known: DAY(2) });
+      expect(result.model).toBeUndefined();
+      expect(result.errors).toEqual([{ message: expect.any(String), id: 'x', field: kind, source: expect.any(String) }]);
+    });
+  }
 });
