@@ -202,17 +202,19 @@ not a new one.
   commit time: it closes what it changes only up to the next stored commit, and
   what that next commit asserted stays as it was. Commits of one source with the
   same time are ordered by commit id.
-- **Sources share declarations, not parts.** Elements, interfaces and relations
-  belong to one source; another source declaring the same id is refused, over
-  any overlapping valid time. Zones, categories, environments and states are
-  shared declarations: another source may declare the same id only with the
-  same definition, except that environments merge their bindings variable by
-  variable. (An environment changes zones only of its own source's elements,
-  since references resolve within a source, so zone changes cannot collide.) A different definition,
-  or a state chain the union would branch or loop, is refused, naming the id and
-  the other source. The letter of model-history/sources refuses any repeated id;
-  since every source must declare the zones, environments and states it refers
-  to, that letter would forbid two repositories sharing an environment, so the
-  run reads it as above.
+- **Sources share declarations, not parts** (the owner's decision,
+  2026-09-24). Elements, interfaces and relations belong to one source; another
+  source declaring the same id over an overlapping valid time is refused. Zones,
+  categories, environments and states may be declared by several sources and
+  nothing about them is refused: identical definitions merge; where sources
+  define one differently, the union read keeps every source's definition
+  (`alsoDefinedAs`) and returns a list of discrepancies beside the model. An
+  environment's bindings belong to their source (`bindingsBySource` in the
+  union): two repositories binding one variable to different endpoints are two
+  facts, and each relation carries its own source's value. A disagreement on
+  the order of states is a discrepancy too. The letter of model-history/sources
+  refuses any repeated id; since every source must declare the zones,
+  environments and states it refers to, the run reads it as applying to
+  elements, interfaces and relations.
 - **Repeats.** Storing a stored commit again with the same time and model
   changes nothing; with a different time or model it is refused.
