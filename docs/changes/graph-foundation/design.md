@@ -218,3 +218,22 @@ not a new one.
   elements, interfaces and relations.
 - **Repeats.** Storing a stored commit again with the same time and model
   changes nothing; with a different time or model it is refused.
+- **The default state.** A query without a state uses the first state of the
+  chain when every source agrees on the chain (identical declarations from
+  several sources agree). When they disagree, a query without a state is an
+  error naming the states it could use; with a state it works.
+- **Refinements in a view.** A refinement is drawn only when both of its own
+  ends are shown in the view, or when the relation it refines is not drawn;
+  otherwise it is counted once under its general relation. Drilling in
+  therefore shows the detailed relation, and the approved scenario
+  refinement-counted-once holds.
+- **Scope and depth.** A scoped view shows the scope and its descendants down
+  to the depth, and only relations with both ends among them; external
+  neighbours are left to the views of outcome 2. Depth means the same with and
+  without a scope: depth 0 is the scope (or the roots) alone.
+- **Chains.** Dependents and dependencies come with one shortest chain each
+  (not a fixed choice among equal ones), filtered by
+  time and state on every hop; an element is never its own dependent.
+- **Two ways to keep the engine in step.** `rebuild()` builds it from the
+  whole history; `update()` applies one store's report. Both keep both time
+  axes and give the same answers.

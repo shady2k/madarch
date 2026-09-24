@@ -46,6 +46,13 @@ views' traversals (collapsing relations to the visible level, drilling in,
 transitive dependencies), so the open question of its speed under Bun is
 answered early.
 
+Measured 2026-09-24 (graph-foundation, LadybugDB 0.20.4 under Bun 1.4.2, a
+developer's laptop): a view over 10 000 elements with history in about 70 ms;
+transitive dependents over 10 000 elements and 30 000 relations in about
+60 ms, filtered by time on every hop. Memory grows with filtered recursive
+queries and with statements prepared per distinct time; how the server lives
+with it is an open decision (madarch-ti6.1).
+
 ## Consequences
 - Two stores must stay in step; the query engine is derived and can be rebuilt
   from the log at any time.
@@ -54,4 +61,4 @@ answered early.
 - SQLite limits the server to one instance; a PostgreSQL adapter is the path to
   several.
 - Revisit if the query engine is abandoned, or if as-of traversals at 10^5
-  elements with history are too slow (not yet measured).
+  elements with history are too slow (measured 2026-09-24: well under a second; see the amendment above).
