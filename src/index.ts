@@ -67,6 +67,20 @@ export {
   type SharedEntity,
 } from './history/assertions.js';
 export { createSqliteHistory, type SqliteHistoryOptions } from './adapters/sqlite-history.js';
+export type {
+  ChildrenResult,
+  DependenciesInput,
+  DependenciesResult,
+  DependencyAnswer,
+  ElementAnswer,
+  QueryEngine,
+  QueryError,
+  QueryTime,
+  ViewInput,
+  ViewRelation,
+  ViewResult,
+} from './query/types.js';
+export { createLadybugEngine } from './adapters/ladybug-engine.js';
 
 import type { CompiledModel } from './model/compile.js';
 import { compileModel } from './model/compile.js';
