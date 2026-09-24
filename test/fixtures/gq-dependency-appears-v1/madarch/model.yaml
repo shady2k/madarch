@@ -1,0 +1,7 @@
+version: 1
+
+elements:
+  - id: orders-api
+    kind: service
+  - id: event-bus
+    kind: broker

@@ -1,0 +1,28 @@
+version: 1
+
+elements:
+  - id: shop
+    kind: domain
+  - id: checkout-web
+    kind: service
+    parent: shop
+  - id: checkout-cart
+    kind: module
+    parent: checkout-web
+  - id: checkout-ui
+    kind: module
+    parent: checkout-web
+  - id: payments-api
+    kind: service
+
+relations:
+  - id: shop-uses-ui
+    from: shop
+    to: checkout-ui
+  - id: cart-calls-ui
+    refines: shop-uses-ui
+    from: checkout-cart
+    to: checkout-ui
+  - id: cart-calls-payments
+    from: checkout-cart
+    to: payments-api

@@ -1,0 +1,11 @@
+version: 1
+
+elements:
+  - id: payments
+    kind: domain
+  - id: payments-api
+    kind: service
+    parent: payments
+  - id: payments-stub
+    kind: service
+    parent: payments

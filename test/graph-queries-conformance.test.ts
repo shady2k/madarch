@@ -1,6 +1,32 @@
 import { describe, expect, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
-import { compileModel, createLadybugEngine, createSqliteHistory, loadModel, type Clock, type HistoryStore, type QueryEngine } from '../src/index.js';
+import {
+  compileModel,
+  createLadybugEngine,
+  createSqliteHistory,
+  loadModel,
+  type Clock,
+  type CompiledElement,
+  type CompiledModel,
+  type CompiledRelation,
+  type ElementKind,
+  type HistoryStore,
+  type QueryEngine,
+} from '../src/index.js';
+
+function element(id: string, kind: ElementKind, parent?: string): CompiledElement {
+  const compiled: CompiledElement = { id, kind, ancestors: parent === undefined ? [] : [parent], zones: [], zonesByEnvironment: {}, environments: ['*'], states: ['as-is'] };
+  if (parent !== undefined) compiled.parent = parent;
+  return compiled;
+}
+
+function relation(id: string, from: string, to: string): CompiledRelation {
+  return { id, from, to, interaction: false, environments: ['*'], states: ['as-is'] };
+}
+
+function model(elements: CompiledElement[], relations: CompiledRelation[]): CompiledModel {
+  return { schemaVersion: 1, elements, interfaces: [], relations, categories: [], zones: [], environments: [], states: [{ id: 'as-is' }] };
+}
 
 /**
  * The review's five end-to-end conformance scenarios (graph-queries.md's
@@ -112,37 +138,161 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     history.close();
   });
 
-  test('service-gains-internal-elements: a relation moved to a newly-added internal module still lifts to the same single relation at the service level', () => {
+  test('service-gains-internal-elements: two versions of one source in one history — a relation moved to a newly-added internal module still lifts to the same single relation at the service level, before and after', () => {
     const v1 = loadModel(fixture('gq-nesting-v1'));
     expect(v1.errors).toEqual([]);
     const v2 = loadModel(fixture('gq-nesting-v2'));
     expect(v2.errors).toEqual([]);
 
+    // One history, one source, two versions: v2's commit lands after v1's,
+    // so the engine (rebuilt from this single history's own assertions)
+    // must answer the same view both before and after the second commit —
+    // exactly the `rebuild`/`as-of` requirement, not two independent
+    // histories compared side by side.
+    const clock = fakeClock(DAY(2));
+    const history = createSqliteHistory({ clock });
+    expect(history.store({ source: 's', commit: 'v1', committedAt: DAY(1), model: compileModel(v1.model!) }).errors).toEqual([]);
+    clock.set(DAY(12));
+    expect(history.store({ source: 's', commit: 'v2', committedAt: DAY(10), model: compileModel(v2.model!) }).errors).toEqual([]);
+
+    const engine = createLadybugEngine();
+    engine.rebuild(history.assertions());
+
+    // Before v2's commit: the relation is still checkout-web's own direct
+    // call (checkout-cart, the internal module it later moves to, does not
+    // exist yet).
+    const before = engine.view({ depth: 0 }, { valid: DAY(5), known: DAY(20), state: 'as-is' });
+    expect(before.error).toBeUndefined();
+    expect(before.relations).toEqual([{ from: 'checkout-web', to: 'payments-api', relationIds: ['checkout-calls-payments'] }]);
+
+    // After v2's commit: the same relation id now runs from the new
+    // internal module, but still lifts to the very same single relation
+    // from checkout-web to payments-api.
+    const after = engine.view({ depth: 0 }, { valid: DAY(15), known: DAY(20), state: 'as-is' });
+    expect(after.error).toBeUndefined();
+    expect(after.relations).toEqual([{ from: 'checkout-web', to: 'payments-api', relationIds: ['checkout-calls-payments'] }]);
+
+    expect(after.relations).toEqual(before.relations);
+
+    engine.close();
+    history.close();
+  });
+
+  test("scoped (M2, the review's fx/scoped fixture): a scoped view shows a refinement whose own general relation reaches outside the scope entirely", () => {
+    const { engine, history } = engineFor('gq-scoped', 'c1', DAY(1), DAY(2));
     const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
 
-    const clock1 = fakeClock(DAY(2));
-    const history1 = createSqliteHistory({ clock: clock1 });
-    expect(history1.store({ source: 's', commit: 'v1', committedAt: DAY(1), model: compileModel(v1.model!) }).errors).toEqual([]);
-    const engine1 = createLadybugEngine();
-    engine1.rebuild(history1.assertions());
-    const view1 = engine1.view({ depth: 0 }, at);
-    expect(view1.error).toBeUndefined();
-    expect(view1.relations).toEqual([{ from: 'checkout-web', to: 'payments-api', relationIds: ['checkout-calls-payments'] }]);
-    engine1.close();
-    history1.close();
+    // shop-uses-ui (shop -> checkout-ui) reaches outside the checkout-web
+    // scope entirely (shop is not inside it), so it never appears; its
+    // refinement cart-calls-ui (checkout-cart -> checkout-ui) has both ends
+    // inside the scope and is drawn on its own, standing for itself since
+    // nothing else in this view does.
+    const scoped = engine.view({ scope: 'checkout-web', depth: 0 }, at);
+    expect(scoped.error).toBeUndefined();
+    expect(scoped.elements?.map((e) => e.id).sort()).toEqual(['checkout-cart', 'checkout-ui', 'checkout-web']);
+    expect(scoped.relations).toEqual([{ from: 'checkout-cart', to: 'checkout-ui', relationIds: ['cart-calls-ui'] }]);
 
-    const clock2 = fakeClock(DAY(2));
-    const history2 = createSqliteHistory({ clock: clock2 });
-    expect(history2.store({ source: 's', commit: 'v2', committedAt: DAY(1), model: compileModel(v2.model!) }).errors).toEqual([]);
-    const engine2 = createLadybugEngine();
-    engine2.rebuild(history2.assertions());
-    const view2 = engine2.view({ depth: 0 }, at);
-    expect(view2.error).toBeUndefined();
-    expect(view2.relations).toEqual([{ from: 'checkout-web', to: 'payments-api', relationIds: ['checkout-calls-payments'] }]);
-    engine2.close();
-    history2.close();
+    engine.close();
+    history.close();
+  });
 
-    // Both versions show the same single relation from checkout-web to payments-api.
-    expect(view2.relations).toEqual(view1.relations);
+  test('children: payments with the services payments-api and payments-stub, end to end from a YAML fixture', () => {
+    const { engine, history } = engineFor('gq-children', 'c1', DAY(1), DAY(2));
+    const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
+
+    const result = engine.children('payments', at);
+    expect(result.error).toBeUndefined();
+    expect(result.elements?.map((e) => e.id).sort()).toEqual(['payments-api', 'payments-stub']);
+
+    engine.close();
+    history.close();
+  });
+
+  test('dependency-appears (as-of): orders-api starts depending on event-bus in a commit of 5 September, stored the same day, end to end from YAML', () => {
+    const v1 = loadModel(fixture('gq-dependency-appears-v1'));
+    expect(v1.errors).toEqual([]);
+    const v2 = loadModel(fixture('gq-dependency-appears-v2'));
+    expect(v2.errors).toEqual([]);
+
+    const SEPTEMBER = (day: number) => Date.UTC(2026, 8, day);
+    const clock = fakeClock(SEPTEMBER(1));
+    const history = createSqliteHistory({ clock });
+    expect(history.store({ source: 's', commit: 'v1', committedAt: SEPTEMBER(1), model: compileModel(v1.model!) }).errors).toEqual([]);
+    clock.set(SEPTEMBER(5));
+    expect(history.store({ source: 's', commit: 'v2', committedAt: SEPTEMBER(5), model: compileModel(v2.model!) }).errors).toEqual([]);
+
+    const engine = createLadybugEngine();
+    engine.rebuild(history.assertions());
+
+    const before = engine.dependents('event-bus', { transitive: false }, { valid: SEPTEMBER(3), known: SEPTEMBER(20), state: 'as-is' });
+    expect(before.error).toBeUndefined();
+    expect(before.elements?.map((e) => e.id)).toEqual([]);
+
+    const after = engine.dependents('event-bus', { transitive: false }, { valid: SEPTEMBER(7), known: SEPTEMBER(20), state: 'as-is' });
+    expect(after.error).toBeUndefined();
+    expect(after.elements?.map((e) => e.id)).toEqual(['orders-api']);
+
+    engine.close();
+    history.close();
+  });
+
+  test('rebuild: a history with three versions of two sources answers a fixed set of queries the same way after the engine is thrown away and rebuilt', () => {
+    // Two sources, disjoint id namespaces (`checkout-*` for `s`,
+    // `billing-*` for `p`), each evolving over three versions — the
+    // `rebuild` requirement's own scenario (graph-queries.md): the same
+    // history, thrown-away-and-rebuilt engine answers the same.
+    function checkoutModel(withCart: boolean): CompiledModel {
+      const elements = [
+        element('checkout-web', 'service'),
+        element('payments-api', 'service'),
+        ...(withCart ? [element('checkout-cart', 'module', 'checkout-web')] : []),
+      ];
+      const relations = [relation('checkout-calls-payments', withCart ? 'checkout-cart' : 'checkout-web', 'payments-api')];
+      return model(elements, relations);
+    }
+    function billingModel(version: number): CompiledModel {
+      const elements = [element('billing-api', 'service'), element('ledger-svc', 'service')];
+      const relations = version >= 2 ? [relation('billing-calls-ledger', 'billing-api', 'ledger-svc')] : [];
+      return model(elements, relations);
+    }
+
+    const clock = fakeClock(DAY(1));
+    const history = createSqliteHistory({ clock });
+
+    expect(history.store({ source: 's', commit: 's1', committedAt: DAY(1), model: checkoutModel(false) }).errors).toEqual([]);
+    clock.set(DAY(2));
+    expect(history.store({ source: 'p', commit: 'p1', committedAt: DAY(2), model: billingModel(1) }).errors).toEqual([]);
+    clock.set(DAY(3));
+    expect(history.store({ source: 's', commit: 's2', committedAt: DAY(3), model: checkoutModel(true) }).errors).toEqual([]);
+    clock.set(DAY(4));
+    expect(history.store({ source: 'p', commit: 'p2', committedAt: DAY(4), model: billingModel(2) }).errors).toEqual([]);
+    clock.set(DAY(5));
+    expect(history.store({ source: 's', commit: 's3', committedAt: DAY(5), model: checkoutModel(true) }).errors).toEqual([]);
+    clock.set(DAY(6));
+    expect(history.store({ source: 'p', commit: 'p3', committedAt: DAY(6), model: billingModel(2) }).errors).toEqual([]);
+
+    const at = { valid: DAY(6), known: DAY(6), state: 'as-is' };
+    const fixedQueries = (engine: QueryEngine) => ({
+      view: engine.view({ depth: 0 }, at),
+      children: engine.children('checkout-web', at),
+      dependents: engine.dependents('ledger-svc', { transitive: true }, at),
+    });
+
+    const first = createLadybugEngine();
+    first.rebuild(history.assertions());
+    const before = fixedQueries(first);
+    expect(before.view.error).toBeUndefined();
+    expect(before.view.relations).toEqual([{ from: 'billing-api', to: 'ledger-svc', relationIds: ['billing-calls-ledger'] }, { from: 'checkout-web', to: 'payments-api', relationIds: ['checkout-calls-payments'] }]);
+    expect(before.dependents.elements?.map((e) => e.id)).toEqual(['billing-api']);
+    first.close();
+
+    // Thrown away and rebuilt from the very same history.
+    const second = createLadybugEngine();
+    second.rebuild(history.assertions());
+    const after = fixedQueries(second);
+    second.close();
+
+    expect(after).toEqual(before);
+    history.close();
   });
 });
