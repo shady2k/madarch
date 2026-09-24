@@ -14,6 +14,7 @@ import {
   type CompiledState,
   type CompiledZone,
   type HistoryStore,
+  type ReadModel,
 } from '../src/index.js';
 
 /** A clock a test moves by hand, never the real one. */
@@ -31,7 +32,7 @@ function history(clock: Clock, path?: string): HistoryStore {
   return createSqliteHistory({ clock, path });
 }
 
-function readModel(h: HistoryStore, input?: Parameters<HistoryStore['read']>[0]): CompiledModel {
+function readModel(h: HistoryStore, input?: Parameters<HistoryStore['read']>[0]): ReadModel {
   const result = h.read(input);
   expect(result.errors).toEqual([]);
   return result.model!;
@@ -177,85 +178,108 @@ describe('1. a late commit between two stored commits does not change what the n
   });
 });
 
-describe('2. shared vocabulary: elements/interfaces/relations are exclusive, categories/zones/environments/states are shared', () => {
-  test('a second source declaring a zone id with a different definition is refused, naming the id, the field and the other source', () => {
+describe('2. shared vocabulary: elements/interfaces/relations stay exclusive; categories/zones/environments/states are shared and never refused (the owner\'s rule, 2026-09-24)', () => {
+  test('a second source declaring a zone id with a different definition is recorded, not refused: the union keeps both, and reports a discrepancy naming the id, the field and both sources', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
     h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('pci', 'compliance')] }) });
 
     const result = h.store({ source: 'b', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('pci', 'regulatory')] }) });
+    expect(result.errors).toEqual([]);
 
-    expect(result.errors).toEqual([{ message: expect.any(String), id: 'pci', field: 'zone', source: 'a' }]);
+    const read = h.read({ valid: DAY(2), known: DAY(2) });
+    expect(read.errors).toEqual([]);
+    expect(read.discrepancies).toEqual([{ kind: 'zone', id: 'pci', sources: ['a', 'b'], field: 'zone' }]);
+    // `a` sorts first by code point, so its definition is primary; `b`'s is kept in `alsoDefinedAs`, not dropped.
+    expect(read.model?.zones).toEqual([{ id: 'pci', kind: 'compliance', alsoDefinedAs: [{ source: 'b', definition: { id: 'pci', kind: 'regulatory' } }] }]);
   });
 
-  test('a second source declaring the identical zone definition stores without a clash', () => {
+  test('a second source declaring the identical zone definition stores and reads back with no discrepancy at all', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
     h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('pci', 'compliance')] }) });
     const result = h.store({ source: 'b', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('pci', 'compliance')] }) });
     expect(result.errors).toEqual([]);
+
+    const read = h.read({ valid: DAY(2), known: DAY(2) });
+    expect(read.discrepancies).toEqual([]);
+    expect(read.model?.zones).toEqual([{ id: 'pci', kind: 'compliance' }]);
   });
 
-  test('two sources binding different variables of the same environment merge into one environment', () => {
+  test('two sources binding different variables of one environment: the union keeps each source\'s own bindings, per source, and reports no discrepancy since nothing actually conflicts', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
     h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([element('checkout')], { environments: [environment('production', { PAYMENTS_URL: 'https://pay' })] }) });
     h.store({ source: 'orders', commit: 'o1', committedAt: DAY(1), model: model([element('orders')], { environments: [environment('production', { EVENTS_URL: 'kafka://x' })] }) });
 
-    const graph = readModel(h, { valid: DAY(2), known: DAY(2) });
-    expect(graph.environments).toEqual([{ id: 'production', bindings: { EVENTS_URL: 'kafka://x', PAYMENTS_URL: 'https://pay' } }]);
+    const read = h.read({ valid: DAY(2), known: DAY(2) });
+    expect(read.discrepancies).toEqual([]);
+    expect(read.model?.environments).toEqual([
+      { id: 'production', bindingsBySource: { orders: { EVENTS_URL: 'kafka://x' }, shop: { PAYMENTS_URL: 'https://pay' } } },
+    ]);
   });
 
-  test('two sources binding the same variable of one environment to different values is refused, naming the variable', () => {
+  test('two sources binding the same variable of one environment to different values: both values are kept, per source, and reported as a discrepancy naming the variable', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
     h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([], { environments: [environment('production', { TIMEOUT: '30' })] }) });
 
     const result = h.store({ source: 'orders', commit: 'o1', committedAt: DAY(1), model: model([], { environments: [environment('production', { TIMEOUT: '60' })] }) });
-    expect(result.errors).toEqual([{ message: expect.any(String), id: 'production', field: 'TIMEOUT', source: 'shop' }]);
+    expect(result.errors).toEqual([]);
+
+    const read = h.read({ valid: DAY(2), known: DAY(2) });
+    expect(read.discrepancies).toEqual([{ kind: 'environment', id: 'production', sources: ['orders', 'shop'], field: 'TIMEOUT' }]);
+    expect(read.model?.environments).toEqual([{ id: 'production', bindingsBySource: { orders: { TIMEOUT: '60' }, shop: { TIMEOUT: '30' } } }]);
   });
 
-  test('two sources binding the same variable to the same value do not clash', () => {
+  test('two sources binding the same variable to the same value: no discrepancy', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
     h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([], { environments: [environment('production', { TIMEOUT: '30' })] }) });
     const result = h.store({ source: 'orders', commit: 'o1', committedAt: DAY(1), model: model([], { environments: [environment('production', { TIMEOUT: '30' })] }) });
     expect(result.errors).toEqual([]);
+
+    const read = h.read({ valid: DAY(2), known: DAY(2) });
+    expect(read.discrepancies).toEqual([]);
+    expect(read.model?.environments).toEqual([{ id: 'production', bindingsBySource: { orders: { TIMEOUT: '30' }, shop: { TIMEOUT: '30' } } }]);
   });
 
-  test('an environment declared with no bindings by one source and with bindings by the next does not clash (the other order from the paired test above)', () => {
+  test('an environment declared with no bindings by one source and with bindings by the next: no discrepancy, and `bindingsBySource` names only the source that actually bound something', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
-    // `orders` (stored first, so it is the "other" side `shop` checks
-    // against) declares the environment with no bindings at all — so
-    // looking up one of `shop`'s binding variables in `orders`' definition
-    // must not assume a `bindings` object is there to index into.
     h.store({ source: 'orders', commit: 'o1', committedAt: DAY(1), model: model([], { environments: [environment('production')] }) });
     const result = h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([], { environments: [environment('production', { TIMEOUT: '30' })] }) });
     expect(result.errors).toEqual([]);
-    expect(readModel(h, { valid: DAY(2), known: DAY(2) }).environments).toEqual([{ id: 'production', bindings: { TIMEOUT: '30' } }]);
+
+    const read = h.read({ valid: DAY(2), known: DAY(2) });
+    expect(read.discrepancies).toEqual([]);
+    expect(read.model?.environments).toEqual([{ id: 'production', bindingsBySource: { shop: { TIMEOUT: '30' } } }]);
   });
 
-  test('two sources naming the same environment differently (besides bindings) is refused — the store-time check, not only the read-time safety net', () => {
+  test('two sources naming the same environment differently (besides bindings): recorded, not refused; the union keeps both definitions and reports a discrepancy', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
     h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([], { environments: [{ id: 'production', name: 'Production' }] }) });
 
     const result = h.store({ source: 'orders', commit: 'o1', committedAt: DAY(1), model: model([], { environments: [{ id: 'production', name: 'Prod' }] }) });
-    expect(result.errors).toEqual([{ message: expect.any(String), id: 'production', field: 'environment', source: 'shop' }]);
+    expect(result.errors).toEqual([]);
+
+    const read = h.read({ valid: DAY(2), known: DAY(2) });
+    expect(read.discrepancies).toEqual([{ kind: 'environment', id: 'production', sources: ['orders', 'shop'], field: 'environment' }]);
+    expect(read.model?.environments).toEqual([{ id: 'production', name: 'Prod', alsoDefinedAs: [{ source: 'shop', definition: { id: 'production', name: 'Production' } }] }]);
   });
 
-  test('an environment no source binds anything in comes back with no bindings field at all, not an empty object', () => {
+  test('an environment no source binds anything in comes back with no `bindingsBySource` field at all, not an empty object', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
     h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([], { environments: [environment('production')] }) });
     h.store({ source: 'orders', commit: 'o1', committedAt: DAY(1), model: model([], { environments: [environment('production')] }) });
     const graph = readModel(h, { valid: DAY(2), known: DAY(2) });
     expect(graph.environments).toEqual([{ id: 'production' }]);
-    expect('bindings' in graph.environments[0]!).toBe(false);
+    expect('bindingsBySource' in graph.environments[0]!).toBe(false);
   });
 
-  test('a store that would make the union of every source\'s states branch is refused, and the history is unchanged', () => {
+  test('a store that would make the union of every source\'s states branch succeeds — no longer refused — and the union read reports the one chain-wide discrepancy instead', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
     h.store({
@@ -264,7 +288,6 @@ describe('2. shared vocabulary: elements/interfaces/relations are exclusive, cat
       committedAt: DAY(1),
       model: model([element('A', { states: ['as-is', 'to-be'] })], { states: [state('as-is'), state('to-be', 'as-is')] }),
     });
-    const before = readModel(h, { valid: DAY(2), known: DAY(2) });
 
     const result = h.store({
       source: 'b',
@@ -272,13 +295,18 @@ describe('2. shared vocabulary: elements/interfaces/relations are exclusive, cat
       committedAt: DAY(1),
       model: model([element('B', { states: ['as-is', 'target'] })], { states: [state('as-is'), state('target', 'as-is')] }),
     });
+    expect(result.errors).toEqual([]);
 
-    expect(result.errors).toEqual([{ message: expect.any(String) }]);
-    expect(readModel(h, { valid: DAY(2), known: DAY(2) })).toEqual(before);
-    expect(readModel(h, { source: 'b', valid: DAY(2), known: DAY(2) }).elements).toEqual([]);
+    const read = h.read({ valid: DAY(2), known: DAY(2) });
+    expect(read.errors).toEqual([]);
+    expect(read.discrepancies).toEqual([{ kind: 'state', id: '*', sources: ['a', 'b'], field: 'order' }]);
+    expect(read.model?.states.map((s) => s.id).sort()).toEqual(['as-is', 'target', 'to-be']);
+    // Both sources' own elements read back fine; nothing was refused.
+    expect(readModel(h, { source: 'a', valid: DAY(2), known: DAY(2) }).elements.map((e) => e.id)).toEqual(['A']);
+    expect(readModel(h, { source: 'b', valid: DAY(2), known: DAY(2) }).elements.map((e) => e.id)).toEqual(['B']);
   });
 
-  test('a store extending the state chain compatibly (a longer, still-single chain) succeeds', () => {
+  test('a store extending the state chain compatibly (a longer, still-single chain) reports no chain discrepancy', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
     h.store({ source: 'a', commit: 'a1', committedAt: DAY(1), model: model([element('A', { states: ['as-is', 'to-be'] })], { states: [state('as-is'), state('to-be', 'as-is')] }) });
@@ -290,12 +318,13 @@ describe('2. shared vocabulary: elements/interfaces/relations are exclusive, cat
       model: model([element('B', { states: ['to-be', 'future'] })], { states: [state('as-is'), state('to-be', 'as-is'), state('future', 'to-be')] }),
     });
     expect(result.errors).toEqual([]);
-    const graph = readModel(h, { valid: DAY(2), known: DAY(2) });
+    const read = h.read({ valid: DAY(2), known: DAY(2) });
+    expect(read.discrepancies).toEqual([]);
     // Sorted by id, code point order, like every other assembled kind — not the chain order.
-    expect(graph.states.map((s) => s.id).sort()).toEqual(['as-is', 'future', 'to-be']);
+    expect(read.model?.states.map((s) => s.id).sort()).toEqual(['as-is', 'future', 'to-be']);
   });
 
-  test('the state-chain check unions other rows at each point in valid time, never merging rows from different valid times of one source into one set', () => {
+  test('a source\'s own chain evolving over its own history (a different chain at different valid times) never fools the union read at one moment into seeing both at once', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
     // `o`'s own chain changes over its own history: as-is>x until day 5, then as-is>y from day 5 on. The two never coexist.
@@ -303,139 +332,33 @@ describe('2. shared vocabulary: elements/interfaces/relations are exclusive, cat
     clock.set(DAY(6));
     h.store({ source: 'o', commit: 'o2', committedAt: DAY(5), model: model([], { states: [state('as-is'), state('y', 'as-is')] }) });
 
-    // `s` only ever asserts `as-is`. Flattening `o`'s history-wide rows
-    // would see `x` and `y` both naming `as-is` at once — a false branch —
-    // and wrongly refuse this.
+    // `s` only ever asserts `as-is`.
     const result = h.store({ source: 's', commit: 's1', committedAt: DAY(1), model: model([element('S')]) });
     expect(result.errors).toEqual([]);
 
-    expect(readModel(h, { valid: DAY(2), known: DAY(7) }).states.map((st) => st.id).sort()).toEqual(['as-is', 'x']);
-    expect(readModel(h, { valid: DAY(7), known: DAY(7) }).states.map((st) => st.id).sort()).toEqual(['as-is', 'y']);
+    const early = h.read({ valid: DAY(2), known: DAY(7) });
+    expect(early.discrepancies).toEqual([]);
+    expect(early.model?.states.map((st) => st.id).sort()).toEqual(['as-is', 'x']);
+
+    const later = h.read({ valid: DAY(7), known: DAY(7) });
+    expect(later.discrepancies).toEqual([]);
+    expect(later.model?.states.map((st) => st.id).sort()).toEqual(['as-is', 'y']);
   });
 
-  test('the state-chain check still catches a branch that is real at every point in the new commit\'s own span', () => {
+  test('two sources whose states really do branch at the very same moment: the union read at that moment reports the chain discrepancy', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
     h.store({ source: 'o', commit: 'o1', committedAt: DAY(1), model: model([], { states: [state('as-is'), state('x', 'as-is')] }) });
 
     // `s` asserts `y` after `as-is` too, throughout the very same span `o`'s `x` occupies: a real, simultaneous branch.
     const result = h.store({ source: 's', commit: 's1', committedAt: DAY(1), model: model([], { states: [state('as-is'), state('y', 'as-is')] }) });
-    expect(result.errors).toEqual([{ message: expect.any(String) }]);
-  });
-
-  test('the state-chain check adds a later moment when another source opens a new state without closing anything, and checks it too', () => {
-    const clock = fakeClock(DAY(2));
-    const h = history(clock);
-    // `o` adds `n` (after `m`) on day 10, without touching `m` at all: `m`'s
-    // own row stays open past day 10 (no valid_to boundary is involved
-    // here), so the only way this store sees `n` is a fresh `valid_from`
-    // boundary at day 10.
-    h.store({ source: 'o', commit: 'o1', committedAt: DAY(1), model: model([], { states: [state('root2'), state('m', 'root2')] }) });
-    clock.set(DAY(11));
-    h.store({ source: 'o', commit: 'o2', committedAt: DAY(10), model: model([], { states: [state('root2'), state('m', 'root2'), state('n', 'm')] }) });
-
-    // `s` asserts `k` after `m` too: compatible with `m` alone (day 1 to
-    // day 10, one child of `m`), but from day 10 on `m` has two children,
-    // `n` and `k` — a branch that starts only there. A check that never adds
-    // that later moment would miss it and wrongly accept this store.
-    clock.set(DAY(20));
-    const result = h.store({ source: 's', commit: 's1', committedAt: DAY(1), model: model([], { states: [state('root2'), state('k', 'm')] }) });
-    expect(result.errors).toEqual([{ message: expect.any(String) }]);
-  });
-
-  test('the state-chain check never adds a moment earlier than the new commit\'s own start, even for a row that started well before it', () => {
-    const clock = fakeClock(DAY(2));
-    const h = history(clock);
-    // `o` extends its own chain twice, well before `s` ever stores: both
-    // `m1` and `m2` are already open by day 3.
-    h.store({ source: 'o', commit: 'o1', committedAt: DAY(1), model: model([], { states: [state('root2'), state('m1', 'root2')] }) });
-    clock.set(DAY(4));
-    h.store({ source: 'o', commit: 'o2', committedAt: DAY(3), model: model([], { states: [state('root2'), state('m1', 'root2'), state('m2', 'm1')] }) });
-
-    // `s` extends the chain further, `k` after `m2` — compatible with the
-    // real, current state of `o`'s chain (`m1` and `m2` both already
-    // exist). A check that wrongly added a moment at `m1`'s own start (day
-    // 1, well before `s`'s own commit at day 5, when `m2` did not exist
-    // yet) would see `k` dangling there and wrongly refuse a store that is
-    // really fine throughout its own span.
-    clock.set(DAY(10));
-    const result = h.store({ source: 's', commit: 's1', committedAt: DAY(5), model: model([], { states: [state('root2'), state('k', 'm2')] }) });
     expect(result.errors).toEqual([]);
+
+    const read = h.read({ valid: DAY(2), known: DAY(2) });
+    expect(read.discrepancies).toEqual([{ kind: 'state', id: '*', sources: ['o', 's'], field: 'order' }]);
   });
 
-  test('the state-chain check never adds a moment at or past the new commit\'s own successor, even for another source\'s row that starts exactly there', () => {
-    const clock = fakeClock(DAY(2));
-    const h = history(clock);
-    // `o` replaces `m` with `z` (also after `root2`) exactly on day 10.
-    h.store({ source: 'o', commit: 'o1', committedAt: DAY(1), model: model([], { states: [state('root2'), state('m', 'root2')] }) });
-    clock.set(DAY(11));
-    h.store({ source: 'o', commit: 'o2', committedAt: DAY(10), model: model([], { states: [state('root2'), state('z', 'root2')] }) });
-
-    // `s` has an existing commit at day 10 (giving a late commit its own
-    // successor there), and now stores a late one at day 5, `k` after `m` —
-    // compatible with `m`, which is what `o` still asserts throughout `s`'s
-    // own real span [5, 10). A check that wrongly reached one instant past
-    // that span (day 10, `s`'s own successor, where `o` has already moved
-    // on to `z`) would see `k` dangling there and wrongly refuse a store
-    // that is really fine throughout its own span.
-    clock.set(DAY(12));
-    h.store({ source: 's', commit: 'c10', committedAt: DAY(10), model: model([], { states: [state('root2')] }) });
-    clock.set(DAY(20));
-    const result = h.store({ source: 's', commit: 'c5', committedAt: DAY(5), model: model([], { states: [state('root2'), state('k', 'm')] }) });
-    expect(result.errors).toEqual([]);
-  });
-
-  test('the state-chain check still adds and checks a moment strictly inside the new commit\'s own span even when that span is closed by a successor, not open-ended', () => {
-    const clock = fakeClock(DAY(2));
-    const h = history(clock);
-    h.store({ source: 'o', commit: 'o1', committedAt: DAY(1), model: model([], { states: [state('root2'), state('m', 'root2')] }) });
-    clock.set(DAY(7));
-    // `n` opens mid-span (day 6), without touching `m` (its row stays open): purely a `valid_from` boundary again, this time with `s`'s own span closed by a successor rather than open-ended.
-    h.store({ source: 'o', commit: 'o2', committedAt: DAY(6), model: model([], { states: [state('root2'), state('m', 'root2'), state('n', 'm')] }) });
-
-    clock.set(DAY(21));
-    // Gives the next store (dated day 1) a successor at day 20, so its own span is [1, 20) — closed, not open-ended.
-    h.store({ source: 's', commit: 'c20', committedAt: DAY(20), model: model([], { states: [state('root2')] }) });
-    clock.set(DAY(30));
-    const result = h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([], { states: [state('root2'), state('k', 'm')] }) });
-    expect(result.errors).toEqual([{ message: expect.any(String) }]);
-  });
-
-  test('the state-chain check still adds and checks a `valid_to` moment strictly inside the new commit\'s own closed span, not only when the span is open-ended', () => {
-    const clock = fakeClock(DAY(2));
-    const h = history(clock);
-    h.store({ source: 'o', commit: 'o1', committedAt: DAY(1), model: model([], { states: [state('root2'), state('m', 'root2')] }) });
-    clock.set(DAY(11));
-    // `m` is dropped entirely on day 10, strictly inside what will be `s`'s own [1, 20) span, with nothing replacing it.
-    h.store({ source: 'o', commit: 'o2', committedAt: DAY(10), model: model([], { states: [state('root2')] }) });
-
-    clock.set(DAY(21));
-    h.store({ source: 's', commit: 'c20', committedAt: DAY(20), model: model([], { states: [state('root2')] }) });
-    clock.set(DAY(30));
-    const result = h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([], { states: [state('root2'), state('k', 'm')] }) });
-    expect(result.errors).toEqual([{ message: expect.any(String) }]);
-  });
-
-  test('the state-chain check adds a later moment when another source closes a state without opening a replacement, and checks it too', () => {
-    const clock = fakeClock(DAY(2));
-    const h = history(clock);
-    // `o` drops `m` entirely on day 10 (no replacement state opens then):
-    // `m`'s row gets a real `valid_to` of day 10, the only boundary this
-    // introduces.
-    h.store({ source: 'o', commit: 'o1', committedAt: DAY(1), model: model([], { states: [state('root2'), state('m', 'root2')] }) });
-    clock.set(DAY(11));
-    h.store({ source: 'o', commit: 'o2', committedAt: DAY(10), model: model([], { states: [state('root2')] }) });
-
-    // `s` asserts `k` after `m`: reachable while `m` still exists (day 1 to
-    // day 10), but orphaned from day 10 on, once `o` drops `m`. A check
-    // that never adds that later moment would miss the orphan and wrongly
-    // accept this store.
-    clock.set(DAY(20));
-    const result = h.store({ source: 's', commit: 's1', committedAt: DAY(1), model: model([], { states: [state('root2'), state('k', 'm')] }) });
-    expect(result.errors).toEqual([{ message: expect.any(String) }]);
-  });
-
-  test('isOneStateChain: the pure chain check used by the store, directly', () => {
+  test('isOneStateChain: the pure chain check the union read uses, directly', () => {
     expect(isOneStateChain([{ id: 'as-is' }])).toBe(true);
     expect(isOneStateChain([{ id: 'as-is' }, { id: 'to-be', after: 'as-is' }])).toBe(true);
     // Two states both naming the same predecessor: branches.
@@ -456,7 +379,7 @@ describe('2. shared vocabulary: elements/interfaces/relations are exclusive, cat
     expect(isOneStateChain([{ id: 'a', after: 'ghost' }])).toBe(true);
   });
 
-  test('the union read reports an error instead of picking silently between two sources\' disagreeing zone definitions (safety net for data written outside store())', () => {
+  test('the union read keeps every source\'s zone definition instead of picking silently between them, even for data written outside store() (safety net for the assembler itself)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
     const path = join(dir, 'history.sqlite');
     const clock = fakeClock(DAY(2));
@@ -464,10 +387,9 @@ describe('2. shared vocabulary: elements/interfaces/relations are exclusive, cat
     h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('pci', 'compliance')] }) });
     h.close();
 
-    // `store()` already refuses this from ever happening through the
-    // public interface; this reaches around it, the same way the review's
-    // own scripts do, to exercise `read`'s own safety net: it must still
-    // never pick silently between two disagreeing definitions.
+    // Reaches around `store()`'s own (still-refusing) id-clash check the
+    // same way the review's own scripts do, to exercise the assembler's own
+    // merge logic directly: it must never drop a source's definition.
     const raw = new Database(path);
     const now = clock.now();
     raw.run(
@@ -479,11 +401,12 @@ describe('2. shared vocabulary: elements/interfaces/relations are exclusive, cat
 
     const h2 = history(clock, path);
     const result = h2.read({ valid: DAY(2), known: DAY(2) });
-    expect(result.model).toBeUndefined();
-    expect(result.errors.length).toBeGreaterThan(0);
-    expect(result.errors[0]?.id).toBe('pci');
+    expect(result.errors).toEqual([]);
+    expect(result.discrepancies).toEqual([{ kind: 'zone', id: 'pci', sources: ['a', 'b'], field: 'zone' }]);
+    expect(result.model?.zones).toEqual([{ id: 'pci', kind: 'compliance', alsoDefinedAs: [{ source: 'b', definition: { id: 'pci', kind: 'regulatory' } }] }]);
   });
 });
+
 
 describe('3. the id-clash check compares valid spans, not just "now"', () => {
   test('a source declaring an id another source historically declared, in an overlapping span, is refused even though the other source no longer currently declares it', () => {
@@ -836,29 +759,36 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     expect(result.closed).toEqual([]);
   });
 
-  test('a third source conflicting with a shared zone id two other sources already agree on is refused, naming one of them', () => {
+  test('a third source conflicting with a shared zone id two other sources already agree on succeeds; the read names all three sources in one discrepancy', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
     h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('pci', 'compliance')] }) });
     h.store({ source: 'b', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('pci', 'compliance')] }) });
 
     const result = h.store({ source: 'c', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('pci', 'regulatory')] }) });
-    expect(result.errors).toEqual([{ message: expect.any(String), id: 'pci', field: 'zone', source: expect.stringMatching(/^[ab]$/) }]);
+    expect(result.errors).toEqual([]);
+
+    const read = h.read({ valid: DAY(2), known: DAY(2) });
+    expect(read.discrepancies).toEqual([{ kind: 'zone', id: 'pci', sources: ['a', 'b', 'c'], field: 'zone' }]);
+    expect(read.model?.zones).toEqual([{ id: 'pci', kind: 'compliance', alsoDefinedAs: [{ source: 'c', definition: { id: 'pci', kind: 'regulatory' } }] }]);
   });
 
-  test('every other source currently declaring a shared id is checked, not only whichever one is seen last: a conflict with the first of two agreeing sources is still caught', () => {
+  test('every source currently declaring a shared binding is checked, not only whichever one is seen last: a conflict with the first of two agreeing sources is still caught', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
-    // `x` and `y` currently agree that environment `production` binds
-    // different, non-overlapping variables — no conflict between them.
+    // `x` and `y` bind different, non-overlapping variables of `production` — no conflict between them.
     h.store({ source: 'x', commit: 'c1', committedAt: DAY(1), model: model([], { environments: [environment('production', { X: '1' })] }) });
     h.store({ source: 'y', commit: 'c1', committedAt: DAY(1), model: model([], { environments: [environment('production', { Y: '2' })] }) });
 
     // `z` conflicts with `x` specifically (on `X`), not with `y` at all:
-    // if only the last-seen other source were checked, this conflict could
+    // if only the last-seen other source were scanned, this conflict could
     // be missed.
     const result = h.store({ source: 'z', commit: 'c1', committedAt: DAY(1), model: model([], { environments: [environment('production', { X: '99' })] }) });
-    expect(result.errors).toEqual([{ message: expect.any(String), id: 'production', field: 'X', source: 'x' }]);
+    expect(result.errors).toEqual([]);
+
+    const read = h.read({ valid: DAY(2), known: DAY(2) });
+    expect(read.discrepancies).toEqual([{ kind: 'environment', id: 'production', sources: ['x', 'z'], field: 'X' }]);
+    expect(read.model?.environments).toEqual([{ id: 'production', bindingsBySource: { x: { X: '1' }, y: { Y: '2' }, z: { X: '99' } } }]);
   });
 
   test('a late commit whose predecessor row already closes exactly at the late commit\'s own successor opens no extra, redundant row', () => {
@@ -948,7 +878,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     expect(empty).toEqual([]);
   });
 
-  test('the union read reports an error instead of picking silently between two sources\' disagreeing environment definitions (safety net)', () => {
+  test('the union read keeps both sources\' disagreeing environment definitions instead of picking silently between them (safety net for the assembler itself)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
     const path = join(dir, 'history.sqlite');
     const clock = fakeClock(DAY(2));
@@ -966,12 +896,14 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 
     const h2 = history(clock, path);
     const result = h2.read({ valid: DAY(2), known: DAY(2) });
-    expect(result.model).toBeUndefined();
-    expect(result.errors.length).toBeGreaterThan(0);
-    expect(result.errors[0]?.id).toBe('production');
+    expect(result.errors).toEqual([]);
+    expect(result.discrepancies).toEqual([{ kind: 'environment', id: 'production', sources: ['a', 'b'], field: 'environment' }]);
+    expect(result.model?.environments).toEqual([
+      { id: 'production', bindingsBySource: { a: { X: '1' } }, alsoDefinedAs: [{ source: 'b', definition: { id: 'production', name: 'a different name' } }] },
+    ]);
   });
 
-  test('the union read reports an error instead of picking silently between two sources\' conflicting bindings for the same variable (safety net, agreeing on everything else)', () => {
+  test('the union read keeps both sources\' conflicting bindings for the same variable instead of picking silently between them (safety net, agreeing on everything else)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
     const path = join(dir, 'history.sqlite');
     const clock = fakeClock(DAY(2));
@@ -989,12 +921,12 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 
     const h2 = history(clock, path);
     const result = h2.read({ valid: DAY(2), known: DAY(2) });
-    expect(result.model).toBeUndefined();
-    expect(result.errors.length).toBeGreaterThan(0);
-    expect(result.errors[0]).toMatchObject({ id: 'production', field: 'TIMEOUT' });
+    expect(result.errors).toEqual([]);
+    expect(result.discrepancies).toEqual([{ kind: 'environment', id: 'production', sources: ['a', 'b'], field: 'TIMEOUT' }]);
+    expect(result.model?.environments).toEqual([{ id: 'production', bindingsBySource: { a: { TIMEOUT: '30' }, b: { TIMEOUT: '60' } } }]);
   });
 
-  test('the union read does not report a conflict when two sources bind the same variable to the same value (safety net stays silent when there is truly nothing to disagree about)', () => {
+  test('the union read does not report a discrepancy when two sources bind the same variable to the same value (stays silent when there is truly nothing to disagree about)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
     const path = join(dir, 'history.sqlite');
     const clock = fakeClock(DAY(2));
@@ -1013,7 +945,8 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     const h2 = history(clock, path);
     const result = h2.read({ valid: DAY(2), known: DAY(2) });
     expect(result.errors).toEqual([]);
-    expect(result.model?.environments).toEqual([{ id: 'production', bindings: { TIMEOUT: '30' } }]);
+    expect(result.discrepancies).toEqual([]);
+    expect(result.model?.environments).toEqual([{ id: 'production', bindingsBySource: { a: { TIMEOUT: '30' }, b: { TIMEOUT: '30' } } }]);
   });
 
   test('sources() sorts by code point regardless of storage or arrival order', () => {
@@ -1024,14 +957,16 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     expect(h.sources()).toEqual(['apple', 'zebra']);
   });
 
-  test('merged environment bindings come back with keys sorted, code point order, regardless of which order sources bound them', () => {
+  test('`bindingsBySource`\'s own source keys, and each source\'s own variable keys, come back sorted code point order, regardless of which order sources bound them', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
-    h.store({ source: 'z', commit: 'c1', committedAt: DAY(1), model: model([], { environments: [environment('production', { zzz: '1' })] }) });
+    h.store({ source: 'z', commit: 'c1', committedAt: DAY(1), model: model([], { environments: [environment('production', { zzz: '1', bbb: '9' })] }) });
     h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: model([], { environments: [environment('production', { aaa: '2' })] }) });
 
     const graph = readModel(h, { valid: DAY(2), known: DAY(2) });
-    expect(Object.keys(graph.environments[0]!.bindings!)).toEqual(['aaa', 'zzz']);
+    const bindingsBySource = graph.environments[0]!.bindingsBySource!;
+    expect(Object.keys(bindingsBySource)).toEqual(['a', 'z']);
+    expect(Object.keys(bindingsBySource['z']!)).toEqual(['bbb', 'zzz']);
   });
 
   test('opened and closed are empty arrays, not merely falsy, on every non-writing outcome', () => {
@@ -1172,5 +1107,70 @@ describe('10. a seeded random sequence of stores matches an independently comput
         }
       }
     }
+  });
+});
+
+describe('11. the review\'s own scenarios (t8, t9): both stores succeed; the union shows each source\'s value and a discrepancy; each relation still carries its own source\'s address', () => {
+  test('t8(a): both sources evolve a shared zone\'s kind on different days — both stores succeed, and the union carries a discrepancy that tracks the latest agreed content', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    h.store({ source: 'a', commit: 'a1', committedAt: DAY(1), model: model([element('A')], { zones: [zone('pci', 'regulatory')] }) });
+    h.store({ source: 'b', commit: 'b1', committedAt: DAY(1), model: model([element('B')], { zones: [zone('pci', 'regulatory')] }) });
+
+    // Both start out agreeing, so no discrepancy yet.
+    expect(h.read({ valid: DAY(2), known: DAY(2) }).discrepancies).toEqual([]);
+
+    clock.set(DAY(13));
+    const ra = h.store({ source: 'a', commit: 'a2', committedAt: DAY(10), model: model([element('A')], { zones: [zone('pci', 'compliance')] }) });
+    const rb = h.store({ source: 'b', commit: 'b2', committedAt: DAY(12), model: model([element('B')], { zones: [zone('pci', 'compliance')] }) });
+    expect(ra.errors).toEqual([]);
+    expect(rb.errors).toEqual([]);
+
+    // `a` moved first (day 10): from day 10 to day 12, the sources disagree.
+    const between = h.read({ valid: DAY(11), known: DAY(13) });
+    expect(between.discrepancies).toEqual([{ kind: 'zone', id: 'pci', sources: ['a', 'b'], field: 'zone' }]);
+
+    // Once `b` catches up (day 12 on), both agree again: no discrepancy.
+    const after = h.read({ valid: DAY(13), known: DAY(13) });
+    expect(after.discrepancies).toEqual([]);
+    expect(after.model?.zones).toEqual([{ id: 'pci', kind: 'compliance' }]);
+
+    // Repeating `a`'s own already-stored commit stays the idempotent no-op it always was.
+    const retry = h.store({ source: 'a', commit: 'a2', committedAt: DAY(10), model: model([element('A')], { zones: [zone('pci', 'compliance')] }) });
+    expect(retry.errors).toEqual([]);
+    expect(retry.opened).toEqual([]);
+  });
+
+  test('t9: two sources moving the same environment binding to a new value on different days — both stores succeed; the union keeps each source\'s own value, and each relation still carries its own source\'s address', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    const withPayments = (id: string, url: string): CompiledModel =>
+      model([element(id), element(`${id}-gateway`)], {
+        relations: [{ id: `${id}-to-gateway`, from: id, to: `${id}-gateway`, interaction: true, environments: ['production'], states: ['as-is'], binding: { env: 'PAYMENTS_URL' }, bindingByEnvironment: { production: url } }],
+        environments: [environment('production', { PAYMENTS_URL: url })],
+      });
+
+    h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: withPayments('shop', 'https://old') });
+    h.store({ source: 'orders', commit: 'o1', committedAt: DAY(1), model: withPayments('orders', 'https://old') });
+    expect(h.read({ valid: DAY(2), known: DAY(2) }).discrepancies).toEqual([]);
+
+    clock.set(DAY(20));
+    const rShop = h.store({ source: 'shop', commit: 's2', committedAt: DAY(10), model: withPayments('shop', 'https://new') });
+    const rOrders = h.store({ source: 'orders', commit: 'o2', committedAt: DAY(11), model: withPayments('orders', 'https://new') });
+    expect(rShop.errors).toEqual([]);
+    expect(rOrders.errors).toEqual([]);
+
+    // Between day 10 and day 11, `shop` has already moved but `orders` has not: the union keeps both, tagged by source, and reports the disagreement.
+    const between = h.read({ valid: DAY(10), known: DAY(20) });
+    expect(between.discrepancies).toEqual([{ kind: 'environment', id: 'production', sources: ['orders', 'shop'], field: 'PAYMENTS_URL' }]);
+    expect(between.model?.environments).toEqual([{ id: 'production', bindingsBySource: { orders: { PAYMENTS_URL: 'https://old' }, shop: { PAYMENTS_URL: 'https://new' } } }]);
+    // Each source's own relation still carries its own source's address, untouched by the other source's disagreement.
+    expect(readModel(h, { source: 'shop', valid: DAY(10), known: DAY(20) }).relations[0]?.bindingByEnvironment).toEqual({ production: 'https://new' });
+    expect(readModel(h, { source: 'orders', valid: DAY(10), known: DAY(20) }).relations[0]?.bindingByEnvironment).toEqual({ production: 'https://old' });
+
+    // Once `orders` also moves (day 11 on), both agree again: no discrepancy, one shared value.
+    const after = h.read({ valid: DAY(11), known: DAY(20) });
+    expect(after.discrepancies).toEqual([]);
+    expect(after.model?.environments).toEqual([{ id: 'production', bindingsBySource: { orders: { PAYMENTS_URL: 'https://new' }, shop: { PAYMENTS_URL: 'https://new' } } }]);
   });
 });

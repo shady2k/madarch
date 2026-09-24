@@ -1,5 +1,5 @@
 import type { CompiledModel } from '../model/compile.js';
-import type { AssertionKind } from './assertions.js';
+import type { AssertionKind, ReadModel } from './assertions.js';
 
 /**
  * Supplies the current moment for recorded time. Injected rather than read
@@ -24,19 +24,41 @@ export interface StoreInput {
 
 /**
  * One problem that kept a store, or a read, from succeeding. For an id
- * clash, `id` and `source` name the clashing id and the other source that
- * already declares it. For a shared-vocabulary conflict (a zone, category,
- * environment or state two sources declare differently), `id` names the
- * entity, `field` the part of its definition that disagrees (the kind
- * itself when the whole definition differs, or a binding variable's name),
- * and `source` the other source. For a commit already stored under a
- * different time or model, `id` carries the commit id.
+ * clash (an element, interface or relation id a second source declares over
+ * an overlapping valid span — `CLASHABLE_KINDS`, still exclusive to one
+ * source), `id` and `source` name the clashing id and the other source that
+ * already declares it. For a commit already stored under a different time
+ * or model, `id` carries the commit id. Shared vocabulary (a zone, category,
+ * environment or state, or an environment's bindings) is never refused any
+ * more — two sources declaring the same id differently is reported as a
+ * `Discrepancy` on a successful read instead (see `ReadResult`).
  */
 export interface HistoryError {
   message: string;
   id?: string;
   field?: string;
   source?: string;
+}
+
+/**
+ * One shared-vocabulary id (a category, zone, environment or state) that
+ * two or more sources declare differently — kept, not refused (the owner's
+ * rule: "there is a connection, so we record it; it means they have
+ * different endpoints"). `sources` lists every source with a definition for
+ * `id` that took part in the disagreement, sorted by code point. `field` is
+ * the kind's own name (`"zone"`, `"category"`, `"state"`, `"environment"`)
+ * when the whole definition differs, a binding variable's name when two
+ * sources bind it to different values, or `"order"` for the one
+ * chain-wide discrepancy `state` can carry (`id` is then the sentinel
+ * `"*"`, not one state's id): sources' chains each validate on their own at
+ * compile time, but their union can still branch or cycle, and that no
+ * longer refuses the store or the read — it is reported here instead.
+ */
+export interface Discrepancy {
+  kind: AssertionKind;
+  id: string;
+  sources: string[];
+  field?: string;
 }
 
 /**
@@ -80,8 +102,20 @@ export interface ReadInput {
 }
 
 export interface ReadResult {
-  /** Left out only when `errors` is non-empty: the union read never picks silently between disagreeing sources. */
-  model?: CompiledModel;
+  /**
+   * Left out only when `errors` is non-empty. A source-filtered read
+   * (`ReadInput.source` given) returns a plain `CompiledModel`, byte for
+   * byte what that source's own `store` was given (the `lossless`
+   * requirement: a single source can never disagree with itself). The
+   * union read (no `source`) returns a `ReadModel` instead: a shared id two
+   * sources declare differently is kept, not refused, so `categories`,
+   * `zones`, `environments` and `states` can each carry more than one
+   * source's definition (see `ReadModel`, `Discrepancy`).
+   */
+  model?: CompiledModel | ReadModel;
+  /** Shared ids two or more sources declare differently, kept in `model` rather than refused. Empty when every source agrees. */
+  discrepancies: Discrepancy[];
+  /** Real failures only (e.g. an id-clash safety net tripped on data written outside `store()`) — never a shared-vocabulary disagreement; see `Discrepancy`. */
   errors: HistoryError[];
 }
 

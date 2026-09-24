@@ -1,15 +1,6 @@
 import { Database, type Statement } from 'bun:sqlite';
 import type { CompiledModel } from '../model/compile.js';
-import {
-  CLASHABLE_KINDS,
-  SHARED_KINDS,
-  assembleCompiledModel,
-  assertionsOf,
-  environmentDefinitionWithoutBindings,
-  isOneStateChain,
-  type Assertion,
-  type AssertionKind,
-} from '../history/assertions.js';
+import { CLASHABLE_KINDS, assembleCompiledModel, assembleSourceModel, assertionsOf, type Assertion, type AssertionKind } from '../history/assertions.js';
 import type {
   AssertionChange,
   AssertionRecord,
@@ -45,18 +36,15 @@ interface AssertionRow {
 
 /**
  * A row naming another source's currently-believed assertion overlapping
- * the version being stored. `valid_from`/`valid_to` are carried so the
- * state-chain check can tell apart rows that are each other's own currently
- * believed replacement at different valid times (never true together) from
- * rows genuinely true at the same moment.
+ * the version being stored (the clash check now only ever queries
+ * `CLASHABLE_KINDS` for this — see `selectOtherCurrentOverlapping`), or one
+ * row of a `read`'s own result set.
  */
 interface OtherCurrentRow {
   kind: AssertionKind;
   entity_id: string;
   content: string;
   source: string;
-  valid_from: number;
-  valid_to: number | null;
 }
 
 /** A row of `source_commits`, as read back to decide idempotence and ordering. */
@@ -75,49 +63,6 @@ interface SuccessorRow {
 class StoreRefused extends Error {
   constructor(public readonly errors: HistoryError[]) {
     super('store refused');
-  }
-}
-
-/**
- * Whether the state chain stays one chain throughout our own new valid span
- * `[committedAt, ourValidTo)`, checking the union of currently-believed
- * state rows at each point within it where that union can change — never by
- * flattening every other source's currently-believed state row into one set
- * regardless of when each was actually true. Two rows of one other source
- * are each other's own successor at different valid times (a state renamed
- * partway through that source's own history) and so are never true
- * together; a union built by id alone, ignoring `valid_from`/`valid_to`,
- * would see a false branch that no single moment in time ever has. Rows
- * outside our own span never matter here: nothing this store does reaches
- * past it. Throws `StoreRefused` on the first checked moment where the
- * union branches or cycles.
- */
-function checkStateChain(otherCurrent: readonly OtherCurrentRow[], newAssertions: readonly Assertion[], committedAt: number, ourValidTo: number | null): void {
-  const otherStates = otherCurrent.filter((row) => row.kind === 'state');
-  const ourStates = newAssertions.filter((assertion) => assertion.kind === 'state');
-
-  // One moment per distinct configuration of `otherStates`: our own span's
-  // start, plus every other row's `valid_from`/`valid_to` that falls
-  // strictly inside it. Checking the union at each of these representative
-  // moments covers every interval between them too, since nothing changes
-  // in between.
-  const moments = new Set<number>([committedAt]);
-  for (const row of otherStates) {
-    if (row.valid_from > committedAt && (ourValidTo === null || row.valid_from < ourValidTo)) moments.add(row.valid_from);
-    if (row.valid_to !== null && row.valid_to > committedAt && (ourValidTo === null || row.valid_to < ourValidTo)) moments.add(row.valid_to);
-  }
-
-  for (const moment of moments) {
-    const union = new Map<string, { id: string; after?: string }>();
-    for (const row of otherStates) {
-      if (row.valid_from <= moment && (row.valid_to === null || row.valid_to > moment)) {
-        union.set(row.entity_id, JSON.parse(row.content) as { id: string; after?: string });
-      }
-    }
-    for (const assertion of ourStates) union.set(assertion.id, JSON.parse(assertion.content) as { id: string; after?: string });
-    if (!isOneStateChain([...union.values()])) {
-      throw new StoreRefused([{ message: 'combining every source\'s states would leave the state chain branching or cyclic, not one chain' }]);
-    }
   }
 }
 
@@ -169,19 +114,20 @@ function checkStateChain(otherCurrent: readonly OtherCurrentRow[], newAssertions
  * successor's position to the row's original end — restoring exactly what
  * the newer commit was already believed to assert, undisturbed.
  *
- * Id clash and shared vocabulary (the `sources` requirement): before
- * anything is written, a store is refused, and the history left exactly as
- * it was, if the new version's valid span — from its commit's time to its
- * own successor, or open-ended — overlaps another source's current
- * assertion (on either time axis: a commit dated after the clock's current
- * "now" is still seen) of an element, interface or relation id it also
- * declares (`CLASHABLE_KINDS`, exclusive to one source), or a category,
- * zone, environment or state id (`SHARED_KINDS`, shared vocabulary) whose
- * definition disagrees — except an environment's `bindings`, checked
- * variable by variable, and its own union performed by
- * `assembleCompiledModel`. A store that would leave the union of every
- * source's states branching or cyclic is refused the same way, even when
- * no single id disagrees.
+ * Id clash (the `sources` requirement's exclusivity): before anything is
+ * written, a store is refused, and the history left exactly as it was, if
+ * the new version's valid span — from its commit's time to its own
+ * successor, or open-ended — overlaps another source's current assertion
+ * (on either time axis: a commit dated after the clock's current "now" is
+ * still seen) of an element, interface or relation id it also declares
+ * (`CLASHABLE_KINDS`, still exclusive to one source). A category, zone,
+ * environment or state id (`SHARED_KINDS`, shared vocabulary) is never
+ * refused for disagreeing with another source, nor is the union of every
+ * source's states ever refused for branching or cycling: the owner's rule
+ * (2026-09-24) is that a shared id is always recorded, kept as every
+ * source's own definition, never picked between or rejected — see
+ * `assembleCompiledModel` and `ReadModel` for how `read` reports the
+ * disagreement instead, as a `Discrepancy`, not an error.
  */
 export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore {
   // `':memory:'` here is a documented convention, not load-bearing: an
@@ -232,13 +178,16 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
        AND (valid_from < ? OR (valid_from = ? AND opened_by < ?))
        AND (valid_to IS NULL OR valid_to > ? OR (valid_to = ? AND closed_by > ?))`,
   );
-  // `CLASHABLE_KINDS`/`SHARED_KINDS` are fixed, code-defined lists (never
-  // user input), so it is safe to inline them into the SQL text rather than
-  // bind as parameters.
-  const relevantKindsList = [...CLASHABLE_KINDS, ...SHARED_KINDS].map((kind) => `'${kind}'`).join(', ');
+  // `CLASHABLE_KINDS` is a fixed, code-defined list (never user input), so
+  // it is safe to inline it into the SQL text rather than bind as
+  // parameters. Shared kinds (`SHARED_KINDS`) are never checked here any
+  // more: a shared id is never refused for disagreeing with another
+  // source (the owner's rule), so `store` has nothing left to look up for
+  // them ahead of time.
+  const clashableKindsList = CLASHABLE_KINDS.map((kind) => `'${kind}'`).join(', ');
   const selectOtherCurrentOverlapping: Statement<OtherCurrentRow, [string, number | null, number | null, number]> = db.query(
-    `SELECT kind, entity_id, content, source, valid_from, valid_to FROM assertions
-     WHERE source != ? AND kind IN (${relevantKindsList}) AND recorded_to IS NULL
+    `SELECT kind, entity_id, content, source FROM assertions
+     WHERE source != ? AND kind IN (${clashableKindsList}) AND recorded_to IS NULL
        AND (? IS NULL OR valid_from < ?)
        AND (valid_to IS NULL OR valid_to > ?)`,
   );
@@ -361,6 +310,11 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
         else list.push(row);
       }
 
+      // Only `CLASHABLE_KINDS` are ever fetched into `otherCurrent` (see
+      // `selectOtherCurrentOverlapping`): a shared id is never refused for
+      // disagreeing with another source any more (the owner's rule), so
+      // there is nothing left to check for `category`, `zone`,
+      // `environment` or `state` here at all.
       const errors: HistoryError[] = [];
       const reportedSlots = new Set<string>();
       const newBySlot = new Map<string, Assertion>();
@@ -371,40 +325,10 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
         const others = otherBySlot.get(slot);
         if (others === undefined || reportedSlots.has(slot)) continue;
 
-        if (CLASHABLE_KINDS.includes(assertion.kind)) {
-          reportedSlots.add(slot);
-          errors.push({ message: `"${assertion.id}" is already declared by source "${others[0]!.source}"`, id: assertion.id, source: others[0]!.source });
-        } else if (assertion.kind === 'environment') {
-          errors.push(...checkEnvironmentConflict(assertion, others));
-        } else {
-          // category, zone, state: shared vocabulary — agreement required, not exclusivity.
-          const disagreeing = others.find((other) => other.content !== assertion.content);
-          if (disagreeing !== undefined) {
-            reportedSlots.add(slot);
-            errors.push({
-              message: `"${assertion.id}" is declared differently by source "${disagreeing.source}"`,
-              id: assertion.id,
-              field: assertion.kind,
-              source: disagreeing.source,
-            });
-          }
-        }
+        reportedSlots.add(slot);
+        errors.push({ message: `"${assertion.id}" is already declared by source "${others[0]!.source}"`, id: assertion.id, source: others[0]!.source });
       }
       if (errors.length > 0) throw new StoreRefused(errors);
-
-      // The state chain must still be one chain once this version's states
-      // join every other source's currently-believed ones (already known,
-      // from the check above, to agree wherever an id is shared) — checked
-      // at each point in our own valid span where the set of other sources'
-      // currently-believed state rows changes, never by merging every
-      // other-source row into one flat set regardless of when each was
-      // true. Two rows of one other source can be each other's own
-      // successor at different valid times (a state renamed partway through
-      // that source's own history) and so never coexist; flattening them
-      // together would see a false branch no moment in time ever has. Other
-      // sources' state rows outside our own span are never this store's
-      // concern: it neither reads nor writes anything there.
-      checkStateChain(otherCurrent, newAssertions, committedAt, ourValidTo);
 
       // What this source's history currently believes was true right at
       // this commit's own position in its order — empty for a source's
@@ -498,43 +422,18 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
     }
   }
 
-  /**
-   * An environment's definition besides `bindings` must still agree byte
-   * for byte (the shared-vocabulary rule every other kind follows);
-   * `bindings` merges variable by variable, so only a variable both sides
-   * bind to different values is a conflict (the `sources` requirement's
-   * one exception).
-   */
-  function checkEnvironmentConflict(assertion: Assertion, others: readonly OtherCurrentRow[]): HistoryError[] {
-    const errors: HistoryError[] = [];
-    const ours = JSON.parse(assertion.content) as { bindings?: Record<string, string> };
-    const oursWithoutBindings = environmentDefinitionWithoutBindings(assertion.content);
-    for (const other of others) {
-      if (environmentDefinitionWithoutBindings(other.content) !== oursWithoutBindings) {
-        errors.push({ message: `environment "${assertion.id}" is declared differently by source "${other.source}"`, id: assertion.id, field: 'environment', source: other.source });
-        continue;
-      }
-      const theirs = JSON.parse(other.content) as { bindings?: Record<string, string> };
-      for (const [key, value] of Object.entries(ours.bindings ?? {})) {
-        const theirValue = theirs.bindings?.[key];
-        if (theirValue !== undefined && theirValue !== value) {
-          errors.push({ message: `environment "${assertion.id}" binds "${key}" differently by source "${other.source}"`, id: assertion.id, field: key, source: other.source });
-        }
-      }
-    }
-    return errors;
-  }
-
   function read(input: ReadInput = {}): ReadResult {
     const now = clock.now();
     const valid = input.valid ?? now;
     const known = input.known ?? now;
 
-    const rows =
-      input.source !== undefined
-        ? selectReadOneSource.all(input.source, valid, valid, known, known)
-        : selectReadAllSources.all(valid, valid, known, known);
+    if (input.source !== undefined) {
+      const rows = selectReadOneSource.all(input.source, valid, valid, known, known);
+      const { model, errors } = assembleSourceModel(rows.map((row) => ({ kind: row.kind, id: row.entity_id, content: row.content, source: row.source })));
+      return { model, discrepancies: [], errors };
+    }
 
+    const rows = selectReadAllSources.all(valid, valid, known, known);
     return assembleCompiledModel(rows.map((row) => ({ kind: row.kind, id: row.entity_id, content: row.content, source: row.source })));
   }
 

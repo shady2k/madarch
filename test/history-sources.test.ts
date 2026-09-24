@@ -8,6 +8,7 @@ import {
   type CompiledRelation,
   type CompiledZone,
   type HistoryStore,
+  type ReadModel,
 } from '../src/index.js';
 
 /** A clock a test moves by hand, never the real one. */
@@ -25,7 +26,7 @@ function history(clock: Clock): HistoryStore {
   return createSqliteHistory({ clock });
 }
 
-function readModel(h: HistoryStore, input?: Parameters<HistoryStore['read']>[0]): CompiledModel {
+function readModel(h: HistoryStore, input?: Parameters<HistoryStore['read']>[0]): ReadModel {
   const result = h.read(input);
   expect(result.errors).toEqual([]);
   return result.model!;
@@ -188,17 +189,20 @@ describe('sources: a graph is the union of its sources', () => {
     expect(result.errors).toEqual([{ message: expect.any(String), id: 'payments-api', source: 'payments' }]);
   });
 
-  test('two sources sharing a zone id whose content disagrees is refused, naming the id, the field and the other source', () => {
+  test('two sources sharing a zone id whose content disagrees is recorded, not refused: the union keeps both definitions and reports a discrepancy naming the id, the field and both sources', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
     h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: { ...model([]), zones: [zone('pci', 'compliance')] } });
 
-    const before = readModel(h, { valid: DAY(2), known: DAY(2) });
     const result = h.store({ source: 'b', commit: 'c1', committedAt: DAY(1), model: { ...model([]), zones: [zone('pci', 'regulatory')] } });
+    expect(result.errors).toEqual([]);
 
-    expect(result.errors).toEqual([{ message: expect.any(String), id: 'pci', field: 'zone', source: 'a' }]);
-    expect(readModel(h, { valid: DAY(2), known: DAY(2) })).toEqual(before);
-    expect(readModel(h, { source: 'b', valid: DAY(2), known: DAY(2) }).zones).toEqual([]);
+    const read = h.read({ valid: DAY(2), known: DAY(2) });
+    expect(read.errors).toEqual([]);
+    expect(read.discrepancies).toEqual([{ kind: 'zone', id: 'pci', sources: ['a', 'b'], field: 'zone' }]);
+    expect(read.model?.zones).toEqual([{ id: 'pci', kind: 'compliance', alsoDefinedAs: [{ source: 'b', definition: { id: 'pci', kind: 'regulatory' } }] }]);
+    // `b`'s own read is unaffected: it is, byte for byte, what `b` itself stored.
+    expect(readModel(h, { source: 'b', valid: DAY(2), known: DAY(2) }).zones).toEqual([{ id: 'pci', kind: 'regulatory' }]);
   });
 
   test('two sources sharing a zone id with the identical definition store without a clash (the paired normal case)', () => {
