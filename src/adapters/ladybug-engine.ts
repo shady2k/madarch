@@ -210,19 +210,22 @@ function chainRoot(states: readonly { id: string; after?: string }[]): string | 
  *   never needs a specific *version* row of an end, only its stable anchor.
  * - `RELATES_TO` (`Anchor` -> `Anchor`): one edge per relation assertion,
  *   carrying the same bitemporal and state fields as `Relation`, so a
- *   multi-hop `dependents`/`dependencies` walk can filter every hop with
- *   `all(x IN rels(p) WHERE ...)` — the recursive Cypher traversal the
+ *   multi-hop `dependents`/`dependencies` walk can filter every hop as it
+ *   explores, through the pattern's own `SHORTEST`/`ALL SHORTEST`
+ *   relationship-filter clause (`*... (r, n | WHERE ...)`, see
+ *   `dependencyQuery`'s own doc) — the recursive Cypher traversal the
  *   owner's constraint asks for (see stage3-brief.md).
  *
  * `view`'s own traversal (lifting each relation's ends to the nearest
  * *shown* ancestor, merging per shown pair, dropping a relation whose ends
- * land on the same shown element, and leaving refinements out since their
- * general relation already stands for them) needs no multi-hop walk at
- * all: with `ancestors` already a precomputed, ordered list, "the nearest
- * shown ancestor of X" is simply the first entry of `[X] + reverse(X's
- * ancestors)` that is a member of the shown set — a single Cypher
- * `list_filter` over already-materialized data, still every bit "a
- * LadybugDB Cypher query" (see `viewQuery`).
+ * land on the same shown element, and drawing a refinement beside the
+ * relation it refines only once its own lifted pair differs from that
+ * relation's — see `viewRelationsQuery`'s own doc) needs no multi-hop walk
+ * at all: with `ancestors` already a precomputed, ordered list, "the
+ * nearest shown ancestor of X" is simply the first entry of `[X] +
+ * reverse(X's ancestors)` that is a member of the shown set — a single
+ * Cypher `list_filter` over already-materialized data, still every bit "a
+ * LadybugDB Cypher query" (see `viewRelationsQuery`).
  *
  * `interfaces`, `categories`, `zones` and `environments` carry nothing this
  * capability's five requirements ever query (per-environment queries are
@@ -490,10 +493,10 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
       source: row.source,
     });
     // No `refines` on the edge: `dependents`/`dependencies` walk every
-    // relation, refinements included (the view is the only place a
-    // refinement is ever excluded — see `viewRelationsQuery`'s own `WHERE
-    // r.refines IS NULL`, which reads it off the `Relation` node table
-    // instead), so the edge itself never needs to carry it.
+    // relation, refinements included, and never need to reason about which
+    // relation refines which (only `view` does — it reads `refines` off
+    // the `Relation` node table instead, in `viewRelationsQuery`), so the
+    // edge itself never needs to carry it.
     conn.executeSync(insertEdge, {
       pk,
       fromId: parsed.from,
