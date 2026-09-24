@@ -1,0 +1,11 @@
+version: 1
+
+elements:
+  - id: payments-api
+    kind: service
+    name: Payments API
+
+interfaces:
+  - id: payments-charge
+    provider: payments-api
+    contract: http::POST::/api/charges

@@ -1,0 +1,19 @@
+version: 1
+
+elements:
+  - id: checkout-web
+    kind: service
+    name: Checkout web
+  - id: payments-api
+    kind: service
+    name: Payments API
+
+relations:
+  - id: relation-a
+    refines: relation-b
+    from: checkout-web
+    to: payments-api
+  - id: relation-b
+    refines: relation-a
+    from: checkout-web
+    to: payments-api

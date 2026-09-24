@@ -3,9 +3,17 @@ import { join, relative } from 'node:path';
 import { LineCounter, parseDocument } from 'yaml';
 import { Value } from 'typebox/value';
 import type { ModelError } from './errors.js';
-import { ModelFile, type Element, type IntendedModel } from './schema.js';
+import { ModelFile, type Category, type Element, type Interface, type IntendedModel, type Relation } from './schema.js';
 import { checkStrictYaml } from './strict-yaml.js';
-import { validateElements, type PositionedElement } from './validate.js';
+import {
+  validateModel,
+  type PositionedCategory,
+  type PositionedElement,
+  type PositionedInterface,
+  type PositionedModel,
+  type PositionedRelation,
+  type TransferLines,
+} from './validate.js';
 import { jsonPointerToSegments, lineForPath, segmentsToPath } from './yaml-position.js';
 
 export interface LoadResult {
@@ -25,7 +33,9 @@ export interface LoadResult {
  * violation or a parse error makes the rest of that file's content
  * unreliable, so schema validation is skipped for it; once every file has
  * parsed and matched the schema, ids and references are checked once
- * across the whole model.
+ * across the whole model. Each section (`elements`, `interfaces`,
+ * `relations`, `categories`) concatenates across files, in the same fixed
+ * file order.
  */
 export function loadModel(repoRoot: string): LoadResult {
   const madarchDir = join(repoRoot, 'madarch');
@@ -42,7 +52,7 @@ export function loadModel(repoRoot: string): LoadResult {
   }
 
   const errors: ModelError[] = [];
-  const positionedElements: PositionedElement[] = [];
+  const positioned: PositionedModel = { elements: [], interfaces: [], relations: [], categories: [] };
 
   for (const fileName of fileNames) {
     const filePath = join(madarchDir, fileName);
@@ -72,13 +82,50 @@ export function loadModel(repoRoot: string): LoadResult {
       continue;
     }
 
-    const parsed = value as { version: 1; elements: Element[] };
+    const parsed = value as { version: 1; elements: Element[]; interfaces?: Interface[]; relations?: Relation[]; categories?: Category[] };
+    const line = (segments: (string | number)[]) => lineForPath(doc, lineCounter, segments);
+
     parsed.elements.forEach((element, index) => {
-      positionedElements.push({
+      positioned.elements.push({
         element,
         file: relativeFile,
-        line: lineForPath(doc, lineCounter, ['elements', index]),
-        parentLine: lineForPath(doc, lineCounter, ['elements', index, 'parent']),
+        line: line(['elements', index]),
+        parentLine: line(['elements', index, 'parent']),
+      });
+    });
+
+    (parsed.interfaces ?? []).forEach((iface, index) => {
+      positioned.interfaces.push({
+        iface,
+        file: relativeFile,
+        line: line(['interfaces', index]),
+        providerLine: line(['interfaces', index, 'provider']),
+      });
+    });
+
+    (parsed.relations ?? []).forEach((relation, index) => {
+      const transferLines: TransferLines[] = (relation.transfers ?? []).map((transfer, transferIndex) => ({
+        categoryLines: transfer.categories.map((_category, categoryIndex) =>
+          line(['relations', index, 'transfers', transferIndex, 'categories', categoryIndex]),
+        ),
+      }));
+      positioned.relations.push({
+        relation,
+        file: relativeFile,
+        line: line(['relations', index]),
+        fromLine: line(['relations', index, 'from']),
+        toLine: line(['relations', index, 'to']),
+        refinesLine: line(['relations', index, 'refines']),
+        interfaceLine: line(['relations', index, 'interface']),
+        transferLines,
+      });
+    });
+
+    (parsed.categories ?? []).forEach((category, index) => {
+      positioned.categories.push({
+        category,
+        file: relativeFile,
+        line: line(['categories', index]),
       });
     });
   }
@@ -87,13 +134,19 @@ export function loadModel(repoRoot: string): LoadResult {
     return { errors };
   }
 
-  const validationErrors = validateElements(positionedElements);
+  const validationErrors = validateModel(positioned);
   if (validationErrors.length > 0) {
     return { errors: validationErrors };
   }
 
   return {
-    model: { version: 1, elements: positionedElements.map((entry) => entry.element) },
+    model: {
+      version: 1,
+      elements: positioned.elements.map((entry) => entry.element),
+      interfaces: positioned.interfaces.map((entry) => entry.iface),
+      relations: positioned.relations.map((entry) => entry.relation),
+      categories: positioned.categories.map((entry) => entry.category),
+    },
     errors: [],
   };
 }

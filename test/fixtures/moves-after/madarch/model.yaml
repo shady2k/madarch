@@ -1,0 +1,27 @@
+version: 1
+
+elements:
+  - id: payments
+    kind: domain
+    name: Payments
+  - id: finance
+    kind: domain
+    name: Finance
+  - id: payments-api
+    kind: service
+    name: Payments API
+    parent: finance
+  - id: checkout-web
+    kind: service
+    name: Checkout web
+
+interfaces:
+  - id: payments-charge
+    provider: payments-api
+    contract: http::POST::/api/charges
+
+relations:
+  - id: checkout-charges-card
+    from: checkout-web
+    to: payments-api
+    interface: payments-charge

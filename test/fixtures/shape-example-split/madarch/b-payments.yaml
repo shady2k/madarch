@@ -1,0 +1,22 @@
+version: 1
+
+categories:
+  - id: personal
+
+elements:
+  - id: checkout-cart
+    kind: module
+    parent: checkout-web
+    evidence:
+      - file: services/checkout/src/cart/index.ts
+        line: 1
+  - id: payments
+    kind: domain
+  - id: payments-api
+    kind: service
+    parent: payments
+
+interfaces:
+  - id: payments-charge
+    provider: payments-api
+    contract: http::POST::/api/charges

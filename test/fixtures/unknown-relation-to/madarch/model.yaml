@@ -1,0 +1,11 @@
+version: 1
+
+elements:
+  - id: checkout-web
+    kind: service
+    name: Checkout web
+
+relations:
+  - id: checkout-uses-payments
+    from: checkout-web
+    to: payments-api

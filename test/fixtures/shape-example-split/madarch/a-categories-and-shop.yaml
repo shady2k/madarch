@@ -1,0 +1,15 @@
+version: 1
+
+categories:
+  - id: payment-card
+
+elements:
+  - id: shop
+    kind: domain
+    name: Shop
+  - id: checkout-web
+    kind: service
+    name: Checkout web
+    parent: shop
+    evidence:
+      - file: services/checkout/README.md

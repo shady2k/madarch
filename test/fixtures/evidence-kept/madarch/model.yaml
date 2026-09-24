@@ -1,0 +1,28 @@
+version: 1
+
+elements:
+  - id: checkout-web
+    kind: service
+    name: Checkout web
+  - id: checkout-cart
+    kind: module
+    name: Checkout cart
+    parent: checkout-web
+    evidence:
+      - file: services/checkout/src/cart/index.ts
+        line: 1
+
+interfaces:
+  - id: checkout-list
+    provider: checkout-web
+    contract: http::GET::/api/cart
+    evidence:
+      - file: services/checkout/src/cart/api.ts
+
+relations:
+  - id: checkout-web-uses-cart
+    from: checkout-web
+    to: checkout-cart
+    evidence:
+      - file: services/checkout/README.md
+        line: 5

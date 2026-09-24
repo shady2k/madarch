@@ -1,0 +1,11 @@
+version: 1
+
+elements:
+  - id: orders-api
+    kind: service
+    name: Orders API
+
+interfaces:
+  - id: orders-get
+    provider: orders-api
+    contract: http::get::/api/orders/{orderId}

@@ -1,0 +1,8 @@
+version: 1
+
+elements: []
+
+interfaces:
+  - id: payments-charge
+    provider: payments-api
+    contract: http::POST::/api/charges

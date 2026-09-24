@@ -1,0 +1,21 @@
+version: 1
+
+categories:
+  - id: personal
+
+elements:
+  - id: checkout-web
+    kind: service
+    name: Checkout web
+  - id: payments-api
+    kind: service
+    name: Payments API
+
+relations:
+  - id: checkout-charges-card
+    from: checkout-web
+    to: payments-api
+    transfers:
+      - direction: forward
+        confidentiality: confidential
+        categories: [payment-card]

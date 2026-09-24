@@ -1,0 +1,22 @@
+version: 1
+
+elements: []
+
+relations:
+  - id: checkout-uses-payments
+    from: checkout-web
+    to: payments
+  - id: checkout-charges-card
+    refines: checkout-uses-payments
+    from: checkout-cart
+    to: payments-api
+    interface: payments-charge
+    binding:
+      env: PAYMENTS_URL
+    transfers:
+      - direction: forward
+        confidentiality: confidential
+        categories: [payment-card, personal]
+      - direction: reverse
+        confidentiality: internal
+        categories: []

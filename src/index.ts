@@ -1,9 +1,29 @@
 /** madarch's public interface. */
 
 export type { ModelError } from './model/errors.js';
-export { ElementKind, Element, ModelFile, type IntendedModel } from './model/schema.js';
+export {
+  ElementKind,
+  Element,
+  Interface,
+  Relation,
+  Category,
+  Evidence,
+  Binding,
+  Transfer,
+  TransferDirection,
+  ModelFile,
+  type IntendedModel,
+} from './model/schema.js';
 export { loadModel, type LoadResult } from './model/load.js';
-export { compileModel, SCHEMA_VERSION, type CompiledModel, type CompiledElement } from './model/compile.js';
+export {
+  compileModel,
+  SCHEMA_VERSION,
+  type CompiledModel,
+  type CompiledElement,
+  type CompiledInterface,
+  type CompiledRelation,
+  type CompiledCategory,
+} from './model/compile.js';
 
 import type { CompiledModel } from './model/compile.js';
 import { compileModel } from './model/compile.js';
