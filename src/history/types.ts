@@ -78,15 +78,24 @@ export interface AssertionChange {
 
 export interface StoreResult {
   errors: HistoryError[];
-  /** Rows newly current (`recorded_to` left open) after this store; empty on a refusal or a no-op repeat. */
+  /**
+   * Every row this store wrote with `recorded_to` left open (newly current);
+   * empty on a refusal or a no-op repeat. This includes a brand-new
+   * assertion, a shortened replacement (the same content, its `validTo` now
+   * corrected) written in place of a row `closed` reports, and a row
+   * restored to cover a span a late commit would otherwise have erased (see
+   * `sqlite-history.ts`'s module doc). A caller can rebuild its own derived
+   * index from `opened` and `closed` alone: together they name every row
+   * this store wrote or superseded, each exactly as the database holds it.
+   */
   opened: AssertionChange[];
   /**
-   * Rows this store closed on the recorded axis (superseded, not deleted);
-   * empty on a refusal or a no-op repeat. A row that is closed and
-   * immediately superseded at the very same valid-time instant (two commits
-   * sharing one `committedAt`) still appears here, with `validFrom` equal to
-   * `validTo`, even though no row for that zero-width span is ever written
-   * to storage: it was, however briefly, believed and is now superseded.
+   * Every row this store closed on the recorded axis (superseded, not
+   * deleted), each reported exactly as it stood a moment before this store
+   * touched it — its own `validFrom` and `validTo` as they were recorded,
+   * not the point this commit now truncates it to (that corrected content,
+   * when there is any duration left to state, is a separate row in
+   * `opened`). Empty on a refusal or a no-op repeat.
    */
   closed: AssertionChange[];
 }

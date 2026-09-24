@@ -390,17 +390,25 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
         if (stillAsserted !== undefined && stillAsserted.content === oldRow.content) continue;
 
         closeAssertion.run(storingNow, source, oldRow.kind, oldRow.entity_id, oldRow.valid_from, oldRow.opened_by);
-        // Reported as closed regardless of whether a row is written for it
-        // below: a commit sharing another's exact time, sorting immediately
-        // after it, still supersedes what was — however briefly — believed,
-        // even though no zero-width row for that instant is ever stored.
-        closed.push({ source, kind: oldRow.kind, id: oldRow.entity_id, content: oldRow.content, validFrom: oldRow.valid_from, validTo: committedAt });
+        // Reported exactly as the row stood before this store touched it —
+        // its own valid end, `oldRow.valid_to`, not the point this commit
+        // now truncates it to: a caller keeping its own derived index (e.g.
+        // the query engine's `update()`) must be able to remove precisely
+        // the row that is gone (`source`, `kind`, `id`, `validFrom` identify
+        // it) and know what it looked like a moment ago, independent of
+        // whatever replaces it below.
+        closed.push({ source, kind: oldRow.kind, id: oldRow.entity_id, content: oldRow.content, validFrom: oldRow.valid_from, validTo: oldRow.valid_to });
 
         // No empty row (`valid_from` = `valid_to`): a commit sharing
         // another's exact time, sorting immediately after it by commit id,
-        // never gets a zero-width slice of its own.
+        // never gets a zero-width slice of its own. Otherwise, the
+        // shortened replacement — same content, corrected end — is a row
+        // this store wrote just as much as a brand-new one, so it belongs
+        // in `opened` too (the `StoreResult.opened` contract: "every row
+        // written by the store").
         if (committedAt !== oldRow.valid_from) {
           insertAssertion.run(source, oldRow.kind, oldRow.entity_id, oldRow.content, oldRow.valid_from, committedAt, oldRow.opened_by, commit, storingNow);
+          opened.push({ source, kind: oldRow.kind, id: oldRow.entity_id, content: oldRow.content, validFrom: oldRow.valid_from, validTo: committedAt });
         }
 
         // The old row's own end reached past this commit's successor

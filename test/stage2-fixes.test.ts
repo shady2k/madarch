@@ -509,8 +509,17 @@ describe('4. HistoryStore\'s public interface for stage 3 and the server', () =>
 
     clock.set(DAY(11));
     const second = h.store({ source: 'shop', commit: 'c2', committedAt: DAY(10), model: model([element('a', { technology: 'x' })]) });
-    expect(second.closed.filter((c) => c.kind === 'element')).toEqual([{ source: 'shop', kind: 'element', id: 'a', content: expect.any(String), validFrom: DAY(1), validTo: DAY(10) }]);
-    expect(second.opened.filter((c) => c.kind === 'element')).toEqual([{ source: 'shop', kind: 'element', id: 'a', content: expect.any(String), validFrom: DAY(10), validTo: null }]);
+    // `closed` reports the row exactly as it stood before this store: its
+    // own valid end (still open, `null`), not the point this commit
+    // truncates it to.
+    expect(second.closed.filter((c) => c.kind === 'element')).toEqual([{ source: 'shop', kind: 'element', id: 'a', content: expect.any(String), validFrom: DAY(1), validTo: null }]);
+    // `opened` carries every row this store wrote: the shortened
+    // replacement (the old content, now ending at day 10) as well as the
+    // brand-new one.
+    expect(second.opened.filter((c) => c.kind === 'element')).toEqual([
+      { source: 'shop', kind: 'element', id: 'a', content: expect.any(String), validFrom: DAY(1), validTo: DAY(10) },
+      { source: 'shop', kind: 'element', id: 'a', content: expect.any(String), validFrom: DAY(10), validTo: null },
+    ]);
   });
 
   test('sources() lists every source that has ever stored a commit', () => {
@@ -933,10 +942,14 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     clock.set(DAY(20));
     const result = h.store({ source: 's', commit: 'c1', committedAt: DAY(5), model: model([element('X', { technology: 'C' })]) });
     expect(result.errors).toEqual([]);
-    // Only one row opens for this late store: X:C from day 5 to day 10. No
-    // redundant copy of X:A is reopened past day 10 — c2's own X:B row
-    // already covers that, undisturbed.
-    expect(result.opened.filter((c) => c.kind === 'element')).toEqual([{ source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(5), validTo: DAY(10) }]);
+    // Two rows open for this late store: the shortened X:A, now ending at
+    // day 5, and X:C from day 5 to day 10. No redundant copy of X:A is
+    // reopened past day 10 — c2's own X:B row already covers that,
+    // undisturbed.
+    expect(result.opened.filter((c) => c.kind === 'element')).toEqual([
+      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(1), validTo: DAY(5) },
+      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(5), validTo: DAY(10) },
+    ]);
 
     const raw = new Database(path);
     const empty = raw.query('SELECT * FROM assertions WHERE valid_from = valid_to').all();
@@ -964,10 +977,12 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     // not stop short at c1's own successor.
     const elementChanges = result.opened.filter((c) => c.kind === 'element' && c.id === 'X').sort((a, b) => a.validFrom - b.validFrom);
     expect(elementChanges).toEqual([
+      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(1), validTo: DAY(5) },
       { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(5), validTo: DAY(10) },
       { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(10), validTo: DAY(20) },
     ]);
-    expect(elementChanges[1]?.content).toContain('"technology":"A"');
+    expect(elementChanges[0]?.content).toContain('"technology":"A"');
+    expect(elementChanges[2]?.content).toContain('"technology":"A"');
 
     expect(ids(h, { source: 's', valid: DAY(7), known: DAY(31) })).toBe('X:C,Y');
     expect(ids(h, { source: 's', valid: DAY(15), known: DAY(31) })).toBe('X:A,Y');
@@ -998,6 +1013,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     // the row 'm' closes was really ended by 'q', not by 'm''s own
     // successor 'p' — both fall at the exact same instant.
     expect(result.opened.filter((c) => c.kind === 'element' && c.id === 'X')).toEqual([
+      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(1), validTo: DAY(5) },
       { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(5), validTo: DAY(10) },
     ]);
 
@@ -1162,18 +1178,25 @@ describe('9. store()\'s reported opened/closed carry their source and always mat
     verifyReport(h, result.opened, result.closed);
   });
 
-  test('same-time commits: the row closed only on the recorded axis (zero-width) still appears in closed, and matches assertions()', () => {
+  test('same-time commits: the superseded row is closed with no shortened replacement (both start at the same instant), and matches assertions()', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
     h.store({ source: 's', commit: 'a', committedAt: DAY(1), model: model([element('X', { technology: 'A' })]) });
     clock.set(DAY(3));
     const result = h.store({ source: 's', commit: 'b', committedAt: DAY(1), model: model([element('X', { technology: 'B' })]) });
 
+    // `closed` reports the row exactly as it stood before closing: it was
+    // still open (`validTo: null`) — `b` shares `a`'s own `committedAt`
+    // (day 1), so there is no elapsed valid span left to report a shortened
+    // replacement for; only the brand-new row opens.
     const closedX = result.closed.find((c) => c.kind === 'element' && c.id === 'X');
-    expect(closedX).toMatchObject({ source: 's', validFrom: DAY(1), validTo: DAY(1) });
+    expect(closedX).toMatchObject({ source: 's', validFrom: DAY(1), validTo: null });
+    expect(result.opened.filter((c) => c.kind === 'element' && c.id === 'X')).toEqual([
+      { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(1), validTo: null },
+    ]);
     verifyReport(h, result.opened, result.closed);
 
-    // No row was ever persisted for that zero-width span.
+    // No row was ever persisted for a zero-width valid span.
     expect(h.assertions().some((r) => r.validTo !== null && r.validTo === r.validFrom)).toBe(false);
   });
 });
