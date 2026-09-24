@@ -211,7 +211,7 @@ function chainRoot(states: readonly { id: string; after?: string }[]): string | 
  * - `RELATES_TO` (`Anchor` -> `Anchor`): one edge per relation assertion,
  *   carrying the same bitemporal and state fields as `Relation`, so a
  *   multi-hop `dependents`/`dependencies` walk can filter every hop as it
- *   explores, through the pattern's own `SHORTEST`/`ALL SHORTEST`
+ *   explores, through the pattern's own `SHORTEST`
  *   relationship-filter clause (`*... (r, n | WHERE ...)`, see
  *   `dependencyQuery`'s own doc) — the recursive Cypher traversal the
  *   owner's constraint asks for (see stage3-brief.md).
@@ -408,24 +408,32 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
   }
   // Direction is the only difference between `dependents` and
   // `dependencies`: dependents walks other-elements-that-reach `x`,
-  // dependencies walks `x`-reaches-other-elements. `SHORTEST`/`ALL
-  // SHORTEST` (not a plain `*1..N` pattern matching every walk) is what
+  // dependencies walks `x`-reaches-other-elements. `SHORTEST` (not a plain
+  // `*1..N` pattern matching every walk, and not `ALL SHORTEST`) is what
   // makes this the recursive Cypher traversal the owner's constraint asks
   // for actually answer on a realistic graph: a plain variable-length
   // pattern enumerates every walk up to `maxHops` hops, which explodes
   // combinatorially the moment the graph has any cycle at all (a `Buffer
   // manager exception: Unable to allocate memory!` from just ten nodes and
   // thirty edges with a cycle among them, tried and confirmed), and even
-  // acyclic, revisits the same prefix once per continuation; `ALL SHORTEST`
-  // explores each node no more than its shortest distance from the start,
-  // so it stays polynomial. `ALL SHORTEST` (not the plainer `SHORTEST`,
-  // which this build already returns only one path per reachable node for,
-  // deterministically enough for every case this module has been able to
-  // construct) is used anyway and the tie broken here in TypeScript
-  // (`dependencyAnswer`, "shape the rows into the answer" — the owner's own
-  // allowance) by the lexicographically least joined chain, so the answer
-  // never depends on this build's own unspecified tie-break among equally
-  // short paths. The per-hop filter is threaded through the pattern's own
+  // acyclic, revisits the same prefix once per continuation; `SHORTEST`
+  // explores each node no more than its shortest distance from the start
+  // and returns one shortest chain per reachable element, so it stays
+  // polynomial on shapes `ALL SHORTEST` still chokes on: a layered graph
+  // many ties deep (e.g. 1000 nodes wide, 10 layers, 37 000 relations —
+  // `ALL SHORTEST` there enumerates every tied shortest path per node,
+  // combinatorial in the layer width even though the *node* count visited
+  // is not; `SHORTEST` returns exactly one row per node). Which one of
+  // several equally short paths `SHORTEST` picks for a node is this
+  // build's own unspecified choice among ties — not a choice this module
+  // makes or a specific one it documents further: the requirement this
+  // engine answers is one shortest chain for each reachable element, not a
+  // particular one among equally short candidates, so this module never
+  // claims a determinism it does not itself control. `bestChainById`
+  // below still keeps its own deterministic tie-break (the
+  // lexicographically least chain) rather than trusting the native row
+  // order outright, the one part of "shape the rows into the answer" this
+  // module can still promise on its own. The per-hop filter is threaded through the pattern's own
   // relationship-filter clause (`(r, n | WHERE ...)`), so a hop the time or
   // state filter rejects is pruned during the walk itself, not after
   // enumerating it — the one construct this build has ever accepted a
@@ -448,8 +456,8 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
     const hopFilter = `(r, n | WHERE ${filterOfLiteral('r', valid, known, state)})`;
     const pattern =
       direction === 'dependents'
-        ? `(other:Anchor)-[r:RELATES_TO* ALL SHORTEST 1..${maxHops} ${hopFilter}]->(start:Anchor {elementId: $id})`
-        : `(start:Anchor {elementId: $id})-[r:RELATES_TO* ALL SHORTEST 1..${maxHops} ${hopFilter}]->(other:Anchor)`;
+        ? `(other:Anchor)-[r:RELATES_TO* SHORTEST 1..${maxHops} ${hopFilter}]->(start:Anchor {elementId: $id})`
+        : `(start:Anchor {elementId: $id})-[r:RELATES_TO* SHORTEST 1..${maxHops} ${hopFilter}]->(other:Anchor)`;
     return cachedPrepare(
       `MATCH p = ${pattern}
        WHERE other.elementId <> $id
@@ -715,11 +723,12 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
       const query = dependencyQuery(direction, maxHops, time!.valid, time!.known, time!.state);
       const rows = rowsOf(conn.executeSync(query, { id: elementId }));
 
-      // `ALL SHORTEST` returns every shortest-length chain to a reachable
-      // element, ties included (see `dependencyQuery`'s own doc); exactly
-      // one is kept per element, the lexicographically least chain, so the
-      // answer never depends on this build's own unspecified order among
-      // equally short paths.
+      // `SHORTEST` already returns one row per reachable element (see
+      // `dependencyQuery`'s own doc); `bestChainById` still folds by id and
+      // keeps the lexicographically least chain on a tie, rather than
+      // trusting that "one row per element" outright, so the answer never
+      // depends on this build's own unspecified choice among equally short
+      // paths even if more than one row for an element ever did surface.
       const bestChainById = new Map<string, string[]>();
       for (const row of rows) {
         const id = row.id as string;

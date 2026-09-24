@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { createLadybugEngine, createSqliteHistory, type Clock, type CompiledElement, type CompiledModel, type CompiledRelation, type ElementKind } from '../src/index.js';
+import { createLadybugEngine, createSqliteHistory, type AssertionRecord, type Clock, type CompiledElement, type CompiledModel, type CompiledRelation, type ElementKind } from '../src/index.js';
 
 /**
  * Performance requirement (graph-queries.md's "Quality requirements"): a
@@ -65,22 +65,73 @@ function bigModel(technology: string): CompiledModel {
  * outright (the review's e6/e7 experiments, tried and confirmed) before
  * B2's `SHORTEST` fix.
  */
+// The `v1`/`v2` calls below reseed identically on purpose (same topology,
+// only `technology` differs), so a BFS oracle built from either version's
+// relations answers for both — see the test's own oracle below.
+//
+// `from` and `to` are drawn from two independent LCG streams, not the same
+// stream called twice in a row: a single stream's own consecutive outputs
+// from this generator are not independent draws (Marsaglia's theorem — a
+// linear congruential generator's successive outputs fall on a small
+// number of hyperplanes when taken as tuples), so calling it twice per
+// relation systematically under- or over-represents some `(from, to)`
+// pairs relative to a true uniform-random graph, which can shrink or
+// distort the transitive answer's own reachable set in a way that does not
+// reflect a realistic graph (the review's own finding). Two separate
+// streams have no such joint structure to correlate.
 function randomGraphWithHistory(technology: string): CompiledModel {
   const elements: CompiledElement[] = [];
   for (let i = 0; i < 10_000; i++) elements.push({ ...element(`e${i}`, 'service'), technology });
   const relations: CompiledRelation[] = [];
-  let seed = 11;
-  const rnd = () => {
-    seed = (seed * 1103515245 + 12345) % 2147483648;
-    return seed / 2147483648;
+  let seedFrom = 11;
+  let seedTo = 97;
+  const rndFrom = () => {
+    seedFrom = (seedFrom * 1103515245 + 12345) % 2147483648;
+    return seedFrom / 2147483648;
+  };
+  const rndTo = () => {
+    seedTo = (seedTo * 1103515245 + 12345) % 2147483648;
+    return seedTo / 2147483648;
   };
   for (let i = 0; i < 30_000; i++) {
-    const from = Math.floor(rnd() * 10_000);
-    const to = Math.floor(rnd() * 10_000);
+    const from = Math.floor(rndFrom() * 10_000);
+    const to = Math.floor(rndTo() * 10_000);
     if (from === to) continue;
     relations.push(relation(`r${i}`, `e${from}`, `e${to}`));
   }
   return model(elements, relations);
+}
+
+/**
+ * A plain breadth-first count of `id`'s transitive dependents over
+ * `relations` (`to` -> `from`, the same direction `dependents` walks), up
+ * to the engine's own default hop ceiling (`MAX_HOPS_CEILING`, 30 — see
+ * `ladybug-engine.ts`), as an oracle independent of the engine's own
+ * Cypher: the performance assertion below compares the engine's answer
+ * size against this rather than only asserting it is non-empty, so a
+ * query that silently returned a far smaller set (e.g. capped by an
+ * accidental hop or row limit) would still be caught even though it
+ * technically "answers in under one second".
+ */
+function bfsDependentCount(id: string, relations: readonly CompiledRelation[]): number {
+  const incoming = new Map<string, string[]>();
+  for (const r of relations) incoming.set(r.to, [...(incoming.get(r.to) ?? []), r.from]);
+  const seen = new Set<string>([id]);
+  let frontier = [id];
+  for (let hop = 1; hop <= 30 && frontier.length > 0; hop++) {
+    const next: string[] = [];
+    for (const x of frontier) {
+      for (const y of incoming.get(x) ?? []) {
+        if (!seen.has(y)) {
+          seen.add(y);
+          next.push(y);
+        }
+      }
+    }
+    frontier = next;
+  }
+  seen.delete(id);
+  return seen.size;
 }
 
 describe('performance: B2 — transitive dependents over a random 10 000-element, 30 000-relation graph with history, default maxHops', () => {
@@ -89,7 +140,8 @@ describe('performance: B2 — transitive dependents over a random 10 000-element
     () => {
       const clock = fakeClock(DAY(2));
       const history = createSqliteHistory({ clock });
-      expect(history.store({ source: 'big', commit: 'v1', committedAt: DAY(1), model: randomGraphWithHistory('v1') }).errors).toEqual([]);
+      const v1 = randomGraphWithHistory('v1');
+      expect(history.store({ source: 'big', commit: 'v1', committedAt: DAY(1), model: v1 }).errors).toEqual([]);
       clock.set(DAY(12));
       expect(history.store({ source: 'big', commit: 'v2', committedAt: DAY(10), model: randomGraphWithHistory('v2') }).errors).toEqual([]);
 
@@ -103,6 +155,14 @@ describe('performance: B2 — transitive dependents over a random 10 000-element
       expect(result.error).toBeUndefined();
       // No element ever lists itself as its own dependent (B2's cycle rule).
       expect(result.elements?.some((e) => e.id === 'e0')).toBe(false);
+      // The transitive answer's size against a plain BFS oracle (v1 and v2
+      // reseed identically, so either's relations serve as the oracle for
+      // the time asked): a random 10 000/30 000 graph reaches a large
+      // fraction of the graph from any one node within 30 hops, so this
+      // also guards against a query that silently answered with a far
+      // smaller, wrongly pruned set instead of a genuinely empty or tiny
+      // reachable set (the review's own concern about the fixture itself).
+      expect(result.elements?.length).toBe(bfsDependentCount('e0', v1.relations));
 
       if (process.env['CI']) {
         // eslint-disable-next-line no-console
@@ -170,5 +230,91 @@ describe('performance: a view and a transitive query over 10 000 elements with h
     history.close();
     },
     30000,
+  );
+});
+
+/**
+ * A layered graph from `start`, `w` elements wide, `L` layers deep: `start`
+ * connects to every element of layer 0; each element of layer `l` connects
+ * to `kk` elements of layer `l + 1` (every element of it, a "complete"
+ * layer, when `kk` is left out) — the shape that made a plain `ALL
+ * SHORTEST` pattern enumerate every tied shortest path per node instead of
+ * one (combinatorial in the layer width even though the node count visited
+ * stays small), the review's own e12/e12k experiments, before B2's plain
+ * `SHORTEST` fix.
+ */
+function layeredGraph(w: number, layers: number, kk?: number): { model: CompiledModel; relationCount: number } {
+  const elements: CompiledElement[] = [element('start', 'service')];
+  for (let l = 0; l < layers; l++) for (let i = 0; i < w; i++) elements.push(element(`n${l}_${i}`, 'service'));
+  const relations: CompiledRelation[] = [];
+  let k = 0;
+  for (let i = 0; i < w; i++) relations.push(relation(`r${k++}`, 'start', `n0_${i}`));
+  if (kk === undefined) {
+    for (let l = 0; l < layers - 1; l++) for (let i = 0; i < w; i++) for (let j = 0; j < w; j++) relations.push(relation(`r${k++}`, `n${l}_${i}`, `n${l + 1}_${j}`));
+  } else {
+    let seed = 3;
+    const rnd = () => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed / 2147483648;
+    };
+    for (let l = 0; l < layers - 1; l++) {
+      for (let i = 0; i < w; i++) {
+        for (let jj = 0; jj < kk; jj++) {
+          const j = Math.floor(rnd() * w);
+          relations.push(relation(`r${k++}`, `n${l}_${i}`, `n${l + 1}_${j}`));
+        }
+      }
+    }
+  }
+  return { model: model(elements, relations), relationCount: relations.length };
+}
+
+describe('performance: B2 — the review\'s layered-graph shapes that made ALL SHORTEST combinatorial, now answering under plain SHORTEST', () => {
+  const shapes: { name: string; w: number; layers: number; kk?: number }[] = [
+    { name: '2 wide x 20 complete layers', w: 2, layers: 20 },
+    { name: '8 wide x 7 complete layers', w: 8, layers: 7 },
+    { name: '200 wide x 8 layers, 4 out-edges per node', w: 200, layers: 8, kk: 4 },
+    { name: '300 wide x 10 layers, 3 out-edges per node', w: 300, layers: 10, kk: 3 },
+    { name: '1000 wide x 10 layers, 4 out-edges per node (37 000 relations)', w: 1000, layers: 10, kk: 4 },
+  ];
+
+  test.skipIf(process.env['MADARCH_SKIP_PERF'] !== undefined)(
+    'transitive dependencies from start answer without error on every shape',
+    () => {
+      for (const shape of shapes) {
+        const { model: shapeModel, relationCount } = layeredGraph(shape.w, shape.layers, shape.kk);
+        const engine = createLadybugEngine();
+        const assertions: AssertionRecord[] = [
+          ...shapeModel.elements.map((e) => ({ source: 's', kind: 'element' as const, id: e.id, content: JSON.stringify(e), validFrom: 0, validTo: null, recordedFrom: 0, recordedTo: null })),
+          ...shapeModel.relations.map((r) => ({ source: 's', kind: 'relation' as const, id: r.id, content: JSON.stringify(r), validFrom: 0, validTo: null, recordedFrom: 0, recordedTo: null })),
+        ];
+        engine.rebuild(assertions);
+
+        const result = engine.dependencies('start', { transitive: true }, { valid: 1, known: 1, state: 'as-is' });
+        expect(result.error).toBeUndefined();
+        // A plain forward BFS oracle (the same direction `dependencies`
+        // walks), independent of the engine's own Cypher — exact coverage
+        // on a "complete" layered shape (`kk` left out, every node
+        // connects to every node of the next layer), and on a random-tiered
+        // one too (a node in layer `l + 1` is only reached when at least
+        // one of layer `l`'s `kk`-per-node random draws happens to name
+        // it, so full coverage of a wide layer is not guaranteed).
+        const outgoing = new Map<string, string[]>();
+        for (const r of shapeModel.relations) outgoing.set(r.from, [...(outgoing.get(r.from) ?? []), r.to]);
+        const reached = new Set<string>();
+        let frontier = ['start'];
+        for (let hop = 1; hop <= 30 && frontier.length > 0; hop++) {
+          const next: string[] = [];
+          for (const x of frontier) for (const y of outgoing.get(x) ?? []) if (y !== 'start' && !reached.has(y)) { reached.add(y); next.push(y); }
+          frontier = next;
+        }
+        expect(result.elements?.length).toBe(reached.size);
+
+        engine.close();
+        // eslint-disable-next-line no-console
+        if (process.env['CI']) console.log(`layered ${shape.name}: ${shapeModel.elements.length} elements, ${relationCount} relations, ${result.elements?.length} answers`);
+      }
+    },
+    60000,
   );
 });
