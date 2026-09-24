@@ -1,0 +1,9 @@
+{
+  "mode": "new",
+  "approvalFor": ["behavior"],
+  "exempt": {
+    "adoptedAt": "2026-09-24",
+    "reason": "At adoption no open task carried product code and no branch was unmerged; the list is empty. A task listed here exempts its descendants too.",
+    "tasks": []
+  }
+}

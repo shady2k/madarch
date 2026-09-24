@@ -1,6 +1,7 @@
 #!/bin/sh
 # Commit-link check (shady2k-skills): every commit names the task it belongs to
-# with a line "Task: <id>" (several ids may be comma-separated). See .shady2k/integration.md.
+# with a line "Task: <id>" (several ids may be comma-separated), then the document
+# gate checks what the commit changes. See .shady2k/integration.md.
 cd "$(git rev-parse --show-toplevel)" || exit 2
 node .shady2k/adapter.mjs commits --message "$1" > "${TMPDIR:-/tmp}/madarch-commits.$$.json" || { echo "commit-msg: cannot read the tracker export (.beads/issues.jsonl)"; exit 2; }
 node .shady2k/checks/check-commits.mjs "${TMPDIR:-/tmp}/madarch-commits.$$.json"
@@ -11,5 +12,16 @@ if [ $status -ne 0 ]; then
   echo "Commit refused: the message must name an existing task (not an epic) on its own line,"
   echo "for example:  Task: madarch-ge3"
   echo "Find the task with \`br list\` or \`br search <words>\`; file a new one through the to-backlog skill."
+  exit $status
+fi
+
+# Document gate: the vision and charter on every commit; an admitted change for
+# product code; the replay of its change for a current-spec edit.
+node .shady2k/documents.mjs commit --message "$1"
+status=$?
+if [ $status -ne 0 ]; then
+  echo
+  echo "Commit refused by the document gate: the lines above say what the change owes and how to get there."
+  echo "Local hooks are feedback, not a boundary, and a refusal is owed work whoever could walk past it."
 fi
 exit $status

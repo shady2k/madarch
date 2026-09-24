@@ -3,6 +3,13 @@
 # project's rules. See .shady2k/integration.md.
 cd "$(git rev-parse --show-toplevel)" || exit 2
 .githooks/privacy-guard.sh || exit 1
+# The tooling's own tests, whenever the tooling itself is being committed.
+if git diff --cached --name-only | grep -q -E '^(\.shady2k|\.githooks)/'; then
+  node --test .shady2k/*.test.mjs > "${TMPDIR:-/tmp}/madarch-tooling-tests.$$.log" 2>&1 || {
+    cat "${TMPDIR:-/tmp}/madarch-tooling-tests.$$.log"; rm -f "${TMPDIR:-/tmp}/madarch-tooling-tests.$$.log"
+    echo; echo "Commit refused: the tooling's own tests fail (node --test .shady2k/*.test.mjs). Fix them, then commit again."; exit 1; }
+  rm -f "${TMPDIR:-/tmp}/madarch-tooling-tests.$$.log"
+fi
 node .shady2k/adapter.mjs backlog > "${TMPDIR:-/tmp}/madarch-backlog.$$.json" || { echo "pre-commit: cannot read the tracker export (.beads/issues.jsonl)"; exit 2; }
 node .shady2k/checks/check.mjs --config .shady2k/config.json "${TMPDIR:-/tmp}/madarch-backlog.$$.json"
 status=$?

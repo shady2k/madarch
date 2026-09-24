@@ -9,8 +9,16 @@ are the repository's installation, and each person's plugin and hooks are theirs
 - **Scope:** personal. Hooks run only in the owner's clone; nothing is enforced in CI.
 - **Vision, roadmap and charters:** `docs/vision.md` (roadmap as its section),
   `docs/milestones/<milestone>.md`; status comes from the tracker. Vision and the MVP charter (`docs/milestones/mvp.md`) written.
-- **Current specifications:** `docs/system/capabilities/<name>.md`. None yet: no accepted behaviour.
-- **Changes:** `docs/changes/<change>/change.md`, optional `design.md`; short deltas may live on tasks with a spec pointer.
+- **Current specifications:** `docs/system/capabilities/<name>.md`, catalogued in
+  `docs/system/index.md`. None yet: no accepted behaviour.
+- **Changes:** `docs/changes/<change>/change.md` from the skills' template, with
+  header lines `Change:` (the directory name), `Base:` (the main-line revision the
+  proposal was written against), `Tasks:` and `Kind:`, an optional `## Rationale`
+  section, and complete proposed capability files in
+  `docs/changes/<change>/capabilities/<capability>.md`. Deltas are never written
+  by hand: the document adapter compares each proposal with the capability at
+  `Base:`. `## Preserved contracts` and `## Coverage` are `None.` or bullets
+  `- <capability>/<requirement>: <reason | check ids>`. Optional `design.md`.
 - **Document resources:** the skills' `documents.md` contract and templates; no local overrides.
 - **Workflow ownership:** shady2k-skills owns the workflow; br is the only task list.
 - **Architecture and explorations:** `docs/system/architecture.md`; `docs/explorations/` only when retention is requested.
@@ -38,19 +46,58 @@ are the repository's installation, and each person's plugin and hooks are theirs
   reads `.beads/issues.jsonl` (br rewrites it on every write), or that file at a revision.
 - **Rules:** `.shady2k/checks/{check,check-commits,check-docs}.mjs` and
   `document-format.mjs`, verbatim copies of shady2k-skills setup 0.51.0 (rules 0.24.0).
-- **Document adapter and gate:** not installed yet; task "Wire the document gate" (madarch-9jo).
-  Until then documents are checked by reading.
-- **Document policy / baseline / evidence level / synchronization / enforcement boundary:**
-  defined when the document gate is wired; the planned evidence level is `records`
-  (no protected CI), so acceptance records are trusted, not verified.
+- **Document gate:** `.shady2k/documents.mjs` exports the documents and tracker
+  records into `check-docs.mjs`'s contract and runs it; tests in
+  `.shady2k/documents.test.mjs` (`node --test .shady2k/*.test.mjs`).
+  - `node .shady2k/documents.mjs check --phase <product|feature|acceptance|close> [--change <id>] [--candidate index|worktree|<rev>] [--target <rev>]`;
+    defaults: candidate the working tree, target `main`. `export` prints the
+    checker's inputs; `revision [--candidate <rev>]` prints the revision
+    evidence is recorded against.
+  - **Phases:** the commit-msg hook runs `product` on every commit; `feature`
+    for each change owning a task of a commit that stages product code
+    (anything outside `docs/`, `.shady2k/`, `.beads/`, `.githooks/`, root
+    `*.md` and root dotfiles); `close` for the owning change of a staged
+    `docs/system/capabilities/` file, which is refused if no change linked by
+    the commit proposes that capability. A supporting change may not carry
+    product code. `acceptance` is run by `take-task` at stage acceptance as
+    `check --phase acceptance --change <id> --candidate HEAD`.
+  - **Policy:** `.shady2k/document-policy.json`. Behavior and no-behavior
+    changes owe `static`, `test`, `mutation` and `review`, plus the checks their
+    coverage names; supporting changes owe `review`, and the tooling's own
+    tests run in pre-commit whenever `.shady2k/` or `.githooks/` is staged. The
+    commands behind `static` and `test` arrive with the first product code
+    (madarch-ozp). Approval is required for behavior changes only
+    (`approvalFor` in `.shady2k/documents.json`).
+  - **Evidence level: records.** There is no protected CI, so evidence is
+    trusted, not verified. It lives in tracker comments on the change's tasks,
+    first line `check: {"id","status","reference","revision"}` or
+    `approval: {"changeDigest","reference"}`; the latest receipt per check
+    wins. The revision is `documents.mjs revision`: a digest of the tree
+    without `.beads/` and `docs/system/capabilities/`, so recording evidence
+    and syncing specs at closure do not stale it. An approval's reference is
+    the owner's words from the preflight; its digest covers what the change
+    decides (kind, intent, out of scope, deltas, preserves). A refusal prints
+    the exact `br comments add` line for each missing record.
+  - **Baseline and synchronization:** the baseline is read from the target
+    (`main`), deltas from the change's pinned `Base:`, so a requirement moved
+    on the target since is refused as stale rather than reverted. Current specs
+    equal the baseline until closure and the replayed change at closure.
+  - **Adoption and exemptions:** adopted 2026-09-24 with no work in flight;
+    `exempt.tasks` in `.shady2k/documents.json` is empty, and a task listed
+    there exempts its descendants.
+  - **Enforcement boundary:** local hooks are feedback, not a security
+    boundary: `git commit --no-verify` bypasses them, and nothing checks
+    tracker closures. A refusal is owed work whoever could walk past it, and a
+    check nobody else enforces is one to hold to harder, not more lightly.
 - **Backlog gate:** `node .shady2k/adapter.mjs backlog > b.json && node .shady2k/checks/check.mjs --config .shady2k/config.json b.json`.
   Strength `block` from the config; no baseline is needed at that strength.
 - **JSON report:** the same with `--json`.
 - **Commit-link input and check:** `node .shady2k/adapter.mjs commits --message <file>`
   (pending message) or `--range <a>..<b>` (every commit in a range), piped to
   `node .shady2k/checks/check-commits.mjs -`.
-- **Local entry points:** `.githooks/pre-commit` (privacy guard, then backlog
-  gate) and `.githooks/commit-msg` (commit links).
+- **Local entry points:** `.githooks/pre-commit` (privacy guard, the tooling's
+  tests when tooling is staged, then backlog gate) and `.githooks/commit-msg`
+  (commit links, then the document gate).
 - **Public repository, privacy:** no personal data and no details of the
   owner's other projects. `.githooks/privacy-guard.sh` refuses staged content
   matching `.git/info/private-patterns`, a list that is never committed. br
