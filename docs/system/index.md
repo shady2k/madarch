@@ -12,4 +12,6 @@ it into `capabilities/` at closure.
 
 ## Known unknowns
 
-Everything: there is no product code yet.
+Everything accepted: the first product code (the change graph-foundation) is
+in progress and describes its behaviour in `docs/changes/graph-foundation/`
+until it is accepted.

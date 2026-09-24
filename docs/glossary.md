@@ -13,12 +13,14 @@ _Avoid_: landscape, workspace, model (for the whole)
 
 **Intended model**:
 What people and agents declare the architecture to be: elements, interfaces,
-relations, zones, data categories, rules and flows, written as YAML in git.
+relations, zones, data categories, environments and architecture states (rules
+and flows later), written as YAML in a repository's `madarch/` folder.
 _Avoid_: authored model, design model
 
 **Element**:
 A part of the system with a stable id: a person or role, an external system, a
-domain, a system, a service, a store, a broker. Elements nest through a parent.
+domain, a system, a service, a module, a store, a broker. Elements nest through
+a parent.
 _Avoid_: node (reserved for the storage graph), component (a C4 level)
 
 **Interface**:
@@ -37,8 +39,9 @@ of detail. Views collapse relations to the elements they show.
 _Avoid_: link, arrow, connection
 
 **Interaction**:
-A relation made concrete: a node with its own id that carries data transfers and
-is referred to by flows, decisions and evidence.
+A relation made concrete: one that names an interface or carries data
+transfers. It has its own id (the relation's), by which flows, decisions and
+evidence refer to it; the query engine keeps it as a node.
 
 **Data transfer**:
 Data moving within an interaction in one direction, forward or reverse, with its

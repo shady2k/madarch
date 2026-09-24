@@ -83,8 +83,7 @@ are the repository's installation, and each person's plugin and hooks are theirs
     changes owe `static`, `test`, `mutation` and `review`, plus the checks their
     coverage names; supporting changes owe `review`, and the tooling's own
     tests run in pre-commit whenever `.shady2k/` or `.githooks/` is staged. The
-    commands behind `static` and `test` arrive with the first product code
-    (madarch-ozp). Approval is required for behavior changes only
+    commands behind `static` and `test` are in "Checks and execution" below. Approval is required for behavior changes only
     (`approvalFor` in `.shady2k/documents.json`).
   - **Evidence level: records.** There is no protected CI, so evidence is
     trusted, not verified. It lives in tracker comments on the change's tasks,
@@ -148,13 +147,25 @@ are the repository's installation, and each person's plugin and hooks are theirs
   `.git/info/private-patterns`; `user.email` is the owner's public email; a local `main`
   branch (the document gate's target);
   `br sync --import-only` then `br sync --migrate-source-repo-path --apply` if br reports foreign paths.
-- **CI:** none (personal scope, no product code yet). The walking skeleton
-  wires CI; there the backlog baseline is the previous head of a push or the
-  PR merge-base, and an empty or unreadable commit range fails.
+- **CI:** GitHub Actions (`.github/workflows/ci.yml`) on every push and pull
+  request: `bun install --frozen-lockfile`, `bun run check`, `bun test` on
+  Linux. It runs the product's checks only; the backlog, commit-link and
+  document gates stay in the local hooks (personal scope).
 - **Bulk-edit age correction:** `check.mjs --ages-from <before.json> --ages-through <after.json>`
   with adapter snapshots taken before and after the edit.
-- **Static checks / related tests / full stage checks:** none yet; defined by the walking skeleton.
-- **Mutation checks:** none yet; until tooling exists, acceptance escalates (config `mutationFallback`).
+- **Runtime:** Bun 1.4.2 (`packageManager` in `package.json`), TypeScript 7
+  in strict mode.
+- **Static checks:** `bun run check` (`tsc --noEmit`). **Related tests:** `bun
+  test <file>`. **Full stage checks:** `bun install --frozen-lockfile && bun
+  run check && bun test`, plus `bun run schemas` reproducing the committed
+  `schema/*.json` (a test fails otherwise).
+- **Mutation checks:** StrykerJS 9 with the command runner (`bun test`),
+  `coverageAnalysis: off`, run from outside the repository (it is not a
+  dependency): a scratch folder with `@stryker-mutator/core@9` and
+  `typescript@5` (Stryker needs TypeScript's JS API, which TypeScript 7 lacks),
+  a config mutating `src/**/*.ts` except the TypeBox schema files; about two
+  minutes for the model code. Message-text and always-populated-fallback
+  survivors are equivalent; others are investigated.
 - **Reviewer:** another model where available (Codex through its MCP server or
   CLI; available when the server is connected in the session). Fallback: an
   independent same-model reviewer, disclosed in the acceptance record.
