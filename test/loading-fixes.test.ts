@@ -90,7 +90,7 @@ describe('S1: independent checks all run and report together', () => {
       expect.objectContaining({ file: 'madarch/first.yaml', line: ownerLine, path: 'elements[0].owner' }),
     );
     expect(errors).toContainEqual(
-      expect.objectContaining({ file: 'madarch/second.yaml', line: parentLine, path: 'parent' }),
+      expect.objectContaining({ file: 'madarch/second.yaml', line: parentLine, path: 'elements[0].parent' }),
     );
   });
 
@@ -106,8 +106,9 @@ describe('S1: independent checks all run and report together', () => {
     const { model, errors } = loadAndCompileModel(fixtureRoot);
 
     expect(model).toBeUndefined();
-    const idErrors = errors.filter((e) => e.path === 'id');
+    const idErrors = errors.filter((e) => e.path.endsWith('.id'));
     expect(idErrors.length).toBe(2);
+    expect(idErrors.map((e) => e.path).sort()).toEqual(['elements[1].id', 'elements[2].id']);
     // Each duplicate's message names the *other* occurrence, not itself.
     const atFirstLine = idErrors.find((e) => e.line === firstBLine)!;
     const atSecondLine = idErrors.find((e) => e.line !== firstBLine)!;
@@ -117,7 +118,7 @@ describe('S1: independent checks all run and report together', () => {
     expect(atSecondLine.message).toContain(`madarch/model.yaml:${firstBLine}`);
 
     expect(errors).toContainEqual(
-      expect.objectContaining({ path: 'parent', message: expect.stringContaining('nope') }),
+      expect.objectContaining({ path: 'elements[0].parent', message: expect.stringContaining('nope') }),
     );
   });
 });
@@ -245,14 +246,14 @@ describe('S8: loading', () => {
     const { model, errors } = loadAndCompileModel(fixture('contract-bad-method'));
 
     expect(model).toBeUndefined();
-    expect(errors).toContainEqual(expect.objectContaining({ path: 'contract' }));
+    expect(errors).toContainEqual(expect.objectContaining({ path: 'interfaces[0].contract' }));
   });
 
   test('an HTTP contract path must start with "/"', () => {
     const { model, errors } = loadAndCompileModel(fixture('contract-path-no-slash'));
 
     expect(model).toBeUndefined();
-    expect(errors).toContainEqual(expect.objectContaining({ path: 'contract' }));
+    expect(errors).toContainEqual(expect.objectContaining({ path: 'interfaces[0].contract' }));
   });
 
   test('an HTTP contract with a valid method and path still normalizes', () => {

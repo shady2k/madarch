@@ -8,7 +8,7 @@ import { Binding, ElementKind, Evidence, ID_PATTERN_SOURCE, Transfer } from './s
  * source for the intended model's.
  */
 
-/** The one constant for the compiled schema's version (O2). */
+/** The one constant for the compiled schema's version. */
 export const COMPILED_SCHEMA_VERSION = 1;
 
 const CompiledId = Type.String({ pattern: ID_PATTERN_SOURCE });
@@ -53,7 +53,7 @@ export const CompiledState = Type.Object(
 export type CompiledState = Static<typeof CompiledState>;
 
 /**
- * S2: the presence description shared by an element's and a relation's
+ * The presence description shared by an element's and a relation's
  * `environments` field. With no environments declared in the model at all,
  * every element and relation is trivially unrestricted, and that is written
  * as the single sentinel id `"*"` rather than an empty list, so "every
@@ -75,7 +75,7 @@ export const CompiledElement = Type.Object(
     evidence: Type.Optional(Type.Array(Evidence)),
     zones: Type.Array(Type.String(), { description: "The element's zones, worked out after inheritance, add, exclude and replace." }),
     zonesByEnvironment: Type.Record(Type.String(), Type.Array(Type.String()), {
-      description: "The element's zones in each environment it exists in (S3: only those), after that environment's own changes.",
+      description: "The element's zones in each environment it exists in, listing only the environments it exists in, after that environment's own changes.",
     }),
     environments: Type.Array(Type.String(), { description: ENVIRONMENTS_DESCRIPTION }),
     states: Type.Array(Type.String(), { description: 'The states it exists in, first to last in the chain; every state when unrestricted.' }),
@@ -107,7 +107,7 @@ export const CompiledRelation = Type.Object(
     bindingByEnvironment: Type.Optional(
       Type.Record(Type.String(), Type.String(), {
         description:
-          "The binding variable's value in each environment the relation exists in. An environment that does not define the variable has no key here (S6): a binding variable an environment leaves unset is recorded as absent, never as an error.",
+          "The binding variable's value in each environment the relation exists in. An environment that does not define the variable has no key here: a binding variable an environment leaves unset is recorded as absent, never as an error.",
       }),
     ),
     transfers: Type.Optional(Type.Array(Transfer)),

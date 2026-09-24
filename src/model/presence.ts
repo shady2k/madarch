@@ -54,7 +54,17 @@ export function computeElementPresence(
   const resolve = (id: string): Presence => {
     const cached = cache.get(id);
     if (cached) return cached;
-    const element = byId.get(id)!;
+    const element = byId.get(id);
+    // Not one of `elements`: only possible when the model has an unrelated
+    // error elsewhere (see the identical guard in `zones.ts`'s
+    // `resolveGeneralZones`) — the model will not compile regardless, so
+    // this stops the chain here rather than crashing on a lookup that
+    // cannot succeed.
+    if (!element) {
+      const result: Presence = { environmentIds: [], stateIds: [] };
+      cache.set(id, result);
+      return result;
+    }
     const parent: Presence =
       element.parent !== undefined ? resolve(element.parent) : { environmentIds: [...environmentIds], stateIds: [...stateOrder] };
 

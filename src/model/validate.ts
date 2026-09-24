@@ -2,22 +2,28 @@ import type { ModelError } from './errors.js';
 import { DEFAULT_STATE_ID, ID_PATTERN, type Category, type Element, type Environment, type Interface, type Relation, type State, type Zone } from './schema.js';
 import { computeElementPresence, computeRelationPresence, type Presence } from './presence.js';
 import { resolveGeneralZones, resolveZonesInEnvironment } from './zones.js';
+import { segmentsToPath, type PathSegment } from './yaml-position.js';
 
 /**
  * An element together with where it was written, kept only for the
  * duration of loading: ids, references and cycles all need to name a
- * file and a line, but the compiled `IntendedModel` does not carry
- * positions.
+ * file, a line and the item's index within its own file's section (to
+ * build its full path from the model's top, `elements[3].parent`), but the
+ * compiled `IntendedModel` does not carry positions.
  */
 export interface PositionedElement {
   element: Element;
   file: string;
+  /** This element's index within its own file's `elements` array. */
+  index: number;
   line: number;
+  idLine: number;
   parentLine: number;
   zonesLine: number;
   zonesAddLines: number[];
   zonesExcludeLines: number[];
   zonesReplaceLines: number[];
+  environmentsLine: number;
   environmentsLines: number[];
   sinceLine: number;
   untilLine: number;
@@ -26,8 +32,11 @@ export interface PositionedElement {
 export interface PositionedInterface {
   iface: Interface;
   file: string;
+  index: number;
   line: number;
+  idLine: number;
   providerLine: number;
+  contractLine: number;
 }
 
 /** The line of each transfer's `categories` entries, parallel to `relation.transfers`. */
@@ -38,7 +47,9 @@ export interface TransferLines {
 export interface PositionedRelation {
   relation: Relation;
   file: string;
+  index: number;
   line: number;
+  idLine: number;
   fromLine: number;
   toLine: number;
   refinesLine: number;
@@ -51,13 +62,17 @@ export interface PositionedRelation {
 export interface PositionedCategory {
   category: Category;
   file: string;
+  index: number;
   line: number;
+  idLine: number;
 }
 
 export interface PositionedZone {
   zone: Zone;
   file: string;
+  index: number;
   line: number;
+  idLine: number;
 }
 
 /** The line of one element's zone change inside one environment's `zones` map. */
@@ -71,15 +86,50 @@ export interface EnvironmentZoneLines {
 export interface PositionedEnvironment {
   environment: Environment;
   file: string;
+  index: number;
   line: number;
+  idLine: number;
   zonesLines: EnvironmentZoneLines[];
 }
 
 export interface PositionedState {
   state: State;
   file: string;
+  index: number;
   line: number;
+  idLine: number;
   afterLine: number;
+}
+
+/**
+ * The string ids a file that failed its own schema check still declared,
+ * kept separate from `PositionedModel` (see `checkReferences`): a mistake
+ * elsewhere in that file must not make a correct reference *into* it, from
+ * another file, look broken too.
+ */
+export interface ExtraKnownIds {
+  elements: Set<string>;
+  interfaces: Set<string>;
+  relations: Set<string>;
+  categories: Set<string>;
+  zones: Set<string>;
+  environments: Set<string>;
+  states: Set<string>;
+}
+
+const EMPTY_EXTRA_KNOWN_IDS: ExtraKnownIds = {
+  elements: new Set(),
+  interfaces: new Set(),
+  relations: new Set(),
+  categories: new Set(),
+  zones: new Set(),
+  environments: new Set(),
+  states: new Set(),
+};
+
+/** Builds one `ModelError`, its `path` the full path from the model's top. */
+function errorAt(file: string, line: number, segments: PathSegment[], message: string): ModelError {
+  return { file, line, path: segmentsToPath(segments), message };
 }
 
 export interface PositionedModel {
@@ -121,27 +171,27 @@ export interface StateAfterLike {
  * reference would be meaningless; and the checks built on a cycle-free
  * `parent` (zone inheritance) wait, in turn, for the cycle check.
  */
-export function validateModel(positioned: PositionedModel): ModelError[] {
+export function validateModel(positioned: PositionedModel, extraKnownIds: ExtraKnownIds = EMPTY_EXTRA_KNOWN_IDS): ModelError[] {
   const errors: ModelError[] = [];
 
   errors.push(
-    ...checkIdSyntax(positioned.elements.map((e) => ({ id: e.element.id, file: e.file, line: e.line })), 'element'),
-    ...checkIdSyntax(positioned.interfaces.map((i) => ({ id: i.iface.id, file: i.file, line: i.line })), 'interface'),
-    ...checkIdSyntax(positioned.relations.map((r) => ({ id: r.relation.id, file: r.file, line: r.line })), 'relation'),
-    ...checkIdSyntax(positioned.categories.map((c) => ({ id: c.category.id, file: c.file, line: c.line })), 'category'),
-    ...checkIdSyntax(positioned.zones.map((z) => ({ id: z.zone.id, file: z.file, line: z.line })), 'zone'),
-    ...checkIdSyntax(positioned.environments.map((e) => ({ id: e.environment.id, file: e.file, line: e.line })), 'environment'),
-    ...checkIdSyntax(positioned.states.map((s) => ({ id: s.state.id, file: s.file, line: s.line })), 'state'),
+    ...checkIdSyntax(positioned.elements.map((e) => ({ id: e.element.id, file: e.file, line: e.idLine, segments: ['elements', e.index, 'id'] })), 'element'),
+    ...checkIdSyntax(positioned.interfaces.map((i) => ({ id: i.iface.id, file: i.file, line: i.idLine, segments: ['interfaces', i.index, 'id'] })), 'interface'),
+    ...checkIdSyntax(positioned.relations.map((r) => ({ id: r.relation.id, file: r.file, line: r.idLine, segments: ['relations', r.index, 'id'] })), 'relation'),
+    ...checkIdSyntax(positioned.categories.map((c) => ({ id: c.category.id, file: c.file, line: c.idLine, segments: ['categories', c.index, 'id'] })), 'category'),
+    ...checkIdSyntax(positioned.zones.map((z) => ({ id: z.zone.id, file: z.file, line: z.idLine, segments: ['zones', z.index, 'id'] })), 'zone'),
+    ...checkIdSyntax(positioned.environments.map((e) => ({ id: e.environment.id, file: e.file, line: e.idLine, segments: ['environments', e.index, 'id'] })), 'environment'),
+    ...checkIdSyntax(positioned.states.map((s) => ({ id: s.state.id, file: s.file, line: s.idLine, segments: ['states', s.index, 'id'] })), 'state'),
   );
 
   errors.push(
-    ...checkDuplicateIds(positioned.elements.map((e) => ({ id: e.element.id, file: e.file, line: e.line })), 'element'),
-    ...checkDuplicateIds(positioned.interfaces.map((i) => ({ id: i.iface.id, file: i.file, line: i.line })), 'interface'),
-    ...checkDuplicateIds(positioned.relations.map((r) => ({ id: r.relation.id, file: r.file, line: r.line })), 'relation'),
-    ...checkDuplicateIds(positioned.categories.map((c) => ({ id: c.category.id, file: c.file, line: c.line })), 'category'),
-    ...checkDuplicateIds(positioned.zones.map((z) => ({ id: z.zone.id, file: z.file, line: z.line })), 'zone'),
-    ...checkDuplicateIds(positioned.environments.map((e) => ({ id: e.environment.id, file: e.file, line: e.line })), 'environment'),
-    ...checkDuplicateIds(positioned.states.map((s) => ({ id: s.state.id, file: s.file, line: s.line })), 'state'),
+    ...checkDuplicateIds(positioned.elements.map((e) => ({ id: e.element.id, file: e.file, line: e.idLine, segments: ['elements', e.index, 'id'] })), 'element'),
+    ...checkDuplicateIds(positioned.interfaces.map((i) => ({ id: i.iface.id, file: i.file, line: i.idLine, segments: ['interfaces', i.index, 'id'] })), 'interface'),
+    ...checkDuplicateIds(positioned.relations.map((r) => ({ id: r.relation.id, file: r.file, line: r.idLine, segments: ['relations', r.index, 'id'] })), 'relation'),
+    ...checkDuplicateIds(positioned.categories.map((c) => ({ id: c.category.id, file: c.file, line: c.idLine, segments: ['categories', c.index, 'id'] })), 'category'),
+    ...checkDuplicateIds(positioned.zones.map((z) => ({ id: z.zone.id, file: z.file, line: z.idLine, segments: ['zones', z.index, 'id'] })), 'zone'),
+    ...checkDuplicateIds(positioned.environments.map((e) => ({ id: e.environment.id, file: e.file, line: e.idLine, segments: ['environments', e.index, 'id'] })), 'environment'),
+    ...checkDuplicateIds(positioned.states.map((s) => ({ id: s.state.id, file: s.file, line: s.idLine, segments: ['states', s.index, 'id'] })), 'state'),
   );
 
   errors.push(...checkContracts(positioned.interfaces));
@@ -158,11 +208,27 @@ export function validateModel(positioned: PositionedModel): ModelError[] {
     stateOrder = computeStateOrder(positioned.states.map((s) => ({ id: s.state.id, after: s.state.after })));
     errors.push(
       ...checkSinceUntilOrder(
-        positioned.elements.map((e) => ({ since: e.element.since, until: e.element.until, file: e.file, sinceLine: e.sinceLine, untilLine: e.untilLine, id: e.element.id })),
+        positioned.elements.map((e) => ({
+          since: e.element.since,
+          until: e.element.until,
+          file: e.file,
+          sinceLine: e.sinceLine,
+          untilLine: e.untilLine,
+          id: e.element.id,
+          segments: ['elements', e.index],
+        })),
         stateOrder,
       ),
       ...checkSinceUntilOrder(
-        positioned.relations.map((r) => ({ since: r.relation.since, until: r.relation.until, file: r.file, sinceLine: r.sinceLine, untilLine: r.untilLine, id: r.relation.id })),
+        positioned.relations.map((r) => ({
+          since: r.relation.since,
+          until: r.relation.until,
+          file: r.file,
+          sinceLine: r.sinceLine,
+          untilLine: r.untilLine,
+          id: r.relation.id,
+          segments: ['relations', r.index],
+        })),
         stateOrder,
       ),
     );
@@ -170,8 +236,11 @@ export function validateModel(positioned: PositionedModel): ModelError[] {
 
   // Building the sets of known ids does not need ids to be well-formed or
   // unique, so reference checking runs over every file that passed its
-  // schema regardless of what the checks above found.
-  const referenceErrors = checkReferences(positioned);
+  // schema regardless of what the checks above found; a file that failed
+  // its own schema still contributes the ids it declared (`extraKnownIds`),
+  // so a correct reference into it from elsewhere is not reported as
+  // missing just because that file also had an unrelated mistake.
+  const referenceErrors = checkReferences(positioned, extraKnownIds);
   errors.push(...referenceErrors);
 
   if (referenceErrors.length === 0) {
@@ -189,6 +258,7 @@ export function validateModel(positioned: PositionedModel): ModelError[] {
       const environmentIds = positioned.environments.map((e) => e.environment.id);
 
       const elementPresence = computeElementPresence(elements, environmentIds, stateOrder);
+      errors.push(...checkEnvironmentsAgainstParent(positioned.elements, elementPresence));
       errors.push(...checkEmptyPresence(positioned.elements, elementPresence, environmentIds.length));
 
       const relationPresence = computeRelationPresence(
@@ -210,13 +280,46 @@ function checkEmptyEnvironmentsList(positioned: PositionedElement[]): ModelError
   const errors: ModelError[] = [];
   for (const entry of positioned) {
     if (entry.element.environments !== undefined && entry.element.environments.length === 0) {
-      errors.push({
-        file: entry.file,
-        line: entry.line,
-        path: 'environments',
-        message: `element "${entry.element.id}" has an empty "environments"; name at least one, or omit the field to exist in every environment`,
-      });
+      errors.push(
+        errorAt(
+          entry.file,
+          entry.environmentsLine,
+          ['elements', entry.index, 'environments'],
+          `element "${entry.element.id}" has an empty "environments"; name at least one, or omit the field to exist in every environment`,
+        ),
+      );
     }
+  }
+  return errors;
+}
+
+/**
+ * Refuses an element naming an environment its parent does not exist in:
+ * without this, the environment would be silently dropped by the
+ * intersection in `computeElementPresence` instead of refused. Safe to
+ * assume every named environment is a real environment id and `parent` is
+ * cycle-free: earlier checks already ran and found nothing.
+ */
+function checkEnvironmentsAgainstParent(positioned: PositionedElement[], elementPresence: ReadonlyMap<string, Presence>): ModelError[] {
+  const errors: ModelError[] = [];
+  for (const entry of positioned) {
+    const parentId = entry.element.parent;
+    const own = entry.element.environments;
+    if (parentId === undefined || own === undefined) continue;
+    const parentPresence = elementPresence.get(parentId);
+    if (!parentPresence) continue;
+
+    own.forEach((environmentId, i) => {
+      if (parentPresence.environmentIds.includes(environmentId)) return;
+      errors.push(
+        errorAt(
+          entry.file,
+          entry.environmentsLines[i] ?? entry.environmentsLine,
+          ['elements', entry.index, 'environments', i],
+          `element "${entry.element.id}" names environment "${environmentId}", but its parent "${parentId}" does not exist there`,
+        ),
+      );
+    });
   }
   return errors;
 }
@@ -236,12 +339,14 @@ function checkEmptyPresence(positioned: PositionedElement[], presenceById: Reado
     if (!presence) continue;
     const reasons = presenceReasons(presence, environmentIdsCount);
     if (reasons.length === 0) continue;
-    errors.push({
-      file: entry.file,
-      line: entry.line,
-      path: 'id',
-      message: `element "${entry.element.id}" exists nowhere: it has ${reasons.join(' and ')}`,
-    });
+    errors.push(
+      errorAt(
+        entry.file,
+        entry.idLine,
+        ['elements', entry.index, 'id'],
+        `element "${entry.element.id}" exists nowhere: it has ${reasons.join(' and ')}`,
+      ),
+    );
   }
   return errors;
 }
@@ -254,12 +359,14 @@ function checkEmptyRelationPresence(positioned: PositionedRelation[], presenceBy
     if (!presence) continue;
     const reasons = presenceReasons(presence, environmentIdsCount);
     if (reasons.length === 0) continue;
-    errors.push({
-      file: entry.file,
-      line: entry.line,
-      path: 'id',
-      message: `relation "${entry.relation.id}" exists nowhere: it has ${reasons.join(' and ')}`,
-    });
+    errors.push(
+      errorAt(
+        entry.file,
+        entry.idLine,
+        ['relations', entry.index, 'id'],
+        `relation "${entry.relation.id}" exists nowhere: it has ${reasons.join(' and ')}`,
+      ),
+    );
   }
   return errors;
 }
@@ -268,18 +375,16 @@ interface IdLike {
   id: string;
   file: string;
   line: number;
+  segments: PathSegment[];
 }
 
-function checkIdSyntax(items: IdLike[], kind: string): ModelError[] {
+function checkIdSyntax(items: IdLike[], _kind: string): ModelError[] {
   const errors: ModelError[] = [];
-  for (const { id, file, line } of items) {
+  for (const { id, file, line, segments } of items) {
     if (!ID_PATTERN.test(id)) {
-      errors.push({
-        file,
-        line,
-        path: 'id',
-        message: `id "${id}" is not valid: ids are letters, digits, dots, dashes and underscores, starting with a letter or digit`,
-      });
+      errors.push(
+        errorAt(file, line, segments, `id "${id}" is not valid: ids are letters, digits, dots, dashes and underscores, starting with a letter or digit`),
+      );
     }
   }
   return errors;
@@ -301,138 +406,116 @@ function checkDuplicateIds(items: IdLike[], kind: string): ModelError[] {
         .filter((other) => other !== entry)
         .map((other) => `${other.file}:${other.line}`)
         .join(', ');
-      errors.push({
-        file: entry.file,
-        line: entry.line,
-        path: 'id',
-        message: `${kind} id "${id}" is used more than once; also defined at ${others}`,
-      });
+      errors.push(errorAt(entry.file, entry.line, entry.segments, `${kind} id "${id}" is used more than once; also defined at ${others}`));
     }
   }
   return errors;
 }
 
-function checkReferences(positioned: PositionedModel): ModelError[] {
+function checkReferences(positioned: PositionedModel, extraKnownIds: ExtraKnownIds): ModelError[] {
   const errors: ModelError[] = [];
-  const elementIds = new Set(positioned.elements.map((e) => e.element.id));
-  const interfaceIds = new Set(positioned.interfaces.map((i) => i.iface.id));
-  const relationIds = new Set(positioned.relations.map((r) => r.relation.id));
-  const categoryIds = new Set(positioned.categories.map((c) => c.category.id));
-  const zoneIds = new Set(positioned.zones.map((z) => z.zone.id));
-  const environmentIds = new Set(positioned.environments.map((e) => e.environment.id));
-  const stateIds = new Set(positioned.states.map((s) => s.state.id));
+  const elementIds = new Set([...positioned.elements.map((e) => e.element.id), ...extraKnownIds.elements]);
+  const interfaceIds = new Set([...positioned.interfaces.map((i) => i.iface.id), ...extraKnownIds.interfaces]);
+  const relationIds = new Set([...positioned.relations.map((r) => r.relation.id), ...extraKnownIds.relations]);
+  const categoryIds = new Set([...positioned.categories.map((c) => c.category.id), ...extraKnownIds.categories]);
+  const zoneIds = new Set([...positioned.zones.map((z) => z.zone.id), ...extraKnownIds.zones]);
+  const environmentIds = new Set([...positioned.environments.map((e) => e.environment.id), ...extraKnownIds.environments]);
+  const stateIds = new Set([...positioned.states.map((s) => s.state.id), ...extraKnownIds.states]);
 
   for (const entry of positioned.elements) {
+    const base: PathSegment[] = ['elements', entry.index];
     const parent = entry.element.parent;
     if (parent !== undefined && !elementIds.has(parent)) {
-      errors.push({
-        file: entry.file,
-        line: entry.parentLine,
-        path: 'parent',
-        message: `element "${entry.element.id}" names parent "${parent}", which does not exist`,
-      });
+      errors.push(errorAt(entry.file, entry.parentLine, [...base, 'parent'], `element "${entry.element.id}" names parent "${parent}", which does not exist`));
     }
 
     const zonesChange = entry.element.zones;
     if (zonesChange) {
       (zonesChange.add ?? []).forEach((zoneId, i) => {
         if (zoneIds.has(zoneId)) return;
-        errors.push({
-          file: entry.file,
-          line: entry.zonesAddLines[i] ?? entry.zonesLine,
-          path: `zones.add[${i}]`,
-          message: `element "${entry.element.id}" names zone "${zoneId}", which does not exist`,
-        });
+        errors.push(
+          errorAt(entry.file, entry.zonesAddLines[i] ?? entry.zonesLine, [...base, 'zones', 'add', i], `element "${entry.element.id}" names zone "${zoneId}", which does not exist`),
+        );
       });
       (zonesChange.exclude ?? []).forEach((zoneId, i) => {
         if (zoneIds.has(zoneId)) return;
-        errors.push({
-          file: entry.file,
-          line: entry.zonesExcludeLines[i] ?? entry.zonesLine,
-          path: `zones.exclude[${i}]`,
-          message: `element "${entry.element.id}" names zone "${zoneId}", which does not exist`,
-        });
+        errors.push(
+          errorAt(entry.file, entry.zonesExcludeLines[i] ?? entry.zonesLine, [...base, 'zones', 'exclude', i], `element "${entry.element.id}" names zone "${zoneId}", which does not exist`),
+        );
       });
       (zonesChange.replace ?? []).forEach((zoneId, i) => {
         if (zoneIds.has(zoneId)) return;
-        errors.push({
-          file: entry.file,
-          line: entry.zonesReplaceLines[i] ?? entry.zonesLine,
-          path: `zones.replace[${i}]`,
-          message: `element "${entry.element.id}" names zone "${zoneId}", which does not exist`,
-        });
+        errors.push(
+          errorAt(entry.file, entry.zonesReplaceLines[i] ?? entry.zonesLine, [...base, 'zones', 'replace', i], `element "${entry.element.id}" names zone "${zoneId}", which does not exist`),
+        );
       });
     }
 
     (entry.element.environments ?? []).forEach((environmentId, i) => {
       if (environmentIds.has(environmentId)) return;
-      errors.push({
-        file: entry.file,
-        line: entry.environmentsLines[i] ?? entry.line,
-        path: `environments[${i}]`,
-        message: `element "${entry.element.id}" names environment "${environmentId}", which does not exist`,
-      });
+      errors.push(
+        errorAt(
+          entry.file,
+          entry.environmentsLines[i] ?? entry.environmentsLine,
+          [...base, 'environments', i],
+          `element "${entry.element.id}" names environment "${environmentId}", which does not exist`,
+        ),
+      );
     });
 
     if (entry.element.since !== undefined && !stateIds.has(entry.element.since)) {
-      errors.push({
-        file: entry.file,
-        line: entry.sinceLine,
-        path: 'since',
-        message: `element "${entry.element.id}" names state "${entry.element.since}", which does not exist`,
-      });
+      errors.push(errorAt(entry.file, entry.sinceLine, [...base, 'since'], `element "${entry.element.id}" names state "${entry.element.since}", which does not exist`));
     }
     if (entry.element.until !== undefined && !stateIds.has(entry.element.until)) {
-      errors.push({
-        file: entry.file,
-        line: entry.untilLine,
-        path: 'until',
-        message: `element "${entry.element.id}" names state "${entry.element.until}", which does not exist`,
-      });
+      errors.push(errorAt(entry.file, entry.untilLine, [...base, 'until'], `element "${entry.element.id}" names state "${entry.element.until}", which does not exist`));
     }
   }
 
   for (const entry of positioned.states) {
     const after = entry.state.after;
     if (after !== undefined && !stateIds.has(after)) {
-      errors.push({
-        file: entry.file,
-        line: entry.afterLine,
-        path: 'after',
-        message: `state "${entry.state.id}" names "after" as "${after}", which does not exist`,
-      });
+      errors.push(
+        errorAt(entry.file, entry.afterLine, ['states', entry.index, 'after'], `state "${entry.state.id}" names "after" as "${after}", which does not exist`),
+      );
     }
   }
 
   for (const entry of positioned.environments) {
+    const base: PathSegment[] = ['environments', entry.index];
     for (const zoneLines of entry.zonesLines) {
       if (!elementIds.has(zoneLines.elementId)) {
-        errors.push({
-          file: entry.file,
-          line: zoneLines.line,
-          path: `zones.${zoneLines.elementId}`,
-          message: `environment "${entry.environment.id}" names element "${zoneLines.elementId}", which does not exist`,
-        });
+        errors.push(
+          errorAt(
+            entry.file,
+            zoneLines.line,
+            [...base, 'zones', zoneLines.elementId],
+            `environment "${entry.environment.id}" names element "${zoneLines.elementId}", which does not exist`,
+          ),
+        );
         continue;
       }
       const change = entry.environment.zones?.[zoneLines.elementId];
       (change?.add ?? []).forEach((zoneId, i) => {
         if (zoneIds.has(zoneId)) return;
-        errors.push({
-          file: entry.file,
-          line: zoneLines.addLines[i] ?? zoneLines.line,
-          path: `zones.${zoneLines.elementId}.add[${i}]`,
-          message: `environment "${entry.environment.id}" names zone "${zoneId}", which does not exist`,
-        });
+        errors.push(
+          errorAt(
+            entry.file,
+            zoneLines.addLines[i] ?? zoneLines.line,
+            [...base, 'zones', zoneLines.elementId, 'add', i],
+            `environment "${entry.environment.id}" names zone "${zoneId}", which does not exist`,
+          ),
+        );
       });
       (change?.exclude ?? []).forEach((zoneId, i) => {
         if (zoneIds.has(zoneId)) return;
-        errors.push({
-          file: entry.file,
-          line: zoneLines.excludeLines[i] ?? zoneLines.line,
-          path: `zones.${zoneLines.elementId}.exclude[${i}]`,
-          message: `environment "${entry.environment.id}" names zone "${zoneId}", which does not exist`,
-        });
+        errors.push(
+          errorAt(
+            entry.file,
+            zoneLines.excludeLines[i] ?? zoneLines.line,
+            [...base, 'zones', zoneLines.elementId, 'exclude', i],
+            `environment "${entry.environment.id}" names zone "${zoneId}", which does not exist`,
+          ),
+        );
       });
     }
   }
@@ -440,77 +523,49 @@ function checkReferences(positioned: PositionedModel): ModelError[] {
   for (const entry of positioned.interfaces) {
     const provider = entry.iface.provider;
     if (!elementIds.has(provider)) {
-      errors.push({
-        file: entry.file,
-        line: entry.providerLine,
-        path: 'provider',
-        message: `interface "${entry.iface.id}" names provider "${provider}", which does not exist`,
-      });
+      errors.push(
+        errorAt(entry.file, entry.providerLine, ['interfaces', entry.index, 'provider'], `interface "${entry.iface.id}" names provider "${provider}", which does not exist`),
+      );
     }
   }
 
   for (const entry of positioned.relations) {
     const { relation } = entry;
+    const base: PathSegment[] = ['relations', entry.index];
     if (!elementIds.has(relation.from)) {
-      errors.push({
-        file: entry.file,
-        line: entry.fromLine,
-        path: 'from',
-        message: `relation "${relation.id}" names "from" as "${relation.from}", which does not exist`,
-      });
+      errors.push(errorAt(entry.file, entry.fromLine, [...base, 'from'], `relation "${relation.id}" names "from" as "${relation.from}", which does not exist`));
     }
     if (!elementIds.has(relation.to)) {
-      errors.push({
-        file: entry.file,
-        line: entry.toLine,
-        path: 'to',
-        message: `relation "${relation.id}" names "to" as "${relation.to}", which does not exist`,
-      });
+      errors.push(errorAt(entry.file, entry.toLine, [...base, 'to'], `relation "${relation.id}" names "to" as "${relation.to}", which does not exist`));
     }
     if (relation.refines !== undefined && !relationIds.has(relation.refines)) {
-      errors.push({
-        file: entry.file,
-        line: entry.refinesLine,
-        path: 'refines',
-        message: `relation "${relation.id}" refines "${relation.refines}", which does not exist`,
-      });
+      errors.push(errorAt(entry.file, entry.refinesLine, [...base, 'refines'], `relation "${relation.id}" refines "${relation.refines}", which does not exist`));
     }
     if (relation.interface !== undefined && !interfaceIds.has(relation.interface)) {
-      errors.push({
-        file: entry.file,
-        line: entry.interfaceLine,
-        path: 'interface',
-        message: `relation "${relation.id}" names interface "${relation.interface}", which does not exist`,
-      });
+      errors.push(
+        errorAt(entry.file, entry.interfaceLine, [...base, 'interface'], `relation "${relation.id}" names interface "${relation.interface}", which does not exist`),
+      );
     }
     (relation.transfers ?? []).forEach((transfer, transferIndex) => {
       const lines = entry.transferLines[transferIndex];
       transfer.categories.forEach((categoryId, categoryIndex) => {
         if (categoryIds.has(categoryId)) return;
-        errors.push({
-          file: entry.file,
-          line: lines?.categoryLines[categoryIndex] ?? entry.line,
-          path: `transfers[${transferIndex}].categories[${categoryIndex}]`,
-          message: `relation "${relation.id}" names category "${categoryId}", which does not exist`,
-        });
+        errors.push(
+          errorAt(
+            entry.file,
+            lines?.categoryLines[categoryIndex] ?? entry.line,
+            [...base, 'transfers', transferIndex, 'categories', categoryIndex],
+            `relation "${relation.id}" names category "${categoryId}", which does not exist`,
+          ),
+        );
       });
     });
 
     if (relation.since !== undefined && !stateIds.has(relation.since)) {
-      errors.push({
-        file: entry.file,
-        line: entry.sinceLine,
-        path: 'since',
-        message: `relation "${relation.id}" names state "${relation.since}", which does not exist`,
-      });
+      errors.push(errorAt(entry.file, entry.sinceLine, [...base, 'since'], `relation "${relation.id}" names state "${relation.since}", which does not exist`));
     }
     if (relation.until !== undefined && !stateIds.has(relation.until)) {
-      errors.push({
-        file: entry.file,
-        line: entry.untilLine,
-        path: 'until',
-        message: `relation "${relation.id}" names state "${relation.until}", which does not exist`,
-      });
+      errors.push(errorAt(entry.file, entry.untilLine, [...base, 'until'], `relation "${relation.id}" names state "${relation.until}", which does not exist`));
     }
   }
 
@@ -539,12 +594,9 @@ function checkParentCycles(positioned: PositionedElement[]): ModelError[] {
         const cycle = cycleStart >= 0 ? path.slice(cycleStart) : [current.element.id];
         for (const id of cycle) reported.add(id);
         const first = byId.get(cycle[0]!)!;
-        errors.push({
-          file: first.file,
-          line: first.line,
-          path: 'parent',
-          message: `elements ${cycle.map((id) => `"${id}"`).join(', ')} form a cycle of parents`,
-        });
+        errors.push(
+          errorAt(first.file, first.parentLine, ['elements', first.index, 'parent'], `elements ${cycle.map((id) => `"${id}"`).join(', ')} form a cycle of parents`),
+        );
         break;
       }
       seen.add(current.element.id);
@@ -580,12 +632,9 @@ function checkRefinementCycles(positioned: PositionedRelation[]): ModelError[] {
         const cycle = cycleStart >= 0 ? path.slice(cycleStart) : [current.relation.id];
         for (const id of cycle) reported.add(id);
         const first = byId.get(cycle[0]!)!;
-        errors.push({
-          file: first.file,
-          line: first.line,
-          path: 'refines',
-          message: `relations ${cycle.map((id) => `"${id}"`).join(', ')} form a cycle of refinements`,
-        });
+        errors.push(
+          errorAt(first.file, first.refinesLine, ['relations', first.index, 'refines'], `relations ${cycle.map((id) => `"${id}"`).join(', ')} form a cycle of refinements`),
+        );
         break;
       }
       seen.add(current.relation.id);
@@ -640,20 +689,24 @@ function checkRefinementEnds(positioned: PositionedRelation[], ancestors: Ancest
     if (!refined) continue;
 
     if (!isSameOrDescendant(entry.relation.from, refined.relation.from)) {
-      errors.push({
-        file: entry.file,
-        line: entry.fromLine,
-        path: 'from',
-        message: `relation "${entry.relation.id}" refines "${refinesId}" but its "from" end "${entry.relation.from}" is not "${refined.relation.from}" or a descendant of it`,
-      });
+      errors.push(
+        errorAt(
+          entry.file,
+          entry.fromLine,
+          ['relations', entry.index, 'from'],
+          `relation "${entry.relation.id}" refines "${refinesId}" but its "from" end "${entry.relation.from}" is not "${refined.relation.from}" or a descendant of it`,
+        ),
+      );
     }
     if (!isSameOrDescendant(entry.relation.to, refined.relation.to)) {
-      errors.push({
-        file: entry.file,
-        line: entry.toLine,
-        path: 'to',
-        message: `relation "${entry.relation.id}" refines "${refinesId}" but its "to" end "${entry.relation.to}" is not "${refined.relation.to}" or a descendant of it`,
-      });
+      errors.push(
+        errorAt(
+          entry.file,
+          entry.toLine,
+          ['relations', entry.index, 'to'],
+          `relation "${entry.relation.id}" refines "${refinesId}" but its "to" end "${entry.relation.to}" is not "${refined.relation.to}" or a descendant of it`,
+        ),
+      );
     }
   }
 
@@ -687,12 +740,14 @@ function checkContracts(positioned: PositionedInterface[]): ModelError[] {
   const errors: ModelError[] = [];
   for (const entry of positioned) {
     if (normalizeContract(entry.iface.contract) === undefined) {
-      errors.push({
-        file: entry.file,
-        line: entry.line,
-        path: 'contract',
-        message: `interface "${entry.iface.id}" has a contract id "${entry.iface.contract}" that does not parse: it must be "kind::rest", the kind being http, grpc, topic, queue, data or rpc, and an http contract must be "http::METHOD::path"`,
-      });
+      errors.push(
+        errorAt(
+          entry.file,
+          entry.contractLine,
+          ['interfaces', entry.index, 'contract'],
+          `interface "${entry.iface.id}" has a contract id "${entry.iface.contract}" that does not parse: it must be "kind::rest", the kind being http, grpc, topic, queue, data or rpc, and an http contract must be "http::METHOD::path"`,
+        ),
+      );
     }
   }
   return errors;
@@ -724,12 +779,7 @@ function checkStateChain(positioned: PositionedState[]): ModelError[] {
     if (group.length < 2) continue;
     const names = group.map((g) => `"${g.state.id}"`).join(', ');
     for (const g of group) {
-      errors.push({
-        file: g.file,
-        line: g.line,
-        path: 'after',
-        message: `states ${names} are both after "${after}"; a chain of states cannot branch`,
-      });
+      errors.push(errorAt(g.file, g.afterLine, ['states', g.index, 'after'], `states ${names} are both after "${after}"; a chain of states cannot branch`));
     }
   }
   if (errors.length > 0) return errors;
@@ -738,21 +788,15 @@ function checkStateChain(positioned: PositionedState[]): ModelError[] {
     if (roots.length === 0) {
       const names = positioned.map((s) => `"${s.state.id}"`).join(', ');
       const first = positioned[0]!;
-      errors.push({
-        file: first.file,
-        line: first.line,
-        path: 'after',
-        message: `states ${names} have no first state: every state names an "after"`,
-      });
+      errors.push(
+        errorAt(first.file, first.line, ['states', first.index, 'after'], `states ${names} have no first state: every state names an "after"`),
+      );
     } else {
       const names = roots.map((r) => `"${r.state.id}"`).join(', ');
       for (const r of roots) {
-        errors.push({
-          file: r.file,
-          line: r.line,
-          path: 'after',
-          message: `states ${names} are all first states; a chain of states must start from exactly one`,
-        });
+        errors.push(
+          errorAt(r.file, r.line, ['states', r.index, 'after'], `states ${names} are all first states; a chain of states must start from exactly one`),
+        );
       }
     }
     return errors;
@@ -769,12 +813,7 @@ function checkStateChain(positioned: PositionedState[]): ModelError[] {
   if (leftover.length > 0) {
     const names = leftover.map((s) => `"${s.state.id}"`).join(', ');
     for (const entry of leftover) {
-      errors.push({
-        file: entry.file,
-        line: entry.line,
-        path: 'after',
-        message: `states ${names} form a cycle of "after"`,
-      });
+      errors.push(errorAt(entry.file, entry.afterLine, ['states', entry.index, 'after'], `states ${names} form a cycle of "after"`));
     }
   }
 
@@ -812,6 +851,7 @@ interface SinceUntilLike {
   file: string;
   sinceLine: number;
   untilLine: number;
+  segments: PathSegment[];
 }
 
 /**
@@ -828,12 +868,14 @@ function checkSinceUntilOrder(entries: SinceUntilLike[], stateOrder: string[]): 
     const untilIndex = indexById.get(entry.until);
     if (sinceIndex === undefined || untilIndex === undefined) continue;
     if (sinceIndex >= untilIndex) {
-      errors.push({
-        file: entry.file,
-        line: entry.sinceLine,
-        path: 'since',
-        message: `"${entry.id}" has since "${entry.since}", which does not come before until "${entry.until}" in the chain of states`,
-      });
+      errors.push(
+        errorAt(
+          entry.file,
+          entry.sinceLine,
+          [...entry.segments, 'since'],
+          `"${entry.id}" has since "${entry.since}", which does not come before until "${entry.until}" in the chain of states`,
+        ),
+      );
     }
   }
   return errors;
@@ -846,12 +888,14 @@ function checkZoneChangeShape(positioned: PositionedElement[]): ModelError[] {
     const change = entry.element.zones;
     if (!change || change.replace === undefined) continue;
     if (change.add !== undefined || change.exclude !== undefined) {
-      errors.push({
-        file: entry.file,
-        line: entry.zonesLine,
-        path: 'zones',
-        message: `element "${entry.element.id}" combines "replace" with "add" or "exclude" in "zones"; "replace" cannot be combined with either`,
-      });
+      errors.push(
+        errorAt(
+          entry.file,
+          entry.zonesLine,
+          ['elements', entry.index, 'zones'],
+          `element "${entry.element.id}" combines "replace" with "add" or "exclude" in "zones"; "replace" cannot be combined with either`,
+        ),
+      );
     }
   }
   return errors;
@@ -859,12 +903,16 @@ function checkZoneChangeShape(positioned: PositionedElement[]): ModelError[] {
 
 /**
  * Checks an element's zones (general and per environment) the same way in
- * both places (B2): excluding a zone the element is not in — whether in
- * general or, after inheritance, in one environment — is refused naming
- * both, and an environment changing the zones of an element absent from it
- * is refused too. Safe to assume `parent` is cycle-free and every zone,
- * element and environment id known: earlier checks already ran and found
- * nothing.
+ * both places: excluding a zone the element is not in — whether in general
+ * or, after inheritance, in one environment — is refused naming both, and
+ * an environment changing the zones of an element absent from it is
+ * refused too. An element's own `exclude` can be valid in general but
+ * still invalid inside one particular environment, when that environment
+ * already removed the zone from an ancestor; that is refused the same way,
+ * pointing back at the element's own `zones.exclude` but naming the
+ * environment it fails in. Safe to assume `parent` is cycle-free and every
+ * zone, element and environment id known: earlier checks already ran and
+ * found nothing.
  */
 function checkZones(positioned: PositionedModel, elements: Element[], elementPresence: ReadonlyMap<string, Presence>): ModelError[] {
   const errors: ModelError[] = [];
@@ -875,40 +923,67 @@ function checkZones(positioned: PositionedModel, elements: Element[], elementPre
     const entry = elementById.get(elementId)!;
     for (const index of indexes) {
       const zoneId = entry.element.zones?.exclude?.[index]!;
-      errors.push({
-        file: entry.file,
-        line: entry.zonesExcludeLines[index] ?? entry.zonesLine,
-        path: `zones.exclude[${index}]`,
-        message: `element "${elementId}" excludes zone "${zoneId}", which it would not be in`,
-      });
+      errors.push(
+        errorAt(
+          entry.file,
+          entry.zonesExcludeLines[index] ?? entry.zonesLine,
+          ['elements', entry.index, 'zones', 'exclude', index],
+          `element "${elementId}" excludes zone "${zoneId}", which it would not be in`,
+        ),
+      );
     }
   }
 
   for (const environmentEntry of positioned.environments) {
+    const base: PathSegment[] = ['environments', environmentEntry.index];
     const presentElementIds = new Set(
       elements.filter((element) => elementPresence.get(element.id)?.environmentIds.includes(environmentEntry.environment.id)).map((e) => e.id),
     );
     const inEnvironment = resolveZonesInEnvironment(elements, environmentEntry.environment, presentElementIds);
 
+    for (const [elementId, indexes] of inEnvironment.ownInvalidExcludes) {
+      // Already reported once, generally, if the exclude is invalid there
+      // too — this environment-specific report is only for an exclude that
+      // is valid in general but not in this particular environment.
+      const alreadyGeneral = new Set(general.invalidExcludes.get(elementId) ?? []);
+      const entry = elementById.get(elementId)!;
+      for (const index of indexes) {
+        if (alreadyGeneral.has(index)) continue;
+        const zoneId = entry.element.zones?.exclude?.[index]!;
+        errors.push(
+          errorAt(
+            entry.file,
+            entry.zonesExcludeLines[index] ?? entry.zonesLine,
+            ['elements', entry.index, 'zones', 'exclude', index],
+            `element "${elementId}" excludes zone "${zoneId}", which it would not be in there in environment "${environmentEntry.environment.id}"`,
+          ),
+        );
+      }
+    }
+
     for (const zoneLines of environmentEntry.zonesLines) {
       if (inEnvironment.absentElementIds.has(zoneLines.elementId)) {
-        errors.push({
-          file: environmentEntry.file,
-          line: zoneLines.line,
-          path: `zones.${zoneLines.elementId}`,
-          message: `environment "${environmentEntry.environment.id}" changes the zones of element "${zoneLines.elementId}", which does not exist in it`,
-        });
+        errors.push(
+          errorAt(
+            environmentEntry.file,
+            zoneLines.line,
+            [...base, 'zones', zoneLines.elementId],
+            `environment "${environmentEntry.environment.id}" changes the zones of element "${zoneLines.elementId}", which does not exist in it`,
+          ),
+        );
       }
 
       const invalidExcludeIndexes = inEnvironment.invalidExcludes.get(zoneLines.elementId) ?? [];
       for (const index of invalidExcludeIndexes) {
         const zoneId = environmentEntry.environment.zones?.[zoneLines.elementId]?.exclude?.[index]!;
-        errors.push({
-          file: environmentEntry.file,
-          line: zoneLines.excludeLines[index] ?? zoneLines.line,
-          path: `zones.${zoneLines.elementId}.exclude[${index}]`,
-          message: `environment "${environmentEntry.environment.id}" excludes zone "${zoneId}" from element "${zoneLines.elementId}", which it would not be in there`,
-        });
+        errors.push(
+          errorAt(
+            environmentEntry.file,
+            zoneLines.excludeLines[index] ?? zoneLines.line,
+            [...base, 'zones', zoneLines.elementId, 'exclude', index],
+            `environment "${environmentEntry.environment.id}" excludes zone "${zoneId}" from element "${zoneLines.elementId}", which it would not be in there`,
+          ),
+        );
       }
     }
   }

@@ -8,6 +8,7 @@ import { checkStrictYaml } from './strict-yaml.js';
 import {
   validateModel,
   type EnvironmentZoneLines,
+  type ExtraKnownIds,
   type PositionedCategory,
   type PositionedElement,
   type PositionedEnvironment,
@@ -54,6 +55,26 @@ export interface ModelSourceFile {
  * concatenates across files, in the given file order.
  */
 export function parseModel(files: ModelSourceFile[]): LoadResult {
+  if (files.length === 0) {
+    return {
+      errors: [{ file: '', line: 1, path: '', message: 'no model: parseModel was given no files; a model needs at least one' }],
+    };
+  }
+
+  const pathCounts = new Map<string, number>();
+  for (const file of files) pathCounts.set(file.path, (pathCounts.get(file.path) ?? 0) + 1);
+  const duplicatePaths = [...pathCounts.entries()].filter(([, count]) => count > 1).map(([path]) => path);
+  if (duplicatePaths.length > 0) {
+    return {
+      errors: duplicatePaths.map((path) => ({
+        file: path,
+        line: 1,
+        path: '',
+        message: `the file path "${path}" is given more than once`,
+      })),
+    };
+  }
+
   const errors: ModelError[] = [];
   const positioned: PositionedModel = {
     elements: [],
@@ -63,6 +84,21 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
     zones: [],
     environments: [],
     states: [],
+  };
+  // Ids declared by a file that failed its own schema check: kept separate
+  // from `positioned` (which only ever holds content from files that fully
+  // parsed and matched the schema) so that `validateModel` can still treat
+  // them as known when checking a *different* file's reference into them —
+  // a file's own schema mistake should not make every correct reference to
+  // its declared ids look broken too.
+  const extraKnownIds: ExtraKnownIds = {
+    elements: new Set(),
+    interfaces: new Set(),
+    relations: new Set(),
+    categories: new Set(),
+    zones: new Set(),
+    environments: new Set(),
+    states: new Set(),
   };
 
   for (const file of files) {
@@ -93,6 +129,7 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
         const line = lineForPath(doc, lineCounter, segments);
         errors.push({ file: relativeFile, line, path: segmentsToPath(segments), message: fileError.message });
       }
+      collectDeclaredIds(value, extraKnownIds);
       continue;
     }
 
@@ -112,7 +149,9 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
       positioned.elements.push({
         element,
         file: relativeFile,
+        index,
         line: line(['elements', index]),
+        idLine: line(['elements', index, 'id']),
         parentLine: line(['elements', index, 'parent']),
         zonesLine: line(['elements', index, 'zones']),
         zonesAddLines: (element.zones?.add ?? []).map((_zoneId, zoneIndex) =>
@@ -124,6 +163,7 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
         zonesReplaceLines: (element.zones?.replace ?? []).map((_zoneId, zoneIndex) =>
           line(['elements', index, 'zones', 'replace', zoneIndex]),
         ),
+        environmentsLine: line(['elements', index, 'environments']),
         environmentsLines: (element.environments ?? []).map((_environmentId, environmentIndex) =>
           line(['elements', index, 'environments', environmentIndex]),
         ),
@@ -136,8 +176,11 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
       positioned.interfaces.push({
         iface,
         file: relativeFile,
+        index,
         line: line(['interfaces', index]),
+        idLine: line(['interfaces', index, 'id']),
         providerLine: line(['interfaces', index, 'provider']),
+        contractLine: line(['interfaces', index, 'contract']),
       });
     });
 
@@ -150,7 +193,9 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
       positioned.relations.push({
         relation,
         file: relativeFile,
+        index,
         line: line(['relations', index]),
+        idLine: line(['relations', index, 'id']),
         fromLine: line(['relations', index, 'from']),
         toLine: line(['relations', index, 'to']),
         refinesLine: line(['relations', index, 'refines']),
@@ -165,7 +210,9 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
       positioned.categories.push({
         category,
         file: relativeFile,
+        index,
         line: line(['categories', index]),
+        idLine: line(['categories', index, 'id']),
       });
     });
 
@@ -173,7 +220,9 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
       positioned.zones.push({
         zone,
         file: relativeFile,
+        index,
         line: line(['zones', index]),
+        idLine: line(['zones', index, 'id']),
       });
     });
 
@@ -191,7 +240,9 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
       positioned.environments.push({
         environment,
         file: relativeFile,
+        index,
         line: line(['environments', index]),
+        idLine: line(['environments', index, 'id']),
         zonesLines,
       });
     });
@@ -200,7 +251,9 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
       positioned.states.push({
         state,
         file: relativeFile,
+        index,
         line: line(['states', index]),
+        idLine: line(['states', index, 'id']),
         afterLine: line(['states', index, 'after']),
       });
     });
@@ -212,7 +265,7 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
   // that does not stop reference and the other checks from running over
   // every file that did pass — so this runs, and its errors join the ones
   // above, even when `errors` is already non-empty.
-  const validationErrors = validateModel(positioned);
+  const validationErrors = validateModel(positioned, extraKnownIds);
   const allErrors = [...errors, ...validationErrors];
   if (allErrors.length > 0) {
     return { errors: allErrors };
@@ -328,7 +381,7 @@ function normalizeErrors(
   const out: NormalizedError[] = [];
   const seen = new Set<string>();
   const constGroups = new Map<string, unknown[]>();
-  const deferredAnyOf: { instancePath: string; message: string }[] = [];
+  const deferredOther: { instancePath: string; message: string }[] = [];
 
   const push = (instancePath: string, message: string) => {
     const key = `${instancePath}\u0000${message}`;
@@ -345,15 +398,6 @@ function normalizeErrors(
       continue;
     }
     if (error.keyword === 'boolean') continue; // the additionalProperties error below is clearer
-    if (error.keyword === 'anyOf') {
-      // A union-of-literals mismatch also reports one summary "anyOf" error
-      // alongside its per-branch `const` errors; those are collapsed into
-      // one clearer error below, which makes this one redundant. Deferred
-      // rather than dropped outright: kept only if this path never turns
-      // out to have been a union of literals.
-      deferredAnyOf.push({ instancePath: error.instancePath, message: error.message });
-      continue;
-    }
     if (error.keyword === 'additionalProperties') {
       const names = (error.params.additionalProperties as string[] | undefined) ?? [];
       for (const name of names) {
@@ -361,10 +405,19 @@ function normalizeErrors(
       }
       continue;
     }
-    push(error.instancePath, error.message);
+    // Every other keyword (`anyOf`'s own summary, `type`'s "must be
+    // number", …) is deferred, never pushed outright: a single literal or
+    // a union of literals (`version`, `kind`, `direction`, …) that
+    // mismatches also reports one of these alongside its per-branch
+    // `const` errors, and the one clearer message built from those below
+    // makes it redundant — for a value of the *wrong type* (`version:
+    // "1"`, a string where the literal `1` is expected) as much as for one
+    // of the right type but the wrong value. Kept only if this path never
+    // turns out to have been a literal or a union of them.
+    deferredOther.push({ instancePath: error.instancePath, message: error.message });
   }
 
-  for (const { instancePath, message } of deferredAnyOf) {
+  for (const { instancePath, message } of deferredOther) {
     if (constGroups.has(instancePath)) continue;
     push(instancePath, message);
   }
@@ -378,6 +431,28 @@ function normalizeErrors(
   }
 
   return out;
+}
+
+const ID_SECTIONS = ['elements', 'interfaces', 'relations', 'categories', 'zones', 'environments', 'states'] as const;
+
+/**
+ * Reads whatever string `id`s a file's raw parsed value holds, tolerant of
+ * the value not matching the schema at all (that is exactly the case this
+ * is used for): each top-level section is read only if it is actually an
+ * array, and only items that are objects with a string `id` contribute one.
+ */
+function collectDeclaredIds(value: unknown, into: ExtraKnownIds): void {
+  if (value === null || typeof value !== 'object') return;
+  const record = value as Record<string, unknown>;
+  for (const section of ID_SECTIONS) {
+    const items = record[section];
+    if (!Array.isArray(items)) continue;
+    for (const item of items) {
+      if (item !== null && typeof item === 'object' && typeof (item as Record<string, unknown>).id === 'string') {
+        into[section].add((item as Record<string, unknown>).id as string);
+      }
+    }
+  }
 }
 
 /** Reads the value a JSON Pointer's segments name, for reporting what was actually there. */

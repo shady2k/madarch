@@ -121,7 +121,7 @@
                 }
               }
             },
-            "description": "The element's zones in each environment it exists in (S3: only those), after that environment's own changes."
+            "description": "The element's zones in each environment it exists in, listing only the environments it exists in, after that environment's own changes."
           },
           "environments": {
             "type": "array",
@@ -236,7 +236,7 @@
                 "type": "string"
               }
             },
-            "description": "The binding variable's value in each environment the relation exists in. An environment that does not define the variable has no key here (S6): a binding variable an environment leaves unset is recorded as absent, never as an error."
+            "description": "The binding variable's value in each environment the relation exists in. An environment that does not define the variable has no key here: a binding variable an environment leaves unset is recorded as absent, never as an error."
           },
           "transfers": {
             "type": "array",

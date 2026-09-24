@@ -1,4 +1,4 @@
-import { isAlias, isMap, isPair, isScalar, isSeq, visit, type Document, type LineCounter } from 'yaml';
+import { isAlias, isMap, isPair, isScalar, isSeq, type Document, type LineCounter } from 'yaml';
 import type { ModelError } from './errors.js';
 import { segmentsToPath, type PathSegment } from './yaml-position.js';
 
@@ -7,7 +7,10 @@ type Range = readonly [number, number, number] | undefined;
 /**
  * Refuses anchors, aliases, merge keys, custom tags and duplicate keys. The
  * `yaml` package parses all of them without complaint by default, so
- * strictness is enforced here by walking the parsed tree.
+ * strictness is enforced here by walking the parsed tree ourselves, tracking
+ * the full path from the model's top (`elements[0].kind`, not just `kind`) as
+ * it goes, so every one of these errors names it the same way a schema or
+ * reference error does.
  *
  * Duplicate keys are found by this module's own walk, not the parser's
  * `uniqueKeys` option (the caller turns that off): the option's own error
@@ -23,7 +26,7 @@ export function checkStrictYaml(doc: Document, lineCounter: LineCounter, file: s
   /**
    * The node an anchor decorates has its own range start *after* the
    * `&name` marker (the marker belongs to the enclosing sequence or
-   * mapping item, which `visit` does not expose here), so the node's own
+   * mapping item, which the walk does not expose here), so the node's own
    * range would point one line too late. The marker itself is found by
    * scanning backwards in the source for the last `&name` before the
    * node it decorates.
@@ -38,28 +41,16 @@ export function checkStrictYaml(doc: Document, lineCounter: LineCounter, file: s
     return offset >= 0 ? lineCounter.linePos(offset).line : lineOf([beforeOffset, beforeOffset, beforeOffset]);
   };
 
-  visit(doc, (_key, node) => {
+  const visitNode = (node: unknown, segments: PathSegment[]): void => {
     if (node === null || typeof node !== 'object') return;
 
     if (isAlias(node)) {
       errors.push({
         file,
         line: lineOf(node.range as Range),
-        path: '',
+        path: segmentsToPath(segments),
         message: `alias "*${node.source}" is not allowed: strict YAML forbids aliases`,
       });
-      return;
-    }
-
-    if (isPair(node)) {
-      if (isScalar(node.key) && node.key.value === '<<') {
-        errors.push({
-          file,
-          line: lineOf(node.key.range as Range),
-          path: '',
-          message: 'merge key "<<" is not allowed: strict YAML forbids merge keys',
-        });
-      }
       return;
     }
 
@@ -69,7 +60,7 @@ export function checkStrictYaml(doc: Document, lineCounter: LineCounter, file: s
       errors.push({
         file,
         line: anchorLine(withAnchor.anchor, start),
-        path: '',
+        path: segmentsToPath(segments),
         message: `anchor "&${withAnchor.anchor}" is not allowed: strict YAML forbids anchors`,
       });
     }
@@ -83,11 +74,35 @@ export function checkStrictYaml(doc: Document, lineCounter: LineCounter, file: s
       errors.push({
         file,
         line: lineOf(withTag.range),
-        path: '',
+        path: segmentsToPath(segments),
         message: `explicit tag "${withTag.tag}" is not allowed: strict YAML forbids explicit tags`,
       });
     }
-  });
+
+    if (isMap(node)) {
+      for (const item of node.items) {
+        if (isPair(item) && isScalar(item.key) && item.key.value === '<<') {
+          errors.push({
+            file,
+            line: lineOf(item.key.range as Range),
+            path: segmentsToPath(segments),
+            message: 'merge key "<<" is not allowed: strict YAML forbids merge keys',
+          });
+        }
+      }
+      for (const item of node.items) {
+        if (!isScalar(item.key)) continue;
+        visitNode(item.value, [...segments, String(item.key.value)]);
+      }
+      return;
+    }
+
+    if (isSeq(node)) {
+      node.items.forEach((item, index) => visitNode(item, [...segments, index]));
+    }
+  };
+
+  visitNode(doc.contents, []);
 
   errors.push(...checkDuplicateKeys(doc.contents, lineCounter, file));
 

@@ -95,7 +95,7 @@ function compileElement(
     ancestors: [...elementAncestors],
     zones: sortedByCodePoint(zones),
     zonesByEnvironment: {},
-    // S2: with no environments declared, every element is trivially
+    // With no environments declared, every element is trivially
     // unrestricted; that is written as the sentinel "*" rather than "[]" so
     // "every environment" and "no environment" (refused before compilation)
     // can never be confused.
@@ -107,7 +107,7 @@ function compileElement(
   if (element.technology !== undefined) compiled.technology = element.technology;
   if (element.evidence !== undefined) compiled.evidence = rebuildEvidence(element.evidence);
 
-  // S3: only the environments the element actually exists in.
+  // Only the environments the element actually exists in.
   for (const environmentId of presence.environmentIds) {
     const forEnvironment = zonesByEnvironment.get(environmentId)?.get(element.id) ?? [];
     compiled.zonesByEnvironment[environmentId] = sortedByCodePoint(forEnvironment);
@@ -153,14 +153,17 @@ function compileRelation(
 }
 
 /**
- * S6: the relation's binding variable's value in each environment it
- * exists in. A binding variable an environment does not define is recorded
- * as absent there (the key is left out), never as an error: secret values
- * are the author's responsibility (O4), not this compiler's.
+ * The relation's binding variable's value in each environment it exists
+ * in. A binding variable an environment does not define is recorded as
+ * absent there (the key is left out), never as an error: secret values are
+ * the author's responsibility, not this compiler's. Built on an object with
+ * no prototype (see `rebuildBindings`): `binding.env` names an environment
+ * id here, which the schema already restricts away from `"__proto__"`, but
+ * nothing should have to rely on that to stay safe.
  */
 function compileBindingByEnvironment(binding: Binding, presenceEnvironmentIds: readonly string[], environments: readonly Environment[]): Record<string, string> {
   const byId = new Map(environments.map((e) => [e.id, e]));
-  const result: Record<string, string> = {};
+  const result: Record<string, string> = Object.create(null) as Record<string, string>;
   for (const environmentId of sortedByCodePoint(presenceEnvironmentIds)) {
     const value = byId.get(environmentId)?.bindings?.[binding.env];
     if (value !== undefined) result[environmentId] = value;
@@ -188,7 +191,7 @@ function compileEnvironment(environment: Environment): CompiledEnvironment {
 }
 
 /**
- * The model's states, in the order of the chain from first to last (O3), so
+ * The model's states, in the order of the chain from first to last, so
  * the chain can be read back from the compiled model without recomputing
  * it. A model with no `states` compiles the single implicit state `as-is`.
  */
@@ -207,7 +210,7 @@ function compileStates(model: IntendedModel, stateOrder: readonly string[]): Com
 }
 
 /**
- * S4: every object passed through from the source YAML into the compiled
+ * Every object passed through from the source YAML into the compiled
  * model is rebuilt with keys in a fixed order, so that writing the same
  * fields in a different order in the source (or, for `bindings`, giving the
  * same variables in a different order) never changes the compiled bytes.
@@ -232,8 +235,18 @@ function rebuildBinding(binding: Binding): Binding {
   return { env: binding.env };
 }
 
+/**
+ * Rebuilds a `bindings` record with keys in a fixed (sorted) order,
+ * starting from an object with no prototype (`Object.create(null)`): a
+ * binding variable can be named anything, `"__proto__"` and `"constructor"`
+ * included, and assigning through `[key] =` on an ordinary `{}` would, for
+ * `"__proto__"`, set the object's prototype instead of a real, enumerable,
+ * serializable property — silently losing that binding. An object with no
+ * prototype has no such special key, so every variable name, however it
+ * reads, survives as a normal own property.
+ */
 function rebuildBindings(bindings: Readonly<Record<string, string>>): Record<string, string> {
-  const rebuilt: Record<string, string> = {};
+  const rebuilt: Record<string, string> = Object.create(null) as Record<string, string>;
   for (const key of sortedByCodePoint(Object.keys(bindings))) rebuilt[key] = bindings[key]!;
   return rebuilt;
 }
