@@ -451,6 +451,46 @@ describe('the LadybugDB query engine', () => {
     engine.close();
   });
 
+  describe('dependencies (transitive, B2): the review\'s e7 shapes answer without exception or crash', () => {
+    // (elements, relations, maxHops) — the exact shapes the review's e7.ts
+    // experiment used to blow the buffer pool before B2's fix, a plain
+    // `*1..N` pattern enumerating every walk rather than every shortest one.
+    const shapes: [elements: number, relations: number, maxHops: number][] = [
+      [10, 30, 30],
+      [100, 300, 30],
+      [50, 150, 5],
+      [100, 300, 6],
+    ];
+
+    for (const [elementCount, relationCount, maxHops] of shapes) {
+      test(`${elementCount} elements, ${relationCount} relations, maxHops ${maxHops}`, () => {
+        const rows: AssertionRecord[] = [];
+        for (let i = 0; i < elementCount; i++) rows.push(row('element', element(`e${i}`, 'service', [])));
+        let seed = 5;
+        const rnd = () => {
+          seed = (seed * 1103515245 + 12345) % 2147483648;
+          return seed / 2147483648;
+        };
+        for (let k = 0; k < relationCount; k++) {
+          const from = Math.floor(rnd() * elementCount);
+          const to = Math.floor(rnd() * elementCount);
+          if (from === to) continue;
+          rows.push(row('relation', relation(`r${k}`, `e${from}`, `e${to}`)));
+        }
+        const engine = createLadybugEngine();
+        engine.rebuild(rows);
+        const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
+
+        expect(() => engine.dependencies('e0', { transitive: true, maxHops }, at)).not.toThrow();
+        const result = engine.dependencies('e0', { transitive: true, maxHops }, at);
+        expect(result.error).toBeUndefined();
+        expect(result.elements?.some((e) => e.id === 'e0')).toBe(false);
+
+        engine.close();
+      });
+    }
+  });
+
   test('close: releases the underlying database so many engines can be opened and closed in one process without exhausting it, and each one still answers correctly before its own close', () => {
     const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
     for (let i = 0; i < 40; i++) {

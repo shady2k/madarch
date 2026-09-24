@@ -57,6 +57,73 @@ function bigModel(technology: string): CompiledModel {
   return model(elements, relations);
 }
 
+/**
+ * B2's own realistic-graph fixture (stage3-fixes.md): 10 000 elements and
+ * 30 000 relations, random and unstructured enough to contain cycles — the
+ * shape that made a plain `*1..N` variable-length Cypher pattern enumerate
+ * every walk instead of every shortest one and exhaust the buffer pool
+ * outright (the review's e6/e7 experiments, tried and confirmed) before
+ * B2's `SHORTEST` fix.
+ */
+function randomGraphWithHistory(technology: string): CompiledModel {
+  const elements: CompiledElement[] = [];
+  for (let i = 0; i < 10_000; i++) elements.push({ ...element(`e${i}`, 'service'), technology });
+  const relations: CompiledRelation[] = [];
+  let seed = 11;
+  const rnd = () => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed / 2147483648;
+  };
+  for (let i = 0; i < 30_000; i++) {
+    const from = Math.floor(rnd() * 10_000);
+    const to = Math.floor(rnd() * 10_000);
+    if (from === to) continue;
+    relations.push(relation(`r${i}`, `e${from}`, `e${to}`));
+  }
+  return model(elements, relations);
+}
+
+describe('performance: B2 — transitive dependents over a random 10 000-element, 30 000-relation graph with history, default maxHops', () => {
+  test.skipIf(process.env['MADARCH_SKIP_PERF'] !== undefined)(
+    'answers in under one second',
+    () => {
+      const clock = fakeClock(DAY(2));
+      const history = createSqliteHistory({ clock });
+      expect(history.store({ source: 'big', commit: 'v1', committedAt: DAY(1), model: randomGraphWithHistory('v1') }).errors).toEqual([]);
+      clock.set(DAY(12));
+      expect(history.store({ source: 'big', commit: 'v2', committedAt: DAY(10), model: randomGraphWithHistory('v2') }).errors).toEqual([]);
+
+      const engine = createLadybugEngine();
+      engine.rebuild(history.assertions());
+      const at = { valid: DAY(11), known: DAY(20), state: 'as-is' };
+
+      const started = performance.now();
+      const result = engine.dependents('e0', { transitive: true }, at);
+      const elapsed = performance.now() - started;
+      expect(result.error).toBeUndefined();
+      // No element ever lists itself as its own dependent (B2's cycle rule).
+      expect(result.elements?.some((e) => e.id === 'e0')).toBe(false);
+
+      if (process.env['CI']) {
+        // eslint-disable-next-line no-console
+        console.log(`B2 transitive dependents over 10 000 elements / 30 000 relations with history: ${Math.round(elapsed)}ms, ${result.elements?.length} elements`);
+      } else {
+        expect(elapsed).toBeLessThan(1000);
+      }
+
+      engine.close();
+      history.close();
+    },
+    // Building this fixture (store, rebuild) is not part of the performance
+    // requirement (only the measured `dependents` call is — see the assert
+    // above), but at 10 000 elements and 30 000 relations across two
+    // versions it takes real wall time on its own, well past bun's default
+    // 5-second per-test timeout, the same reason the view/transitive test
+    // below gives itself a generous timeout of its own.
+    90000,
+  );
+});
+
 describe('performance: a view and a transitive query over 10 000 elements with history', () => {
   // Only the two measured calls (`view`, `dependents`) are held to the one-
   // second bound below; building the 10 000-element fixture (`store`,
