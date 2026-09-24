@@ -50,17 +50,35 @@ are the repository's installation, and each person's plugin and hooks are theirs
   records into `check-docs.mjs`'s contract and runs it; tests in
   `.shady2k/documents.test.mjs` (`node --test .shady2k/*.test.mjs`).
   - `node .shady2k/documents.mjs check --phase <product|feature|acceptance|close> [--change <id>] [--candidate index|worktree|<rev>] [--target <rev>]`;
-    defaults: candidate the working tree, target `main`. `export` prints the
-    checker's inputs; `revision [--candidate <rev>]` prints the revision
-    evidence is recorded against.
+    defaults: candidate the working tree (`HEAD` for `acceptance`), target the
+    local `main`, which must exist and be current (`git branch -f main
+    origin/main` in a clone without it); only the phases that read a baseline
+    need it. `export` prints the checker's inputs; `revision [--candidate
+    <rev>]` prints the revision evidence is recorded against. Exit 0 clean, 1
+    refused, 2 unreadable input (never a pass). Settings, policy and
+    exemptions are read from the candidate itself, so an uncommitted edit to
+    them changes nothing.
   - **Phases:** the commit-msg hook runs `product` on every commit; `feature`
     for each change owning a task of a commit that stages product code
     (anything outside `docs/`, `.shady2k/`, `.beads/`, `.githooks/`, root
     `*.md` and root dotfiles); `close` for the owning change of a staged
     `docs/system/capabilities/` file, which is refused if no change linked by
     the commit proposes that capability. A supporting change may not carry
-    product code. `acceptance` is run by `take-task` at stage acceptance as
-    `check --phase acceptance --change <id> --candidate HEAD`.
+    product code, and only `<capability>.md` files may live in
+    `docs/system/capabilities/`. `acceptance` is run by `take-task` at stage
+    acceptance as `check --phase acceptance --change <id>`. At closure,
+    `close-out` writes the proposed capabilities into
+    `docs/system/capabilities/` and commits them (the hook runs `close`)
+    **before** `br close` of any of the change's tasks; nothing else stops a
+    closure that skipped it. A closed change is history: later work on the
+    same capability is a new change with a new `Base:`.
+  - **What the hooks do not see:** `commit --amend` of an already committed
+    product change, rebases and cherry-picks (commit-msg judges only what is
+    staged against `HEAD`), and anything committed with `--no-verify`. The
+    pre-commit tooling tests run the working-tree test files, not only the
+    staged ones. Root dotfiles (`.gitattributes`, `.env`, …) count as tooling,
+    not product code; any other path outside the listed directories counts as
+    product code, dot-directories such as `.github/` included.
   - **Policy:** `.shady2k/document-policy.json`. Behavior and no-behavior
     changes owe `static`, `test`, `mutation` and `review`, plus the checks their
     coverage names; supporting changes owe `review`, and the tooling's own
@@ -77,14 +95,28 @@ are the repository's installation, and each person's plugin and hooks are theirs
     and syncing specs at closure do not stale it. An approval's reference is
     the owner's words from the preflight; its digest covers what the change
     decides (kind, intent, out of scope, deltas, preserves). A refusal prints
-    the exact `br comments add` line for each missing record.
+    the exact `br comments add` line for each missing record. Editing the
+    change record, or anything else outside the tracker and current specs,
+    after recording evidence makes a new revision and stales it. Until
+    mutation tooling exists (see Mutation checks below), a `mutation` receipt
+    is a bounded manual mutation sample whose results are its reference, or
+    the owner's decision at acceptance (`mutationFallback: escalate`); a
+    skipped check is never recorded as passed.
   - **Baseline and synchronization:** the baseline is read from the target
     (`main`), deltas from the change's pinned `Base:`, so a requirement moved
     on the target since is refused as stale rather than reverted. Current specs
     equal the baseline until closure and the replayed change at closure.
   - **Adoption and exemptions:** adopted 2026-09-24 with no work in flight;
     `exempt.tasks` in `.shady2k/documents.json` is empty, and a task listed
-    there exempts its descendants.
+    there exempts its descendants. What it costs: documents-only and tooling
+    commits pay nothing beyond a complete vision and charter (tooling commits
+    also run the tooling tests, a few seconds). The first behavior change
+    (the foundation, madarch-ozp) additionally writes its change record and
+    complete proposed capability files, takes the owner's approval in its
+    preflight, and records its check receipts: roughly an hour of agent work
+    on top of the feature, planned in its preflight rather than met at a push.
+    Tooling scripts live under `.shady2k/` to stay tooling; a script at the
+    root is product code.
   - **Enforcement boundary:** local hooks are feedback, not a security
     boundary: `git commit --no-verify` bypasses them, and nothing checks
     tracker closures. A refusal is owed work whoever could walk past it, and a
@@ -111,7 +143,8 @@ are the repository's installation, and each person's plugin and hooks are theirs
   `git config filter.br-portable-path.clean "node .shady2k/jsonl-clean.mjs"`,
   `git config filter.br-portable-path.smudge cat`,
   `git config filter.br-portable-path.required true`; create
-  `.git/info/private-patterns`; `user.email` is the owner's public email;
+  `.git/info/private-patterns`; `user.email` is the owner's public email; a local `main`
+  branch (the document gate's target);
   `br sync --import-only` then `br sync --migrate-source-repo-path --apply` if br reports foreign paths.
 - **CI:** none (personal scope, no product code yet). The walking skeleton
   wires CI; there the backlog baseline is the previous head of a push or the

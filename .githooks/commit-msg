@@ -19,9 +19,13 @@ fi
 # product code; the replay of its change for a current-spec edit.
 node .shady2k/documents.mjs commit --message "$1"
 status=$?
-if [ $status -ne 0 ]; then
+if [ $status -eq 1 ]; then
   echo
   echo "Commit refused by the document gate: the lines above say what the change owes and how to get there."
   echo "Local hooks are feedback, not a boundary, and a refusal is owed work whoever could walk past it."
+elif [ $status -ne 0 ]; then
+  echo
+  echo "Commit refused: the document gate could not read its input (the line above names the file or revision)."
+  echo "Fix that input; the gate never passes what it cannot read."
 fi
 exit $status

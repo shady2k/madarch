@@ -58,7 +58,7 @@ function source(root, where) {
       entries: () => {
         // A scratch index with every tracked and untracked (not ignored) file staged.
         const tmp = join(tmpdir(), `madarch-docs-index-${process.pid}-${Date.now()}`);
-        const real = join(root, git(root, ['rev-parse', '--git-path', 'index']).trim());
+        const real = resolve(root, git(root, ['rev-parse', '--git-path', 'index']).trim());
         if (existsSync(real)) copyFileSync(real, tmp);
         try {
           git(root, ['add', '-A'], { GIT_INDEX_FILE: tmp });
@@ -165,10 +165,12 @@ function changeIndex(src) {
 
 // ---- export ---------------------------------------------------------------
 
-function readJson(root, path) {
-  const full = join(root, path);
-  if (!existsSync(full)) throw new Error(`${path} not found`);
-  return JSON.parse(readFileSync(full, 'utf8'));
+// Settings are read from the candidate itself, so an unstaged or uncommitted
+// edit cannot weaken the verdict on what is being checked.
+function readJson(src, path) {
+  const text = src.read(path);
+  if (text === null) throw new Error(`${path} not found in ${src.where}`);
+  try { return JSON.parse(text); } catch (e) { throw new Error(`${path} in ${src.where}: ${e.message}`); }
 }
 
 function tracker(root) {
@@ -188,18 +190,24 @@ const capabilityAt = (src, id) => {
 
 // Evidence at the records level: tracker comments on the change's tasks whose
 // first line is "check: {id, status, reference, revision}" or
-// "approval: {changeDigest, reference}". The latest receipt per check wins.
+// "approval: {changeDigest, reference}". The latest receipt per check, across
+// all the change's tasks, wins.
 function evidenceFor(rows, change, revision, policy) {
   const approvals = [], receipts = [];
-  for (const r of rows.filter((x) => change.taskIds.includes(x.id))) {
-    for (const c of [...(r.comments ?? [])].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))) {
-      const first = (c.text ?? '').split('\n')[0];
-      const m = first.match(/^(check|approval):\s*(\{.*\})\s*$/);
-      if (!m) continue;
-      let v;
-      try { v = JSON.parse(m[2]); } catch { throw new Error(`malformed ${m[1]} record on ${r.id}: ${first}`); }
-      if (m[1] === 'approval') approvals.push({ changeDigest: String(v.changeDigest ?? ''), reference: String(v.reference ?? '') });
-      else receipts.push({ id: v.id, status: v.status, reference: String(v.reference ?? ''), revision: String(v.revision ?? '') });
+  const comments = rows.filter((x) => change.taskIds.includes(x.id))
+    .flatMap((r) => (r.comments ?? []).map((c) => ({ r, c })))
+    .sort((a, b) => String(a.c.created_at).localeCompare(String(b.c.created_at)));
+  for (const { r, c } of comments) {
+    const first = (c.text ?? '').split('\n')[0];
+    const m = first.match(/^(check|approval):\s*(\{.*\})\s*$/);
+    if (!m) continue;
+    let v;
+    try { v = JSON.parse(m[2]); } catch { throw new Error(`malformed ${m[1]} record on ${r.id}: ${first}`); }
+    if (m[1] === 'approval') approvals.push({ changeDigest: String(v.changeDigest ?? ''), reference: String(v.reference ?? '') });
+    else {
+      if (typeof v.id !== 'string' || !['passed', 'failed', 'skipped', 'unsupported'].includes(v.status) || typeof v.revision !== 'string')
+        throw new Error(`malformed check record on ${r.id} (needs id, status passed|failed|skipped|unsupported, reference, revision): ${first}`);
+      receipts.push({ id: v.id, status: v.status, reference: String(v.reference ?? ''), revision: v.revision });
     }
   }
   const matching = receipts.filter((x) => x.revision === revision);
@@ -212,10 +220,9 @@ function evidenceFor(rows, change, revision, policy) {
 // Builds the checker's inputs for one phase. The phase is the caller's
 // transition, never the author's choice; `commit` picks it from staged files.
 export function buildInputs(root, { phase, change: changeId = null, candidate = 'worktree', target = 'main' }) {
-  const config = readJson(root, '.shady2k/config.json');
-  const documents = readJson(root, '.shady2k/documents.json');
   const src = source(root, candidate);
-  const tgt = source(root, target);
+  const config = readJson(src, '.shady2k/config.json');
+  const documents = readJson(src, '.shady2k/documents.json');
   const { rows, tasks } = tracker(root);
   const milestone = config.currentMilestone;
   const project = {
@@ -224,16 +231,25 @@ export function buildInputs(root, { phase, change: changeId = null, candidate = 
     milestone: parseMilestone(src.read(`docs/milestones/${milestone}.md`) ?? '', milestone),
   };
   const revision = revisionOf(root, candidate);
-  const stored = readJson(root, '.shady2k/document-policy.json');
+  const stored = readJson(src, '.shady2k/document-policy.json');
   const model = { schemaVersion: 1, phase, revision, project, tasks, baseline: [], current: [], change: null };
   if (phase === 'product' && !changeId) return { model, policy: stored, evidence: null };
   if (!changeId) throw new Error(`the ${phase} phase needs --change <id>`);
+  let tgt;
+  try { tgt = source(root, target); } catch {
+    throw new Error(`the target ${target} is not a revision here: the baseline is read from it. Create or update the local main line (git branch -f main origin/main), or pass --target <rev>`);
+  }
 
   const text = src.read(`${CHANGES}${changeId}/change.md`);
   if (text === null) throw new Error(`${CHANGES}${changeId}/change.md not found in ${src.where}; start from ${TEMPLATE}`);
   const parsed = parseChange(text, changeId);
+  const pinHint = `write the main-line commit the proposal was written against (git rev-parse main)`;
+  if (!/^[0-9a-f]{7,40}$/.test(parsed.base)) throw new Error(`Base: ${parsed.base} in ${CHANGES}${changeId}/change.md must be a commit id, not a name that moves; ${pinHint}`);
   let base;
-  try { base = source(root, parsed.base); } catch { throw new Error(`Base: ${parsed.base} in ${CHANGES}${changeId}/change.md is not a revision here; write the main-line revision the proposal was written against (git rev-parse main)`); }
+  try { base = source(root, parsed.base); } catch { throw new Error(`Base: ${parsed.base} in ${CHANGES}${changeId}/change.md is not a revision here; ${pinHint}`); }
+  try { git(root, ['merge-base', '--is-ancestor', base.where, tgt.where]); } catch {
+    throw new Error(`Base: ${parsed.base} in ${CHANGES}${changeId}/change.md is not on the target's history (${target}); ${pinHint}`);
+  }
 
   // Proposed capabilities are complete files; deltas are what they change
   // relative to the pinned base, so a target that moved since is caught as stale.
@@ -288,7 +304,7 @@ export function runCheck(root, options) {
       const onTarget = source(root, options.target ?? 'main').read(`${CAPABILITIES}${id}.md`) !== null;
       lines.push(`Capability document: ${CAPABILITIES}${id}.md (${onTarget ? 'exists on the target' : 'absent on the target: this change adds it'}).`);
     }
-  } else lines.push(`Document gate (${model.phase}) refused: the vision (docs/vision.md) and the current charter must be complete.`);
+  } else lines.push(`Document gate (${model.phase}) refused: the vision (docs/vision.md: Audience, Problem, Outcome, Exclusions) and the current charter (docs/milestones/${model.project.milestone.id}.md: Outcomes and acceptance, Exclusions) must be complete.`);
   lines.push('', ...violations.map((v) => `  ${v.id}: ${v.at}${v.why ? ` — ${v.why}` : ''}`));
   if (c && violations.some((v) => ['unproved-check', 'stale-evidence'].includes(v.id))) {
     const missing = violations.filter((v) => v.id === 'unproved-check').map((v) => v.at);
@@ -319,10 +335,13 @@ export function commitGate(root, message) {
   if (product.violations.length) refuse(product.text);
 
   const code = staged.filter(isProduct);
-  const specs = staged.filter((p) => p.startsWith(CAPABILITIES) && p.endsWith('.md'));
+  const specs = staged.filter((p) => p.startsWith(CAPABILITIES));
+  for (const p of specs.filter((p) => !/^[^/]+\.md$/.test(p.slice(CAPABILITIES.length)))) {
+    refuse(`Document gate refused this commit: ${p} is not a capability document. ${CAPABILITIES} holds only <capability>.md files written from the skills' capability template.`);
+  }
   if (!code.length && !specs.length) return { ok, text: out.join('\n\n') };
 
-  const documents = readJson(root, '.shady2k/documents.json');
+  const documents = readJson(source(root, 'index'), '.shady2k/documents.json');
   const { issues } = tracker(root);
   const parent = new Map(issues.map((i) => [i.id, i.parent]));
   const exempt = (id) => { for (let x = id, n = 0; x && n < 100; x = parent.get(x), n++) if ((documents.exempt?.tasks ?? []).includes(x)) return true; return false; };
@@ -349,6 +368,7 @@ export function commitGate(root, message) {
           `  Tasks: ${id}`,
           '  Kind: behavior | no-behavior',
           'and, for behavior, complete proposed capability files in docs/changes/<change>/capabilities/<capability>.md.',
+          'The gate reads what is staged: a change record that exists but is not staged is not seen.',
           'Then: node .shady2k/documents.mjs check --phase feature --change <change>',
           'Guide: .shady2k/integration.md, "Document gate".'].join('\n'));
         continue;
@@ -407,7 +427,8 @@ function main(args) {
   if (cmd === 'revision') { console.log(revisionOf(root, opts.candidate ?? 'HEAD')); return 0; }
   if (cmd === 'check' || cmd === 'export') {
     if (!['product', 'feature', 'acceptance', 'close'].includes(opts.phase)) throw new Error('--phase must be product, feature, acceptance or close');
-    const o = { phase: opts.phase, change: opts.change ?? null, candidate: opts.candidate ?? 'worktree', target: opts.target ?? 'main' };
+    // Acceptance judges a committed revision, the one its receipts are recorded against.
+    const o = { phase: opts.phase, change: opts.change ?? null, candidate: opts.candidate ?? (opts.phase === 'acceptance' ? 'HEAD' : 'worktree'), target: opts.target ?? 'main' };
     if (cmd === 'export') {
       const { model, policy, evidence } = buildInputs(root, o);
       console.log(JSON.stringify({ model, policy, evidence }, null, 2));

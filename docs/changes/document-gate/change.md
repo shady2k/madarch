@@ -49,6 +49,11 @@ madarch-9jo, items 1-9), with these run decisions:
 - A supporting change owes review. The tooling's own tests run in pre-commit
   whenever `.shady2k/` or `.githooks/` is staged, instead of a recorded receipt.
 - Root dotfiles count as tooling, not product code.
+- After independent review: `Base:` must be a commit id on the target's
+  history; settings, policy and exemptions are read from the candidate, never
+  the working tree; the target is resolved only by phases that read a
+  baseline; receipts are ordered across all the change's tasks; the tooling
+  tests run without the hook's git environment.
 
 ## Acceptance evidence
 Recorded on madarch-9jo as `check:` comments and in its acceptance record.

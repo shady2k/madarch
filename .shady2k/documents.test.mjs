@@ -89,13 +89,15 @@ const POLICY = {
   ],
 };
 
+// A hook runs with git's own index in GIT_INDEX_FILE; the throwaway repositories must not use it.
+const cleanEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^GIT_(INDEX_FILE|DIR|WORK_TREE|PREFIX)$/.test(k)));
 const made = [];
 process.on('exit', () => { for (const dir of made) rmSync(dir, { recursive: true, force: true }); });
 
 function repo() {
   const root = mkdtempSync(join(tmpdir(), 'madarch-docs-'));
   made.push(root);
-  const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: cleanEnv() }).trim();
   git('init', '-q', '-b', 'main');
   git('config', 'user.email', 'test@example.com');
   git('config', 'user.name', 'test');
@@ -321,4 +323,111 @@ test('the refusal says what the change kind owes and how to record a check', () 
   assert.match(text, new RegExp(revisionOf(r.root, head)));
   assert.ok(!existsSync(join(r.root, 'docs/system/capabilities/views.md')));
   assert.match(text, /docs\/system\/capabilities\/views\.md \(absent on the target/);
+});
+
+test('settings come from the candidate: an unstaged exemption or policy edit does not weaken a commit', () => {
+  const r = repo();
+  r.write('src/a.ts', 'export const a = 1;\n');
+  r.git('add', 'src/a.ts');
+  r.write('.shady2k/documents.json', { ...DOC_CONFIG, exempt: { adoptedAt: '2026-09-24', tasks: ['m-old', 'm-leaf'] } });
+  assert.equal(commitGate(r.root, 'Fix\n\nTask: m-leaf\n').ok, false);
+
+  r.write('.shady2k/documents.json', DOC_CONFIG);
+  r.write('docs/changes/add-views/change.md', change({ base: r.base }));
+  r.write('docs/changes/add-views/capabilities/views.md', capability('views', [['show', 'When asked, the server shall show views.']]));
+  r.git('add', '-A');
+  r.write('.shady2k/document-policy.json', { ...POLICY, requireApproval: false });
+  assert.equal(commitGate(r.root, 'Views\n\nTask: m-leaf\n').ok, false, 'no approval recorded, whatever the unstaged policy says');
+});
+
+test('Base must be a commit id on the target history, not a moving name', () => {
+  const r = repo();
+  r.write('docs/changes/add-views/capabilities/views.md', capability('views', [['show', 'When asked, the server shall show views.']]));
+  r.write('docs/changes/add-views/change.md', change({ base: 'main' }));
+  assert.throws(() => buildInputs(r.root, { phase: 'feature', change: 'add-views', candidate: 'worktree' }), /commit id/);
+  r.git('switch', '-q', '-c', 'side');
+  const side = r.commit('side only');
+  r.git('switch', '-q', 'main');
+  r.write('docs/changes/add-views/change.md', change({ base: side }));
+  assert.throws(() => buildInputs(r.root, { phase: 'feature', change: 'add-views', candidate: 'worktree' }), /not on the target's history/);
+});
+
+test('the latest receipt across all the change\'s tasks wins, and a malformed one is refused', () => {
+  const r = repo();
+  r.write('docs/changes/add-views/change.md', change({ base: r.base, tasks: 'm-leaf, m-other' }));
+  r.write('docs/changes/add-views/capabilities/views.md', capability('views', [['show', 'When asked, the server shall show views.']]));
+  const appr = approval(r, 'add-views');
+  const head = r.commit('implemented');
+  const rev = revisionOf(r.root, head);
+  const receipt = (id, status, at) => comment(`check: ${JSON.stringify({ id, status, reference: `log:${id}`, revision: rev })}`, at);
+  const passedAll = ['static', 'test', 'mutation', 'test-views'].map((id) => receipt(id, 'passed'));
+  // The newer failure sits on the task that comes first in the file; the older pass on the later one.
+  r.tracker([row('m-other', 'task', { comments: [receipt('review', 'failed', '2026-09-24T05:00:00Z')] }),
+    row('m-leaf', 'task', { comments: [appr, ...passedAll, receipt('review', 'passed', '2026-09-24T01:00:00Z')] })]);
+  assert.deepEqual(ids(runCheck(r.root, { phase: 'acceptance', change: 'add-views', candidate: head }).violations), ['unproved-check']);
+  r.tracker([row('m-other'), row('m-leaf', 'task', { comments: [appr, ...passedAll, comment('check: {"id":"review","status":"ok"}')] })]);
+  assert.throws(() => runCheck(r.root, { phase: 'acceptance', change: 'add-views', candidate: head }), /malformed check record/);
+});
+
+test('a no-behavior change needs preserved contracts with coverage and no approval', () => {
+  const r = repo();
+  r.write('docs/system/capabilities/views.md', capability('views', [['show', 'When asked, the server shall show views.']]));
+  const base = r.commit('views accepted');
+  r.write('docs/changes/speed-up/change.md', change({ id: 'speed-up', base, kind: 'no-behavior', rationale: 'Faster, same behaviour.', preserves: '- views/show: unchanged', coverage: '- views/show: test-views' }));
+  assert.deepEqual(runCheck(r.root, { phase: 'feature', change: 'speed-up', candidate: 'worktree' }).violations, []);
+  r.write('src/views.ts', 'export const views = 2;\n');
+  r.git('add', '-A');
+  assert.equal(commitGate(r.root, 'Speed up\n\nTask: m-leaf\n').ok, true);
+  r.write('docs/changes/speed-up/change.md', change({ id: 'speed-up', base, kind: 'no-behavior', rationale: 'Faster.', preserves: 'None.', coverage: 'None.' }));
+  assert.ok(ids(runCheck(r.root, { phase: 'feature', change: 'speed-up', candidate: 'worktree' }).violations).includes('change-kind'));
+});
+
+test('commit gate: closing a change by syncing its capability passes; a non-Markdown file there is refused', () => {
+  const r = repo();
+  r.write('docs/changes/add-views/change.md', change({ base: r.base }));
+  r.write('docs/changes/add-views/capabilities/views.md', capability('views', [['show', 'When asked, the server shall show views.']]));
+  const appr = approval(r, 'add-views');
+  const head = r.commit('accepted');
+  const rev = revisionOf(r.root, head);
+  const receipts = ['static', 'test', 'mutation', 'review', 'test-views'].map((id) =>
+    comment(`check: ${JSON.stringify({ id, status: 'passed', reference: `log:${id}`, revision: rev })}`));
+  r.tracker([row('m-leaf', 'task', { comments: [appr, ...receipts] })]);
+  r.write('docs/system/capabilities/views.md', capability('views', [['show', 'When asked, the server shall show views.']]));
+  r.git('add', '-A');
+  const closed = commitGate(r.root, 'Close views\n\nTask: m-leaf\n');
+  assert.equal(closed.ok, true, closed.text);
+  r.write('docs/system/capabilities/views.yaml', 'show: yes\n');
+  r.git('add', '-A');
+  assert.match(commitGate(r.root, 'Close views\n\nTask: m-leaf\n').text, /not a capability document/);
+});
+
+test('the product phase needs no main line; a phase that reads the baseline says how to get one', () => {
+  const r = repo();
+  r.git('branch', '-m', 'main', 'work');
+  assert.deepEqual(runCheck(r.root, { phase: 'product', candidate: 'worktree' }).violations, []);
+  r.write('docs/changes/add-views/change.md', change({ base: r.base }));
+  assert.throws(() => buildInputs(r.root, { phase: 'feature', change: 'add-views', candidate: 'worktree' }), /git branch -f main origin\/main/);
+});
+
+test('command line: exit 0 clean, 1 refused, 2 unreadable input', () => {
+  const r = repo();
+  const cli = (...args) => {
+    try { execFileSync('node', [join(dirname(new URL(import.meta.url).pathname), 'documents.mjs'), ...args], { cwd: r.root, env: cleanEnv(), stdio: 'pipe' }); return 0; }
+    catch (e) { return e.status; }
+  };
+  assert.equal(cli('check', '--phase', 'product'), 0);
+  r.write('docs/changes/add-views/change.md', change({ base: r.base }));
+  r.write('docs/changes/add-views/capabilities/views.md', capability('views', [['show', 'When asked, the server shall show views.']]));
+  assert.equal(cli('check', '--phase', 'feature', '--change', 'add-views'), 1);
+  r.write('docs/changes/add-views/change.md', change({ base: r.base, extra: '\n## Notes\nx\n' }));
+  assert.equal(cli('check', '--phase', 'feature', '--change', 'add-views'), 2);
+  assert.equal(cli('check', '--phase', 'someday'), 2);
+});
+
+test('the tests ignore a hook\'s index: throwaway repositories work with GIT_INDEX_FILE set', () => {
+  const saved = process.env.GIT_INDEX_FILE;
+  process.env.GIT_INDEX_FILE = join(tmpdir(), 'madarch-no-such-dir', 'index.lock');
+  try { assert.doesNotThrow(() => repo()); } finally {
+    if (saved === undefined) delete process.env.GIT_INDEX_FILE; else process.env.GIT_INDEX_FILE = saved;
+  }
 });

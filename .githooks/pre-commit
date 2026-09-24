@@ -5,7 +5,9 @@ cd "$(git rev-parse --show-toplevel)" || exit 2
 .githooks/privacy-guard.sh || exit 1
 # The tooling's own tests, whenever the tooling itself is being committed.
 if git diff --cached --name-only | grep -q -E '^(\.shady2k|\.githooks)/'; then
-  node --test .shady2k/*.test.mjs > "${TMPDIR:-/tmp}/madarch-tooling-tests.$$.log" 2>&1 || {
+  # git hands hooks its own index (GIT_INDEX_FILE, absolute for `commit -a`); the
+  # tests build throwaway repositories and must not inherit it.
+  env -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE -u GIT_PREFIX node --test .shady2k/*.test.mjs > "${TMPDIR:-/tmp}/madarch-tooling-tests.$$.log" 2>&1 || {
     cat "${TMPDIR:-/tmp}/madarch-tooling-tests.$$.log"; rm -f "${TMPDIR:-/tmp}/madarch-tooling-tests.$$.log"
     echo; echo "Commit refused: the tooling's own tests fail (node --test .shady2k/*.test.mjs). Fix them, then commit again."; exit 1; }
   rm -f "${TMPDIR:-/tmp}/madarch-tooling-tests.$$.log"
