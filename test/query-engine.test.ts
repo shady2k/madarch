@@ -229,4 +229,250 @@ describe('the LadybugDB query engine', () => {
 
     engine.close();
   });
+
+  test('children: an element carries name and parent only when it has them', () => {
+    const engine = createLadybugEngine();
+    engine.rebuild([
+      row('element', element('a', 'domain', [])),
+      row('element', element('b', 'service', ['a'], { parent: 'a', name: 'B service' })),
+      row('element', element('c', 'service', ['a'], { parent: 'a' })),
+    ]);
+    const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
+
+    const result = engine.children('a', at);
+    const byId = new Map(result.elements?.map((e) => [e.id, e]));
+    expect(byId.get('b')).toEqual({ id: 'b', kind: 'service', name: 'B service', parent: 'a' });
+    expect(byId.get('c')).toEqual({ id: 'c', kind: 'service', parent: 'a' });
+    expect('name' in byId.get('c')!).toBe(false);
+
+    engine.close();
+  });
+
+  test('children/view/dependents/dependencies: the refusal names the exact element and time, with a readable message', () => {
+    const engine = createLadybugEngine();
+    engine.rebuild([row('element', element('a', 'service', []))]);
+    const at = { valid: DAY(3), known: DAY(3), state: 'as-is' };
+
+    expect(engine.children('ghost', at)).toEqual({ error: { message: '"ghost" does not exist at this time', id: 'ghost', time: DAY(3) } });
+    expect(engine.view({ scope: 'ghost', depth: 0 }, at)).toEqual({ error: { message: '"ghost" does not exist at this time', id: 'ghost', time: DAY(3) } });
+    expect(engine.dependents('ghost', {}, at)).toEqual({ error: { message: '"ghost" does not exist at this time', id: 'ghost', time: DAY(3) } });
+    expect(engine.dependencies('ghost', {}, at)).toEqual({ error: { message: '"ghost" does not exist at this time', id: 'ghost', time: DAY(3) } });
+
+    engine.close();
+  });
+
+  test('view: an explicit state outside the model\'s own id pattern is a refusal, never a thrown exception', () => {
+    const engine = createLadybugEngine();
+    engine.rebuild([row('element', element('a', 'service', []))]);
+
+    const result = engine.children('a', { valid: DAY(2), known: DAY(2), state: "bad state; DROP" });
+    expect(result.error).toMatchObject({ id: 'bad state; DROP' });
+    expect(result.elements).toBeUndefined();
+
+    engine.close();
+  });
+
+  test('view: depth is counted from the scope, not from the root — a scoped view at depth 0 shows only the scope\'s immediate children, not grandchildren; an unscoped view excludes elements outside no subtree at all', () => {
+    const engine = createLadybugEngine();
+    engine.rebuild([
+      row('element', element('root', 'domain', [])),
+      row('element', element('mid', 'service', ['root'], { parent: 'root' })),
+      row('element', element('leaf', 'module', ['root', 'mid'], { parent: 'mid' })),
+      row('element', element('other-root', 'domain', [])),
+    ]);
+    const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
+
+    // Scoped at "root", depth 0: the scope itself and "mid" (its immediate child), not "leaf" (a grandchild) or "other-root" (outside the scope).
+    const scoped = engine.view({ scope: 'root', depth: 0 }, at);
+    expect(scoped.elements?.map((e) => e.id).sort()).toEqual(['mid', 'root']);
+
+    // Scoped at "root", depth 1: "mid" and "leaf" too, still never "other-root".
+    const deeper = engine.view({ scope: 'root', depth: 1 }, at);
+    expect(deeper.elements?.map((e) => e.id).sort()).toEqual(['leaf', 'mid', 'root']);
+
+    // Scoped at "mid" itself, depth 0: "mid" and "leaf" (mid's own immediate child) — proves the scope's own ancestor
+    // chain length (root -> mid = 1 ancestor), not merely whether a scope was given, sets the depth origin.
+    const atMid = engine.view({ scope: 'mid', depth: 0 }, at);
+    expect(atMid.elements?.map((e) => e.id).sort()).toEqual(['leaf', 'mid']);
+
+    engine.close();
+  });
+
+  test('view: with no scope, every root-level element is shown at depth 0, never only the first one found', () => {
+    const engine = createLadybugEngine();
+    engine.rebuild([row('element', element('root-a', 'domain', [])), row('element', element('root-b', 'domain', []))]);
+    const result = engine.view({ depth: 0 }, { valid: DAY(2), known: DAY(2), state: 'as-is' });
+    expect(result.elements?.map((e) => e.id).sort()).toEqual(['root-a', 'root-b']);
+    engine.close();
+  });
+
+  test('view: a merged relation\'s ids are sorted by code point, regardless of the order they were stored in', () => {
+    const engine = createLadybugEngine();
+    engine.rebuild([
+      row('element', element('web', 'service', [])),
+      row('element', element('cart', 'module', ['web'], { parent: 'web' })),
+      row('element', element('ui', 'module', ['web'], { parent: 'web' })),
+      row('element', element('api', 'service', [])),
+      // Stored in an order that sorts the wrong way if the merge ever relied on storage/collection order.
+      row('relation', relation('z-rel', 'ui', 'api')),
+      row('relation', relation('a-rel', 'cart', 'api')),
+    ]);
+    const result = engine.view({ depth: 0 }, { valid: DAY(2), known: DAY(2), state: 'as-is' });
+    expect(result.relations).toEqual([{ from: 'web', to: 'api', relationIds: ['a-rel', 'z-rel'] }]);
+    engine.close();
+  });
+
+  test('dependencies: maxHops beyond the engine\'s own 30-hop ceiling is clamped, not refused or left unbounded', () => {
+    const engine = createLadybugEngine();
+    engine.rebuild([
+      row('element', element('a', 'service', [])),
+      row('element', element('b', 'service', [])),
+      row('relation', relation('a-to-b', 'a', 'b')),
+    ]);
+    const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
+
+    // 1000 exceeds the 30-hop ceiling a recursive Cypher pattern accepts in
+    // this LadybugDB build; if the clamp used the wrong bound (Math.max
+    // instead of Math.min), building the query would fail outright.
+    const result = engine.dependencies('a', { transitive: true, maxHops: 1000 }, at);
+    expect(result.error).toBeUndefined();
+    expect(result.elements?.map((e) => e.id)).toEqual(['b']);
+
+    engine.close();
+  });
+
+  test('close: releases the underlying database so many engines can be opened and closed in one process without exhausting it', () => {
+    for (let i = 0; i < 40; i++) {
+      const engine = createLadybugEngine();
+      engine.rebuild([row('element', element('a', 'service', []))]);
+      engine.close();
+    }
+    // If `close` failed to release its Database, this many instances would
+    // exhaust the process's own resources well before finishing the loop
+    // (observed directly while building this engine — see its module doc).
+    expect(true).toBe(true);
+  });
+
+  test("a row's own key does not collide across a source/kind/id/validFrom boundary that would coincide without a real separator", () => {
+    // Without a separator, `('X', 'element', '12', 3)` and `('X', 'element',
+    // '1', 23)` would both join to the same text ("...12" + "3" = "...1" +
+    // "23" = "...123"): two different assertions the engine must still tell
+    // apart (as two distinct rows in the same node table, whose primary key
+    // is exactly this join) — if it could not, inserting the second would
+    // violate the table's own primary-key uniqueness and throw.
+    const engine = createLadybugEngine();
+    expect(() =>
+      engine.rebuild([
+        row('element', element('12', 'service', []), { validFrom: 3 }),
+        row('element', element('1', 'service', []), { validFrom: 23 }),
+      ]),
+    ).not.toThrow();
+
+    const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
+    expect(engine.children('12', at).error).toBeUndefined();
+    expect(engine.children('1', at).error).toBeUndefined();
+
+    engine.close();
+  });
+
+  test('update: opening and closing a relation and a state keeps the engine in step, the same as rebuild', () => {
+    const engine = createLadybugEngine();
+    const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
+
+    engine.rebuild([row('element', element('a', 'service', [])), row('element', element('b', 'service', []))]);
+    engine.update([{ source: 's', kind: 'relation', id: 'a-to-b', content: relation('a-to-b', 'a', 'b'), validFrom: DAY(1), validTo: null }], []);
+    expect(engine.dependencies('a', {}, at).elements?.map((e) => e.id)).toEqual(['b']);
+
+    engine.update([], [{ source: 's', kind: 'relation', id: 'a-to-b', content: relation('a-to-b', 'a', 'b'), validFrom: DAY(1), validTo: null }]);
+    expect(engine.dependencies('a', {}, at).elements?.map((e) => e.id)).toEqual([]);
+
+    // A state, opened then closed through `update`, changes what a query
+    // with no explicit state defaults to.
+    engine.update(
+      [
+        { source: 's', kind: 'state', id: 'as-is', content: JSON.stringify({ id: 'as-is' }), validFrom: DAY(1), validTo: null },
+        { source: 's', kind: 'state', id: 'to-be', content: JSON.stringify({ id: 'to-be', after: 'as-is' }), validFrom: DAY(1), validTo: null },
+      ],
+      [],
+    );
+    engine.update(
+      [],
+      [{ source: 's', kind: 'state', id: 'to-be', content: JSON.stringify({ id: 'to-be', after: 'as-is' }), validFrom: DAY(1), validTo: null }],
+    );
+    const defaulted = engine.children('a', { valid: DAY(2), known: DAY(2) });
+    expect(defaulted.error).toBeUndefined();
+
+    engine.close();
+  });
+
+  test('as-of: with no `at` at all, a query still answers rather than throwing (both times and the state default to now/"as-is")', () => {
+    const engine = createLadybugEngine();
+    engine.rebuild([row('element', element('a', 'service', []), { validFrom: DAY(1) })]);
+    expect(() => engine.children('a')).not.toThrow();
+    expect(engine.children('a').elements?.map((e) => e.id)).toEqual([]);
+    engine.close();
+  });
+
+  test('as-of: with no explicit state and no states ever recorded, a query defaults to "as-is"', () => {
+    const engine = createLadybugEngine();
+    engine.rebuild([row('element', element('a', 'domain', [])), row('element', element('b', 'service', ['a'], { parent: 'a' }))]);
+    const result = engine.children('a', { valid: DAY(2), known: DAY(2) });
+    expect(result.error).toBeUndefined();
+    expect(result.elements?.map((e) => e.id)).toEqual(['b']);
+    engine.close();
+  });
+
+  describe('as-of: default-state resolution checks each of the four bitemporal bounds at its exact edge', () => {
+    // In each case, "as-is" is the state that is right at the tested
+    // bound's edge; "to-be" (after "as-is") is always comfortably visible,
+    // so it alone, without its root, is what a query sees if "as-is" is
+    // wrongly excluded — `chainRoot` then finds no state with no `after`
+    // among what is visible, and the query refuses rather than guessing
+    // (see `resolveTime`). A wrong comparison at the tested bound (`<=`
+    // read as `<`, `>` read as `>=`, and so on) is only visible exactly at
+    // this edge — one instant off either way and both readings agree.
+    function statesAt(bound: 'validFrom' | 'validTo' | 'recordedFrom' | 'recordedTo', edge: number): AssertionRecord[] {
+      const asIs: AssertionRecord = { source: 's', kind: 'state', id: 'as-is', content: JSON.stringify({ id: 'as-is' }), validFrom: DAY(1), validTo: null, recordedFrom: DAY(1), recordedTo: null };
+      asIs[bound] = edge;
+      const toBe: AssertionRecord = {
+        source: 's',
+        kind: 'state',
+        id: 'to-be',
+        content: JSON.stringify({ id: 'to-be', after: 'as-is' }),
+        validFrom: DAY(1),
+        validTo: null,
+        recordedFrom: DAY(1),
+        recordedTo: null,
+      };
+      return [row('element', element('a', 'service', [])), asIs, toBe];
+    }
+
+    test('validFrom <= valid: "as-is" is visible exactly at its own validFrom', () => {
+      const engine = createLadybugEngine();
+      engine.rebuild(statesAt('validFrom', DAY(10)));
+      expect(engine.children('a', { valid: DAY(10), known: DAY(20) }).error).toBeUndefined();
+      engine.close();
+    });
+
+    test('validTo > valid: "as-is" is no longer visible exactly at its own validTo', () => {
+      const engine = createLadybugEngine();
+      engine.rebuild(statesAt('validTo', DAY(10)));
+      expect(engine.children('a', { valid: DAY(10), known: DAY(20) }).error).toMatchObject({ message: expect.stringContaining('disagree') });
+      engine.close();
+    });
+
+    test('recordedFrom <= known: "as-is" is known exactly at its own recordedFrom', () => {
+      const engine = createLadybugEngine();
+      engine.rebuild(statesAt('recordedFrom', DAY(10)));
+      expect(engine.children('a', { valid: DAY(20), known: DAY(10) }).error).toBeUndefined();
+      engine.close();
+    });
+
+    test('recordedTo > known: "as-is" is no longer known exactly at its own recordedTo', () => {
+      const engine = createLadybugEngine();
+      engine.rebuild(statesAt('recordedTo', DAY(10)));
+      expect(engine.children('a', { valid: DAY(20), known: DAY(10) }).error).toMatchObject({ message: expect.stringContaining('disagree') });
+      engine.close();
+    });
+  });
 });

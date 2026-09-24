@@ -1,6 +1,8 @@
 import lbug from '@ladybugdb/core';
 import type { LbugValue, PreparedStatement, QueryResult } from '@ladybugdb/core';
 import type { AssertionChange, AssertionRecord } from '../history/types.js';
+import { isOneStateChain } from '../history/assertions.js';
+import { byCodePoint } from '../model/order.js';
 import type {
   ChildrenResult,
   DependenciesInput,
@@ -111,32 +113,18 @@ interface LiveStateRow {
 }
 
 /**
- * Whether a set of states forms exactly one chain — the same check
- * `assembleCompiledModel` (`history/assertions.ts`) uses for the union
- * read's own chain-wide discrepancy, re-implemented here so the query
- * engine (which never imports the history module, to stay independent of
- * `HistoryStore`'s own assembly logic) can resolve a query's default state
- * the same way a union read would.
+ * The chain's first state — the query default (design.md: "Readings
+ * decided during the run") — or `undefined` when the states visible at the
+ * asked time do not form one chain (`isOneStateChain`, the same check
+ * `assembleCompiledModel` in `history/assertions.ts` uses for the union
+ * read's own chain-wide discrepancy). A chain's one root is the one state
+ * naming no `after`; `isOneStateChain` having already confirmed there is
+ * exactly one such state and that every state is reached from it makes
+ * finding it here just `find`, not a second walk of the chain.
  */
 function chainRoot(states: readonly { id: string; after?: string }[]): string | undefined {
-  if (states.length === 0) return undefined;
-  const followers = new Map<string, string>();
-  let roots: string[] = [];
-  for (const state of states) {
-    if (state.after === undefined) roots.push(state.id);
-    else followers.set(state.after, state.id);
-  }
-  if (roots.length !== 1) return undefined;
-  const root = roots[0]!;
-  const visited = new Set<string>([root]);
-  let current = root;
-  while (followers.has(current)) {
-    const next = followers.get(current)!;
-    if (visited.has(next)) return undefined;
-    visited.add(next);
-    current = next;
-  }
-  return visited.size === states.length ? root : undefined;
+  if (!isOneStateChain(states)) return undefined;
+  return states.find((s) => s.after === undefined)?.id;
 }
 
 /**
@@ -207,7 +195,7 @@ export function createLadybugEngine(): QueryEngine {
   );
   conn.querySync(`CREATE NODE TABLE Anchor(elementId STRING, PRIMARY KEY(elementId))`);
   conn.querySync(
-    `CREATE REL TABLE RELATES_TO(FROM Anchor TO Anchor, pk STRING, relationId STRING, refines STRING, states STRING[], validFrom INT64, validTo INT64, recordedFrom INT64, recordedTo INT64, source STRING)`,
+    `CREATE REL TABLE RELATES_TO(FROM Anchor TO Anchor, pk STRING, relationId STRING, states STRING[], validFrom INT64, validTo INT64, recordedFrom INT64, recordedTo INT64, source STRING)`,
   );
 
   const insertElement = conn.prepareSync(
@@ -221,7 +209,7 @@ export function createLadybugEngine(): QueryEngine {
   const mergeAnchor = conn.prepareSync(`MERGE (a:Anchor {elementId: $elementId})`);
   const insertEdge = conn.prepareSync(
     `MATCH (f:Anchor {elementId: $fromId}), (t:Anchor {elementId: $toId})
-     CREATE (f)-[:RELATES_TO {pk: $pk, relationId: $relationId, refines: $refines, states: $states, validFrom: $validFrom, validTo: $validTo, recordedFrom: $recordedFrom, recordedTo: $recordedTo, source: $source}]->(t)`,
+     CREATE (f)-[:RELATES_TO {pk: $pk, relationId: $relationId, states: $states, validFrom: $validFrom, validTo: $validTo, recordedFrom: $recordedFrom, recordedTo: $recordedTo, source: $source}]->(t)`,
   );
   const deleteEdge = conn.prepareSync(`MATCH ()-[r:RELATES_TO {pk: $pk}]->() DELETE r`);
 
@@ -350,12 +338,16 @@ export function createLadybugEngine(): QueryEngine {
       recordedTo: row.recordedTo,
       source: row.source,
     });
+    // No `refines` on the edge: `dependents`/`dependencies` walk every
+    // relation, refinements included (the view is the only place a
+    // refinement is ever excluded — see `viewRelationsQuery`'s own `WHERE
+    // r.refines IS NULL`, which reads it off the `Relation` node table
+    // instead), so the edge itself never needs to carry it.
     conn.executeSync(insertEdge, {
       pk,
       fromId: parsed.from,
       toId: parsed.to,
       relationId: parsed.id,
-      refines: parsed.refines ?? null,
       states: parsed.states,
       validFrom: row.validFrom,
       validTo: row.validTo,
@@ -428,7 +420,16 @@ export function createLadybugEngine(): QueryEngine {
   function resolveTime(at: QueryTime | undefined): { time?: ResolvedTime; error?: QueryError } {
     const valid = at?.valid ?? Date.now();
     const known = at?.known ?? Date.now();
-    if (at?.state !== undefined) return { time: { valid, known, state: at.state } };
+    if (at?.state !== undefined) {
+      // Every state id the compiler ever produces satisfies `SAFE_ID` (the
+      // model schema's own `ID_PATTERN`); a caller-given state that does
+      // not is refused here, as a `QueryError`, rather than reaching
+      // `dependents`/`dependencies` and throwing when `filterOfLiteral`
+      // builds its query text — an error value, never an exception
+      // escaping the public interface.
+      if (!SAFE_ID.test(at.state)) return { error: { message: `"${at.state}" is not a state id this model could ever declare`, id: at.state } };
+      return { time: { valid, known, state: at.state } };
+    }
 
     const visible = states.filter((s) => s.validFrom <= valid && (s.validTo === null || s.validTo > valid) && s.recordedFrom <= known && (s.recordedTo === null || s.recordedTo > known));
     if (visible.length === 0) return { time: { valid, known, state: 'as-is' } };
@@ -439,10 +440,13 @@ export function createLadybugEngine(): QueryEngine {
     return { time: { valid, known, state: root } };
   }
 
+  // `LbugValue` (a query row's field type) never includes `undefined` —
+  // only `null` stands for an absent value here — so `row.name`/`row.parent`
+  // are checked against `null` alone.
   function toElementAnswer(row: { id: unknown; kind: unknown; name: unknown; parent: unknown }): ElementAnswer {
     const answer: ElementAnswer = { id: row.id as string, kind: row.kind as string };
-    if (row.name !== null && row.name !== undefined) answer.name = row.name as string;
-    if (row.parent !== null && row.parent !== undefined) answer.parent = row.parent as string;
+    if (row.name !== null) answer.name = row.name as string;
+    if (row.parent !== null) answer.parent = row.parent as string;
     return answer;
   }
 
@@ -483,7 +487,7 @@ export function createLadybugEngine(): QueryEngine {
     const relations = relationRows.map((row) => ({
       from: row.fromId as string,
       to: row.toId as string,
-      relationIds: [...(row.relationIds as string[])].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+      relationIds: [...(row.relationIds as string[])].sort(byCodePoint),
     }));
 
     return { elements, relations };
