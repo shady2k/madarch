@@ -678,11 +678,24 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
       if (error !== undefined) return { error };
       const t = time!;
 
+      // Depth 0 means the scope alone (or the roots alone, unscoped);
+      // depth n adds n levels below it (`ViewInput.depth`'s own doc). An
+      // element's own ancestor-chain length already counts levels below
+      // the root the same way (a root has 0 ancestors, its own children
+      // have 1, ...), so subtracting the scope's own ancestor-chain length
+      // — not one more than it, an earlier reading of this coordinator's
+      // that counted the scope's own immediate children as depth 0 too,
+      // wrongly showing one extra level under a scope — lines the origin
+      // up on the scope itself: the scope's own `size(ancestors) -
+      // scopeDepth` is then 0, always `<= depth` regardless of `depth`,
+      // and each level below it adds exactly 1. Left at 0 when unscoped,
+      // so a root (0 ancestors) is already `<= depth` at `depth: 0` the
+      // same way.
       let scopeDepth = 0;
       if (input.scope !== undefined) {
         if (!elementExists(input.scope, t)) return { error: { message: `"${input.scope}" does not exist at this time`, id: input.scope, time: t.valid } };
         const rows = rowsOf(conn.executeSync(scopeAncestorsQuery, { id: input.scope, valid: t.valid, known: t.known, state: t.state }));
-        scopeDepth = ((rows[0]?.ancestors as string[] | undefined)?.length ?? 0) + 1;
+        scopeDepth = (rows[0]?.ancestors as string[] | undefined)?.length ?? 0;
       }
 
       const hasScope = input.scope !== undefined;

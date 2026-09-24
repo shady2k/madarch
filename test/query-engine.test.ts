@@ -397,7 +397,7 @@ describe('the LadybugDB query engine', () => {
     engine.close();
   });
 
-  test('view: depth is counted from the scope, not from the root — a scoped view at depth 0 shows only the scope\'s immediate children, not grandchildren; an unscoped view excludes elements outside no subtree at all', () => {
+  test('view: depth is counted from the scope, not from the root — depth 0 shows the scope alone (or the roots alone, unscoped); depth n adds n levels below', () => {
     const engine = createLadybugEngine();
     engine.rebuild([
       row('element', element('root', 'domain', [])),
@@ -407,18 +407,30 @@ describe('the LadybugDB query engine', () => {
     ]);
     const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
 
-    // Scoped at "root", depth 0: the scope itself and "mid" (its immediate child), not "leaf" (a grandchild) or "other-root" (outside the scope).
+    // Scoped at "root", depth 0: the scope alone, not "mid" (its immediate child), "leaf" (a grandchild) or "other-root" (outside the scope).
     const scoped = engine.view({ scope: 'root', depth: 0 }, at);
-    expect(scoped.elements?.map((e) => e.id).sort()).toEqual(['mid', 'root']);
+    expect(scoped.elements?.map((e) => e.id).sort()).toEqual(['root']);
 
-    // Scoped at "root", depth 1: "mid" and "leaf" too, still never "other-root".
-    const deeper = engine.view({ scope: 'root', depth: 1 }, at);
-    expect(deeper.elements?.map((e) => e.id).sort()).toEqual(['leaf', 'mid', 'root']);
+    // Scoped at "root", depth 1: one level below the scope too — "mid" — still never "leaf" (two levels below) or "other-root".
+    const oneLevel = engine.view({ scope: 'root', depth: 1 }, at);
+    expect(oneLevel.elements?.map((e) => e.id).sort()).toEqual(['mid', 'root']);
 
-    // Scoped at "mid" itself, depth 0: "mid" and "leaf" (mid's own immediate child) — proves the scope's own ancestor
-    // chain length (root -> mid = 1 ancestor), not merely whether a scope was given, sets the depth origin.
-    const atMid = engine.view({ scope: 'mid', depth: 0 }, at);
-    expect(atMid.elements?.map((e) => e.id).sort()).toEqual(['leaf', 'mid']);
+    // Scoped at "root", depth 2: "leaf" too now, still never "other-root".
+    const twoLevels = engine.view({ scope: 'root', depth: 2 }, at);
+    expect(twoLevels.elements?.map((e) => e.id).sort()).toEqual(['leaf', 'mid', 'root']);
+
+    // Scoped at "mid" itself, depth 0: "mid" alone, not "leaf" — proves the scope's own ancestor chain length
+    // (root -> mid = 1 ancestor), not merely whether a scope was given, sets the depth origin.
+    const atMidAlone = engine.view({ scope: 'mid', depth: 0 }, at);
+    expect(atMidAlone.elements?.map((e) => e.id).sort()).toEqual(['mid']);
+
+    // Scoped at "mid", depth 1: "mid" and "leaf" (mid's own immediate child).
+    const atMidOneLevel = engine.view({ scope: 'mid', depth: 1 }, at);
+    expect(atMidOneLevel.elements?.map((e) => e.id).sort()).toEqual(['leaf', 'mid']);
+
+    // Unscoped, depth 0: the roots alone ("root" and "other-root"), never "mid" or "leaf".
+    const unscoped = engine.view({ depth: 0 }, at);
+    expect(unscoped.elements?.map((e) => e.id).sort()).toEqual(['other-root', 'root']);
 
     engine.close();
   });

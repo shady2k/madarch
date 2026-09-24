@@ -186,8 +186,10 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     // scope entirely (shop is not inside it), so it never appears; its
     // refinement cart-calls-ui (checkout-cart -> checkout-ui) has both ends
     // inside the scope and is drawn on its own, standing for itself since
-    // nothing else in this view does.
-    const scoped = engine.view({ scope: 'checkout-web', depth: 0 }, at);
+    // nothing else in this view does. Depth 1 (not 0): checkout-cart and
+    // checkout-ui are checkout-web's own immediate children, one level
+    // below the scope (depth 0 would show checkout-web alone).
+    const scoped = engine.view({ scope: 'checkout-web', depth: 1 }, at);
     expect(scoped.error).toBeUndefined();
     expect(scoped.elements?.map((e) => e.id).sort()).toEqual(['checkout-cart', 'checkout-ui', 'checkout-web']);
     expect(scoped.relations).toEqual([{ from: 'checkout-cart', to: 'checkout-ui', relationIds: ['cart-calls-ui'] }]);
