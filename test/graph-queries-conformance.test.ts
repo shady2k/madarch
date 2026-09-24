@@ -79,26 +79,26 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     history.close();
   });
 
-  test('refinement-drawn-when-distinct: a refinement is drawn on its own once its own lifted pair differs from the relation it refines, alongside that relation', () => {
+  test('refinement-counted-once at the depth of domains and services, drawn separately once its own ends are shown: the corrected reading of graph-queries/view', () => {
     const { engine, history } = engineFor('gq-refinement-once', 'c1', DAY(1), DAY(2));
     const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
 
-    // Depth 1 (domains and services): checkout-cart (a module) is hidden
-    // and lifts to checkout-web, but payments-api (a service) is itself
-    // shown — the refinement's own pair (checkout-web, payments-api)
-    // already differs from the general relation's (checkout-web, payments),
-    // so both are drawn (the coordinator's reading of graph-queries/view,
-    // design.md "Readings decided during the run").
+    // Depth 1 (domains and services): checkout-cart (a module, one of the
+    // refinement's own two ends) is hidden, so the refinement is not drawn
+    // on its own even though its lifted pair (checkout-web, payments-api)
+    // differs from the general relation's (checkout-web, payments) — the
+    // general relation checkout-uses-payments is itself drawn in this view
+    // (both its own ends, checkout-web and payments, are shown), so it
+    // already stands for the refinement too: exactly graph-queries.md's
+    // `refinement-counted-once` scenario, "one relation ... standing for
+    // both, not two".
     const atDepth1 = engine.view({ depth: 1 }, at);
     expect(atDepth1.error).toBeUndefined();
-    expect(atDepth1.relations).toEqual([
-      { from: 'checkout-web', to: 'payments', relationIds: ['checkout-uses-payments'] },
-      { from: 'checkout-web', to: 'payments-api', relationIds: ['checkout-charges-card'] },
-    ]);
+    expect(atDepth1.relations).toEqual([{ from: 'checkout-web', to: 'payments', relationIds: ['checkout-uses-payments'] }]);
 
-    // Depth 2 (down to modules): checkout-cart is shown too now, so the
-    // refinement draws its own full-detail pair, checkout-cart to
-    // payments-api, beside the general relation it refines.
+    // Depth 2 (down to modules): checkout-cart is shown too now — both the
+    // refinement's own ends (checkout-cart, payments-api) are shown — so it
+    // draws its own full-detail pair beside the general relation it refines.
     const atDepth2 = engine.view({ depth: 2 }, at);
     expect(atDepth2.error).toBeUndefined();
     expect(atDepth2.relations).toEqual([

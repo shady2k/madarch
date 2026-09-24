@@ -352,20 +352,29 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
    * rather than trusting it silently, in case a row ever reached the engine
    * unvalidated.
    *
-   * A relation whose `refines` names another relation is only ever counted
-   * beside it when the two lift to a genuinely different shown pair (the
-   * coordinator's reading of `graph-queries/view`, design.md "Readings
-   * decided during the run"): `g`/`gf`/`gt` (`OPTIONAL MATCH`, since a
-   * refinement's own target may not exist at this time, or may exist
-   * outside what this view shows at all — either way it is drawn on its
-   * own, standing for itself) look up the refined relation and lift its own
-   * ends the same way; `r` is kept only when it does not refine anything,
-   * or its own lifted pair differs from the refined relation's (`gLiftedFrom`
-   * / `gLiftedTo`, `NULL` when the refined relation is absent or its own
-   * ends do not lift into this view at all) — the one case dropped is a
-   * refinement whose lifted pair exactly matches its general relation's,
-   * where the general relation already stands for it (`refinement-counted-
-   * once`).
+   * A refinement (`r.refines` naming another relation) is drawn on its own
+   * only when both its own ends (not their lifted ancestors — the real
+   * `fromId`/`toId` this relation was asserted between) are themselves
+   * shown elements, or when the relation it refines is not drawn in this
+   * view at all; otherwise it is dropped and counted once under its
+   * general relation, which already stands for it there (the owner's
+   * corrected reading of `graph-queries/view`'s `refinement-counted-once`
+   * scenario, replacing an earlier reading of this coordinator's that
+   * compared the refinement's own *lifted* pair against the general's —
+   * wrong because a refinement whose own ends are still both hidden can
+   * lift to a pair that happens to differ from the general's, e.g. a
+   * service-level general relation next to a still-more-specific module
+   * one; only "are the refinement's own real ends shown" decides it).
+   * `fShown`/`tShown` test `f.elementId`/`t.elementId` (the refinement's
+   * own real ends) against the shown-id set directly, never lifted.
+   * `g`/`gf`/`gt` (`OPTIONAL MATCH`, since a refinement's own target may
+   * not exist at this time, or may exist outside what this view shows at
+   * all) look up the refined relation and lift its own ends the same way
+   * as `r`/`f`/`t`, to decide whether the general relation itself is drawn
+   * here (`gLiftedFrom <> gLiftedTo`, both non-`NULL`) — "not drawn"
+   * covers the general being absent, invalid at this time, or itself
+   * collapsing onto one shown element (`inside-one-box`), or its own ends
+   * not lifting into this view at all.
    */
   function viewRelationsQuery(shownIds: readonly string[]): PreparedStatement {
     const shown = literalIdList(shownIds);
@@ -375,20 +384,24 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
        MATCH (t:Element) WHERE t.elementId = r.toId AND ${filterOf('t')}
        WITH r,
             list_filter([f.elementId] + list_reverse(f.ancestors), x -> list_contains(${shown}, x)) AS fLift,
-            list_filter([t.elementId] + list_reverse(t.ancestors), x -> list_contains(${shown}, x)) AS tLift
+            list_filter([t.elementId] + list_reverse(t.ancestors), x -> list_contains(${shown}, x)) AS tLift,
+            list_contains(${shown}, f.elementId) AS fShown,
+            list_contains(${shown}, t.elementId) AS tShown
        WHERE size(fLift) > 0 AND size(tLift) > 0
-       WITH r, fLift[1] AS liftedFrom, tLift[1] AS liftedTo
+       WITH r, fLift[1] AS liftedFrom, tLift[1] AS liftedTo, fShown, tShown
        OPTIONAL MATCH (g:Relation) WHERE g.relationId = r.refines AND ${filterOf('g')}
        OPTIONAL MATCH (gf:Element) WHERE gf.elementId = g.fromId AND ${filterOf('gf')}
        OPTIONAL MATCH (gt:Element) WHERE gt.elementId = g.toId AND ${filterOf('gt')}
-       WITH r, liftedFrom, liftedTo,
+       WITH r, liftedFrom, liftedTo, fShown, tShown,
             CASE WHEN gf IS NULL THEN NULL ELSE list_filter([gf.elementId] + list_reverse(gf.ancestors), x -> list_contains(${shown}, x)) END AS gfLiftList,
             CASE WHEN gt IS NULL THEN NULL ELSE list_filter([gt.elementId] + list_reverse(gt.ancestors), x -> list_contains(${shown}, x)) END AS gtLiftList
-       WITH r, liftedFrom, liftedTo,
+       WITH r, liftedFrom, liftedTo, fShown, tShown,
             CASE WHEN gfLiftList IS NULL OR size(gfLiftList) = 0 THEN NULL ELSE gfLiftList[1] END AS gLiftedFrom,
             CASE WHEN gtLiftList IS NULL OR size(gtLiftList) = 0 THEN NULL ELSE gtLiftList[1] END AS gLiftedTo
        WHERE liftedFrom <> liftedTo
-         AND (r.refines IS NULL OR gLiftedFrom IS NULL OR gLiftedTo IS NULL OR gLiftedFrom <> liftedFrom OR gLiftedTo <> liftedTo)
+         AND (r.refines IS NULL
+              OR (fShown AND tShown)
+              OR gLiftedFrom IS NULL OR gLiftedTo IS NULL OR gLiftedFrom = gLiftedTo)
        RETURN liftedFrom AS fromId, liftedTo AS toId, collect(DISTINCT r.relationId) AS relationIds
        ORDER BY fromId, toId`,
     );
