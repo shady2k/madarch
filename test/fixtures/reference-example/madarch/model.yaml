@@ -1,0 +1,88 @@
+version: 1
+
+states:                       # optional; without it there is one state, as-is
+  - id: as-is
+  - id: to-be
+    after: as-is
+
+zones:
+  - id: pci
+    kind: regulatory          # the kind is a free word
+  - id: dmz
+    kind: network
+
+categories:
+  - id: personal
+  - id: payment-card
+
+elements:
+  - id: shop
+    kind: domain
+    name: Shop
+  - id: checkout-web
+    kind: service
+    name: Checkout web
+    parent: shop
+    technology: TypeScript
+    evidence:
+      - file: services/checkout/README.md
+  - id: checkout-cart
+    kind: module
+    parent: checkout-web
+    evidence:
+      - file: services/checkout/src/cart/index.ts
+        line: 1
+  - id: payments
+    kind: domain
+  - id: payments-api
+    kind: service
+    parent: payments
+    zones:
+      add: [pci]              # its parent's zones plus pci
+  - id: payments-stub
+    kind: service
+    parent: payments
+    environments: [test]      # exists only in test
+  - id: legacy-billing
+    kind: service
+    parent: payments
+    until: to-be               # gone in to-be
+  - id: billing-api
+    kind: service
+    parent: payments
+    since: to-be                # appears in to-be
+
+interfaces:
+  - id: payments-charge
+    provider: payments-api
+    contract: http::POST::/api/charges
+
+relations:
+  - id: checkout-uses-payments          # a general relation, known at domain level
+    from: checkout-web
+    to: payments
+  - id: checkout-charges-card           # its refinement: the concrete call
+    refines: checkout-uses-payments
+    from: checkout-cart
+    to: payments-api
+    interface: payments-charge
+    binding:
+      env: PAYMENTS_URL
+    transfers:
+      - direction: forward
+        confidentiality: confidential
+        categories: [payment-card, personal]
+      - direction: reverse
+        confidentiality: internal
+        categories: []
+
+environments:
+  - id: test
+    bindings:
+      PAYMENTS_URL: http://payments-stub.test.internal
+  - id: production
+    bindings:
+      PAYMENTS_URL: https://payments.prod.internal
+    zones:
+      payments-api:
+        add: [dmz]            # in production it also sits in the DMZ

@@ -1,0 +1,20 @@
+version: 1
+
+zones:
+  - id: internal
+    kind: network
+  - id: pci
+    kind: regulatory
+  - id: batch
+    kind: network
+
+elements:
+  - id: payments
+    kind: domain
+    zones:
+      replace: [internal, pci]
+  - id: payments-batch
+    kind: service
+    parent: payments
+    zones:
+      replace: [batch]

@@ -1,0 +1,18 @@
+version: 1
+
+states:
+  - id: as-is
+  - id: to-be
+    after: as-is
+
+elements:
+  - id: checkout-web
+    kind: service
+  - id: payments
+    kind: domain
+
+relations:
+  - id: checkout-uses-payments
+    from: checkout-web
+    to: payments
+    since: to-be

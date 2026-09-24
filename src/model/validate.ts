@@ -1,5 +1,5 @@
 import type { ModelError } from './errors.js';
-import type { Category, Element, Interface, Relation } from './schema.js';
+import { DEFAULT_STATE_ID, type Category, type Element, type Environment, type Interface, type Relation, type State, type Zone } from './schema.js';
 
 /**
  * An element together with where it was written, kept only for the
@@ -12,6 +12,13 @@ export interface PositionedElement {
   file: string;
   line: number;
   parentLine: number;
+  zonesLine: number;
+  zonesAddLines: number[];
+  zonesExcludeLines: number[];
+  zonesReplaceLines: number[];
+  environmentsLines: number[];
+  sinceLine: number;
+  untilLine: number;
 }
 
 export interface PositionedInterface {
@@ -35,6 +42,8 @@ export interface PositionedRelation {
   refinesLine: number;
   interfaceLine: number;
   transferLines: TransferLines[];
+  sinceLine: number;
+  untilLine: number;
 }
 
 export interface PositionedCategory {
@@ -43,11 +52,42 @@ export interface PositionedCategory {
   line: number;
 }
 
+export interface PositionedZone {
+  zone: Zone;
+  file: string;
+  line: number;
+}
+
+/** The line of one element's zone change inside one environment's `zones` map. */
+export interface EnvironmentZoneLines {
+  elementId: string;
+  line: number;
+  addLines: number[];
+  excludeLines: number[];
+}
+
+export interface PositionedEnvironment {
+  environment: Environment;
+  file: string;
+  line: number;
+  zonesLines: EnvironmentZoneLines[];
+}
+
+export interface PositionedState {
+  state: State;
+  file: string;
+  line: number;
+  afterLine: number;
+}
+
 export interface PositionedModel {
   elements: PositionedElement[];
   interfaces: PositionedInterface[];
   relations: PositionedRelation[];
   categories: PositionedCategory[];
+  zones: PositionedZone[];
+  environments: PositionedEnvironment[];
+  states: PositionedState[];
 }
 
 /** An element's ancestor ids, ordered from the root down to its immediate parent. */
@@ -68,6 +108,9 @@ export function validateModel(positioned: PositionedModel): ModelError[] {
     ...checkIdSyntax(positioned.interfaces.map((i) => ({ id: i.iface.id, file: i.file, line: i.line })), 'interface'),
     ...checkIdSyntax(positioned.relations.map((r) => ({ id: r.relation.id, file: r.file, line: r.line })), 'relation'),
     ...checkIdSyntax(positioned.categories.map((c) => ({ id: c.category.id, file: c.file, line: c.line })), 'category'),
+    ...checkIdSyntax(positioned.zones.map((z) => ({ id: z.zone.id, file: z.file, line: z.line })), 'zone'),
+    ...checkIdSyntax(positioned.environments.map((e) => ({ id: e.environment.id, file: e.file, line: e.line })), 'environment'),
+    ...checkIdSyntax(positioned.states.map((s) => ({ id: s.state.id, file: s.file, line: s.line })), 'state'),
   ];
   if (syntaxErrors.length > 0) return syntaxErrors;
 
@@ -76,6 +119,9 @@ export function validateModel(positioned: PositionedModel): ModelError[] {
     ...checkDuplicateIds(positioned.interfaces.map((i) => ({ id: i.iface.id, file: i.file, line: i.line })), 'interface'),
     ...checkDuplicateIds(positioned.relations.map((r) => ({ id: r.relation.id, file: r.file, line: r.line })), 'relation'),
     ...checkDuplicateIds(positioned.categories.map((c) => ({ id: c.category.id, file: c.file, line: c.line })), 'category'),
+    ...checkDuplicateIds(positioned.zones.map((z) => ({ id: z.zone.id, file: z.file, line: z.line })), 'zone'),
+    ...checkDuplicateIds(positioned.environments.map((e) => ({ id: e.environment.id, file: e.file, line: e.line })), 'environment'),
+    ...checkDuplicateIds(positioned.states.map((s) => ({ id: s.state.id, file: s.file, line: s.line })), 'state'),
   ];
   if (duplicateErrors.length > 0) return duplicateErrors;
 
@@ -90,7 +136,33 @@ export function validateModel(positioned: PositionedModel): ModelError[] {
   const refinementEndErrors = checkRefinementEnds(positioned.relations, ancestors);
   if (refinementEndErrors.length > 0) return refinementEndErrors;
 
-  return checkContracts(positioned.interfaces);
+  const contractErrors = checkContracts(positioned.interfaces);
+  if (contractErrors.length > 0) return contractErrors;
+
+  const zoneShapeErrors = checkZoneChangeShape(positioned.elements);
+  if (zoneShapeErrors.length > 0) return zoneShapeErrors;
+
+  const stateChainErrors = checkStateChain(positioned.states);
+  if (stateChainErrors.length > 0) return stateChainErrors;
+
+  const stateOrder = computeStateOrder(positioned.states);
+
+  const sinceUntilErrors = [
+    ...checkSinceUntilOrder(
+      positioned.elements.map((e) => ({ since: e.element.since, until: e.element.until, file: e.file, sinceLine: e.sinceLine, untilLine: e.untilLine, id: e.element.id })),
+      stateOrder,
+    ),
+    ...checkSinceUntilOrder(
+      positioned.relations.map((r) => ({ since: r.relation.since, until: r.relation.until, file: r.file, sinceLine: r.sinceLine, untilLine: r.untilLine, id: r.relation.id })),
+      stateOrder,
+    ),
+  ];
+  if (sinceUntilErrors.length > 0) return sinceUntilErrors;
+
+  const zoneErrors = checkZones(positioned);
+  if (zoneErrors.length > 0) return zoneErrors;
+
+  return [];
 }
 
 interface IdLike {
@@ -147,6 +219,9 @@ function checkReferences(positioned: PositionedModel): ModelError[] {
   const interfaceIds = new Set(positioned.interfaces.map((i) => i.iface.id));
   const relationIds = new Set(positioned.relations.map((r) => r.relation.id));
   const categoryIds = new Set(positioned.categories.map((c) => c.category.id));
+  const zoneIds = new Set(positioned.zones.map((z) => z.zone.id));
+  const environmentIds = new Set(positioned.environments.map((e) => e.environment.id));
+  const stateIds = new Set(positioned.states.map((s) => s.state.id));
 
   for (const entry of positioned.elements) {
     const parent = entry.element.parent;
@@ -156,6 +231,109 @@ function checkReferences(positioned: PositionedModel): ModelError[] {
         line: entry.parentLine,
         path: 'parent',
         message: `element "${entry.element.id}" names parent "${parent}", which does not exist`,
+      });
+    }
+
+    const zonesChange = entry.element.zones;
+    if (zonesChange) {
+      (zonesChange.add ?? []).forEach((zoneId, i) => {
+        if (zoneIds.has(zoneId)) return;
+        errors.push({
+          file: entry.file,
+          line: entry.zonesAddLines[i] ?? entry.zonesLine,
+          path: `zones.add[${i}]`,
+          message: `element "${entry.element.id}" names zone "${zoneId}", which does not exist`,
+        });
+      });
+      (zonesChange.exclude ?? []).forEach((zoneId, i) => {
+        if (zoneIds.has(zoneId)) return;
+        errors.push({
+          file: entry.file,
+          line: entry.zonesExcludeLines[i] ?? entry.zonesLine,
+          path: `zones.exclude[${i}]`,
+          message: `element "${entry.element.id}" names zone "${zoneId}", which does not exist`,
+        });
+      });
+      (zonesChange.replace ?? []).forEach((zoneId, i) => {
+        if (zoneIds.has(zoneId)) return;
+        errors.push({
+          file: entry.file,
+          line: entry.zonesReplaceLines[i] ?? entry.zonesLine,
+          path: `zones.replace[${i}]`,
+          message: `element "${entry.element.id}" names zone "${zoneId}", which does not exist`,
+        });
+      });
+    }
+
+    (entry.element.environments ?? []).forEach((environmentId, i) => {
+      if (environmentIds.has(environmentId)) return;
+      errors.push({
+        file: entry.file,
+        line: entry.environmentsLines[i] ?? entry.line,
+        path: `environments[${i}]`,
+        message: `element "${entry.element.id}" names environment "${environmentId}", which does not exist`,
+      });
+    });
+
+    if (entry.element.since !== undefined && !stateIds.has(entry.element.since)) {
+      errors.push({
+        file: entry.file,
+        line: entry.sinceLine,
+        path: 'since',
+        message: `element "${entry.element.id}" names state "${entry.element.since}", which does not exist`,
+      });
+    }
+    if (entry.element.until !== undefined && !stateIds.has(entry.element.until)) {
+      errors.push({
+        file: entry.file,
+        line: entry.untilLine,
+        path: 'until',
+        message: `element "${entry.element.id}" names state "${entry.element.until}", which does not exist`,
+      });
+    }
+  }
+
+  for (const entry of positioned.states) {
+    const after = entry.state.after;
+    if (after !== undefined && !stateIds.has(after)) {
+      errors.push({
+        file: entry.file,
+        line: entry.afterLine,
+        path: 'after',
+        message: `state "${entry.state.id}" names "after" as "${after}", which does not exist`,
+      });
+    }
+  }
+
+  for (const entry of positioned.environments) {
+    for (const zoneLines of entry.zonesLines) {
+      if (!elementIds.has(zoneLines.elementId)) {
+        errors.push({
+          file: entry.file,
+          line: zoneLines.line,
+          path: `zones.${zoneLines.elementId}`,
+          message: `environment "${entry.environment.id}" names element "${zoneLines.elementId}", which does not exist`,
+        });
+        continue;
+      }
+      const change = entry.environment.zones?.[zoneLines.elementId];
+      (change?.add ?? []).forEach((zoneId, i) => {
+        if (zoneIds.has(zoneId)) return;
+        errors.push({
+          file: entry.file,
+          line: zoneLines.addLines[i] ?? zoneLines.line,
+          path: `zones.${zoneLines.elementId}.add[${i}]`,
+          message: `environment "${entry.environment.id}" names zone "${zoneId}", which does not exist`,
+        });
+      });
+      (change?.exclude ?? []).forEach((zoneId, i) => {
+        if (zoneIds.has(zoneId)) return;
+        errors.push({
+          file: entry.file,
+          line: zoneLines.excludeLines[i] ?? zoneLines.line,
+          path: `zones.${zoneLines.elementId}.exclude[${i}]`,
+          message: `environment "${entry.environment.id}" names zone "${zoneId}", which does not exist`,
+        });
       });
     }
   }
@@ -218,6 +396,23 @@ function checkReferences(positioned: PositionedModel): ModelError[] {
         });
       });
     });
+
+    if (relation.since !== undefined && !stateIds.has(relation.since)) {
+      errors.push({
+        file: entry.file,
+        line: entry.sinceLine,
+        path: 'since',
+        message: `relation "${relation.id}" names state "${relation.since}", which does not exist`,
+      });
+    }
+    if (relation.until !== undefined && !stateIds.has(relation.until)) {
+      errors.push({
+        file: entry.file,
+        line: entry.untilLine,
+        path: 'until',
+        message: `relation "${relation.id}" names state "${relation.until}", which does not exist`,
+      });
+    }
   }
 
   return errors;
@@ -398,5 +593,212 @@ function checkContracts(positioned: PositionedInterface[]): ModelError[] {
       });
     }
   }
+  return errors;
+}
+
+/**
+ * Checks that `states` forms one chain: at most one state after any given
+ * state, and exactly one state with no `after` (the first). Safe to assume
+ * every `after` names a known state: reference checking already ran.
+ */
+function checkStateChain(positioned: PositionedState[]): ModelError[] {
+  if (positioned.length === 0) return [];
+  const errors: ModelError[] = [];
+  const byAfter = new Map<string, PositionedState[]>();
+  const roots: PositionedState[] = [];
+
+  for (const entry of positioned) {
+    const after = entry.state.after;
+    if (after === undefined) {
+      roots.push(entry);
+      continue;
+    }
+    const group = byAfter.get(after);
+    if (group) group.push(entry);
+    else byAfter.set(after, [entry]);
+  }
+
+  for (const [after, group] of byAfter) {
+    if (group.length < 2) continue;
+    const names = group.map((g) => `"${g.state.id}"`).join(', ');
+    for (const g of group) {
+      errors.push({
+        file: g.file,
+        line: g.line,
+        path: 'after',
+        message: `states ${names} are both after "${after}"; a chain of states cannot branch`,
+      });
+    }
+  }
+  if (errors.length > 0) return errors;
+
+  if (roots.length !== 1) {
+    if (roots.length === 0) {
+      const names = positioned.map((s) => `"${s.state.id}"`).join(', ');
+      const first = positioned[0]!;
+      errors.push({
+        file: first.file,
+        line: first.line,
+        path: 'after',
+        message: `states ${names} have no first state: every state names an "after"`,
+      });
+    } else {
+      const names = roots.map((r) => `"${r.state.id}"`).join(', ');
+      for (const r of roots) {
+        errors.push({
+          file: r.file,
+          line: r.line,
+          path: 'after',
+          message: `states ${names} are all first states; a chain of states must start from exactly one`,
+        });
+      }
+    }
+    return errors;
+  }
+
+  const visited = new Set<string>();
+  let current: PositionedState | undefined = roots[0];
+  while (current) {
+    visited.add(current.state.id);
+    current = byAfter.get(current.state.id)?.[0];
+  }
+
+  const leftover = positioned.filter((entry) => !visited.has(entry.state.id));
+  if (leftover.length > 0) {
+    const names = leftover.map((s) => `"${s.state.id}"`).join(', ');
+    for (const entry of leftover) {
+      errors.push({
+        file: entry.file,
+        line: entry.line,
+        path: 'after',
+        message: `states ${names} form a cycle of "after"`,
+      });
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * The chain of state ids from the first to the last. Safe to assume the
+ * chain is valid: `checkStateChain` already ran and found nothing. A model
+ * with no `states` has the single implicit state `as-is`.
+ */
+export function computeStateOrder(positioned: PositionedState[]): string[] {
+  if (positioned.length === 0) return [DEFAULT_STATE_ID];
+
+  const byAfter = new Map<string, PositionedState>();
+  let root: PositionedState | undefined;
+  for (const entry of positioned) {
+    if (entry.state.after === undefined) root = entry;
+    else byAfter.set(entry.state.after, entry);
+  }
+
+  const order: string[] = [];
+  let current = root;
+  while (current) {
+    order.push(current.state.id);
+    current = byAfter.get(current.state.id);
+  }
+  return order;
+}
+
+interface SinceUntilLike {
+  id: string;
+  since?: string;
+  until?: string;
+  file: string;
+  sinceLine: number;
+  untilLine: number;
+}
+
+/**
+ * Checks that when both `since` and `until` are given, `since` comes before
+ * `until` in the chain of states. Safe to assume both name known states:
+ * reference checking already ran.
+ */
+function checkSinceUntilOrder(entries: SinceUntilLike[], stateOrder: string[]): ModelError[] {
+  const indexById = new Map(stateOrder.map((id, index) => [id, index]));
+  const errors: ModelError[] = [];
+  for (const entry of entries) {
+    if (entry.since === undefined || entry.until === undefined) continue;
+    const sinceIndex = indexById.get(entry.since);
+    const untilIndex = indexById.get(entry.until);
+    if (sinceIndex === undefined || untilIndex === undefined) continue;
+    if (sinceIndex >= untilIndex) {
+      errors.push({
+        file: entry.file,
+        line: entry.sinceLine,
+        path: 'since',
+        message: `"${entry.id}" has since "${entry.since}", which does not come before until "${entry.until}" in the chain of states`,
+      });
+    }
+  }
+  return errors;
+}
+
+/** Refuses an element's `zones` combining `replace` with `add` or `exclude`. */
+function checkZoneChangeShape(positioned: PositionedElement[]): ModelError[] {
+  const errors: ModelError[] = [];
+  for (const entry of positioned) {
+    const change = entry.element.zones;
+    if (!change || change.replace === undefined) continue;
+    if (change.add !== undefined || change.exclude !== undefined) {
+      errors.push({
+        file: entry.file,
+        line: entry.zonesLine,
+        path: 'zones',
+        message: `element "${entry.element.id}" combines "replace" with "add" or "exclude" in "zones"; "replace" cannot be combined with either`,
+      });
+    }
+  }
+  return errors;
+}
+
+/**
+ * Computes each element's general (not per-environment) zones, inheriting
+ * the parent's zones unless the element adds, excludes or replaces them,
+ * and refuses excluding a zone the element would not be in. Safe to assume
+ * `parent` is cycle-free and every zone id known: earlier checks already
+ * ran and found nothing.
+ */
+function checkZones(positioned: PositionedModel): ModelError[] {
+  const errors: ModelError[] = [];
+  const byId = new Map(positioned.elements.map((entry) => [entry.element.id, entry]));
+  const cache = new Map<string, string[]>();
+
+  const resolve = (id: string): string[] => {
+    const cached = cache.get(id);
+    if (cached) return cached;
+    const entry = byId.get(id)!;
+    const parentZones = entry.element.parent !== undefined ? resolve(entry.element.parent) : [];
+    const change = entry.element.zones;
+
+    let zones: string[];
+    if (change?.replace !== undefined) {
+      zones = [...change.replace];
+    } else {
+      zones = [...parentZones];
+      for (const zoneId of change?.add ?? []) {
+        if (!zones.includes(zoneId)) zones.push(zoneId);
+      }
+      for (const [index, zoneId] of (change?.exclude ?? []).entries()) {
+        if (!zones.includes(zoneId)) {
+          errors.push({
+            file: entry.file,
+            line: entry.zonesExcludeLines[index] ?? entry.zonesLine,
+            path: `zones.exclude[${index}]`,
+            message: `element "${entry.element.id}" excludes zone "${zoneId}", which it would not be in`,
+          });
+        }
+        zones = zones.filter((existing) => existing !== zoneId);
+      }
+    }
+
+    cache.set(id, zones);
+    return zones;
+  };
+
+  for (const entry of positioned.elements) resolve(entry.element.id);
   return errors;
 }

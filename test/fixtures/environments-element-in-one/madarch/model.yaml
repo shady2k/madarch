@@ -1,0 +1,13 @@
+version: 1
+
+elements:
+  - id: payments
+    kind: domain
+  - id: payments-stub
+    kind: service
+    parent: payments
+    environments: [test]
+
+environments:
+  - id: test
+  - id: production

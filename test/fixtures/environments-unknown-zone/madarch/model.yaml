@@ -1,0 +1,15 @@
+version: 1
+
+zones:
+  - id: dmz
+    kind: network
+
+elements:
+  - id: payments-api
+    kind: service
+
+environments:
+  - id: production
+    zones:
+      payments-api:
+        add: [pci]

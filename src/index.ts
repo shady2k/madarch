@@ -12,6 +12,12 @@ export {
   Transfer,
   TransferDirection,
   ModelFile,
+  Zone,
+  ZonesChange,
+  Environment,
+  EnvironmentZonesChange,
+  State,
+  DEFAULT_STATE_ID,
   type IntendedModel,
 } from './model/schema.js';
 export { loadModel, type LoadResult } from './model/load.js';
@@ -23,7 +29,14 @@ export {
   type CompiledInterface,
   type CompiledRelation,
   type CompiledCategory,
+  type CompiledZone,
+  type CompiledEnvironment,
+  type CompiledState,
 } from './model/compile.js';
+export {
+  CompiledModel as CompiledModelSchema,
+  CompiledElement as CompiledElementSchema,
+} from './model/compiled-schema.js';
 
 import type { CompiledModel } from './model/compile.js';
 import { compileModel } from './model/compile.js';

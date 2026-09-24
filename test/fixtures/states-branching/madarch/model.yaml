@@ -1,0 +1,12 @@
+version: 1
+
+states:
+  - id: as-is
+  - id: target-a
+    after: as-is
+  - id: target-b
+    after: as-is
+
+elements:
+  - id: payments
+    kind: domain

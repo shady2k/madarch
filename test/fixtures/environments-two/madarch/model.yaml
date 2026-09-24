@@ -1,0 +1,41 @@
+version: 1
+
+zones:
+  - id: dmz
+    kind: network
+
+elements:
+  - id: checkout-web
+    kind: service
+  - id: checkout-cart
+    kind: module
+    parent: checkout-web
+  - id: payments
+    kind: domain
+  - id: payments-api
+    kind: service
+    parent: payments
+
+interfaces:
+  - id: payments-charge
+    provider: payments-api
+    contract: http::POST::/api/charges
+
+relations:
+  - id: checkout-charges-card
+    from: checkout-cart
+    to: payments-api
+    interface: payments-charge
+    binding:
+      env: PAYMENTS_URL
+
+environments:
+  - id: test
+    bindings:
+      PAYMENTS_URL: http://payments-stub.test.internal
+  - id: production
+    bindings:
+      PAYMENTS_URL: https://payments.prod.internal
+    zones:
+      payments-api:
+        add: [dmz]

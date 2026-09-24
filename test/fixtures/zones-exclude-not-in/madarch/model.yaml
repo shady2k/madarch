@@ -1,0 +1,18 @@
+version: 1
+
+zones:
+  - id: internal
+    kind: network
+  - id: pci
+    kind: regulatory
+
+elements:
+  - id: payments
+    kind: domain
+    zones:
+      add: [internal]
+  - id: payments-api
+    kind: service
+    parent: payments
+    zones:
+      exclude: [pci]

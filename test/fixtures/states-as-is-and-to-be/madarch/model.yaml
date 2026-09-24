@@ -1,0 +1,18 @@
+version: 1
+
+states:
+  - id: as-is
+  - id: to-be
+    after: as-is
+
+elements:
+  - id: payments
+    kind: domain
+  - id: legacy-billing
+    kind: service
+    parent: payments
+    until: to-be
+  - id: billing-api
+    kind: service
+    parent: payments
+    since: to-be

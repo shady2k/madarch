@@ -1,0 +1,17 @@
+version: 1
+
+states:
+  - id: as-is
+  - id: transition
+    after: as-is
+  - id: to-be
+    after: transition
+
+elements:
+  - id: payments
+    kind: domain
+  - id: billing-api
+    kind: service
+    parent: payments
+    since: to-be
+    until: as-is

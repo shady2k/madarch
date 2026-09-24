@@ -1,0 +1,11 @@
+version: 1
+
+zones:
+  - id: internal
+    kind: network
+
+elements:
+  - id: payments
+    kind: domain
+    zones:
+      add: [pci]

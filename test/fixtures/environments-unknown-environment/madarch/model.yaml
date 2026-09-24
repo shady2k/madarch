@@ -1,0 +1,9 @@
+version: 1
+
+elements:
+  - id: payments-stub
+    kind: service
+    environments: [test]
+
+environments:
+  - id: production

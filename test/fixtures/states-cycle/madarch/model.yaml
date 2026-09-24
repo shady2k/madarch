@@ -1,0 +1,11 @@
+version: 1
+
+states:
+  - id: state-a
+    after: state-b
+  - id: state-b
+    after: state-a
+
+elements:
+  - id: payments
+    kind: domain

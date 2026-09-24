@@ -28,17 +28,42 @@ export const Evidence = Type.Object(
 );
 export type Evidence = Static<typeof Evidence>;
 
+export const ZonesChange = Type.Object(
+  {
+    add: Type.Optional(Type.Array(Type.String())),
+    exclude: Type.Optional(Type.Array(Type.String())),
+    replace: Type.Optional(Type.Array(Type.String())),
+  },
+  { additionalProperties: false },
+);
+export type ZonesChange = Static<typeof ZonesChange>;
+
 export const Element = Type.Object(
   {
     id: Type.String(),
     kind: ElementKind,
     name: Type.Optional(Type.String()),
     parent: Type.Optional(Type.String()),
+    technology: Type.Optional(Type.String()),
     evidence: Type.Optional(Type.Array(Evidence)),
+    zones: Type.Optional(ZonesChange),
+    environments: Type.Optional(Type.Array(Type.String())),
+    since: Type.Optional(Type.String()),
+    until: Type.Optional(Type.String()),
   },
   { additionalProperties: false },
 );
 export type Element = Static<typeof Element>;
+
+export const Zone = Type.Object(
+  {
+    id: Type.String(),
+    kind: Type.String(),
+    name: Type.Optional(Type.String()),
+  },
+  { additionalProperties: false },
+);
+export type Zone = Static<typeof Zone>;
 
 export const Category = Type.Object(
   {
@@ -91,10 +116,42 @@ export const Relation = Type.Object(
     binding: Type.Optional(Binding),
     transfers: Type.Optional(Type.Array(Transfer)),
     evidence: Type.Optional(Type.Array(Evidence)),
+    since: Type.Optional(Type.String()),
+    until: Type.Optional(Type.String()),
   },
   { additionalProperties: false },
 );
 export type Relation = Static<typeof Relation>;
+
+export const EnvironmentZonesChange = Type.Object(
+  {
+    add: Type.Optional(Type.Array(Type.String())),
+    exclude: Type.Optional(Type.Array(Type.String())),
+  },
+  { additionalProperties: false },
+);
+export type EnvironmentZonesChange = Static<typeof EnvironmentZonesChange>;
+
+export const Environment = Type.Object(
+  {
+    id: Type.String(),
+    name: Type.Optional(Type.String()),
+    bindings: Type.Optional(Type.Record(Type.String(), Type.String())),
+    zones: Type.Optional(Type.Record(Type.String(), EnvironmentZonesChange)),
+  },
+  { additionalProperties: false },
+);
+export type Environment = Static<typeof Environment>;
+
+export const State = Type.Object(
+  {
+    id: Type.String(),
+    name: Type.Optional(Type.String()),
+    after: Type.Optional(Type.String()),
+  },
+  { additionalProperties: false },
+);
+export type State = Static<typeof State>;
 
 export const ModelFile = Type.Object(
   {
@@ -103,6 +160,9 @@ export const ModelFile = Type.Object(
     interfaces: Type.Optional(Type.Array(Interface)),
     relations: Type.Optional(Type.Array(Relation)),
     categories: Type.Optional(Type.Array(Category)),
+    zones: Type.Optional(Type.Array(Zone)),
+    environments: Type.Optional(Type.Array(Environment)),
+    states: Type.Optional(Type.Array(State)),
   },
   { additionalProperties: false },
 );
@@ -115,4 +175,10 @@ export interface IntendedModel {
   interfaces: Interface[];
   relations: Relation[];
   categories: Category[];
+  zones: Zone[];
+  environments: Environment[];
+  states: State[];
 }
+
+/** The id of the implicit single state a model with no `states` has. */
+export const DEFAULT_STATE_ID = 'as-is';

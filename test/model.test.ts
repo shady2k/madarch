@@ -21,7 +21,9 @@ describe('loadAndCompileModel', () => {
 
     expect(errors).toEqual([]);
     expect(model?.schemaVersion).toBe(1);
-    expect(model?.elements).toEqual([{ id: 'shop', kind: 'domain', name: 'Shop', ancestors: [] }]);
+    expect(model?.elements).toEqual([
+      { id: 'shop', kind: 'domain', name: 'Shop', ancestors: [], zones: [], zonesByEnvironment: {}, environments: [], states: ['as-is'] },
+    ]);
   });
 
   test('reports an unknown field with its file, line and path', () => {
@@ -213,8 +215,18 @@ describe('references', () => {
 
     expect(errors).toEqual([]);
     expect(model?.elements).toEqual([
-      { id: 'checkout-web', kind: 'service', name: 'Checkout web', parent: 'shop', ancestors: ['shop'] },
-      { id: 'shop', kind: 'domain', name: 'Shop', ancestors: [] },
+      {
+        id: 'checkout-web',
+        kind: 'service',
+        name: 'Checkout web',
+        parent: 'shop',
+        ancestors: ['shop'],
+        zones: [],
+        zonesByEnvironment: {},
+        environments: [],
+        states: ['as-is'],
+      },
+      { id: 'shop', kind: 'domain', name: 'Shop', ancestors: [], zones: [], zonesByEnvironment: {}, environments: [], states: ['as-is'] },
     ]);
   });
 });

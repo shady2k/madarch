@@ -1,0 +1,26 @@
+version: 1
+
+zones:
+  - id: internal
+    kind: network
+  - id: pci
+    kind: regulatory
+  - id: dmz
+    kind: network
+
+elements:
+  - id: payments
+    kind: domain
+    zones:
+      add: [internal]
+  - id: payments-api
+    kind: service
+    parent: payments
+    zones:
+      add: [pci]
+  - id: payments-ui
+    kind: service
+    parent: payments
+    zones:
+      exclude: [internal]
+      add: [dmz]

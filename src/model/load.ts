@@ -3,15 +3,19 @@ import { join, relative } from 'node:path';
 import { LineCounter, parseDocument } from 'yaml';
 import { Value } from 'typebox/value';
 import type { ModelError } from './errors.js';
-import { ModelFile, type Category, type Element, type Interface, type IntendedModel, type Relation } from './schema.js';
+import { ModelFile, type Category, type Element, type Environment, type Interface, type IntendedModel, type Relation, type State, type Zone } from './schema.js';
 import { checkStrictYaml } from './strict-yaml.js';
 import {
   validateModel,
+  type EnvironmentZoneLines,
   type PositionedCategory,
   type PositionedElement,
+  type PositionedEnvironment,
   type PositionedInterface,
   type PositionedModel,
   type PositionedRelation,
+  type PositionedState,
+  type PositionedZone,
   type TransferLines,
 } from './validate.js';
 import { jsonPointerToSegments, lineForPath, segmentsToPath } from './yaml-position.js';
@@ -52,7 +56,15 @@ export function loadModel(repoRoot: string): LoadResult {
   }
 
   const errors: ModelError[] = [];
-  const positioned: PositionedModel = { elements: [], interfaces: [], relations: [], categories: [] };
+  const positioned: PositionedModel = {
+    elements: [],
+    interfaces: [],
+    relations: [],
+    categories: [],
+    zones: [],
+    environments: [],
+    states: [],
+  };
 
   for (const fileName of fileNames) {
     const filePath = join(madarchDir, fileName);
@@ -82,7 +94,16 @@ export function loadModel(repoRoot: string): LoadResult {
       continue;
     }
 
-    const parsed = value as { version: 1; elements: Element[]; interfaces?: Interface[]; relations?: Relation[]; categories?: Category[] };
+    const parsed = value as {
+      version: 1;
+      elements: Element[];
+      interfaces?: Interface[];
+      relations?: Relation[];
+      categories?: Category[];
+      zones?: Zone[];
+      environments?: Environment[];
+      states?: State[];
+    };
     const line = (segments: (string | number)[]) => lineForPath(doc, lineCounter, segments);
 
     parsed.elements.forEach((element, index) => {
@@ -91,6 +112,21 @@ export function loadModel(repoRoot: string): LoadResult {
         file: relativeFile,
         line: line(['elements', index]),
         parentLine: line(['elements', index, 'parent']),
+        zonesLine: line(['elements', index, 'zones']),
+        zonesAddLines: (element.zones?.add ?? []).map((_zoneId, zoneIndex) =>
+          line(['elements', index, 'zones', 'add', zoneIndex]),
+        ),
+        zonesExcludeLines: (element.zones?.exclude ?? []).map((_zoneId, zoneIndex) =>
+          line(['elements', index, 'zones', 'exclude', zoneIndex]),
+        ),
+        zonesReplaceLines: (element.zones?.replace ?? []).map((_zoneId, zoneIndex) =>
+          line(['elements', index, 'zones', 'replace', zoneIndex]),
+        ),
+        environmentsLines: (element.environments ?? []).map((_environmentId, environmentIndex) =>
+          line(['elements', index, 'environments', environmentIndex]),
+        ),
+        sinceLine: line(['elements', index, 'since']),
+        untilLine: line(['elements', index, 'until']),
       });
     });
 
@@ -118,6 +154,8 @@ export function loadModel(repoRoot: string): LoadResult {
         refinesLine: line(['relations', index, 'refines']),
         interfaceLine: line(['relations', index, 'interface']),
         transferLines,
+        sinceLine: line(['relations', index, 'since']),
+        untilLine: line(['relations', index, 'until']),
       });
     });
 
@@ -126,6 +164,42 @@ export function loadModel(repoRoot: string): LoadResult {
         category,
         file: relativeFile,
         line: line(['categories', index]),
+      });
+    });
+
+    (parsed.zones ?? []).forEach((zone, index) => {
+      positioned.zones.push({
+        zone,
+        file: relativeFile,
+        line: line(['zones', index]),
+      });
+    });
+
+    (parsed.environments ?? []).forEach((environment, index) => {
+      const zonesLines: EnvironmentZoneLines[] = Object.keys(environment.zones ?? {}).map((elementId) => ({
+        elementId,
+        line: line(['environments', index, 'zones', elementId]),
+        addLines: (environment.zones?.[elementId]?.add ?? []).map((_zoneId, zoneIndex) =>
+          line(['environments', index, 'zones', elementId, 'add', zoneIndex]),
+        ),
+        excludeLines: (environment.zones?.[elementId]?.exclude ?? []).map((_zoneId, zoneIndex) =>
+          line(['environments', index, 'zones', elementId, 'exclude', zoneIndex]),
+        ),
+      }));
+      positioned.environments.push({
+        environment,
+        file: relativeFile,
+        line: line(['environments', index]),
+        zonesLines,
+      });
+    });
+
+    (parsed.states ?? []).forEach((state, index) => {
+      positioned.states.push({
+        state,
+        file: relativeFile,
+        line: line(['states', index]),
+        afterLine: line(['states', index, 'after']),
       });
     });
   }
@@ -146,6 +220,9 @@ export function loadModel(repoRoot: string): LoadResult {
       interfaces: positioned.interfaces.map((entry) => entry.iface),
       relations: positioned.relations.map((entry) => entry.relation),
       categories: positioned.categories.map((entry) => entry.category),
+      zones: positioned.zones.map((entry) => entry.zone),
+      environments: positioned.environments.map((entry) => entry.environment),
+      states: positioned.states.map((entry) => entry.state),
     },
     errors: [],
   };

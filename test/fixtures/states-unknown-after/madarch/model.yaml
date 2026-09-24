@@ -1,0 +1,10 @@
+version: 1
+
+states:
+  - id: as-is
+  - id: to-be
+    after: unknown-state
+
+elements:
+  - id: payments
+    kind: domain

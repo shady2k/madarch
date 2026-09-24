@@ -1,0 +1,14 @@
+version: 1
+
+zones:
+  - id: internal
+    kind: network
+  - id: batch
+    kind: network
+
+elements:
+  - id: payments
+    kind: domain
+    zones:
+      add: [internal]
+      replace: [batch]
