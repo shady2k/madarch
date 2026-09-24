@@ -1,0 +1,154 @@
+# The graph foundation: format and mechanism
+
+Companion to `change.md`. The example is invented; it shows every part of the
+format once.
+
+## The intended model on disk
+
+A repository keeps its model in `madarch/*.yaml`: any number of files, read
+together as one model. Strict YAML: no anchors, aliases, merge keys or custom
+tags; a duplicate key is an error. Objects span several lines.
+
+```yaml
+version: 1
+
+states:                       # optional; without it there is one state, as-is
+  - id: as-is
+  - id: to-be
+    after: as-is
+
+zones:
+  - id: pci
+    kind: regulatory          # the kind is a free word
+  - id: dmz
+    kind: network
+
+categories:
+  - id: personal
+  - id: payment-card
+
+elements:
+  - id: shop
+    kind: domain
+    name: Shop
+  - id: checkout-web
+    kind: service
+    name: Checkout web
+    parent: shop
+    technology: TypeScript
+    evidence:
+      - file: services/checkout/README.md
+  - id: checkout-cart
+    kind: module
+    parent: checkout-web
+    evidence:
+      - file: services/checkout/src/cart/index.ts
+        line: 1
+  - id: payments
+    kind: domain
+  - id: payments-api
+    kind: service
+    parent: payments
+    zones:
+      add: [pci]              # its parent's zones plus pci
+  - id: payments-stub
+    kind: service
+    parent: payments
+    environments: [test]      # exists only in test
+  - id: legacy-billing
+    kind: service
+    parent: payments
+    until: to-be              # gone in to-be
+  - id: billing-api
+    kind: service
+    parent: payments
+    since: to-be              # appears in to-be
+
+interfaces:
+  - id: payments-charge
+    provider: payments-api
+    contract: http::POST::/api/charges
+
+relations:
+  - id: checkout-uses-payments          # a general relation, known at domain level
+    from: checkout-web
+    to: payments
+  - id: checkout-charges-card           # its refinement: the concrete call
+    refines: checkout-uses-payments
+    from: checkout-cart
+    to: payments-api
+    interface: payments-charge
+    binding:
+      env: PAYMENTS_URL
+    transfers:
+      - direction: forward
+        confidentiality: confidential
+        categories: [payment-card, personal]
+      - direction: reverse
+        confidentiality: internal
+        categories: []
+
+environments:
+  - id: test
+    bindings:
+      PAYMENTS_URL: http://payments-stub.test.internal
+  - id: production
+    bindings:
+      PAYMENTS_URL: https://payments.prod.internal
+    zones:
+      payments-api:
+        add: [dmz]            # in production it also sits in the DMZ
+```
+
+What the reader should notice:
+
+- **Ids are flat and stable.** `checkout-cart` does not say where it lives;
+  moving it changes only `parent`. Decision 0014 is followed over 0003's
+  namespaced example.
+- **A relation at any level.** `checkout-uses-payments` joins a service to a
+  domain; `checkout-charges-card` refines it between a module and a service.
+  Views count the pair once.
+- **A relation with an interface or transfers is an interaction.** It is a node
+  with its own id, which flows, decisions and evidence can refer to later.
+- **Kinds of element:** person, external, domain, system, service, module,
+  store, broker. A cache is a store with its `technology`.
+- **Contract ids** are `<kind>::<rest>` with kinds http, grpc, topic, queue,
+  data and rpc; path parameters are normalized (`/orders/{id}` becomes
+  `/orders/{}`), HTTP methods are upper case.
+
+## From files to answers
+
+```mermaid
+flowchart LR
+  yaml["madarch/*.yaml<br/>in a repository at a commit"] --> load["load and validate<br/>(strict YAML, JSON Schema)"]
+  load --> compile["compile<br/>(resolve, inherit zones, normalize)"]
+  compile --> json["model.json<br/>(compiled model)"]
+  compile --> store["model history<br/>SQLite: assertions with<br/>valid and recorded time"]
+  store --> engine["query engine<br/>LadybugDB, built from the history"]
+  engine --> answers["children, view with collapsed relations,<br/>transitive dependencies, as of a time"]
+```
+
+- **Model history.** Each element, relation, interface, zone membership and
+  binding is one assertion of its source. Storing a new commit of a source
+  compares it with what the source asserted before: unchanged assertions stay,
+  changed and removed ones are closed, new ones are opened. Valid time is the
+  commit's time; recorded time is when it was stored. Nothing is updated in
+  place or deleted.
+- **Query engine.** LadybugDB holds elements, interactions and relations with
+  their four times, built from the history and rebuildable from it at any
+  moment. Every traversal filters every hop by the asked time.
+- **Runtime boundaries** (0008): `bun:sqlite` and LadybugDB sit behind
+  interfaces in adapters; the model, the compiler and the queries' logic use no
+  Bun-specific API.
+
+## The walking skeleton
+
+- Bun 1.4.2, pinned in `package.json` (`packageManager`), TypeScript in strict
+  mode.
+- Dependencies, pinned exactly: `typebox` (one schema source for types, runtime
+  validation and the published JSON Schema), `yaml` (strict parsing with
+  positions), `@ladybugdb/core` (its install script only copies the prebuilt
+  binary for the platform and is listed as trusted).
+- Commands: `bun run check` (type check), `bun test`.
+- CI: a GitHub Actions workflow on push and pull request running install,
+  check and test on Linux.
