@@ -472,3 +472,330 @@ describe('performance: a 10 000-element model loads and compiles in reasonable t
     }
   });
 });
+
+describe('state chain and since/until errors: exact path and line', () => {
+  test('two states both naming the same "after" are each reported at their own "after" line and path', () => {
+    const { errors } = parseModel([
+      { path: 'm.yaml', text: 'version: 1\nelements: []\nstates:\n  - id: s0\n  - id: s1\n    after: s0\n  - id: s2\n    after: s0\n' },
+    ]);
+    expect(errors).toContainEqual(expect.objectContaining({ path: 'states[1].after', line: 6, message: expect.stringContaining('cannot branch') }));
+    expect(errors).toContainEqual(expect.objectContaining({ path: 'states[2].after', line: 8, message: expect.stringContaining('cannot branch') }));
+  });
+
+  test('every state naming "after" (no first state) is reported at the first state\'s own line', () => {
+    const { errors } = parseModel([{ path: 'm.yaml', text: 'version: 1\nelements: []\nstates:\n  - id: s0\n    after: s0\n' }]);
+    expect(errors).toContainEqual(expect.objectContaining({ path: 'states[0].after', line: 4, message: expect.stringContaining('no first state') }));
+  });
+
+  test('two roots (all first states) are each reported at their own line', () => {
+    const { errors } = parseModel([{ path: 'm.yaml', text: 'version: 1\nelements: []\nstates:\n  - id: s0\n  - id: s1\n' }]);
+    expect(errors).toContainEqual(expect.objectContaining({ path: 'states[0].after', line: 4, message: expect.stringContaining('all first states') }));
+    expect(errors).toContainEqual(expect.objectContaining({ path: 'states[1].after', line: 5, message: expect.stringContaining('all first states') }));
+  });
+
+  test('a leftover state outside the chain (a separate cycle) is reported at its own "after" line', () => {
+    const { errors } = parseModel([
+      {
+        path: 'm.yaml',
+        text: 'version: 1\nelements: []\nstates:\n  - id: root\n  - id: x\n    after: y\n  - id: y\n    after: x\n',
+      },
+    ]);
+    const cycleErrors = errors.filter((e) => e.message.includes('cycle of "after"'));
+    expect(cycleErrors).toContainEqual(expect.objectContaining({ path: 'states[1].after', line: 6 }));
+    expect(cycleErrors).toContainEqual(expect.objectContaining({ path: 'states[2].after', line: 8 }));
+  });
+
+  test('an element\'s since/until out of order is reported at "elements[i].since"', () => {
+    const { errors } = parseModel([
+      {
+        path: 'm.yaml',
+        text: `version: 1
+states:
+  - id: as-is
+  - id: to-be
+    after: as-is
+elements:
+  - id: a
+    kind: service
+    since: to-be
+    until: as-is
+`,
+      },
+    ]);
+    const error = errors.find((e) => e.message.includes('does not come before'));
+    expect(error).toBeDefined();
+    expect(error?.path).toBe('elements[0].since');
+    expect(error?.line).toBe(9);
+  });
+
+  test('a relation\'s since/until out of order is reported at "relations[i].since"', () => {
+    const { errors } = parseModel([
+      {
+        path: 'm.yaml',
+        text: `version: 1
+states:
+  - id: as-is
+  - id: to-be
+    after: as-is
+elements:
+  - id: a
+    kind: service
+relations:
+  - id: r
+    from: a
+    to: a
+    since: to-be
+    until: as-is
+`,
+      },
+    ]);
+    const error = errors.find((e) => e.message.includes('does not come before'));
+    expect(error).toBeDefined();
+    expect(error?.path).toBe('relations[0].since');
+    expect(error?.line).toBe(13);
+  });
+
+  test('"zones" combining "replace" with "add" is reported at "elements[i].zones"', () => {
+    const { errors } = parseModel([
+      {
+        path: 'm.yaml',
+        text: 'version: 1\nzones:\n  - id: z\n    kind: k\nelements:\n  - id: a\n    kind: service\n    zones:\n      replace: [z]\n      add: [z]\n',
+      },
+    ]);
+    const error = errors.find((e) => e.message.includes('combines'));
+    expect(error).toBeDefined();
+    expect(error?.path).toBe('elements[0].zones');
+    expect(error?.line).toBe(8);
+  });
+});
+
+describe('parseModel: exact messages for no files and a repeated file path', () => {
+  test('parseModel([]) message names "no model" exactly, at line 1 with an empty path', () => {
+    const { errors } = parseModel([]);
+    expect(errors).toEqual([{ file: '', line: 1, path: '', message: 'no model: parseModel was given no files; a model needs at least one' }]);
+  });
+
+  test('every path repeated more than once is reported, not just the first', () => {
+    const files = [
+      { path: 'a.yaml', text: 'version: 1\nelements: []\n' },
+      { path: 'a.yaml', text: 'version: 1\nelements: []\n' },
+      { path: 'b.yaml', text: 'version: 1\nelements: []\n' },
+      { path: 'c.yaml', text: 'version: 1\nelements: []\n' },
+      { path: 'c.yaml', text: 'version: 1\nelements: []\n' },
+    ];
+    const { errors } = parseModel(files);
+    expect(errors.map((e) => e.message).sort()).toEqual([
+      'the file path "a.yaml" is given more than once',
+      'the file path "c.yaml" is given more than once',
+    ]);
+    for (const error of errors) {
+      expect(error.line).toBe(1);
+      expect(error.path).toBe('');
+    }
+  });
+
+  test('a path given exactly once, alongside one given twice, is not reported', () => {
+    const { errors } = parseModel([
+      { path: 'a.yaml', text: 'version: 1\nelements: []\n' },
+      { path: 'a.yaml', text: 'version: 1\nelements: []\n' },
+      { path: 'b.yaml', text: 'version: 1\nelements: []\n' },
+    ]);
+    expect(errors.length).toBe(1);
+    expect(errors[0]?.message).toContain('a.yaml');
+    expect(errors[0]?.message).not.toContain('b.yaml');
+  });
+});
+
+describe('a schema-failing file\'s declared ids are collected from every section, tolerantly', () => {
+  test('interfaces, relations, categories, zones, environments and states each contribute their declared ids too', () => {
+    const { errors } = parseModel([
+      {
+        path: 'a.yaml',
+        text: `version: 1
+elements:
+  - id: a
+    kind: service
+    owner: bob
+interfaces:
+  - id: iface1
+    provider: a
+    contract: http::GET::/x
+relations:
+  - id: rel1
+    from: a
+    to: a
+categories:
+  - id: cat1
+zones:
+  - id: zone1
+    kind: k
+environments:
+  - id: env1
+states:
+  - id: as-is
+`,
+      },
+      {
+        path: 'b.yaml',
+        text: `version: 1
+elements:
+  - id: b
+    kind: service
+interfaces:
+  - id: iface2
+    provider: b
+    contract: http::GET::/y
+relations:
+  - id: rel2
+    from: b
+    to: b
+    interface: iface1
+    refines: rel1
+    since: as-is
+categories:
+  - id: cat2
+zones:
+  - id: zone2
+    kind: k
+    add-does-not-exist: true
+environments:
+  - id: env2
+    zones:
+      b:
+        add: [zone1]
+`,
+      },
+    ]);
+
+    // b.yaml itself has a schema mistake ("add-does-not-exist" is not a
+    // field of a zone), so nothing about it compiles — but every reference
+    // it makes into a.yaml's declared ids (iface1, rel1, cat... not used
+    // here, zone1, as-is) must not be reported as missing.
+    expect(errors.some((e) => e.message.includes('unknown field "add-does-not-exist"'))).toBe(true);
+    expect(errors.some((e) => e.message.includes('does not exist'))).toBe(false);
+  });
+
+  test('a non-array section, and an array item that is not an object or has no string id, contribute nothing and do not throw', () => {
+    expect(() =>
+      parseModel([
+        { path: 'a.yaml', text: 'version: 1\nelements:\n  - id: a\n    kind: service\n    owner: bob\nzones: "not an array"\n' },
+        { path: 'b.yaml', text: 'version: 1\nelements:\n  - id: b\n    kind: service\n    parent: a\n' },
+      ]),
+    ).not.toThrow();
+  });
+});
+
+describe('checkZones: exact path and line for the general and per-environment exclude/absent errors', () => {
+  test('a general invalid exclude is reported at "elements[i].zones.exclude[j]"', () => {
+    const { errors } = parseModel([
+      { path: 'm.yaml', text: 'version: 1\nzones:\n  - id: z\n    kind: k\nelements:\n  - id: a\n    kind: service\n    zones:\n      exclude: [z]\n' },
+    ]);
+    const error = errors.find((e) => e.message.includes('would not be in') && !e.message.includes('environment'));
+    expect(error).toBeDefined();
+    expect(error?.path).toBe('elements[0].zones.exclude[0]');
+    expect(error?.line).toBe(9);
+  });
+
+  test('an environment changing zones of an absent element is reported at "environments[i].zones.<id>"', () => {
+    const { errors } = parseModel([
+      {
+        path: 'm.yaml',
+        text: `version: 1
+zones:
+  - id: z
+    kind: k
+environments:
+  - id: test
+  - id: production
+elements:
+  - id: a
+    kind: service
+    environments: [test]
+    zones:
+      add: [z]
+`,
+      },
+    ]);
+    const withEnvZones = `version: 1
+zones:
+  - id: z
+    kind: k
+environments:
+  - id: test
+  - id: production
+    zones:
+      a:
+        add: [z]
+elements:
+  - id: a
+    kind: service
+    environments: [test]
+`;
+    const { errors: errors2 } = parseModel([{ path: 'm.yaml', text: withEnvZones }]);
+    const error = errors2.find((e) => e.message.includes('does not exist in it'));
+    expect(error).toBeDefined();
+    expect(error?.path).toBe('environments[1].zones.a');
+  });
+
+  test('an environment\'s own invalid exclude is reported at "environments[i].zones.<id>.exclude[j]"', () => {
+    const { errors } = parseModel([
+      {
+        path: 'm.yaml',
+        text: `version: 1
+zones:
+  - id: z
+    kind: k
+environments:
+  - id: production
+    zones:
+      a:
+        exclude: [z]
+elements:
+  - id: a
+    kind: service
+`,
+      },
+    ]);
+    const error = errors.find((e) => e.message.includes('would not be in there'));
+    expect(error).toBeDefined();
+    expect(error?.path).toBe('environments[0].zones.a.exclude[0]');
+    expect(error?.line).toBe(9);
+  });
+});
+
+describe('environments.zones with several element keys: each key\'s add/exclude lines are its own', () => {
+  test('two different elements named in one environment\'s "zones" each get their own reference-error line', () => {
+    const { errors } = parseModel([
+      {
+        path: 'm.yaml',
+        text: `version: 1
+zones:
+  - id: pci
+    kind: regulatory
+elements:
+  - id: a
+    kind: service
+  - id: b
+    kind: service
+environments:
+  - id: production
+  - id: staging
+    zones:
+      a:
+        add: [nope-a]
+      b:
+        add: [nope-b]
+`,
+      },
+    ]);
+
+    const errorA = errors.find((e) => e.path === 'environments[1].zones.a.add[0]');
+    const errorB = errors.find((e) => e.path === 'environments[1].zones.b.add[0]');
+    expect(errorA).toBeDefined();
+    expect(errorB).toBeDefined();
+    expect(errorA?.line).not.toBe(errorB?.line);
+    expect(errorA?.message).toContain('nope-a');
+    expect(errorB?.message).toContain('nope-b');
+  });
+});
+
