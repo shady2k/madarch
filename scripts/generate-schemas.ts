@@ -17,8 +17,8 @@ export function renderSchema(schema: unknown): string {
 
 function main(): void {
   const root = fileURLToPath(new URL('..', import.meta.url));
-  writeFileSync(`${root}schema/madarch-model.schema.json`, renderSchema(ModelFile));
-  writeFileSync(`${root}schema/model.schema.json`, renderSchema(CompiledModel));
+  writeFileSync(`${root}schema/intended-model.schema.json`, renderSchema(ModelFile));
+  writeFileSync(`${root}schema/compiled-model.schema.json`, renderSchema(CompiledModel));
 }
 
 if (import.meta.main) {

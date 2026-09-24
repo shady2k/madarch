@@ -1,0 +1,18 @@
+version: 1
+environments:
+  - id: test
+  - id: production
+elements:
+  - id: p
+    kind: domain
+    environments: [test]
+  - id: c
+    kind: service
+    parent: p
+  - id: x
+    kind: service
+    environments: [production]
+relations:
+  - id: r
+    from: c
+    to: x

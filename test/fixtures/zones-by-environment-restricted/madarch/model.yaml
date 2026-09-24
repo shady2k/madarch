@@ -1,0 +1,14 @@
+version: 1
+zones:
+  - id: dmz
+    kind: network
+environments:
+  - id: test
+  - id: production
+    zones:
+      a:
+        add: [dmz]
+elements:
+  - id: a
+    kind: service
+    environments: [production]

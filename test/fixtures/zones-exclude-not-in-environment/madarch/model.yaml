@@ -1,0 +1,12 @@
+version: 1
+zones:
+  - id: pci
+    kind: regulatory
+environments:
+  - id: production
+    zones:
+      a:
+        exclude: [pci]
+elements:
+  - id: a
+    kind: service

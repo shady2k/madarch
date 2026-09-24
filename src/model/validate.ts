@@ -1,5 +1,7 @@
 import type { ModelError } from './errors.js';
-import { DEFAULT_STATE_ID, type Category, type Element, type Environment, type Interface, type Relation, type State, type Zone } from './schema.js';
+import { DEFAULT_STATE_ID, ID_PATTERN, type Category, type Element, type Environment, type Interface, type Relation, type State, type Zone } from './schema.js';
+import { computeElementPresence, computeRelationPresence, type Presence } from './presence.js';
+import { resolveGeneralZones, resolveZonesInEnvironment } from './zones.js';
 
 /**
  * An element together with where it was written, kept only for the
@@ -105,8 +107,6 @@ export interface StateAfterLike {
   after?: string;
 }
 
-const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-
 /**
  * Validates ids and references across the whole model, once every file has
  * parsed and matched the schema.
@@ -146,14 +146,16 @@ export function validateModel(positioned: PositionedModel): ModelError[] {
 
   errors.push(...checkContracts(positioned.interfaces));
   errors.push(...checkZoneChangeShape(positioned.elements));
+  errors.push(...checkEmptyEnvironmentsList(positioned.elements));
 
   const stateChainErrors = checkStateChain(positioned.states);
   errors.push(...stateChainErrors);
 
   // Safe to compute only once the chain itself is known to be one chain:
   // `computeStateOrder` assumes exactly that.
+  let stateOrder: string[] | undefined;
   if (stateChainErrors.length === 0) {
-    const stateOrder = computeStateOrder(positioned.states.map((s) => ({ id: s.state.id, after: s.state.after })));
+    stateOrder = computeStateOrder(positioned.states.map((s) => ({ id: s.state.id, after: s.state.after })));
     errors.push(
       ...checkSinceUntilOrder(
         positioned.elements.map((e) => ({ since: e.element.since, until: e.element.until, file: e.file, sinceLine: e.sinceLine, untilLine: e.untilLine, id: e.element.id })),
@@ -176,13 +178,89 @@ export function validateModel(positioned: PositionedModel): ModelError[] {
     const cycleErrors = [...checkParentCycles(positioned.elements), ...checkRefinementCycles(positioned.relations)];
     errors.push(...cycleErrors);
 
-    if (cycleErrors.length === 0) {
+    // Presence (which environments and states a thing exists in) and every
+    // check built on it need a cycle-free `parent`/`refines` *and* a known
+    // chain of states, so they wait for both.
+    if (cycleErrors.length === 0 && stateOrder !== undefined) {
       const ancestors = computeAncestors(positioned.elements.map((e) => ({ id: e.element.id, parent: e.element.parent })));
       errors.push(...checkRefinementEnds(positioned.relations, ancestors));
-      errors.push(...checkZones(positioned));
+
+      const elements = positioned.elements.map((e) => e.element);
+      const environmentIds = positioned.environments.map((e) => e.environment.id);
+
+      const elementPresence = computeElementPresence(elements, environmentIds, stateOrder);
+      errors.push(...checkEmptyPresence(positioned.elements, elementPresence, environmentIds.length));
+
+      const relationPresence = computeRelationPresence(
+        positioned.relations.map((r) => r.relation),
+        elementPresence,
+        stateOrder,
+      );
+      errors.push(...checkEmptyRelationPresence(positioned.relations, relationPresence, environmentIds.length));
+
+      errors.push(...checkZones(positioned, elements, elementPresence));
     }
   }
 
+  return errors;
+}
+
+/** Refuses `environments: []`: an element naming environments must name at least one. */
+function checkEmptyEnvironmentsList(positioned: PositionedElement[]): ModelError[] {
+  const errors: ModelError[] = [];
+  for (const entry of positioned) {
+    if (entry.element.environments !== undefined && entry.element.environments.length === 0) {
+      errors.push({
+        file: entry.file,
+        line: entry.line,
+        path: 'environments',
+        message: `element "${entry.element.id}" has an empty "environments"; name at least one, or omit the field to exist in every environment`,
+      });
+    }
+  }
+  return errors;
+}
+
+function presenceReasons(presence: Presence, environmentIdsCount: number): string[] {
+  const reasons: string[] = [];
+  if (environmentIdsCount > 0 && presence.environmentIds.length === 0) reasons.push('no environment it exists in');
+  if (presence.stateIds.length === 0) reasons.push('no state it exists in');
+  return reasons;
+}
+
+/** Refuses an element that, after inheriting and narrowing presence, exists nowhere. */
+function checkEmptyPresence(positioned: PositionedElement[], presenceById: ReadonlyMap<string, Presence>, environmentIdsCount: number): ModelError[] {
+  const errors: ModelError[] = [];
+  for (const entry of positioned) {
+    const presence = presenceById.get(entry.element.id);
+    if (!presence) continue;
+    const reasons = presenceReasons(presence, environmentIdsCount);
+    if (reasons.length === 0) continue;
+    errors.push({
+      file: entry.file,
+      line: entry.line,
+      path: 'id',
+      message: `element "${entry.element.id}" exists nowhere: it has ${reasons.join(' and ')}`,
+    });
+  }
+  return errors;
+}
+
+/** Refuses a relation that, after inheriting and narrowing presence, exists nowhere. */
+function checkEmptyRelationPresence(positioned: PositionedRelation[], presenceById: ReadonlyMap<string, Presence>, environmentIdsCount: number): ModelError[] {
+  const errors: ModelError[] = [];
+  for (const entry of positioned) {
+    const presence = presenceById.get(entry.relation.id);
+    if (!presence) continue;
+    const reasons = presenceReasons(presence, environmentIdsCount);
+    if (reasons.length === 0) continue;
+    errors.push({
+      file: entry.file,
+      line: entry.line,
+      path: 'id',
+      message: `relation "${entry.relation.id}" exists nowhere: it has ${reasons.join(' and ')}`,
+    });
+  }
   return errors;
 }
 
@@ -780,49 +858,60 @@ function checkZoneChangeShape(positioned: PositionedElement[]): ModelError[] {
 }
 
 /**
- * Computes each element's general (not per-environment) zones, inheriting
- * the parent's zones unless the element adds, excludes or replaces them,
- * and refuses excluding a zone the element would not be in. Safe to assume
- * `parent` is cycle-free and every zone id known: earlier checks already
- * ran and found nothing.
+ * Checks an element's zones (general and per environment) the same way in
+ * both places (B2): excluding a zone the element is not in — whether in
+ * general or, after inheritance, in one environment — is refused naming
+ * both, and an environment changing the zones of an element absent from it
+ * is refused too. Safe to assume `parent` is cycle-free and every zone,
+ * element and environment id known: earlier checks already ran and found
+ * nothing.
  */
-function checkZones(positioned: PositionedModel): ModelError[] {
+function checkZones(positioned: PositionedModel, elements: Element[], elementPresence: ReadonlyMap<string, Presence>): ModelError[] {
   const errors: ModelError[] = [];
-  const byId = new Map(positioned.elements.map((entry) => [entry.element.id, entry]));
-  const cache = new Map<string, string[]>();
+  const elementById = new Map(positioned.elements.map((entry) => [entry.element.id, entry]));
 
-  const resolve = (id: string): string[] => {
-    const cached = cache.get(id);
-    if (cached) return cached;
-    const entry = byId.get(id)!;
-    const parentZones = entry.element.parent !== undefined ? resolve(entry.element.parent) : [];
-    const change = entry.element.zones;
+  const general = resolveGeneralZones(elements);
+  for (const [elementId, indexes] of general.invalidExcludes) {
+    const entry = elementById.get(elementId)!;
+    for (const index of indexes) {
+      const zoneId = entry.element.zones?.exclude?.[index]!;
+      errors.push({
+        file: entry.file,
+        line: entry.zonesExcludeLines[index] ?? entry.zonesLine,
+        path: `zones.exclude[${index}]`,
+        message: `element "${elementId}" excludes zone "${zoneId}", which it would not be in`,
+      });
+    }
+  }
 
-    let zones: string[];
-    if (change?.replace !== undefined) {
-      zones = [...change.replace];
-    } else {
-      zones = [...parentZones];
-      for (const zoneId of change?.add ?? []) {
-        if (!zones.includes(zoneId)) zones.push(zoneId);
+  for (const environmentEntry of positioned.environments) {
+    const presentElementIds = new Set(
+      elements.filter((element) => elementPresence.get(element.id)?.environmentIds.includes(environmentEntry.environment.id)).map((e) => e.id),
+    );
+    const inEnvironment = resolveZonesInEnvironment(elements, environmentEntry.environment, presentElementIds);
+
+    for (const zoneLines of environmentEntry.zonesLines) {
+      if (inEnvironment.absentElementIds.has(zoneLines.elementId)) {
+        errors.push({
+          file: environmentEntry.file,
+          line: zoneLines.line,
+          path: `zones.${zoneLines.elementId}`,
+          message: `environment "${environmentEntry.environment.id}" changes the zones of element "${zoneLines.elementId}", which does not exist in it`,
+        });
       }
-      for (const [index, zoneId] of (change?.exclude ?? []).entries()) {
-        if (!zones.includes(zoneId)) {
-          errors.push({
-            file: entry.file,
-            line: entry.zonesExcludeLines[index] ?? entry.zonesLine,
-            path: `zones.exclude[${index}]`,
-            message: `element "${entry.element.id}" excludes zone "${zoneId}", which it would not be in`,
-          });
-        }
-        zones = zones.filter((existing) => existing !== zoneId);
+
+      const invalidExcludeIndexes = inEnvironment.invalidExcludes.get(zoneLines.elementId) ?? [];
+      for (const index of invalidExcludeIndexes) {
+        const zoneId = environmentEntry.environment.zones?.[zoneLines.elementId]?.exclude?.[index]!;
+        errors.push({
+          file: environmentEntry.file,
+          line: zoneLines.excludeLines[index] ?? zoneLines.line,
+          path: `zones.${zoneLines.elementId}.exclude[${index}]`,
+          message: `environment "${environmentEntry.environment.id}" excludes zone "${zoneId}" from element "${zoneLines.elementId}", which it would not be in there`,
+        });
       }
     }
+  }
 
-    cache.set(id, zones);
-    return zones;
-  };
-
-  for (const entry of positioned.elements) resolve(entry.element.id);
   return errors;
 }

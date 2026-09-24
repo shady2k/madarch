@@ -1,0 +1,8 @@
+version: 1
+states:
+  - id: z-first
+  - id: a-second
+    after: z-first
+elements:
+  - id: a
+    kind: service

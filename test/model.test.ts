@@ -22,7 +22,7 @@ describe('loadAndCompileModel', () => {
     expect(errors).toEqual([]);
     expect(model?.schemaVersion).toBe(1);
     expect(model?.elements).toEqual([
-      { id: 'shop', kind: 'domain', name: 'Shop', ancestors: [], zones: [], zonesByEnvironment: {}, environments: [], states: ['as-is'] },
+      { id: 'shop', kind: 'domain', name: 'Shop', ancestors: [], zones: [], zonesByEnvironment: {}, environments: ['*'], states: ['as-is'] },
     ]);
   });
 
@@ -223,10 +223,10 @@ describe('references', () => {
         ancestors: ['shop'],
         zones: [],
         zonesByEnvironment: {},
-        environments: [],
+        environments: ['*'],
         states: ['as-is'],
       },
-      { id: 'shop', kind: 'domain', name: 'Shop', ancestors: [], zones: [], zonesByEnvironment: {}, environments: [], states: ['as-is'] },
+      { id: 'shop', kind: 'domain', name: 'Shop', ancestors: [], zones: [], zonesByEnvironment: {}, environments: ['*'], states: ['as-is'] },
     ]);
   });
 });

@@ -24,6 +24,7 @@ export {
 export { loadModel, parseModel, type LoadResult, type ModelSourceFile } from './model/load.js';
 export {
   compileModel,
+  serializeCompiledModel,
   SCHEMA_VERSION,
   type CompiledModel,
   type CompiledElement,
@@ -37,6 +38,7 @@ export {
 export {
   CompiledModel as CompiledModelSchema,
   CompiledElement as CompiledElementSchema,
+  COMPILED_SCHEMA_VERSION,
 } from './model/compiled-schema.js';
 
 import type { CompiledModel } from './model/compile.js';

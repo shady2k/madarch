@@ -10,11 +10,11 @@ function schemaFile(name: string): string {
 }
 
 describe('schema freshness', () => {
-  test('the published model file schema matches the TypeBox source', () => {
-    expect(schemaFile('madarch-model.schema.json')).toBe(renderSchema(ModelFile));
+  test('the published intended-model schema matches the TypeBox source', () => {
+    expect(schemaFile('intended-model.schema.json')).toBe(renderSchema(ModelFile));
   });
 
-  test('the published compiled model schema matches the TypeBox source', () => {
-    expect(schemaFile('model.schema.json')).toBe(renderSchema(CompiledModel));
+  test('the published compiled-model schema matches the TypeBox source', () => {
+    expect(schemaFile('compiled-model.schema.json')).toBe(renderSchema(CompiledModel));
   });
 });

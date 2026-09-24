@@ -7,6 +7,17 @@ import { Type, type Static } from 'typebox';
  * `elements`, `interfaces`, `relations` and `categories`.
  */
 
+/**
+ * Letters, digits, dots, dashes and underscores, starting with a letter or
+ * digit (intended-model/ids). The one source both `validate.ts`'s id check
+ * and the published JSON Schemas' `id` fields use, so the two can never
+ * drift apart.
+ */
+export const ID_PATTERN_SOURCE = '^[A-Za-z0-9][A-Za-z0-9._-]*$';
+export const ID_PATTERN = new RegExp(ID_PATTERN_SOURCE);
+
+const Id = Type.String({ pattern: ID_PATTERN_SOURCE });
+
 export const ElementKind = Type.Union([
   Type.Literal('person'),
   Type.Literal('external'),
@@ -40,7 +51,7 @@ export type ZonesChange = Static<typeof ZonesChange>;
 
 export const Element = Type.Object(
   {
-    id: Type.String(),
+    id: Id,
     kind: ElementKind,
     name: Type.Optional(Type.String()),
     parent: Type.Optional(Type.String()),
@@ -57,7 +68,7 @@ export type Element = Static<typeof Element>;
 
 export const Zone = Type.Object(
   {
-    id: Type.String(),
+    id: Id,
     kind: Type.String({ minLength: 1 }),
     name: Type.Optional(Type.String()),
   },
@@ -67,7 +78,7 @@ export type Zone = Static<typeof Zone>;
 
 export const Category = Type.Object(
   {
-    id: Type.String(),
+    id: Id,
     name: Type.Optional(Type.String()),
   },
   { additionalProperties: false },
@@ -76,7 +87,7 @@ export type Category = Static<typeof Category>;
 
 export const Interface = Type.Object(
   {
-    id: Type.String(),
+    id: Id,
     provider: Type.String(),
     contract: Type.String(),
     evidence: Type.Optional(Type.Array(Evidence)),
@@ -108,7 +119,7 @@ export type Binding = Static<typeof Binding>;
 
 export const Relation = Type.Object(
   {
-    id: Type.String(),
+    id: Id,
     from: Type.String(),
     to: Type.String(),
     refines: Type.Optional(Type.String()),
@@ -134,7 +145,7 @@ export type EnvironmentZonesChange = Static<typeof EnvironmentZonesChange>;
 
 export const Environment = Type.Object(
   {
-    id: Type.String(),
+    id: Id,
     name: Type.Optional(Type.String()),
     bindings: Type.Optional(Type.Record(Type.String(), Type.String())),
     zones: Type.Optional(Type.Record(Type.String(), EnvironmentZonesChange)),
@@ -145,7 +156,7 @@ export type Environment = Static<typeof Environment>;
 
 export const State = Type.Object(
   {
-    id: Type.String(),
+    id: Id,
     name: Type.Optional(Type.String()),
     after: Type.Optional(Type.String()),
   },
@@ -164,7 +175,14 @@ export const ModelFile = Type.Object(
     environments: Type.Optional(Type.Array(Environment)),
     states: Type.Optional(Type.Array(State)),
   },
-  { additionalProperties: false },
+  {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $id: 'https://github.com/shady2k/madarch/schema/intended-model.schema.json',
+    title: 'Madarch intended model',
+    description:
+      "The shape of one madarch/*.yaml file: what people and agents declare the architecture to be. A repository's intended model is every such file in its madarch/ folder, read as one.",
+    additionalProperties: false,
+  },
 );
 export type ModelFile = Static<typeof ModelFile>;
 

@@ -1,0 +1,17 @@
+version: 1
+environments:
+  - id: test
+    bindings:
+      PAYMENTS_URL: http://payments-stub.test.internal
+  - id: production
+elements:
+  - id: a
+    kind: service
+  - id: b
+    kind: service
+relations:
+  - id: r
+    from: a
+    to: b
+    binding:
+      env: PAYMENTS_URL

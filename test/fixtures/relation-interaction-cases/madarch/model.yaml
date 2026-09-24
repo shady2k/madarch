@@ -1,0 +1,29 @@
+version: 1
+elements:
+  - id: a
+    kind: service
+  - id: b
+    kind: service
+interfaces:
+  - id: iface
+    provider: a
+    contract: data::x
+relations:
+  - id: interface-only
+    from: a
+    to: b
+    interface: iface
+  - id: transfers-only
+    from: a
+    to: b
+    transfers:
+      - direction: forward
+        confidentiality: internal
+        categories: []
+  - id: empty-transfers
+    from: a
+    to: b
+    transfers: []
+  - id: neither
+    from: a
+    to: b

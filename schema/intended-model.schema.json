@@ -19,7 +19,8 @@
         ],
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
           },
           "kind": {
             "anyOf": [
@@ -136,7 +137,8 @@
         ],
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
           },
           "provider": {
             "type": "string"
@@ -178,7 +180,8 @@
         ],
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
           },
           "from": {
             "type": "string"
@@ -278,7 +281,8 @@
         ],
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
           },
           "name": {
             "type": "string"
@@ -297,7 +301,8 @@
         ],
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
           },
           "kind": {
             "type": "string",
@@ -319,7 +324,8 @@
         ],
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
           },
           "name": {
             "type": "string"
@@ -368,7 +374,8 @@
         ],
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
           },
           "name": {
             "type": "string"
@@ -381,5 +388,9 @@
       }
     }
   },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/shady2k/madarch/schema/intended-model.schema.json",
+  "title": "Madarch intended model",
+  "description": "The shape of one madarch/*.yaml file: what people and agents declare the architecture to be. A repository's intended model is every such file in its madarch/ folder, read as one.",
   "additionalProperties": false
 }

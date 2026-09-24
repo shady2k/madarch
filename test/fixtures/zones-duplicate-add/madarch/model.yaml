@@ -1,0 +1,14 @@
+version: 1
+zones:
+  - id: internal
+    kind: network
+elements:
+  - id: parent
+    kind: domain
+    zones:
+      add: [internal]
+  - id: child
+    kind: service
+    parent: parent
+    zones:
+      add: [internal]

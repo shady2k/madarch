@@ -30,7 +30,8 @@
         ],
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
           },
           "kind": {
             "anyOf": [
@@ -81,7 +82,8 @@
             "type": "array",
             "items": {
               "type": "string"
-            }
+            },
+            "description": "Ancestor ids, ordered from the root down to the immediate parent."
           },
           "evidence": {
             "type": "array",
@@ -106,7 +108,8 @@
             "type": "array",
             "items": {
               "type": "string"
-            }
+            },
+            "description": "The element's zones, worked out after inheritance, add, exclude and replace."
           },
           "zonesByEnvironment": {
             "type": "object",
@@ -117,19 +120,22 @@
                   "type": "string"
                 }
               }
-            }
+            },
+            "description": "The element's zones in each environment it exists in (S3: only those), after that environment's own changes."
           },
           "environments": {
             "type": "array",
             "items": {
               "type": "string"
-            }
+            },
+            "description": "The environments it exists in, after inheriting and narrowing presence: the sorted ids of the environments it is in, or the single sentinel id \"*\" when the model declares no environments at all (in which case everything is trivially unrestricted). Never empty otherwise: a thing that exists in no environment is refused before compilation."
           },
           "states": {
             "type": "array",
             "items": {
               "type": "string"
-            }
+            },
+            "description": "The states it exists in, first to last in the chain; every state when unrestricted."
           }
         },
         "additionalProperties": false
@@ -146,7 +152,8 @@
         ],
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
           },
           "provider": {
             "type": "string"
@@ -191,7 +198,8 @@
         ],
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
           },
           "from": {
             "type": "string"
@@ -206,7 +214,8 @@
             "type": "string"
           },
           "interaction": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "True when the relation carries an interface or transfers: it is an interaction."
           },
           "binding": {
             "type": "object",
@@ -219,6 +228,15 @@
               }
             },
             "additionalProperties": false
+          },
+          "bindingByEnvironment": {
+            "type": "object",
+            "patternProperties": {
+              "^.*$": {
+                "type": "string"
+              }
+            },
+            "description": "The binding variable's value in each environment the relation exists in. An environment that does not define the variable has no key here (S6): a binding variable an environment leaves unset is recorded as absent, never as an error."
           },
           "transfers": {
             "type": "array",
@@ -279,13 +297,15 @@
             "type": "array",
             "items": {
               "type": "string"
-            }
+            },
+            "description": "The environments it exists in, after inheriting and narrowing presence: the sorted ids of the environments it is in, or the single sentinel id \"*\" when the model declares no environments at all (in which case everything is trivially unrestricted). Never empty otherwise: a thing that exists in no environment is refused before compilation. A relation exists where both its ends do."
           },
           "states": {
             "type": "array",
             "items": {
               "type": "string"
-            }
+            },
+            "description": "The states the relation exists in: its own since/until, intersected with both its ends."
           }
         },
         "additionalProperties": false
@@ -300,7 +320,8 @@
         ],
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
           },
           "name": {
             "type": "string"
@@ -319,7 +340,8 @@
         ],
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
           },
           "kind": {
             "type": "string"
@@ -340,7 +362,8 @@
         ],
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
           },
           "name": {
             "type": "string"
@@ -366,7 +389,8 @@
         ],
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
           },
           "name": {
             "type": "string"
@@ -379,5 +403,9 @@
       }
     }
   },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/shady2k/madarch/schema/compiled-model.schema.json",
+  "title": "Madarch compiled model",
+  "description": "model.json: a loaded intended model with its references resolved, its zones and presence worked out per environment and state, and its contract ids normalized — the one shape every frontend and agent reads.",
   "additionalProperties": false
 }

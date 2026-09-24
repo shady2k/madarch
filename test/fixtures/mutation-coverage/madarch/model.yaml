@@ -1,0 +1,69 @@
+version: 1
+
+states:
+  - id: as-is
+  - id: to-be
+    name: To be
+    after: as-is
+
+zones:
+  - id: zone-b
+    kind: network
+  - id: zone-a
+    kind: regulatory
+    name: Zone A
+
+categories:
+  - id: cat-b
+  - id: cat-a
+    name: Category A
+
+environments:
+  - id: env-b
+  - id: env-a
+    name: Env A
+    bindings:
+      URL: http://a.internal
+    zones:
+      elem-b:
+        add: [zone-b]
+
+elements:
+  - id: elem-b
+    kind: service
+  - id: elem-a
+    kind: service
+    name: Element A
+    technology: TypeScript
+    evidence:
+      - file: a.ts
+        line: 3
+    zones:
+      add: [zone-b]
+
+interfaces:
+  - id: iface-b
+    provider: elem-a
+    contract: data::b
+  - id: iface-a
+    provider: elem-a
+    contract: data::a
+    evidence:
+      - file: a.ts
+
+relations:
+  - id: rel-b
+    from: elem-a
+    to: elem-b
+  - id: rel-a
+    from: elem-a
+    to: elem-b
+    interface: iface-a
+    binding:
+      env: URL
+    transfers:
+      - direction: forward
+        confidentiality: internal
+        categories: [cat-a]
+    evidence:
+      - file: a.ts
