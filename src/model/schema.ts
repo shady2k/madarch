@@ -22,7 +22,7 @@ export type ElementKind = Static<typeof ElementKind>;
 export const Evidence = Type.Object(
   {
     file: Type.String(),
-    line: Type.Optional(Type.Number()),
+    line: Type.Optional(Type.Integer({ minimum: 1 })),
   },
   { additionalProperties: false },
 );
@@ -58,7 +58,7 @@ export type Element = Static<typeof Element>;
 export const Zone = Type.Object(
   {
     id: Type.String(),
-    kind: Type.String(),
+    kind: Type.String({ minLength: 1 }),
     name: Type.Optional(Type.String()),
   },
   { additionalProperties: false },
@@ -91,7 +91,7 @@ export type TransferDirection = Static<typeof TransferDirection>;
 export const Transfer = Type.Object(
   {
     direction: TransferDirection,
-    confidentiality: Type.String(),
+    confidentiality: Type.String({ minLength: 1 }),
     categories: Type.Array(Type.String()),
   },
   { additionalProperties: false },
@@ -182,3 +182,14 @@ export interface IntendedModel {
 
 /** The id of the implicit single state a model with no `states` has. */
 export const DEFAULT_STATE_ID = 'as-is';
+
+declare const validatedBrand: unique symbol;
+
+/**
+ * An `IntendedModel` that has passed `loadModel`/`parseModel`'s checks:
+ * strict YAML, the schema, ids, references, cycles and every other rule in
+ * `validate.ts`. Only the loader produces one, so `compileModel` — which
+ * assumes a model already free of those problems — cannot be called on
+ * anything else without an explicit, visible cast.
+ */
+export type ValidatedModel = IntendedModel & { readonly [validatedBrand]: true };

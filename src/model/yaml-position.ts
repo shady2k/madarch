@@ -13,7 +13,13 @@ export function jsonPointerToSegments(pointer: string): PathSegment[] {
   return pointer
     .split('/')
     .filter((segment) => segment.length > 0)
+    .map((segment) => decodeJsonPointerSegment(segment))
     .map((segment) => (/^\d+$/.test(segment) ? Number(segment) : segment));
+}
+
+/** Decodes a JSON-Pointer segment's `~1` (`/`) and `~0` (`~`) escapes, in that order (RFC 6901). */
+function decodeJsonPointerSegment(segment: string): string {
+  return segment.replace(/~1/g, '/').replace(/~0/g, '~');
 }
 
 /** Renders path segments as `elements[0].owner`, the form errors are reported in. */

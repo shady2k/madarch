@@ -1,0 +1,12 @@
+version: 1
+elements:
+  - id: a
+    kind: service
+relations:
+  - id: r
+    from: a
+    to: a
+    transfers:
+      - direction: forward
+        confidentiality: ""
+        categories: []

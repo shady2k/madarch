@@ -1,0 +1,5 @@
+version: 1
+elements:
+  - id: a
+    kind: service
+    <<: {technology: TypeScript}

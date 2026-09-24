@@ -93,17 +93,38 @@ export interface PositionedModel {
 /** An element's ancestor ids, ordered from the root down to its immediate parent. */
 export type AncestorsById = ReadonlyMap<string, readonly string[]>;
 
+/** The shape `computeAncestors` needs: just enough to walk `parent` links. */
+export interface ElementParentLike {
+  id: string;
+  parent?: string;
+}
+
+/** The shape `computeStateOrder` needs: just enough to walk the `after` chain. */
+export interface StateAfterLike {
+  id: string;
+  after?: string;
+}
+
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /**
  * Validates ids and references across the whole model, once every file has
- * parsed and matched the schema. Checks run in stages, each assuming the
- * previous one found nothing: a malformed or duplicate id makes reference
- * and cycle checks meaningless, so later stages are skipped once an earlier
- * one reports a problem.
+ * parsed and matched the schema.
+ *
+ * Checks that stand alone — id syntax, duplicate ids, contract parsing, the
+ * shape of a zone change, the chain of states, since/until order and every
+ * reference — never wait on one another: each runs regardless of what the
+ * others found, so every independent problem is reported together. Only
+ * checks that need a model already free of unknown references (cycles of
+ * `parent` or `refines`, a refinement's ends, zone inheritance) wait for
+ * `checkReferences` to have found nothing, since walking an unresolved
+ * reference would be meaningless; and the checks built on a cycle-free
+ * `parent` (zone inheritance) wait, in turn, for the cycle check.
  */
 export function validateModel(positioned: PositionedModel): ModelError[] {
-  const syntaxErrors = [
+  const errors: ModelError[] = [];
+
+  errors.push(
     ...checkIdSyntax(positioned.elements.map((e) => ({ id: e.element.id, file: e.file, line: e.line })), 'element'),
     ...checkIdSyntax(positioned.interfaces.map((i) => ({ id: i.iface.id, file: i.file, line: i.line })), 'interface'),
     ...checkIdSyntax(positioned.relations.map((r) => ({ id: r.relation.id, file: r.file, line: r.line })), 'relation'),
@@ -111,10 +132,9 @@ export function validateModel(positioned: PositionedModel): ModelError[] {
     ...checkIdSyntax(positioned.zones.map((z) => ({ id: z.zone.id, file: z.file, line: z.line })), 'zone'),
     ...checkIdSyntax(positioned.environments.map((e) => ({ id: e.environment.id, file: e.file, line: e.line })), 'environment'),
     ...checkIdSyntax(positioned.states.map((s) => ({ id: s.state.id, file: s.file, line: s.line })), 'state'),
-  ];
-  if (syntaxErrors.length > 0) return syntaxErrors;
+  );
 
-  const duplicateErrors = [
+  errors.push(
     ...checkDuplicateIds(positioned.elements.map((e) => ({ id: e.element.id, file: e.file, line: e.line })), 'element'),
     ...checkDuplicateIds(positioned.interfaces.map((i) => ({ id: i.iface.id, file: i.file, line: i.line })), 'interface'),
     ...checkDuplicateIds(positioned.relations.map((r) => ({ id: r.relation.id, file: r.file, line: r.line })), 'relation'),
@@ -122,47 +142,48 @@ export function validateModel(positioned: PositionedModel): ModelError[] {
     ...checkDuplicateIds(positioned.zones.map((z) => ({ id: z.zone.id, file: z.file, line: z.line })), 'zone'),
     ...checkDuplicateIds(positioned.environments.map((e) => ({ id: e.environment.id, file: e.file, line: e.line })), 'environment'),
     ...checkDuplicateIds(positioned.states.map((s) => ({ id: s.state.id, file: s.file, line: s.line })), 'state'),
-  ];
-  if (duplicateErrors.length > 0) return duplicateErrors;
+  );
 
-  const referenceErrors = checkReferences(positioned);
-  if (referenceErrors.length > 0) return referenceErrors;
-
-  const cycleErrors = [...checkParentCycles(positioned.elements), ...checkRefinementCycles(positioned.relations)];
-  if (cycleErrors.length > 0) return cycleErrors;
-
-  const ancestors = computeAncestors(positioned.elements);
-
-  const refinementEndErrors = checkRefinementEnds(positioned.relations, ancestors);
-  if (refinementEndErrors.length > 0) return refinementEndErrors;
-
-  const contractErrors = checkContracts(positioned.interfaces);
-  if (contractErrors.length > 0) return contractErrors;
-
-  const zoneShapeErrors = checkZoneChangeShape(positioned.elements);
-  if (zoneShapeErrors.length > 0) return zoneShapeErrors;
+  errors.push(...checkContracts(positioned.interfaces));
+  errors.push(...checkZoneChangeShape(positioned.elements));
 
   const stateChainErrors = checkStateChain(positioned.states);
-  if (stateChainErrors.length > 0) return stateChainErrors;
+  errors.push(...stateChainErrors);
 
-  const stateOrder = computeStateOrder(positioned.states);
+  // Safe to compute only once the chain itself is known to be one chain:
+  // `computeStateOrder` assumes exactly that.
+  if (stateChainErrors.length === 0) {
+    const stateOrder = computeStateOrder(positioned.states.map((s) => ({ id: s.state.id, after: s.state.after })));
+    errors.push(
+      ...checkSinceUntilOrder(
+        positioned.elements.map((e) => ({ since: e.element.since, until: e.element.until, file: e.file, sinceLine: e.sinceLine, untilLine: e.untilLine, id: e.element.id })),
+        stateOrder,
+      ),
+      ...checkSinceUntilOrder(
+        positioned.relations.map((r) => ({ since: r.relation.since, until: r.relation.until, file: r.file, sinceLine: r.sinceLine, untilLine: r.untilLine, id: r.relation.id })),
+        stateOrder,
+      ),
+    );
+  }
 
-  const sinceUntilErrors = [
-    ...checkSinceUntilOrder(
-      positioned.elements.map((e) => ({ since: e.element.since, until: e.element.until, file: e.file, sinceLine: e.sinceLine, untilLine: e.untilLine, id: e.element.id })),
-      stateOrder,
-    ),
-    ...checkSinceUntilOrder(
-      positioned.relations.map((r) => ({ since: r.relation.since, until: r.relation.until, file: r.file, sinceLine: r.sinceLine, untilLine: r.untilLine, id: r.relation.id })),
-      stateOrder,
-    ),
-  ];
-  if (sinceUntilErrors.length > 0) return sinceUntilErrors;
+  // Building the sets of known ids does not need ids to be well-formed or
+  // unique, so reference checking runs over every file that passed its
+  // schema regardless of what the checks above found.
+  const referenceErrors = checkReferences(positioned);
+  errors.push(...referenceErrors);
 
-  const zoneErrors = checkZones(positioned);
-  if (zoneErrors.length > 0) return zoneErrors;
+  if (referenceErrors.length === 0) {
+    const cycleErrors = [...checkParentCycles(positioned.elements), ...checkRefinementCycles(positioned.relations)];
+    errors.push(...cycleErrors);
 
-  return [];
+    if (cycleErrors.length === 0) {
+      const ancestors = computeAncestors(positioned.elements.map((e) => ({ id: e.element.id, parent: e.element.parent })));
+      errors.push(...checkRefinementEnds(positioned.relations, ancestors));
+      errors.push(...checkZones(positioned));
+    }
+  }
+
+  return errors;
 }
 
 interface IdLike {
@@ -504,21 +525,21 @@ function checkRefinementCycles(positioned: PositionedRelation[]): ModelError[] {
  * immediate parent. Safe to assume `parent` is cycle-free: cycle checking
  * already ran and found nothing.
  */
-export function computeAncestors(positioned: PositionedElement[]): AncestorsById {
-  const byId = new Map(positioned.map((entry) => [entry.element.id, entry]));
+export function computeAncestors(elements: ElementParentLike[]): AncestorsById {
+  const byId = new Map(elements.map((element) => [element.id, element]));
   const cache = new Map<string, readonly string[]>();
 
   const ancestorsOf = (id: string): readonly string[] => {
     const cached = cache.get(id);
     if (cached) return cached;
-    const entry = byId.get(id);
-    const parentId = entry?.element.parent;
+    const element = byId.get(id);
+    const parentId = element?.parent;
     const result = parentId === undefined ? [] : [...ancestorsOf(parentId), parentId];
     cache.set(id, result);
     return result;
   };
 
-  for (const entry of positioned) ancestorsOf(entry.element.id);
+  for (const element of elements) ancestorsOf(element.id);
   return cache;
 }
 
@@ -562,6 +583,7 @@ function checkRefinementEnds(positioned: PositionedRelation[], ancestors: Ancest
 }
 
 const CONTRACT_KINDS = new Set(['http', 'grpc', 'topic', 'queue', 'data', 'rpc']);
+const HTTP_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'TRACE', 'CONNECT']);
 
 /** Parses and normalizes a contract id, or returns `undefined` if it does not parse. */
 export function normalizeContract(contract: string): string | undefined {
@@ -573,6 +595,8 @@ export function normalizeContract(contract: string): string | undefined {
     if (parts.length !== 3) return undefined;
     const [, method, path] = parts;
     if (!method || !path) return undefined;
+    if (!HTTP_METHODS.has(method.toUpperCase())) return undefined;
+    if (!path.startsWith('/')) return undefined;
     return `http::${method.toUpperCase()}::${path.replace(/\{[^{}]*\}/g, '{}')}`;
   }
 
@@ -684,21 +708,21 @@ function checkStateChain(positioned: PositionedState[]): ModelError[] {
  * chain is valid: `checkStateChain` already ran and found nothing. A model
  * with no `states` has the single implicit state `as-is`.
  */
-export function computeStateOrder(positioned: PositionedState[]): string[] {
-  if (positioned.length === 0) return [DEFAULT_STATE_ID];
+export function computeStateOrder(states: StateAfterLike[]): string[] {
+  if (states.length === 0) return [DEFAULT_STATE_ID];
 
-  const byAfter = new Map<string, PositionedState>();
-  let root: PositionedState | undefined;
-  for (const entry of positioned) {
-    if (entry.state.after === undefined) root = entry;
-    else byAfter.set(entry.state.after, entry);
+  const byAfter = new Map<string, StateAfterLike>();
+  let root: StateAfterLike | undefined;
+  for (const state of states) {
+    if (state.after === undefined) root = state;
+    else byAfter.set(state.after, state);
   }
 
   const order: string[] = [];
   let current = root;
   while (current) {
-    order.push(current.state.id);
-    current = byAfter.get(current.state.id);
+    order.push(current.id);
+    current = byAfter.get(current.id);
   }
   return order;
 }

@@ -1,12 +1,6 @@
-import type { Category, Element, Environment, Interface, IntendedModel, Relation, Zone, ZonesChange } from './schema.js';
+import type { Category, Element, Environment, Interface, IntendedModel, Relation, ValidatedModel, Zone, ZonesChange } from './schema.js';
 import { DEFAULT_STATE_ID } from './schema.js';
-import {
-  computeAncestors,
-  computeStateOrder,
-  normalizeContract,
-  type PositionedElement,
-  type PositionedState,
-} from './validate.js';
+import { computeAncestors, computeStateOrder, normalizeContract } from './validate.js';
 import type {
   CompiledCategory,
   CompiledElement,
@@ -31,21 +25,14 @@ export type {
   CompiledZone,
 };
 
-export function compileModel(model: IntendedModel): CompiledModel {
+export function compileModel(model: ValidatedModel): CompiledModel {
   // Sorted by id so the compiled output never depends on which file (or
   // which order of files) a thing was written in: the same model split
   // across files compiles to identical bytes.
   const sortedElements = [...model.elements].sort((a, b) => a.id.localeCompare(b.id));
-  const ancestors = computeAncestors(
-    sortedElements.map(
-      (element): PositionedElement =>
-        ({ element, file: '', line: 0, parentLine: 0 }) as unknown as PositionedElement,
-    ),
-  );
+  const ancestors = computeAncestors(sortedElements);
 
-  const stateOrder = computeStateOrder(
-    model.states.map((state): PositionedState => ({ state, file: '', line: 0, afterLine: 0 })),
-  );
+  const stateOrder = computeStateOrder(model.states);
   const environmentIds = [...model.environments.map((e) => e.id)].sort((a, b) => a.localeCompare(b));
 
   const generalZones = buildGeneralZones(model);

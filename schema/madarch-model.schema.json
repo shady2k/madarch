@@ -78,7 +78,8 @@
                   "type": "string"
                 },
                 "line": {
-                  "type": "number"
+                  "type": "integer",
+                  "minimum": 1
                 }
               },
               "additionalProperties": false
@@ -155,7 +156,8 @@
                   "type": "string"
                 },
                 "line": {
-                  "type": "number"
+                  "type": "integer",
+                  "minimum": 1
                 }
               },
               "additionalProperties": false
@@ -225,7 +227,8 @@
                   ]
                 },
                 "confidentiality": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 1
                 },
                 "categories": {
                   "type": "array",
@@ -249,7 +252,8 @@
                   "type": "string"
                 },
                 "line": {
-                  "type": "number"
+                  "type": "integer",
+                  "minimum": 1
                 }
               },
               "additionalProperties": false
@@ -296,7 +300,8 @@
             "type": "string"
           },
           "kind": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "name": {
             "type": "string"

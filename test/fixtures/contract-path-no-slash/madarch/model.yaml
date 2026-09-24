@@ -1,0 +1,8 @@
+version: 1
+elements:
+  - id: a
+    kind: service
+interfaces:
+  - id: i
+    provider: a
+    contract: http::GET::orders

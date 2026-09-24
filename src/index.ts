@@ -19,8 +19,9 @@ export {
   State,
   DEFAULT_STATE_ID,
   type IntendedModel,
+  type ValidatedModel,
 } from './model/schema.js';
-export { loadModel, type LoadResult } from './model/load.js';
+export { loadModel, parseModel, type LoadResult, type ModelSourceFile } from './model/load.js';
 export {
   compileModel,
   SCHEMA_VERSION,

@@ -1,0 +1,7 @@
+version: 1
+elements:
+  - id: a
+    kind: service
+    evidence:
+      - file: services/a/README.md
+        line: 0
