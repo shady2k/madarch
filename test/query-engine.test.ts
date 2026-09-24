@@ -212,6 +212,32 @@ describe('the LadybugDB query engine', () => {
     engine.close();
   });
 
+  test("as-of (B3): two sources' same-named state disagreeing on what it comes after is a real disagreement, not folded away by the same dedupe that agreeing rows use", () => {
+    // Both declare a shared root "as-is" (agreeing, folded into one), but
+    // then diverge: x's "to-be" comes after an x-only "mid" state, y's own
+    // "to-be" comes directly after the shared root — two different
+    // declarations of the very same id "to-be", which must stay two
+    // distinct rows (their own `after` tells them apart), not collapse
+    // into whichever happened to be seen first by a dedupe keyed on `id`
+    // alone.
+    const engine = createLadybugEngine();
+    engine.rebuild([
+      row('element', element('a', 'service', [])),
+      row('state', JSON.stringify({ id: 'as-is' }), { source: 'x' }),
+      row('state', JSON.stringify({ id: 'mid', after: 'as-is' }), { source: 'x' }),
+      row('state', JSON.stringify({ id: 'to-be', after: 'mid' }), { source: 'x' }),
+      row('state', JSON.stringify({ id: 'as-is' }), { source: 'y' }),
+      row('state', JSON.stringify({ id: 'to-be', after: 'as-is' }), { source: 'y' }),
+    ]);
+
+    const result = engine.children('a', { valid: DAY(2), known: DAY(2) });
+    expect(result.error).toMatchObject({ message: expect.stringContaining('disagree') });
+
+    // Naming the state explicitly still works either way.
+    expect(engine.children('a', { valid: DAY(2), known: DAY(2), state: 'as-is' }).error).toBeUndefined();
+    engine.close();
+  });
+
   test('dependencies: the elements an element depends on, transitively, with the chain of relation ids joining each', () => {
     const engine = createLadybugEngine();
     engine.rebuild([
@@ -246,6 +272,24 @@ describe('the LadybugDB query engine', () => {
 
     expect(engine.dependencies('ghost', {}, at).error).toMatchObject({ id: 'ghost', time: DAY(2) });
     expect(engine.dependencies('a', {}, at).error).toBeUndefined();
+
+    engine.close();
+  });
+
+  test('view/dependents/dependencies: a query with no explicit state is an error when the state chains disagree, the same refusal children() gives', () => {
+    const engine = createLadybugEngine();
+    engine.rebuild([
+      row('element', element('a', 'service', [])),
+      row('state', JSON.stringify({ id: 'as-is' }), { source: 'x' }),
+      row('state', JSON.stringify({ id: 'to-be', after: 'as-is' }), { source: 'x' }),
+      row('state', JSON.stringify({ id: 'as-is' }), { source: 'y' }),
+      row('state', JSON.stringify({ id: 'other', after: 'as-is' }), { source: 'y' }),
+    ]);
+    const at = { valid: DAY(2), known: DAY(2) };
+
+    expect(engine.view({ depth: 0 }, at).error).toMatchObject({ message: expect.stringContaining('disagree') });
+    expect(engine.dependents('a', {}, at).error).toMatchObject({ message: expect.stringContaining('disagree') });
+    expect(engine.dependencies('a', {}, at).error).toMatchObject({ message: expect.stringContaining('disagree') });
 
     engine.close();
   });
@@ -331,6 +375,24 @@ describe('the LadybugDB query engine', () => {
     const result = engine.children('a', { valid: DAY(2), known: DAY(2), state: "bad state; DROP" });
     expect(result.error).toMatchObject({ id: 'bad state; DROP' });
     expect(result.elements).toBeUndefined();
+
+    engine.close();
+  });
+
+  test('view (B1): an element id outside the model\'s own id pattern reaching the engine (bypassing the schema, e.g. through rebuild() directly) is a refusal from view(), never a thrown exception', () => {
+    // The model schema never lets an id like this through in the ordinary
+    // path (loadModel/compileModel), but `rebuild()` takes raw
+    // `AssertionRecord`s directly — `literalIdList`'s own SAFE_ID guard,
+    // and `safely`'s catch around it, are what stand between a row that
+    // reached the engine some other way and a query building unsafe Cypher
+    // text around it.
+    const engine = createLadybugEngine();
+    engine.rebuild([row('element', element("bad'id; DROP", 'service', []))]);
+
+    const result = engine.view({ depth: 0 }, { valid: DAY(2), known: DAY(2), state: 'as-is' });
+    expect(result.error).toBeDefined();
+    expect(result.elements).toBeUndefined();
+    expect(result.relations).toBeUndefined();
 
     engine.close();
   });
@@ -451,6 +513,43 @@ describe('the LadybugDB query engine', () => {
     engine.close();
   });
 
+  test('dependencies (transitive, B2): two equally-short chains to the same element pick the lexicographically least one, deterministically; multiple elements come back sorted by id', () => {
+    const engine = createLadybugEngine();
+    engine.rebuild([
+      row('element', element('a', 'service', [])),
+      row('element', element('b', 'service', [])),
+      row('element', element('c', 'service', [])),
+      row('element', element('d', 'service', [])),
+      row('element', element('z', 'service', [])),
+      // Two equally-short (2-hop) chains from a to d: via b ("a-to-b" then
+      // "b-to-d") and via c ("a-to-c" then "c-to-d"). "a-to-b" sorts before
+      // "a-to-c" by code point, so the chain through b must be the one
+      // chosen — not whichever this LadybugDB build's own ALL SHORTEST
+      // happens to enumerate first.
+      row('relation', relation('a-to-b', 'a', 'b')),
+      row('relation', relation('a-to-c', 'a', 'c')),
+      row('relation', relation('b-to-d', 'b', 'd')),
+      row('relation', relation('c-to-d', 'c', 'd')),
+      // z is one hop away, d is two — reached in whatever order this
+      // build's own traversal happens to enumerate them, so the answer's
+      // own elements only ever come back sorted by id if `dependencyAnswer`
+      // actually sorts them, not merely by coincidence of hop count.
+      row('relation', relation('a-to-z', 'a', 'z')),
+    ]);
+    const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
+
+    const result = engine.dependencies('a', { transitive: true }, at);
+    expect(result.error).toBeUndefined();
+    expect(result.elements).toEqual([
+      { id: 'b', chain: ['a-to-b'] },
+      { id: 'c', chain: ['a-to-c'] },
+      { id: 'd', chain: ['a-to-b', 'b-to-d'] },
+      { id: 'z', chain: ['a-to-z'] },
+    ]);
+
+    engine.close();
+  });
+
   describe('dependencies (transitive, B2): the review\'s e7 shapes answer without exception or crash', () => {
     // (elements, relations, maxHops) — the exact shapes the review's e7.ts
     // experiment used to blow the buffer pool before B2's fix, a plain
@@ -560,6 +659,43 @@ describe('the LadybugDB query engine', () => {
     engine.close();
   });
 
+  test("update (B3/M1): closing a 'state' change routes to removeState, not removeRelation, and matches only the exact source/id/validFrom row it names", () => {
+    const engine = createLadybugEngine();
+    engine.rebuild([row('element', element('a', 'service', [], { states: ['root-x', 'root-y'] }), { recordedFrom: 0 })]);
+    const at = { valid: DAY(2), known: DAY(2) };
+
+    // Two independent roots (a genuine disagreement, source y's own):
+    // known=100 sees only x's root-x; known=200 also sees y's root-y —
+    // which must then refuse, naming the disagreement.
+    engine.update(
+      [
+        { source: 'x', kind: 'state', id: 'root-x', content: JSON.stringify({ id: 'root-x' }), validFrom: DAY(1), validTo: null, recordedFrom: 100, recordedTo: null },
+        { source: 'y', kind: 'state', id: 'root-y', content: JSON.stringify({ id: 'root-y' }), validFrom: DAY(1), validTo: null, recordedFrom: 200, recordedTo: null },
+      ],
+      [],
+    );
+    expect(engine.children('a', { ...at, known: 150 }).error).toBeUndefined();
+    expect(engine.children('a', { ...at, known: 250 }).error).toMatchObject({ message: expect.stringContaining('disagree') });
+
+    // Closing root-y (a `kind: 'state'` change, by source, id and
+    // validFrom) must reach `removeState`, not silently no-op through
+    // `removeRelation` (there is no relation named "root-y" to begin
+    // with) — and must match root-y's row exactly, not root-x's, which
+    // shares neither source nor id nor validFrom.
+    engine.update([], [{ source: 'y', kind: 'state', id: 'root-y', content: JSON.stringify({ id: 'root-y' }), validFrom: DAY(1), validTo: null, recordedFrom: 200, recordedTo: 300 }]);
+
+    // Before the close (known=250, between root-y's open and close): still disagrees.
+    expect(engine.children('a', { ...at, known: 250 }).error).toMatchObject({ message: expect.stringContaining('disagree') });
+    // At and after the close (known=300+): root-y is gone, root-x alone resolves.
+    const afterClose = engine.children('a', { ...at, known: 300 });
+    expect(afterClose.error).toBeUndefined();
+    // root-x itself must still be there — a wrong match (e.g. matching by
+    // id or validFrom alone) could have closed root-x's own row instead.
+    expect(engine.children('a', { ...at, known: 150 }).error).toBeUndefined();
+
+    engine.close();
+  });
+
   test('as-of: with no `at` at all, a query still answers rather than throwing (both times and the state default to now/"as-is")', () => {
     const engine = createLadybugEngine();
     engine.rebuild([row('element', element('a', 'service', []), { validFrom: DAY(1) })]);
@@ -649,6 +785,42 @@ describe('the LadybugDB query engine', () => {
       const engine = createLadybugEngine();
       engine.rebuild(statesAt('recordedTo', DAY(10)));
       expect(engine.children('a', { valid: DAY(20), known: DAY(10) }).error).toMatchObject({ message: expect.stringContaining('disagree') });
+      engine.close();
+    });
+
+    // The four tests above alone would not catch a bound whose comparison
+    // was replaced outright (not merely off by one) with an
+    // always-true/always-false literal: at exactly the edge, `validFrom <=
+    // valid` and a literal `true` agree, and so do `validTo > valid` and a
+    // literal `false` when `validTo` is unset in every other fixture this
+    // file ever built. Each pair below probes the opposite side of the
+    // same edge, where a real comparison and its always-true/false
+    // replacement disagree.
+    test('validFrom <= valid: "as-is" is not yet visible strictly before its own validFrom', () => {
+      const engine = createLadybugEngine();
+      engine.rebuild(statesAt('validFrom', DAY(10)));
+      expect(engine.children('a', { valid: DAY(5), known: DAY(20) }).error).toMatchObject({ message: expect.stringContaining('disagree') });
+      engine.close();
+    });
+
+    test('validTo > valid: "as-is" is still visible strictly before its own validTo (not merely at it)', () => {
+      const engine = createLadybugEngine();
+      engine.rebuild(statesAt('validTo', DAY(20)));
+      expect(engine.children('a', { valid: DAY(15), known: DAY(30) }).error).toBeUndefined();
+      engine.close();
+    });
+
+    test('recordedFrom <= known: "as-is" is not yet known strictly before its own recordedFrom', () => {
+      const engine = createLadybugEngine();
+      engine.rebuild(statesAt('recordedFrom', DAY(10)));
+      expect(engine.children('a', { valid: DAY(20), known: DAY(5) }).error).toMatchObject({ message: expect.stringContaining('disagree') });
+      engine.close();
+    });
+
+    test('recordedTo > known: "as-is" is still known strictly before its own recordedTo (not merely at it)', () => {
+      const engine = createLadybugEngine();
+      engine.rebuild(statesAt('recordedTo', DAY(20)));
+      expect(engine.children('a', { valid: DAY(30), known: DAY(15) }).error).toBeUndefined();
       engine.close();
     });
   });
