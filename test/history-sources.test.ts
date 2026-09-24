@@ -25,6 +25,12 @@ function history(clock: Clock): HistoryStore {
   return createSqliteHistory({ clock });
 }
 
+function readModel(h: HistoryStore, input?: Parameters<HistoryStore['read']>[0]): CompiledModel {
+  const result = h.read(input);
+  expect(result.errors).toEqual([]);
+  return result.model!;
+}
+
 const DAY = (day: number) => Date.UTC(2026, 8, day); // September 2026
 
 function element(id: string, extra: Partial<CompiledElement> = {}): CompiledElement {
@@ -68,7 +74,7 @@ describe('sources: a graph is the union of its sources', () => {
     });
     h.store({ source: 'payments', commit: 'p1', committedAt: DAY(1), model: model([element('payments-api')]) });
 
-    const graph = h.read({ valid: DAY(2), known: DAY(2) });
+    const graph = readModel(h, { valid: DAY(2), known: DAY(2) });
     expect(graph.elements.map((e) => e.id).sort()).toEqual(['checkout-web', 'payments-api']);
     expect(graph.relations.map((r) => r.id)).toEqual(['checkout-charges-card']);
     expect(graph.relations[0]).toMatchObject({ from: 'checkout-web', to: 'payments-api' });
@@ -79,15 +85,15 @@ describe('sources: a graph is the union of its sources', () => {
     const h = history(clock);
     h.store({ source: 'payments', commit: 'p1', committedAt: DAY(1), model: model([element('payments-api')]) });
 
-    const before = h.read({ valid: DAY(2), known: DAY(2) });
+    const before = readModel(h, { valid: DAY(2), known: DAY(2) });
 
     const result = h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([element('payments-api')]) });
 
     expect(result.errors).toEqual([{ message: expect.any(String), id: 'payments-api', source: 'payments' }]);
     // The history is unchanged: shop's store did not go through at all.
-    const after = h.read({ valid: DAY(2), known: DAY(2) });
+    const after = readModel(h, { valid: DAY(2), known: DAY(2) });
     expect(after).toEqual(before);
-    expect(h.read({ source: 'shop', valid: DAY(2), known: DAY(2) }).elements).toEqual([]);
+    expect(readModel(h, { source: 'shop', valid: DAY(2), known: DAY(2) }).elements).toEqual([]);
   });
 
   test('two sources declaring different ids both store successfully (the paired normal case)', () => {
@@ -109,7 +115,7 @@ describe('sources: a graph is the union of its sources', () => {
     const result = h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([element('checkout-web')]) });
     expect(result.errors).toEqual([]);
 
-    const graph = h.read({ valid: DAY(2), known: DAY(2) });
+    const graph = readModel(h, { valid: DAY(2), known: DAY(2) });
     expect(graph.states.map((s) => s.id)).toEqual(['as-is']);
   });
 
@@ -182,26 +188,27 @@ describe('sources: a graph is the union of its sources', () => {
     expect(result.errors).toEqual([{ message: expect.any(String), id: 'payments-api', source: 'payments' }]);
   });
 
-  test('two sources sharing a zone id whose content disagrees still read back as one, the code-point-smallest content (order A)', () => {
+  test('two sources sharing a zone id whose content disagrees is refused, naming the id, the field and the other source', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
     h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: { ...model([]), zones: [zone('pci', 'compliance')] } });
-    h.store({ source: 'b', commit: 'c1', committedAt: DAY(1), model: { ...model([]), zones: [zone('pci', 'regulatory')] } });
 
-    // `"compliance"` sorts before `"regulatory"` by code point.
-    const graph = h.read({ valid: DAY(2), known: DAY(2) });
-    expect(graph.zones).toEqual([{ id: 'pci', kind: 'compliance' }]);
+    const before = readModel(h, { valid: DAY(2), known: DAY(2) });
+    const result = h.store({ source: 'b', commit: 'c1', committedAt: DAY(1), model: { ...model([]), zones: [zone('pci', 'regulatory')] } });
+
+    expect(result.errors).toEqual([{ message: expect.any(String), id: 'pci', field: 'zone', source: 'a' }]);
+    expect(readModel(h, { valid: DAY(2), known: DAY(2) })).toEqual(before);
+    expect(readModel(h, { source: 'b', valid: DAY(2), known: DAY(2) }).zones).toEqual([]);
   });
 
-  test('two sources sharing a zone id whose content disagrees still read back as one, the code-point-smallest content (order B)', () => {
+  test('two sources sharing a zone id with the identical definition store without a clash (the paired normal case)', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
-    // Stored in the opposite order from the test above: the winner must
-    // still be the smaller content, not whichever was stored first or last.
-    h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: { ...model([]), zones: [zone('pci', 'regulatory')] } });
-    h.store({ source: 'b', commit: 'c1', committedAt: DAY(1), model: { ...model([]), zones: [zone('pci', 'compliance')] } });
+    h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: { ...model([]), zones: [zone('pci', 'compliance')] } });
+    const result = h.store({ source: 'b', commit: 'c1', committedAt: DAY(1), model: { ...model([]), zones: [zone('pci', 'compliance')] } });
 
-    const graph = h.read({ valid: DAY(2), known: DAY(2) });
+    expect(result.errors).toEqual([]);
+    const graph = readModel(h, { valid: DAY(2), known: DAY(2) });
     expect(graph.zones).toEqual([{ id: 'pci', kind: 'compliance' }]);
   });
 });

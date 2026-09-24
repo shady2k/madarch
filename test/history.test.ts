@@ -33,6 +33,12 @@ function history(clock: Clock): HistoryStore {
   return createSqliteHistory({ clock });
 }
 
+function readModel(h: HistoryStore, input?: Parameters<HistoryStore['read']>[0]): CompiledModel {
+  const result = h.read(input);
+  expect(result.errors).toEqual([]);
+  return result.model!;
+}
+
 const DAY = (day: number) => Date.UTC(2026, 8, day); // September 2026
 
 function element(id: string, extra: Partial<CompiledElement> = {}): CompiledElement {
@@ -65,7 +71,7 @@ describe('store-version: storing a source at a commit', () => {
     const result = h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: shopAtC1 });
     expect(result.errors).toEqual([]);
 
-    const read = h.read({ source: 'shop', valid: DAY(1), known: DAY(2) });
+    const read = readModel(h, { source: 'shop', valid: DAY(1), known: DAY(2) });
     expect(read.elements.map((e) => e.id)).toEqual(['a', 'b', 'c']);
   });
 
@@ -74,7 +80,7 @@ describe('store-version: storing a source at a commit', () => {
     const h = history(clock);
     h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
 
-    expect(h.read({ source: 'shop', valid: DAY(1) - 1, known: DAY(2) }).elements).toEqual([]);
+    expect(readModel(h, { source: 'shop', valid: DAY(1) - 1, known: DAY(2) }).elements).toEqual([]);
   });
 });
 
@@ -96,10 +102,10 @@ describe('replace: a new version replaces what the source asserted', () => {
     const h = history(clock);
     storeTwoVersions(clock, h);
 
-    const before = h.read({ source: 'shop', valid: DAY(5), known: DAY(12) });
+    const before = readModel(h, { source: 'shop', valid: DAY(5), known: DAY(12) });
     expect(before.elements.map((e) => e.id).sort()).toEqual(['checkout-web', 'legacy-billing']);
 
-    const after = h.read({ source: 'shop', valid: DAY(12), known: DAY(12) });
+    const after = readModel(h, { source: 'shop', valid: DAY(12), known: DAY(12) });
     expect(after.elements.map((e) => e.id)).toEqual(['checkout-web']);
   });
 
@@ -111,7 +117,7 @@ describe('replace: a new version replaces what the source asserted', () => {
     // As of 12 September (valid), the history knew, on 3 September, only
     // what c1 said — c2 (which removes legacy-billing) was not recorded
     // until 11 September.
-    const asKnownEarly = h.read({ source: 'shop', valid: DAY(12), known: DAY(3) });
+    const asKnownEarly = readModel(h, { source: 'shop', valid: DAY(12), known: DAY(3) });
     expect(asKnownEarly.elements.map((e) => e.id).sort()).toEqual(['checkout-web', 'legacy-billing']);
   });
 
@@ -122,8 +128,8 @@ describe('replace: a new version replaces what the source asserted', () => {
 
     // checkout-web survives both versions: reading it as of any time from
     // c1's onward, known now, finds the same one assertion of it.
-    const atC1 = h.read({ source: 'shop', valid: DAY(1), known: DAY(20) }).elements.find((e) => e.id === 'checkout-web');
-    const atC2 = h.read({ source: 'shop', valid: DAY(10), known: DAY(20) }).elements.find((e) => e.id === 'checkout-web');
+    const atC1 = readModel(h, { source: 'shop', valid: DAY(1), known: DAY(20) }).elements.find((e) => e.id === 'checkout-web');
+    const atC2 = readModel(h, { source: 'shop', valid: DAY(10), known: DAY(20) }).elements.find((e) => e.id === 'checkout-web');
     expect(atC1).toEqual(atC2);
   });
 
@@ -134,10 +140,10 @@ describe('replace: a new version replaces what the source asserted', () => {
     clock.set(DAY(11));
     h.store({ source: 'shop', commit: 'c2', committedAt: DAY(10), model: model([element('checkout-web', { technology: 'ZZZ' })]) });
 
-    const before = h.read({ source: 'shop', valid: DAY(5), known: DAY(20) }).elements.find((e) => e.id === 'checkout-web');
+    const before = readModel(h, { source: 'shop', valid: DAY(5), known: DAY(20) }).elements.find((e) => e.id === 'checkout-web');
     expect(before?.technology).toBe('AAA');
 
-    const after = h.read({ source: 'shop', valid: DAY(12), known: DAY(20) }).elements.find((e) => e.id === 'checkout-web');
+    const after = readModel(h, { source: 'shop', valid: DAY(12), known: DAY(20) }).elements.find((e) => e.id === 'checkout-web');
     expect(after?.technology).toBe('ZZZ');
   });
 
@@ -153,7 +159,7 @@ describe('replace: a new version replaces what the source asserted', () => {
     clock.set(DAY(21));
     h.store({ source: 'shop', commit: 'c3', committedAt: DAY(20), model: model([element('checkout-web')]) });
 
-    const after = h.read({ source: 'shop', valid: DAY(25), known: DAY(21) });
+    const after = readModel(h, { source: 'shop', valid: DAY(25), known: DAY(21) });
     expect(after.elements.map((e) => e.id)).toEqual(['checkout-web']);
   });
 });
@@ -168,8 +174,8 @@ describe('reading the union of an unsorted store: entities come back sorted by i
     h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('c')]) });
     h.store({ source: 'shop', commit: 'c2', committedAt: DAY(1) + 1, model: model([element('c'), element('a'), element('b')]) });
 
-    expect(h.read({ source: 'shop', valid: DAY(1) + 1, known: DAY(2) }).elements.map((e) => e.id)).toEqual(['a', 'b', 'c']);
-    expect(h.read({ valid: DAY(1) + 1, known: DAY(2) }).elements.map((e) => e.id)).toEqual(['a', 'b', 'c']);
+    expect(readModel(h, { source: 'shop', valid: DAY(1) + 1, known: DAY(2) }).elements.map((e) => e.id)).toEqual(['a', 'b', 'c']);
+    expect(readModel(h, { valid: DAY(1) + 1, known: DAY(2) }).elements.map((e) => e.id)).toEqual(['a', 'b', 'c']);
   });
 });
 
@@ -180,7 +186,7 @@ describe('the database path option', () => {
     h1.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
 
     const h2 = createSqliteHistory({ clock });
-    expect(h2.read({ source: 'shop', valid: DAY(1), known: DAY(2) }).elements).toEqual([]);
+    expect(readModel(h2, { source: 'shop', valid: DAY(1), known: DAY(2) }).elements).toEqual([]);
   });
 
   test('a file path persists the history: a second instance opened on the same path reads what the first stored', () => {
@@ -192,7 +198,7 @@ describe('the database path option', () => {
     h1.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
 
     const h2 = createSqliteHistory({ path, clock });
-    expect(h2.read({ source: 'shop', valid: DAY(1), known: DAY(2) }).elements.map((e) => e.id)).toEqual(['a']);
+    expect(readModel(h2, { source: 'shop', valid: DAY(1), known: DAY(2) }).elements.map((e) => e.id)).toEqual(['a']);
   });
 });
 
@@ -223,7 +229,7 @@ describe('a store failure comes back as an error value, never thrown, and leaves
     expect(result?.errors[0]?.message.length).toBeGreaterThan(0);
 
     // Nothing was written: the source has no commit at all.
-    expect(h.read({ source: 'shop', valid: DAY(1), known: DAY(2) }).elements).toEqual([]);
+    expect(readModel(h, { source: 'shop', valid: DAY(1), known: DAY(2) }).elements).toEqual([]);
   });
 });
 
@@ -233,17 +239,17 @@ describe('idempotent: storing the same commit twice changes nothing', () => {
     const h = history(clock);
     h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a'), element('b')]) });
 
-    const before = h.read({ source: 'shop', valid: DAY(1), known: DAY(2) });
+    const before = readModel(h, { source: 'shop', valid: DAY(1), known: DAY(2) });
 
     clock.set(DAY(3));
     const result = h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a'), element('b')]) });
     expect(result.errors).toEqual([]);
 
-    const after = h.read({ source: 'shop', valid: DAY(1), known: DAY(2) });
+    const after = readModel(h, { source: 'shop', valid: DAY(1), known: DAY(2) });
     expect(after).toEqual(before);
     // Storing again did not even open a new "as we now know it" record: a
     // known time after the repeat still reads the very same thing.
-    expect(h.read({ source: 'shop', valid: DAY(1), known: DAY(3) })).toEqual(before);
+    expect(readModel(h, { source: 'shop', valid: DAY(1), known: DAY(3) })).toEqual(before);
   });
 });
 
@@ -256,7 +262,7 @@ describe('order-by-commit: commits are ordered by their time, not by arrival', (
     clock.set(DAY(20));
     h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('legacy-billing')]) });
 
-    const read = h.read({ source: 'shop', valid: DAY(12), known: DAY(20) });
+    const read = readModel(h, { source: 'shop', valid: DAY(12), known: DAY(20) });
     expect(read.elements.map((e) => e.id)).toEqual(['billing-api']);
   });
 
@@ -268,7 +274,7 @@ describe('order-by-commit: commits are ordered by their time, not by arrival', (
     clock.set(DAY(20));
     h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('legacy-billing')]) });
 
-    const between = h.read({ source: 'shop', valid: DAY(5), known: DAY(20) });
+    const between = readModel(h, { source: 'shop', valid: DAY(5), known: DAY(20) });
     expect(between.elements.map((e) => e.id)).toEqual(['legacy-billing']);
   });
 });
@@ -284,7 +290,7 @@ describe('lossless: what is stored reads back as compiled', () => {
     const result = h.store({ source: 'reference', commit: 'c1', committedAt: DAY(1), model: compiled! });
     expect(result.errors).toEqual([]);
 
-    const readBack = h.read({ source: 'reference', valid: DAY(1), known: DAY(2) });
+    const readBack = readModel(h, { source: 'reference', valid: DAY(1), known: DAY(2) });
     expect(serializeCompiledModel(readBack)).toEqual(serializeCompiledModel(compiled!));
   });
 });

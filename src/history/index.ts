@@ -5,5 +5,26 @@
  * implementation so far, `src/adapters/sqlite-history.ts`, sits behind
  * `HistoryStore`.
  */
-export type { Clock, HistoryError, HistoryStore, ReadInput, StoreInput, StoreResult } from './types.js';
-export { ASSERTION_KINDS, assertionsOf, assembleCompiledModel, type Assertion, type AssertionKind } from './assertions.js';
+export type {
+  AssertionChange,
+  AssertionRecord,
+  AssertionsInput,
+  Clock,
+  HistoryError,
+  HistoryStore,
+  ReadInput,
+  ReadResult,
+  StoreInput,
+  StoreResult,
+} from './types.js';
+export {
+  ASSERTION_KINDS,
+  CLASHABLE_KINDS,
+  SHARED_KINDS,
+  assertionsOf,
+  assembleCompiledModel,
+  environmentDefinitionWithoutBindings,
+  isOneStateChain,
+  type Assertion,
+  type AssertionKind,
+} from './assertions.js';

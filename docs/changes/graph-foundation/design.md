@@ -128,8 +128,9 @@ flowchart LR
   engine --> answers["children, view with collapsed relations,<br/>transitive dependencies, as of a time"]
 ```
 
-- **Model history.** Each element, relation, interface, zone membership and
-  binding is one assertion of its source. Storing a new commit of a source
+- **Model history.** Each element, relation and interface (with its zones,
+  presence and binding inside it), and each zone, category, environment and
+  state, is one assertion of its source. Storing a new commit of a source
   compares it with what the source asserted before: unchanged assertions stay,
   changed and removed ones are closed, new ones are opened. Valid time is the
   commit's time; recorded time is when it was stored. Nothing is updated in
@@ -192,3 +193,26 @@ not a new one.
 - **Not enforced, on purpose:** an interface's provider need not be the
   relation's `to` end; two interfaces may share a contract; a secret value
   written into `bindings` is published as written, so authors keep secrets out.
+- **What an assertion is.** An element, an interface or a relation is one
+  assertion with its zone changes, presence and binding inside it; so are each
+  zone, category, environment and state. Closing an assertion sets its recorded
+  end: the one field ever written after insertion. Content and valid times never
+  change, and nothing is deleted.
+- **A late commit.** A commit older than one already stored is placed by its
+  commit time: it closes what it changes only up to the next stored commit, and
+  what that next commit asserted stays as it was. Commits of one source with the
+  same time are ordered by commit id.
+- **Sources share declarations, not parts.** Elements, interfaces and relations
+  belong to one source; another source declaring the same id is refused, over
+  any overlapping valid time. Zones, categories, environments and states are
+  shared declarations: another source may declare the same id only with the
+  same definition, except that environments merge their bindings variable by
+  variable. (An environment changes zones only of its own source's elements,
+  since references resolve within a source, so zone changes cannot collide.) A different definition,
+  or a state chain the union would branch or loop, is refused, naming the id and
+  the other source. The letter of model-history/sources refuses any repeated id;
+  since every source must declare the zones, environments and states it refers
+  to, that letter would forbid two repositories sharing an environment, so the
+  run reads it as above.
+- **Repeats.** Storing a stored commit again with the same time and model
+  changes nothing; with a different time or model it is refused.

@@ -40,7 +40,19 @@ export {
   CompiledElement as CompiledElementSchema,
   COMPILED_SCHEMA_VERSION,
 } from './model/compiled-schema.js';
-export type { Clock, HistoryError, HistoryStore, ReadInput, StoreInput, StoreResult } from './history/types.js';
+export type {
+  AssertionChange,
+  AssertionRecord,
+  AssertionsInput,
+  Clock,
+  HistoryError,
+  HistoryStore,
+  ReadInput,
+  ReadResult,
+  StoreInput,
+  StoreResult,
+} from './history/types.js';
+export { ASSERTION_KINDS, CLASHABLE_KINDS, SHARED_KINDS, isOneStateChain, type Assertion, type AssertionKind } from './history/assertions.js';
 export { createSqliteHistory, type SqliteHistoryOptions } from './adapters/sqlite-history.js';
 
 import type { CompiledModel } from './model/compile.js';

@@ -1,5 +1,6 @@
-import { SCHEMA_VERSION, type CompiledModel } from '../model/compile.js';
+import { SCHEMA_VERSION, type CompiledEnvironment, type CompiledModel } from '../model/compile.js';
 import { byCodePoint } from '../model/order.js';
+import type { HistoryError } from './types.js';
 
 /**
  * The seven kinds of assertion the history keeps, one per array
@@ -15,22 +16,25 @@ export const ASSERTION_KINDS = ['element', 'interface', 'relation', 'category', 
 export type AssertionKind = (typeof ASSERTION_KINDS)[number];
 
 /**
- * The kinds an id clash between sources is checked against (the `sources`
- * requirement): elements, interfaces and relations are the graph's own
+ * The kinds one source claims exclusively (the `sources` requirement): a
+ * second source declaring an already-declared id of one of these kinds is
+ * refused outright. Elements, interfaces and relations are the graph's own
  * nodes and edges (see the glossary's "Graph"), each source's exclusive
- * claim. Categories, zones, environments and states are shared vocabulary,
- * not claimed identities: a source that declares no states at all compiles
- * the same default id, `as-is` (see `compileStates`), and independent
- * sources routinely reuse zone, category and environment ids (`pci`,
- * `personal`, `production`) on purpose — refusing that would make the
- * `sources` requirement's own ordinary case, two unrelated sources
- * combining, fail. This reading is a choice among the requirement's own
- * words ("an id of a kind the compiled model keys by id"), made because the
- * wider reading breaks that requirement's own normal-case scenario; see
- * `assembleCompiledModel`, which still deduplicates the shared-vocabulary
- * kinds by id so a `read` of the union never hands back the same id twice.
+ * claim.
  */
 export const CLASHABLE_KINDS: readonly AssertionKind[] = ['element', 'interface', 'relation'];
+
+/**
+ * The kinds that are shared vocabulary rather than one source's exclusive
+ * claim: a source that declares no states at all compiles the same default
+ * id, `as-is` (see `compileStates`), and independent sources routinely
+ * reuse zone, category and environment ids (`pci`, `personal`,
+ * `production`) on purpose. A second source declaring one of these ids does
+ * not clash; it must agree with what is already declared (see
+ * `SHARED_MERGE_RULE` and `checkSharedVocabularyConflicts`), except
+ * `environment`, whose `bindings` merge variable by variable.
+ */
+export const SHARED_KINDS: readonly AssertionKind[] = ['category', 'zone', 'environment', 'state'];
 
 const KIND_TO_FIELD: Record<AssertionKind, keyof CompiledModel> = {
   element: 'elements',
@@ -42,11 +46,12 @@ const KIND_TO_FIELD: Record<AssertionKind, keyof CompiledModel> = {
   state: 'states',
 };
 
-/** One source's claim about one entity: which kind, which id, and its content as canonical JSON. */
+/** One source's claim about one entity: which kind, which id, its content as canonical JSON, and (when known) whose claim it is. */
 export interface Assertion {
   kind: AssertionKind;
   id: string;
   content: string;
+  source?: string;
 }
 
 /**
@@ -69,52 +74,182 @@ export function assertionsOf(model: CompiledModel): Assertion[] {
 }
 
 /**
- * Rebuilds a compiled model from a flat list of assertions — the inverse of
- * `assertionsOf`, used to answer a `read`. Each kind's entities are
- * deduplicated by id (reading the union of every source can otherwise hand
- * back the same id twice, once per source that happens to assert it — see
- * the `sources` requirement, where a category, zone, environment or state
- * id, unlike an element's, is shared vocabulary rather than one source's
- * exclusive claim, so more than one source legitimately asserts it) and
- * then sorted by id, code point order, the same order `compileModel`
- * produces. `JSON.parse` of an entity's own canonical text restores it with
- * its original key order, so a `read` at a stored commit's exact time
- * reproduces the stored model byte for byte (see the lossless requirement).
+ * A `CompiledEnvironment`'s definition with `bindings` left out — the part
+ * of an environment two sources must still agree on byte for byte, since
+ * only `bindings` is allowed to merge variable by variable (the `sources`
+ * requirement's environment exception).
  */
-export function assembleCompiledModel(rows: readonly Assertion[]): CompiledModel {
-  const byKind = new Map<AssertionKind, Assertion[]>(ASSERTION_KINDS.map((kind) => [kind, []]));
-  for (const row of rows) byKind.get(row.kind)!.push(row);
-
-  const entitiesOf = <T>(kind: AssertionKind): T[] =>
-    dedupeById(byKind.get(kind)!)
-      .sort((a, b) => byCodePoint(a.id, b.id))
-      .map((row) => JSON.parse(row.content) as T);
-
-  return {
-    schemaVersion: SCHEMA_VERSION,
-    elements: entitiesOf('element'),
-    interfaces: entitiesOf('interface'),
-    relations: entitiesOf('relation'),
-    categories: entitiesOf('category'),
-    zones: entitiesOf('zone'),
-    environments: entitiesOf('environment'),
-    states: entitiesOf('state'),
-  } as CompiledModel;
+export function environmentDefinitionWithoutBindings(content: string): string {
+  const parsed = JSON.parse(content) as CompiledEnvironment;
+  const { bindings: _bindings, ...rest } = parsed;
+  return JSON.stringify(rest);
 }
 
 /**
- * Keeps one assertion per id: the one with the code-point-smallest content,
- * so the pick never depends on which source was read first. Two sources
- * sharing a vocabulary id in agreement (the common case: the same default
- * state, the same well-known zone) hand back identical content and the
- * choice is moot; sharing it in disagreement still yields one definite,
- * repeatable answer rather than one that depends on read order.
+ * Rebuilds a flat list of assertions — one source's own, or several
+ * sources' rows already known to satisfy the `sources` requirement — into a
+ * compiled model. Each clashable kind (`element`, `interface`, `relation`)
+ * has at most one source's row per id by construction (a second source's
+ * store is refused before it ever reaches this function). Each shared kind
+ * (`category`, `zone`, `state`) may have one row per source sharing an id,
+ * always agreeing byte for byte (a disagreement is refused at store time);
+ * `environment` rows sharing an id are merged, their `bindings` unioned
+ * variable by variable.
+ *
+ * This function is the last line of defence the `sources` requirement
+ * names: "the union read never picks silently" — if it ever meets two
+ * different definitions of a shared id (elements, interfaces and relations
+ * cannot: a clash there is refused before it is written), or two sources'
+ * bindings disagree on one variable's value, it reports an error instead of
+ * guessing, naming the id, the disagreeing field, and both sources when
+ * they are known.
  */
-function dedupeById(rows: readonly Assertion[]): Assertion[] {
-  const byId = new Map<string, Assertion>();
+export function assembleCompiledModel(rows: readonly Assertion[]): { model?: CompiledModel; errors: HistoryError[] } {
+  const byKind = new Map<AssertionKind, Assertion[]>(ASSERTION_KINDS.map((kind) => [kind, []]));
+  for (const row of rows) byKind.get(row.kind)!.push(row);
+
+  const errors: HistoryError[] = [];
+
+  const plainKind = <T extends { id: string }>(kind: AssertionKind): T[] => {
+    const result: T[] = [];
+    for (const group of groupById(byKind.get(kind)!)) {
+      const distinctContents = new Set(group.map((row) => row.content));
+      if (distinctContents.size > 1) {
+        // Two distinct contents means at least two rows, so `second` is
+        // always defined here; disagreement never arises from a group of one.
+        const [first, second] = group as [Assertion, Assertion, ...Assertion[]];
+        errors.push({
+          message: `"${first.id}" is declared differently across sources for kind "${kind}"`,
+          id: first.id,
+          field: kind,
+          source: second.source,
+        });
+        continue;
+      }
+      result.push(JSON.parse(group[0]!.content) as T);
+    }
+    return sortById(result);
+  };
+
+  const categories = plainKind<CompiledModel['categories'][number]>('category');
+  const zones = plainKind<CompiledModel['zones'][number]>('zone');
+  const states = plainKind<CompiledModel['states'][number]>('state');
+  const environments = assembleEnvironments(byKind.get('environment')!, errors);
+  const elements = plainKind<CompiledModel['elements'][number]>('element');
+  const interfaces = plainKind<CompiledModel['interfaces'][number]>('interface');
+  const relations = plainKind<CompiledModel['relations'][number]>('relation');
+
+  if (errors.length > 0) return { errors };
+
+  return {
+    errors: [],
+    model: {
+      schemaVersion: SCHEMA_VERSION,
+      elements,
+      interfaces,
+      relations,
+      categories,
+      zones,
+      environments,
+      states,
+    } as CompiledModel,
+  };
+}
+
+/**
+ * Merges every source's rows for one environment id into one
+ * `CompiledEnvironment`: the definition besides `bindings` must already
+ * agree (checked, and refused, at store time — this is the same safety net
+ * `plainKind` applies), and `bindings` is the union of every source's
+ * variables. Two sources binding the same variable to different values is a
+ * conflict `checkSharedVocabularyConflicts` already refuses before it can
+ * be written; met here regardless, it is reported rather than resolved by
+ * picking one source's value over the other's.
+ */
+function assembleEnvironments(rows: readonly Assertion[], errors: HistoryError[]): CompiledEnvironment[] {
+  const result: CompiledEnvironment[] = [];
+  for (const group of groupById(rows)) {
+    const id = group[0]!.id;
+    const withoutBindings = new Set(group.map((row) => environmentDefinitionWithoutBindings(row.content)));
+    if (withoutBindings.size > 1) {
+      // Two distinct definitions means at least two rows in this group.
+      const [, second] = group as [Assertion, Assertion, ...Assertion[]];
+      errors.push({ message: `environment "${id}" is declared differently across sources`, id, field: 'environment', source: second.source });
+      continue;
+    }
+    const merged: CompiledEnvironment = JSON.parse(withoutBindings.values().next().value as string) as CompiledEnvironment;
+    const bindings: Record<string, string> = {};
+    for (const row of group) {
+      const parsed = JSON.parse(row.content) as CompiledEnvironment;
+      for (const [key, value] of Object.entries(parsed.bindings ?? {})) {
+        if (bindings[key] !== undefined && bindings[key] !== value) {
+          errors.push({ message: `environment "${id}" binds "${key}" differently across sources`, id, field: key, source: row.source });
+          continue;
+        }
+        bindings[key] = value;
+      }
+    }
+    if (Object.keys(bindings).length > 0) {
+      merged.bindings = Object.fromEntries(sortedByCodePointKeys(bindings).map((key) => [key, bindings[key]!]));
+    }
+    result.push(merged);
+  }
+  return sortById(result);
+}
+
+function sortedByCodePointKeys(record: Record<string, string>): string[] {
+  return Object.keys(record).sort(byCodePoint);
+}
+
+/** Groups assertions by id, preserving the order ids first appear in. */
+function groupById(rows: readonly Assertion[]): Assertion[][] {
+  const byId = new Map<string, Assertion[]>();
   for (const row of rows) {
-    const existing = byId.get(row.id);
-    if (existing === undefined || byCodePoint(row.content, existing.content) < 0) byId.set(row.id, row);
+    const group = byId.get(row.id);
+    if (group === undefined) byId.set(row.id, [row]);
+    else group.push(row);
   }
   return [...byId.values()];
+}
+
+function sortById<T extends { id: string }>(entities: T[]): T[] {
+  return [...entities].sort((a, b) => byCodePoint(a.id, b.id));
+}
+
+/**
+ * Whether a set of states (one source's own, or several agreeing sources'
+ * union) forms exactly one chain: one state with no `after`, every other
+ * state named by exactly one `after`, no state left unreached and no cycle.
+ * Each source's own chain is already validated this way before it can be
+ * compiled (see `computeStateOrder`); this re-checks the *union* a store
+ * would produce, since two independently valid chains can still disagree
+ * about what comes after their shared root.
+ */
+export function isOneStateChain(states: readonly { id: string; after?: string }[]): boolean {
+  if (states.length <= 1) return true;
+
+  // `followers` maps an "after" target to the one state naming it. A
+  // dangling reference (naming an id outside `states`) or two states
+  // sharing one target both leave at least one state unreached by the walk
+  // below, from the one, sole root: neither needs its own check, since the
+  // walk's own count of what it reached — the last line — already catches
+  // both, the same way it catches a state joined to no root at all.
+  const followers = new Map<string, string>();
+  let roots = 0;
+  for (const state of states) {
+    if (state.after === undefined) roots++;
+    else followers.set(state.after, state.id);
+  }
+  if (roots !== 1) return false;
+
+  const root = states.find((s) => s.after === undefined)!;
+  const visited = new Set<string>([root.id]);
+  let current = root.id;
+  while (followers.has(current)) {
+    const next = followers.get(current)!;
+    if (visited.has(next)) return false; // a cycle: without this, the walk above would never end
+    visited.add(next);
+    current = next;
+  }
+  return visited.size === states.length;
 }
