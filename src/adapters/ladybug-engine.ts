@@ -186,7 +186,16 @@ function chainRoot(states: readonly { id: string; after?: string }[]): string | 
  * query's default state) states.
  */
 export function createLadybugEngine(): QueryEngine {
-  const db = new Database(':memory:');
+  // `Database`'s own defaults reserve an enormous virtual-memory mapping
+  // (observed: an 8 TiB `mmap`) sized for a large on-disk deployment;
+  // opening more than a handful of instances in one process — one engine
+  // per test, run's own tests included — exhausted the process's mapping
+  // budget outright (`Buffer manager exception: Mmap for size ... failed`,
+  // tried and confirmed). This engine is in-memory and built from a model
+  // history, never larger than what one repository's graph needs, so a few
+  // hundred MiB of buffer pool and a few GiB of address space are ample,
+  // and keep every instance's footprint small enough that many can coexist.
+  const db = new Database(':memory:', 256 * 1024 * 1024, false, false, 4 * 1024 * 1024 * 1024);
   const conn = new Connection(db);
   conn.initSync();
 

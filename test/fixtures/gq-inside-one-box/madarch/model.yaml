@@ -1,0 +1,16 @@
+version: 1
+
+elements:
+  - id: checkout-web
+    kind: service
+  - id: checkout-cart
+    kind: module
+    parent: checkout-web
+  - id: checkout-ui
+    kind: module
+    parent: checkout-web
+
+relations:
+  - id: cart-calls-ui
+    from: checkout-cart
+    to: checkout-ui
