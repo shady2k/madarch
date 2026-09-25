@@ -170,8 +170,8 @@ are the repository's installation, and each person's plugin and hooks are theirs
 - **Fresh clone:** create the private pattern list, set `user.email` to the
   owner's public email, then run `sh .shady2k/connect.sh`.
 - **CI:** GitHub Actions (`.github/workflows/ci.yml`) on every push and pull
-  request: `bun install --frozen-lockfile`, `bun run check`, `bun test` on
-  Linux. It runs the product's checks only; the backlog, commit-link and
+  request: `bun install --frozen-lockfile`, `bun run check`, `bun test`,
+  `bun run views:check` on Linux. It runs the product's checks only; the backlog, commit-link and
   document gates stay in the local hooks (personal scope).
 - **Bulk-edit age correction:** `check.mjs --ages-from <before.json> --ages-through <after.json>`
   with adapter snapshots taken before and after the edit.
@@ -179,8 +179,10 @@ are the repository's installation, and each person's plugin and hooks are theirs
   in strict mode.
 - **Static checks:** `bun run check` (`tsc --noEmit`). **Related tests:** `bun
   test <file>`. **Full stage checks:** `bun install --frozen-lockfile && bun
-  run check && bun test`, plus `bun run schemas` reproducing the committed
-  `schema/*.json` (a test fails otherwise).
+  run check && bun test && bun run views:check` (Mermaid's parser and
+  `likec4 validate` on the reference system's views, also in CI), plus `bun
+  run schemas` and `bun run views` reproducing the committed `schema/*.json`
+  and `examples/reference-system/views/` (tests fail otherwise).
 - **Mutation checks:** StrykerJS 9 with the command runner (`bun test`),
   `coverageAnalysis: off`, run from outside the repository (it is not a
   dependency): a scratch folder with `@stryker-mutator/core@9` and
