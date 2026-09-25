@@ -1,0 +1,14 @@
+version: 1
+
+elements:
+  - id: checkout-web
+    kind: service
+    name: Checkout web
+  - id: orders-api
+    kind: service
+    name: Orders API
+
+relations:
+  - id: checkout-calls-orders
+    from: checkout-web
+    to: orders-api

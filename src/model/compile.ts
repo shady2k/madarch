@@ -5,6 +5,7 @@ import { computeElementPresence, computeRelationPresence, formatEnvironments, ty
 import { resolveGeneralZones, resolveZonesInEnvironment } from './zones.js';
 import { byCodePoint, sortedByCodePoint } from './order.js';
 import { COMPILED_SCHEMA_VERSION } from './compiled-schema.js';
+import { isUnnamed } from './warnings.js';
 import type {
   CompiledCategory,
   CompiledElement,
@@ -141,6 +142,9 @@ function compileRelation(
     environments: formatEnvironments(presence.environmentIds, environmentIds, sortedByCodePoint),
     states: [...presence.stateIds],
   };
+  // A blank name says nothing and was warned about when loading: it is left
+  // out, like a missing one, so a reader never shows an empty label.
+  if (!isUnnamed(relation.name)) compiled.name = relation.name;
   if (relation.refines !== undefined) compiled.refines = relation.refines;
   if (relation.interface !== undefined) compiled.interface = relation.interface;
   if (relation.binding !== undefined) {

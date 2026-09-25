@@ -183,6 +183,10 @@
             "type": "string",
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
           },
+          "name": {
+            "type": "string",
+            "description": "What the relation does, in a few words (\"places orders\"). Optional, so a model written before names existed still loads, but a relation with no name, or a blank one, is warned about."
+          },
           "from": {
             "type": "string"
           },
