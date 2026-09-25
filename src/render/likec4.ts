@@ -27,9 +27,24 @@ export interface LikeC4Error {
   query?: QueryError;
 }
 
+/**
+ * One relation LikeC4 cannot draw, left out of the workspace and said so:
+ * `self` for a relation of an element to itself, `descendant` for one
+ * between an element and its own descendant, either way.
+ */
+export interface NotDrawn {
+  relationId: string;
+  from: string;
+  to: string;
+  reason: 'self' | 'descendant';
+  message: string;
+}
+
 export interface LikeC4Result {
   /** The whole `.c4` file. Left out when there are errors. */
   workspace?: string;
+  /** Every relation left out of the workspace, by relation id in code point order; present with the workspace. */
+  notDrawn?: NotDrawn[];
   errors: LikeC4Error[];
 }
 
@@ -133,7 +148,12 @@ interface WorkspaceRelation {
  * holding every element, where every relation is drawn between its own
  * ends (merged per pair, split here into one arrow per relation id, each
  * labelled as the view set labels an arrow of one relation). Kinds, names,
- * technology and labels come from the compiled model by id. Every error is
+ * technology and labels come from the compiled model by id. A relation
+ * LikeC4 cannot draw (of an element to itself, or between an element and
+ * its own descendant) is left out and listed in `notDrawn`; the full-depth
+ * view never draws one of an element to itself, so those are the compiled
+ * model's relations of an element shown at this time, without asking the
+ * engine whether the relation itself is present then. Every error is
  * collected, and a workspace with any error is not returned at all.
  */
 export function renderLikeC4Workspace(engine: QueryEngine, model: CompiledModel, at?: QueryTime): LikeC4Result {
@@ -151,10 +171,38 @@ export function renderLikeC4Workspace(engine: QueryEngine, model: CompiledModel,
     errors.push({ message: `the workspace: the element "${element.id}" is shown by the query engine but the compiled model does not hold it`, elementId: element.id });
   }
 
+  const notDrawn = new Map<string, NotDrawn>();
+  const leaveOut = (relationId: string, from: string, to: string, reason: NotDrawn['reason']): void => {
+    const why = reason === 'self' ? 'a relation of an element to itself' : 'a relation between an element and its own descendant';
+    notDrawn.set(relationId, {
+      relationId,
+      from,
+      to,
+      reason,
+      message: `the relation "${relationId}" from "${from}" to "${to}" is not drawn in the LikeC4 workspace: LikeC4 cannot draw ${why}`,
+    });
+  };
+  // The full-depth view never draws a relation of an element to itself, so
+  // those are read from the compiled model, for an element shown at this time.
+  const shownIds = new Set(elements.map((element) => element.id));
+  for (const relation of model.relations) {
+    if (relation.from === relation.to && shownIds.has(relation.from)) leaveOut(relation.id, relation.from, relation.to, 'self');
+  }
+  const parents = new Map(elements.map((element) => [element.id, element.parent]));
+  const isAncestor = (ancestor: string, id: string): boolean => {
+    for (let up = parents.get(id); up !== undefined; up = parents.get(up)) if (up === ancestor) return true;
+    return false;
+  };
+
   const labels = labeller(model);
   const relations: WorkspaceRelation[] = [];
   for (const pair of every.relations!) {
+    const reason = pair.from === pair.to ? 'self' : isAncestor(pair.from, pair.to) || isAncestor(pair.to, pair.from) ? 'descendant' : undefined;
     for (const id of pair.relationIds) {
+      if (reason !== undefined) {
+        leaveOut(id, pair.from, pair.to, reason);
+        continue;
+      }
       const label = labels([id], (relationId, problem) => {
         errors.push({ message: `the workspace: the arrow from "${pair.from}" to "${pair.to}" stands for the relation "${relationId}", ${problem}`, relationId });
       });
@@ -200,7 +248,7 @@ export function renderLikeC4Workspace(engine: QueryEngine, model: CompiledModel,
     lines.push(`  ${head} {`, `    title ${text(scope === undefined ? 'Landscape' : (scope.name ?? scope.id))}`, '    include *', '  }');
   }
   lines.push('}', '');
-  return { workspace: lines.join('\n'), errors: [] };
+  return { workspace: lines.join('\n'), notDrawn: [...notDrawn.values()].sort((a, b) => byCodePoint(a.relationId, b.relationId)), errors: [] };
 }
 
 /**

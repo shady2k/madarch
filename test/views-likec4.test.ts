@@ -48,9 +48,11 @@ function renderFixture(name: string): LikeC4Result {
   }
 }
 
+/** The workspace of a fixture every relation of which LikeC4 can draw. */
 function workspaceOf(name: string): string {
-  const { workspace, errors } = renderFixture(name);
+  const { workspace, notDrawn, errors } = renderFixture(name);
   expect(errors).toEqual([]);
+  expect(notDrawn).toEqual([]);
   return workspace!;
 }
 
@@ -214,8 +216,80 @@ describe('views/likec4', () => {
     history.close();
 
     const empty = [HEADER, '', 'specification {', '}', '', 'model {', '}', '', 'views {', '  view index {', '    title "Landscape"', '    include *', '  }', '}', ''].join('\n');
-    expect(result).toStrictEqual({ workspace: empty, errors: [] });
+    expect(result).toStrictEqual({ workspace: empty, notDrawn: [], errors: [] });
     expect(validate(empty)).toEqual({ files: 1, errors: [] });
+  });
+});
+
+describe('views/likec4 relations LikeC4 cannot draw', () => {
+  test('a relation between an element and its own descendant, either way, and one of an element to itself are listed apart, not drawn; the ordinary relation is drawn and the workspace validates', () => {
+    const { workspace, notDrawn, errors } = renderFixture('views-likec4-not-drawn');
+    expect(errors).toEqual([]);
+
+    expect(notDrawn).toStrictEqual([
+      {
+        relationId: 'loop-retries',
+        from: 'loop',
+        to: 'loop',
+        reason: 'self',
+        message: 'the relation "loop-retries" from "loop" to "loop" is not drawn in the LikeC4 workspace: LikeC4 cannot draw a relation of an element to itself',
+      },
+      {
+        relationId: 'shop-runs-cart',
+        from: 'shop',
+        to: 'cart',
+        reason: 'descendant',
+        message: 'the relation "shop-runs-cart" from "shop" to "cart" is not drawn in the LikeC4 workspace: LikeC4 cannot draw a relation between an element and its own descendant',
+      },
+      {
+        relationId: 'ui-reports-to-shop',
+        from: 'cart-ui',
+        to: 'shop',
+        reason: 'descendant',
+        message:
+          'the relation "ui-reports-to-shop" from "cart-ui" to "shop" is not drawn in the LikeC4 workspace: LikeC4 cannot draw a relation between an element and its own descendant',
+      },
+    ]);
+    expect(workspace).toContain(
+      [
+        'model {',
+        '  loop = service "Loop"',
+        '  shop = domain "Shop" {',
+        '    cart = service "Cart" {',
+        '      cart-ui = module "Cart UI"',
+        '    }',
+        '  }',
+        '',
+        '  shop.cart -> loop "calls the loop"',
+        '}',
+      ].join('\n'),
+    );
+    expect(validate(workspace!)).toEqual({ files: 1, errors: [] });
+  });
+
+  test('a self-relation an engine does draw is still left out and listed once', () => {
+    const answers = [{ id: 'loop', kind: 'service' }];
+    const engine = handEngine({
+      landscape: { elements: answers, relations: [] },
+      every: { elements: answers, relations: [{ from: 'loop', to: 'loop', relationIds: ['loop-retries'] }] },
+    });
+    const { model } = loadModel(fixture('views-likec4-not-drawn'));
+
+    const { workspace, notDrawn } = renderLikeC4Workspace(engine, compileModel(model!));
+
+    expect(workspace).toContain('\nmodel {\n  loop = service "Loop"\n}\n');
+    expect(notDrawn!.map((relation) => [relation.relationId, relation.reason])).toEqual([['loop-retries', 'self']]);
+  });
+
+  test('a self-relation of an element absent at the asked time is not listed: there is nothing to draw it on', () => {
+    const { model } = loadModel(fixture('views-likec4-not-drawn'));
+    const compiled = compileModel(model!);
+    const engine = handEngine({
+      landscape: { elements: [{ id: 'shop', kind: 'domain' }], relations: [] },
+      every: { elements: [{ id: 'shop', kind: 'domain' }], relations: [] },
+    });
+
+    expect(renderLikeC4Workspace(engine, compiled).notDrawn).toEqual([]);
   });
 });
 
@@ -367,8 +441,9 @@ describe('views/likec4 refuses what it cannot render whole', () => {
 
 describe("the reference system's committed LikeC4 workspace", () => {
   test('rendering examples/reference-system again gives exactly the committed model.c4, and it validates', () => {
-    const { workspace, errors } = renderReferenceSystem();
+    const { workspace, notDrawn, errors } = renderReferenceSystem();
     expect(errors).toEqual([]);
+    expect(notDrawn).toEqual([]);
 
     expect(readFileSync(LIKEC4_FILE, 'utf8')).toBe(workspace!);
     expect(checkLikeC4Workspaces([join(LIKEC4_FILE, '..')])).toEqual({ files: 1, errors: [] });

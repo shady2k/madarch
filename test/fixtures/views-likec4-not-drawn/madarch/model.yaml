@@ -1,0 +1,38 @@
+version: 1
+
+# Relations LikeC4 cannot draw: one from a domain to its own service, one
+# from a module to its grandparent, and one from a service to itself; and
+# one ordinary relation beside them.
+elements:
+  - id: shop
+    kind: domain
+    name: Shop
+  - id: cart
+    kind: service
+    name: Cart
+    parent: shop
+  - id: cart-ui
+    kind: module
+    name: Cart UI
+    parent: cart
+  - id: loop
+    kind: service
+    name: Loop
+
+relations:
+  - id: shop-runs-cart
+    name: runs the cart
+    from: shop
+    to: cart
+  - id: ui-reports-to-shop
+    name: reports to the shop
+    from: cart-ui
+    to: shop
+  - id: loop-retries
+    name: retries itself
+    from: loop
+    to: loop
+  - id: cart-calls-loop
+    name: calls the loop
+    from: cart
+    to: loop

@@ -38,6 +38,8 @@ export interface RenderedReferenceSystem {
   pages?: MermaidPage[];
   /** The LikeC4 workspace's text; left out when there are errors. */
   workspace?: string;
+  /** One line per relation the workspace leaves out because LikeC4 cannot draw it; empty when there are errors. */
+  notDrawn: string[];
   /** Every problem that kept the pages from being rendered, one line each. */
   errors: string[];
   /** The model's warnings, one line each; they do not keep the pages from being rendered. */
@@ -47,23 +49,23 @@ export interface RenderedReferenceSystem {
 export function renderReferenceSystem(): RenderedReferenceSystem {
   const { model, errors, warnings } = loadAndCompileModel(REFERENCE_SYSTEM);
   const warningLines = warnings.map((w) => `${w.file}:${w.line}: ${w.path}: ${w.message}`);
-  if (model === undefined) return { errors: errors.map((e) => `${e.file}:${e.line}: ${e.path}: ${e.message}`), warnings: warningLines };
+  if (model === undefined) return { errors: errors.map((e) => `${e.file}:${e.line}: ${e.path}: ${e.message}`), notDrawn: [], warnings: warningLines };
 
   const history = createSqliteHistory({ clock: { now: () => REFERENCE_TIME } });
   const engine = createLadybugEngine();
   try {
     const stored = history.store({ source: 'reference-system', commit: 'working-tree', committedAt: REFERENCE_TIME, model });
-    if (stored.errors.length > 0) return { errors: stored.errors.map((e) => `storing the model: ${e.message}`), warnings: warningLines };
+    if (stored.errors.length > 0) return { errors: stored.errors.map((e) => `storing the model: ${e.message}`), notDrawn: [], warnings: warningLines };
     engine.rebuild(history.assertions());
 
     const at = { valid: REFERENCE_TIME, known: REFERENCE_TIME };
     const viewSet = buildViewSet(engine, model, at);
-    if (viewSet.views === undefined) return { errors: viewSet.errors.map((e) => e.message), warnings: warningLines };
+    if (viewSet.views === undefined) return { errors: viewSet.errors.map((e) => e.message), notDrawn: [], warnings: warningLines };
     const rendered = renderMermaidPages(viewSet.views);
-    if (rendered.pages === undefined) return { errors: rendered.errors.map((e) => e.message), warnings: warningLines };
+    if (rendered.pages === undefined) return { errors: rendered.errors.map((e) => e.message), notDrawn: [], warnings: warningLines };
     const likec4 = renderLikeC4Workspace(engine, model, at);
-    if (likec4.workspace === undefined) return { errors: likec4.errors.map((e) => e.message), warnings: warningLines };
-    return { pages: rendered.pages, workspace: likec4.workspace, errors: [], warnings: warningLines };
+    if (likec4.workspace === undefined) return { errors: likec4.errors.map((e) => e.message), notDrawn: [], warnings: warningLines };
+    return { pages: rendered.pages, workspace: likec4.workspace, notDrawn: likec4.notDrawn!.map((relation) => relation.message), errors: [], warnings: warningLines };
   } finally {
     engine.close();
     history.close();
@@ -71,8 +73,9 @@ export function renderReferenceSystem(): RenderedReferenceSystem {
 }
 
 function main(): void {
-  const { pages, workspace, errors, warnings } = renderReferenceSystem();
+  const { pages, workspace, notDrawn, errors, warnings } = renderReferenceSystem();
   for (const warning of warnings) console.error(`warning: ${warning}`);
+  for (const line of notDrawn) console.error(`note: ${line}`);
   if (pages === undefined || workspace === undefined) {
     for (const error of errors) console.error(`error: ${error}`);
     process.exit(1);

@@ -116,3 +116,13 @@ general relation there is accepted.
   fails. It reads `likec4 validate --json`, reports its 0-based lines as
   1-based, and fails a folder with no LikeC4 file, which LikeC4 itself
   passes.
+- **Relations LikeC4 cannot draw are listed, not dropped** (madarch-mk5.3.1
+  rework): LikeC4 1.59.4 refuses a relation of an element to itself and one
+  between an element and its own descendant ("Invalid parent-child
+  relationship"). The workspace leaves them out and returns them in
+  `notDrawn` (relation id, ends, `self` or `descendant`, a message), and
+  `bun run views` prints one line each. Descendant relations are found in
+  the engine's full-depth answer by its parents; self-relations, which that
+  view never draws, are the compiled model's relations of an element shown
+  at the asked time, without asking whether the relation itself is present
+  then.

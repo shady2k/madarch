@@ -2,8 +2,9 @@
  * The renderer's input: the view set (see design.md, "The renderer's
  * input"). Built from the query engine's answers and named from the
  * compiled model at one time and state; Mermaid and LikeC4 each turn the
- * same view set into text and query nothing themselves. This module touches
- * no Bun-specific API.
+ * same view set into text. Mermaid queries nothing itself; LikeC4 also asks
+ * for the unscoped view at full depth (`EVERY_LEVEL`), for every relation
+ * between its own ends. This module touches no Bun-specific API.
  */
 import type { CompiledModel, CompiledRelation } from '../model/compile.js';
 import { byCodePoint } from '../model/order.js';
