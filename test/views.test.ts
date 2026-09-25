@@ -2,12 +2,13 @@ import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MERMAID_FOLDER, renderReferenceSystem } from '../scripts/render-views.js';
+import { MERMAID_FOLDER, REFERENCE_SYSTEM, renderReferenceSystem } from '../scripts/render-views.js';
 import {
   buildViewSet,
   compileModel,
   createLadybugEngine,
   createSqliteHistory,
+  loadAndCompileModel,
   loadModel,
   renderMermaidPages,
   type Clock,
@@ -273,7 +274,7 @@ describe('views/mermaid', () => {
         '  checkout_web -->|"charges the card"| payments',
         '```',
         '',
-        'Up: [Landscape](index.md)',
+        'Up: [Landscape](_landscape.md)',
         '',
         'Open: [Checkout web](checkout-web.md) · [Payments](payments.md)',
         '',
@@ -281,8 +282,8 @@ describe('views/mermaid', () => {
     );
   });
 
-  test('one page per view: the landscape is index.md, every other page is named by its element id', () => {
-    expect([...pagesOf('views-drill-down').keys()]).toEqual(['index.md', 'checkout-web.md', 'payments.md', 'shop.md']);
+  test('one page per view: the landscape is _landscape.md, every other page is named by its element id', () => {
+    expect([...pagesOf('views-drill-down').keys()]).toEqual(['_landscape.md', 'checkout-web.md', 'payments.md', 'shop.md']);
   });
 
   test('a service page goes up to its domain; the landscape has no way up', () => {
@@ -290,7 +291,7 @@ describe('views/mermaid', () => {
 
     expect(pages.get('checkout-web.md')).toContain('\nUp: [Shop](shop.md)\n');
     expect(pages.get('checkout-web.md')).toContain('\nOpen: [Payments](payments.md)\n');
-    expect(pages.get('index.md')).toBe(
+    expect(pages.get('_landscape.md')).toBe(
       [
         '# Landscape',
         '',
@@ -308,7 +309,7 @@ describe('views/mermaid', () => {
   });
 
   test("shapes per kind, externals in their own class, entity codes for Mermaid's special characters, and node ids made safe and unique", () => {
-    expect(pagesOf('views-shapes').get('index.md')).toBe(
+    expect(pagesOf('views-shapes').get('_landscape.md')).toBe(
       [
         '# Landscape',
         '',
@@ -351,18 +352,42 @@ describe('views/mermaid', () => {
         '  web_ui -->|"calls"| end_',
         '```',
         '',
-        'Up: [Landscape](index.md)',
+        'Up: [Landscape](_landscape.md)',
         '',
       ].join('\n'),
     );
   });
 
-  test('an element with a view whose id is "index" would overwrite the landscape: an error naming it, and no pages', () => {
-    const view: View = { scope: 'index', elements: [{ id: 'index', kind: 'domain', place: 'scope', hasView: true }], arrows: [] };
-    const landscape: View = { elements: [{ id: 'index', kind: 'domain', place: 'inside', hasView: true }], arrows: [] };
+  test('an element with children whose id is "index" gets index.md like any other; no element page can take the landscape\'s name', () => {
+    const pages = pagesOf('views-index');
 
-    expect(renderMermaidPages([landscape, view])).toEqual({
-      errors: [{ message: 'the view of "index" would be written to index.md, the landscape\'s page', scope: 'index' }],
+    expect([...pages.keys()]).toEqual(['_landscape.md', 'index.md']);
+    expect(pages.get('index.md')).toBe(
+      [
+        '# Search index (domain)',
+        '',
+        '```mermaid',
+        'flowchart LR',
+        '  subgraph index ["Search index"]',
+        '    index_api["Index API"]',
+        '  end',
+        '```',
+        '',
+        'Up: [Landscape](_landscape.md)',
+        '',
+      ].join('\n'),
+    );
+    expect(pages.get('_landscape.md')).toContain('\nOpen: [Search index](index.md)\n');
+  });
+
+  test('two views whose element ids differ only by letter case would overwrite each other on a case-insensitive file system: an error naming both, and no pages', () => {
+    expect(renderMermaidPages(viewsOf('views-case-clash'))).toStrictEqual({
+      errors: [
+        {
+          message: 'the views of "Shop" and "shop" would be written to Shop.md and shop.md, which are one file on a case-insensitive file system',
+          scope: 'shop',
+        },
+      ],
     });
   });
 });
@@ -382,7 +407,7 @@ describe('views/mermaid on hand-built views', () => {
     const { pages, errors } = renderMermaidPages([{ elements: [], arrows: [] }, view]);
     expect(errors).toEqual([]);
     expect(pages).toEqual([
-      { file: 'index.md', content: ['# Landscape', '', '```mermaid', 'flowchart LR', '```', ''].join('\n') },
+      { file: '_landscape.md', content: ['# Landscape', '', '```mermaid', 'flowchart LR', '```', ''].join('\n') },
       {
         file: 'svc.md',
         content: [
@@ -428,7 +453,7 @@ describe('views/mermaid on hand-built views', () => {
         '  class Style_,class_ external',
         '```',
         '',
-        'Up: [Landscape](index.md)',
+        'Up: [Landscape](_landscape.md)',
         '',
       ].join('\n'),
     );
@@ -489,23 +514,34 @@ describe('views/mermaid node ids', () => {
   });
 });
 
+/**
+ * A query engine answering from lists given by hand: the landscape at depth
+ * 0, every element for an unscoped view any deeper, and `scoped` (or an
+ * empty view) for a scope. It has no `children`, so a view set that asked
+ * for children element by element would fail here.
+ */
+function handEngine(answers: { landscape: object; every: object; scoped?: (scope: string) => object }): QueryEngine {
+  return {
+    view: (input: { scope?: string; depth: number }) =>
+      input.scope !== undefined ? (answers.scoped?.(input.scope) ?? { elements: [], neighbours: [], relations: [] }) : input.depth === 0 ? answers.landscape : answers.every,
+  } as unknown as QueryEngine;
+}
+
 describe('views/view-set from any query engine', () => {
   test('arrows by from then to and relation ids in code point order, whatever order the engine answers in; an unnamed parent goes up by its id alone', () => {
     const model = compileModel(loadModel(fixture('views-labels')).model!);
-    const engine = {
-      view: (input: { scope?: string }) =>
-        input.scope === undefined
-          ? {
-              elements: [{ id: 'top', kind: 'domain' }],
-              relations: [
-                { from: 'top', to: 'b', relationIds: ['ui-shows-stock'] },
-                { from: 'top', to: 'a', relationIds: ['ui-shows-stock'] },
-                { from: 'a', to: 'top', relationIds: ['ui-shows-stock', 'cart-reserves-stock'] },
-              ],
-            }
-          : { elements: [], neighbours: [], relations: [] },
-      children: (id: string) => ({ elements: id === 'top' ? [{ id: 'mid', kind: 'service', parent: 'top' }] : id === 'mid' ? [{ id: 'low', kind: 'module', parent: 'mid' }] : [] }),
-    } as unknown as QueryEngine;
+    const top = { id: 'top', kind: 'domain' };
+    const engine = handEngine({
+      landscape: {
+        elements: [top],
+        relations: [
+          { from: 'top', to: 'b', relationIds: ['ui-shows-stock'] },
+          { from: 'top', to: 'a', relationIds: ['ui-shows-stock'] },
+          { from: 'a', to: 'top', relationIds: ['ui-shows-stock', 'cart-reserves-stock'] },
+        ],
+      },
+      every: { elements: [{ id: 'low', kind: 'module', parent: 'mid' }, { id: 'mid', kind: 'service', parent: 'top' }, top], relations: [] },
+    });
 
     expect(buildViewSet(engine, model)).toStrictEqual({
       views: [
@@ -523,22 +559,43 @@ describe('views/view-set from any query engine', () => {
       errors: [],
     });
   });
+
+  test('an element whose parent does not exist at the asked time is an error naming both, never an element left out of every view', () => {
+    const engine = handEngine({
+      landscape: { elements: [{ id: 'top', kind: 'domain' }], relations: [] },
+      every: { elements: [{ id: 'lost', kind: 'service', parent: 'gone' }, { id: 'top', kind: 'domain' }], relations: [] },
+    });
+
+    expect(buildViewSet(engine, compileModel(loadModel(fixture('views-labels')).model!))).toStrictEqual({
+      errors: [{ message: 'the element "lost" is shown in no view: its parent "gone" does not exist at this time', scope: 'gone' }],
+    });
+  });
 });
 
 describe('views/view-set with a query engine that refuses', () => {
-  test('a children query and a view query that refuse are both named, and no view set comes back', () => {
+  test('the query for every element refusing is named, and no view set comes back', () => {
     const refusing = { message: 'refused' };
-    const engine = {
-      view: (input: { scope?: string }) =>
-        input.scope === undefined
-          ? { elements: [{ id: 'a', kind: 'domain' }, { id: 'b', kind: 'domain' }], relations: [] }
-          : { error: refusing },
-      children: (id: string) => (id === 'a' ? { error: refusing } : id === 'b' ? { elements: [{ id: 'b1', kind: 'service', parent: 'b' }] } : { elements: [] }),
-    } as unknown as QueryEngine;
+    const engine = handEngine({ landscape: { elements: [], relations: [] }, every: { error: refusing } });
 
-    expect(buildViewSet(engine, compileModel(loadModel(fixture('views-drill-down')).model!))).toEqual({
+    expect(buildViewSet(engine, compileModel(loadModel(fixture('views-drill-down')).model!))).toStrictEqual({
+      errors: [{ message: 'every element: refused', query: refusing }],
+    });
+  });
+
+  test('every view query that refuses is named, and no view set comes back', () => {
+    const refusing = { message: 'refused' };
+    const engine = handEngine({
+      landscape: { elements: [{ id: 'a', kind: 'domain' }, { id: 'b', kind: 'domain' }], relations: [] },
+      every: {
+        elements: [{ id: 'a', kind: 'domain' }, { id: 'a1', kind: 'service', parent: 'a' }, { id: 'b', kind: 'domain' }, { id: 'b1', kind: 'service', parent: 'b' }],
+        relations: [],
+      },
+      scoped: () => ({ error: refusing }),
+    });
+
+    expect(buildViewSet(engine, compileModel(loadModel(fixture('views-drill-down')).model!))).toStrictEqual({
       errors: [
-        { message: 'the children of "a": refused', scope: 'a', query: refusing },
+        { message: 'the view of "a": refused', scope: 'a', query: refusing },
         { message: 'the view of "b": refused', scope: 'b', query: refusing },
       ],
     });
@@ -560,8 +617,15 @@ describe("the reference system's committed views", () => {
     expect(errors).toEqual([]);
     expect(warnings).toEqual([]);
 
-    // Default sort compares UTF-16 code units, the same as code points for these ASCII file names.
-    expect(readdirSync(MERMAID_FOLDER).sort()).toEqual(pages!.map((page) => page.file).sort());
+    // Written by hand from the model: the landscape, the six domains and
+    // checkout-api, the one service with modules. Default sort compares
+    // UTF-16 code units, the same as code points for these ASCII names.
+    const expected = ['_landscape.md', 'catalog.md', 'checkout-api.md', 'fulfilment.md', 'ordering.md', 'payments.md', 'platform.md', 'storefront.md'];
+    expect(pages!.map((page) => page.file).sort()).toEqual(expected);
+    expect(readdirSync(MERMAID_FOLDER).sort()).toEqual(expected);
+    const { model } = loadAndCompileModel(REFERENCE_SYSTEM);
+    const parents = new Set(model!.elements.map((element) => element.parent).filter((parent) => parent !== undefined));
+    for (const parent of parents) expect(expected).toContain(`${parent}.md`);
     for (const page of pages!) {
       expect({ file: page.file, content: readFileSync(join(MERMAID_FOLDER, page.file), 'utf8') }).toEqual({ file: page.file, content: page.content });
     }

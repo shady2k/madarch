@@ -41,6 +41,6 @@ flowchart LR
   storefront -->|"requests a return"| returns_api
 ```
 
-Up: [Landscape](index.md)
+Up: [Landscape](_landscape.md)
 
 Open: [Catalog](catalog.md) · [Checkout](checkout-api.md) · [Fulfilment](fulfilment.md) · [Payments](payments.md) · [Platform](platform.md) · [Storefront](storefront.md)

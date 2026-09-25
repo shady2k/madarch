@@ -34,6 +34,6 @@ flowchart LR
   class delivery_carrier external
 ```
 
-Up: [Landscape](index.md)
+Up: [Landscape](_landscape.md)
 
 Open: [Ordering](ordering.md) · [Platform](platform.md) · [Storefront](storefront.md)

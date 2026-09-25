@@ -12,6 +12,7 @@ import type {
   QueryError,
   QueryTime,
   ViewInput,
+  ViewRelation,
   ViewResult,
 } from '../query/types.js';
 
@@ -157,6 +158,30 @@ function liftExpression(alias: string, shown: string, context: ViewContext | und
   if (context === undefined) return nearestShown;
   const outside = `list_filter(${alias}.ancestors + [${alias}.elementId], x -> NOT list_contains(${literalIdList(context.scopeAncestors)}, x)) + [${alias}.elementId]`;
   return `CASE WHEN ${insideScope(alias, context)} THEN ${nearestShown} ELSE ${outside} END`;
+}
+
+/**
+ * The relations a view draws, from `viewRelationsQuery`'s rows (one per
+ * drawable relation): a refinement whose own ends are not both shown is
+ * dropped when the relation it refines is drawable here too, and the rest
+ * merge per lifted pair, by `from`, then `to`, their ids in code point
+ * order.
+ */
+function drawnRelations(rows: readonly Record<string, LbugValue>[]): ViewRelation[] {
+  const drawable = new Set(rows.map((row) => row.relationId as string));
+  const byPair = new Map<string, ViewRelation>();
+  for (const row of rows) {
+    if (row.refines !== null && row.endsShown !== true && drawable.has(row.refines as string)) continue;
+    const from = row.fromId as string;
+    const to = row.toId as string;
+    const key = JSON.stringify([from, to]);
+    const pair = byPair.get(key) ?? { from, to, relationIds: [] };
+    if (!pair.relationIds.includes(row.relationId as string)) pair.relationIds.push(row.relationId as string);
+    byPair.set(key, pair);
+  }
+  return [...byPair.values()]
+    .sort((a, b) => byCodePoint(a.from, b.from) || byCodePoint(a.to, b.to))
+    .map((pair) => ({ from: pair.from, to: pair.to, relationIds: pair.relationIds.sort(byCodePoint) }));
 }
 
 interface ResolvedTime {
@@ -420,67 +445,53 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
    * rather than trusting it silently, in case a row ever reached the engine
    * unvalidated.
    *
+   * The query answers every relation this view could draw on its own, one
+   * row each: its lifted pair, what it refines, and whether both its own
+   * real ends (`f.elementId`/`t.elementId`) are drawn as themselves — an
+   * end is its own lift exactly when it is in the shown-id set (the first
+   * entry of `[X] + reverse(ancestors)` is `X` itself) or, with context,
+   * when it is a neighbour itself (see `liftExpression`). A relation is
+   * drawable when both its ends exist at this time, both lift into the
+   * view, it crosses the scope's boundary (with context), and its lifted
+   * ends differ (`inside-one-box`). With context, the crossing test comes
+   * before the lifting, so only crossing relations are lifted at all.
+   *
    * A refinement (`r.refines` naming another relation) is drawn on its own
-   * only when both its own ends (not their lifted ancestors — the real
-   * `fromId`/`toId` this relation was asserted between) are themselves
-   * shown elements, or when the relation it refines is not drawn in this
-   * view at all; otherwise it is dropped and counted once under its
-   * general relation, which already stands for it there (the owner's
-   * corrected reading of `graph-queries/view`'s `refinement-counted-once`
-   * scenario, replacing an earlier reading of this coordinator's that
-   * compared the refinement's own *lifted* pair against the general's —
-   * wrong because a refinement whose own ends are still both hidden can
-   * lift to a pair that happens to differ from the general's, e.g. a
-   * service-level general relation next to a still-more-specific module
-   * one; only "are the refinement's own real ends shown" decides it).
-   * `fShown`/`tShown` ask whether the refinement's own real ends
-   * (`f.elementId`/`t.elementId`) are drawn as themselves: an end is its
-   * own lift exactly when it is in the shown-id set (the first entry of
-   * `[X] + reverse(ancestors)` is `X` itself) or, with context, when it is
-   * a neighbour itself (see `liftExpression`).
-   * `g`/`gf`/`gt` (`OPTIONAL MATCH`, since a refinement's own target may
-   * not exist at this time, or may exist outside what this view shows at
-   * all) look up the refined relation and lift its own ends the same way
-   * as `r`/`f`/`t`, to decide whether the general relation itself is drawn
-   * here (`gLiftedFrom <> gLiftedTo`, both non-`NULL`) — "not drawn"
-   * covers the general being absent, invalid at this time, or itself
-   * collapsing onto one shown element (`inside-one-box`), or its own ends
-   * not lifting into this view at all.
+   * only when both its own ends (not their lifted ancestors) are shown, or
+   * when the relation it refines is not drawn in this view at all;
+   * otherwise it is dropped and counted once under its general relation,
+   * which already stands for it there (the owner's corrected reading of
+   * `graph-queries/view`'s `refinement-counted-once` scenario: a
+   * refinement whose own ends are still both hidden can lift to a pair
+   * that differs from the general's, e.g. a service-level general relation
+   * next to a still-more-specific module one; only "are the refinement's
+   * own real ends shown" decides it). "The general relation is drawn here"
+   * is exactly "it is drawable", the test every row already passed, so
+   * `drawnRelations` decides it from these rows instead of the query
+   * looking the general relation and its ends up again: those three
+   * `OPTIONAL MATCH`es and their lifts made each view's query about three
+   * times as slow to run whether or not any relation refines another
+   * (measured: 21 ms against 6 ms a view on a 990-element model), which
+   * kept rendering every view of a 1 000-element model over ten seconds.
    */
   function viewRelationsQuery(shownIds: readonly string[], context?: ViewContext): PreparedStatement {
     const shown = literalIdList(shownIds);
     const lift = (alias: string): string => liftExpression(alias, shown, context);
     // With context, a relation is drawn only when it has an end inside the
-    // scope (`crosses`): one between two outside elements would otherwise
-    // lift to a pair of neighbours, and the context shows only what crosses
-    // the scope's boundary. The general relation a refinement refines is
-    // "drawn here" by the same test, or a refinement of a relation between
-    // two of the scope's own ancestors would be dropped for a relation this
-    // view never draws.
-    const crosses = (from: string, to: string): string => (context === undefined ? 'true' : `(${insideScope(from, context)} OR ${insideScope(to, context)})`);
+    // scope: one between two outside elements would otherwise lift to a
+    // pair of neighbours, and the context shows only what crosses the
+    // scope's boundary.
+    const crosses = context === undefined ? '' : `WHERE ${insideScope('f', context)} OR ${insideScope('t', context)}`;
     return cachedPrepare(
       `MATCH (r:Relation) WHERE ${filterOf('r')}
        MATCH (f:Element) WHERE f.elementId = r.fromId AND ${filterOf('f')}
        MATCH (t:Element) WHERE t.elementId = r.toId AND ${filterOf('t')}
+       WITH r, f, t ${crosses}
        WITH r, f, t, ${lift('f')} AS fLift, ${lift('t')} AS tLift
-       WHERE size(fLift) > 0 AND size(tLift) > 0 AND ${crosses('f', 't')}
-       WITH r, fLift[1] AS liftedFrom, tLift[1] AS liftedTo, fLift[1] = f.elementId AS fShown, tLift[1] = t.elementId AS tShown
-       OPTIONAL MATCH (g:Relation) WHERE g.relationId = r.refines AND ${filterOf('g')}
-       OPTIONAL MATCH (gf:Element) WHERE gf.elementId = g.fromId AND ${filterOf('gf')}
-       OPTIONAL MATCH (gt:Element) WHERE gt.elementId = g.toId AND ${filterOf('gt')}
-       WITH r, liftedFrom, liftedTo, fShown, tShown,
-            CASE WHEN gf IS NULL THEN NULL ELSE ${lift('gf')} END AS gfLiftList,
-            CASE WHEN gt IS NULL THEN NULL ELSE ${lift('gt')} END AS gtLiftList,
-            CASE WHEN gf IS NULL OR gt IS NULL THEN false ELSE ${crosses('gf', 'gt')} END AS gCrosses
-       WITH r, liftedFrom, liftedTo, fShown, tShown, gCrosses,
-            CASE WHEN gfLiftList IS NULL OR size(gfLiftList) = 0 THEN NULL ELSE gfLiftList[1] END AS gLiftedFrom,
-            CASE WHEN gtLiftList IS NULL OR size(gtLiftList) = 0 THEN NULL ELSE gtLiftList[1] END AS gLiftedTo
-       WHERE liftedFrom <> liftedTo
-         AND (r.refines IS NULL
-              OR (fShown AND tShown)
-              OR gLiftedFrom IS NULL OR gLiftedTo IS NULL OR gLiftedFrom = gLiftedTo OR NOT gCrosses)
-       RETURN liftedFrom AS fromId, liftedTo AS toId, collect(DISTINCT r.relationId) AS relationIds
-       ORDER BY fromId, toId`,
+       WHERE size(fLift) > 0 AND size(tLift) > 0
+       WITH r, fLift[1] AS fromId, tLift[1] AS toId, fLift[1] = f.elementId AND tLift[1] = t.elementId AS endsShown
+       WHERE fromId <> toId
+       RETURN DISTINCT r.relationId AS relationId, r.refines AS refines, fromId, toId, endsShown`,
     );
   }
 
@@ -805,11 +816,7 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
       const shownIds = elements.map((e) => e.id);
 
       const relationRows = rowsOf(conn.executeSync(viewRelationsQuery(shownIds, context), { valid: t.valid, known: t.known, state: t.state }));
-      const relations = relationRows.map((row) => ({
-        from: row.fromId as string,
-        to: row.toId as string,
-        relationIds: [...(row.relationIds as string[])].sort(byCodePoint),
-      }));
+      const relations = drawnRelations(relationRows);
       if (context === undefined) return { elements, relations };
 
       // Every end a crossing relation was drawn to that is not shown is a

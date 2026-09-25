@@ -7,7 +7,7 @@
 import { byCodePoint } from '../model/order.js';
 import type { ShownElement, View } from './view-set.js';
 
-/** One page: its file name (the landscape `index.md`, every other `<element id>.md`) and its whole text. */
+/** One page: its file name (the landscape `_landscape.md`, every other `<element id>.md`) and its whole text. */
 export interface MermaidPage {
   file: string;
   content: string;
@@ -26,7 +26,11 @@ export interface MermaidResult {
   errors: MermaidError[];
 }
 
-const LANDSCAPE_FILE = 'index.md';
+/**
+ * The landscape's page. An element id starts with a letter or a digit
+ * (`ID_PATTERN`), so no element's page can ever take this name.
+ */
+const LANDSCAPE_FILE = '_landscape.md';
 
 /** Each kind with a shape of its own, as the opening and closing of its node; every other kind is a plain box. */
 const SHAPES: Readonly<Record<string, readonly [string, string]>> = {
@@ -63,22 +67,38 @@ const RESERVED = new Set([
   'subgraph',
 ]);
 
-/** Renders every view of the set as a page; an element id that would overwrite the landscape's page, or a view not showing its own scope, is an error. */
+/**
+ * Renders every view of the set as a page. Two views whose element ids
+ * differ only by letter case are an error: their pages would be one file on
+ * a case-insensitive file system. So is a view that does not show its own
+ * scope.
+ */
 export function renderMermaidPages(views: readonly View[]): MermaidResult {
   const errors: MermaidError[] = [];
   const pages: MermaidPage[] = [];
+  const scopeByFolded = new Map<string, string>();
   for (const view of views) {
-    const file = pageFile(view.scope);
-    if (view.scope !== undefined && file === LANDSCAPE_FILE) {
-      errors.push({ message: `the view of "${view.scope}" would be written to ${LANDSCAPE_FILE}, the landscape's page`, scope: view.scope });
+    if (view.scope === undefined) {
+      pages.push({ file: LANDSCAPE_FILE, content: renderPage(view, undefined) });
       continue;
     }
-    const scope = view.scope === undefined ? undefined : view.elements.find((element) => element.id === view.scope && element.place === 'scope');
-    if (view.scope !== undefined && scope === undefined) {
+    const folded = view.scope.toLowerCase();
+    const clash = scopeByFolded.get(folded);
+    if (clash !== undefined) {
+      const [first, second] = [clash, view.scope].sort(byCodePoint) as [string, string];
+      errors.push({
+        message: `the views of "${first}" and "${second}" would be written to ${pageFile(first)} and ${pageFile(second)}, which are one file on a case-insensitive file system`,
+        scope: view.scope,
+      });
+      continue;
+    }
+    scopeByFolded.set(folded, view.scope);
+    const scope = view.elements.find((element) => element.id === view.scope && element.place === 'scope');
+    if (scope === undefined) {
       errors.push({ message: `the view of "${view.scope}" does not show "${view.scope}" itself as its scope`, scope: view.scope });
       continue;
     }
-    pages.push({ file, content: renderPage(view, scope) });
+    pages.push({ file: pageFile(view.scope), content: renderPage(view, scope) });
   }
   return errors.length > 0 ? { errors } : { pages, errors };
 }

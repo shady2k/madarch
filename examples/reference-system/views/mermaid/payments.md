@@ -33,6 +33,6 @@ flowchart LR
   class payment_provider external
 ```
 
-Up: [Landscape](index.md)
+Up: [Landscape](_landscape.md)
 
 Open: [Ordering](ordering.md) · [Platform](platform.md) · [Storefront](storefront.md)

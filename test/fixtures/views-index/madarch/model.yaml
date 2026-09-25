@@ -1,0 +1,11 @@
+version: 1
+
+# A domain whose id is "index", the landscape's page name before it became _landscape.md.
+elements:
+  - id: index
+    kind: domain
+    name: Search index
+  - id: index-api
+    kind: service
+    name: Index API
+    parent: index

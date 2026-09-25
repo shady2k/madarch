@@ -38,6 +38,6 @@ flowchart LR
   storefront -->|"searches products"| search_api
 ```
 
-Up: [Landscape](index.md)
+Up: [Landscape](_landscape.md)
 
 Open: [Ordering](ordering.md) · [Platform](platform.md) · [Storefront](storefront.md)

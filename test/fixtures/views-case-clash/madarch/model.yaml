@@ -1,0 +1,20 @@
+version: 1
+
+# Two domains whose ids differ only by letter case: their pages would
+# overwrite each other on a case-insensitive file system.
+elements:
+  - id: Shop
+    kind: domain
+  - id: Shop-api
+    kind: service
+    parent: Shop
+  - id: shop
+    kind: domain
+  - id: shop-api
+    kind: service
+    parent: shop
+  - id: other
+    kind: domain
+  - id: other-api
+    kind: service
+    parent: other

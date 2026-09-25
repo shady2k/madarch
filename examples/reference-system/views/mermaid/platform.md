@@ -34,6 +34,6 @@ flowchart LR
   class messaging_provider external
 ```
 
-Up: [Landscape](index.md)
+Up: [Landscape](_landscape.md)
 
 Open: [Catalog](catalog.md) · [Fulfilment](fulfilment.md) · [Ordering](ordering.md) · [Payments](payments.md) · [Storefront](storefront.md)

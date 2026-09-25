@@ -65,6 +65,9 @@ export interface ViewSetResult {
   errors: ViewSetError[];
 }
 
+/** A depth no model's nesting reaches: an unscoped view this deep holds every element. */
+const EVERY_LEVEL = Number.MAX_SAFE_INTEGER;
+
 /** The most names an arrow's label lists before counting the rest. */
 const LISTED_NAMES = 3;
 
@@ -72,7 +75,8 @@ const LISTED_NAMES = 3;
  * Builds the view set at one time and state (`at`, the query engine's own
  * defaults when left out): the landscape, `view({ depth: 0 })` — depth 0
  * unscoped is exactly the elements with no parent — and, for every element
- * with children, `view({ scope, depth: 1, context: true })`. Every error is
+ * with children (read from one unscoped view holding every element),
+ * `view({ scope, depth: 1, context: true })`. Every error is
  * collected, so one pass names them all; a view set with any error is not
  * returned at all, never a smaller set passed off as whole.
  */
@@ -83,21 +87,17 @@ export function buildViewSet(engine: QueryEngine, model: CompiledModel, at?: Que
   const landscape = engine.view({ depth: 0 }, at);
   if (landscape.error !== undefined) return { errors: [queryError(undefined, landscape.error)] };
 
-  // Every element with children, found by walking down from the roots;
-  // each one met is kept to name the way up from its children's views.
+  // Every element with children, read from the parents of every element:
+  // one unscoped view deep enough to hold them all, instead of a query per
+  // element. Each is kept to name the way up from its children's views.
+  const every = engine.view({ depth: EVERY_LEVEL }, at);
+  if (every.error !== undefined) return { errors: [{ message: `every element: ${every.error.message}`, query: every.error }] };
+  const byId = new Map(every.elements!.map((element) => [element.id, element]));
   const withChildren = new Set<string>();
-  const met = new Map<string, ElementAnswer>();
-  const pending = [...landscape.elements!];
-  while (pending.length > 0) {
-    const element = pending.shift()!;
-    met.set(element.id, element);
-    const children = engine.children(element.id, at);
-    if (children.error !== undefined) {
-      errors.push({ message: `the children of "${element.id}": ${children.error.message}`, scope: element.id, query: children.error });
-      continue;
-    }
-    if (children.elements!.length > 0) withChildren.add(element.id);
-    pending.push(...children.elements!);
+  for (const element of every.elements!) {
+    if (element.parent === undefined) continue;
+    if (byId.has(element.parent)) withChildren.add(element.parent);
+    else errors.push({ message: `the element "${element.id}" is shown in no view: its parent "${element.parent}" does not exist at this time`, scope: element.parent });
   }
 
   const views: View[] = [assemble(undefined, landscape.elements!, [], landscape.relations!, withChildren, labels, errors)];
@@ -108,9 +108,10 @@ export function buildViewSet(engine: QueryEngine, model: CompiledModel, at?: Que
       continue;
     }
     const view = assemble(scope, result.elements!, result.neighbours!, result.relations!, withChildren, labels, errors);
-    // The walk reached this scope from its parent, so a parent is always met.
-    const parentId = met.get(scope)!.parent;
-    views.push(parentId === undefined ? view : { scope, up: upOf(met.get(parentId)!), elements: view.elements, arrows: view.arrows });
+    const parentId = byId.get(scope)!.parent;
+    // A parent that does not exist was reported above; its child's view goes nowhere up.
+    const parent = parentId === undefined ? undefined : byId.get(parentId);
+    views.push(parent === undefined ? view : { scope, up: upOf(parent), elements: view.elements, arrows: view.arrows });
   }
   return errors.length > 0 ? { errors } : { views, errors };
 }
