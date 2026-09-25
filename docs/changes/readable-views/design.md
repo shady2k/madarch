@@ -53,3 +53,15 @@ general relation there is accepted.
   `mermaid.parse` under a happy-dom global, and runs `likec4 validate` on the
   workspace; it fails naming the page or file and the error. CI runs it after
   the tests.
+
+## Decided during the run
+
+- **Blank names are no names** (madarch-mk5.1.1): an empty or space-only
+  `name` is warned about like a missing one and left out of the compiled
+  model, so no label comes out blank.
+- **Warnings on a refused model** are still returned for every file that read
+  and matched the schema, so an author fixes everything in one pass.
+- **The compiled schema stays at version 1** although it now carries an
+  optional relation name: a reader validating new output against the old
+  strict schema would refuse it, but no v1 reader outside this repository
+  exists yet; the first published release fixes the version.
