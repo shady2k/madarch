@@ -1,0 +1,58 @@
+version: 1
+
+# Ids that are not LikeC4 identifiers as they stand (a leading digit, a
+# LikeC4 keyword, a dot, and an id that is the dotted one's identifier),
+# names and labels with characters LikeC4's strings escape, technology,
+# every kind with a shape of its own, two relations between one pair, and
+# the unnamed fallbacks.
+elements:
+  - id: 3d-store
+    kind: store
+    name: 'Stock "3D" \ store'
+    technology: PostgreSQL
+  - id: style
+    kind: domain
+    name: Style
+  - id: style.web
+    kind: service
+    name: Style web
+    parent: style
+    technology: TypeScript
+  - id: style_web
+    kind: module
+    parent: style.web
+  - id: buyer
+    kind: person
+    name: Buyer
+  - id: events
+    kind: broker
+    name: Events
+  - id: mailer
+    kind: external
+    name: Mailer
+
+interfaces:
+  - id: events-topic
+    provider: events
+    contract: topic::stock-changed
+
+relations:
+  - id: buyer-uses-web
+    name: 'opens the "shop"'
+    from: buyer
+    to: style.web
+  - id: web-reads-stock
+    name: 'reads\stock'
+    from: style_web
+    to: 3d-store
+  - id: web-writes-stock
+    name: writes stock
+    from: style_web
+    to: 3d-store
+  - id: web-publishes
+    from: style_web
+    to: events
+    interface: events-topic
+  - id: web-mails
+    from: style.web
+    to: mailer

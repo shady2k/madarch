@@ -65,8 +65,8 @@ export interface ViewSetResult {
   errors: ViewSetError[];
 }
 
-/** A depth no model's nesting reaches: an unscoped view this deep holds every element. */
-const EVERY_LEVEL = Number.MAX_SAFE_INTEGER;
+/** A depth no model's nesting reaches: an unscoped view this deep holds every element, and draws every relation between its own ends. */
+export const EVERY_LEVEL = Number.MAX_SAFE_INTEGER;
 
 /** The most names an arrow's label lists before counting the rest. */
 const LISTED_NAMES = 3;
@@ -166,15 +166,16 @@ function shownElement(element: ElementAnswer, place: Place, withChildren: Readon
   return { ...element, place, hasView: withChildren.has(element.id) };
 }
 
-type Labeller = (relationIds: readonly string[], fail: (relationId: string, problem: string) => void) => string;
+export type Labeller = (relationIds: readonly string[], fail: (relationId: string, problem: string) => void) => string;
 
 /**
  * An arrow's label (views/labels): each relation's name, or for one without
  * a name its interface's contract, or its id where it names no interface;
  * in relation-id order, a label repeated among them shown once, the first
- * three joined by "; " and a count of the rest.
+ * three joined by "; " and a count of the rest. The LikeC4 workspace labels
+ * each of its relations with it too, one relation id at a time.
  */
-function labeller(model: CompiledModel): Labeller {
+export function labeller(model: CompiledModel): Labeller {
   const relations = new Map(model.relations.map((relation) => [relation.id, relation]));
   const contracts = new Map(model.interfaces.map((iface) => [iface.id, iface.contract]));
 

@@ -21,7 +21,8 @@ or a neighbour), its arrows (the shown pair and the relation ids behind it)
 and each arrow's label, worked out from the compiled model: names in id order,
 the first three and "+N more"; an unnamed relation falls back to its
 interface's contract, then its id. Mermaid and LikeC4 each turn the same view
-set into text; neither queries anything itself. The server of outcome 4 calls
+set into text; LikeC4 also asks for every relation at its own ends (see
+"Decided during the run"), and nothing else is queried. The server of outcome 4 calls
 the same function for a view on request.
 
 ## Mermaid
@@ -95,3 +96,23 @@ general relation there is accepted.
   1 000 nested elements takes about 69 s, because every lift filters ancestor
   lists as long as the depth; lifting by position would allow parameters and
   one prepared statement, an engine redesign no real model needs now.
+- **The LikeC4 workspace asks the engine once more** (madarch-mk5.3.1):
+  `renderLikeC4Workspace(engine, model, at)` takes the views from the view
+  set and the elements and relations from the unscoped view at full depth,
+  where every relation is drawn between its own ends; the view set drops
+  that view's relations, so the workspace asks for it again rather than
+  widen the view set for one renderer. One LikeC4 relation per relation id,
+  labelled by the view set's labeller one id at a time.
+- **LikeC4 identifiers**: characters outside letters, digits, `_` and `-`
+  become `_`, an id not starting with a letter gets a leading `_`, and the
+  keywords LikeC4 1.59.4 refuses where a name stands (found by validating
+  each keyword of its grammar) and `index`, the landscape's view, get a
+  trailing `_`; clashes take `_2`, `_3`, ... as in Mermaid. An element's view
+  is named by its identifier, so no view can clash with `index`.
+- **Externals are muted with a dashed border** in LikeC4; persons, stores
+  and brokers take the shapes person, storage and queue.
+- **`views:check` takes `--mermaid <folder>` and `--likec4 <folder>`**, each
+  repeatable, both reference folders by default, and exits 1 if either check
+  fails. It reads `likec4 validate --json`, reports its 0-based lines as
+  1-based, and fails a folder with no LikeC4 file, which LikeC4 itself
+  passes.

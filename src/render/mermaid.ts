@@ -5,6 +5,7 @@
  * caller's. This module touches no Bun-specific API.
  */
 import { byCodePoint } from '../model/order.js';
+import { uniqueSafeIds } from './safe-ids.js';
 import type { ShownElement, View } from './view-set.js';
 
 /** One page: its file name (the landscape `_landscape.md`, every other `<element id>.md`) and its whole text. */
@@ -154,25 +155,10 @@ function node(element: ShownElement, ids: ReadonlyMap<string, string>): string {
  * `<id>_2`, `<id>_3`, ... after a clash.
  */
 function nodeIds(elementIds: readonly string[]): Map<string, string> {
-  const ids = new Map<string, string>();
-  const used = new Set<string>();
-  const safe = (id: string): string => {
+  return uniqueSafeIds(elementIds, (id) => {
     const replaced = id.replace(/[^A-Za-z0-9_]/g, '_');
     return RESERVED.has(replaced.toLowerCase()) ? `${replaced}_` : replaced;
-  };
-  const sorted = [...elementIds].sort(byCodePoint);
-  for (const id of sorted.filter((id) => safe(id) === id)) {
-    ids.set(id, id);
-    used.add(id);
-  }
-  for (const id of sorted.filter((id) => safe(id) !== id)) {
-    const base = safe(id);
-    let candidate = base;
-    for (let n = 2; used.has(candidate); n++) candidate = `${base}_${n}`;
-    ids.set(id, candidate);
-    used.add(candidate);
-  }
-  return ids;
+  });
 }
 
 const MERMAID_ENTITIES: Readonly<Record<string, string>> = { '"': '#quot;', '&': '#amp;', '<': '#lt;', '>': '#gt;' };
