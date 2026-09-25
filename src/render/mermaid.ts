@@ -103,8 +103,9 @@ export function renderMermaidPages(views: readonly View[]): MermaidResult {
   return errors.length > 0 ? { errors } : { pages, errors };
 }
 
-function pageFile(scope: string | undefined): string {
-  return scope === undefined ? LANDSCAPE_FILE : `${scope}.md`;
+/** The page of the view of `elementId`. */
+function pageFile(elementId: string): string {
+  return `${elementId}.md`;
 }
 
 /** `scope` is the view's own element, left out for the landscape. */
