@@ -93,4 +93,6 @@ flows, and layout beyond what Mermaid and LikeC4 choose are not offered yet.
 Mermaid's parser accepting a flowchart is checked; how it looks is not.
 Element ids that differ only by letter case are not rendered as pages.
 Nesting hundreds of levels deep renders, but slowly: the time grows with the
-square of the depth.
+square of the depth. LikeC4 cannot draw a relation of an element with itself
+or with its own descendant; such relations are left out of the workspace and
+listed by the renderer, never dropped silently.

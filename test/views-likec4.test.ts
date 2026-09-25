@@ -281,6 +281,24 @@ describe('views/likec4 relations LikeC4 cannot draw', () => {
     expect(notDrawn!.map((relation) => [relation.relationId, relation.reason])).toEqual([['loop-retries', 'self']]);
   });
 
+  test('a relation the compiled model does not hold is an error even between an element and its descendant', () => {
+    const elements = [
+      { id: 'shop', kind: 'domain' },
+      { id: 'cart', kind: 'service', parent: 'shop' },
+    ];
+    const engine = handEngine({
+      landscape: { elements: [elements[0]!], relations: [] },
+      every: { elements, relations: [{ from: 'shop', to: 'cart', relationIds: ['ghost'] }] },
+    });
+    const { model } = loadModel(fixture('views-likec4-not-drawn'));
+
+    const result = renderLikeC4Workspace(engine, compileModel(model!));
+
+    expect(result.workspace).toBeUndefined();
+    expect(result.notDrawn).toBeUndefined();
+    expect(result.errors.map((error) => error.relationId)).toEqual(['ghost']);
+  });
+
   test('a self-relation of an element absent at the asked time is not listed: there is nothing to draw it on', () => {
     const { model } = loadModel(fixture('views-likec4-not-drawn'));
     const compiled = compileModel(model!);

@@ -199,13 +199,15 @@ export function renderLikeC4Workspace(engine: QueryEngine, model: CompiledModel,
   for (const pair of every.relations!) {
     const reason = pair.from === pair.to ? 'self' : isAncestor(pair.from, pair.to) || isAncestor(pair.to, pair.from) ? 'descendant' : undefined;
     for (const id of pair.relationIds) {
+      // Labelled first, drawn or not: a relation the compiled model does not
+      // hold is an error even where LikeC4 could not draw it anyway.
+      const label = labels([id], (relationId, problem) => {
+        errors.push({ message: `the workspace: the arrow from "${pair.from}" to "${pair.to}" stands for the relation "${relationId}", ${problem}`, relationId });
+      });
       if (reason !== undefined) {
         leaveOut(id, pair.from, pair.to, reason);
         continue;
       }
-      const label = labels([id], (relationId, problem) => {
-        errors.push({ message: `the workspace: the arrow from "${pair.from}" to "${pair.to}" stands for the relation "${relationId}", ${problem}`, relationId });
-      });
       relations.push({ id, from: pair.from, to: pair.to, label });
     }
   }
