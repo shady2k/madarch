@@ -136,9 +136,14 @@ queries; it knows no source, transport or storage.
 **Extraction plugin**:
 A separate process that reads a source and emits facts over the plugin protocol.
 
+**Renderer**:
+The in-process code that turns views, computed by the query engine and named
+from the compiled model, into text a frontend reads (Mermaid pages, a LikeC4
+workspace). The server calls the same renderer for a view on request.
+
 **Output plugin**:
 A separate process that reads the compiled model and renders it (Mermaid,
-LikeC4, a graph database).
+LikeC4, a graph database). Not built yet; the renderer does this in process.
 
 **Fact log**:
 The append-only, bitemporal store of all assertions; the server's source of truth.
