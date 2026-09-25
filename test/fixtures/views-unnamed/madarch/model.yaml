@@ -1,0 +1,26 @@
+version: 1
+
+elements:
+  - id: checkout-web
+    kind: service
+    name: Checkout web
+  - id: orders-api
+    kind: service
+    name: Orders API
+  - id: stock-api
+    kind: service
+    name: Stock API
+
+interfaces:
+  - id: orders-http
+    provider: orders-api
+    contract: http::POST::/api/orders
+
+relations:
+  - id: checkout-to-orders
+    from: checkout-web
+    to: orders-api
+    interface: orders-http
+  - id: checkout-to-stock
+    from: checkout-web
+    to: stock-api

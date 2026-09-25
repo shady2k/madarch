@@ -1,0 +1,391 @@
+import { describe, expect, test } from 'bun:test';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { MERMAID_FOLDER, renderReferenceSystem } from '../scripts/render-views.js';
+import {
+  buildViewSet,
+  compileModel,
+  createLadybugEngine,
+  createSqliteHistory,
+  loadModel,
+  renderMermaidPages,
+  type Clock,
+  type CompiledModel,
+  type HistoryStore,
+  type QueryEngine,
+  type View,
+} from '../src/index.js';
+
+/**
+ * The views capability's view-set, labels, mermaid and deterministic
+ * requirements (docs/changes/readable-views/capabilities/views.md). Every
+ * expected view and page below is written by hand from the fixture and the
+ * requirement, never produced by the renderer and pasted back.
+ */
+function fixture(name: string): string {
+  return fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
+}
+
+function fakeClock(initial: number): Clock {
+  return { now: () => initial };
+}
+
+const DAY = (day: number) => Date.UTC(2026, 8, day);
+const AT = { valid: DAY(2), known: DAY(2) };
+
+interface Built {
+  engine: QueryEngine;
+  history: HistoryStore;
+  model: CompiledModel;
+}
+
+/** Loads and compiles one fixture, stores it as one version, and builds a query engine from that history. */
+function build(name: string): Built {
+  const { model, errors } = loadModel(fixture(name));
+  expect(errors).toEqual([]);
+  const compiled = compileModel(model!);
+  const history = createSqliteHistory({ clock: fakeClock(DAY(1)) });
+  expect(history.store({ source: 's', commit: name, committedAt: DAY(1), model: compiled }).errors).toEqual([]);
+  const engine = createLadybugEngine();
+  engine.rebuild(history.assertions());
+  return { engine, history, model: compiled };
+}
+
+function close(built: Built): void {
+  built.engine.close();
+  built.history.close();
+}
+
+function viewsOf(name: string): View[] {
+  const built = build(name);
+  const { views, errors } = buildViewSet(built.engine, built.model, AT);
+  close(built);
+  expect(errors).toEqual([]);
+  return views!;
+}
+
+function viewOf(views: readonly View[], scope: string | undefined): View {
+  const found = views.find((view) => view.scope === scope);
+  expect(found).toBeDefined();
+  return found!;
+}
+
+function pagesOf(name: string): Map<string, string> {
+  const { pages, errors } = renderMermaidPages(viewsOf(name));
+  expect(errors).toEqual([]);
+  return new Map(pages!.map((page) => [page.file, page.content]));
+}
+
+describe('views/view-set', () => {
+  test('drill-down: a landscape, a view of shop, of payments and of checkout-web, and none of payments-api', () => {
+    const views = viewsOf('views-drill-down');
+
+    expect(views.map((view) => view.scope)).toEqual([undefined, 'checkout-web', 'payments', 'shop']);
+  });
+
+  test('the landscape shows exactly the elements with no parent, with the relations between them lifted', () => {
+    expect(viewOf(viewsOf('views-drill-down'), undefined)).toEqual({
+      elements: [
+        { id: 'payments', kind: 'domain', name: 'Payments', place: 'inside', hasView: true },
+        { id: 'shop', kind: 'domain', name: 'Shop', place: 'inside', hasView: true },
+      ],
+      arrows: [{ from: 'shop', to: 'payments', relationIds: ['cart-charges-card'], label: 'charges the card' }],
+    });
+  });
+
+  test('a domain view shows its children inside it and its neighbours outside, each marked with whether it has a view', () => {
+    expect(viewOf(viewsOf('views-drill-down'), 'shop')).toEqual({
+      scope: 'shop',
+      elements: [
+        { id: 'catalog-api', kind: 'service', name: 'Catalog API', parent: 'shop', place: 'inside', hasView: false },
+        { id: 'checkout-web', kind: 'service', name: 'Checkout web', parent: 'shop', place: 'inside', hasView: true },
+        { id: 'payments', kind: 'domain', name: 'Payments', place: 'neighbour', hasView: true },
+        { id: 'shop', kind: 'domain', name: 'Shop', place: 'scope', hasView: true },
+      ],
+      arrows: [
+        { from: 'checkout-web', to: 'catalog-api', relationIds: ['cart-reads-catalog'], label: 'reads prices' },
+        { from: 'checkout-web', to: 'payments', relationIds: ['cart-charges-card'], label: 'charges the card' },
+      ],
+    });
+  });
+
+  test('a service view shows its modules, a sibling service and another domain as neighbours', () => {
+    expect(viewOf(viewsOf('views-drill-down'), 'checkout-web')).toEqual({
+      scope: 'checkout-web',
+      up: { id: 'shop', name: 'Shop' },
+      elements: [
+        { id: 'catalog-api', kind: 'service', name: 'Catalog API', parent: 'shop', place: 'neighbour', hasView: false },
+        { id: 'checkout-cart', kind: 'module', name: 'Cart', parent: 'checkout-web', place: 'inside', hasView: false },
+        { id: 'checkout-ui', kind: 'module', name: 'Checkout UI', parent: 'checkout-web', place: 'inside', hasView: false },
+        { id: 'checkout-web', kind: 'service', name: 'Checkout web', parent: 'shop', place: 'scope', hasView: true },
+        { id: 'payments', kind: 'domain', name: 'Payments', place: 'neighbour', hasView: true },
+      ],
+      arrows: [
+        { from: 'checkout-cart', to: 'catalog-api', relationIds: ['cart-reads-catalog'], label: 'reads prices' },
+        { from: 'checkout-cart', to: 'payments', relationIds: ['cart-charges-card'], label: 'charges the card' },
+        { from: 'checkout-ui', to: 'checkout-cart', relationIds: ['ui-renders-cart'], label: 'renders the cart' },
+      ],
+    });
+  });
+
+  test('the views are computed at the asked time: before the model existed there is an empty landscape and nothing else', () => {
+    const built = build('views-drill-down');
+    const { views, errors } = buildViewSet(built.engine, built.model, { valid: DAY(1) - 1, known: DAY(2) });
+    close(built);
+
+    expect(errors).toEqual([]);
+    expect(views).toEqual([{ elements: [], arrows: [] }]);
+  });
+
+  test('a query error is surfaced, naming the view it stopped, never swallowed', () => {
+    const built = build('views-drill-down');
+    const result = buildViewSet(built.engine, built.model, { ...AT, state: 'not a state' });
+    close(built);
+
+    expect(result.views).toBeUndefined();
+    expect(result.errors).toEqual([
+      {
+        message: 'the landscape: "not a state" is not a state id this model could ever declare',
+        query: { message: '"not a state" is not a state id this model could ever declare', id: 'not a state' },
+      },
+    ]);
+  });
+
+  test('a relation the engine draws but the compiled model does not hold is an error naming the view, the arrow and the relation', () => {
+    const built = build('views-drill-down');
+    const other = compileModel(loadModel(fixture('views-labels')).model!);
+    const result = buildViewSet(built.engine, other, AT);
+    close(built);
+
+    expect(result.views).toBeUndefined();
+    expect(result.errors).toEqual([
+      { message: 'the landscape: the arrow from "shop" to "payments" stands for the relation "cart-charges-card", which the compiled model does not hold', relationId: 'cart-charges-card' },
+      {
+        message: 'the view of "checkout-web": the arrow from "checkout-cart" to "catalog-api" stands for the relation "cart-reads-catalog", which the compiled model does not hold',
+        scope: 'checkout-web',
+        relationId: 'cart-reads-catalog',
+      },
+      {
+        message: 'the view of "checkout-web": the arrow from "checkout-cart" to "payments" stands for the relation "cart-charges-card", which the compiled model does not hold',
+        scope: 'checkout-web',
+        relationId: 'cart-charges-card',
+      },
+      {
+        message: 'the view of "checkout-web": the arrow from "checkout-ui" to "checkout-cart" stands for the relation "ui-renders-cart", which the compiled model does not hold',
+        scope: 'checkout-web',
+        relationId: 'ui-renders-cart',
+      },
+      {
+        message: 'the view of "payments": the arrow from "shop" to "payments-api" stands for the relation "cart-charges-card", which the compiled model does not hold',
+        scope: 'payments',
+        relationId: 'cart-charges-card',
+      },
+      {
+        message: 'the view of "shop": the arrow from "checkout-web" to "catalog-api" stands for the relation "cart-reads-catalog", which the compiled model does not hold',
+        scope: 'shop',
+        relationId: 'cart-reads-catalog',
+      },
+      {
+        message: 'the view of "shop": the arrow from "checkout-web" to "payments" stands for the relation "cart-charges-card", which the compiled model does not hold',
+        scope: 'shop',
+        relationId: 'cart-charges-card',
+      },
+    ]);
+  });
+});
+
+describe('views/labels', () => {
+  test('merged-label: the one arrow from checkout-web to stock-api in the view of shop is labelled "reserves stock; shows stock"', () => {
+    const shop = viewOf(viewsOf('views-labels'), 'shop');
+
+    expect(shop.arrows.find((arrow) => arrow.to === 'stock-api')).toEqual({
+      from: 'checkout-web',
+      to: 'stock-api',
+      relationIds: ['cart-reserves-stock', 'ui-shows-stock'],
+      label: 'reserves stock; shows stock',
+    });
+  });
+
+  test('more than three names: the first three in relation-id order (code point) and a count of the rest; a name repeated among them is shown once', () => {
+    const shop = viewOf(viewsOf('views-labels'), 'shop');
+
+    expect(shop.arrows.find((arrow) => arrow.to === 'audit-log')).toEqual({
+      from: 'checkout-web',
+      to: 'audit-log',
+      relationIds: ['W-writes-first', 'cart-reads', 'cart-writes-again', 'ui-audits', 'ui-counts', 'ui-locks'],
+      label: 'writes carts; reads carts; audits views (+2 more)',
+    });
+  });
+
+  test('exactly three names carry no count; three relations sharing a name among them show two', () => {
+    const checkout = viewOf(viewsOf('views-labels'), 'checkout-web');
+
+    expect(checkout.arrows.filter((arrow) => arrow.to === 'audit-log').map((arrow) => [arrow.from, arrow.label])).toEqual([
+      ['checkout-cart', 'writes carts; reads carts'],
+      ['checkout-ui', 'audits views; counts views; locks rows'],
+    ]);
+  });
+
+  test("unnamed-fallback: an unnamed relation is labelled with its interface's contract, or its id where it names no interface", () => {
+    const { model, errors, warnings } = loadModel(fixture('views-unnamed'));
+    expect(errors).toEqual([]);
+    expect(warnings.map((warning) => warning.path)).toEqual(['relations[0]', 'relations[1]']);
+    expect(model).toBeDefined();
+
+    expect(viewOf(viewsOf('views-unnamed'), undefined).arrows).toEqual([
+      { from: 'checkout-web', to: 'orders-api', relationIds: ['checkout-to-orders'], label: 'http::POST::/api/orders' },
+      { from: 'checkout-web', to: 'stock-api', relationIds: ['checkout-to-stock'], label: 'checkout-to-stock' },
+    ]);
+  });
+
+  test("an unnamed relation whose interface the compiled model does not hold is an error naming the relation and the interface", () => {
+    const built = build('views-unnamed');
+    const model: CompiledModel = { ...built.model, interfaces: [] };
+    const result = buildViewSet(built.engine, model, AT);
+    close(built);
+
+    expect(result.views).toBeUndefined();
+    expect(result.errors).toEqual([
+      {
+        message:
+          'the landscape: the arrow from "checkout-web" to "orders-api" stands for the relation "checkout-to-orders", whose interface "orders-http" the compiled model does not hold',
+        relationId: 'checkout-to-orders',
+      },
+    ]);
+  });
+});
+
+describe('views/mermaid', () => {
+  test('mermaid-page: the page of shop frames checkout-web and catalog-api inside shop, draws payments outside, and links to checkout-web and the landscape', () => {
+    expect(pagesOf('views-drill-down').get('shop.md')).toBe(
+      [
+        '# Shop (domain)',
+        '',
+        '```mermaid',
+        'flowchart LR',
+        '  subgraph shop ["Shop"]',
+        '    catalog_api["Catalog API"]',
+        '    checkout_web["Checkout web"]',
+        '  end',
+        '  payments["Payments"]',
+        '  checkout_web -->|"reads prices"| catalog_api',
+        '  checkout_web -->|"charges the card"| payments',
+        '```',
+        '',
+        'Up: [Landscape](index.md)',
+        '',
+        'Open: [Checkout web](checkout-web.md) · [Payments](payments.md)',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  test('one page per view: the landscape is index.md, every other page is named by its element id', () => {
+    expect([...pagesOf('views-drill-down').keys()]).toEqual(['index.md', 'checkout-web.md', 'payments.md', 'shop.md']);
+  });
+
+  test('a service page goes up to its domain; the landscape has no way up', () => {
+    const pages = pagesOf('views-drill-down');
+
+    expect(pages.get('checkout-web.md')).toContain('\nUp: [Shop](shop.md)\n');
+    expect(pages.get('checkout-web.md')).toContain('\nOpen: [Payments](payments.md)\n');
+    expect(pages.get('index.md')).toBe(
+      [
+        '# Landscape',
+        '',
+        '```mermaid',
+        'flowchart LR',
+        '  payments["Payments"]',
+        '  shop["Shop"]',
+        '  shop -->|"charges the card"| payments',
+        '```',
+        '',
+        'Open: [Payments](payments.md) · [Shop](shop.md)',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  test("shapes per kind, externals in their own class, entity codes for Mermaid's special characters, and node ids made safe and unique", () => {
+    expect(pagesOf('views-shapes').get('index.md')).toBe(
+      [
+        '# Landscape',
+        '',
+        '```mermaid',
+        'flowchart LR',
+        '  a_b_2["A dot B"]',
+        '  a_b["A underscore B"]',
+        '  customer(["The #quot;best#quot; customer"])',
+        '  end_["end"]',
+        '  mail_gateway["Mail #35;1 #lt;smtp#gt; #amp; co"]',
+        '  order_events[["Order events"]]',
+        '  orders_db[("Orders DB")]',
+        '  web["Web [*beta*]"]',
+        '  a_b_2 -->|"writes orders"| orders_db',
+        '  a_b -->|"publishes #96;placed#96;"| order_events',
+        '  customer -->|"sends #quot;receipts#quot; #124; copies"| mail_gateway',
+        '  end_ -->|"calls"| a_b_2',
+        '  web -->|"calls"| end_',
+        '  classDef external fill:#f4f4f4,stroke:#888888,stroke-dasharray:5 5',
+        '  class mail_gateway external',
+        '```',
+        '',
+        'Open: [Web \\[\\*beta\\*\\]](web.md)',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  test('an element without a name is drawn by its id; a page with no element to open has no Open line', () => {
+    expect(pagesOf('views-shapes').get('web.md')).toBe(
+      [
+        '# Web \\[\\*beta\\*\\] (system)',
+        '',
+        '```mermaid',
+        'flowchart LR',
+        '  subgraph web ["Web [*beta*]"]',
+        '    web_ui["web-ui"]',
+        '  end',
+        '  end_["end"]',
+        '  web_ui -->|"calls"| end_',
+        '```',
+        '',
+        'Up: [Landscape](index.md)',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  test('an element with a view whose id is "index" would overwrite the landscape: an error naming it, and no pages', () => {
+    const view: View = { scope: 'index', elements: [{ id: 'index', kind: 'domain', place: 'scope', hasView: true }], arrows: [] };
+    const landscape: View = { elements: [{ id: 'index', kind: 'domain', place: 'inside', hasView: true }], arrows: [] };
+
+    expect(renderMermaidPages([landscape, view])).toEqual({
+      errors: [{ message: 'the view of "index" would be written to index.md, the landscape\'s page', scope: 'index' }],
+    });
+  });
+});
+
+describe('views/deterministic', () => {
+  test('twice: the same model rendered twice, from two engines built apart, gives byte-identical pages', () => {
+    const first = pagesOf('views-shapes');
+    const second = pagesOf('views-shapes');
+
+    expect([...second.entries()]).toEqual([...first.entries()]);
+  });
+});
+
+describe("the reference system's committed views", () => {
+  test('rendering examples/reference-system again gives exactly the committed pages under views/mermaid/, byte for byte, no more and no fewer', () => {
+    const { pages, errors, warnings } = renderReferenceSystem();
+    expect(errors).toEqual([]);
+    expect(warnings).toEqual([]);
+
+    // Default sort compares UTF-16 code units, the same as code points for these ASCII file names.
+    expect(readdirSync(MERMAID_FOLDER).sort()).toEqual(pages!.map((page) => page.file).sort());
+    for (const page of pages!) {
+      expect({ file: page.file, content: readFileSync(join(MERMAID_FOLDER, page.file), 'utf8') }).toEqual({ file: page.file, content: page.content });
+    }
+  });
+});

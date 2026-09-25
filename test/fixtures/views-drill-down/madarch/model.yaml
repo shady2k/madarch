@@ -1,0 +1,43 @@
+version: 1
+
+elements:
+  - id: shop
+    kind: domain
+    name: Shop
+  - id: checkout-web
+    kind: service
+    name: Checkout web
+    parent: shop
+  - id: checkout-cart
+    kind: module
+    name: Cart
+    parent: checkout-web
+  - id: checkout-ui
+    kind: module
+    name: Checkout UI
+    parent: checkout-web
+  - id: catalog-api
+    kind: service
+    name: Catalog API
+    parent: shop
+  - id: payments
+    kind: domain
+    name: Payments
+  - id: payments-api
+    kind: service
+    name: Payments API
+    parent: payments
+
+relations:
+  - id: cart-reads-catalog
+    name: reads prices
+    from: checkout-cart
+    to: catalog-api
+  - id: ui-renders-cart
+    name: renders the cart
+    from: checkout-ui
+    to: checkout-cart
+  - id: cart-charges-card
+    name: charges the card
+    from: checkout-cart
+    to: payments-api

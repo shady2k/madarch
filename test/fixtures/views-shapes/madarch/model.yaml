@@ -1,0 +1,53 @@
+version: 1
+
+# Every shape the Mermaid pages draw, names Mermaid and Markdown treat
+# specially, and ids that are not Mermaid node ids as they stand.
+elements:
+  - id: customer
+    kind: person
+    name: The "best" customer
+  - id: mail-gateway
+    kind: external
+    name: 'Mail #1 <smtp> & co'
+  - id: orders-db
+    kind: store
+    name: Orders DB
+  - id: order-events
+    kind: broker
+    name: Order events
+  - id: a.b
+    kind: system
+    name: A dot B
+  - id: a_b
+    kind: system
+    name: A underscore B
+  - id: end
+    kind: service
+  - id: web
+    kind: system
+    name: Web [*beta*]
+  - id: web-ui
+    kind: module
+    parent: web
+
+relations:
+  - id: customer-mails
+    name: 'sends "receipts" | copies'
+    from: customer
+    to: mail-gateway
+  - id: ab-writes
+    name: writes orders
+    from: a.b
+    to: orders-db
+  - id: ab-publishes
+    name: 'publishes `placed`'
+    from: a_b
+    to: order-events
+  - id: end-calls-ab
+    name: calls
+    from: end
+    to: a.b
+  - id: ui-calls-end
+    name: calls
+    from: web-ui
+    to: end
