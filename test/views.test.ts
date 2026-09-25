@@ -436,14 +436,16 @@ describe('views/mermaid on hand-built views', () => {
 });
 
 describe('views/mermaid refuses a view without its own scope', () => {
-  test('a view whose scope is missing, or shown only as a neighbour, is an error naming it, and no pages', () => {
+  test('a view whose scope is missing, shown only as a neighbour, or another element in its place, is an error naming it, and no pages', () => {
     const missing: View = { scope: 'shop', elements: [{ id: 'cart', kind: 'service', parent: 'shop', place: 'inside', hasView: false }], arrows: [] };
     const asNeighbour: View = { scope: 'pay', elements: [{ id: 'pay', kind: 'domain', place: 'neighbour', hasView: true }], arrows: [] };
+    const anotherScope: View = { scope: 'odd', elements: [{ id: 'other', kind: 'domain', place: 'scope', hasView: true }], arrows: [] };
 
-    expect(renderMermaidPages([{ elements: [], arrows: [] }, missing, asNeighbour])).toStrictEqual({
+    expect(renderMermaidPages([{ elements: [], arrows: [] }, missing, asNeighbour, anotherScope])).toStrictEqual({
       errors: [
         { message: 'the view of "shop" does not show "shop" itself as its scope', scope: 'shop' },
         { message: 'the view of "pay" does not show "pay" itself as its scope', scope: 'pay' },
+        { message: 'the view of "odd" does not show "odd" itself as its scope', scope: 'odd' },
       ],
     });
   });
