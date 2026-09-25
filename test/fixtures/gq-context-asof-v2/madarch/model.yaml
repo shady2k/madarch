@@ -1,0 +1,19 @@
+version: 1
+
+elements:
+  - id: shop
+    kind: domain
+  - id: checkout-web
+    kind: service
+    parent: shop
+  - id: payments
+    kind: domain
+  - id: payments-api
+    kind: service
+    parent: payments
+
+relations:
+  - id: checkout-calls-payments
+    name: charges the card
+    from: checkout-web
+    to: payments-api

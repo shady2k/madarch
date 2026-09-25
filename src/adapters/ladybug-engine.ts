@@ -98,10 +98,13 @@ const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /** A Cypher list literal of ids, e.g. `['a','b']`, for text a query is built with (see `viewRelationsQuery`). Every id is checked against `SAFE_ID` first: this is what makes inlining safe, not merely convenient. */
 function literalIdList(ids: readonly string[]): string {
-  for (const id of ids) {
-    if (!SAFE_ID.test(id)) throw new Error(`refusing to build a query around an id outside the model's own id pattern: ${JSON.stringify(id)}`);
-  }
-  return `[${ids.map((id) => `'${id}'`).join(', ')}]`;
+  return `[${ids.map(literalId).join(', ')}]`;
+}
+
+/** One id as a quoted Cypher string literal, checked against `SAFE_ID` the same way (see `literalIdList`). */
+function literalId(id: string): string {
+  if (!SAFE_ID.test(id)) throw new Error(`refusing to build a query around an id outside the model's own id pattern: ${JSON.stringify(id)}`);
+  return `'${id}'`;
 }
 
 /** The bitemporal and state filter every hop of every query carries, over an alias already bound in scope, as query parameters. */
@@ -123,6 +126,37 @@ function filterOf(alias: string): string {
 function filterOfLiteral(alias: string, valid: number, known: number, state: string): string {
   if (!SAFE_ID.test(state)) throw new Error(`refusing to build a query around a state outside the model's own id pattern: ${JSON.stringify(state)}`);
   return `${alias}.validFrom <= ${valid} AND (${alias}.validTo IS NULL OR ${alias}.validTo > ${valid}) AND ${alias}.recordedFrom <= ${known} AND (${alias}.recordedTo IS NULL OR ${alias}.recordedTo > ${known}) AND list_contains(${alias}.states, '${state}')`;
+}
+
+/** What a view asked with its context needs to tell inside from outside: the scope and its own root-to-parent ancestors, both already known model ids. */
+interface ViewContext {
+  scope: string;
+  scopeAncestors: string[];
+}
+
+/** Whether the element bound to `alias` is the scope or inside it, as Cypher over its own row. */
+function insideScope(alias: string, context: ViewContext): string {
+  const scope = literalId(context.scope);
+  return `(${alias}.elementId = ${scope} OR list_contains(${alias}.ancestors, ${scope}))`;
+}
+
+/**
+ * Cypher for the list whose first entry is what the element bound to
+ * `alias` is drawn as in a view (empty when it is drawn as nothing), over
+ * the literal shown-id list `shown`. Inside the scope (or everywhere, with
+ * no context): the nearest shown ancestor, itself included. Outside it,
+ * with context: its ancestor (or itself) whose parent is the scope's parent
+ * or one of the scope's ancestors, or which has no parent — which is the
+ * first entry of its own root-to-self chain that is not one of the scope's
+ * ancestors, since two ancestor chains share exactly a common prefix; when
+ * every entry is one (the element is itself an ancestor of the scope), the
+ * element itself, appended last for that case.
+ */
+function liftExpression(alias: string, shown: string, context: ViewContext | undefined): string {
+  const nearestShown = `list_filter([${alias}.elementId] + list_reverse(${alias}.ancestors), x -> list_contains(${shown}, x))`;
+  if (context === undefined) return nearestShown;
+  const outside = `list_filter(${alias}.ancestors + [${alias}.elementId], x -> NOT list_contains(${literalIdList(context.scopeAncestors)}, x)) + [${alias}.elementId]`;
+  return `CASE WHEN ${insideScope(alias, context)} THEN ${nearestShown} ELSE ${outside} END`;
 }
 
 interface ResolvedTime {
@@ -312,6 +346,10 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
        AND ($hasScope = false OR e.elementId = $scope OR list_contains(e.ancestors, $scope))
      RETURN e.elementId AS id, e.kind AS kind, e.name AS name, e.parentId AS parent ORDER BY e.elementId`,
   );
+  const elementsByIdQuery = conn.prepareSync(
+    `MATCH (e:Element) WHERE list_contains($ids, e.elementId) AND ${filterOf('e')}
+     RETURN e.elementId AS id, e.kind AS kind, e.name AS name, e.parentId AS parent ORDER BY e.elementId`,
+  );
 
   // `viewRelationsQuery` and `dependencyQuery` both build their own query
   // text per call (a literal shown-id list, or a literal hop bound and
@@ -395,8 +433,11 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
    * lift to a pair that happens to differ from the general's, e.g. a
    * service-level general relation next to a still-more-specific module
    * one; only "are the refinement's own real ends shown" decides it).
-   * `fShown`/`tShown` test `f.elementId`/`t.elementId` (the refinement's
-   * own real ends) against the shown-id set directly, never lifted.
+   * `fShown`/`tShown` ask whether the refinement's own real ends
+   * (`f.elementId`/`t.elementId`) are drawn as themselves: an end is its
+   * own lift exactly when it is in the shown-id set (the first entry of
+   * `[X] + reverse(ancestors)` is `X` itself) or, with context, when it is
+   * a neighbour itself (see `liftExpression`).
    * `g`/`gf`/`gt` (`OPTIONAL MATCH`, since a refinement's own target may
    * not exist at this time, or may exist outside what this view shows at
    * all) look up the refined relation and lift its own ends the same way
@@ -406,36 +447,43 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
    * collapsing onto one shown element (`inside-one-box`), or its own ends
    * not lifting into this view at all.
    */
-  function viewRelationsQuery(shownIds: readonly string[]): PreparedStatement {
+  function viewRelationsQuery(shownIds: readonly string[], context?: ViewContext): PreparedStatement {
     const shown = literalIdList(shownIds);
+    const lift = (alias: string): string => liftExpression(alias, shown, context);
+    // With context, a relation is drawn only when it has an end inside the
+    // scope (`crosses`): one between two outside elements would otherwise
+    // lift to a pair of neighbours, and the context shows only what crosses
+    // the scope's boundary. The general relation a refinement refines is
+    // "drawn here" by the same test, or a refinement of a relation between
+    // two of the scope's own ancestors would be dropped for a relation this
+    // view never draws.
+    const crosses = (from: string, to: string): string => (context === undefined ? 'true' : `(${insideScope(from, context)} OR ${insideScope(to, context)})`);
     return cachedPrepare(
       `MATCH (r:Relation) WHERE ${filterOf('r')}
        MATCH (f:Element) WHERE f.elementId = r.fromId AND ${filterOf('f')}
        MATCH (t:Element) WHERE t.elementId = r.toId AND ${filterOf('t')}
-       WITH r,
-            list_filter([f.elementId] + list_reverse(f.ancestors), x -> list_contains(${shown}, x)) AS fLift,
-            list_filter([t.elementId] + list_reverse(t.ancestors), x -> list_contains(${shown}, x)) AS tLift,
-            list_contains(${shown}, f.elementId) AS fShown,
-            list_contains(${shown}, t.elementId) AS tShown
-       WHERE size(fLift) > 0 AND size(tLift) > 0
-       WITH r, fLift[1] AS liftedFrom, tLift[1] AS liftedTo, fShown, tShown
+       WITH r, f, t, ${lift('f')} AS fLift, ${lift('t')} AS tLift
+       WHERE size(fLift) > 0 AND size(tLift) > 0 AND ${crosses('f', 't')}
+       WITH r, fLift[1] AS liftedFrom, tLift[1] AS liftedTo, fLift[1] = f.elementId AS fShown, tLift[1] = t.elementId AS tShown
        OPTIONAL MATCH (g:Relation) WHERE g.relationId = r.refines AND ${filterOf('g')}
        OPTIONAL MATCH (gf:Element) WHERE gf.elementId = g.fromId AND ${filterOf('gf')}
        OPTIONAL MATCH (gt:Element) WHERE gt.elementId = g.toId AND ${filterOf('gt')}
        WITH r, liftedFrom, liftedTo, fShown, tShown,
-            CASE WHEN gf IS NULL THEN NULL ELSE list_filter([gf.elementId] + list_reverse(gf.ancestors), x -> list_contains(${shown}, x)) END AS gfLiftList,
-            CASE WHEN gt IS NULL THEN NULL ELSE list_filter([gt.elementId] + list_reverse(gt.ancestors), x -> list_contains(${shown}, x)) END AS gtLiftList
-       WITH r, liftedFrom, liftedTo, fShown, tShown,
+            CASE WHEN gf IS NULL THEN NULL ELSE ${lift('gf')} END AS gfLiftList,
+            CASE WHEN gt IS NULL THEN NULL ELSE ${lift('gt')} END AS gtLiftList,
+            CASE WHEN gf IS NULL OR gt IS NULL THEN false ELSE ${crosses('gf', 'gt')} END AS gCrosses
+       WITH r, liftedFrom, liftedTo, fShown, tShown, gCrosses,
             CASE WHEN gfLiftList IS NULL OR size(gfLiftList) = 0 THEN NULL ELSE gfLiftList[1] END AS gLiftedFrom,
             CASE WHEN gtLiftList IS NULL OR size(gtLiftList) = 0 THEN NULL ELSE gtLiftList[1] END AS gLiftedTo
        WHERE liftedFrom <> liftedTo
          AND (r.refines IS NULL
               OR (fShown AND tShown)
-              OR gLiftedFrom IS NULL OR gLiftedTo IS NULL OR gLiftedFrom = gLiftedTo)
+              OR gLiftedFrom IS NULL OR gLiftedTo IS NULL OR gLiftedFrom = gLiftedTo OR NOT gCrosses)
        RETURN liftedFrom AS fromId, liftedTo AS toId, collect(DISTINCT r.relationId) AS relationIds
        ORDER BY fromId, toId`,
     );
   }
+
   // Direction is the only difference between `dependents` and
   // `dependencies`: dependents walks other-elements-that-reach `x`,
   // dependencies walks `x`-reaches-other-elements. `SHORTEST` (not a plain
@@ -737,10 +785,16 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
       // so a root (0 ancestors) is already `<= depth` at `depth: 0` the
       // same way.
       let scopeDepth = 0;
+      let context: ViewContext | undefined;
       if (input.scope !== undefined) {
         if (!elementExists(input.scope, t)) return { error: { message: `"${input.scope}" does not exist at this time`, id: input.scope, time: t.valid } };
         const rows = rowsOf(conn.executeSync(scopeAncestorsQuery, { id: input.scope, valid: t.valid, known: t.known, state: t.state }));
-        scopeDepth = (rows[0]?.ancestors as string[] | undefined)?.length ?? 0;
+        const scopeAncestors = (rows[0]?.ancestors as string[] | undefined) ?? [];
+        scopeDepth = scopeAncestors.length;
+        // Without a scope there is nothing outside, so `context` is only
+        // ever honoured here; the answer then carries `neighbours`, and a
+        // view asked without it keeps exactly its earlier shape.
+        if (input.context === true) context = { scope: input.scope, scopeAncestors };
       }
 
       const hasScope = input.scope !== undefined;
@@ -750,14 +804,35 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
       const elements = shownRows.map((row) => toElementAnswer(row as never));
       const shownIds = elements.map((e) => e.id);
 
-      const relationRows = rowsOf(conn.executeSync(viewRelationsQuery(shownIds), { valid: t.valid, known: t.known, state: t.state }));
+      const relationRows = rowsOf(conn.executeSync(viewRelationsQuery(shownIds, context), { valid: t.valid, known: t.known, state: t.state }));
       const relations = relationRows.map((row) => ({
         from: row.fromId as string,
         to: row.toId as string,
         relationIds: [...(row.relationIds as string[])].sort(byCodePoint),
       }));
+      if (context === undefined) return { elements, relations };
 
-      return { elements, relations };
+      // Every end a crossing relation was drawn to that is not shown is a
+      // neighbour. Each is an ancestor (or itself) of a relation's end that
+      // exists at this time, but an ancestor declared by another source can
+      // be absent then; that is an error naming it, never a neighbour
+      // silently left out while a relation is still drawn to it.
+      const shownSet = new Set(shownIds);
+      const relationIdsByNeighbour = new Map<string, string[]>();
+      for (const relation of relations) {
+        for (const end of [relation.from, relation.to]) {
+          if (!shownSet.has(end)) relationIdsByNeighbour.set(end, [...(relationIdsByNeighbour.get(end) ?? []), ...relation.relationIds]);
+        }
+      }
+      const neighbourIds = [...relationIdsByNeighbour.keys()].sort(byCodePoint);
+      const neighbours = rowsOf(conn.executeSync(elementsByIdQuery, { ids: neighbourIds, valid: t.valid, known: t.known, state: t.state })).map((row) => toElementAnswer(row as never));
+      const found = new Set(neighbours.map((e) => e.id));
+      const missing = neighbourIds.find((id) => !found.has(id));
+      if (missing !== undefined) {
+        const behind = [...relationIdsByNeighbour.get(missing)!].sort(byCodePoint).join(', ');
+        return { error: { message: `"${missing}", the neighbour the relations ${behind} are drawn to or from, does not exist at this time`, id: missing, time: t.valid } };
+      }
+      return { elements, neighbours, relations };
     });
   }
 

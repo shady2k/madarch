@@ -1,0 +1,78 @@
+version: 1
+
+elements:
+  - id: shop
+    kind: domain
+  - id: checkout-web
+    kind: service
+    parent: shop
+  - id: checkout-cart
+    kind: module
+    parent: checkout-web
+  - id: checkout-ui
+    kind: module
+    parent: checkout-web
+  - id: orders-api
+    kind: service
+    parent: shop
+  - id: orders-core
+    kind: module
+    parent: orders-api
+  - id: payments
+    kind: domain
+  - id: payments-api
+    kind: service
+    parent: payments
+  - id: payments-core
+    kind: module
+    parent: payments-api
+  - id: mail-gateway
+    kind: external
+
+relations:
+  - id: cart-calls-ui
+    name: renders the cart
+    from: checkout-cart
+    to: checkout-ui
+  - id: checkout-uses-orders
+    name: places orders
+    from: checkout-web
+    to: orders-api
+  - id: cart-calls-orders
+    name: submits the cart
+    refines: checkout-uses-orders
+    from: checkout-cart
+    to: orders-core
+  - id: cart-charges-card
+    name: charges the card
+    from: checkout-cart
+    to: payments-core
+  - id: ui-shows-payments
+    name: shows payment methods
+    from: checkout-ui
+    to: payments-api
+  - id: shop-pays
+    name: pays
+    from: shop
+    to: payments
+  - id: checkout-pays
+    name: pays for an order
+    refines: shop-pays
+    from: checkout-web
+    to: payments-api
+  - id: checkout-mails
+    name: sends receipts
+    from: checkout-web
+    to: mail-gateway
+  - id: orders-notifies-ui
+    name: pushes order status
+    from: orders-api
+    to: checkout-ui
+  - id: payments-calls-back
+    name: confirms payments
+    from: payments-api
+    to: checkout-web
+  - id: orders-pays
+    name: refunds orders
+    from: orders-core
+    to: payments-api
