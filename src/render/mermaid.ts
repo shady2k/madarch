@@ -1,6 +1,7 @@
 /**
  * The view set as Mermaid pages (see design.md, "Mermaid"): one Markdown
- * page per view, holding one `flowchart LR` block and the links under it.
+ * page per view, holding one `flowchart LR` block, the table of its arrows
+ * and the links under it.
  * Text only, from the view set alone; writing the pages anywhere is the
  * caller's. This module touches no Bun-specific API.
  */
@@ -128,6 +129,7 @@ function renderPage(view: View, scope: ShownElement | undefined): string {
   const externals = view.elements.filter((element) => element.kind === 'external');
   if (externals.length > 0) lines.push(EXTERNAL_CLASS, `  class ${externals.map((element) => ids.get(element.id)).join(',')} external`);
   lines.push('```', '');
+  if (view.arrows.length > 0) lines.push(...arrowTable(view), '');
 
   if (scope !== undefined) {
     const up = view.up === undefined ? `[Landscape](${LANDSCAPE_FILE})` : `[${markdownText(view.up.name ?? view.up.id)}](${pageFile(view.up.id)})`;
@@ -136,6 +138,21 @@ function renderPage(view: View, scope: ShownElement | undefined): string {
   const open = view.elements.filter((element) => element.hasView && element.place !== 'scope');
   if (open.length > 0) lines.push(`Open: ${open.map((element) => `[${markdownText(title(element))}](${pageFile(element.id)})`).join(' · ')}`, '');
   return lines.join('\n');
+}
+
+/**
+ * The table under the diagram (views/mermaid): one row per arrow in the
+ * diagram's order, numbered as the arrows' labels refer to them, with the
+ * names of its ends and every name behind it.
+ */
+function arrowTable(view: View): string[] {
+  const byId = new Map(view.elements.map((element) => [element.id, element]));
+  const end = (id: string): string => markdownText(title(byId.get(id)!));
+  return [
+    '| # | From | To | Relations |',
+    '| --- | --- | --- | --- |',
+    ...view.arrows.map((arrow, index) => `| ${index + 1} | ${end(arrow.from)} | ${end(arrow.to)} | ${markdownText(arrow.names.join('; '))} |`),
+  ];
 }
 
 function title(element: ShownElement): string {

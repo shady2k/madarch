@@ -166,7 +166,7 @@ describe('views:check mermaid', () => {
         { id: 'end', kind: 'service', name: 'End', place: 'inside', hasView: false },
         { id: 'subgraph', kind: 'service', name: 'Subgraph', place: 'inside', hasView: false },
       ],
-      arrows: [{ from: 'end', to: 'subgraph', relationIds: ['end-calls-subgraph'], label: 'calls' }],
+      arrows: [{ from: 'end', to: 'subgraph', relationIds: ['end-calls-subgraph'], names: ['calls'], label: 'calls' }],
     };
     const { pages, errors } = renderMermaidPages([view]);
     expect(errors).toEqual([]);

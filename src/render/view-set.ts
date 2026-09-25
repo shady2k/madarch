@@ -25,11 +25,16 @@ export interface ShownElement {
   hasView: boolean;
 }
 
-/** One arrow a view draws: the shown pair, every relation id behind it (code point order) and its label. */
+/**
+ * One arrow a view draws: the shown pair, every relation id behind it (code
+ * point order), their distinct names in that order (views/labels, for the
+ * view's table) and its short label.
+ */
 export interface Arrow {
   from: string;
   to: string;
   relationIds: string[];
+  names: string[];
   label: string;
 }
 
@@ -69,8 +74,8 @@ export interface ViewSetResult {
 /** A depth no model's nesting reaches: an unscoped view this deep holds every element, and draws every relation between its own ends. */
 export const EVERY_LEVEL = Number.MAX_SAFE_INTEGER;
 
-/** The most names an arrow's label lists before counting the rest. */
-const LISTED_NAMES = 3;
+/** The longest label, in code points, that lists an arrow's names; a longer one counts its relations instead. */
+const LISTED_LENGTH = 40;
 
 /**
  * Builds the view set at one time and state (`at`, the query engine's own
@@ -83,7 +88,7 @@ const LISTED_NAMES = 3;
  */
 export function buildViewSet(engine: QueryEngine, model: CompiledModel, at?: QueryTime): ViewSetResult {
   const errors: ViewSetError[] = [];
-  const labels = labeller(model);
+  const names = namer(model);
 
   const landscape = engine.view({ depth: 0 }, at);
   if (landscape.error !== undefined) return { errors: [queryError(undefined, landscape.error)] };
@@ -101,14 +106,14 @@ export function buildViewSet(engine: QueryEngine, model: CompiledModel, at?: Que
     else errors.push({ message: `the element "${element.id}" is shown in no view: its parent "${element.parent}" does not exist at this time`, scope: element.parent });
   }
 
-  const views: View[] = [assemble(undefined, landscape.elements!, [], landscape.relations!, withChildren, labels, errors)];
+  const views: View[] = [assemble(undefined, landscape.elements!, [], landscape.relations!, withChildren, names, errors)];
   for (const scope of [...withChildren].sort(byCodePoint)) {
     const result = engine.view({ scope, depth: 1, context: true }, at);
     if (result.error !== undefined) {
       errors.push(queryError(scope, result.error));
       continue;
     }
-    const view = assemble(scope, result.elements!, result.neighbours!, result.relations!, withChildren, labels, errors);
+    const view = assemble(scope, result.elements!, result.neighbours!, result.relations!, withChildren, names, errors);
     const parentId = byId.get(scope)!.parent;
     // A parent that does not exist was reported above; its child's view goes nowhere up.
     const parent = parentId === undefined ? undefined : byId.get(parentId);
@@ -133,7 +138,7 @@ function assemble(
   neighbours: readonly ElementAnswer[],
   relations: readonly ViewRelation[],
   withChildren: ReadonlySet<string>,
-  labels: Labeller,
+  namesOf: Namer,
   errors: ViewSetError[],
 ): View {
   const shown = [
@@ -144,7 +149,7 @@ function assemble(
   const arrows: Arrow[] = [];
   for (const relation of [...relations].sort((a, b) => byCodePoint(a.from, b.from) || byCodePoint(a.to, b.to))) {
     const relationIds = [...relation.relationIds].sort(byCodePoint);
-    const label = labels(relationIds, (relationId, problem) => {
+    const names = namesOf(relationIds, (relationId, problem) => {
       const error: ViewSetError = {
         message: `${viewName(scope)}: the arrow from "${relation.from}" to "${relation.to}" stands for the relation "${relationId}", ${problem}`,
         relationId,
@@ -152,7 +157,7 @@ function assemble(
       if (scope !== undefined) error.scope = scope;
       errors.push(error);
     });
-    arrows.push({ from: relation.from, to: relation.to, relationIds, label });
+    arrows.push({ from: relation.from, to: relation.to, relationIds, names, label: label(relationIds, names, arrows.length + 1) });
   }
 
   const view: View = { elements: shown, arrows };
@@ -167,20 +172,20 @@ function shownElement(element: ElementAnswer, place: Place, withChildren: Readon
   return { ...element, place, hasView: withChildren.has(element.id) };
 }
 
-export type Labeller = (relationIds: readonly string[], fail: (relationId: string, problem: string) => void) => string;
+export type Namer = (relationIds: readonly string[], fail: (relationId: string, problem: string) => void) => string[];
 
 /**
- * An arrow's label (views/labels): each relation's name, or for one without
- * a name its interface's contract, or its id where it names no interface;
- * in relation-id order, a label repeated among them shown once, the first
- * three joined by "; " and a count of the rest. The LikeC4 workspace labels
- * each of its relations with it too, one relation id at a time.
+ * The names of the relations behind an arrow (views/labels): each
+ * relation's name, or for one without a name its interface's contract, or
+ * its id where it names no interface; in relation-id order, a name repeated
+ * among them kept once. The LikeC4 workspace labels each of its relations
+ * with it too, one relation id at a time.
  */
-export function labeller(model: CompiledModel): Labeller {
+export function namer(model: CompiledModel): Namer {
   const relations = new Map(model.relations.map((relation) => [relation.id, relation]));
   const contracts = new Map(model.interfaces.map((iface) => [iface.id, iface.contract]));
 
-  const labelOf = (relation: CompiledRelation): string | undefined => {
+  const nameOf = (relation: CompiledRelation): string | undefined => {
     if (relation.name !== undefined) return relation.name;
     if (relation.interface === undefined) return relation.id;
     return contracts.get(relation.interface);
@@ -194,14 +199,25 @@ export function labeller(model: CompiledModel): Labeller {
         fail(relationId, 'which the compiled model does not hold');
         continue;
       }
-      const label = labelOf(relation);
-      if (label === undefined) {
+      const name = nameOf(relation);
+      if (name === undefined) {
         fail(relationId, `whose interface "${relation.interface}" the compiled model does not hold`);
         continue;
       }
-      if (!names.includes(label)) names.push(label);
+      if (!names.includes(name)) names.push(name);
     }
-    const listed = names.slice(0, LISTED_NAMES).join('; ');
-    return names.length > LISTED_NAMES ? `${listed} (+${names.length - LISTED_NAMES} more)` : listed;
+    return names;
   };
+}
+
+/**
+ * An arrow's short label (views/labels): one relation's name as it is;
+ * several relations' names joined by "; " while that is at most
+ * `LISTED_LENGTH` code points, otherwise the number of relations and the
+ * arrow's row in the view's table.
+ */
+function label(relationIds: readonly string[], names: readonly string[], row: number): string {
+  const listed = names.join('; ');
+  if (relationIds.length === 1 || [...listed].length <= LISTED_LENGTH) return listed;
+  return `${relationIds.length} relations, see ${row}`;
 }

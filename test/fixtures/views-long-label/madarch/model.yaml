@@ -1,0 +1,73 @@
+version: 1
+
+# The landscape draws three arrows, in this order: a-client to orders-api
+# (two names, 40 code points joined, more in UTF-16 units), billing to
+# orders-api (two names, 41 joined) and orders-api to event-bus (five
+# relations, far past 40), then orders-api to z-audit (one relation whose
+# name alone runs past 40).
+elements:
+  - id: a-client
+    kind: person
+    name: A client
+  - id: billing
+    kind: service
+    name: Billing
+  - id: event-bus
+    kind: broker
+    name: Event bus
+  - id: z-audit
+    kind: store
+    name: Z audit
+  - id: orders-api
+    kind: service
+    name: Orders API
+  - id: orders-core
+    kind: module
+    name: Orders core
+    parent: orders-api
+  - id: orders-outbox
+    kind: module
+    name: Orders outbox
+    parent: orders-api
+
+relations:
+  - id: client-places
+    name: places orders
+    from: a-client
+    to: orders-core
+  - id: client-cancels
+    name: "cancels orders by id 𝟙𝟚𝟛𝟜"
+    from: a-client
+    to: orders-core
+  - id: billing-bills
+    name: bills orders
+    from: billing
+    to: orders-core
+  - id: billing-refunds
+    name: refunds orders by their ids
+    from: billing
+    to: orders-core
+  - id: core-cancelled
+    name: publishes order cancelled
+    from: orders-core
+    to: event-bus
+  - id: core-placed
+    name: publishes order placed
+    from: orders-core
+    to: event-bus
+  - id: outbox-paid
+    name: publishes order paid
+    from: orders-outbox
+    to: event-bus
+  - id: outbox-refunded
+    name: publishes order refunded
+    from: orders-outbox
+    to: event-bus
+  - id: outbox-shipped
+    name: publishes order shipped
+    from: orders-outbox
+    to: event-bus
+  - id: outbox-audits
+    name: records every order event it has published, for audit
+    from: orders-outbox
+    to: z-audit

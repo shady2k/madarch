@@ -91,7 +91,7 @@ describe('views/view-set', () => {
         { id: 'payments', kind: 'domain', name: 'Payments', place: 'inside', hasView: true },
         { id: 'shop', kind: 'domain', name: 'Shop', place: 'inside', hasView: true },
       ],
-      arrows: [{ from: 'shop', to: 'payments', relationIds: ['cart-charges-card'], label: 'charges the card' }],
+      arrows: [{ from: 'shop', to: 'payments', relationIds: ['cart-charges-card'], names: ['charges the card'], label: 'charges the card' }],
     });
   });
 
@@ -105,8 +105,8 @@ describe('views/view-set', () => {
         { id: 'shop', kind: 'domain', name: 'Shop', place: 'scope', hasView: true },
       ],
       arrows: [
-        { from: 'checkout-web', to: 'catalog-api', relationIds: ['cart-reads-catalog'], label: 'reads prices' },
-        { from: 'checkout-web', to: 'payments', relationIds: ['cart-charges-card'], label: 'charges the card' },
+        { from: 'checkout-web', to: 'catalog-api', relationIds: ['cart-reads-catalog'], names: ['reads prices'], label: 'reads prices' },
+        { from: 'checkout-web', to: 'payments', relationIds: ['cart-charges-card'], names: ['charges the card'], label: 'charges the card' },
       ],
     });
   });
@@ -123,9 +123,9 @@ describe('views/view-set', () => {
         { id: 'payments', kind: 'domain', name: 'Payments', place: 'neighbour', hasView: true },
       ],
       arrows: [
-        { from: 'checkout-cart', to: 'catalog-api', relationIds: ['cart-reads-catalog'], label: 'reads prices' },
-        { from: 'checkout-cart', to: 'payments', relationIds: ['cart-charges-card'], label: 'charges the card' },
-        { from: 'checkout-ui', to: 'checkout-cart', relationIds: ['ui-renders-cart'], label: 'renders the cart' },
+        { from: 'checkout-cart', to: 'catalog-api', relationIds: ['cart-reads-catalog'], names: ['reads prices'], label: 'reads prices' },
+        { from: 'checkout-cart', to: 'payments', relationIds: ['cart-charges-card'], names: ['charges the card'], label: 'charges the card' },
+        { from: 'checkout-ui', to: 'checkout-cart', relationIds: ['ui-renders-cart'], names: ['renders the cart'], label: 'renders the cart' },
       ],
     });
   });
@@ -204,27 +204,62 @@ describe('views/labels', () => {
       from: 'checkout-web',
       to: 'stock-api',
       relationIds: ['cart-reserves-stock', 'ui-shows-stock'],
+      names: ['reserves stock', 'shows stock'],
       label: 'reserves stock; shows stock',
     });
   });
 
-  test('more than three names: the first three in relation-id order (code point) and a count of the rest; a name repeated among them is shown once', () => {
+  test('names past 40 characters: the count of relations (not of names) and the arrow\'s row; every distinct name in relation-id order (code point) kept for the table', () => {
     const shop = viewOf(viewsOf('views-labels'), 'shop');
 
     expect(shop.arrows.find((arrow) => arrow.to === 'audit-log')).toEqual({
       from: 'checkout-web',
       to: 'audit-log',
       relationIds: ['W-writes-first', 'cart-reads', 'cart-writes-again', 'ui-audits', 'ui-counts', 'ui-locks'],
-      label: 'writes carts; reads carts; audits views (+2 more)',
+      names: ['writes carts', 'reads carts', 'audits views', 'counts views', 'locks rows'],
+      label: '6 relations, see 1',
     });
   });
 
-  test('exactly three names carry no count; three relations sharing a name among them show two', () => {
+  test('names within 40 characters are all listed, however many; three relations sharing a name among them show two', () => {
     const checkout = viewOf(viewsOf('views-labels'), 'checkout-web');
 
     expect(checkout.arrows.filter((arrow) => arrow.to === 'audit-log').map((arrow) => [arrow.from, arrow.label])).toEqual([
       ['checkout-cart', 'writes carts; reads carts'],
       ['checkout-ui', 'audits views; counts views; locks rows'],
+    ]);
+  });
+
+  test('long-merged-label: five relations from orders-api\'s modules to event-bus, the third arrow, are labelled "5 relations, see 3"; 40 code points joined is listed, 41 is counted; one relation keeps its name however long', () => {
+    expect(viewOf(viewsOf('views-long-label'), undefined).arrows).toEqual([
+      {
+        from: 'a-client',
+        to: 'orders-api',
+        relationIds: ['client-cancels', 'client-places'],
+        names: ['cancels orders by id 𝟙𝟚𝟛𝟜', 'places orders'],
+        label: 'cancels orders by id 𝟙𝟚𝟛𝟜; places orders',
+      },
+      {
+        from: 'billing',
+        to: 'orders-api',
+        relationIds: ['billing-bills', 'billing-refunds'],
+        names: ['bills orders', 'refunds orders by their ids'],
+        label: '2 relations, see 2',
+      },
+      {
+        from: 'orders-api',
+        to: 'event-bus',
+        relationIds: ['core-cancelled', 'core-placed', 'outbox-paid', 'outbox-refunded', 'outbox-shipped'],
+        names: ['publishes order cancelled', 'publishes order placed', 'publishes order paid', 'publishes order refunded', 'publishes order shipped'],
+        label: '5 relations, see 3',
+      },
+      {
+        from: 'orders-api',
+        to: 'z-audit',
+        relationIds: ['outbox-audits'],
+        names: ['records every order event it has published, for audit'],
+        label: 'records every order event it has published, for audit',
+      },
     ]);
   });
 
@@ -235,8 +270,8 @@ describe('views/labels', () => {
     expect(model).toBeDefined();
 
     expect(viewOf(viewsOf('views-unnamed'), undefined).arrows).toEqual([
-      { from: 'checkout-web', to: 'orders-api', relationIds: ['checkout-to-orders'], label: 'http::POST::/api/orders' },
-      { from: 'checkout-web', to: 'stock-api', relationIds: ['checkout-to-stock'], label: 'checkout-to-stock' },
+      { from: 'checkout-web', to: 'orders-api', relationIds: ['checkout-to-orders'], names: ['http::POST::/api/orders'], label: 'http::POST::/api/orders' },
+      { from: 'checkout-web', to: 'stock-api', relationIds: ['checkout-to-stock'], names: ['checkout-to-stock'], label: 'checkout-to-stock' },
     ]);
   });
 
@@ -274,9 +309,45 @@ describe('views/mermaid', () => {
         '  checkout_web -->|"charges the card"| payments',
         '```',
         '',
+        '| # | From | To | Relations |',
+        '| --- | --- | --- | --- |',
+        '| 1 | Checkout web | Catalog API | reads prices |',
+        '| 2 | Checkout web | Payments | charges the card |',
+        '',
         'Up: [Landscape](_landscape.md)',
         '',
         'Open: [Checkout web](checkout-web.md) · [Payments](payments.md)',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  test('long-merged-label: the third arrow is labelled "5 relations, see 3" and row 3 of the table lists its five names; the table is under the diagram and above the links', () => {
+    expect(pagesOf('views-long-label').get('_landscape.md')).toBe(
+      [
+        '# Landscape',
+        '',
+        '```mermaid',
+        'flowchart LR',
+        '  a_client(["A client"])',
+        '  billing["Billing"]',
+        '  event_bus[["Event bus"]]',
+        '  orders_api["Orders API"]',
+        '  z_audit[("Z audit")]',
+        '  a_client -->|"cancels orders by id 𝟙𝟚𝟛𝟜; places orders"| orders_api',
+        '  billing -->|"2 relations, see 2"| orders_api',
+        '  orders_api -->|"5 relations, see 3"| event_bus',
+        '  orders_api -->|"records every order event it has published, for audit"| z_audit',
+        '```',
+        '',
+        '| # | From | To | Relations |',
+        '| --- | --- | --- | --- |',
+        '| 1 | A client | Orders API | cancels orders by id 𝟙𝟚𝟛𝟜; places orders |',
+        '| 2 | Billing | Orders API | bills orders; refunds orders by their ids |',
+        '| 3 | Orders API | Event bus | publishes order cancelled; publishes order placed; publishes order paid; publishes order refunded; publishes order shipped |',
+        '| 4 | Orders API | Z audit | records every order event it has published, for audit |',
+        '',
+        'Open: [Orders API](orders-api.md)',
         '',
       ].join('\n'),
     );
@@ -301,6 +372,10 @@ describe('views/mermaid', () => {
         '  shop["Shop"]',
         '  shop -->|"charges the card"| payments',
         '```',
+        '',
+        '| # | From | To | Relations |',
+        '| --- | --- | --- | --- |',
+        '| 1 | Shop | Payments | charges the card |',
         '',
         'Open: [Payments](payments.md) · [Shop](shop.md)',
         '',
@@ -332,6 +407,14 @@ describe('views/mermaid', () => {
         '  class mail_gateway external',
         '```',
         '',
+        '| # | From | To | Relations |',
+        '| --- | --- | --- | --- |',
+        '| 1 | A dot B | Orders DB | writes orders |',
+        '| 2 | A underscore B | Order events | publishes \\`placed\\` |',
+        '| 3 | The "best" customer | Mail #1 \\<smtp\\> & co | sends "receipts" \\| copies |',
+        '| 4 | end | A dot B | calls |',
+        '| 5 | Web \\[\\*beta\\*\\] | end | calls |',
+        '',
         'Open: [Web \\[\\*beta\\*\\]](web.md)',
         '',
       ].join('\n'),
@@ -351,6 +434,10 @@ describe('views/mermaid', () => {
         '  end_["end"]',
         '  web_ui -->|"calls"| end_',
         '```',
+        '',
+        '| # | From | To | Relations |',
+        '| --- | --- | --- | --- |',
+        '| 1 | web-ui | end | calls |',
         '',
         'Up: [Landscape](_landscape.md)',
         '',
@@ -401,7 +488,7 @@ describe('views/mermaid on hand-built views', () => {
         { id: 'mod', kind: 'module', name: 'tab\there', parent: 'svc', place: 'inside', hasView: false },
         { id: 'svc', kind: 'service', name: 'two\nlines\u007f', parent: 'dom', place: 'scope', hasView: true },
       ],
-      arrows: [{ from: 'mod', to: 'svc', relationIds: ['r'], label: 'a\u0000b' }],
+      arrows: [{ from: 'mod', to: 'svc', relationIds: ['r'], names: ['a\u0000b'], label: 'a\u0000b' }],
     };
 
     const { pages, errors } = renderMermaidPages([{ elements: [], arrows: [] }, view]);
@@ -420,6 +507,10 @@ describe('views/mermaid on hand-built views', () => {
           '  end',
           '  mod -->|"a#0;b"| svc',
           '```',
+          '',
+            '| # | From | To | Relations |',
+          '| --- | --- | --- | --- |',
+          '| 1 | tab here | two lines  | a b |',
           '',
           'Up: [dom](dom.md)',
           '',
@@ -548,9 +639,9 @@ describe('views/view-set from any query engine', () => {
         {
           elements: [{ id: 'top', kind: 'domain', place: 'inside', hasView: true }],
           arrows: [
-            { from: 'a', to: 'top', relationIds: ['cart-reserves-stock', 'ui-shows-stock'], label: 'reserves stock; shows stock' },
-            { from: 'top', to: 'a', relationIds: ['ui-shows-stock'], label: 'shows stock' },
-            { from: 'top', to: 'b', relationIds: ['ui-shows-stock'], label: 'shows stock' },
+            { from: 'a', to: 'top', relationIds: ['cart-reserves-stock', 'ui-shows-stock'], names: ['reserves stock', 'shows stock'], label: 'reserves stock; shows stock' },
+            { from: 'top', to: 'a', relationIds: ['ui-shows-stock'], names: ['shows stock'], label: 'shows stock' },
+            { from: 'top', to: 'b', relationIds: ['ui-shows-stock'], names: ['shows stock'], label: 'shows stock' },
           ],
         },
         { scope: 'mid', up: { id: 'top' }, elements: [], arrows: [] },
