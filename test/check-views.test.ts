@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { MERMAID_FOLDER } from '../scripts/render-views.js';
 import { checkMermaidPages } from '../scripts/mermaid-check.js';
 import { renderMermaidPages, type View } from '../src/index.js';
@@ -75,6 +77,12 @@ describe('views:check mermaid', () => {
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]!.line).toBe(1);
     expect(result.errors[0]!.message).toContain('No diagram type detected');
+  });
+
+  test('fences may carry trailing spaces', async () => {
+    const dir = folderWith({ 'spaced.md': ['```mermaid  ', 'flowchart LR', '  a --> b', '``` ', ''].join('\n') });
+
+    expect(await checkMermaidPages([dir])).toEqual({ pages: 1, blocks: 1, errors: [] });
   });
 
   test('a folder with no pages fails: a check that checks nothing does not pass', async () => {
@@ -164,5 +172,29 @@ describe('views:check mermaid', () => {
     const dir = folderWith(Object.fromEntries(pages!.map((page) => [page.file, page.content])));
 
     expect(await checkMermaidPages([dir])).toEqual({ pages: 1, blocks: 1, errors: [] });
+  });
+});
+
+describe('views:check the command', () => {
+  const script = fileURLToPath(new URL('../scripts/check-views.ts', import.meta.url));
+  const run = (...folders: string[]) => spawnSync(process.execPath, [script, ...folders], { encoding: 'utf8' });
+
+  test("with no folder it checks the reference system's pages and exits 0", () => {
+    const result = run();
+
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toMatch(/^mermaid: checked (\d+) blocks in \1 pages, 0 errors\n$/);
+    expect(result.status).toBe(0);
+  });
+
+  test('with a folder given it checks that folder alone, printing every error and exiting 1', () => {
+    const dir = folderWith({ 'broken.md': ['# Broken', '```mermaid', 'hello', '```', ''].join('\n'), 'plain.md': '# Plain\n' });
+
+    const result = run(dir);
+
+    expect(result.stderr).toStartWith(`error: ${join(dir, 'broken.md')}:2: No diagram type detected`);
+    expect(result.stderr).toEndWith(`\nerror: ${join(dir, 'plain.md')}:0: the page has no mermaid block\n`);
+    expect(result.stdout).toBe('mermaid: checked 1 blocks in 2 pages, 2 errors\n');
+    expect(result.status).toBe(1);
   });
 });
