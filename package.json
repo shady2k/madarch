@@ -6,7 +6,9 @@
   "scripts": {
     "check": "tsc --noEmit",
     "test": "bun test",
-    "schemas": "bun scripts/generate-schemas.ts"
+    "schemas": "bun scripts/generate-schemas.ts",
+    "views": "bun scripts/render-views.ts",
+    "views:check": "bun scripts/check-views.ts"
   },
   "dependencies": {
     "typebox": "1.3.34",
@@ -14,8 +16,11 @@
     "@ladybugdb/core": "0.20.4"
   },
   "devDependencies": {
-    "typescript": "7.0.2",
-    "@types/bun": "1.4.2"
+    "@happy-dom/global-registrator": "20.14.5",
+    "@types/bun": "1.4.2",
+    "likec4": "1.59.4",
+    "mermaid": "12.0.0",
+    "typescript": "7.0.2"
   },
   "trustedDependencies": [
     "@ladybugdb/core"

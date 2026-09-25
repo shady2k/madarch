@@ -55,6 +55,13 @@ export interface ViewInput {
   scope?: string;
   /** How many levels deep from the scope (or from the roots, unscoped) to show. */
   depth: number;
+  /**
+   * Also answer the view's neighbours: the elements outside the scope that
+   * relations cross its boundary to or from, and those crossing relations.
+   * Only meaningful with a scope; without one there is nothing outside and
+   * it adds nothing. Default `false`.
+   */
+  context?: boolean;
 }
 
 /** One relation a view shows: the shown pair it was lifted and merged into, and every relation id behind it. */
@@ -65,8 +72,18 @@ export interface ViewRelation {
 }
 
 export interface ViewResult {
-  /** Left out only when `error` is set. */
+  /** The elements inside the scope (or the whole graph) down to the depth. Left out only when `error` is set. */
   elements?: ElementAnswer[];
+  /**
+   * Present only for a view asked with its context and a scope: the
+   * elements outside the scope that crossing relations are drawn to or
+   * from, each end outside lifted to its ancestor (or itself) whose parent
+   * is the scope's parent or one of its ancestors, or which has no parent.
+   * Kept apart from `elements` so a reader that knows nothing of context
+   * never takes a neighbour for an element inside the scope.
+   */
+  neighbours?: ElementAnswer[];
+  /** Between shown elements, and with context also between a shown element and a neighbour. */
   relations?: ViewRelation[];
   error?: QueryError;
 }

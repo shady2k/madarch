@@ -1,0 +1,362 @@
+// Rendered by madarch from the architecture model; edit the model, not this file.
+
+specification {
+  element broker {
+    style {
+      shape queue
+    }
+  }
+  element domain
+  element external {
+    style {
+      color muted
+      border dashed
+    }
+  }
+  element module
+  element person {
+    style {
+      shape person
+    }
+  }
+  element service
+  element store {
+    style {
+      shape storage
+    }
+  }
+}
+
+model {
+  catalog = domain "Catalog" {
+    media-api = service "Media" {
+      technology "TypeScript, Node.js"
+    }
+    media-bucket = store "Product images" {
+      technology "Amazon S3"
+    }
+    prices-api = service "Prices" {
+      technology "Go"
+    }
+    prices-db = store "Prices database" {
+      technology "PostgreSQL"
+    }
+    products-api = service "Products" {
+      technology "Java, Spring Boot"
+    }
+    products-db = store "Products database" {
+      technology "PostgreSQL"
+    }
+    recommendations-api = service "Recommendations" {
+      technology "Python"
+    }
+    recommendations-cache = store "Recommendations cache" {
+      technology "Redis"
+    }
+    reviews-api = service "Reviews" {
+      technology "Kotlin"
+    }
+    reviews-db = store "Reviews database" {
+      technology "MongoDB"
+    }
+    search-api = service "Search" {
+      technology "Go"
+    }
+    search-index = store "Search index" {
+      technology "Elasticsearch"
+    }
+  }
+  customer = person "Customer"
+  delivery-carrier = external "Delivery carrier"
+  fulfilment = domain "Fulfilment" {
+    inventory-api = service "Inventory" {
+      technology "Go"
+    }
+    inventory-db = store "Inventory database" {
+      technology "PostgreSQL"
+    }
+    shipping-api = service "Shipping" {
+      technology "Kotlin"
+    }
+    shipping-db = store "Shipping database" {
+      technology "PostgreSQL"
+    }
+    warehouse-api = service "Warehouse" {
+      technology "Java, Spring Boot"
+    }
+    warehouse-app = service "Warehouse app" {
+      technology "TypeScript, React"
+    }
+    warehouse-db = store "Warehouse database" {
+      technology "PostgreSQL"
+    }
+    warehouse-operator = person "Warehouse operator"
+  }
+  messaging-provider = external "Email and SMS provider"
+  ordering = domain "Ordering" {
+    cart-cache = store "Cart cache" {
+      technology "Redis"
+    }
+    checkout-api = service "Checkout" {
+      technology "TypeScript, NestJS"
+      checkout-cart = module "Cart"
+      checkout-confirmation = module "Confirmation"
+      checkout-payment-step = module "Payment step"
+      checkout-pricing = module "Pricing"
+    }
+    invoice-archive = store "Invoice archive" {
+      technology "Amazon S3"
+    }
+    invoices-api = service "Invoices" {
+      technology "Java, Spring Boot"
+    }
+    orders-api = service "Orders" {
+      technology "Java, Spring Boot"
+    }
+    orders-db = store "Orders database" {
+      technology "PostgreSQL"
+    }
+    promotions-api = service "Promotions" {
+      technology "Go"
+    }
+    promotions-db = store "Promotions database" {
+      technology "PostgreSQL"
+    }
+    returns-api = service "Returns" {
+      technology "Kotlin"
+    }
+    returns-db = store "Returns database" {
+      technology "PostgreSQL"
+    }
+    tax-api = service "Tax" {
+      technology "Go"
+    }
+  }
+  payment-provider = external "Payment provider"
+  payments = domain "Payments" {
+    card-vault = service "Card vault" {
+      technology "Go"
+    }
+    card-vault-db = store "Card vault database" {
+      technology "PostgreSQL"
+    }
+    fraud-api = service "Fraud screening" {
+      technology "Python"
+    }
+    fraud-features = store "Risk features" {
+      technology "Redis"
+    }
+    payments-api = service "Payments" {
+      technology "Java, Spring Boot"
+    }
+    payments-db = store "Payments database" {
+      technology "PostgreSQL"
+    }
+    reconciliation-db = store "Reconciliation database" {
+      technology "PostgreSQL"
+    }
+    reconciliation-job = service "Reconciliation" {
+      technology "Python"
+    }
+  }
+  platform = domain "Platform" {
+    analytics-pipeline = service "Analytics pipeline" {
+      technology "Apache Flink"
+    }
+    analytics-warehouse = store "Analytics warehouse" {
+      technology "ClickHouse"
+    }
+    auth-api = service "Sign-in" {
+      technology "Keycloak"
+    }
+    auth-db = store "Identity database" {
+      technology "PostgreSQL"
+    }
+    event-bus = broker "Event bus" {
+      technology "Apache Kafka"
+    }
+    notification-api = service "Notifications" {
+      technology "Go"
+    }
+    notification-db = store "Notification log" {
+      technology "MongoDB"
+    }
+  }
+  storefront = domain "Storefront" {
+    accounts-api = service "Accounts" {
+      technology "Go"
+    }
+    accounts-db = store "Accounts database" {
+      technology "PostgreSQL"
+    }
+    content-api = service "Content" {
+      technology "TypeScript, Strapi"
+    }
+    content-db = store "Content database" {
+      technology "MongoDB"
+    }
+    loyalty-api = service "Loyalty" {
+      technology "Kotlin"
+    }
+    loyalty-db = store "Loyalty database" {
+      technology "PostgreSQL"
+    }
+    mobile-app = service "Mobile app" {
+      technology "Swift, Kotlin"
+    }
+    mobile-bff = service "Mobile back end" {
+      technology "TypeScript, Node.js"
+    }
+    session-cache = store "Session cache" {
+      technology "Redis"
+    }
+    web-shop = service "Web shop" {
+      technology "TypeScript, Next.js"
+    }
+  }
+
+  storefront.accounts-api -> storefront.accounts-db "stores accounts and addresses"
+  platform.analytics-pipeline -> platform.analytics-warehouse "loads events for reporting"
+  platform.analytics-pipeline -> platform.event-bus "streams every business event"
+  fulfilment.warehouse-app -> fulfilment.warehouse-api "confirms packed parcels"
+  fulfilment.warehouse-app -> fulfilment.warehouse-api "loads pick lists"
+  storefront.mobile-app -> storefront.mobile-bff "loads screens"
+  storefront.mobile-app -> payments.card-vault "tokenizes the card"
+  platform.auth-api -> platform.auth-db "stores credentials and sessions"
+  delivery-carrier -> fulfilment.shipping-api "reports tracking events"
+  ordering.checkout-api.checkout-cart -> fulfilment.inventory-api "checks stock"
+  ordering.checkout-api.checkout-cart -> ordering.cart-cache "keeps open carts"
+  ordering.checkout-api.checkout-cart -> ordering.checkout-api.checkout-pricing "prices the cart"
+  ordering.checkout-api -> payments "takes payment"
+  ordering.checkout-api.checkout-confirmation -> ordering.orders-api "places the order"
+  ordering.checkout-api.checkout-confirmation -> ordering.checkout-api.checkout-payment-step "takes payment before placing"
+  storefront.content-api -> storefront.content-db "stores pages"
+  customer -> storefront.mobile-app "browses and buys in the app"
+  customer -> storefront.web-shop "browses and buys on the web"
+  payments.fraud-api -> payments.fraud-features "reads and updates risk features"
+  fulfilment.inventory-api -> platform.event-bus "publishes stock-changed"
+  fulfilment.inventory-api -> platform.event-bus "releases stock of cancelled orders"
+  fulfilment.inventory-api -> platform.event-bus "reserves stock for placed orders"
+  fulfilment.inventory-api -> fulfilment.inventory-db "stores stock levels"
+  ordering.invoices-api -> ordering.invoice-archive "archives invoice PDFs"
+  ordering.invoices-api -> platform.event-bus "issues invoices for confirmed orders"
+  storefront.loyalty-api -> platform.event-bus "awards points for placed orders"
+  storefront.loyalty-api -> storefront.loyalty-db "stores points"
+  catalog.media-api -> catalog.media-bucket "stores product images"
+  storefront.mobile-bff -> ordering.checkout-api.checkout-confirmation "checks out the cart"
+  storefront.mobile-bff -> ordering.checkout-api.checkout-cart "adds items to the cart"
+  storefront.mobile-bff -> catalog.search-api "searches products"
+  storefront.mobile-bff -> storefront.accounts-api "shows and edits the account"
+  storefront.mobile-bff -> catalog.products-api "shows product pages"
+  storefront.mobile-bff -> platform.auth-api "signs the customer in"
+  platform.notification-api -> platform.event-bus "tells customers the parcel is on its way"
+  platform.notification-api -> platform.event-bus "asks customers to retry payment"
+  platform.notification-api -> platform.event-bus "emails order confirmations"
+  platform.notification-api -> platform.notification-db "logs sent messages"
+  platform.notification-api -> storefront.accounts-api "looks up contact details"
+  platform.notification-api -> messaging-provider "sends emails"
+  platform.notification-api -> messaging-provider "sends text messages"
+  fulfilment.warehouse-operator -> fulfilment.warehouse-app "picks and packs orders"
+  ordering.orders-api -> platform.event-bus "cancels unpaid orders"
+  ordering.orders-api -> platform.event-bus "confirms paid orders"
+  ordering.orders-api -> platform.event-bus "marks orders as shipped"
+  ordering.orders-api -> platform.event-bus "publishes order-cancelled"
+  ordering.orders-api -> platform.event-bus "publishes order-confirmed"
+  ordering.orders-api -> platform.event-bus "publishes order-placed"
+  ordering.orders-api -> ordering.orders-db "stores orders"
+  ordering.checkout-api.checkout-payment-step -> payments.payments-api "authorizes the payment"
+  payments.payments-api -> payment-provider "charges the card"
+  payments.payments-api -> payments.card-vault "detokenizes the card"
+  payments.payments-api -> platform.event-bus "publishes payment-captured"
+  payments.payments-api -> platform.event-bus "publishes payment-failed"
+  payments.payments-api -> payments.payments-db "records payments"
+  payments.payments-api -> payment-provider "refunds the payment"
+  payments.payments-api -> platform.event-bus "refunds approved returns"
+  payments.payments-api -> payments.fraud-api "screens the payment for fraud"
+  catalog.prices-api -> platform.event-bus "publishes price-changed"
+  catalog.prices-api -> catalog.prices-db "stores list prices"
+  ordering.checkout-api.checkout-pricing -> ordering.promotions-api "applies promotions"
+  ordering.checkout-api.checkout-pricing -> ordering.tax-api "calculates tax"
+  ordering.checkout-api.checkout-pricing -> fulfilment.shipping-api "quotes delivery options"
+  ordering.checkout-api.checkout-pricing -> catalog.prices-api "reads list prices"
+  catalog.products-api -> platform.event-bus "publishes product-changed"
+  catalog.products-api -> catalog.products-db "stores the catalogue"
+  ordering.promotions-api -> ordering.promotions-db "stores promotion rules"
+  payment-provider -> payments.payments-api "reports payment outcomes"
+  catalog.recommendations-api -> catalog.recommendations-cache "caches recommendations"
+  catalog.recommendations-api -> platform.event-bus "learns from placed orders"
+  catalog.recommendations-api -> catalog.products-api "reads product details"
+  payments.reconciliation-job -> payment-provider "downloads settlement reports"
+  payments.reconciliation-job -> payments.payments-db "matches settlements against payments"
+  payments.reconciliation-job -> payments.reconciliation-db "records mismatches"
+  ordering.returns-api -> platform.event-bus "publishes return-approved"
+  ordering.returns-api -> ordering.orders-api "checks the returned order"
+  ordering.returns-api -> ordering.returns-db "stores returns"
+  catalog.reviews-api -> catalog.reviews-db "stores reviews"
+  catalog.search-api -> platform.event-bus "reindexes changed prices"
+  catalog.search-api -> platform.event-bus "reindexes changed products"
+  catalog.search-api -> platform.event-bus "updates availability in the index"
+  catalog.search-api -> catalog.search-index "queries and updates the index"
+  fulfilment.shipping-api -> delivery-carrier "books the delivery"
+  fulfilment.shipping-api -> platform.event-bus "publishes shipment-dispatched"
+  fulfilment.shipping-api -> platform.event-bus "ships packed parcels"
+  fulfilment.shipping-api -> fulfilment.shipping-db "stores shipments"
+  payments.card-vault -> payments.card-vault-db "stores encrypted cards"
+  fulfilment.warehouse-api -> fulfilment.inventory-api "deducts picked stock"
+  fulfilment.warehouse-api -> platform.event-bus "creates pick lists for confirmed orders"
+  fulfilment.warehouse-api -> platform.event-bus "publishes parcel-packed"
+  fulfilment.warehouse-api -> fulfilment.warehouse-db "stores pick lists"
+  storefront.web-shop -> ordering.checkout-api.checkout-confirmation "checks out the cart"
+  storefront.web-shop -> ordering.invoices-api "downloads an invoice"
+  storefront.web-shop -> ordering.checkout-api.checkout-cart "adds items to the cart"
+  storefront.web-shop -> storefront.session-cache "keeps sessions"
+  storefront.web-shop -> catalog.media-api "loads product images"
+  storefront.web-shop -> storefront.content-api "loads landing pages"
+  storefront.web-shop -> catalog.reviews-api "posts a review"
+  storefront.web-shop -> ordering.returns-api "requests a return"
+  storefront.web-shop -> catalog.search-api "searches products"
+  storefront.web-shop -> storefront.accounts-api "shows and edits the account"
+  storefront.web-shop -> ordering.orders-api "shows the order history"
+  storefront.web-shop -> storefront.loyalty-api "shows loyalty points"
+  storefront.web-shop -> catalog.products-api "shows product pages"
+  storefront.web-shop -> catalog.recommendations-api "shows recommendations"
+  storefront.web-shop -> catalog.reviews-api "shows reviews"
+  storefront.web-shop -> platform.auth-api "signs the customer in"
+  storefront.web-shop -> payments.card-vault "tokenizes the card"
+  storefront.web-shop -> fulfilment.shipping-api "shows parcel tracking"
+}
+
+views {
+  view index {
+    title "Landscape"
+    include *
+  }
+  view catalog of catalog {
+    title "Catalog"
+    include *
+  }
+  view checkout-api of ordering.checkout-api {
+    title "Checkout"
+    include *
+  }
+  view fulfilment of fulfilment {
+    title "Fulfilment"
+    include *
+  }
+  view ordering of ordering {
+    title "Ordering"
+    include *
+  }
+  view payments of payments {
+    title "Payments"
+    include *
+  }
+  view platform of platform {
+    title "Platform"
+    include *
+  }
+  view storefront of storefront {
+    title "Storefront"
+    include *
+  }
+}

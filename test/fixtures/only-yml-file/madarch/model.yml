@@ -1,0 +1,12 @@
+version: 1
+
+elements:
+  - id: a
+    kind: service
+  - id: b
+    kind: service
+
+relations:
+  - id: a-to-b
+    from: a
+    to: b

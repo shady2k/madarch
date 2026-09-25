@@ -1,0 +1,287 @@
+# Ordering: from a cart to a placed order, and what follows an order
+# (promotions, tax, returns, invoices). Checkout is the one service drawn with
+# its modules: the cart, pricing, the payment step and the confirmation.
+version: 1
+
+elements:
+  - id: checkout-api
+    kind: service
+    name: Checkout
+    parent: ordering
+    technology: TypeScript, NestJS
+  - id: checkout-cart
+    kind: module
+    name: Cart
+    parent: checkout-api
+  - id: checkout-pricing
+    kind: module
+    name: Pricing
+    parent: checkout-api
+  - id: checkout-payment-step
+    kind: module
+    name: Payment step
+    parent: checkout-api
+  - id: checkout-confirmation
+    kind: module
+    name: Confirmation
+    parent: checkout-api
+  - id: cart-cache
+    kind: store
+    name: Cart cache
+    parent: ordering
+    technology: Redis
+  - id: orders-api
+    kind: service
+    name: Orders
+    parent: ordering
+    technology: Java, Spring Boot
+  - id: orders-db
+    kind: store
+    name: Orders database
+    parent: ordering
+    technology: PostgreSQL
+  - id: promotions-api
+    kind: service
+    name: Promotions
+    parent: ordering
+    technology: Go
+  - id: promotions-db
+    kind: store
+    name: Promotions database
+    parent: ordering
+    technology: PostgreSQL
+  - id: tax-api
+    kind: service
+    name: Tax
+    parent: ordering
+    technology: Go
+  - id: returns-api
+    kind: service
+    name: Returns
+    parent: ordering
+    technology: Kotlin
+  - id: returns-db
+    kind: store
+    name: Returns database
+    parent: ordering
+    technology: PostgreSQL
+  - id: invoices-api
+    kind: service
+    name: Invoices
+    parent: ordering
+    technology: Java, Spring Boot
+  - id: invoice-archive
+    kind: store
+    name: Invoice archive
+    parent: ordering
+    technology: Amazon S3
+
+interfaces:
+  - id: cart-items
+    provider: checkout-cart
+    contract: http::POST::/api/carts/{cartId}/items
+  - id: checkout-submit
+    provider: checkout-confirmation
+    contract: http::POST::/api/carts/{cartId}/checkout
+  - id: orders-place
+    provider: orders-api
+    contract: grpc::ordering.v1.Orders/PlaceOrder
+  - id: orders-read
+    provider: orders-api
+    contract: http::GET::/api/orders/{orderId}
+  - id: promotions-apply
+    provider: promotions-api
+    contract: grpc::ordering.v1.Promotions/Apply
+  - id: tax-calculate
+    provider: tax-api
+    contract: grpc::ordering.v1.Tax/Calculate
+  - id: returns-request
+    provider: returns-api
+    contract: http::POST::/api/orders/{orderId}/returns
+  - id: invoices-download
+    provider: invoices-api
+    contract: http::GET::/api/invoices/{invoiceId}
+
+relations:
+  # Front ends into checkout.
+  - id: web-shop-fills-cart
+    name: adds items to the cart
+    from: web-shop
+    to: checkout-cart
+    interface: cart-items
+  - id: mobile-bff-fills-cart
+    name: adds items to the cart
+    from: mobile-bff
+    to: checkout-cart
+    interface: cart-items
+  - id: web-shop-checks-out
+    name: checks out the cart
+    from: web-shop
+    to: checkout-confirmation
+    interface: checkout-submit
+    transfers:
+      - direction: forward
+        confidentiality: confidential
+        categories: [personal, order]
+  - id: mobile-bff-checks-out
+    name: checks out the cart
+    from: mobile-bff
+    to: checkout-confirmation
+    interface: checkout-submit
+    transfers:
+      - direction: forward
+        confidentiality: confidential
+        categories: [personal, order]
+
+  # Inside checkout, and out of it.
+  - id: cart-keeps-carts
+    name: keeps open carts
+    from: checkout-cart
+    to: cart-cache
+  - id: cart-checks-stock
+    name: checks stock
+    from: checkout-cart
+    to: inventory-api
+    interface: inventory-availability
+  - id: cart-prices-items
+    name: prices the cart
+    from: checkout-cart
+    to: checkout-pricing
+  - id: pricing-reads-prices
+    name: reads list prices
+    from: checkout-pricing
+    to: prices-api
+    interface: prices-lookup
+  - id: pricing-applies-promotions
+    name: applies promotions
+    from: checkout-pricing
+    to: promotions-api
+    interface: promotions-apply
+  - id: pricing-calculates-tax
+    name: calculates tax
+    from: checkout-pricing
+    to: tax-api
+    interface: tax-calculate
+  - id: pricing-quotes-delivery
+    name: quotes delivery options
+    from: checkout-pricing
+    to: shipping-api
+    interface: shipping-quote
+  - id: confirmation-takes-payment
+    name: takes payment before placing
+    from: checkout-confirmation
+    to: checkout-payment-step
+  - id: checkout-pays-through-payments
+    name: takes payment
+    from: checkout-api
+    to: payments
+  - id: payment-step-authorizes
+    name: authorizes the payment
+    refines: checkout-pays-through-payments
+    from: checkout-payment-step
+    to: payments-api
+    interface: payments-authorize
+    transfers:
+      - direction: forward
+        confidentiality: restricted
+        categories: [payment-card, personal, order]
+      - direction: reverse
+        confidentiality: internal
+        categories: []
+  - id: confirmation-places-order
+    name: places the order
+    from: checkout-confirmation
+    to: orders-api
+    interface: orders-place
+    transfers:
+      - direction: forward
+        confidentiality: confidential
+        categories: [personal, order]
+
+  # Orders.
+  - id: orders-stores-orders
+    name: stores orders
+    from: orders-api
+    to: orders-db
+  - id: orders-publishes-placed
+    name: publishes order-placed
+    from: orders-api
+    to: event-bus
+    interface: topic-order-placed
+    transfers:
+      - direction: forward
+        confidentiality: confidential
+        categories: [personal, order]
+  - id: orders-confirms-paid
+    name: confirms paid orders
+    from: orders-api
+    to: event-bus
+    interface: topic-payment-captured
+  - id: orders-cancels-unpaid
+    name: cancels unpaid orders
+    from: orders-api
+    to: event-bus
+    interface: topic-payment-failed
+  - id: orders-publishes-confirmed
+    name: publishes order-confirmed
+    from: orders-api
+    to: event-bus
+    interface: topic-order-confirmed
+  - id: orders-publishes-cancelled
+    name: publishes order-cancelled
+    from: orders-api
+    to: event-bus
+    interface: topic-order-cancelled
+  - id: orders-marks-shipped
+    name: marks orders as shipped
+    from: orders-api
+    to: event-bus
+    interface: topic-shipment-dispatched
+  - id: web-shop-shows-orders
+    name: shows the order history
+    from: web-shop
+    to: orders-api
+    interface: orders-read
+    transfers:
+      - direction: reverse
+        confidentiality: confidential
+        categories: [personal, order]
+
+  # Promotions, returns and invoices.
+  - id: promotions-stores-rules
+    name: stores promotion rules
+    from: promotions-api
+    to: promotions-db
+  - id: web-shop-requests-return
+    name: requests a return
+    from: web-shop
+    to: returns-api
+    interface: returns-request
+  - id: returns-reads-order
+    name: checks the returned order
+    from: returns-api
+    to: orders-api
+    interface: orders-read
+  - id: returns-stores-returns
+    name: stores returns
+    from: returns-api
+    to: returns-db
+  - id: returns-publishes-approved
+    name: publishes return-approved
+    from: returns-api
+    to: event-bus
+    interface: topic-return-approved
+  - id: invoices-issue-for-orders
+    name: issues invoices for confirmed orders
+    from: invoices-api
+    to: event-bus
+    interface: topic-order-confirmed
+  - id: invoices-archives-pdfs
+    name: archives invoice PDFs
+    from: invoices-api
+    to: invoice-archive
+  - id: web-shop-downloads-invoice
+    name: downloads an invoice
+    from: web-shop
+    to: invoices-api
+    interface: invoices-download

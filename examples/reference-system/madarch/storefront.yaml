@@ -1,0 +1,149 @@
+# Storefront: what the customer touches. The web shop and the mobile back end
+# sit in the DMZ; the app runs on the customer's phone. Customer accounts,
+# landing pages and loyalty points live here too.
+version: 1
+
+elements:
+  - id: web-shop
+    kind: service
+    name: Web shop
+    parent: storefront
+    technology: TypeScript, Next.js
+    zones:
+      replace: [dmz]
+  - id: session-cache
+    kind: store
+    name: Session cache
+    parent: storefront
+    technology: Redis
+  - id: mobile-app
+    kind: service
+    name: Mobile app
+    parent: storefront
+    technology: Swift, Kotlin
+    zones:
+      replace: [internet]
+  - id: mobile-bff
+    kind: service
+    name: Mobile back end
+    parent: storefront
+    technology: TypeScript, Node.js
+    zones:
+      replace: [dmz]
+  - id: accounts-api
+    kind: service
+    name: Accounts
+    parent: storefront
+    technology: Go
+  - id: accounts-db
+    kind: store
+    name: Accounts database
+    parent: storefront
+    technology: PostgreSQL
+  - id: content-api
+    kind: service
+    name: Content
+    parent: storefront
+    technology: TypeScript, Strapi
+  - id: content-db
+    kind: store
+    name: Content database
+    parent: storefront
+    technology: MongoDB
+  - id: loyalty-api
+    kind: service
+    name: Loyalty
+    parent: storefront
+    technology: Kotlin
+  - id: loyalty-db
+    kind: store
+    name: Loyalty database
+    parent: storefront
+    technology: PostgreSQL
+
+interfaces:
+  - id: mobile-screens
+    provider: mobile-bff
+    contract: http::GET::/mobile/v1/screens/{screen}
+  - id: accounts-profile
+    provider: accounts-api
+    contract: http::GET::/api/accounts/{accountId}
+  - id: accounts-contact
+    provider: accounts-api
+    contract: grpc::storefront.v1.Accounts/GetContact
+  - id: content-pages
+    provider: content-api
+    contract: http::GET::/api/pages/{slug}
+  - id: loyalty-balance
+    provider: loyalty-api
+    contract: http::GET::/api/loyalty/{accountId}
+
+relations:
+  - id: customer-shops-on-web
+    name: browses and buys on the web
+    from: customer
+    to: web-shop
+  - id: customer-shops-in-app
+    name: browses and buys in the app
+    from: customer
+    to: mobile-app
+  - id: app-loads-screens
+    name: loads screens
+    from: mobile-app
+    to: mobile-bff
+    interface: mobile-screens
+  - id: web-shop-keeps-sessions
+    name: keeps sessions
+    from: web-shop
+    to: session-cache
+  - id: web-shop-shows-account
+    name: shows and edits the account
+    from: web-shop
+    to: accounts-api
+    interface: accounts-profile
+    transfers:
+      - direction: forward
+        confidentiality: confidential
+        categories: [personal]
+      - direction: reverse
+        confidentiality: confidential
+        categories: [personal]
+  - id: mobile-bff-shows-account
+    name: shows and edits the account
+    from: mobile-bff
+    to: accounts-api
+    interface: accounts-profile
+    transfers:
+      - direction: forward
+        confidentiality: confidential
+        categories: [personal]
+      - direction: reverse
+        confidentiality: confidential
+        categories: [personal]
+  - id: accounts-stores-accounts
+    name: stores accounts and addresses
+    from: accounts-api
+    to: accounts-db
+  - id: web-shop-loads-pages
+    name: loads landing pages
+    from: web-shop
+    to: content-api
+    interface: content-pages
+  - id: content-stores-pages
+    name: stores pages
+    from: content-api
+    to: content-db
+  - id: web-shop-shows-points
+    name: shows loyalty points
+    from: web-shop
+    to: loyalty-api
+    interface: loyalty-balance
+  - id: loyalty-stores-points
+    name: stores points
+    from: loyalty-api
+    to: loyalty-db
+  - id: loyalty-awards-points
+    name: awards points for placed orders
+    from: loyalty-api
+    to: event-bus
+    interface: topic-order-placed

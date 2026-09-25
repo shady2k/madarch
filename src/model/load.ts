@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { LineCounter, parseDocument } from 'yaml';
 import { Value } from 'typebox/value';
-import type { ModelError } from './errors.js';
+import type { ModelError, ModelWarning } from './errors.js';
 import { ModelFile, type Category, type Element, type Environment, type Interface, type Relation, type State, type ValidatedModel, type Zone } from './schema.js';
 import { checkStrictYaml } from './strict-yaml.js';
 import {
@@ -19,11 +19,19 @@ import {
   type PositionedZone,
   type TransferLines,
 } from './validate.js';
+import { unnamedRelationWarning } from './warnings.js';
 import { jsonPointerToSegments, lineForPath, segmentsToPath, type PathSegment } from './yaml-position.js';
 
 export interface LoadResult {
   model?: ValidatedModel;
   errors: ModelError[];
+  /**
+   * Problems that do not refuse the model (see `warnings.ts`), in file order
+   * and then in the order written. Reported for every file that parsed and
+   * matched the schema, whether or not the model as a whole was refused;
+   * empty when there are none, and empty when no file could be read.
+   */
+  warnings: ModelWarning[];
 }
 
 /**
@@ -58,6 +66,7 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
   if (files.length === 0) {
     return {
       errors: [{ file: '', line: 1, path: '', message: 'no model: parseModel was given no files; a model needs at least one' }],
+      warnings: [],
     };
   }
 
@@ -72,10 +81,12 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
         path: '',
         message: `the file path "${path}" is given more than once`,
       })),
+      warnings: [],
     };
   }
 
   const errors: ModelError[] = [];
+  const warnings: ModelWarning[] = [];
   const positioned: PositionedModel = {
     elements: [],
     interfaces: [],
@@ -204,6 +215,8 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
         sinceLine: line(['relations', index, 'since']),
         untilLine: line(['relations', index, 'until']),
       });
+      const warning = unnamedRelationWarning(relation, relativeFile, index, line);
+      if (warning !== undefined) warnings.push(warning);
     });
 
     (parsed.categories ?? []).forEach((category, index) => {
@@ -268,7 +281,7 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
   const validationErrors = validateModel(positioned, extraKnownIds);
   const allErrors = [...errors, ...validationErrors];
   if (allErrors.length > 0) {
-    return { errors: allErrors };
+    return { errors: allErrors, warnings };
   }
 
   const model = {
@@ -286,7 +299,7 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
   // that produces a `ValidatedModel`: this is the one, deliberate cast at
   // that boundary, so `compileModel` can require the brand instead of
   // trusting every caller to have validated first.
-  return { model: model as unknown as ValidatedModel, errors: [] };
+  return { model: model as unknown as ValidatedModel, errors: [], warnings };
 }
 
 /**
@@ -307,6 +320,7 @@ export function loadModel(repoRoot: string): LoadResult {
   } catch {
     return {
       errors: [{ file: 'madarch', line: 1, path: '', message: 'the madarch folder was not found' }],
+      warnings: [],
     };
   }
 
@@ -330,7 +344,7 @@ export function loadModel(repoRoot: string): LoadResult {
       path: '',
       message: 'the madarch folder has no *.yaml files: a model needs at least one',
     });
-    return { errors };
+    return { errors, warnings: [] };
   }
 
   const files: ModelSourceFile[] = [];
@@ -349,13 +363,13 @@ export function loadModel(repoRoot: string): LoadResult {
     }
   }
 
-  const { model, errors: parseErrors } = parseModel(files);
+  const { model, errors: parseErrors, warnings } = parseModel(files);
   errors.push(...parseErrors);
 
   if (errors.length > 0 || model === undefined) {
-    return { errors };
+    return { errors, warnings };
   }
-  return { model, errors: [] };
+  return { model, errors: [], warnings };
 }
 
 interface NormalizedError {

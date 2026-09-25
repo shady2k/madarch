@@ -1,0 +1,16 @@
+version: 1
+
+elements:
+  - id: shop
+    kind: domain
+  - id: checkout-web
+    kind: service
+    parent: shop
+  - id: legacy-billing
+    kind: external
+
+relations:
+  - id: checkout-bills
+    name: bills the order
+    from: checkout-web
+    to: legacy-billing

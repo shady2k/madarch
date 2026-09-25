@@ -1,0 +1,60 @@
+version: 1
+
+elements:
+  - id: shop
+    kind: domain
+    name: Shop
+  - id: checkout-web
+    kind: service
+    name: Checkout web
+    parent: shop
+  - id: checkout-cart
+    kind: module
+    parent: checkout-web
+  - id: checkout-ui
+    kind: module
+    parent: checkout-web
+  - id: stock-api
+    kind: service
+    name: Stock API
+    parent: shop
+  - id: audit-log
+    kind: store
+    name: Audit log
+    parent: shop
+
+relations:
+  - id: cart-reserves-stock
+    name: reserves stock
+    from: checkout-cart
+    to: stock-api
+  - id: ui-shows-stock
+    name: shows stock
+    from: checkout-ui
+    to: stock-api
+  # Towards audit-log, names given out of alphabetical order, one repeated,
+  # and one relation id that sorts first only by code point (upper case).
+  - id: W-writes-first
+    name: writes carts
+    from: checkout-cart
+    to: audit-log
+  - id: cart-writes-again
+    name: writes carts
+    from: checkout-cart
+    to: audit-log
+  - id: cart-reads
+    name: reads carts
+    from: checkout-cart
+    to: audit-log
+  - id: ui-locks
+    name: locks rows
+    from: checkout-ui
+    to: audit-log
+  - id: ui-audits
+    name: audits views
+    from: checkout-ui
+    to: audit-log
+  - id: ui-counts
+    name: counts views
+    from: checkout-ui
+    to: audit-log

@@ -98,6 +98,9 @@ export type CompiledInterface = Static<typeof CompiledInterface>;
 export const CompiledRelation = Type.Object(
   {
     id: CompiledId,
+    name: Type.Optional(
+      Type.String({ description: 'What the relation does, in a few words, as the model names it. Left out when the relation has no name or a blank one.' }),
+    ),
     from: Type.String(),
     to: Type.String(),
     refines: Type.Optional(Type.String()),

@@ -120,6 +120,12 @@ export type Binding = Static<typeof Binding>;
 export const Relation = Type.Object(
   {
     id: Id,
+    name: Type.Optional(
+      Type.String({
+        description:
+          'What the relation does, in a few words ("places orders"). Optional, so a model written before names existed still loads, but a relation with no name, or a blank one, is warned about.',
+      }),
+    ),
     from: Type.String(),
     to: Type.String(),
     refines: Type.Optional(Type.String()),

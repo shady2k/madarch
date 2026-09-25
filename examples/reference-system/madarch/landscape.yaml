@@ -1,0 +1,101 @@
+# Larkspur, an invented online shop: the landscape. Customers buy through a
+# web shop and a mobile app; six domains own the shop's services; three
+# outside companies take the card payments, deliver the parcels and send the
+# emails and text messages. Each domain's services are in its own file.
+version: 1
+
+zones:
+  - id: internet
+    kind: network
+    name: Public internet
+  - id: dmz
+    kind: network
+    name: Demilitarised zone
+  - id: internal
+    kind: network
+    name: Internal network
+  - id: pci
+    kind: regulatory
+    name: PCI DSS cardholder data environment
+
+categories:
+  - id: personal
+    name: Personal data
+  - id: payment-card
+    name: Payment card data
+  - id: order
+    name: Order data
+
+elements:
+  - id: customer
+    kind: person
+    name: Customer
+    zones:
+      add: [internet]
+
+  - id: payment-provider
+    kind: external
+    name: Payment provider
+    zones:
+      add: [internet]
+  - id: delivery-carrier
+    kind: external
+    name: Delivery carrier
+    zones:
+      add: [internet]
+  - id: messaging-provider
+    kind: external
+    name: Email and SMS provider
+    zones:
+      add: [internet]
+
+  - id: storefront
+    kind: domain
+    name: Storefront
+    zones:
+      add: [internal]
+  - id: catalog
+    kind: domain
+    name: Catalog
+    zones:
+      add: [internal]
+  - id: ordering
+    kind: domain
+    name: Ordering
+    zones:
+      add: [internal]
+  - id: payments
+    kind: domain
+    name: Payments
+    zones:
+      add: [internal, pci]
+  - id: fulfilment
+    kind: domain
+    name: Fulfilment
+    zones:
+      add: [internal]
+  - id: platform
+    kind: domain
+    name: Platform
+    zones:
+      add: [internal]
+
+interfaces:
+  - id: provider-payments
+    provider: payment-provider
+    contract: http::POST::/v1/payments
+  - id: provider-refunds
+    provider: payment-provider
+    contract: http::POST::/v1/payments/{paymentId}/refunds
+  - id: provider-settlements
+    provider: payment-provider
+    contract: data::settlement-reports
+  - id: carrier-shipments
+    provider: delivery-carrier
+    contract: http::POST::/v2/shipments
+  - id: messaging-email
+    provider: messaging-provider
+    contract: http::POST::/v3/mail/send
+  - id: messaging-sms
+    provider: messaging-provider
+    contract: http::POST::/v1/messages

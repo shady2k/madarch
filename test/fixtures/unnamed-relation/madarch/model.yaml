@@ -1,0 +1,21 @@
+version: 1
+
+elements:
+  - id: checkout-web
+    kind: service
+    name: Checkout web
+  - id: orders-api
+    kind: service
+    name: Orders API
+  - id: order-events
+    kind: broker
+    name: Order events
+
+relations:
+  - id: orders-publishes-placed
+    name: publishes placed orders
+    from: orders-api
+    to: order-events
+  - id: checkout-calls-orders
+    from: checkout-web
+    to: orders-api

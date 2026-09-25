@@ -201,6 +201,10 @@
             "type": "string",
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
           },
+          "name": {
+            "type": "string",
+            "description": "What the relation does, in a few words, as the model names it. Left out when the relation has no name or a blank one."
+          },
           "from": {
             "type": "string"
           },
