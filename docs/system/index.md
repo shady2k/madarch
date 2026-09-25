@@ -19,5 +19,6 @@ The readings the run decided within these requirements are in
 ## Known unknowns
 
 - Views, the server, the agent skill: later outcomes of the MVP.
-- Memory growth of filtered recursive queries in a long-lived process: an open
-  decision (madarch-ti6.1).
+- The query engine's memory in a long-lived process: bounded by fewer
+  execution threads and fewer prepared statements (madarch-ti6.2), not yet
+  measured over a long run (madarch-ti6.1).

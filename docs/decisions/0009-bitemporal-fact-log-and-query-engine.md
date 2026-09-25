@@ -49,9 +49,11 @@ answered early.
 Measured 2026-09-24 (graph-foundation, LadybugDB 0.20.4 under Bun 1.4.2, a
 developer's laptop): a view over 10 000 elements with history in about 70 ms;
 transitive dependents over 10 000 elements and 30 000 relations in about
-60 ms, filtered by time on every hop. Memory grows with filtered recursive
-queries and with statements prepared per distinct time; how the server lives
-with it is an open decision (madarch-ti6.1).
+60 ms, filtered by time on every hop. Memory, rechecked 2026-09-25: it is set
+by LadybugDB's execution threads (one per core by default, each holding path
+results) and by a statement prepared for every distinct query time, not by the
+time filter; both are ours to bound (madarch-ti6.2), and whether the server
+also needs a restartable engine process waits on that (madarch-ti6.1).
 
 ## Consequences
 - Two stores must stay in step; the query engine is derived and can be rebuilt
