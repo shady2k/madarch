@@ -10,7 +10,7 @@ and its contract ids normalized.
 ## Requirement: shape — The compiled model is published with its schema
 When a valid model is compiled, the compiler shall produce `model.json` with a
 schema version, the model's elements with their ancestors, interfaces,
-relations and interactions with their refinements and transfers, zones,
+relations and interactions with their names, refinements and transfers, zones,
 categories, environments and states, validated against a published JSON
 Schema.
 

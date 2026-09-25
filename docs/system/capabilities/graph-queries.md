@@ -35,7 +35,13 @@ engine shall return the elements within the scope down to that depth and the
 relations between them, each relation lifted to the nearest shown ancestor of
 its ends, merged per pair of shown elements with the list of relations behind
 it. A refinement is not counted beside the relation it refines, and a relation
-whose ends fall inside one shown element is not drawn.
+whose ends fall inside one shown element is not drawn. When the view is asked
+with its context, the engine shall also return, marked as neighbours, the
+elements outside the scope that relations cross its boundary to or from, each
+end outside lifted to its ancestor (or itself) whose parent is the scope's
+parent or one of its ancestors, or which has no parent; those relations are
+lifted and merged the same way. Without a scope there is nothing outside, and
+the context adds nothing.
 
 ### Scenario: collapse
 - Given: modules `checkout-cart` and `checkout-ui` of `checkout-web` both call `payments-api`
@@ -46,6 +52,11 @@ whose ends fall inside one shown element is not drawn.
 - Given: `checkout-uses-payments` from `checkout-web` to `payments` and its refinement `checkout-charges-card` from `checkout-cart` to `payments-api`
 - When: a view at the depth of domains and services is asked
 - Then: one relation from `checkout-web` to `payments` is shown, standing for both, not two
+
+### Scenario: context
+- Given: `checkout-web` in domain `shop` calls `payments-api` in domain `payments`, and `shop` also holds `catalog-api`
+- When: a view scoped to `shop` at depth one is asked with its context
+- Then: `checkout-web` and `catalog-api` are shown inside the scope, `payments` is shown as a neighbour outside it, and one relation joins `checkout-web` to `payments`
 
 ### Scenario: inside-one-box
 - Given: `checkout-cart` calls `checkout-ui`, both inside `checkout-web`

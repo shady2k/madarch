@@ -16,9 +16,18 @@ Accepted 2026-09-25 with the change graph-foundation (`docs/changes/graph-founda
 The readings the run decided within these requirements are in
 `docs/changes/graph-foundation/design.md`, "Readings decided during the run".
 
+Changed and added 2026-09-25 with the change readable-views (`docs/changes/readable-views/`):
+
+- intended-model: relations carry a name; an unnamed one loads with a warning.
+- compiled-model: relations carry their names.
+- graph-queries: a view may be asked with its context, the neighbours outside its scope.
+- [views](capabilities/views.md): the view set, rendered as Mermaid pages and a LikeC4 workspace.
+
+Its run's decisions are in `docs/changes/readable-views/design.md`, "Decided during the run".
+
 ## Known unknowns
 
-- Views, the server, the agent skill: later outcomes of the MVP.
+- The server and the agent skill: later outcomes of the MVP.
 - The query engine's memory in a long-lived process: bounded by fewer
   execution threads and fewer prepared statements (madarch-ti6.2), not yet
   measured over a long run (madarch-ti6.1).

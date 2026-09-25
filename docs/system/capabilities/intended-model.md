@@ -108,6 +108,17 @@ own id.
 - When: the model is loaded
 - Then: loading fails naming the refining relation and the end that is out of place
 
+## Requirement: relation-names — Every relation is named, or warned about
+A relation shall have a `name` saying what it does in a few words ("places
+orders"). If a relation has no name, then loading shall still succeed and
+return a warning naming the relation, its file and line; warnings never refuse
+a model, and a model with none returns an empty list of them.
+
+### Scenario: unnamed-relation
+- Given: a model whose relation `checkout-calls-orders` has no name, and whose relation `orders-publishes-placed` is named "publishes placed orders"
+- When: the model is loaded
+- Then: it loads, and the one warning names `checkout-calls-orders` with its file and line
+
 ## Requirement: transfers — Data transfers have a direction each
 An interaction shall carry any number of data transfers, each with a direction
 (forward, from the initiator, or reverse), a confidentiality and a list of data
@@ -193,7 +204,7 @@ line, from which it was written; the compiled model keeps them as given.
 - Security and data protection: secret values are never read or stored; only
   variable names.
 - Data: the format has a `version`; an unknown version is refused.
-- Usability: every error names the file and the line.
+- Usability: every error and every warning names the file and the line.
 - Compatibility and operation: not applicable (a library).
 
 ## Context
