@@ -247,6 +247,28 @@ describe('views:check likec4', () => {
     });
   });
 
+  test('errors are put in file then line order whatever order likec4 reports them in', () => {
+    const dir = folderWith({ 'model.c4': GOOD_C4 });
+    const errors = [
+      { message: 'b late', file: '/w/b.c4', line: 8 },
+      { message: 'a late', file: '/w/a.c4', line: 9 },
+      { message: 'b early', file: '/w/b.c4', line: 1 },
+      { message: 'a early', file: '/w/a.c4', line: 0 },
+    ];
+    const fake = join(dir, 'unordered.sh');
+    writeFileSync(fake, `#!/bin/sh\necho '${JSON.stringify({ valid: false, errors, stats: { totalFiles: 2 } })}'\nexit 1\n`, { mode: 0o755 });
+
+    expect(checkLikeC4Workspaces([dir], fake)).toEqual({
+      files: 2,
+      errors: [
+        { file: '/w/a.c4', line: 1, message: 'a early' },
+        { file: '/w/a.c4', line: 10, message: 'a late' },
+        { file: '/w/b.c4', line: 2, message: 'b early' },
+        { file: '/w/b.c4', line: 9, message: 'b late' },
+      ],
+    });
+  });
+
   test('a likec4 that fails, or finds the workspace invalid, while naming no error still fails the check', () => {
     const dir = folderWith({ 'model.c4': GOOD_C4 });
     const fake = (name: string, valid: boolean, status: number): string => {
@@ -320,7 +342,7 @@ describe('views:check the command', () => {
   });
 
   test('an argument that is not a check with its folder is refused with exit 2, checking nothing', () => {
-    for (const args of [['somewhere'], ['--mermaid'], ['--likec4', '--mermaid', 'x'], ['--svg', 'x']]) {
+    for (const args of [['somewhere'], ['--mermaid'], ['--likec4', '--mermaid'], ['--likec4', '--mermaid', 'x'], ['--svg', 'x']]) {
       const result = run(...args);
       expect(result.stdout).toBe('');
       expect(result.stderr).toStartWith('error: usage: bun run views:check [--mermaid <folder>]... [--likec4 <folder>]...');

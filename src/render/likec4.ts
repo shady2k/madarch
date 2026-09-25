@@ -145,11 +145,11 @@ export function renderLikeC4Workspace(engine: QueryEngine, model: CompiledModel,
 
   const errors: LikeC4Error[] = [];
   const compiled = new Map(model.elements.map((element) => [element.id, element]));
-  const elements = every.elements!.filter((element) => {
-    if (compiled.has(element.id)) return true;
+  const elements = every.elements!;
+  for (const element of elements) {
+    if (compiled.has(element.id)) continue;
     errors.push({ message: `the workspace: the element "${element.id}" is shown by the query engine but the compiled model does not hold it`, elementId: element.id });
-    return false;
-  });
+  }
 
   const labels = labeller(model);
   const relations: WorkspaceRelation[] = [];
