@@ -14,6 +14,14 @@ if [ ! -s "$LIST" ]; then
   echo "Create $USER_PRIVATE (or $PRIVATE) and connect the clone: sh .shady2k/connect.sh"
   exit 1
 fi
+# A pattern grep cannot read would match nothing and pass everything: refuse.
+printf '' | grep -E -f "$LIST" >/dev/null 2>&1
+if [ $? -eq 2 ]; then
+  rm -f "$LIST"
+  echo "Commit refused: a private pattern is not a valid extended regular expression ($USER_PRIVATE or $PRIVATE)."
+  echo "Fix the pattern (grep -E -f <file> names it), then commit again."
+  exit 1
+fi
 hits=$(git diff --cached --no-color --unified=0 --diff-filter=ACMR | grep '^+' | grep -v '^+++' | grep -n -i -E -f "$LIST")
 names=$(git diff --cached --name-only --diff-filter=ACMR | grep -i -E -f "$LIST")
 rm -f "$LIST"

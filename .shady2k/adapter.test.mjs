@@ -43,6 +43,19 @@ test('claim: every other prerequisite refuses, and says why', () => {
   assert.match(mixed.refuse, /prerequisite q is open/);
 });
 
+test('claim: a same-stage prerequisite needs a real stage as the shared parent', () => {
+  const task = { ...stage, type: 'task' };
+  assert.match(claimPlan([task, done('p'), leaf('a', { blockedBy: ['p'] })], 'a', merged).refuse, /another stage/);
+  assert.match(claimPlan([done('p'), leaf('a', { blockedBy: ['p'] })], 'a', merged).refuse, /another stage/);
+});
+
+test('claim: the recheck after claiming wants the claim held by this actor and the blockers still good', () => {
+  const held = leaf('a', { status: 'active', holder: 'w1', blockedBy: ['p'] });
+  assert.deepEqual(claimPlan([stage, done('p'), held], 'a', merged, 'w1'), { force: true });
+  assert.match(claimPlan([stage, done('p'), held], 'a', merged, 'w2').refuse, /held by w1, not by w2/);
+  assert.match(claimPlan([stage, leaf('p'), held], 'a', merged, 'w1').refuse, /prerequisite p is open/);
+});
+
 test('claim: only an open, unheld leaf is claimed', () => {
   assert.match(claimPlan([stage, leaf('a')], 'stage', merged).refuse, /not a leaf/);
   assert.match(claimPlan([{ ...stage, id: 'lone' }], 'lone', merged).refuse, /not a leaf/);

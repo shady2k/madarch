@@ -144,12 +144,14 @@ are the repository's installation, and each person's plugin and hooks are theirs
   tests when tooling is staged, then backlog gate) and `.githooks/commit-msg`
   (commit links, then the document gate).
 - **Connecting a clone:** `sh .shady2k/connect.sh`. It checks first and changes
-  nothing unless every check passes: node and br present, a private pattern
-  list, a local `main` (created from `origin/main` when only that exists) and a
-  `user.email`. Then it sets `core.hooksPath` and the `br-portable-path`
-  filter, imports the tracker export into br's local database, migrates
-  workspace paths through br's reviewed plan, and proves the adapter and the
-  privacy guard run. Safe to rerun; it writes no global git config.
+  nothing unless every check passes: node and br present, a valid private
+  pattern list, a readable tracker export, a local `main` (created from
+  `origin/main` when only that exists) and a `user.email`. Then it imports the
+  tracker export into br's local database and migrates workspace paths through
+  br's reviewed plan, and only then writes the `br-portable-path` filter and
+  `core.hooksPath`, each write checked, and proves the privacy guard passes.
+  Safe to rerun; it writes no global git config. Tests:
+  `.shady2k/hooks.test.mjs`.
 - **Public repository, privacy:** no personal data and no details of the
   owner's other projects. `.githooks/privacy-guard.sh` refuses staged content
   matching the private pattern lists, never committed: per user at
@@ -201,7 +203,7 @@ Its own reference: `br robot-docs guide`, `br <command> --help`. Pass
 | --- | --- |
 | create | `br create --type <task\|bug\|chore\|epic> --title … --labels mvp,<area> [--parent <epic>] --description …`; an epic states `## Done when` |
 | link / unlink | `br dep add <issue> <prerequisite>` (type `blocks`, gating only), `br dep remove`; provenance uses `--type related` or `discovered-from`, which the adapter ignores |
-| claim | `node .shady2k/adapter.mjs claim <id> --actor <agent full name>`, then a comment with the start time and the checkout name (no absolute path). It claims only an open, unheld leaf, and judges each open blocker: an `implemented` prerequisite in the same stage passes once its recorded revision is an ancestor of `HEAD`; any other open one refuses with its reason. br's `--claim` stays atomic and exclusive (forced past br's own blocker check only in that case), and the edge is kept |
+| claim | `node .shady2k/adapter.mjs claim <id> --actor <agent full name>`, then a comment with the start time and the checkout name (no absolute path). It claims only an open, unheld leaf, and judges each open blocker: an `implemented` prerequisite in the same stage passes once its recorded revision is an ancestor of `HEAD`; any other open one refuses with its reason. br's `--claim` stays atomic and exclusive (forced past br's own blocker check only in that case, and only when the shared parent is a stage), the blockers are judged again right after the claim, which is released if one no longer passes, and the edge is kept |
 | release | `br update <id> --status open --assignee ""` for unfinished holds only; implemented work keeps its label and record |
 | implemented | coordinator: `br update <id> --add-label implemented` and `br comments add <id> 'implemented: {"revision":…,"evidence":…}'` |
 | submitted | worker: `br update <id> --add-label submitted --assignee ""` and `br comments add <id> 'submitted: {"revision":…,"evidence":…}'` |

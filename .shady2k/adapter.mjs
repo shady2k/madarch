@@ -108,13 +108,20 @@ function commits(args) {
 // revision an ancestor of HEAD; anything else refuses, naming why. Only then is
 // br asked to claim, forced past its blocker check when a blocker is still open;
 // br's claim stays atomic and exclusive either way, and the edge is kept.
-export function claimPlan(issues, id, isMerged) {
+// `heldBy` rechecks a claim just made: the issue must then be active and held by
+// that actor, and every blocker must still pass.
+export function claimPlan(issues, id, isMerged, heldBy = null) {
   const byId = new Map(issues.map((i) => [i.id, i]));
   const issue = byId.get(id);
   if (!issue) return { refuse: `${id} is not in the tracker export.` };
   if (issue.type === 'epic' || issues.some((i) => i.parent === id)) return { refuse: `${id} is a feature or stage, not a leaf; only a leaf is claimed.` };
-  if (issue.status !== 'open') return { refuse: `${id} is ${issue.status}, not open.` };
-  if (issue.holder) return { refuse: `${id} is already held by ${issue.holder}.` };
+  if (heldBy) {
+    if (issue.status !== 'active' || issue.holder !== heldBy) return { refuse: `${id} is ${issue.status}, held by ${issue.holder ?? 'nobody'}, not by ${heldBy}.` };
+  } else {
+    if (issue.status !== 'open') return { refuse: `${id} is ${issue.status}, not open.` };
+    if (issue.holder) return { refuse: `${id} is already held by ${issue.holder}.` };
+  }
+  const stage = issue.parent ? byId.get(issue.parent) : undefined;
   const reasons = [];
   let force = false;
   for (const b of issue.blockedBy) {
@@ -122,7 +129,7 @@ export function claimPlan(issues, id, isMerged) {
     if (!pre) { reasons.push(`prerequisite ${b} is not in the tracker export`); continue; }
     if (pre.status === 'closed') continue;
     if (pre.status !== 'implemented') { reasons.push(`prerequisite ${b} is ${pre.status}; it must be closed, or implemented in the same stage`); continue; }
-    if (!pre.parent || pre.parent !== issue.parent) { reasons.push(`prerequisite ${b} is implemented in another stage (${pre.parent ?? 'none'}); across stages it must be accepted and closed`); continue; }
+    if (!pre.parent || pre.parent !== issue.parent || stage?.type !== 'epic') { reasons.push(`prerequisite ${b} is implemented in another stage (${pre.parent ?? 'none'}); across stages it must be accepted and closed`); continue; }
     const rev = pre.integration?.revision;
     if (!rev || !isMerged(rev)) { reasons.push(`prerequisite ${b} is implemented at ${rev || 'no recorded revision'}, which this checkout does not contain; merge it first`); continue; }
     force = true;
@@ -131,18 +138,35 @@ export function claimPlan(issues, id, isMerged) {
   return { force };
 }
 
+// br checks a forced claim's holder atomically but not its blockers, so the
+// blockers are judged again after the claim: a prerequisite reopened, or a new
+// open blocker added, between the first judgement and br's write releases the
+// claim again and refuses.
 function claim(id, actor) {
   if (!id || !actor) throw new Error('claim needs <id> --actor <agent full name>');
   const isMerged = (rev) => { try { git('merge-base', '--is-ancestor', rev, 'HEAD'); return true; } catch { return false; } };
+  const br = (args) => execFileSync('br', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   const plan = claimPlan(backlog().issues, id, isMerged);
   if (plan.refuse) { console.error(`adapter: ${plan.refuse}`); process.exit(1); }
-  const args = ['update', id, '--claim', '--actor', actor, ...(plan.force ? ['--force'] : [])];
+  let out;
   try {
-    process.stdout.write(execFileSync('br', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+    out = br(['update', id, '--claim', '--actor', actor, ...(plan.force ? ['--force'] : [])]);
   } catch (e) {
     console.error(`adapter: br refused the claim: ${(e.stderr || e.message).trim()}`);
     process.exit(1);
   }
+  if (plan.force) {
+    const again = claimPlan(backlog().issues, id, isMerged, actor);
+    if (again.refuse) {
+      try { br(['update', id, '--status', 'open', '--assignee', '', '--actor', actor]); } catch (e) {
+        console.error(`adapter: ${again.refuse} Releasing the claim failed too: ${(e.stderr || e.message).trim()}; release ${id} by hand.`);
+        process.exit(1);
+      }
+      console.error(`adapter: the claim was released: ${again.refuse}`);
+      process.exit(1);
+    }
+  }
+  process.stdout.write(out);
 }
 
 function main() {

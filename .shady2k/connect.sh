@@ -1,9 +1,10 @@
 #!/bin/sh
 # Connects this clone to the project's workflow (see .shady2k/integration.md,
 # "Connecting a clone"): the hooks, the tracker export's path filter, the tracker
-# database, and every local file a hook reads. Safe to rerun. It checks
-# everything first and changes nothing until every check passes, so it never
-# leaves a clone half connected. It writes no global git config.
+# database, and every local file a hook reads. Safe to rerun. Everything that
+# can be checked is checked before anything changes; git config is written
+# last, so a clone whose tracker cannot be imported is left unconnected, never
+# half connected. It writes no global git config.
 #   sh .shady2k/connect.sh
 cd "$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "connect: run this inside a clone of the repository."; exit 2; }
 
@@ -16,11 +17,15 @@ command -v br >/dev/null 2>&1 || need "br (beads_rust): the tracker the hooks re
 
 PRIVATE="$(git rev-parse --git-path info/private-patterns)"
 USER_PRIVATE="${XDG_CONFIG_HOME:-$HOME/.config}/madarch/private-patterns"
-if [ ! -s "$PRIVATE" ] && [ ! -s "$USER_PRIVATE" ]; then
+patterns=$(cat "$PRIVATE" "$USER_PRIVATE" 2>/dev/null | grep -v '^#' | grep -v '^[[:space:]]*$')
+if [ -z "$patterns" ]; then
   need "a private pattern list, one extended regular expression per line (# starts a comment),
     at $USER_PRIVATE (per user, outside the repository; keep it in sync between
     your machines yourself) or at $PRIVATE (this clone only).
     The privacy guard refuses every commit without one: this repository is public."
+else
+  printf '' | grep -E -e "$patterns" >/dev/null 2>&1
+  [ $? -eq 2 ] && need "valid private patterns: one in $USER_PRIVATE or $PRIVATE is not an extended regular expression"
 fi
 
 if ! git rev-parse --verify -q refs/heads/main >/dev/null; then
@@ -35,29 +40,38 @@ if [ -z "$(git config --get user.email)" ]; then
   need "git user.email: commits are signed with the owner's public email (git config user.email <address>)"
 fi
 
+if command -v node >/dev/null 2>&1 && ! node .shady2k/adapter.mjs backlog >/dev/null 2>&1; then
+  need "a readable tracker export: node .shady2k/adapter.mjs backlog fails on .beads/issues.jsonl (run it to see why)"
+fi
+
 if [ -n "$missing" ]; then
   echo "connect: this clone is not connected; nothing was changed. Missing:$missing"
   exit 1
 fi
 
-git config core.hooksPath .githooks
-git config filter.br-portable-path.clean "node .shady2k/jsonl-clean.mjs"
-git config filter.br-portable-path.smudge cat
-git config filter.br-portable-path.required true
-[ -n "$make_main" ] && git branch main origin/main >/dev/null && echo "connect: created local main from origin/main"
+fail() { echo "connect: $1; the clone is not connected. Fix it and rerun."; exit 1; }
 
 # The tracker database is local; the export is what is committed.
-br sync --import-only >/dev/null || { echo "connect: br could not import .beads/issues.jsonl (see above)."; exit 1; }
+br sync --import-only >/dev/null || fail "br could not import .beads/issues.jsonl (see above)"
 # The committed export stores "." for each issue's workspace path; give br this
 # clone's. br plans the migration first and applies only that reviewed plan.
-plan=$(br sync --migrate-source-repo-path --json) || { echo "connect: br could not plan this clone's workspace path (see above)."; exit 1; }
+plan=$(br sync --migrate-source-repo-path --json) || fail "br could not plan this clone's workspace path (see above)"
 if ! echo "$plan" | grep -q '"no_op":true'; then
   sha=$(echo "$plan" | sed -n 's/.*"plan_sha256":"\([0-9a-f]*\)".*/\1/p')
-  br sync --migrate-source-repo-path --apply --expect-plan-sha256 "$sha" >/dev/null || { echo "connect: br could not set this clone's workspace path (see above)."; exit 1; }
+  br sync --migrate-source-repo-path --apply --expect-plan-sha256 "$sha" >/dev/null || fail "br could not set this clone's workspace path (see above)"
 fi
 
+if [ -n "$make_main" ]; then
+  git branch main origin/main >/dev/null || fail "could not create local main from origin/main"
+  echo "connect: created local main from origin/main"
+fi
+git config filter.br-portable-path.clean "node .shady2k/jsonl-clean.mjs" || fail "could not write git config"
+git config filter.br-portable-path.smudge cat || fail "could not write git config"
+git config filter.br-portable-path.required true || fail "could not write git config"
+git config core.hooksPath .githooks || fail "could not write git config"
+
 # Prove what the hooks read works here.
-node .shady2k/adapter.mjs backlog >/dev/null || { echo "connect: the tracker adapter cannot read the export."; exit 1; }
-.githooks/privacy-guard.sh || exit 1
+[ "$(git config --get core.hooksPath)" = .githooks ] || fail "core.hooksPath did not take effect"
+.githooks/privacy-guard.sh || fail "the privacy guard does not pass on this clone"
 
 echo "connect: this clone is connected (hooks, path filter, tracker, private patterns, main)."
