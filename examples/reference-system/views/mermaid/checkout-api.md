@@ -16,12 +16,12 @@ flowchart LR
   promotions_api["Promotions"]
   storefront["Storefront"]
   tax_api["Tax"]
-  checkout_api -->|"takes payment"| payments
   checkout_cart -->|"keeps open carts"| cart_cache
   checkout_cart -->|"prices the cart"| checkout_pricing
   checkout_cart -->|"checks stock"| fulfilment
   checkout_confirmation -->|"takes payment before placing"| checkout_payment_step
   checkout_confirmation -->|"places the order"| orders_api
+  checkout_payment_step -->|"authorizes the payment"| payments
   checkout_pricing -->|"reads list prices"| catalog
   checkout_pricing -->|"quotes delivery options"| fulfilment
   checkout_pricing -->|"applies promotions"| promotions_api

@@ -1,0 +1,27 @@
+version: 1
+
+elements:
+  - id: shop
+    kind: domain
+  - id: checkout-api
+    kind: service
+    parent: shop
+  - id: checkout-payment-step
+    kind: module
+    parent: checkout-api
+  - id: payments
+    kind: domain
+  - id: payments-api
+    kind: service
+    parent: payments
+
+relations:
+  - id: checkout-pays-through-payments
+    name: takes payment
+    from: checkout-api
+    to: payments
+  - id: payment-step-authorizes
+    name: authorizes the payment
+    refines: checkout-pays-through-payments
+    from: checkout-payment-step
+    to: payments-api

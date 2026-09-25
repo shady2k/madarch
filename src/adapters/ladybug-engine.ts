@@ -163,15 +163,33 @@ function liftExpression(alias: string, shown: string, context: ViewContext | und
 /**
  * The relations a view draws, from `viewRelationsQuery`'s rows (one per
  * drawable relation): a refinement whose own ends are not both shown is
- * dropped when the relation it refines is drawable here too, and the rest
+ * dropped when the relation it refines is drawn here too, and the rest
  * merge per lifted pair, by `from`, then `to`, their ids in code point
  * order.
+ *
+ * With context, a relation whose lifted end is the scope itself is not
+ * drawn when one of its refinements has its own end on that side shown
+ * below the scope: the refinement is drawn instead, so an element's own
+ * view shows the part that does the work (`refinement-in-own-view`). Any
+ * other refinement of it then stands for itself, since the relation it
+ * refines is no longer drawn.
  */
-function drawnRelations(rows: readonly Record<string, LbugValue>[]): ViewRelation[] {
-  const drawable = new Set(rows.map((row) => row.relationId as string));
+function drawnRelations(rows: readonly Record<string, LbugValue>[], context?: { scope: string; shown: ReadonlySet<string> }): ViewRelation[] {
+  const byId = new Map(rows.map((row) => [row.relationId as string, row]));
+  const replaced = new Set<string>();
+  if (context !== undefined) {
+    const below = (id: LbugValue | undefined): boolean => id !== context.scope && context.shown.has(id as string);
+    for (const row of rows) {
+      const general = row.refines === null ? undefined : byId.get(row.refines as string);
+      if (general === undefined) continue;
+      if ((general.fromId === context.scope && below(row.ownFrom)) || (general.toId === context.scope && below(row.ownTo))) replaced.add(general.relationId as string);
+    }
+  }
+  const drawn = (id: string): boolean => byId.has(id) && !replaced.has(id);
   const byPair = new Map<string, ViewRelation>();
   for (const row of rows) {
-    if (row.refines !== null && row.endsShown !== true && drawable.has(row.refines as string)) continue;
+    if (replaced.has(row.relationId as string)) continue;
+    if (row.refines !== null && row.endsShown !== true && drawn(row.refines as string)) continue;
     const from = row.fromId as string;
     const to = row.toId as string;
     const key = JSON.stringify([from, to]);
@@ -491,7 +509,7 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
        WHERE size(fLift) > 0 AND size(tLift) > 0
        WITH r, fLift[1] AS fromId, tLift[1] AS toId, fLift[1] = f.elementId AND tLift[1] = t.elementId AS endsShown
        WHERE fromId <> toId
-       RETURN DISTINCT r.relationId AS relationId, r.refines AS refines, fromId, toId, endsShown`,
+       RETURN DISTINCT r.relationId AS relationId, r.refines AS refines, fromId, toId, endsShown, r.fromId AS ownFrom, r.toId AS ownTo`,
     );
   }
 
@@ -816,7 +834,7 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
       const shownIds = elements.map((e) => e.id);
 
       const relationRows = rowsOf(conn.executeSync(viewRelationsQuery(shownIds, context), { valid: t.valid, known: t.known, state: t.state }));
-      const relations = drawnRelations(relationRows);
+      const relations = drawnRelations(relationRows, context === undefined ? undefined : { scope: context.scope, shown: new Set(shownIds) });
       if (context === undefined) return { elements, relations };
 
       // Every end a crossing relation was drawn to that is not shown is a

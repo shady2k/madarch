@@ -18,7 +18,7 @@ flowchart LR
   storefront["Storefront"]
   card_vault -->|"stores encrypted cards"| card_vault_db
   fraud_api -->|"reads and updates risk features"| fraud_features
-  ordering -->|"takes payment"| payments
+  ordering -->|"authorizes the payment"| payments_api
   payment_provider -->|"reports payment outcomes"| payments_api
   payments_api -->|"detokenizes the card"| card_vault
   payments_api -->|"screens the payment for fraud"| fraud_api

@@ -116,15 +116,16 @@ describe('graph-queries/view asked with its context', () => {
     ]);
     // shop-pays (shop -> payments) and orders-pays (orders-core ->
     // payments-api) have both ends outside the scope and are not drawn;
-    // cart-calls-orders is counted under checkout-uses-orders, which it
-    // refines and which is drawn; checkout-pays refines shop-pays, which is
-    // not drawn here, so it stands for itself.
+    // cart-calls-orders, from checkout-cart shown below the scope, is drawn
+    // instead of checkout-uses-orders, which it refines and which starts at
+    // the scope itself (refinement-in-own-view); checkout-pays refines
+    // shop-pays, which is not drawn here, so it stands for itself.
     expect(result.relations).toEqual([
       { from: 'checkout-cart', to: 'checkout-ui', relationIds: ['cart-calls-ui'] },
+      { from: 'checkout-cart', to: 'orders-api', relationIds: ['cart-calls-orders'] },
       { from: 'checkout-cart', to: 'payments', relationIds: ['cart-charges-card'] },
       { from: 'checkout-ui', to: 'payments', relationIds: ['ui-shows-payments'] },
       { from: 'checkout-web', to: 'mail-gateway', relationIds: ['checkout-mails'] },
-      { from: 'checkout-web', to: 'orders-api', relationIds: ['checkout-uses-orders'] },
       { from: 'checkout-web', to: 'payments', relationIds: ['checkout-pays'] },
       { from: 'orders-api', to: 'checkout-ui', relationIds: ['orders-notifies-ui'] },
       { from: 'payments', to: 'checkout-web', relationIds: ['payments-calls-back'] },
@@ -153,7 +154,7 @@ describe('graph-queries/view asked with its context', () => {
     history.close();
   });
 
-  test('a domain scope: a relation declared at the scope\'s own level crosses it, and its refinement is counted once under it', () => {
+  test('a domain scope: a relation declared at the scope\'s own level crosses it, and its refinement from a service shown below the scope is drawn instead of it', () => {
     const { engine, history } = oneVersion('gq-context-nested');
 
     const result = engine.view({ scope: 'shop', depth: 1, context: true }, AT);
@@ -163,18 +164,17 @@ describe('graph-queries/view asked with its context', () => {
     expect(result.relations).toEqual([
       { from: 'checkout-web', to: 'mail-gateway', relationIds: ['checkout-mails'] },
       { from: 'checkout-web', to: 'orders-api', relationIds: ['checkout-uses-orders'] },
-      { from: 'checkout-web', to: 'payments', relationIds: ['cart-charges-card', 'ui-shows-payments'] },
+      { from: 'checkout-web', to: 'payments', relationIds: ['cart-charges-card', 'checkout-pays', 'ui-shows-payments'] },
       { from: 'orders-api', to: 'checkout-web', relationIds: ['orders-notifies-ui'] },
       { from: 'orders-api', to: 'payments', relationIds: ['orders-pays'] },
       { from: 'payments', to: 'checkout-web', relationIds: ['payments-calls-back'] },
-      { from: 'shop', to: 'payments', relationIds: ['shop-pays'] },
     ]);
 
     engine.close();
     history.close();
   });
 
-  test('the sibling service seen from the other side: checkout-web stays itself, and the refinement from checkout-cart is counted under checkout-uses-orders', () => {
+  test('the sibling service seen from the other side: checkout-web stays itself, and the refinement into orders-core is drawn instead of checkout-uses-orders', () => {
     const { engine, history } = oneVersion('gq-context-nested');
 
     const result = engine.view({ scope: 'orders-api', depth: 1, context: true }, AT);
@@ -185,7 +185,7 @@ describe('graph-queries/view asked with its context', () => {
       { id: 'payments', kind: 'domain' },
     ]);
     expect(result.relations).toEqual([
-      { from: 'checkout-web', to: 'orders-api', relationIds: ['checkout-uses-orders'] },
+      { from: 'checkout-web', to: 'orders-core', relationIds: ['cart-calls-orders'] },
       { from: 'orders-api', to: 'checkout-web', relationIds: ['orders-notifies-ui'] },
       { from: 'orders-core', to: 'payments', relationIds: ['orders-pays'] },
     ]);
