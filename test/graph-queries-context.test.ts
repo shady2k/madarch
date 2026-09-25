@@ -294,14 +294,35 @@ describe('graph-queries/view asked with its context', () => {
       element('a', 'checkout-web', 'service', ['shop']),
       element('b', 'payments', 'domain', [], DAY(3)),
       element('a', 'payments-api', 'service', ['payments']),
+      element('b', 'ledger', 'domain', [], DAY(3)),
+      element('a', 'ledger-api', 'service', ['ledger']),
       relation('checkout-calls-payments', 'checkout-web', 'payments-api'),
-      relation('checkout-refunds', 'payments-api', 'shop'),
+      relation('posts-orders', 'ledger-api', 'checkout-web'),
+      relation('books-shop', 'ledger-api', 'shop'),
     ]);
 
-    expect(engine.view({ scope: 'shop', depth: 1, context: true }, AT).neighbours).toEqual([{ id: 'payments', kind: 'domain' }]);
+    expect(engine.view({ scope: 'shop', depth: 1, context: true }, AT).neighbours).toEqual([
+      { id: 'ledger', kind: 'domain' },
+      { id: 'payments', kind: 'domain' },
+    ]);
+    // Both are gone on 4 September; the first by code point is named, with
+    // every relation drawn to it, also by code point.
     expect(engine.view({ scope: 'shop', depth: 1, context: true }, { valid: DAY(4), known: DAY(4), state: 'as-is' })).toEqual({
-      error: { message: '"payments", the neighbour the relations checkout-calls-payments, checkout-refunds are drawn to or from, does not exist at this time', id: 'payments', time: DAY(4) },
+      error: { message: '"ledger", the neighbour the relations books-shop, posts-orders are drawn to or from, does not exist at this time', id: 'ledger', time: DAY(4) },
     });
+
+    engine.close();
+  });
+
+  test('a scope id outside the model\'s id pattern that still reached the engine is refused before it is built into query text', () => {
+    const engine = createLadybugEngine();
+    engine.rebuild([
+      { source: 's', kind: 'element', id: 'the shop', content: JSON.stringify({ id: 'the shop', kind: 'domain', ancestors: [], states: ['as-is'] }), validFrom: DAY(1), validTo: null, recordedFrom: DAY(1), recordedTo: null },
+    ]);
+
+    const result = engine.view({ scope: 'the shop', depth: 0, context: true }, AT);
+    expect(result.elements).toBeUndefined();
+    expect(result.error?.message).toContain('refusing to build a query around an id outside the model\'s own id pattern: "the shop"');
 
     engine.close();
   });
