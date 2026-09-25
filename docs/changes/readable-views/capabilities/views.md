@@ -70,8 +70,9 @@ shall write byte-identical files.
 - Then: every file is byte-identical
 
 ## Quality requirements
-- Performance: rendering every view of a model of 1 000 elements takes under
-  ten seconds on a developer's laptop.
+- Performance: rendering every view of a model of 1 000 elements nested as a
+  system is (a few levels: domains, services, modules) takes under ten seconds
+  on a developer's laptop.
 - Usability: the landscape of a large system stays readable only if the model
   keeps its top level small; the renderer draws what the model holds and does
   not regroup it.
@@ -90,3 +91,6 @@ kinds, contracts).
 Views per environment and per architecture state, zones drawn as boundaries,
 flows, and layout beyond what Mermaid and LikeC4 choose are not offered yet.
 Mermaid's parser accepting a flowchart is checked; how it looks is not.
+Element ids that differ only by letter case are not rendered as pages.
+Nesting hundreds of levels deep renders, but slowly: the time grows with the
+square of the depth.
