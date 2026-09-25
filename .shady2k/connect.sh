@@ -17,6 +17,9 @@ command -v br >/dev/null 2>&1 || need "br (beads_rust): the tracker the hooks re
 
 PRIVATE="$(git rev-parse --git-path info/private-patterns)"
 USER_PRIVATE="${XDG_CONFIG_HOME:-$HOME/.config}/madarch/private-patterns"
+for f in "$PRIVATE" "$USER_PRIVATE"; do
+  [ -e "$f" ] && [ ! -r "$f" ] && need "a readable private pattern list: $f exists but cannot be read"
+done
 patterns=$(cat "$PRIVATE" "$USER_PRIVATE" 2>/dev/null | grep -v '^#' | grep -v '^[[:space:]]*$')
 if [ -z "$patterns" ]; then
   need "a private pattern list, one extended regular expression per line (# starts a comment),
@@ -65,6 +68,8 @@ if [ -n "$make_main" ]; then
   git branch main origin/main >/dev/null || fail "could not create local main from origin/main"
   echo "connect: created local main from origin/main"
 fi
+# core.hooksPath goes last: a write that fails part way leaves the hooks off,
+# so the clone is plainly unconnected, and a rerun completes it.
 git config filter.br-portable-path.clean "node .shady2k/jsonl-clean.mjs" || fail "could not write git config"
 git config filter.br-portable-path.smudge cat || fail "could not write git config"
 git config filter.br-portable-path.required true || fail "could not write git config"

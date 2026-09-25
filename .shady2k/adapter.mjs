@@ -158,6 +158,9 @@ function claim(id, actor) {
   if (plan.force) {
     const again = claimPlan(backlog().issues, id, isMerged, actor);
     if (again.refuse) {
+      // Release only this actor's own claim; one held by someone else is theirs.
+      const now = backlog().issues.find((i) => i.id === id);
+      if (now?.holder !== actor) { console.error(`adapter: ${again.refuse} Nothing released.`); process.exit(1); }
       try { br(['update', id, '--status', 'open', '--assignee', '', '--actor', actor]); } catch (e) {
         console.error(`adapter: ${again.refuse} Releasing the claim failed too: ${(e.stderr || e.message).trim()}; release ${id} by hand.`);
         process.exit(1);

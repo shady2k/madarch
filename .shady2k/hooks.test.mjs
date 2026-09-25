@@ -4,7 +4,7 @@
 //   node --test .shady2k/
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, copyFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, copyFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -65,6 +65,28 @@ test('guard: a malformed pattern refuses instead of matching nothing', () => {
   const r = c.guard();
   assert.equal(r.code, 1);
   assert.match(r.out, /not a valid extended regular expression/);
+});
+
+test('guard: an unreadable list refuses, even when the other list is fine', { skip: process.getuid?.() === 0 && 'root reads every file' }, () => {
+  const c = clone();
+  c.userList('from-user-list\n');
+  const clonePath = join(c.root, '.git/info/private-patterns');
+  writeFileSync(clonePath, 'from-clone-list\n');
+  chmodSync(clonePath, 0o000);
+  c.stage('a.md', 'from-clone-list\n');
+  const r = c.guard();
+  assert.equal(r.code, 1);
+  assert.match(r.out, /cannot be read/);
+});
+
+test('guard: a textconv driver cannot hide staged content', () => {
+  const c = clone();
+  c.userList('secret-xyz\n');
+  writeFileSync(join(c.root, '.gitattributes'), '*.txt diff=hide\n');
+  c.run('git', ['config', 'diff.hide.textconv', 'true']);
+  c.stage('.gitattributes', '*.txt diff=hide\n');
+  c.stage('a.txt', 'secret-xyz\n');
+  assert.equal(c.guard().code, 1);
 });
 
 test('guard: reads both lists; a match in content or in a file name refuses, clean content passes', () => {
