@@ -1,0 +1,156 @@
+# Fulfilment: stock, the warehouse and shipping. The warehouse operator is
+# staff of this domain, so drawn inside it rather than on the landscape.
+version: 1
+
+elements:
+  - id: warehouse-operator
+    kind: person
+    name: Warehouse operator
+    parent: fulfilment
+  - id: inventory-api
+    kind: service
+    name: Inventory
+    parent: fulfilment
+    technology: Go
+  - id: inventory-db
+    kind: store
+    name: Inventory database
+    parent: fulfilment
+    technology: PostgreSQL
+  - id: warehouse-app
+    kind: service
+    name: Warehouse app
+    parent: fulfilment
+    technology: TypeScript, React
+  - id: warehouse-api
+    kind: service
+    name: Warehouse
+    parent: fulfilment
+    technology: Java, Spring Boot
+  - id: warehouse-db
+    kind: store
+    name: Warehouse database
+    parent: fulfilment
+    technology: PostgreSQL
+  - id: shipping-api
+    kind: service
+    name: Shipping
+    parent: fulfilment
+    technology: Kotlin
+  - id: shipping-db
+    kind: store
+    name: Shipping database
+    parent: fulfilment
+    technology: PostgreSQL
+
+interfaces:
+  - id: inventory-availability
+    provider: inventory-api
+    contract: grpc::fulfilment.v1.Inventory/CheckAvailability
+  - id: inventory-adjust
+    provider: inventory-api
+    contract: grpc::fulfilment.v1.Inventory/Adjust
+  - id: warehouse-pick-lists
+    provider: warehouse-api
+    contract: http::GET::/api/pick-lists
+  - id: warehouse-packed
+    provider: warehouse-api
+    contract: http::POST::/api/pick-lists/{pickListId}/packed
+  - id: shipping-quote
+    provider: shipping-api
+    contract: grpc::fulfilment.v1.Shipping/Quote
+  - id: shipping-tracking
+    provider: shipping-api
+    contract: http::GET::/api/shipments/{shipmentId}/tracking
+  - id: shipping-carrier-events
+    provider: shipping-api
+    contract: http::POST::/webhooks/carrier
+
+relations:
+  - id: inventory-stores-stock
+    name: stores stock levels
+    from: inventory-api
+    to: inventory-db
+  - id: inventory-reserves-stock
+    name: reserves stock for placed orders
+    from: inventory-api
+    to: event-bus
+    interface: topic-order-placed
+  - id: inventory-releases-stock
+    name: releases stock of cancelled orders
+    from: inventory-api
+    to: event-bus
+    interface: topic-order-cancelled
+  - id: inventory-publishes-changes
+    name: publishes stock-changed
+    from: inventory-api
+    to: event-bus
+    interface: topic-stock-changed
+
+  - id: operator-picks-and-packs
+    name: picks and packs orders
+    from: warehouse-operator
+    to: warehouse-app
+  - id: app-loads-pick-lists
+    name: loads pick lists
+    from: warehouse-app
+    to: warehouse-api
+    interface: warehouse-pick-lists
+  - id: app-confirms-packing
+    name: confirms packed parcels
+    from: warehouse-app
+    to: warehouse-api
+    interface: warehouse-packed
+  - id: warehouse-stores-pick-lists
+    name: stores pick lists
+    from: warehouse-api
+    to: warehouse-db
+  - id: warehouse-picks-confirmed
+    name: creates pick lists for confirmed orders
+    from: warehouse-api
+    to: event-bus
+    interface: topic-order-confirmed
+  - id: warehouse-adjusts-stock
+    name: deducts picked stock
+    from: warehouse-api
+    to: inventory-api
+    interface: inventory-adjust
+  - id: warehouse-publishes-packed
+    name: publishes parcel-packed
+    from: warehouse-api
+    to: event-bus
+    interface: topic-parcel-packed
+
+  - id: shipping-stores-shipments
+    name: stores shipments
+    from: shipping-api
+    to: shipping-db
+  - id: shipping-ships-packed
+    name: ships packed parcels
+    from: shipping-api
+    to: event-bus
+    interface: topic-parcel-packed
+  - id: shipping-books-delivery
+    name: books the delivery
+    from: shipping-api
+    to: delivery-carrier
+    interface: carrier-shipments
+    transfers:
+      - direction: forward
+        confidentiality: confidential
+        categories: [personal]
+  - id: carrier-reports-tracking
+    name: reports tracking events
+    from: delivery-carrier
+    to: shipping-api
+    interface: shipping-carrier-events
+  - id: shipping-publishes-dispatched
+    name: publishes shipment-dispatched
+    from: shipping-api
+    to: event-bus
+    interface: topic-shipment-dispatched
+  - id: web-shop-tracks-parcel
+    name: shows parcel tracking
+    from: web-shop
+    to: shipping-api
+    interface: shipping-tracking

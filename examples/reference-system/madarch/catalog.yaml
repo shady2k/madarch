@@ -1,0 +1,193 @@
+# Catalog: what the shop sells and at what list price, how it is found, shown
+# and reviewed.
+version: 1
+
+elements:
+  - id: products-api
+    kind: service
+    name: Products
+    parent: catalog
+    technology: Java, Spring Boot
+  - id: products-db
+    kind: store
+    name: Products database
+    parent: catalog
+    technology: PostgreSQL
+  - id: prices-api
+    kind: service
+    name: Prices
+    parent: catalog
+    technology: Go
+  - id: prices-db
+    kind: store
+    name: Prices database
+    parent: catalog
+    technology: PostgreSQL
+  - id: search-api
+    kind: service
+    name: Search
+    parent: catalog
+    technology: Go
+  - id: search-index
+    kind: store
+    name: Search index
+    parent: catalog
+    technology: Elasticsearch
+  - id: media-api
+    kind: service
+    name: Media
+    parent: catalog
+    technology: TypeScript, Node.js
+  - id: media-bucket
+    kind: store
+    name: Product images
+    parent: catalog
+    technology: Amazon S3
+  - id: recommendations-api
+    kind: service
+    name: Recommendations
+    parent: catalog
+    technology: Python
+  - id: recommendations-cache
+    kind: store
+    name: Recommendations cache
+    parent: catalog
+    technology: Redis
+  - id: reviews-api
+    kind: service
+    name: Reviews
+    parent: catalog
+    technology: Kotlin
+  - id: reviews-db
+    kind: store
+    name: Reviews database
+    parent: catalog
+    technology: MongoDB
+
+interfaces:
+  - id: products-page
+    provider: products-api
+    contract: http::GET::/api/products/{productId}
+  - id: products-batch
+    provider: products-api
+    contract: grpc::catalog.v1.Products/GetProducts
+  - id: prices-lookup
+    provider: prices-api
+    contract: grpc::catalog.v1.Prices/GetPrices
+  - id: search-query
+    provider: search-api
+    contract: http::GET::/api/search
+  - id: media-images
+    provider: media-api
+    contract: http::GET::/media/{imageId}
+  - id: recommendations-list
+    provider: recommendations-api
+    contract: http::GET::/api/recommendations
+  - id: reviews-read
+    provider: reviews-api
+    contract: http::GET::/api/products/{productId}/reviews
+  - id: reviews-write
+    provider: reviews-api
+    contract: http::POST::/api/products/{productId}/reviews
+
+relations:
+  - id: web-shop-shows-products
+    name: shows product pages
+    from: web-shop
+    to: products-api
+    interface: products-page
+  - id: mobile-bff-shows-products
+    name: shows product pages
+    from: mobile-bff
+    to: products-api
+    interface: products-page
+  - id: web-shop-searches
+    name: searches products
+    from: web-shop
+    to: search-api
+    interface: search-query
+  - id: mobile-bff-searches
+    name: searches products
+    from: mobile-bff
+    to: search-api
+    interface: search-query
+  - id: web-shop-loads-images
+    name: loads product images
+    from: web-shop
+    to: media-api
+    interface: media-images
+  - id: web-shop-shows-recommendations
+    name: shows recommendations
+    from: web-shop
+    to: recommendations-api
+    interface: recommendations-list
+  - id: web-shop-shows-reviews
+    name: shows reviews
+    from: web-shop
+    to: reviews-api
+    interface: reviews-read
+  - id: web-shop-posts-reviews
+    name: posts a review
+    from: web-shop
+    to: reviews-api
+    interface: reviews-write
+
+  - id: products-stores-catalogue
+    name: stores the catalogue
+    from: products-api
+    to: products-db
+  - id: products-publishes-changes
+    name: publishes product-changed
+    from: products-api
+    to: event-bus
+    interface: topic-product-changed
+  - id: prices-stores-prices
+    name: stores list prices
+    from: prices-api
+    to: prices-db
+  - id: prices-publishes-changes
+    name: publishes price-changed
+    from: prices-api
+    to: event-bus
+    interface: topic-price-changed
+  - id: search-queries-index
+    name: queries and updates the index
+    from: search-api
+    to: search-index
+  - id: search-indexes-products
+    name: reindexes changed products
+    from: search-api
+    to: event-bus
+    interface: topic-product-changed
+  - id: search-indexes-prices
+    name: reindexes changed prices
+    from: search-api
+    to: event-bus
+    interface: topic-price-changed
+  - id: search-indexes-stock
+    name: updates availability in the index
+    from: search-api
+    to: event-bus
+    interface: topic-stock-changed
+  - id: media-stores-images
+    name: stores product images
+    from: media-api
+    to: media-bucket
+  - id: recommendations-caches
+    name: caches recommendations
+    from: recommendations-api
+    to: recommendations-cache
+  - id: recommendations-learn-orders
+    name: learns from placed orders
+    from: recommendations-api
+    to: event-bus
+    interface: topic-order-placed
+  - id: recommendations-read-products
+    name: reads product details
+    from: recommendations-api
+    to: products-api
+    interface: products-batch
+  - id: reviews-stores-reviews
+    name: stores reviews
+    from: reviews-api
+    to: reviews-db

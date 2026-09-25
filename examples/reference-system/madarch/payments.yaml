@@ -1,0 +1,171 @@
+# Payments: the PCI scope. Card numbers reach the shop only as tokens from the
+# card vault; payments charges and refunds through the payment provider and
+# reconciles its settlement reports.
+version: 1
+
+elements:
+  - id: payments-api
+    kind: service
+    name: Payments
+    parent: payments
+    technology: Java, Spring Boot
+  - id: payments-db
+    kind: store
+    name: Payments database
+    parent: payments
+    technology: PostgreSQL
+  - id: card-vault
+    kind: service
+    name: Card vault
+    parent: payments
+    technology: Go
+  - id: card-vault-db
+    kind: store
+    name: Card vault database
+    parent: payments
+    technology: PostgreSQL
+  - id: fraud-api
+    kind: service
+    name: Fraud screening
+    parent: payments
+    technology: Python
+  - id: fraud-features
+    kind: store
+    name: Risk features
+    parent: payments
+    technology: Redis
+  - id: reconciliation-job
+    kind: service
+    name: Reconciliation
+    parent: payments
+    technology: Python
+  - id: reconciliation-db
+    kind: store
+    name: Reconciliation database
+    parent: payments
+    technology: PostgreSQL
+
+interfaces:
+  - id: payments-authorize
+    provider: payments-api
+    contract: grpc::payments.v1.Payments/Authorize
+  - id: payments-webhook
+    provider: payments-api
+    contract: http::POST::/webhooks/payment-provider
+  - id: card-vault-tokenize
+    provider: card-vault
+    contract: http::POST::/api/tokens
+  - id: card-vault-detokenize
+    provider: card-vault
+    contract: grpc::payments.v1.Vault/Detokenize
+  - id: fraud-score
+    provider: fraud-api
+    contract: grpc::payments.v1.Fraud/Score
+
+relations:
+  - id: web-shop-tokenizes-card
+    name: tokenizes the card
+    from: web-shop
+    to: card-vault
+    interface: card-vault-tokenize
+    transfers:
+      - direction: forward
+        confidentiality: restricted
+        categories: [payment-card]
+      - direction: reverse
+        confidentiality: internal
+        categories: []
+  - id: app-tokenizes-card
+    name: tokenizes the card
+    from: mobile-app
+    to: card-vault
+    interface: card-vault-tokenize
+    transfers:
+      - direction: forward
+        confidentiality: restricted
+        categories: [payment-card]
+      - direction: reverse
+        confidentiality: internal
+        categories: []
+  - id: vault-stores-cards
+    name: stores encrypted cards
+    from: card-vault
+    to: card-vault-db
+
+  - id: payments-records-payments
+    name: records payments
+    from: payments-api
+    to: payments-db
+  - id: payments-screens-fraud
+    name: screens the payment for fraud
+    from: payments-api
+    to: fraud-api
+    interface: fraud-score
+    transfers:
+      - direction: forward
+        confidentiality: confidential
+        categories: [personal, order]
+  - id: fraud-reads-features
+    name: reads and updates risk features
+    from: fraud-api
+    to: fraud-features
+  - id: payments-detokenizes-card
+    name: detokenizes the card
+    from: payments-api
+    to: card-vault
+    interface: card-vault-detokenize
+    transfers:
+      - direction: reverse
+        confidentiality: restricted
+        categories: [payment-card]
+  - id: payments-charges-card
+    name: charges the card
+    from: payments-api
+    to: payment-provider
+    interface: provider-payments
+    transfers:
+      - direction: forward
+        confidentiality: restricted
+        categories: [payment-card, personal]
+      - direction: reverse
+        confidentiality: internal
+        categories: []
+  - id: provider-reports-outcomes
+    name: reports payment outcomes
+    from: payment-provider
+    to: payments-api
+    interface: payments-webhook
+  - id: payments-publishes-captured
+    name: publishes payment-captured
+    from: payments-api
+    to: event-bus
+    interface: topic-payment-captured
+  - id: payments-publishes-failed
+    name: publishes payment-failed
+    from: payments-api
+    to: event-bus
+    interface: topic-payment-failed
+  - id: payments-refunds-returns
+    name: refunds approved returns
+    from: payments-api
+    to: event-bus
+    interface: topic-return-approved
+  - id: payments-refunds-card
+    name: refunds the payment
+    from: payments-api
+    to: payment-provider
+    interface: provider-refunds
+
+  - id: reconciliation-fetches-settlements
+    name: downloads settlement reports
+    from: reconciliation-job
+    to: payment-provider
+    interface: provider-settlements
+  - id: reconciliation-reads-payments
+    name: matches settlements against payments
+    from: reconciliation-job
+    to: payments-db
+  - id: reconciliation-records-mismatches
+    name: records mismatches
+    from: reconciliation-job
+    to: reconciliation-db

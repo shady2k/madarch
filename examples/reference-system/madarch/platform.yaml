@@ -1,0 +1,158 @@
+# Platform: what every domain shares. The event bus carries the business
+# events; sign-in, customer notifications and the analytics pipeline run here.
+version: 1
+
+elements:
+  - id: event-bus
+    kind: broker
+    name: Event bus
+    parent: platform
+    technology: Apache Kafka
+  - id: auth-api
+    kind: service
+    name: Sign-in
+    parent: platform
+    technology: Keycloak
+  - id: auth-db
+    kind: store
+    name: Identity database
+    parent: platform
+    technology: PostgreSQL
+  - id: notification-api
+    kind: service
+    name: Notifications
+    parent: platform
+    technology: Go
+  - id: notification-db
+    kind: store
+    name: Notification log
+    parent: platform
+    technology: MongoDB
+  - id: analytics-pipeline
+    kind: service
+    name: Analytics pipeline
+    parent: platform
+    technology: Apache Flink
+  - id: analytics-warehouse
+    kind: store
+    name: Analytics warehouse
+    parent: platform
+    technology: ClickHouse
+
+interfaces:
+  - id: topic-product-changed
+    provider: event-bus
+    contract: topic::product-changed
+  - id: topic-price-changed
+    provider: event-bus
+    contract: topic::price-changed
+  - id: topic-stock-changed
+    provider: event-bus
+    contract: topic::stock-changed
+  - id: topic-order-placed
+    provider: event-bus
+    contract: topic::order-placed
+  - id: topic-order-confirmed
+    provider: event-bus
+    contract: topic::order-confirmed
+  - id: topic-order-cancelled
+    provider: event-bus
+    contract: topic::order-cancelled
+  - id: topic-payment-captured
+    provider: event-bus
+    contract: topic::payment-captured
+  - id: topic-payment-failed
+    provider: event-bus
+    contract: topic::payment-failed
+  - id: topic-return-approved
+    provider: event-bus
+    contract: topic::return-approved
+  - id: topic-parcel-packed
+    provider: event-bus
+    contract: topic::parcel-packed
+  - id: topic-shipment-dispatched
+    provider: event-bus
+    contract: topic::shipment-dispatched
+  - id: auth-token
+    provider: auth-api
+    contract: http::POST::/oauth/token
+
+relations:
+  - id: web-shop-signs-in
+    name: signs the customer in
+    from: web-shop
+    to: auth-api
+    interface: auth-token
+    transfers:
+      - direction: forward
+        confidentiality: restricted
+        categories: [personal]
+  - id: mobile-bff-signs-in
+    name: signs the customer in
+    from: mobile-bff
+    to: auth-api
+    interface: auth-token
+    transfers:
+      - direction: forward
+        confidentiality: restricted
+        categories: [personal]
+  - id: auth-stores-identities
+    name: stores credentials and sessions
+    from: auth-api
+    to: auth-db
+
+  - id: notification-confirms-orders
+    name: emails order confirmations
+    from: notification-api
+    to: event-bus
+    interface: topic-order-placed
+  - id: notification-announces-dispatch
+    name: tells customers the parcel is on its way
+    from: notification-api
+    to: event-bus
+    interface: topic-shipment-dispatched
+  - id: notification-asks-retry
+    name: asks customers to retry payment
+    from: notification-api
+    to: event-bus
+    interface: topic-payment-failed
+  - id: notification-reads-contact
+    name: looks up contact details
+    from: notification-api
+    to: accounts-api
+    interface: accounts-contact
+    transfers:
+      - direction: reverse
+        confidentiality: confidential
+        categories: [personal]
+  - id: notification-sends-email
+    name: sends emails
+    from: notification-api
+    to: messaging-provider
+    interface: messaging-email
+    transfers:
+      - direction: forward
+        confidentiality: confidential
+        categories: [personal, order]
+  - id: notification-sends-sms
+    name: sends text messages
+    from: notification-api
+    to: messaging-provider
+    interface: messaging-sms
+    transfers:
+      - direction: forward
+        confidentiality: confidential
+        categories: [personal]
+  - id: notification-logs-messages
+    name: logs sent messages
+    from: notification-api
+    to: notification-db
+
+  - id: analytics-streams-events
+    name: streams every business event
+    from: analytics-pipeline
+    to: event-bus
+  - id: analytics-loads-warehouse
+    name: loads events for reporting
+    from: analytics-pipeline
+    to: analytics-warehouse
