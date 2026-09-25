@@ -51,7 +51,7 @@ export interface View {
 /** One problem that kept the view set from being built. */
 export interface ViewSetError {
   message: string;
-  /** The view being built; left out for the landscape. */
+  /** The view being built, or the element whose children were asked for; left out for the landscape. */
   scope?: string;
   /** The query engine's own error, when a query refused. */
   query?: QueryError;
@@ -93,7 +93,7 @@ export function buildViewSet(engine: QueryEngine, model: CompiledModel, at?: Que
     met.set(element.id, element);
     const children = engine.children(element.id, at);
     if (children.error !== undefined) {
-      errors.push(queryError(element.id, children.error));
+      errors.push({ message: `the children of "${element.id}": ${children.error.message}`, scope: element.id, query: children.error });
       continue;
     }
     if (children.elements!.length > 0) withChildren.add(element.id);

@@ -63,7 +63,7 @@ const RESERVED = new Set([
   'subgraph',
 ]);
 
-/** Renders every view of the set as a page; an element id that would overwrite the landscape's page is an error. */
+/** Renders every view of the set as a page; an element id that would overwrite the landscape's page, or a view not showing its own scope, is an error. */
 export function renderMermaidPages(views: readonly View[]): MermaidResult {
   const errors: MermaidError[] = [];
   const pages: MermaidPage[] = [];
@@ -73,7 +73,12 @@ export function renderMermaidPages(views: readonly View[]): MermaidResult {
       errors.push({ message: `the view of "${view.scope}" would be written to ${LANDSCAPE_FILE}, the landscape's page`, scope: view.scope });
       continue;
     }
-    pages.push({ file, content: renderPage(view) });
+    const scope = view.scope === undefined ? undefined : view.elements.find((element) => element.id === view.scope && element.place === 'scope');
+    if (view.scope !== undefined && scope === undefined) {
+      errors.push({ message: `the view of "${view.scope}" does not show "${view.scope}" itself as its scope`, scope: view.scope });
+      continue;
+    }
+    pages.push({ file, content: renderPage(view, scope) });
   }
   return errors.length > 0 ? { errors } : { pages, errors };
 }
@@ -82,10 +87,9 @@ function pageFile(scope: string | undefined): string {
   return scope === undefined ? LANDSCAPE_FILE : `${scope}.md`;
 }
 
-function renderPage(view: View): string {
+/** `scope` is the view's own element, left out for the landscape. */
+function renderPage(view: View, scope: ShownElement | undefined): string {
   const ids = nodeIds(view.elements.map((element) => element.id));
-  const byId = new Map(view.elements.map((element) => [element.id, element]));
-  const scope = view.scope === undefined ? undefined : byId.get(view.scope)!;
 
   const lines: string[] = [];
   lines.push(scope === undefined ? '# Landscape' : `# ${markdownText(title(scope))} (${scope.kind})`, '', '```mermaid', 'flowchart LR');

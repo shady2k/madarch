@@ -85,7 +85,7 @@ describe('views/view-set', () => {
   });
 
   test('the landscape shows exactly the elements with no parent, with the relations between them lifted', () => {
-    expect(viewOf(viewsOf('views-drill-down'), undefined)).toEqual({
+    expect(viewOf(viewsOf('views-drill-down'), undefined)).toStrictEqual({
       elements: [
         { id: 'payments', kind: 'domain', name: 'Payments', place: 'inside', hasView: true },
         { id: 'shop', kind: 'domain', name: 'Shop', place: 'inside', hasView: true },
@@ -135,7 +135,7 @@ describe('views/view-set', () => {
     close(built);
 
     expect(errors).toEqual([]);
-    expect(views).toEqual([{ elements: [], arrows: [] }]);
+    expect(views).toStrictEqual([{ elements: [], arrows: [] }]);
   });
 
   test('a query error is surfaced, naming the view it stopped, never swallowed', () => {
@@ -144,7 +144,7 @@ describe('views/view-set', () => {
     close(built);
 
     expect(result.views).toBeUndefined();
-    expect(result.errors).toEqual([
+    expect(result.errors).toStrictEqual([
       {
         message: 'the landscape: "not a state" is not a state id this model could ever declare',
         query: { message: '"not a state" is not a state id this model could ever declare', id: 'not a state' },
@@ -159,7 +159,7 @@ describe('views/view-set', () => {
     close(built);
 
     expect(result.views).toBeUndefined();
-    expect(result.errors).toEqual([
+    expect(result.errors).toStrictEqual([
       { message: 'the landscape: the arrow from "shop" to "payments" stands for the relation "cart-charges-card", which the compiled model does not hold', relationId: 'cart-charges-card' },
       {
         message: 'the view of "checkout-web": the arrow from "checkout-cart" to "catalog-api" stands for the relation "cart-reads-catalog", which the compiled model does not hold',
@@ -246,7 +246,7 @@ describe('views/labels', () => {
     close(built);
 
     expect(result.views).toBeUndefined();
-    expect(result.errors).toEqual([
+    expect(result.errors).toStrictEqual([
       {
         message:
           'the landscape: the arrow from "checkout-web" to "orders-api" stands for the relation "checkout-to-orders", whose interface "orders-http" the compiled model does not hold',
@@ -363,6 +363,182 @@ describe('views/mermaid', () => {
 
     expect(renderMermaidPages([landscape, view])).toEqual({
       errors: [{ message: 'the view of "index" would be written to index.md, the landscape\'s page', scope: 'index' }],
+    });
+  });
+});
+
+describe('views/mermaid on hand-built views', () => {
+  test('a control character is a numeric entity code in the diagram and a space in the Markdown; an unnamed parent goes up by its id', () => {
+    const view: View = {
+      scope: 'svc',
+      up: { id: 'dom' },
+      elements: [
+        { id: 'mod', kind: 'module', name: 'tab\there', parent: 'svc', place: 'inside', hasView: false },
+        { id: 'svc', kind: 'service', name: 'two\nlines\u007f', parent: 'dom', place: 'scope', hasView: true },
+      ],
+      arrows: [{ from: 'mod', to: 'svc', relationIds: ['r'], label: 'a\u0000b' }],
+    };
+
+    const { pages, errors } = renderMermaidPages([{ elements: [], arrows: [] }, view]);
+    expect(errors).toEqual([]);
+    expect(pages).toEqual([
+      { file: 'index.md', content: ['# Landscape', '', '```mermaid', 'flowchart LR', '```', ''].join('\n') },
+      {
+        file: 'svc.md',
+        content: [
+          '# two lines  (service)',
+          '',
+          '```mermaid',
+          'flowchart LR',
+          '  subgraph svc ["two#10;lines#127;"]',
+          '    mod["tab#9;here"]',
+          '  end',
+          '  mod -->|"a#0;b"| svc',
+          '```',
+          '',
+          'Up: [dom](dom.md)',
+          '',
+        ].join('\n'),
+      },
+    ]);
+  });
+
+  test('an external frame and several externals share the class; every keyword id, in any case, gets a trailing underscore', () => {
+    const view: View = {
+      scope: 'Style',
+      elements: [
+        { id: 'Style', kind: 'external', place: 'scope', hasView: true },
+        { id: 'class', kind: 'external', parent: 'Style', place: 'inside', hasView: false },
+        { id: 'subgraph', kind: 'person', place: 'neighbour', hasView: false },
+      ],
+      arrows: [],
+    };
+
+    expect(renderMermaidPages([view]).pages![0]!.content).toBe(
+      [
+        '# Style (external)',
+        '',
+        '```mermaid',
+        'flowchart LR',
+        '  subgraph Style_ ["Style"]',
+        '    class_["class"]',
+        '  end',
+        '  subgraph_(["subgraph"])',
+        '  classDef external fill:#f4f4f4,stroke:#888888,stroke-dasharray:5 5',
+        '  class Style_,class_ external',
+        '```',
+        '',
+        'Up: [Landscape](index.md)',
+        '',
+      ].join('\n'),
+    );
+  });
+});
+
+describe('views/mermaid refuses a view without its own scope', () => {
+  test('a view whose scope is missing, or shown only as a neighbour, is an error naming it, and no pages', () => {
+    const missing: View = { scope: 'shop', elements: [{ id: 'cart', kind: 'service', parent: 'shop', place: 'inside', hasView: false }], arrows: [] };
+    const asNeighbour: View = { scope: 'pay', elements: [{ id: 'pay', kind: 'domain', place: 'neighbour', hasView: true }], arrows: [] };
+
+    expect(renderMermaidPages([{ elements: [], arrows: [] }, missing, asNeighbour])).toStrictEqual({
+      errors: [
+        { message: 'the view of "shop" does not show "shop" itself as its scope', scope: 'shop' },
+        { message: 'the view of "pay" does not show "pay" itself as its scope', scope: 'pay' },
+      ],
+    });
+  });
+});
+
+describe('views/mermaid node ids', () => {
+  function nodeLines(ids: readonly string[]): string[] {
+    const view: View = { elements: ids.map((id) => ({ id, kind: 'service', place: 'inside', hasView: false })), arrows: [] };
+    return renderMermaidPages([view])
+      .pages![0]!.content.split('\n')
+      .filter((line) => line.startsWith('  '));
+  }
+
+  test("every word Mermaid's flowchart grammar reads as a keyword gets a trailing underscore", () => {
+    const keywords = [
+      'accDescr',
+      'accTitle',
+      'call',
+      'callback',
+      'class',
+      'classDef',
+      'click',
+      'default',
+      'direction',
+      'end',
+      'flowchart',
+      'graph',
+      'href',
+      'interpolate',
+      'linkStyle',
+      'style',
+      'subgraph',
+    ];
+
+    expect(nodeLines(keywords)).toEqual(keywords.map((id) => `  ${id}_["${id}"]`));
+  });
+
+  test('clashing ids take _2, _3, ... in code point order of the element ids, whatever order the view lists them in', () => {
+    // Drawn in the view's own order; "a-b" (0x2D) sorts before "a.b" (0x2E).
+    expect(nodeLines(['a.b', 'a_b', 'a-b'])).toEqual(['  a_b_3["a.b"]', '  a_b["a_b"]', '  a_b_2["a-b"]']);
+  });
+});
+
+describe('views/view-set from any query engine', () => {
+  test('arrows by from then to and relation ids in code point order, whatever order the engine answers in; an unnamed parent goes up by its id alone', () => {
+    const model = compileModel(loadModel(fixture('views-labels')).model!);
+    const engine = {
+      view: (input: { scope?: string }) =>
+        input.scope === undefined
+          ? {
+              elements: [{ id: 'top', kind: 'domain' }],
+              relations: [
+                { from: 'top', to: 'b', relationIds: ['ui-shows-stock'] },
+                { from: 'top', to: 'a', relationIds: ['ui-shows-stock'] },
+                { from: 'a', to: 'top', relationIds: ['ui-shows-stock', 'cart-reserves-stock'] },
+              ],
+            }
+          : { elements: [], neighbours: [], relations: [] },
+      children: (id: string) => ({ elements: id === 'top' ? [{ id: 'mid', kind: 'service', parent: 'top' }] : id === 'mid' ? [{ id: 'low', kind: 'module', parent: 'mid' }] : [] }),
+    } as unknown as QueryEngine;
+
+    expect(buildViewSet(engine, model)).toStrictEqual({
+      views: [
+        {
+          elements: [{ id: 'top', kind: 'domain', place: 'inside', hasView: true }],
+          arrows: [
+            { from: 'a', to: 'top', relationIds: ['cart-reserves-stock', 'ui-shows-stock'], label: 'reserves stock; shows stock' },
+            { from: 'top', to: 'a', relationIds: ['ui-shows-stock'], label: 'shows stock' },
+            { from: 'top', to: 'b', relationIds: ['ui-shows-stock'], label: 'shows stock' },
+          ],
+        },
+        { scope: 'mid', up: { id: 'top' }, elements: [], arrows: [] },
+        { scope: 'top', elements: [], arrows: [] },
+      ],
+      errors: [],
+    });
+  });
+});
+
+describe('views/view-set with a query engine that refuses', () => {
+  test('a children query and a view query that refuse are both named, and no view set comes back', () => {
+    const refusing = { message: 'refused' };
+    const engine = {
+      view: (input: { scope?: string }) =>
+        input.scope === undefined
+          ? { elements: [{ id: 'a', kind: 'domain' }, { id: 'b', kind: 'domain' }], relations: [] }
+          : { error: refusing },
+      children: (id: string) => (id === 'a' ? { error: refusing } : id === 'b' ? { elements: [{ id: 'b1', kind: 'service', parent: 'b' }] } : { elements: [] }),
+    } as unknown as QueryEngine;
+
+    expect(buildViewSet(engine, compileModel(loadModel(fixture('views-drill-down')).model!))).toEqual({
+      errors: [
+        { message: 'the children of "a": refused', scope: 'a', query: refusing },
+        { message: 'the view of "b": refused', scope: 'b', query: refusing },
+      ],
     });
   });
 });
