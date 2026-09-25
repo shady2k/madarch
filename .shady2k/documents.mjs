@@ -26,9 +26,13 @@ const CAPABILITIES = 'docs/system/capabilities/';
 const CHANGES = 'docs/changes/';
 const TEMPLATE = 'the skills\' setup-shady2k-skills/templates/change.md';
 const KINDS = ['behavior', 'no-behavior', 'supporting'];
-// Not part of a revision: the tracker export (evidence lives there) and the
-// current specs (their sync with the change is exactly what `close` replays).
-const UNREVISIONED = ['.beads/', CAPABILITIES];
+// Not part of a revision: what this gate reads and verifies itself on every
+// run. The tracker export (evidence lives there), the change records (checked
+// by structure each time), the current specs and their catalogue (their sync
+// with the change is exactly what `close` replays). Nothing else is left out.
+const CATALOGUE = 'docs/system/index.md';
+const UNREVISIONED = ['.beads/', CHANGES, CAPABILITIES];
+const unrevisioned = (path) => path === CATALOGUE || UNREVISIONED.some((p) => path.startsWith(p));
 
 // Product code is what no document or process file is: the paths a commit must
 // carry an admitted change for.
@@ -77,12 +81,13 @@ function source(root, where) {
   };
 }
 
-// The revision evidence is recorded against: every checked input except the
-// tracker export and the current specs, so recording evidence and syncing the
-// specs at closure do not stale it, while any code, test or document edit does.
+// The revision evidence is recorded against: the whole tree except what the
+// gate verifies itself (see UNREVISIONED), so recording evidence, filing a
+// task, editing the change record and syncing the specs and their catalogue at
+// closure do not stale it, while any code, test or other document edit does.
 export function revisionOf(root, candidate = 'HEAD') {
   const lines = source(root, candidate).entries()
-    .filter((e) => !UNREVISIONED.some((p) => e.path.startsWith(p)))
+    .filter((e) => !unrevisioned(e.path))
     .map((e) => `${e.hash} ${e.path}`).sort();
   return `content:${createHash('sha256').update(lines.join('\n')).digest('hex').slice(0, 16)}`;
 }

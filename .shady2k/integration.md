@@ -10,7 +10,7 @@ are the repository's installation, and each person's plugin and hooks are theirs
 - **Vision, roadmap and charters:** `docs/vision.md` (roadmap as its section),
   `docs/milestones/<milestone>.md`; status comes from the tracker. Vision and the MVP charter (`docs/milestones/mvp.md`) written.
 - **Current specifications:** `docs/system/capabilities/<name>.md`, catalogued in
-  `docs/system/index.md`. None yet: no accepted behaviour.
+  `docs/system/index.md`.
 - **Changes:** `docs/changes/<change>/change.md` from the skills' template, with
   header lines `Change:` (the directory name), `Base:` (the main-line revision the
   proposal was written against), `Tasks:` and `Kind:`, an optional `## Rationale`
@@ -45,7 +45,7 @@ are the repository's installation, and each person's plugin and hooks are theirs
 - **Backlog adapter:** `node .shady2k/adapter.mjs backlog [--at <git-rev>]`;
   reads `.beads/issues.jsonl` (br rewrites it on every write), or that file at a revision.
 - **Rules:** `.shady2k/checks/{check,check-commits,check-docs}.mjs` and
-  `document-format.mjs`, verbatim copies of shady2k-skills setup 0.51.0 (rules 0.24.0).
+  `document-format.mjs`, verbatim copies of shady2k-skills plugin 0.57.1 (setup and rules 0.26.0).
 - **Document gate:** `.shady2k/documents.mjs` exports the documents and tracker
   records into `check-docs.mjs`'s contract and runs it; tests in
   `.shady2k/documents.test.mjs` (`node --test .shady2k/*.test.mjs`).
@@ -89,9 +89,8 @@ are the repository's installation, and each person's plugin and hooks are theirs
     trusted, not verified. It lives in tracker comments on the change's tasks,
     first line `check: {"id","status","reference","revision"}` or
     `approval: {"changeDigest","reference"}`; the latest receipt per check
-    wins. The revision is `documents.mjs revision`: a digest of the tree
-    without `.beads/` and `docs/system/capabilities/`, so recording evidence
-    and syncing specs at closure do not stale it. An approval's reference is
+    wins. The revision is `documents.mjs revision` (see Evidence revision
+    below). An approval's reference is
     the owner's words from the preflight; its digest covers what the change
     decides (kind, intent, out of scope, deltas, preserves). A refusal prints
     the exact `br comments add` line for each missing record. Editing the
@@ -103,6 +102,19 @@ are the repository's installation, and each person's plugin and hooks are theirs
     (`mutationFallback: escalate`), whose decision to accept is recorded as
     `passed` with their words as the reference. A skipped check is never
     recorded as passed.
+  - **Evidence revision:** `documents.mjs revision` hashes the whole tree
+    except what the gate reads and verifies itself on every run: `.beads/`
+    (the tracker export), `docs/changes/` (the change records),
+    `docs/system/capabilities/` (the current specs) and `docs/system/index.md`
+    (their catalogue). Nothing else is left out, so filing a task, editing the
+    change record or syncing specs at closure does not stale evidence, while
+    any other edit does.
+  - **What a commit owes:** the wrapper judges each commit as it is made, not a
+    range: a change is asked for only when the commit stages product code or a
+    current spec. A commit that touches only the tracker (filing, commenting,
+    editing fields) owes no change. Tracker transitions that claim a result
+    (`submitted`, `implemented`, `closed`) are not judged by the hooks; see
+    the enforcement boundary.
   - **Baseline and synchronization:** the baseline is read from the target
     (`main`), deltas from the change's pinned `Base:`, so a requirement moved
     on the target since is refused as stale rather than reverted. Current specs
@@ -131,22 +143,28 @@ are the repository's installation, and each person's plugin and hooks are theirs
 - **Local entry points:** `.githooks/pre-commit` (privacy guard, the tooling's
   tests when tooling is staged, then backlog gate) and `.githooks/commit-msg`
   (commit links, then the document gate).
+- **Connecting a clone:** `sh .shady2k/connect.sh`. It checks first and changes
+  nothing unless every check passes: node and br present, a private pattern
+  list, a local `main` (created from `origin/main` when only that exists) and a
+  `user.email`. Then it sets `core.hooksPath` and the `br-portable-path`
+  filter, imports the tracker export into br's local database, migrates
+  workspace paths through br's reviewed plan, and proves the adapter and the
+  privacy guard run. Safe to rerun; it writes no global git config.
 - **Public repository, privacy:** no personal data and no details of the
   owner's other projects. `.githooks/privacy-guard.sh` refuses staged content
-  matching `.git/info/private-patterns`, a list that is never committed. br
+  matching the private pattern lists, never committed: per user at
+  `${XDG_CONFIG_HOME:-~/.config}/madarch/private-patterns` (the owner keeps it
+  in sync between machines) and per clone at `.git/info/private-patterns`;
+  both are read. With neither, it refuses every commit and names the connect
+  command. br
   writes an absolute `source_repo_path` into every issue; the git clean filter
   `.shady2k/jsonl-clean.mjs` (declared in `.gitattributes`) commits it as `.`.
   Agent names use the public handle and a neutral machine name
   (`claude-<role>:shady2k@mbp:<branch>#<session>`); claim comments name the
   checkout, never an absolute path. Commits are signed with the owner's public
   email (the one on the GitHub profile; owner decision 2026-09-24, madarch-xh6).
-- **Fresh clone:** `git config core.hooksPath .githooks`;
-  `git config filter.br-portable-path.clean "node .shady2k/jsonl-clean.mjs"`,
-  `git config filter.br-portable-path.smudge cat`,
-  `git config filter.br-portable-path.required true`; create
-  `.git/info/private-patterns`; `user.email` is the owner's public email; a local `main`
-  branch (the document gate's target);
-  `br sync --import-only` then `br sync --migrate-source-repo-path --apply` if br reports foreign paths.
+- **Fresh clone:** create the private pattern list, set `user.email` to the
+  owner's public email, then run `sh .shady2k/connect.sh`.
 - **CI:** GitHub Actions (`.github/workflows/ci.yml`) on every push and pull
   request: `bun install --frozen-lockfile`, `bun run check`, `bun test` on
   Linux. It runs the product's checks only; the backlog, commit-link and
@@ -183,7 +201,7 @@ Its own reference: `br robot-docs guide`, `br <command> --help`. Pass
 | --- | --- |
 | create | `br create --type <task\|bug\|chore\|epic> --title … --labels mvp,<area> [--parent <epic>] --description …`; an epic states `## Done when` |
 | link / unlink | `br dep add <issue> <prerequisite>` (type `blocks`, gating only), `br dep remove`; provenance uses `--type related` or `discovered-from`, which the adapter ignores |
-| claim | `br update <id> --claim --actor <agent full name>` (atomic), then a comment with the start time and the checkout name (no absolute path) |
+| claim | `node .shady2k/adapter.mjs claim <id> --actor <agent full name>`, then a comment with the start time and the checkout name (no absolute path). It claims only an open, unheld leaf, and judges each open blocker: an `implemented` prerequisite in the same stage passes once its recorded revision is an ancestor of `HEAD`; any other open one refuses with its reason. br's `--claim` stays atomic and exclusive (forced past br's own blocker check only in that case), and the edge is kept |
 | release | `br update <id> --status open --assignee ""` for unfinished holds only; implemented work keeps its label and record |
 | implemented | coordinator: `br update <id> --add-label implemented` and `br comments add <id> 'implemented: {"revision":…,"evidence":…}'` |
 | submitted | worker: `br update <id> --add-label submitted --assignee ""` and `br comments add <id> 'submitted: {"revision":…,"evidence":…}'` |

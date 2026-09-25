@@ -426,6 +426,30 @@ test('command line: exit 0 clean, 1 refused, 2 unreadable input', () => {
   assert.equal(cli('check', '--phase', 'someday'), 2);
 });
 
+test('the revision leaves out exactly the tracker, change records, current specs and their catalogue', () => {
+  const r = repo();
+  r.write('src/a.ts', 'export const a = 1;\n');
+  r.write('docs/changes/add-views/change.md', 'draft\n');
+  r.write('docs/system/index.md', '# System\n');
+  r.write('docs/system/capabilities/views.md', 'x\n');
+  const before = revisionOf(r.root, r.commit('seed'));
+  for (const [path, text] of [
+    ['.beads/issues.jsonl', JSON.stringify(row('m-new')) + '\n'],
+    ['docs/changes/add-views/change.md', 'edited\n'],
+    ['docs/changes/add-views/capabilities/views.md', 'proposal\n'],
+    ['docs/system/index.md', '# System\n\n- views\n'],
+    ['docs/system/capabilities/views.md', 'synced\n'],
+  ]) {
+    r.write(path, text);
+    assert.equal(revisionOf(r.root, r.commit(`edit ${path}`)), before, `${path} must not stale evidence`);
+  }
+  for (const path of ['src/a.ts', 'docs/glossary.md', 'docs/system/architecture.md', 'docs/system/index.md.bak', 'docs/vision.md']) {
+    r.write(path, `changed ${path}\n`);
+    const after = revisionOf(r.root, r.commit(`edit ${path}`));
+    assert.notEqual(after, before, `${path} must change the revision`);
+  }
+});
+
 test('the tests ignore a hook\'s index: throwaway repositories work with GIT_INDEX_FILE set', () => {
   const saved = process.env.GIT_INDEX_FILE;
   process.env.GIT_INDEX_FILE = join(tmpdir(), 'madarch-no-such-dir', 'index.lock');
