@@ -7,7 +7,7 @@
 PRIVATE="$(git rev-parse --git-path info/private-patterns)"
 USER_PRIVATE="${XDG_CONFIG_HOME:-$HOME/.config}/madarch/private-patterns"
 for f in "$PRIVATE" "$USER_PRIVATE"; do
-  if [ -e "$f" ] && [ ! -r "$f" ]; then
+  if { [ -e "$f" ] || [ -L "$f" ]; } && ! cat "$f" >/dev/null 2>&1; then
     echo "Commit refused: the private pattern list $f exists but cannot be read."
     exit 1
   fi
@@ -31,12 +31,14 @@ if [ $? -eq 2 ]; then
 fi
 # The raw staged diff, no textconv or external driver; a diff git cannot
 # produce refuses rather than scanning nothing.
-if ! git diff --cached --no-color --no-ext-diff --no-textconv --unified=0 --diff-filter=ACMR > "$DIFF"; then
+if ! git diff --cached --text --no-color --no-ext-diff --no-textconv --unified=0 --diff-filter=ACMR > "$DIFF"; then
   rm -f "$LIST" "$DIFF"
   echo "Commit refused: git could not produce the staged diff, so the privacy guard cannot check it."
   exit 1
 fi
-hits=$(grep '^+' "$DIFF" | grep -v '^+++' | grep -n -i -E -f "$LIST")
+# Every added line, headers included: a line of content can start with "++",
+# and a header only repeats a path the name check reads anyway.
+hits=$(grep -a '^+' "$DIFF" | grep -a -n -i -E -f "$LIST")
 names=$(git diff --cached --name-only --diff-filter=ACMR | grep -i -E -f "$LIST")
 rm -f "$LIST" "$DIFF"
 if [ -n "$hits$names" ]; then

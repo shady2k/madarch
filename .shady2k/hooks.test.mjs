@@ -4,7 +4,7 @@
 //   node --test .shady2k/
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, copyFileSync, chmodSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, copyFileSync, chmodSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -86,6 +86,25 @@ test('guard: a textconv driver cannot hide staged content', () => {
   c.run('git', ['config', 'diff.hide.textconv', 'true']);
   c.stage('.gitattributes', '*.txt diff=hide\n');
   c.stage('a.txt', 'secret-xyz\n');
+  assert.equal(c.guard().code, 1);
+});
+
+test('guard: a dangling link in place of a list refuses', () => {
+  const c = clone();
+  c.userList('from-user-list\n');
+  symlinkSync(join(c.root, 'nowhere'), join(c.root, '.git/info/private-patterns'));
+  c.stage('a.md', 'x\n');
+  assert.match(c.guard().out, /cannot be read/);
+});
+
+test('guard: content starting with "++" and binary files are scanned', () => {
+  const c = clone();
+  c.userList('secret-xyz\n');
+  c.stage('a.js', '++counter; // secret-xyz\n');
+  assert.equal(c.guard().code, 1);
+  c.run('git', ['reset', '-q']);
+  writeFileSync(join(c.root, 'b.bin'), Buffer.from('\0\0binary secret-xyz\0'));
+  c.run('git', ['add', 'b.bin']);
   assert.equal(c.guard().code, 1);
 });
 
