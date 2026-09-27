@@ -1,6 +1,7 @@
 # Checkout (service)
 
 ```mermaid
+%%{init: {"flowchart": {"curve": "linear"}}}%%
 flowchart LR
   subgraph checkout_api ["Checkout"]
     checkout_cart["Cart"]
@@ -16,18 +17,18 @@ flowchart LR
   promotions_api["Promotions"]
   storefront["Storefront"]
   tax_api["Tax"]
-  checkout_cart -->|"keeps open carts"| cart_cache
-  checkout_cart -->|"prices the cart"| checkout_pricing
-  checkout_cart -->|"checks stock"| fulfilment
-  checkout_confirmation -->|"takes payment before placing"| checkout_payment_step
-  checkout_confirmation -->|"places the order"| orders_api
-  checkout_payment_step -->|"authorizes the payment"| payments
-  checkout_pricing -->|"reads list prices"| catalog
-  checkout_pricing -->|"quotes delivery options"| fulfilment
-  checkout_pricing -->|"applies promotions"| promotions_api
-  checkout_pricing -->|"calculates tax"| tax_api
-  storefront -->|"adds items to the cart"| checkout_cart
-  storefront -->|"checks out the cart"| checkout_confirmation
+  checkout_cart -->|"1"| cart_cache
+  checkout_cart -->|"2"| checkout_pricing
+  checkout_cart -->|"3"| fulfilment
+  checkout_confirmation -->|"4"| checkout_payment_step
+  checkout_confirmation -->|"5"| orders_api
+  checkout_payment_step -->|"6"| payments
+  checkout_pricing -->|"7"| catalog
+  checkout_pricing -->|"8"| fulfilment
+  checkout_pricing -->|"9"| promotions_api
+  checkout_pricing -->|"10"| tax_api
+  storefront -->|"11"| checkout_cart
+  storefront -->|"12"| checkout_confirmation
 ```
 
 | # | From | To | Relations |
@@ -42,8 +43,8 @@ flowchart LR
 | 8 | Pricing | Fulfilment | quotes delivery options |
 | 9 | Pricing | Promotions | applies promotions |
 | 10 | Pricing | Tax | calculates tax |
-| 11 | Storefront | Cart | adds items to the cart |
-| 12 | Storefront | Confirmation | checks out the cart |
+| 11 | Storefront | Cart | adds items to the cart; adds items to the cart |
+| 12 | Storefront | Confirmation | checks out the cart; checks out the cart |
 
 Up: [Ordering](ordering.md)
 

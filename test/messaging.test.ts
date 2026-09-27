@@ -125,11 +125,41 @@ describe('intended-model/messaging: publishers and subscribers are marked', () =
     expect(errors[0]!.message).toContain('names no interface');
   });
 
-  test('an action other than send or receive does not match the schema', () => {
-    const { errors } = parseModel([model(SUBSCRIBER.replace('action: receive', 'action: subscribe'))]);
+  test('an action other than send or receive does not match the schema, reported at its own line', () => {
+    const file = model(SUBSCRIBER.replace('action: receive', 'action: subscribe'));
+    const { errors } = parseModel([file]);
 
-    expect(errors.length).toBeGreaterThan(0);
-    expect(errors.some((error) => error.path.startsWith('relations[0].action') || error.message.includes('action'))).toBe(true);
+    expect(errors.map(({ file: at, line, path }) => ({ file: at, line, path }))).toContainEqual({
+      file: 'madarch/model.yaml',
+      line: lineOf(file, 'action: subscribe'),
+      path: 'relations[0].action',
+    });
+  });
+
+  test('a misplaced action is reported beside an unrelated reference error, not hidden by it', () => {
+    const file = model(`  - id: checkout-calls-orders
+    name: places orders
+    from: checkout-web
+    to: orders-api
+    interface: orders-http
+    action: send
+  - id: broken
+    name: points nowhere
+    from: orders-api
+    to: nowhere
+  - id: loose
+    name: marks nothing
+    from: checkout-web
+    to: orders-api
+    action: receive
+`);
+    const { errors } = parseModel([file]);
+
+    expect(errors.filter((error) => error.path.endsWith('.action')).map(({ line, path }) => ({ line, path }))).toEqual([
+      { line: lineOf(file, 'action: send'), path: 'relations[0].action' },
+      { line: lineOf(file, 'action: receive'), path: 'relations[2].action' },
+    ]);
+    expect(errors.some((error) => error.message.includes('"nowhere"'))).toBe(true);
   });
 
   test('messaging-without-action: a topic relation with no action loads, with one warning at the relation', () => {

@@ -203,7 +203,7 @@ export function renderLikeC4Workspace(engine: QueryEngine, model: CompiledModel,
     for (const id of pair.relationIds) {
       // Labelled first, drawn or not: a relation the compiled model does not
       // hold is an error even where LikeC4 could not draw it anyway.
-      const words = namesOf.words([id], (relationId, problem) => {
+      const words = namesOf([id], (relationId, problem) => {
         errors.push({ message: `the workspace: the arrow from "${pair.from}" to "${pair.to}" stands for the relation "${relationId}", ${problem}`, relationId });
       });
       const label = words.map((word) => word.label).join('; ');

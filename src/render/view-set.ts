@@ -8,7 +8,7 @@
  */
 import type { CompiledModel, CompiledRelation } from '../model/compile.js';
 import { byCodePoint } from '../model/order.js';
-import { messagingOf } from '../model/validate.js';
+import { messagingOf } from '../model/contracts.js';
 import type { ElementAnswer, QueryEngine, QueryError, QueryTime, ViewRelation } from '../query/types.js';
 
 /** Where a shown element sits in its view. */
@@ -28,17 +28,17 @@ export interface ShownElement {
 
 /**
  * One arrow a view draws: the shown pair, every relation id behind it (code
- * point order), their distinct names in that order (views/labels, for the
- * view's table) and its short label. Drawn from the initiator, as its
- * relations go; `dashed` when every relation behind it marks its action on a
- * topic or queue, left out otherwise.
+ * point order) and, parallel to them, each relation's entry for the view's
+ * table (views/mermaid): its name, or for one marking its action on a topic or
+ * queue its role and then its name. Drawn from the initiator, as its relations
+ * go; `dashed` when every relation behind it marks its action, left out
+ * otherwise.
  */
 export interface Arrow {
   from: string;
   to: string;
   relationIds: string[];
   names: string[];
-  label: string;
   dashed?: true;
 }
 
@@ -77,9 +77,6 @@ export interface ViewSetResult {
 
 /** A depth no model's nesting reaches: an unscoped view this deep holds every element, and draws every relation between its own ends. */
 export const EVERY_LEVEL = Number.MAX_SAFE_INTEGER;
-
-/** The longest label, in code points, that lists an arrow's names; a longer one counts its relations instead. */
-const LISTED_LENGTH = 40;
 
 /**
  * Builds the view set at one time and state (`at`, the query engine's own
@@ -153,7 +150,7 @@ function assemble(
   const arrows: Arrow[] = [];
   for (const relation of [...relations].sort((a, b) => byCodePoint(a.from, b.from) || byCodePoint(a.to, b.to))) {
     const relationIds = [...relation.relationIds].sort(byCodePoint);
-    const words = namesOf.words(relationIds, (relationId, problem) => {
+    const words = namesOf(relationIds, (relationId, problem) => {
       const error: ViewSetError = {
         message: `${viewName(scope)}: the arrow from "${relation.from}" to "${relation.to}" stands for the relation "${relationId}", ${problem}`,
         relationId,
@@ -161,9 +158,8 @@ function assemble(
       if (scope !== undefined) error.scope = scope;
       errors.push(error);
     });
-    const names = distinct(words.map((word) => word.name));
-    const labels = distinct(words.map((word) => word.label));
-    const arrow: Arrow = { from: relation.from, to: relation.to, relationIds, names, label: label(relationIds, labels, arrows.length + 1) };
+    const names = words.map((word) => (word.marked && word.label !== word.name ? `${word.label}: ${word.name}` : word.label));
+    const arrow: Arrow = { from: relation.from, to: relation.to, relationIds, names };
     if (words.length === relationIds.length && words.every((word) => word.marked)) arrow.dashed = true;
     arrows.push(arrow);
   }
@@ -189,12 +185,8 @@ export interface RelationWords {
   marked: boolean;
 }
 
-export interface Namer {
-  /** The relations' distinct labels, in relation-id order: what an arrow of them says. */
-  (relationIds: readonly string[], fail: Fail): string[];
-  /** Each relation's words, in relation-id order; a relation that fails is left out. */
-  words(relationIds: readonly string[], fail: Fail): RelationWords[];
-}
+/** Each relation's words, in relation-id order; a relation that fails is left out, named to `fail`. */
+export type Namer = (relationIds: readonly string[], fail: Fail) => RelationWords[];
 
 const ROLES = {
   topic: { send: 'publishes', receive: 'subscribes to' },
@@ -242,23 +234,5 @@ export function namer(model: CompiledModel): Namer {
     return found;
   };
 
-  const labels = (relationIds: readonly string[], fail: Fail): string[] => distinct(words(relationIds, fail).map((word) => word.label));
-  return Object.assign(labels, { words });
-}
-
-/** The values in their order, each kept once. */
-function distinct(values: readonly string[]): string[] {
-  return [...new Set(values)];
-}
-
-/**
- * An arrow's short label (views/labels): one relation's label as it is;
- * several relations' distinct labels joined by "; " while that is at most
- * `LISTED_LENGTH` code points, otherwise the number of relations and the
- * arrow's row in the view's table.
- */
-function label(relationIds: readonly string[], labels: readonly string[], row: number): string {
-  const listed = labels.join('; ');
-  if (relationIds.length === 1 || [...listed].length <= LISTED_LENGTH) return listed;
-  return `${relationIds.length} relations, see ${row}`;
+  return words;
 }

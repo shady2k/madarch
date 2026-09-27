@@ -1,3 +1,4 @@
+import { messagingOf } from './contracts.js';
 import type { ModelError } from './errors.js';
 import { DEFAULT_STATE_ID, ID_PATTERN, type Category, type Element, type Environment, type Interface, type Relation, type State, type Zone } from './schema.js';
 import { computeElementPresence, computeRelationPresence, type Presence } from './presence.js';
@@ -196,6 +197,7 @@ export function validateModel(positioned: PositionedModel, extraKnownIds: ExtraK
   );
 
   errors.push(...checkContracts(positioned.interfaces));
+  errors.push(...checkActions(positioned));
   errors.push(...checkZoneChangeShape(positioned.elements));
   errors.push(...checkEmptyEnvironmentsList(positioned.elements));
 
@@ -254,7 +256,6 @@ export function validateModel(positioned: PositionedModel, extraKnownIds: ExtraK
     if (cycleErrors.length === 0 && stateOrder !== undefined) {
       const ancestors = computeAncestors(positioned.elements.map((e) => ({ id: e.element.id, parent: e.element.parent })));
       errors.push(...checkRefinementEnds(positioned.relations, ancestors));
-      errors.push(...checkActions(positioned));
 
       const elements = positioned.elements.map((e) => e.element);
       const environmentIds = positioned.environments.map((e) => e.environment.id);
@@ -739,24 +740,11 @@ export function normalizeContract(contract: string): string | undefined {
 }
 
 /**
- * The topic or queue a contract names, or `undefined` for any other kind
- * (intended-model/messaging). Reads a contract as written or normalized: the
- * kind and what follows its `kind::` are the same either way.
- */
-export function messagingOf(contract: string): { kind: 'topic' | 'queue'; name: string } | undefined {
-  const at = contract.indexOf('::');
-  if (at < 0) return undefined;
-  const kind = contract.slice(0, at);
-  const name = contract.slice(at + 2);
-  if ((kind !== 'topic' && kind !== 'queue') || name === '') return undefined;
-  return { kind, name };
-}
-
-/**
  * `action` belongs only to a relation through a topic or queue
- * (intended-model/messaging). Safe to assume every `interface` names a known
- * interface: reference checking already ran. One declared in a file that
- * failed its schema has no contract here, and is left to that file's error.
+ * (intended-model/messaging). Needs nothing else to hold, so it runs beside
+ * the other checks rather than after them: an interface that is not known here
+ * (unknown, or declared in a file that failed its schema) has no contract, and
+ * is left to that error.
  */
 function checkActions(positioned: PositionedModel): ModelError[] {
   const contracts = new Map(positioned.interfaces.map((i) => [i.iface.id, i.iface.contract]));

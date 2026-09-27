@@ -1,6 +1,7 @@
 import type { ModelWarning } from './errors.js';
 import type { Relation } from './schema.js';
-import { messagingOf, type PositionedRelation } from './validate.js';
+import { messagingOf } from './contracts.js';
+import type { PositionedRelation } from './validate.js';
 import { segmentsToPath, type PathSegment } from './yaml-position.js';
 
 /**

@@ -42,7 +42,11 @@ const SHAPES: Readonly<Record<string, readonly [string, string]>> = {
 };
 const BOX: readonly [string, string] = ['[', ']'];
 
-const EXTERNAL_CLASS = '  classDef external fill:#f4f4f4,stroke:#888888,stroke-dasharray:5 5';
+// Dark text on the light fill: GitHub's dark theme would draw it light, and unreadable.
+const EXTERNAL_CLASS = '  classDef external fill:#f4f4f4,stroke:#888888,stroke-dasharray:5 5,color:#222222';
+// Straight lines (views/mermaid): with numbered arrows, curves were what still
+// laid labels over each other on GitHub's renderer.
+const STRAIGHT = '%%{init: {"flowchart": {"curve": "linear"}}}%%';
 
 /**
  * Words Mermaid's flowchart grammar reads as keywords where a node id
@@ -115,7 +119,7 @@ function renderPage(view: View, scope: ShownElement | undefined): string {
   const ids = nodeIds(view.elements.map((element) => element.id));
 
   const lines: string[] = [];
-  lines.push(scope === undefined ? '# Landscape' : `# ${markdownText(title(scope))} (${scope.kind})`, '', '```mermaid', 'flowchart LR');
+  lines.push(scope === undefined ? '# Landscape' : `# ${markdownText(title(scope))} (${scope.kind})`, '', '```mermaid', STRAIGHT, 'flowchart LR');
   const inside = view.elements.filter((element) => element.place === 'inside');
   if (scope === undefined) {
     for (const element of inside) lines.push(`  ${node(element, ids)}`);
@@ -125,8 +129,9 @@ function renderPage(view: View, scope: ShownElement | undefined): string {
     lines.push('  end');
   }
   for (const element of view.elements.filter((element) => element.place === 'neighbour')) lines.push(`  ${node(element, ids)}`);
-  // A dotted link for an arrow of topic or queue relations that mark their action (views/labels).
-  for (const arrow of view.arrows) lines.push(`  ${ids.get(arrow.from)} ${arrow.dashed ? '-.->' : '-->'}|"${mermaidText(arrow.label)}"| ${ids.get(arrow.to)}`);
+  // Each arrow carries its row number in the table under the diagram, a
+  // dotted link where its relations all mark their action (views/mermaid).
+  view.arrows.forEach((arrow, index) => lines.push(`  ${ids.get(arrow.from)} ${arrow.dashed ? '-.->' : '-->'}|"${index + 1}"| ${ids.get(arrow.to)}`));
   const externals = view.elements.filter((element) => element.kind === 'external');
   if (externals.length > 0) lines.push(EXTERNAL_CLASS, `  class ${externals.map((element) => ids.get(element.id)).join(',')} external`);
   lines.push('```', '');
@@ -142,9 +147,9 @@ function renderPage(view: View, scope: ShownElement | undefined): string {
 }
 
 /**
- * The table under the diagram (views/mermaid): one row per arrow in the
- * diagram's order, numbered as the arrows' labels refer to them, with the
- * names of its ends and every name behind it.
+ * The table under the diagram (views/mermaid), the diagram's key: one row per
+ * arrow in the diagram's order, numbered as the arrows are labelled, with the
+ * names of its ends and every relation behind it by its entry.
  */
 function arrowTable(view: View): string[] {
   const byId = new Map(view.elements.map((element) => [element.id, element]));
