@@ -467,3 +467,38 @@ describe("the reference system's committed LikeC4 workspace", () => {
     expect(checkLikeC4Workspaces([join(LIKEC4_FILE, '..')])).toEqual({ files: 1, errors: [] });
   });
 });
+
+describe('views/likec4 for a topic or queue', () => {
+  test('a relation marking its action is labelled by its role and drawn dashed, from its initiator; the others as before; the workspace validates', () => {
+    const workspace = workspaceOf('views-events');
+    const block = workspace.slice(workspace.indexOf('  checkout-web -> '), workspace.indexOf('\n}\n\nviews {'));
+
+    expect(block).toBe(
+      [
+        '  checkout-web -> ordering.orders-api "places orders"',
+        '  fulfilment.inventory-api -> jobs "sends to restock" {',
+        '    style {',
+        '      line dashed',
+        '    }',
+        '  }',
+        '  fulfilment.inventory-api -> platform.event-bus "subscribes to order-placed" {',
+        '    style {',
+        '      line dashed',
+        '    }',
+        '  }',
+        '  ordering.orders-api -> platform.event-bus "publishes order-placed" {',
+        '    style {',
+        '      line dashed',
+        '    }',
+        '  }',
+        '  ordering.orders-worker -> platform.event-bus "publishes cancellations"',
+        '  fulfilment.shipping-api -> platform.event-bus "subscribes to order-placed" {',
+        '    style {',
+        '      line dashed',
+        '    }',
+        '  }',
+      ].join('\n'),
+    );
+    expect(validate(workspace).errors).toEqual([]);
+  });
+});

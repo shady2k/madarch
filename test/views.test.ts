@@ -91,7 +91,7 @@ describe('views/view-set', () => {
         { id: 'payments', kind: 'domain', name: 'Payments', place: 'inside', hasView: true },
         { id: 'shop', kind: 'domain', name: 'Shop', place: 'inside', hasView: true },
       ],
-      arrows: [{ from: 'shop', to: 'payments', relationIds: ['cart-charges-card'], label: 'charges the card' }],
+      arrows: [{ from: 'shop', to: 'payments', relationIds: ['cart-charges-card'], names: ['charges the card'] }],
     });
   });
 
@@ -105,8 +105,8 @@ describe('views/view-set', () => {
         { id: 'shop', kind: 'domain', name: 'Shop', place: 'scope', hasView: true },
       ],
       arrows: [
-        { from: 'checkout-web', to: 'catalog-api', relationIds: ['cart-reads-catalog'], label: 'reads prices' },
-        { from: 'checkout-web', to: 'payments', relationIds: ['cart-charges-card'], label: 'charges the card' },
+        { from: 'checkout-web', to: 'catalog-api', relationIds: ['cart-reads-catalog'], names: ['reads prices'] },
+        { from: 'checkout-web', to: 'payments', relationIds: ['cart-charges-card'], names: ['charges the card'] },
       ],
     });
   });
@@ -123,9 +123,9 @@ describe('views/view-set', () => {
         { id: 'payments', kind: 'domain', name: 'Payments', place: 'neighbour', hasView: true },
       ],
       arrows: [
-        { from: 'checkout-cart', to: 'catalog-api', relationIds: ['cart-reads-catalog'], label: 'reads prices' },
-        { from: 'checkout-cart', to: 'payments', relationIds: ['cart-charges-card'], label: 'charges the card' },
-        { from: 'checkout-ui', to: 'checkout-cart', relationIds: ['ui-renders-cart'], label: 'renders the cart' },
+        { from: 'checkout-cart', to: 'catalog-api', relationIds: ['cart-reads-catalog'], names: ['reads prices'] },
+        { from: 'checkout-cart', to: 'payments', relationIds: ['cart-charges-card'], names: ['charges the card'] },
+        { from: 'checkout-ui', to: 'checkout-cart', relationIds: ['ui-renders-cart'], names: ['renders the cart'] },
       ],
     });
   });
@@ -197,46 +197,46 @@ describe('views/view-set', () => {
 });
 
 describe('views/labels', () => {
-  test('merged-label: the one arrow from checkout-web to stock-api in the view of shop is labelled "reserves stock; shows stock"', () => {
+  test('an arrow stands for every relation between its two shown elements, their names in relation-id order', () => {
     const shop = viewOf(viewsOf('views-labels'), 'shop');
 
-    expect(shop.arrows.find((arrow) => arrow.to === 'stock-api')).toEqual({
+    expect(shop.arrows.find((arrow) => arrow.to === 'stock-api')).toStrictEqual({
       from: 'checkout-web',
       to: 'stock-api',
       relationIds: ['cart-reserves-stock', 'ui-shows-stock'],
-      label: 'reserves stock; shows stock',
+      names: ['reserves stock', 'shows stock'],
     });
   });
 
-  test('more than three names: the first three in relation-id order (code point) and a count of the rest; a name repeated among them is shown once', () => {
+  test('every relation keeps its own entry, in code point order of the ids, a name shared by two relations listed for each', () => {
     const shop = viewOf(viewsOf('views-labels'), 'shop');
 
-    expect(shop.arrows.find((arrow) => arrow.to === 'audit-log')).toEqual({
+    expect(shop.arrows.find((arrow) => arrow.to === 'audit-log')).toStrictEqual({
       from: 'checkout-web',
       to: 'audit-log',
       relationIds: ['W-writes-first', 'cart-reads', 'cart-writes-again', 'ui-audits', 'ui-counts', 'ui-locks'],
-      label: 'writes carts; reads carts; audits views (+2 more)',
+      names: ['writes carts', 'reads carts', 'writes carts', 'audits views', 'counts views', 'locks rows'],
     });
   });
 
-  test('exactly three names carry no count; three relations sharing a name among them show two', () => {
-    const checkout = viewOf(viewsOf('views-labels'), 'checkout-web');
-
-    expect(checkout.arrows.filter((arrow) => arrow.to === 'audit-log').map((arrow) => [arrow.from, arrow.label])).toEqual([
-      ['checkout-cart', 'writes carts; reads carts'],
-      ['checkout-ui', 'audits views; counts views; locks rows'],
+  test('a relation keeps its name however long, and none is ever cut or counted', () => {
+    expect(viewOf(viewsOf('views-long-label'), undefined).arrows.map((arrow) => arrow.names)).toEqual([
+      ['cancels orders by id 𝟙𝟚𝟛𝟜', 'places orders'],
+      ['bills orders', 'refunds orders by their ids'],
+      ['publishes order cancelled', 'publishes order placed', 'publishes order paid', 'publishes order refunded', 'publishes order shipped'],
+      ['records every order event it has published, for audit'],
     ]);
   });
 
-  test("unnamed-fallback: an unnamed relation is labelled with its interface's contract, or its id where it names no interface", () => {
+  test("unnamed-fallback: an unnamed relation is named by its interface's contract, or its id where it names no interface", () => {
     const { model, errors, warnings } = loadModel(fixture('views-unnamed'));
     expect(errors).toEqual([]);
     expect(warnings.map((warning) => warning.path)).toEqual(['relations[0]', 'relations[1]']);
     expect(model).toBeDefined();
 
-    expect(viewOf(viewsOf('views-unnamed'), undefined).arrows).toEqual([
-      { from: 'checkout-web', to: 'orders-api', relationIds: ['checkout-to-orders'], label: 'http::POST::/api/orders' },
-      { from: 'checkout-web', to: 'stock-api', relationIds: ['checkout-to-stock'], label: 'checkout-to-stock' },
+    expect(viewOf(viewsOf('views-unnamed'), undefined).arrows).toStrictEqual([
+      { from: 'checkout-web', to: 'orders-api', relationIds: ['checkout-to-orders'], names: ['http::POST::/api/orders'] },
+      { from: 'checkout-web', to: 'stock-api', relationIds: ['checkout-to-stock'], names: ['checkout-to-stock'] },
     ]);
   });
 
@@ -264,19 +264,57 @@ describe('views/mermaid', () => {
         '# Shop (domain)',
         '',
         '```mermaid',
+        '%%{init: {"flowchart": {"curve": "linear"}}}%%',
         'flowchart LR',
         '  subgraph shop ["Shop"]',
         '    catalog_api["Catalog API"]',
         '    checkout_web["Checkout web"]',
         '  end',
         '  payments["Payments"]',
-        '  checkout_web -->|"reads prices"| catalog_api',
-        '  checkout_web -->|"charges the card"| payments',
+        '  checkout_web -->|"1"| catalog_api',
+        '  checkout_web -->|"2"| payments',
         '```',
+        '',
+        '| # | From | To | Relations |',
+        '| --- | --- | --- | --- |',
+        '| 1 | Checkout web | Catalog API | reads prices |',
+        '| 2 | Checkout web | Payments | charges the card |',
         '',
         'Up: [Landscape](_landscape.md)',
         '',
         'Open: [Checkout web](checkout-web.md) · [Payments](payments.md)',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  test('numbered-arrows: every arrow carries its row number, and its row lists every relation behind it, however many or long; the table is under the diagram and above the links', () => {
+    expect(pagesOf('views-long-label').get('_landscape.md')).toBe(
+      [
+        '# Landscape',
+        '',
+        '```mermaid',
+        '%%{init: {"flowchart": {"curve": "linear"}}}%%',
+        'flowchart LR',
+        '  a_client(["A client"])',
+        '  billing["Billing"]',
+        '  event_bus[["Event bus"]]',
+        '  orders_api["Orders API"]',
+        '  z_audit[("Z audit")]',
+        '  a_client -->|"1"| orders_api',
+        '  billing -->|"2"| orders_api',
+        '  orders_api -->|"3"| event_bus',
+        '  orders_api -->|"4"| z_audit',
+        '```',
+        '',
+        '| # | From | To | Relations |',
+        '| --- | --- | --- | --- |',
+        '| 1 | A client | Orders API | cancels orders by id 𝟙𝟚𝟛𝟜; places orders |',
+        '| 2 | Billing | Orders API | bills orders; refunds orders by their ids |',
+        '| 3 | Orders API | Event bus | publishes order cancelled; publishes order placed; publishes order paid; publishes order refunded; publishes order shipped |',
+        '| 4 | Orders API | Z audit | records every order event it has published, for audit |',
+        '',
+        'Open: [Orders API](orders-api.md)',
         '',
       ].join('\n'),
     );
@@ -296,11 +334,16 @@ describe('views/mermaid', () => {
         '# Landscape',
         '',
         '```mermaid',
+        '%%{init: {"flowchart": {"curve": "linear"}}}%%',
         'flowchart LR',
         '  payments["Payments"]',
         '  shop["Shop"]',
-        '  shop -->|"charges the card"| payments',
+        '  shop -->|"1"| payments',
         '```',
+        '',
+        '| # | From | To | Relations |',
+        '| --- | --- | --- | --- |',
+        '| 1 | Shop | Payments | charges the card |',
         '',
         'Open: [Payments](payments.md) · [Shop](shop.md)',
         '',
@@ -314,6 +357,7 @@ describe('views/mermaid', () => {
         '# Landscape',
         '',
         '```mermaid',
+        '%%{init: {"flowchart": {"curve": "linear"}}}%%',
         'flowchart LR',
         '  a_b_2["A dot B"]',
         '  a_b["A underscore B"]',
@@ -323,14 +367,22 @@ describe('views/mermaid', () => {
         '  order_events[["Order events"]]',
         '  orders_db[("Orders DB")]',
         '  web["Web [*beta*]"]',
-        '  a_b_2 -->|"writes orders"| orders_db',
-        '  a_b -->|"publishes #96;placed#96;"| order_events',
-        '  customer -->|"sends #quot;receipts#quot; #124; copies"| mail_gateway',
-        '  end_ -->|"calls"| a_b_2',
-        '  web -->|"calls"| end_',
-        '  classDef external fill:#f4f4f4,stroke:#888888,stroke-dasharray:5 5',
+        '  a_b_2 -->|"1"| orders_db',
+        '  a_b -->|"2"| order_events',
+        '  customer -->|"3"| mail_gateway',
+        '  end_ -->|"4"| a_b_2',
+        '  web -->|"5"| end_',
+        '  classDef external fill:#f4f4f4,stroke:#888888,stroke-dasharray:5 5,color:#222222',
         '  class mail_gateway external',
         '```',
+        '',
+        '| # | From | To | Relations |',
+        '| --- | --- | --- | --- |',
+        '| 1 | A dot B | Orders DB | writes orders |',
+        '| 2 | A underscore B | Order events | publishes \\`placed\\` |',
+        '| 3 | The "best" customer | Mail #1 \\<smtp\\> & co | sends "receipts" \\| copies |',
+        '| 4 | end | A dot B | calls |',
+        '| 5 | Web \\[\\*beta\\*\\] | end | calls |',
         '',
         'Open: [Web \\[\\*beta\\*\\]](web.md)',
         '',
@@ -344,13 +396,18 @@ describe('views/mermaid', () => {
         '# Web \\[\\*beta\\*\\] (system)',
         '',
         '```mermaid',
+        '%%{init: {"flowchart": {"curve": "linear"}}}%%',
         'flowchart LR',
         '  subgraph web ["Web [*beta*]"]',
         '    web_ui["web-ui"]',
         '  end',
         '  end_["end"]',
-        '  web_ui -->|"calls"| end_',
+        '  web_ui -->|"1"| end_',
         '```',
+        '',
+        '| # | From | To | Relations |',
+        '| --- | --- | --- | --- |',
+        '| 1 | web-ui | end | calls |',
         '',
         'Up: [Landscape](_landscape.md)',
         '',
@@ -367,6 +424,7 @@ describe('views/mermaid', () => {
         '# Search index (domain)',
         '',
         '```mermaid',
+        '%%{init: {"flowchart": {"curve": "linear"}}}%%',
         'flowchart LR',
         '  subgraph index ["Search index"]',
         '    index_api["Index API"]',
@@ -401,25 +459,31 @@ describe('views/mermaid on hand-built views', () => {
         { id: 'mod', kind: 'module', name: 'tab\there', parent: 'svc', place: 'inside', hasView: false },
         { id: 'svc', kind: 'service', name: 'two\nlines\u007f', parent: 'dom', place: 'scope', hasView: true },
       ],
-      arrows: [{ from: 'mod', to: 'svc', relationIds: ['r'], label: 'a\u0000b' }],
+      arrows: [{ from: 'mod', to: 'svc', relationIds: ['r'], names: ['a\u0000b'] }],
     };
 
     const { pages, errors } = renderMermaidPages([{ elements: [], arrows: [] }, view]);
     expect(errors).toEqual([]);
     expect(pages).toEqual([
-      { file: '_landscape.md', content: ['# Landscape', '', '```mermaid', 'flowchart LR', '```', ''].join('\n') },
+      { file: '_landscape.md', content: ['# Landscape', '', '```mermaid', '%%{init: {"flowchart": {"curve": "linear"}}}%%',
+        'flowchart LR', '```', ''].join('\n') },
       {
         file: 'svc.md',
         content: [
           '# two lines  (service)',
           '',
           '```mermaid',
-          'flowchart LR',
+          '%%{init: {"flowchart": {"curve": "linear"}}}%%',
+        'flowchart LR',
           '  subgraph svc ["two#10;lines#127;"]',
           '    mod["tab#9;here"]',
           '  end',
-          '  mod -->|"a#0;b"| svc',
+          '  mod -->|"1"| svc',
           '```',
+          '',
+            '| # | From | To | Relations |',
+          '| --- | --- | --- | --- |',
+          '| 1 | tab here | two lines  | a b |',
           '',
           'Up: [dom](dom.md)',
           '',
@@ -444,12 +508,13 @@ describe('views/mermaid on hand-built views', () => {
         '# Style (external)',
         '',
         '```mermaid',
+        '%%{init: {"flowchart": {"curve": "linear"}}}%%',
         'flowchart LR',
         '  subgraph Style_ ["Style"]',
         '    class_["class"]',
         '  end',
         '  subgraph_(["subgraph"])',
-        '  classDef external fill:#f4f4f4,stroke:#888888,stroke-dasharray:5 5',
+        '  classDef external fill:#f4f4f4,stroke:#888888,stroke-dasharray:5 5,color:#222222',
         '  class Style_,class_ external',
         '```',
         '',
@@ -548,9 +613,9 @@ describe('views/view-set from any query engine', () => {
         {
           elements: [{ id: 'top', kind: 'domain', place: 'inside', hasView: true }],
           arrows: [
-            { from: 'a', to: 'top', relationIds: ['cart-reserves-stock', 'ui-shows-stock'], label: 'reserves stock; shows stock' },
-            { from: 'top', to: 'a', relationIds: ['ui-shows-stock'], label: 'shows stock' },
-            { from: 'top', to: 'b', relationIds: ['ui-shows-stock'], label: 'shows stock' },
+            { from: 'a', to: 'top', relationIds: ['cart-reserves-stock', 'ui-shows-stock'], names: ['reserves stock', 'shows stock'] },
+            { from: 'top', to: 'a', relationIds: ['ui-shows-stock'], names: ['shows stock'] },
+            { from: 'top', to: 'b', relationIds: ['ui-shows-stock'], names: ['shows stock'] },
           ],
         },
         { scope: 'mid', up: { id: 'top' }, elements: [], arrows: [] },
@@ -629,5 +694,74 @@ describe("the reference system's committed views", () => {
     for (const page of pages!) {
       expect({ file: page.file, content: readFileSync(join(MERMAID_FOLDER, page.file), 'utf8') }).toEqual({ file: page.file, content: page.content });
     }
+  });
+});
+
+describe('views/labels for a topic or queue', () => {
+  test('event-labels: a relation marking its action is entered by its role and its name, and an arrow of such relations only is dashed, still from the initiator', () => {
+    const landscape = viewOf(viewsOf('views-events'), undefined);
+
+    expect(landscape.arrows).toStrictEqual([
+      { from: 'checkout-web', to: 'ordering', relationIds: ['checkout-calls-orders'], names: ['places orders'] },
+      { from: 'fulfilment', to: 'jobs', relationIds: ['inventory-asks-restock'], names: ['sends to restock: asks for restock'], dashed: true },
+      {
+        from: 'fulfilment',
+        to: 'platform',
+        relationIds: ['inventory-reserves-stock', 'shipping-prepares-parcels'],
+        names: ['subscribes to order-placed: reserves stock for placed orders', 'subscribes to order-placed: prepares parcels for placed orders'],
+        dashed: true,
+      },
+      {
+        from: 'ordering',
+        to: 'platform',
+        relationIds: ['orders-publishes-placed', 'orders-worker-publishes-cancellations'],
+        names: ['publishes order-placed', 'publishes cancellations'],
+      },
+    ]);
+  });
+
+  test('in the view of a domain each relation is its own arrow: publishes, subscribes to, sends to, and an unmarked topic relation by its name, solid', () => {
+    const ordering = viewOf(viewsOf('views-events'), 'ordering');
+    const fulfilment = viewOf(viewsOf('views-events'), 'fulfilment');
+
+    expect(ordering.arrows.filter((arrow) => arrow.to === 'platform').map(({ from, names, dashed }) => ({ from, names, dashed }))).toEqual([
+      { from: 'orders-api', names: ['publishes order-placed'], dashed: true },
+      { from: 'orders-worker', names: ['publishes cancellations'], dashed: undefined },
+    ]);
+    expect(fulfilment.arrows.map(({ from, to, names, dashed }) => [from, to, names, dashed])).toEqual([
+      ['inventory-api', 'jobs', ['sends to restock: asks for restock'], true],
+      ['inventory-api', 'platform', ['subscribes to order-placed: reserves stock for placed orders'], true],
+      ['shipping-api', 'platform', ['subscribes to order-placed: prepares parcels for placed orders'], true],
+    ]);
+  });
+
+  test('a queue relation that receives is entered as "receives from"', () => {
+    const { model, errors } = loadModel(fixture('views-events'));
+    expect(errors).toEqual([]);
+    const compiled = compileModel(model!);
+    const restock = compiled.relations.find((relation) => relation.id === 'inventory-asks-restock')!;
+    restock.action = 'receive';
+    const history = createSqliteHistory({ clock: fakeClock(DAY(1)) });
+    expect(history.store({ source: 's', commit: 'receive', committedAt: DAY(1), model: compiled }).errors).toEqual([]);
+    const engine = createLadybugEngine();
+    engine.rebuild(history.assertions());
+    const { views } = buildViewSet(engine, compiled, AT);
+    engine.close();
+    history.close();
+
+    expect(viewOf(views!, undefined).arrows.find((arrow) => arrow.to === 'jobs')?.names).toEqual(['receives from restock: asks for restock']);
+  });
+
+  test('event-row: arrows are numbered by their row, dashed where every relation marks its action, and the rows list the relations by role and name', () => {
+    const page = pagesOf('views-events').get('_landscape.md')!;
+
+    expect(page).toContain('  checkout_web -->|"1"| ordering\n');
+    expect(page).toContain('  fulfilment -.->|"2"| jobs\n');
+    expect(page).toContain('  fulfilment -.->|"3"| platform\n');
+    expect(page).toContain('  ordering -->|"4"| platform\n');
+    expect(page).toContain(
+      '| 3 | Fulfilment | Platform | subscribes to order-placed: reserves stock for placed orders; subscribes to order-placed: prepares parcels for placed orders |',
+    );
+    expect(page).toContain('| 4 | Ordering | Platform | publishes order-placed; publishes cancellations |');
   });
 });

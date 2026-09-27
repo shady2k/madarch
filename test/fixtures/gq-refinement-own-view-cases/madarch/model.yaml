@@ -1,0 +1,64 @@
+version: 1
+
+elements:
+  - id: shop
+    kind: domain
+  - id: checkout-api
+    kind: service
+    parent: shop
+  - id: checkout-cart
+    kind: module
+    parent: checkout-api
+  - id: checkout-payment-step
+    kind: module
+    parent: checkout-api
+  - id: checkout-refund-step
+    kind: module
+    parent: checkout-api
+  - id: orders
+    kind: domain
+  - id: orders-api
+    kind: service
+    parent: orders
+  - id: payments
+    kind: domain
+  - id: payments-api
+    kind: service
+    parent: payments
+  - id: payments-webhook
+    kind: module
+    parent: payments-api
+
+relations:
+  - id: checkout-refunds-through-payments
+    name: refunds
+    from: checkout-api
+    to: payments
+  - id: refund-step-refunds
+    name: refunds the card
+    refines: checkout-refunds-through-payments
+    from: checkout-refund-step
+    to: payments-api
+  - id: cart-releases-authorization
+    name: releases the authorization
+    refines: checkout-refunds-through-payments
+    from: checkout-cart
+    to: payments-api
+  - id: payments-confirms-checkout
+    name: confirms payments
+    from: payments
+    to: checkout-api
+  - id: webhook-confirms-payment-step
+    name: posts the confirmation
+    refines: payments-confirms-checkout
+    from: payments-webhook
+    to: checkout-payment-step
+  - id: checkout-places-orders
+    name: places orders
+    from: checkout-api
+    to: orders
+  - id: checkout-posts-to-orders-api
+    name: posts the order
+    refines: checkout-places-orders
+    from: checkout-api
+    to: orders-api

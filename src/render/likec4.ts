@@ -12,7 +12,7 @@ import type { CompiledElement, CompiledModel } from '../model/compile.js';
 import { byCodePoint } from '../model/order.js';
 import type { ElementAnswer, QueryEngine, QueryError, QueryTime } from '../query/types.js';
 import { uniqueSafeIds } from './safe-ids.js';
-import { buildViewSet, EVERY_LEVEL, labeller } from './view-set.js';
+import { buildViewSet, EVERY_LEVEL, namer } from './view-set.js';
 
 /** One problem that kept the workspace from being rendered. */
 export interface LikeC4Error {
@@ -139,6 +139,8 @@ interface WorkspaceRelation {
   from: string;
   to: string;
   label: string;
+  /** Marks its action on a topic or queue: drawn dashed (views/labels). */
+  dashed: boolean;
 }
 
 /**
@@ -194,21 +196,23 @@ export function renderLikeC4Workspace(engine: QueryEngine, model: CompiledModel,
     return false;
   };
 
-  const labels = labeller(model);
+  const namesOf = namer(model);
   const relations: WorkspaceRelation[] = [];
   for (const pair of every.relations!) {
     const reason = pair.from === pair.to ? 'self' : isAncestor(pair.from, pair.to) || isAncestor(pair.to, pair.from) ? 'descendant' : undefined;
     for (const id of pair.relationIds) {
       // Labelled first, drawn or not: a relation the compiled model does not
       // hold is an error even where LikeC4 could not draw it anyway.
-      const label = labels([id], (relationId, problem) => {
+      const words = namesOf([id], (relationId, problem) => {
         errors.push({ message: `the workspace: the arrow from "${pair.from}" to "${pair.to}" stands for the relation "${relationId}", ${problem}`, relationId });
       });
+      const label = words.map((word) => word.label).join('; ');
+      const dashed = words.length === 1 && words[0]!.marked;
       if (reason !== undefined) {
         leaveOut(id, pair.from, pair.to, reason);
         continue;
       }
-      relations.push({ id, from: pair.from, to: pair.to, label });
+      relations.push({ id, from: pair.from, to: pair.to, label, dashed });
     }
   }
   if (errors.length > 0) return { errors };
@@ -241,7 +245,9 @@ export function renderLikeC4Workspace(engine: QueryEngine, model: CompiledModel,
   nest(undefined, '  ');
   if (relations.length > 0) lines.push('');
   for (const relation of relations.sort((a, b) => byCodePoint(a.id, b.id))) {
-    lines.push(`  ${fqns.get(relation.from)} -> ${fqns.get(relation.to)} ${text(relation.label)}`);
+    const line = `  ${fqns.get(relation.from)} -> ${fqns.get(relation.to)} ${text(relation.label)}`;
+    if (relation.dashed) lines.push(`${line} {`, '    style {', '      line dashed', '    }', '  }');
+    else lines.push(line);
   }
   lines.push('}', '', 'views {');
   for (const view of viewSet.views) {

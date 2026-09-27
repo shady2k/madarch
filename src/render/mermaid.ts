@@ -1,6 +1,7 @@
 /**
  * The view set as Mermaid pages (see design.md, "Mermaid"): one Markdown
- * page per view, holding one `flowchart LR` block and the links under it.
+ * page per view, holding one `flowchart LR` block, the table of its arrows
+ * and the links under it.
  * Text only, from the view set alone; writing the pages anywhere is the
  * caller's. This module touches no Bun-specific API.
  */
@@ -41,7 +42,11 @@ const SHAPES: Readonly<Record<string, readonly [string, string]>> = {
 };
 const BOX: readonly [string, string] = ['[', ']'];
 
-const EXTERNAL_CLASS = '  classDef external fill:#f4f4f4,stroke:#888888,stroke-dasharray:5 5';
+// Dark text on the light fill: GitHub's dark theme would draw it light, and unreadable.
+const EXTERNAL_CLASS = '  classDef external fill:#f4f4f4,stroke:#888888,stroke-dasharray:5 5,color:#222222';
+// Straight lines (views/mermaid): with numbered arrows, curves were what still
+// laid labels over each other on GitHub's renderer.
+const STRAIGHT = '%%{init: {"flowchart": {"curve": "linear"}}}%%';
 
 /**
  * Words Mermaid's flowchart grammar reads as keywords where a node id
@@ -114,7 +119,7 @@ function renderPage(view: View, scope: ShownElement | undefined): string {
   const ids = nodeIds(view.elements.map((element) => element.id));
 
   const lines: string[] = [];
-  lines.push(scope === undefined ? '# Landscape' : `# ${markdownText(title(scope))} (${scope.kind})`, '', '```mermaid', 'flowchart LR');
+  lines.push(scope === undefined ? '# Landscape' : `# ${markdownText(title(scope))} (${scope.kind})`, '', '```mermaid', STRAIGHT, 'flowchart LR');
   const inside = view.elements.filter((element) => element.place === 'inside');
   if (scope === undefined) {
     for (const element of inside) lines.push(`  ${node(element, ids)}`);
@@ -124,10 +129,13 @@ function renderPage(view: View, scope: ShownElement | undefined): string {
     lines.push('  end');
   }
   for (const element of view.elements.filter((element) => element.place === 'neighbour')) lines.push(`  ${node(element, ids)}`);
-  for (const arrow of view.arrows) lines.push(`  ${ids.get(arrow.from)} -->|"${mermaidText(arrow.label)}"| ${ids.get(arrow.to)}`);
+  // Each arrow carries its row number in the table under the diagram, a
+  // dotted link where its relations all mark their action (views/mermaid).
+  view.arrows.forEach((arrow, index) => lines.push(`  ${ids.get(arrow.from)} ${arrow.dashed ? '-.->' : '-->'}|"${index + 1}"| ${ids.get(arrow.to)}`));
   const externals = view.elements.filter((element) => element.kind === 'external');
   if (externals.length > 0) lines.push(EXTERNAL_CLASS, `  class ${externals.map((element) => ids.get(element.id)).join(',')} external`);
   lines.push('```', '');
+  if (view.arrows.length > 0) lines.push(...arrowTable(view), '');
 
   if (scope !== undefined) {
     const up = view.up === undefined ? `[Landscape](${LANDSCAPE_FILE})` : `[${markdownText(view.up.name ?? view.up.id)}](${pageFile(view.up.id)})`;
@@ -136,6 +144,21 @@ function renderPage(view: View, scope: ShownElement | undefined): string {
   const open = view.elements.filter((element) => element.hasView && element.place !== 'scope');
   if (open.length > 0) lines.push(`Open: ${open.map((element) => `[${markdownText(title(element))}](${pageFile(element.id)})`).join(' · ')}`, '');
   return lines.join('\n');
+}
+
+/**
+ * The table under the diagram (views/mermaid), the diagram's key: one row per
+ * arrow in the diagram's order, numbered as the arrows are labelled, with the
+ * names of its ends and every relation behind it by its entry.
+ */
+function arrowTable(view: View): string[] {
+  const byId = new Map(view.elements.map((element) => [element.id, element]));
+  const end = (id: string): string => markdownText(title(byId.get(id)!));
+  return [
+    '| # | From | To | Relations |',
+    '| --- | --- | --- | --- |',
+    ...view.arrows.map((arrow, index) => `| ${index + 1} | ${end(arrow.from)} | ${end(arrow.to)} | ${markdownText(arrow.names.join('; '))} |`),
+  ];
 }
 
 function title(element: ShownElement): string {

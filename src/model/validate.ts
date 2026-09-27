@@ -1,3 +1,4 @@
+import { messagingOf } from './contracts.js';
 import type { ModelError } from './errors.js';
 import { DEFAULT_STATE_ID, ID_PATTERN, type Category, type Element, type Environment, type Interface, type Relation, type State, type Zone } from './schema.js';
 import { computeElementPresence, computeRelationPresence, type Presence } from './presence.js';
@@ -54,6 +55,7 @@ export interface PositionedRelation {
   toLine: number;
   refinesLine: number;
   interfaceLine: number;
+  actionLine: number;
   transferLines: TransferLines[];
   sinceLine: number;
   untilLine: number;
@@ -195,6 +197,7 @@ export function validateModel(positioned: PositionedModel, extraKnownIds: ExtraK
   );
 
   errors.push(...checkContracts(positioned.interfaces));
+  errors.push(...checkActions(positioned));
   errors.push(...checkZoneChangeShape(positioned.elements));
   errors.push(...checkEmptyEnvironmentsList(positioned.elements));
 
@@ -734,6 +737,34 @@ export function normalizeContract(contract: string): string | undefined {
   const rest = parts.slice(1).join('::');
   if (rest.length === 0) return undefined;
   return `${kind}::${rest}`;
+}
+
+/**
+ * `action` belongs only to a relation through a topic or queue
+ * (intended-model/messaging). Needs nothing else to hold, so it runs beside
+ * the other checks rather than after them: an interface that is not known here
+ * (unknown, or declared in a file that failed its schema) has no contract, and
+ * is left to that error.
+ */
+function checkActions(positioned: PositionedModel): ModelError[] {
+  const contracts = new Map(positioned.interfaces.map((i) => [i.iface.id, i.iface.contract]));
+  const errors: ModelError[] = [];
+  for (const entry of positioned.relations) {
+    const { relation } = entry;
+    if (relation.action === undefined) continue;
+    const at = (message: string): ModelError => errorAt(entry.file, entry.actionLine, ['relations', entry.index, 'action'], message);
+    if (relation.interface === undefined) {
+      errors.push(at(`relation "${relation.id}" has action "${relation.action}" but names no interface: action belongs only to a relation through a topic or queue`));
+      continue;
+    }
+    const contract = contracts.get(relation.interface);
+    if (contract !== undefined && messagingOf(contract) === undefined) {
+      errors.push(
+        at(`relation "${relation.id}" has action "${relation.action}" but its interface "${relation.interface}" is "${contract}": action belongs only to a relation through a topic or queue`),
+      );
+    }
+  }
+  return errors;
 }
 
 function checkContracts(positioned: PositionedInterface[]): ModelError[] {

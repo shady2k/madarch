@@ -23,3 +23,9 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   before the report), or review takes three or four rounds.
 - A single task outside a stage is never labelled `implemented`: it stays in
   progress until it lands, then closes on its acceptance record.
+- Views are accepted by rendering every page the way a reader sees it, not by
+  parse checks: GitHub's own Mermaid renderer in a 1150 px column (open
+  `viewscreen.githubusercontent.com/markdown/mermaid?color_mode=dark` and
+  dispatch `code_rendering_service:data:ready` on `document` with the block
+  and `width: 1150`, one block per page load), then read each page's label
+  size and overlaps and record the numbers.

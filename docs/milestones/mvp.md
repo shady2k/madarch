@@ -83,6 +83,9 @@ dependency.
   `live-graph`; the skill moved before the server; drill-down into a service,
   environments, architecture states and the view on request were added;
   LadybugDB stays in the foundation.
+- Revised 2026-09-25: after looking at the merged views of outcome 2, the
+  owner added "Make the reference system's views readable" (madarch-48x) to
+  this milestone: measured on GitHub, 5 of 8 pages had labels under 12 px.
 - Finding budget: kept at the value agreed at setup (see `findingBudget` in
   `.shady2k/config.json`); there is no history yet to justify another.
 

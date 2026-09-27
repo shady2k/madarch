@@ -199,6 +199,19 @@
           "interface": {
             "type": "string"
           },
+          "action": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "send"
+              },
+              {
+                "type": "string",
+                "const": "receive"
+              }
+            ],
+            "description": "How the initiator uses the topic or queue the relation goes through: \"send\" publishes or sends to it, \"receive\" subscribes to it or receives from it. Only on a relation through an interface of kind topic or queue; the relation still goes from its initiator to what it depends on, usually the broker."
+          },
           "binding": {
             "type": "object",
             "required": [

@@ -8,6 +8,7 @@
  */
 import type { CompiledModel, CompiledRelation } from '../model/compile.js';
 import { byCodePoint } from '../model/order.js';
+import { messagingOf } from '../model/contracts.js';
 import type { ElementAnswer, QueryEngine, QueryError, QueryTime, ViewRelation } from '../query/types.js';
 
 /** Where a shown element sits in its view. */
@@ -25,12 +26,20 @@ export interface ShownElement {
   hasView: boolean;
 }
 
-/** One arrow a view draws: the shown pair, every relation id behind it (code point order) and its label. */
+/**
+ * One arrow a view draws: the shown pair, every relation id behind it (code
+ * point order) and, parallel to them, each relation's entry for the view's
+ * table (views/mermaid): its name, or for one marking its action on a topic or
+ * queue its role and then its name. Drawn from the initiator, as its relations
+ * go; `dashed` when every relation behind it marks its action, left out
+ * otherwise.
+ */
 export interface Arrow {
   from: string;
   to: string;
   relationIds: string[];
-  label: string;
+  names: string[];
+  dashed?: true;
 }
 
 /** One view of the set: the landscape (no `scope`) or the view of one element with children. */
@@ -69,9 +78,6 @@ export interface ViewSetResult {
 /** A depth no model's nesting reaches: an unscoped view this deep holds every element, and draws every relation between its own ends. */
 export const EVERY_LEVEL = Number.MAX_SAFE_INTEGER;
 
-/** The most names an arrow's label lists before counting the rest. */
-const LISTED_NAMES = 3;
-
 /**
  * Builds the view set at one time and state (`at`, the query engine's own
  * defaults when left out): the landscape, `view({ depth: 0 })` — depth 0
@@ -83,7 +89,7 @@ const LISTED_NAMES = 3;
  */
 export function buildViewSet(engine: QueryEngine, model: CompiledModel, at?: QueryTime): ViewSetResult {
   const errors: ViewSetError[] = [];
-  const labels = labeller(model);
+  const names = namer(model);
 
   const landscape = engine.view({ depth: 0 }, at);
   if (landscape.error !== undefined) return { errors: [queryError(undefined, landscape.error)] };
@@ -101,14 +107,14 @@ export function buildViewSet(engine: QueryEngine, model: CompiledModel, at?: Que
     else errors.push({ message: `the element "${element.id}" is shown in no view: its parent "${element.parent}" does not exist at this time`, scope: element.parent });
   }
 
-  const views: View[] = [assemble(undefined, landscape.elements!, [], landscape.relations!, withChildren, labels, errors)];
+  const views: View[] = [assemble(undefined, landscape.elements!, [], landscape.relations!, withChildren, names, errors)];
   for (const scope of [...withChildren].sort(byCodePoint)) {
     const result = engine.view({ scope, depth: 1, context: true }, at);
     if (result.error !== undefined) {
       errors.push(queryError(scope, result.error));
       continue;
     }
-    const view = assemble(scope, result.elements!, result.neighbours!, result.relations!, withChildren, labels, errors);
+    const view = assemble(scope, result.elements!, result.neighbours!, result.relations!, withChildren, names, errors);
     const parentId = byId.get(scope)!.parent;
     // A parent that does not exist was reported above; its child's view goes nowhere up.
     const parent = parentId === undefined ? undefined : byId.get(parentId);
@@ -133,7 +139,7 @@ function assemble(
   neighbours: readonly ElementAnswer[],
   relations: readonly ViewRelation[],
   withChildren: ReadonlySet<string>,
-  labels: Labeller,
+  namesOf: Namer,
   errors: ViewSetError[],
 ): View {
   const shown = [
@@ -144,7 +150,7 @@ function assemble(
   const arrows: Arrow[] = [];
   for (const relation of [...relations].sort((a, b) => byCodePoint(a.from, b.from) || byCodePoint(a.to, b.to))) {
     const relationIds = [...relation.relationIds].sort(byCodePoint);
-    const label = labels(relationIds, (relationId, problem) => {
+    const words = namesOf(relationIds, (relationId, problem) => {
       const error: ViewSetError = {
         message: `${viewName(scope)}: the arrow from "${relation.from}" to "${relation.to}" stands for the relation "${relationId}", ${problem}`,
         relationId,
@@ -152,7 +158,10 @@ function assemble(
       if (scope !== undefined) error.scope = scope;
       errors.push(error);
     });
-    arrows.push({ from: relation.from, to: relation.to, relationIds, label });
+    const names = words.map((word) => (word.marked && word.label !== word.name ? `${word.label}: ${word.name}` : word.label));
+    const arrow: Arrow = { from: relation.from, to: relation.to, relationIds, names };
+    if (words.length === relationIds.length && words.every((word) => word.marked)) arrow.dashed = true;
+    arrows.push(arrow);
   }
 
   const view: View = { elements: shown, arrows };
@@ -167,41 +176,63 @@ function shownElement(element: ElementAnswer, place: Place, withChildren: Readon
   return { ...element, place, hasView: withChildren.has(element.id) };
 }
 
-export type Labeller = (relationIds: readonly string[], fail: (relationId: string, problem: string) => void) => string;
+type Fail = (relationId: string, problem: string) => void;
+
+/** What one relation is called (views/labels): its name for the table, its label on an arrow, and whether it marks its action on a topic or queue. */
+export interface RelationWords {
+  name: string;
+  label: string;
+  marked: boolean;
+}
+
+/** Each relation's words, in relation-id order; a relation that fails is left out, named to `fail`. */
+export type Namer = (relationIds: readonly string[], fail: Fail) => RelationWords[];
+
+const ROLES = {
+  topic: { send: 'publishes', receive: 'subscribes to' },
+  queue: { send: 'sends to', receive: 'receives from' },
+} as const;
 
 /**
- * An arrow's label (views/labels): each relation's name, or for one without
- * a name its interface's contract, or its id where it names no interface;
- * in relation-id order, a label repeated among them shown once, the first
- * three joined by "; " and a count of the rest. The LikeC4 workspace labels
- * each of its relations with it too, one relation id at a time.
+ * The words of the relations behind an arrow (views/labels): each relation's
+ * name, or for one without a name its interface's contract, or its id where
+ * it names no interface; its label is that name, except for a relation that
+ * marks its action on a topic or queue, labelled by its role there
+ * ("subscribes to order-placed"). The LikeC4 workspace labels each of its
+ * relations with it too, one relation id at a time.
  */
-export function labeller(model: CompiledModel): Labeller {
+export function namer(model: CompiledModel): Namer {
   const relations = new Map(model.relations.map((relation) => [relation.id, relation]));
   const contracts = new Map(model.interfaces.map((iface) => [iface.id, iface.contract]));
 
-  const labelOf = (relation: CompiledRelation): string | undefined => {
+  const nameOf = (relation: CompiledRelation): string | undefined => {
     if (relation.name !== undefined) return relation.name;
     if (relation.interface === undefined) return relation.id;
     return contracts.get(relation.interface);
   };
 
-  return (relationIds, fail) => {
-    const names: string[] = [];
+  const words = (relationIds: readonly string[], fail: Fail): RelationWords[] => {
+    const found: RelationWords[] = [];
     for (const relationId of relationIds) {
       const relation = relations.get(relationId);
       if (relation === undefined) {
         fail(relationId, 'which the compiled model does not hold');
         continue;
       }
-      const label = labelOf(relation);
-      if (label === undefined) {
+      const name = nameOf(relation);
+      if (name === undefined) {
         fail(relationId, `whose interface "${relation.interface}" the compiled model does not hold`);
         continue;
       }
-      if (!names.includes(label)) names.push(label);
+      // Loading refused an action on anything but a topic or queue, so a
+      // marked relation's contract names one.
+      const messaging = relation.action === undefined || relation.interface === undefined ? undefined : messagingOf(contracts.get(relation.interface) ?? '');
+      if (relation.action !== undefined && messaging !== undefined) {
+        found.push({ name, label: `${ROLES[messaging.kind][relation.action]} ${messaging.name}`, marked: true });
+      } else found.push({ name, label: name, marked: false });
     }
-    const listed = names.slice(0, LISTED_NAMES).join('; ');
-    return names.length > LISTED_NAMES ? `${listed} (+${names.length - LISTED_NAMES} more)` : listed;
+    return found;
   };
+
+  return words;
 }

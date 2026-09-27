@@ -147,3 +147,4 @@ relations:
     from: loyalty-api
     to: event-bus
     interface: topic-order-placed
+    action: receive

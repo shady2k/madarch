@@ -106,16 +106,19 @@ relations:
     from: notification-api
     to: event-bus
     interface: topic-order-placed
+    action: receive
   - id: notification-announces-dispatch
     name: tells customers the parcel is on its way
     from: notification-api
     to: event-bus
     interface: topic-shipment-dispatched
+    action: receive
   - id: notification-asks-retry
     name: asks customers to retry payment
     from: notification-api
     to: event-bus
     interface: topic-payment-failed
+    action: receive
   - id: notification-reads-contact
     name: looks up contact details
     from: notification-api
