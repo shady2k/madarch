@@ -1,6 +1,6 @@
 import { messagingOf } from './contracts.js';
 import type { ModelError } from './errors.js';
-import { DEFAULT_STATE_ID, ID_PATTERN, type Category, type Element, type Environment, type Interface, type Relation, type State, type Zone } from './schema.js';
+import { DEFAULT_STATE_ID, ID_PATTERN, type Category, type Element, type Environment, type Evidence, type Interface, type Relation, type State, type Zone } from './schema.js';
 import { computeElementPresence, computeRelationPresence, type Presence } from './presence.js';
 import { resolveGeneralZones, resolveZonesInEnvironment } from './zones.js';
 import { segmentsToPath, type PathSegment } from './yaml-position.js';
@@ -19,6 +19,7 @@ export interface PositionedElement {
   index: number;
   line: number;
   idLine: number;
+  evidenceLines: number[];
   parentLine: number;
   zonesLine: number;
   zonesAddLines: number[];
@@ -36,6 +37,7 @@ export interface PositionedInterface {
   index: number;
   line: number;
   idLine: number;
+  evidenceLines: number[];
   providerLine: number;
   contractLine: number;
 }
@@ -51,6 +53,7 @@ export interface PositionedRelation {
   index: number;
   line: number;
   idLine: number;
+  evidenceLines: number[];
   fromLine: number;
   toLine: number;
   refinesLine: number;
@@ -200,6 +203,20 @@ export function validateModel(positioned: PositionedModel, extraKnownIds: ExtraK
   errors.push(...checkActions(positioned));
   errors.push(...checkZoneChangeShape(positioned.elements));
   errors.push(...checkEmptyEnvironmentsList(positioned.elements));
+  errors.push(
+    ...checkEvidence(
+      positioned.elements.map((e) => ({ id: e.element.id, evidence: e.element.evidence, file: e.file, line: e.line, evidenceLines: e.evidenceLines, segments: ['elements', e.index] })),
+      'element',
+    ),
+    ...checkEvidence(
+      positioned.interfaces.map((i) => ({ id: i.iface.id, evidence: i.iface.evidence, file: i.file, line: i.line, evidenceLines: i.evidenceLines, segments: ['interfaces', i.index] })),
+      'interface',
+    ),
+    ...checkEvidence(
+      positioned.relations.map((r) => ({ id: r.relation.id, evidence: r.relation.evidence, file: r.file, line: r.line, evidenceLines: r.evidenceLines, segments: ['relations', r.index] })),
+      'relation',
+    ),
+  );
 
   const stateChainErrors = checkStateChain(positioned.states);
   errors.push(...stateChainErrors);
@@ -780,6 +797,60 @@ function checkContracts(positioned: PositionedInterface[]): ModelError[] {
         ),
       );
     }
+  }
+  return errors;
+}
+
+/** One owner of evidence — an element, an interface or a relation — with where each item was written. */
+interface EvidenceOwner {
+  id: string;
+  evidence?: Evidence[];
+  file: string;
+  /** This owner's own line, the fallback when an item's line is somehow missing. */
+  line: number;
+  evidenceLines: number[];
+  segments: PathSegment[];
+}
+
+/** A git commit or blob id: exactly 40 hexadecimal digits, lower case. */
+const GIT_ID_PATTERN = /^[0-9a-f]{40}$/;
+
+/**
+ * Checks the revision half of every evidence item (intended-model/evidence):
+ * an `endLine` needs its `line` and may not come before it, and a `commit`
+ * and a `blob` are given together, each 40 hexadecimal digits. The schema
+ * leaves `commit` and `blob` plain strings so a malformed one is refused
+ * here, naming the owner, the item and its place, the way a contract id is.
+ */
+function checkEvidence(owners: EvidenceOwner[], kind: string): ModelError[] {
+  const errors: ModelError[] = [];
+  for (const owner of owners) {
+    (owner.evidence ?? []).forEach((item, itemIndex) => {
+      const where = `${kind} "${owner.id}"'s evidence item for "${item.file}"`;
+      const at = (field?: string): PathSegment[] =>
+        field === undefined ? [...owner.segments, 'evidence', itemIndex] : [...owner.segments, 'evidence', itemIndex, field];
+      const line = owner.evidenceLines[itemIndex] ?? owner.line;
+      if (item.endLine !== undefined) {
+        if (item.line === undefined) {
+          errors.push(errorAt(owner.file, line, at('endLine'), `${where} has an endLine but no line: a range of lines names the line it starts at`));
+        } else if (item.endLine < item.line) {
+          errors.push(errorAt(owner.file, line, at('endLine'), `${where} has endLine ${item.endLine} before line ${item.line}: endLine may not come before line`));
+        }
+      }
+      const revision = [
+        { field: 'commit', value: item.commit },
+        { field: 'blob', value: item.blob },
+      ];
+      for (const { field, value } of revision) {
+        if (value === undefined) continue;
+        if (!GIT_ID_PATTERN.test(value)) {
+          errors.push(errorAt(owner.file, line, at(field), `${where} has a ${field} that is not 40 hexadecimal digits: "${value}"`));
+        }
+      }
+      if ((item.commit === undefined) !== (item.blob === undefined)) {
+        errors.push(errorAt(owner.file, line, at(), `${where} has ${item.commit === undefined ? 'a blob but no commit' : 'a commit but no blob'}: a commit and a blob are given together or not at all`));
+      }
+    });
   }
   return errors;
 }

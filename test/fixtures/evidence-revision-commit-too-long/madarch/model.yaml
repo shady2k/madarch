@@ -1,0 +1,10 @@
+version: 1
+
+elements:
+  - id: checkout-cart
+    kind: module
+    evidence:
+      - file: services/checkout/src/cart/index.ts
+        line: 1
+        commit: 9f2d1b0a4c8e7f3a6d5c2b1e0f9a8d7c6b5e4f31a
+        blob: 1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d

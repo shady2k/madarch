@@ -224,6 +224,9 @@ function rebuildEvidence(evidence: readonly Evidence[]): Evidence[] {
   return evidence.map((entry) => {
     const rebuilt: Evidence = { file: entry.file };
     if (entry.line !== undefined) rebuilt.line = entry.line;
+    if (entry.endLine !== undefined) rebuilt.endLine = entry.endLine;
+    if (entry.commit !== undefined) rebuilt.commit = entry.commit;
+    if (entry.blob !== undefined) rebuilt.blob = entry.blob;
     return rebuilt;
   });
 }

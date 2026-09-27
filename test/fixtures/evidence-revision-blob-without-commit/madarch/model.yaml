@@ -1,0 +1,8 @@
+version: 1
+
+elements:
+  - id: checkout-cart
+    kind: module
+    evidence:
+      - file: services/checkout/src/cart/index.ts
+        blob: 1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d
