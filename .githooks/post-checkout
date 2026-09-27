@@ -1,0 +1,13 @@
+#!/bin/sh
+# Connects a new checkout's tracker (see .shady2k/integration.md, "Tracker
+# layout"). git runs this after `git worktree add` (and every checkout): a
+# worktree has no tracker database of its own yet, and br would write the main
+# checkout's. When this checkout's br resolves to another checkout's database,
+# the connect command gives it its own. Anything else passes silently.
+cd "$(git rev-parse --show-toplevel)" || exit 0
+[ -f .githooks/tracker-home.sh ] && [ -f .shady2k/connect.sh ] || exit 0
+.githooks/tracker-home.sh >/dev/null 2>&1 && exit 0
+echo "post-checkout: connecting this checkout's own tracker database (sh .shady2k/connect.sh)"
+env -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE -u GIT_PREFIX sh .shady2k/connect.sh || \
+  echo "post-checkout: this checkout is not connected; fix what connect names above and run sh .shady2k/connect.sh here before using br."
+exit 0

@@ -8,7 +8,7 @@
 //                       [--candidate index|worktree|<rev>] [--target <rev>] [--json]
 //   documents.mjs export  (same options)   the checker's inputs {model, policy, evidence}
 //   documents.mjs commit --message <file>   the commit-msg entry point (staged files)
-//   documents.mjs revision [--candidate …]  the revision evidence is recorded against
+//   documents.mjs revision [--candidate …] [--check <id>]  the revision evidence is recorded against
 //
 // Records level: evidence comes from tracker comments and is trusted, not verified.
 import { readFileSync, existsSync, copyFileSync, unlinkSync } from 'node:fs';
@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkDocuments, digest } from './checks/check-docs.mjs';
-import { parseVision, parseMilestone, parseCapability } from './checks/document-format.mjs';
+import { parseVision, parseMilestone, parseCapability, checkRevision } from './checks/document-format.mjs';
 import { normalize, taskIds } from './adapter.mjs';
 
 const ID = '[a-zA-Z0-9][a-zA-Z0-9_.:-]*';
@@ -31,13 +31,14 @@ const KINDS = ['behavior', 'no-behavior', 'supporting'];
 // by structure each time), the current specs and their catalogue (their sync
 // with the change is exactly what `close` replays). Nothing else is left out.
 const CATALOGUE = 'docs/system/index.md';
-const UNREVISIONED = ['.beads/', CHANGES, CAPABILITIES];
-const unrevisioned = (path) => path === CATALOGUE || UNREVISIONED.some((p) => path.startsWith(p));
+const UNREVISIONED = ['.beads/', CHANGES, CAPABILITIES, CATALOGUE];
 
 // Product code is what no document or process file is: the paths a commit must
 // carry an admitted change for.
 export function isProduct(path) {
-  if (/^(docs|\.shady2k|\.beads|\.githooks)\//.test(path)) return false;
+  // CI workflows are the workflow's own tooling: they decide which checks run
+  // and cannot change what the product does (owner decision 2026-09-27).
+  if (/^(docs|\.shady2k|\.beads|\.githooks|\.github\/workflows)\//.test(path)) return false;
   if (!path.includes('/') && (path.endsWith('.md') || path.startsWith('.'))) return false;
   return true;
 }
@@ -52,7 +53,7 @@ function source(root, where) {
   if (where === 'index') {
     return {
       where,
-      entries: () => entries(git(root, ['ls-files', '-s', '-z']), (e) => { const [meta, path] = e.split('\t'); return { hash: meta.split(' ')[1], path }; }),
+      entries: () => entries(git(root, ['ls-files', '-s', '-z']), (e) => { const [meta, path] = e.split('\t'); const [mode, hash] = meta.split(' '); return { mode, hash, path }; }),
       read: (p) => { try { return git(root, ['show', `:${p}`]); } catch { return null; } },
     };
   }
@@ -66,7 +67,7 @@ function source(root, where) {
         if (existsSync(real)) copyFileSync(real, tmp);
         try {
           git(root, ['add', '-A'], { GIT_INDEX_FILE: tmp });
-          return entries(git(root, ['ls-files', '-s', '-z'], { GIT_INDEX_FILE: tmp }), (e) => { const [meta, path] = e.split('\t'); return { hash: meta.split(' ')[1], path }; });
+          return entries(git(root, ['ls-files', '-s', '-z'], { GIT_INDEX_FILE: tmp }), (e) => { const [meta, path] = e.split('\t'); const [mode, hash] = meta.split(' '); return { mode, hash, path }; });
         } finally { if (existsSync(tmp)) unlinkSync(tmp); }
       },
       read: (p) => existsSync(join(root, p)) ? readFileSync(join(root, p), 'utf8') : null,
@@ -76,7 +77,7 @@ function source(root, where) {
   try { rev = git(root, ['rev-parse', '--verify', `${where}^{commit}`]).trim(); } catch { throw new Error(`unknown revision: ${where}`); }
   return {
     where: rev,
-    entries: () => entries(git(root, ['ls-tree', '-r', '-z', rev]), (e) => { const [meta, path] = e.split('\t'); return { hash: meta.split(' ')[2], path }; }),
+    entries: () => entries(git(root, ['ls-tree', '-r', '-z', rev]), (e) => { const [meta, path] = e.split('\t'); const [mode, , hash] = meta.split(' '); return { mode, hash, path }; }),
     read: (p) => { try { return git(root, ['show', `${rev}:${p}`]); } catch { return null; } },
   };
 }
@@ -86,10 +87,22 @@ function source(root, where) {
 // task, editing the change record and syncing the specs and their catalogue at
 // closure do not stale it, while any code, test or other document edit does.
 export function revisionOf(root, candidate = 'HEAD') {
-  const lines = source(root, candidate).entries()
-    .filter((e) => !unrevisioned(e.path))
-    .map((e) => `${e.hash} ${e.path}`).sort();
-  return `content:${createHash('sha256').update(lines.join('\n')).digest('hex').slice(0, 16)}`;
+  return revisionOfTree(source(root, candidate));
+}
+const lsTree = (src) => src.entries().map((e) => `${e.mode} blob ${e.hash}\t${e.path}`).join('\n');
+const revisionOfTree = (src) => `content:${checkRevision(lsTree(src), { exclude: UNREVISIONED }).slice(0, 16)}`;
+
+// A receipt stands for what its check reads: a policy entry with `ignores`
+// (paths its command shows it cannot read) is pinned to the digest of the rest
+// of the revision, so an edit only there leaves that receipt standing. A check
+// without the list reads the whole revision.
+const pinsOf = (src, policy) => policy.requiredChecks.filter((c) => c.ignores?.length)
+  .map((c) => ({ id: c.id, revision: `check:${checkRevision(lsTree(src), { exclude: UNREVISIONED, ignores: c.ignores }).slice(0, 16)}` }));
+export function checkRevisionOf(root, candidate, id) {
+  const src = source(root, candidate);
+  const policy = readJson(src, '.shady2k/document-policy.json');
+  if (!policy.requiredChecks.some((c) => c.id === id)) throw new Error(`the policy has no check ${id}`);
+  return pinsOf(src, policy).find((p) => p.id === id)?.revision ?? revisionOfTree(src);
 }
 
 // ---- change records -------------------------------------------------------
@@ -215,11 +228,11 @@ function evidenceFor(rows, change, revision, policy) {
       receipts.push({ id: v.id, status: v.status, reference: String(v.reference ?? ''), revision: v.revision });
     }
   }
-  const matching = receipts.filter((x) => x.revision === revision);
-  const evidenceRevision = matching.length || !receipts.length ? revision : receipts.at(-1).revision;
+  // Each receipt carries the revision its check read; the checker compares it
+  // with that check's pin (or the whole revision) and stales only that receipt.
   const latest = new Map();
-  for (const x of receipts.filter((x) => x.revision === evidenceRevision)) latest.set(x.id, { id: x.id, status: x.status, reference: x.reference });
-  return { schemaVersion: 1, revision: evidenceRevision, policyDigest: digest(policy), approvals, checks: [...latest.values()] };
+  for (const x of receipts) latest.set(x.id, x);
+  return { schemaVersion: 1, revision, policyDigest: digest(policy), approvals, checks: [...latest.values()] };
 }
 
 // Builds the checker's inputs for one phase. The phase is the caller's
@@ -235,9 +248,11 @@ export function buildInputs(root, { phase, change: changeId = null, candidate = 
     vision: parseVision(src.read('docs/vision.md') ?? ''),
     milestone: parseMilestone(src.read(`docs/milestones/${milestone}.md`) ?? '', milestone),
   };
-  const revision = revisionOf(root, candidate);
+  const revision = revisionOfTree(src);
   const stored = readJson(src, '.shady2k/document-policy.json');
   const model = { schemaVersion: 1, phase, revision, project, tasks, baseline: [], current: [], change: null };
+  const pins = pinsOf(src, stored);
+  if (pins.length) model.checkRevisions = pins;
   if (phase === 'product' && !changeId) return { model, policy: stored, evidence: null };
   if (!changeId) throw new Error(`the ${phase} phase needs --change <id>`);
   let tgt;
@@ -314,8 +329,9 @@ export function runCheck(root, options) {
   if (c && violations.some((v) => ['unproved-check', 'stale-evidence'].includes(v.id))) {
     const missing = violations.filter((v) => v.id === 'unproved-check').map((v) => v.at);
     const ids = missing.length ? missing : policy.requiredChecks.filter((x) => !x.appliesTo || x.appliesTo.includes(c.kind)).map((x) => x.id);
-    lines.push('', `Record each check once it has passed on revision ${model.revision} (a later code edit makes a new revision):`);
-    for (const id of ids) lines.push(`  br comments add ${c.taskIds[0]} 'check: ${JSON.stringify({ id, status: 'passed', reference: '<where its output is kept>', revision: model.revision })}' --actor <agent>`);
+    const pin = (id) => model.checkRevisions?.find((p) => p.id === id)?.revision ?? model.revision;
+    lines.push('', `Record each check once it has passed on the revision it read (an edit to what it reads makes a new one; \`documents.mjs revision --check <id>\` prints it):`);
+    for (const id of ids) lines.push(`  br comments add ${c.taskIds[0]} 'check: ${JSON.stringify({ id, status: 'passed', reference: '<where its output is kept>', revision: pin(id) })}' --actor <agent>`);
   }
   if (c && violations.some((v) => v.id === 'missing-approval')) {
     lines.push('', 'Record the owner\'s approval of what this change decides, with their words as the reference:',
@@ -417,7 +433,7 @@ function main(args) {
   for (let i = 0; i < rest.length; i++) {
     const k = rest[i];
     if (k === '--json') { opts.json = true; continue; }
-    if (!['--phase', '--change', '--candidate', '--target', '--message'].includes(k)) throw new Error(`unknown option ${k}`);
+    if (!['--phase', '--change', '--candidate', '--target', '--message', '--check'].includes(k)) throw new Error(`unknown option ${k}`);
     const v = rest[++i];
     if (!v || v.startsWith('--')) throw new Error(`missing value for ${k}`);
     opts[k.slice(2)] = v;
@@ -429,7 +445,7 @@ function main(args) {
     if (r.text) console.log(r.text);
     return r.ok ? 0 : 1;
   }
-  if (cmd === 'revision') { console.log(revisionOf(root, opts.candidate ?? 'HEAD')); return 0; }
+  if (cmd === 'revision') { console.log(opts.check ? checkRevisionOf(root, opts.candidate ?? 'HEAD', opts.check) : revisionOf(root, opts.candidate ?? 'HEAD')); return 0; }
   if (cmd === 'check' || cmd === 'export') {
     if (!['product', 'feature', 'acceptance', 'close'].includes(opts.phase)) throw new Error('--phase must be product, feature, acceptance or close');
     // Acceptance judges a committed revision, the one its receipts are recorded against.
@@ -443,7 +459,7 @@ function main(args) {
     console.log(opts.json ? JSON.stringify({ violations: r.violations }) : r.text);
     return r.violations.length ? 1 : 0;
   }
-  throw new Error('usage: documents.mjs check|export --phase <phase> [--change <id>] [--candidate index|worktree|<rev>] [--target <rev>] | commit --message <file> | revision [--candidate <rev>]');
+  throw new Error('usage: documents.mjs check|export --phase <phase> [--change <id>] [--candidate index|worktree|<rev>] [--target <rev>] | commit --message <file> | revision [--candidate <rev>] [--check <id>]');
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

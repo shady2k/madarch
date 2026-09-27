@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "requireApproval": true,
   "requiredChecks": [
-    { "id": "static", "kind": "static", "appliesTo": ["behavior", "no-behavior"] },
-    { "id": "test", "kind": "test", "appliesTo": ["behavior", "no-behavior"] },
-    { "id": "mutation", "kind": "mutation", "appliesTo": ["behavior", "no-behavior"] },
+    { "id": "static", "kind": "static", "appliesTo": ["behavior", "no-behavior"], "ignores": ["docs/"] },
+    { "id": "test", "kind": "test", "appliesTo": ["behavior", "no-behavior"], "ignores": ["docs/"] },
+    { "id": "mutation", "kind": "mutation", "appliesTo": ["behavior", "no-behavior"], "ignores": ["docs/"] },
     { "id": "review", "kind": "review" }
   ]
 }

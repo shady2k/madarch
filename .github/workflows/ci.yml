@@ -1,8 +1,19 @@
 name: CI
 
+# The product's checks, once per push of any branch; a pull request from this
+# repository shows its branch's push run, so it is not run twice. A change that
+# touches only documents, the tracker or the workflow's own tooling cannot
+# touch the product and runs nothing; that tooling is checked by the local hooks
+# (see .shady2k/integration.md, "CI"). Unfinished work skips a run with
+# [skip ci] in the pushed commit's message.
 on:
   push:
-  pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '.beads/**'
+      - '.shady2k/**'
+      - '.githooks/**'
+      - '*.md'
 
 jobs:
   test:

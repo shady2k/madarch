@@ -4,11 +4,11 @@
 //   node --test .shady2k/
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, copyFileSync, chmodSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, copyFileSync, chmodSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const cleanEnv = (extra) => ({
@@ -34,7 +34,7 @@ function clone() {
   run('git', ['config', 'user.email', 'test@example.com']);
   run('git', ['config', 'user.name', 'test']);
   run('git', ['config', 'commit.gpgsign', 'false']);
-  for (const [from, to] of [['../.githooks/privacy-guard.sh', '.githooks/privacy-guard.sh'], ['connect.sh', '.shady2k/connect.sh'], ['adapter.mjs', '.shady2k/adapter.mjs']]) {
+  for (const [from, to] of [['../.githooks/privacy-guard.sh', '.githooks/privacy-guard.sh'], ['connect.sh', '.shady2k/connect.sh'], ['adapter.mjs', '.shady2k/adapter.mjs'], ['../.githooks/tracker-home.sh', '.githooks/tracker-home.sh'], ['../.githooks/post-checkout', '.githooks/post-checkout']]) {
     mkdirSync(dirname(join(root, to)), { recursive: true });
     copyFileSync(join(HERE, from), join(root, to));
   }
@@ -149,4 +149,57 @@ test('connect: connects, and a rerun is harmless', { skip: !hasBr && 'br is not 
   }
   assert.equal(c.run('git', ['config', '--get', 'core.hooksPath']).out.trim(), '.githooks');
   assert.equal(c.run('git', ['config', '--get', 'filter.br-portable-path.required']).out.trim(), 'true');
+});
+
+test('connect: a worktree gets its own tracker database, and its br writes touch only its own export', { skip: !hasBr && 'br is not installed' }, () => {
+  const c = clone();
+  c.userList('secret-xyz\n');
+  c.run('br', ['init', '--prefix', 't', '--actor', 'test']);
+  c.run('br', ['create', '--title', 'one', '--type', 'task', '--actor', 'test']);
+  c.run('git', ['add', '-A']);
+  c.run('git', ['commit', '-q', '-m', 'tracker']);
+  assert.equal(c.run('sh', ['.shady2k/connect.sh']).code, 0);
+  const wt = join(c.root, '.claude/worktrees/w');
+  // Added with the hooks off (post-checkout would connect it), as a worktree made before them was.
+  c.run('git', ['-c', 'core.hooksPath=/dev/null', 'worktree', 'add', '-q', wt, '-b', 'w']);
+  const inWt = (cmd, args) => { try { return { code: 0, out: execFileSync(cmd, args, { cwd: wt, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: cleanEnv({ XDG_CONFIG_HOME: join(c.root, '../xdg') }) }) }; } catch (e) { return { code: e.status ?? 2, out: `${e.stdout ?? ''}${e.stderr ?? ''}` }; } };
+
+  // Unconnected, br in the worktree resolves to the main checkout's database: the guard refuses.
+  const before = inWt('sh', ['.githooks/tracker-home.sh']);
+  assert.equal(before.code, 1, before.out);
+  assert.match(before.out, /another checkout's tracker[\s\S]*sh \.shady2k\/connect\.sh/);
+
+  const r = inWt('sh', ['.shady2k/connect.sh']);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(inWt('br', ['where']).out.split('\n')[0].trim(), join(wt, '.beads'));
+  assert.equal(inWt('sh', ['.githooks/tracker-home.sh']).code, 0);
+  inWt('br', ['create', '--title', 'two', '--type', 'task', '--actor', 'test']);
+  assert.equal(c.run('git', ['status', '--short', '.beads/issues.jsonl']).out.trim(), '', 'the main checkout\'s export must not change');
+  assert.match(inWt('git', ['status', '--short', '.beads/issues.jsonl']).out, /M .beads\/issues.jsonl/);
+  // The worktree's database was imported from its own export: its write keeps every earlier issue.
+  const titles = readFileSync(join(wt, '.beads/issues.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l).title).sort();
+  assert.deepEqual(titles, ['one', 'two']);
+  // The main checkout is its own home.
+  assert.equal(c.run('sh', ['.githooks/tracker-home.sh']).code, 0);
+});
+
+test('post-checkout: a worktree added to a connected clone gets its own tracker database at once', { skip: !hasBr && 'br is not installed' }, () => {
+  const c = clone();
+  c.userList('secret-xyz\n');
+  c.run('br', ['init', '--prefix', 't', '--actor', 'test']);
+  c.run('br', ['create', '--title', 'one', '--type', 'task', '--actor', 'test']);
+  c.run('git', ['add', '-A']);
+  c.run('git', ['commit', '-q', '-m', 'tracker']);
+  assert.equal(c.run('sh', ['.shady2k/connect.sh']).code, 0);
+  const wt = join(c.root, '.claude/worktrees/w');
+  const added = c.run('git', ['worktree', 'add', '-q', wt, '-b', 'w']);
+  assert.equal(added.code, 0, added.out);
+  const inWt = (cmd, args) => execFileSync(cmd, args, { cwd: wt, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: cleanEnv({ XDG_CONFIG_HOME: join(c.root, '../xdg') }) });
+  assert.equal(inWt('br', ['where']).split('\n')[0].trim(), join(wt, '.beads'));
+  inWt('br', ['create', '--title', 'two', '--type', 'task', '--actor', 'test']);
+  assert.equal(c.run('git', ['status', '--short', '.beads/issues.jsonl']).out.trim(), '', 'the main checkout\'s export must not change');
+  // A plain branch switch in a connected checkout changes nothing and says nothing.
+  const sw = spawnSync('git', ['switch', '-q', '-c', 'other'], { cwd: c.root, encoding: 'utf8', env: cleanEnv({ XDG_CONFIG_HOME: join(c.root, '../xdg') }) });
+  assert.equal(sw.status, 0);
+  assert.equal(`${sw.stdout}${sw.stderr}`.trim(), '');
 });

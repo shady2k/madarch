@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { digest, decided } from './checks/check-docs.mjs';
-import { parseChange, buildInputs, runCheck, commitGate, isProduct, revisionOf } from './documents.mjs';
+import { parseChange, buildInputs, runCheck, commitGate, isProduct, revisionOf, checkRevisionOf } from './documents.mjs';
 
 const VISION = `# Vision
 
@@ -126,8 +126,8 @@ const approval = (r, id) => {
 };
 
 test('product code is everything outside docs, tooling, tracker, hooks and root notes', () => {
-  for (const p of ['src/a.ts', 'package.json', 'test/x.test.ts', 'docs2/a.md']) assert.equal(isProduct(p), true, p);
-  for (const p of ['docs/vision.md', '.shady2k/documents.mjs', '.beads/issues.jsonl', '.githooks/pre-commit', 'README.md', '.gitattributes'])
+  for (const p of ['src/a.ts', 'package.json', 'test/x.test.ts', 'docs2/a.md', '.github/dependabot.yml', '.github/workflows2/x.yml']) assert.equal(isProduct(p), true, p);
+  for (const p of ['docs/vision.md', '.shady2k/documents.mjs', '.beads/issues.jsonl', '.githooks/pre-commit', 'README.md', '.gitattributes', '.github/workflows/ci.yml'])
     assert.equal(isProduct(p), false, p);
 });
 
@@ -248,6 +248,40 @@ test('acceptance: missing and stale receipts are refused, receipts for this revi
   // The tracker file is not part of the revision: recording evidence does not stale it.
   r.commit('evidence recorded');
   assert.equal(revisionOf(r.root, 'HEAD'), rev);
+});
+
+test('a receipt stands for what its check reads: an ignored path keeps it, any other edit stales it', () => {
+  const r = repo();
+  const policy = { ...POLICY, requiredChecks: POLICY.requiredChecks.map((c) => (c.id === 'review' ? c : { ...c, ignores: ['docs/'] })) };
+  r.write('.shady2k/document-policy.json', policy);
+  r.write('docs/changes/add-views/change.md', change({ base: r.base }));
+  r.write('docs/changes/add-views/capabilities/views.md', capability('views', [['show', 'When asked, the server shall show views.']]));
+  r.write('src/views.ts', 'export const views = 1;\n');
+  const appr = approval(r, 'add-views');
+  const head = r.commit('implemented');
+  const pin = (id, at = head) => (policy.requiredChecks.find((c) => c.id === id)?.ignores ? checkRevisionOf(r.root, at, id) : revisionOf(r.root, at));
+  const receipts = (at) => ['static', 'test', 'mutation', 'review', 'test-views'].map((id) =>
+    comment(`check: ${JSON.stringify({ id, status: 'passed', reference: `log:${id}`, revision: pin(id, at) })}`));
+  // Each check with ignores is exported with a pin of its own; the others read the whole revision.
+  const { model } = buildInputs(r.root, { phase: 'acceptance', change: 'add-views', candidate: head });
+  assert.deepEqual(model.checkRevisions.map((x) => x.id), ['static', 'test', 'mutation']);
+  assert.ok(model.checkRevisions.every((x) => x.revision === pin(x.id) && x.revision !== model.revision));
+  r.tracker([row('m-leaf', 'task', { comments: [appr, ...receipts(head)] })]);
+  assert.deepEqual(runCheck(r.root, { phase: 'acceptance', change: 'add-views', candidate: head }).violations, []);
+
+  // A prose edit under docs/ stales only the receipt of the check that reads it (review).
+  r.write('docs/vision.md', `${VISION}\nA sentence more.\n`);
+  const prose = r.commit('prose');
+  const after = runCheck(r.root, { phase: 'acceptance', change: 'add-views', candidate: prose });
+  assert.deepEqual(after.violations.filter((v) => v.id === 'stale-evidence').map((v) => v.at), ['review', 'test-views']);
+  assert.match(after.text, new RegExp(`"id":"review","status":"passed","reference":"<where its output is kept>","revision":"${revisionOf(r.root, prose)}"`));
+
+  // An edit to a file the checks read stales every receipt.
+  r.write('src/views.ts', 'export const views = 2;\n');
+  const code = r.commit('code');
+  const stale = runCheck(r.root, { phase: 'acceptance', change: 'add-views', candidate: code });
+  assert.deepEqual(stale.violations.filter((v) => v.id === 'stale-evidence').map((v) => v.at).sort(), ['mutation', 'review', 'static', 'test', 'test-views']);
+  assert.match(stale.text, new RegExp(`"id":"static","status":"passed","reference":"<where its output is kept>","revision":"${checkRevisionOf(r.root, code, 'static')}"`));
 });
 
 test('close: current specs must equal the replayed change', () => {

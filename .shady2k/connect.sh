@@ -54,14 +54,18 @@ fi
 
 fail() { echo "connect: $1; the clone is not connected. Fix it and rerun."; exit 1; }
 
-# The tracker database is local; the export is what is committed.
-br sync --import-only >/dev/null || fail "br could not import .beads/issues.jsonl (see above)"
+# The tracker database is local; the export is what is committed. Each
+# checkout, a git worktree included, gets its own database beside its own
+# export: br finds a database by walking up, and a worktree without one would
+# write the main checkout's tracker. Once it exists, br finds it first.
+db="$PWD/.beads/beads.db"
+br sync --import-only --db "$db" >/dev/null || fail "br could not import .beads/issues.jsonl (see above)"
 # The committed export stores "." for each issue's workspace path; give br this
 # clone's. br plans the migration first and applies only that reviewed plan.
-plan=$(br sync --migrate-source-repo-path --json) || fail "br could not plan this clone's workspace path (see above)"
+plan=$(br sync --migrate-source-repo-path --json --db "$db") || fail "br could not plan this clone's workspace path (see above)"
 if ! echo "$plan" | grep -q '"no_op":true'; then
   sha=$(echo "$plan" | sed -n 's/.*"plan_sha256":"\([0-9a-f]*\)".*/\1/p')
-  br sync --migrate-source-repo-path --apply --expect-plan-sha256 "$sha" >/dev/null || fail "br could not set this clone's workspace path (see above)"
+  br sync --migrate-source-repo-path --apply --expect-plan-sha256 "$sha" --db "$db" >/dev/null || fail "br could not set this clone's workspace path (see above)"
 fi
 
 if [ -n "$make_main" ]; then
@@ -78,5 +82,6 @@ git config core.hooksPath .githooks || fail "could not write git config"
 # Prove what the hooks read works here.
 [ "$(git config --get core.hooksPath)" = .githooks ] || fail "core.hooksPath did not take effect"
 .githooks/privacy-guard.sh || fail "the privacy guard does not pass on this clone"
+.githooks/tracker-home.sh >/dev/null || fail "br in this checkout still does not write its own tracker ($(br where 2>/dev/null | head -n 1))"
 
-echo "connect: this clone is connected (hooks, path filter, tracker, private patterns, main)."
+echo "connect: this clone is connected (hooks, path filter, its own tracker database, private patterns, main)."

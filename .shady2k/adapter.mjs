@@ -7,7 +7,8 @@
 //   adapter.mjs commits --range <a>..<b>      commit-link input for every commit in a range
 //   adapter.mjs claim <id> --actor <name>     the integration's claim operation (see claimPlan)
 //
-// The export is .beads/issues.jsonl, which br rewrites on every write. With --at
+// The export is .beads/issues.jsonl, which br rewrites on every write. Each
+// issue carries its `[shady2k-time` comments raw (the run script reads them). With --at
 // it is read from that revision instead, for baselines and honest ages.
 import { readFileSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -70,6 +71,10 @@ export function normalize(text, source) {
       updatedAt: r.updated_at,
       createdAt: r.created_at,
       holder: r.assignee || null,
+      // The set's work records (claims, receipts, events), raw and whole, with
+      // br's own comment id, time and author: the gate judges them as stored.
+      comments: (r.comments ?? []).filter((c) => (c.text ?? '').startsWith('[shady2k-time'))
+        .map((c) => ({ id: String(c.id), at: c.created_at, author: c.author ?? '', body: c.text })),
     };
     if (status === 'implemented') out.integration = recorded(r, 'implemented');
     if (status === 'submitted') out.delivery = recorded(r, 'submitted');
