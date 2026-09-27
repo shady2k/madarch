@@ -2,7 +2,7 @@
 
 Change: readable-views-2
 Base: a2c8658a7ecdbb945e13c39f837a31f78999fe10
-Tasks: madarch-48x.2.1, madarch-48x.2.2
+Tasks: madarch-48x.2.1, madarch-48x.2.2, madarch-48x.2.3
 Kind: behavior
 
 ## Intent
@@ -13,7 +13,8 @@ have labels over other labels or boxes: merged labels of up to 103 characters
 widen every diagram until GitHub shrinks it. After this change every arrow
 carries a short label, the full names behind each arrow sit in a table under
 its diagram, an element's own view shows the module that does the work rather
-than an arrow from its frame, and every page meets numbers a reader can check.
+than an arrow from its frame, a topic's subscriber no longer reads as a sender,
+and every page meets numbers a reader can check.
 
 Stories:
 - As an architect, I read every label of the landscape on a wide screen
@@ -22,11 +23,13 @@ Stories:
   payment.
 - As a writer of documentation, I find every relation behind an arrow in the
   table under the diagram.
+- As an architect, I tell a topic's publishers from its subscribers at a
+  glance.
 
 ## Out of scope
-Drawing events from the broker to their consumers (waits on the owner's
-decision madarch-48x.1 and joins this change or follows it); direct
-producer-to-consumer arrows through a topic; LikeC4, which labels each relation
+Arrows reversed to follow the data (drawn from the broker to a subscriber);
+direct producer-to-consumer arrows through a topic; queries about who depends
+on a topic (the query engine holds no interfaces); LikeC4, which labels each relation
 on its own; views per environment or state; the server.
 
 ## Rationale
@@ -43,6 +46,12 @@ refinement there instead.
 - graph-queries: in a view with its context, a module's refinement replaces
   the relation it refines when that relation starts or ends at the scope
   itself.
+- intended-model: a relation through a topic or queue marks `action: send` or
+  `receive`; `action` elsewhere is refused, a missing one warned about.
+- compiled-model: the compiled relation keeps its action.
+- views: a relation marking its action is labelled by its role ("publishes
+  order-placed", "subscribes to order-placed") and drawn dashed, still from the
+  initiator.
 
 ## Preserved contracts
 None.
@@ -50,7 +59,10 @@ None.
 ## Coverage
 - views/labels: test
 - views/mermaid: test, views-check, readability
+- views/likec4: test, views-check
 - graph-queries/view: test
+- intended-model/messaging: test
+- compiled-model/shape: test
 
 ## Blocking questions
 None.
@@ -58,7 +70,12 @@ None.
 ## Design and decisions
 Decided with the owner on 2026-09-25: short labels with the list in a table
 under the diagram; the module's refinement in its element's own view; the
-acceptance measured in numbers on GitHub's own renderer. Measured before: see
+acceptance measured in numbers on GitHub's own renderer. Decided with the
+owner on 2026-09-27 (madarch-48x.1): relations through a topic or queue carry
+`action: send | receive` (Codex's review, after AsyncAPI 3's send and receive);
+arrows stay drawn from the initiator, as C4 allows for publish and subscribe
+and as every other arrow of these views goes, labelled by role and dashed.
+Measured before: see
 Intent. The measure is taken by rendering each page with the Mermaid renderer
 GitHub itself serves, in a 1150-pixel column, and reading the rendered labels'
 size and boxes; the numbers are recorded per page in the acceptance record.

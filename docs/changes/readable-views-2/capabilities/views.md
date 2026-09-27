@@ -20,14 +20,20 @@ one asked time and state (by default now and the first state).
 - Then: there is a landscape view, a view of `shop`, of `payments` and of `checkout-web`, and none of `payments-api`
 
 ## Requirement: labels — Every arrow says what it carries
-Every arrow shall carry a short label. An arrow standing for one relation
-shall be labelled with that relation's name. An arrow standing for several
-shall be labelled with their distinct names in id order joined by "; " when
-that is 40 characters or fewer, and otherwise with the number of relations and
-the arrow's row in the view's table ("7 relations, see 3"). A relation without
-a name shall be named by its interface's contract, or its id where it names no
-interface; the model already warned about it when loaded. Every arrow's full
-list of names shall be in the view's table.
+Every arrow shall carry a short label, and is drawn from the initiator as the
+relations behind it go. A relation's label is its name, except for a relation
+that marks its action on a topic or queue, whose label is its role there:
+"publishes" or "subscribes to" for a topic, "sends to" or "receives from" for a
+queue, followed by the topic or queue, its contract after `kind::`
+("subscribes to order-placed").
+An arrow standing for one relation shall be labelled with that relation's
+label. An arrow standing for several shall be labelled with their distinct
+labels in id order joined by "; " when that is 40 characters or fewer, and
+otherwise with the number of relations and the arrow's row in the view's table
+("7 relations, see 3"). A relation without a name shall be named by its
+interface's contract, or its id where it names no interface; the model already
+warned about it when loaded. Every arrow's full list of names shall be in the
+view's table. An arrow whose relations all mark their action is drawn dashed.
 
 ### Scenario: merged-label
 - Given: `checkout-cart` "reserves stock" and `checkout-ui` "shows stock" towards `stock-api`
@@ -38,6 +44,11 @@ list of names shall be in the view's table.
 - Given: five relations from `orders-api`'s modules to `event-bus` whose names together run past 40 characters, making the view's third arrow
 - When: the view is rendered
 - Then: the arrow is labelled "5 relations, see 3", and row 3 of the view's table lists the five names
+
+### Scenario: event-labels
+- Given: `orders-publishes-placed` from `orders-api` to `event-bus` through `topic-order-placed` with `action: send`, and `inventory-reserves-stock` "reserves stock for placed orders" from `inventory-api` to `event-bus` through the same topic with `action: receive`
+- When: a view showing all three is rendered
+- Then: the arrow from `orders-api` to `event-bus` is labelled "publishes order-placed", the arrow from `inventory-api` to `event-bus` "subscribes to order-placed", both are dashed, and the table lists "reserves stock for placed orders" behind the second
 
 ### Scenario: unnamed-fallback
 - Given: an unnamed relation `checkout-to-orders` naming the interface with contract `http::POST::/api/orders`, and an unnamed relation `checkout-to-stock` with no interface
@@ -62,7 +73,8 @@ overlap another label or a box.
 
 ## Requirement: likec4 — Views as a LikeC4 workspace
 The renderer shall write one LikeC4 workspace holding the element kinds, every
-element nested under its parent, every relation with its label, and the same
+element nested under its parent, every relation with its label (a relation
+marking its action drawn dashed), and the same
 views as the view set, so that opening an element leads to its own view. The
 workspace shall pass `likec4 validate`.
 
