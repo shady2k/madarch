@@ -119,7 +119,7 @@ export type Binding = Static<typeof Binding>;
 
 export const RelationAction = Type.Union([Type.Literal('send'), Type.Literal('receive')], {
   description:
-    'How the initiator uses the topic or queue the relation goes through: "send" publishes or sends to it, "receive" subscribes to it or receives from it. Only on a relation through an interface of kind topic or queue; the relation still goes from the initiator to the broker.',
+    'How the initiator uses the topic or queue the relation goes through: "send" publishes or sends to it, "receive" subscribes to it or receives from it. Only on a relation through an interface of kind topic or queue; the relation still goes from its initiator to what it depends on, usually the broker.',
 });
 export type RelationAction = Static<typeof RelationAction>;
 

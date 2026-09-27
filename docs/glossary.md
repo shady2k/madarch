@@ -46,8 +46,9 @@ evidence refer to it; the query engine keeps it as a node.
 **Action**:
 How the initiator of a relation through a topic or queue uses it: `send`
 (publishes to a topic, sends to a queue) or `receive` (subscribes to a topic,
-receives from a queue). The relation still goes from the initiator to the
-broker; views label its arrow by that role and draw it dashed.
+receives from a queue). The relation still goes from its initiator to what it
+depends on, usually the broker; views label it by that role and draw it
+dashed.
 _Avoid_: direction (a data transfer's), publish or subscribe as its values
 
 **Data transfer**:

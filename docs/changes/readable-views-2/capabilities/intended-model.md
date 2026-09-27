@@ -123,8 +123,9 @@ a model, and a model with none returns an empty list of them.
 A relation through an interface whose contract is of kind topic or queue shall
 say how its initiator uses it: `action: send` for one that publishes or sends
 to it, `action: receive` for one that subscribes to it or receives from it.
-The relation's ends stay as written, from the initiator to the interface's
-provider, so dependencies are unchanged. If a relation carries `action` without
+The relation's ends stay as written, from the initiator to what it depends on
+(usually the broker that provides the interface), so dependencies are
+unchanged. If a relation carries `action` without
 naming an interface of kind topic or queue, then the model is refused naming
 the relation, its file and line. If a relation through a topic or queue
 interface has no `action`, then loading shall still succeed and return a

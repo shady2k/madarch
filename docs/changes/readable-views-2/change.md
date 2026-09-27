@@ -10,9 +10,10 @@ The views of the reference system parse and render, but a person cannot read
 most of them. Rendered by GitHub's own Mermaid in a 1150-pixel column, five of
 the eight pages show arrow labels under 12 pixels (the landscape 7.8) and seven
 have labels over other labels or boxes: merged labels of up to 103 characters
-widen every diagram until GitHub shrinks it. After this change every arrow
-carries a short label, the full names behind each arrow sit in a table under
-its diagram, an element's own view shows the module that does the work rather
+widen every diagram until GitHub shrinks it; short word labels were measured
+and still do (the landscape 8.1). After this change every arrow carries its row
+number in a table under its diagram that lists every relation behind it by
+name and role, lines are straight, an element's own view shows the module that does the work rather
 than an arrow from its frame, a topic's subscriber no longer reads as a sender,
 and every page meets numbers a reader can check.
 
@@ -29,8 +30,9 @@ Stories:
 ## Out of scope
 Arrows reversed to follow the data (drawn from the broker to a subscriber);
 direct producer-to-consumer arrows through a topic; queries about who depends
-on a topic (the query engine holds no interfaces); LikeC4, which labels each relation
-on its own; views per environment or state; the server.
+on a topic (the query engine holds no interfaces); LikeC4's layout and
+readability, which labels each relation on its own in words; splitting wide
+views into parts; views per environment or state; the server.
 
 ## Rationale
 The owner looked at the merged views on 2026-09-25 and found them unreadable;
@@ -41,8 +43,10 @@ an arrow from the service's frame; the owner accepted drawing the module's
 refinement there instead.
 
 ## Changes to requirements
-- views: labels are short with a table of every arrow's names; Mermaid pages
-  carry that table and meet a label size and no-overlap measure on GitHub.
+- views: Mermaid arrows carry their row number in a table under the diagram
+  listing every relation behind each by name and role; lines are straight,
+  externals have dark text, and pages meet a label size and no-overlap measure
+  on GitHub.
 - graph-queries: in a view with its context, a module's refinement replaces
   the relation it refines when that relation starts or ends at the scope
   itself.
@@ -50,8 +54,8 @@ refinement there instead.
   `receive`; `action` elsewhere is refused, a missing one warned about.
 - compiled-model: the compiled relation keeps its action.
 - views: a relation marking its action is labelled by its role ("publishes
-  order-placed", "subscribes to order-placed") and drawn dashed, still from the
-  initiator.
+  order-placed", "subscribes to order-placed") in LikeC4 and in the table, and
+  drawn dashed, still from the initiator.
 
 ## Preserved contracts
 None.
@@ -75,6 +79,13 @@ owner on 2026-09-27 (madarch-48x.1): relations through a topic or queue carry
 `action: send | receive` (Codex's review, after AsyncAPI 3's send and receive);
 arrows stay drawn from the initiator, as C4 allows for publish and subscribe
 and as every other arrow of these views goes, labelled by role and dashed.
+Decided with the owner on 2026-09-27, after measuring: short word labels,
+wrapped labels, tighter spacing, top-to-bottom layout, ELK (not applied by
+GitHub's renderer) and a legend inside the diagram all leave pages under 12
+pixels or with overlaps; row numbers with straight lines reach 13.1 pixels or
+more on every page with none (checked independently by Codex). The table under
+the diagram is its key: a diagram shown without it loses its words, and a row
+number is local to its page, never a relation's identity.
 Measured before: see
 Intent. The measure is taken by rendering each page with the Mermaid renderer
 GitHub itself serves, in a 1150-pixel column, and reading the rendered labels'
@@ -88,7 +99,7 @@ acceptance record, with the per-page numbers.
 ## DONE WHEN
 On every page of the reference system, rendered by GitHub's Mermaid in a
 1150-pixel column, labels are at least 12 pixels and none overlaps another
-label or a box; every arrow is labelled and its names are in the table under
-the diagram; the checkout service's page draws its payment step to Payments.
+label or a box; every arrow carries its row number and every relation behind it
+is in that row of the table under the diagram; the checkout service's page draws its payment step to Payments.
 Where it is seen: the pages under `examples/reference-system/views/mermaid/`
 on GitHub.

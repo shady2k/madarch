@@ -19,62 +19,64 @@ one asked time and state (by default now and the first state).
 - When: the views are rendered
 - Then: there is a landscape view, a view of `shop`, of `payments` and of `checkout-web`, and none of `payments-api`
 
-## Requirement: labels — Every arrow says what it carries
-Every arrow shall carry a short label, and is drawn from the initiator as the
-relations behind it go. A relation's label is its name, except for a relation
-that marks its action on a topic or queue, whose label is its role there:
+## Requirement: labels — Every relation says what it does
+Every arrow is drawn from the initiator, as the relations behind it go, and
+stands for every relation between the two shown elements. Each relation has a
+name and a label. Its name is its own, or for a relation without one its
+interface's contract, or its id where it names no interface; the model already
+warned about it when loaded. Its label is its name, except for a relation that
+marks its action on a topic or queue, whose label is its role there:
 "publishes" or "subscribes to" for a topic, "sends to" or "receives from" for a
 queue, followed by the topic or queue, its contract after `kind::`
-("subscribes to order-placed").
-An arrow standing for one relation shall be labelled with that relation's
-label. An arrow standing for several shall be labelled with their distinct
-labels in id order joined by "; " when that is 40 characters or fewer, and
-otherwise with the number of relations and the arrow's row in the view's table
-("7 relations, see 3"). A relation without a name shall be named by its
-interface's contract, or its id where it names no interface; the model already
-warned about it when loaded. Every arrow's full list of names shall be in the
-view's table. An arrow whose relations all mark their action is drawn dashed.
-
-### Scenario: merged-label
-- Given: `checkout-cart` "reserves stock" and `checkout-ui` "shows stock" towards `stock-api`
-- When: the view of `shop` is rendered
-- Then: the one arrow from `checkout-web` to `stock-api` is labelled "reserves stock; shows stock"
-
-### Scenario: long-merged-label
-- Given: five relations from `orders-api`'s modules to `event-bus` whose names together run past 40 characters, making the view's third arrow
-- When: the view is rendered
-- Then: the arrow is labelled "5 relations, see 3", and row 3 of the view's table lists the five names
+("subscribes to order-placed"). An arrow whose relations all mark their action
+is drawn dashed.
 
 ### Scenario: event-labels
-- Given: `orders-publishes-placed` from `orders-api` to `event-bus` through `topic-order-placed` with `action: send`, and `inventory-reserves-stock` "reserves stock for placed orders" from `inventory-api` to `event-bus` through the same topic with `action: receive`
+- Given: `orders-publishes-placed` "publishes order-placed" from `orders-api` to `event-bus` through `topic-order-placed` with `action: send`, and `inventory-reserves-stock` "reserves stock for placed orders" from `inventory-api` to `event-bus` through the same topic with `action: receive`
 - When: a view showing all three is rendered
-- Then: the arrow from `orders-api` to `event-bus` is labelled "publishes order-placed", the arrow from `inventory-api` to `event-bus` "subscribes to order-placed", both are dashed, and the table lists "reserves stock for placed orders" behind the second
+- Then: the second relation's label is "subscribes to order-placed" and its name "reserves stock for placed orders", the first's label and name are both "publishes order-placed", and both arrows go to `event-bus` and are dashed
 
 ### Scenario: unnamed-fallback
 - Given: an unnamed relation `checkout-to-orders` naming the interface with contract `http::POST::/api/orders`, and an unnamed relation `checkout-to-stock` with no interface
 - When: a view showing both is rendered
-- Then: the first arrow is labelled `http::POST::/api/orders` and the second `checkout-to-stock`
+- Then: the first relation is named `http::POST::/api/orders` and the second `checkout-to-stock`
 
 ## Requirement: mermaid — Views as Mermaid pages
 The renderer shall write each view as a Markdown page holding one Mermaid
-flowchart: the view's element drawn as a frame around its children, the
-neighbours outside it, persons, stores and brokers in their own shapes and
-externals marked apart, and, under the diagram, a table of its arrows (row
-number, from, to, every name behind the arrow) and links to the page of every
-shown element that has a view and to the page one level up. Every flowchart
-shall be accepted by Mermaid's parser. Rendered by GitHub's Mermaid in a
-1150-pixel column, its labels shall be at least 12 pixels high and none shall
-overlap another label or a box.
+flowchart with straight lines: the view's element drawn as a frame around its
+children, the neighbours outside it, persons, stores and brokers in their own
+shapes and externals marked apart with dark text on their light fill, and,
+under the diagram, a table of its arrows, and links to the page of every shown
+element that has a view and to the page one level up. Each arrow shall be
+labelled with its row number in that table, dashed where its relations all mark
+their action. Each row shall hold the number, the arrow's two ends and every
+relation behind the arrow in relation-id order, each by its name, one marking
+its action by its label and then its name ("subscribes to order-placed:
+reserves stock for placed orders"), or its label alone where the two are the
+same, separated by "; ", a text shared by several relations repeated for each. Every flowchart shall be accepted by
+Mermaid's parser. Rendered by GitHub's Mermaid in a 1150-pixel column, its
+labels shall be at least 12 pixels high and none shall overlap another label or
+a box.
 
 ### Scenario: mermaid-page
 - Given: the model of the drill-down scenario
 - When: the page of `shop` is rendered
 - Then: its flowchart parses, frames `checkout-web` and `catalog-api` inside `shop`, draws `payments` outside it, and the page links to the page of `checkout-web` and to the landscape
 
+### Scenario: numbered-arrows
+- Given: `checkout-cart` "reserves stock" and `checkout-ui` "shows stock" towards `stock-api`, the only arrow of the view of `shop` besides one to `payments` that sorts before it
+- When: the page of `shop` is rendered
+- Then: the arrow from `checkout-web` to `stock-api` is labelled "2", and row 2 of the table lists "reserves stock; shows stock"
+
+### Scenario: event-row
+- Given: the model of the event-labels scenario
+- When: its page is rendered
+- Then: the row of the arrow from `inventory-api` lists "subscribes to order-placed: reserves stock for placed orders", the row of the arrow from `orders-api` "publishes order-placed", and both arrows are drawn dashed
+
 ## Requirement: likec4 — Views as a LikeC4 workspace
 The renderer shall write one LikeC4 workspace holding the element kinds, every
-element nested under its parent, every relation with its label (a relation
-marking its action drawn dashed), and the same
+element nested under its parent, every relation labelled with its label (a
+relation marking its action drawn dashed), and the same
 views as the view set, so that opening an element leads to its own view. The
 workspace shall pass `likec4 validate`.
 
