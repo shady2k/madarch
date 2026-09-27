@@ -28,4 +28,8 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   `viewscreen.githubusercontent.com/markdown/mermaid?color_mode=dark` and
   dispatch `code_rendering_service:data:ready` on `document` with the block
   and `width: 1150`, one block per page load), then read each page's label
-  size and overlaps and record the numbers.
+  size and overlaps and record the numbers. Headless Chromium (nixpkgs
+  chromium with puppeteer-core) on the same page works and reads about 0.4 px
+  below Chrome. On that renderer word labels widen a `flowchart LR` until it
+  shrinks under 12 px; `%%{init}%%` flowchart settings are honoured, ELK is
+  not.
