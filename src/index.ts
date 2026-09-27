@@ -85,23 +85,4 @@ export { renderMermaidPages, type MermaidError, type MermaidPage, type MermaidRe
 export { renderLikeC4Workspace, type LikeC4Error, type LikeC4Result, type NotDrawn } from './render/likec4.js';
 export { createLadybugEngine, preparedStatementCacheSizeForTests, type LadybugEngineOptions } from './adapters/ladybug-engine.js';
 
-import type { CompiledModel } from './model/compile.js';
-import { compileModel } from './model/compile.js';
-import type { ModelError, ModelWarning } from './model/errors.js';
-import { loadModel } from './model/load.js';
-
-export interface LoadAndCompileResult {
-  model?: CompiledModel;
-  errors: ModelError[];
-  /** Problems that do not refuse the model, exactly as `loadModel` returns them. */
-  warnings: ModelWarning[];
-}
-
-/** Loads a repository's model and compiles it, or reports why it could not; warnings come back either way. */
-export function loadAndCompileModel(repoRoot: string): LoadAndCompileResult {
-  const { model, errors, warnings } = loadModel(repoRoot);
-  if (errors.length > 0 || model === undefined) {
-    return { errors, warnings };
-  }
-  return { model: compileModel(model), errors: [], warnings };
-}
+export { loadAndCompileModel, type LoadAndCompileResult } from './model/load-and-compile.js';
