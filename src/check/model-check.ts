@@ -158,17 +158,18 @@ function findingOf(declared: Declared, itemLine: number, message: string): Model
 /**
  * The lines an item names must lie within its blob: undefined when they
  * do, the failing finding when they do not, naming the item and saying how
- * many lines the file has.
+ * many lines the file has. An item without `line` names the whole file and
+ * has no lines to bound (the loader refuses an `endLine` without a `line`).
  */
 function linesFinding(repo: string, declared: Declared, item: Evidence, itemLine: number): ModelCheckFinding | undefined {
+  if (item.line === undefined) return undefined;
   const count = blobLineCount(repo, item.blob!);
   if (count === undefined) {
     return findingOf(declared, itemLine, `${declared.label} names blob ${item.blob}, which git could not read`);
   }
-  const first = item.line ?? 1;
-  const last = item.endLine ?? first;
-  if (first <= count && last <= count) return undefined;
-  const named = item.endLine === undefined ? `line ${first}` : `lines ${first} to ${last}`;
+  const last = item.endLine ?? item.line;
+  if (item.line <= count && last <= count) return undefined;
+  const named = item.endLine === undefined ? `line ${item.line}` : `lines ${item.line} to ${last}`;
   return findingOf(declared, itemLine, `${declared.label} names ${named}, but ${item.file} has ${count} lines`);
 }
 

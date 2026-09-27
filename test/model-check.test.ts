@@ -728,7 +728,39 @@ describe('the model check', () => {
       });
     });
 
-    test('an empty file has zero lines, and an item without lines names line 1 of it', () => {
+    test('an empty file has zero lines, and an item naming line 1 of it fails', () => {
+      withRepo((repo) => {
+        repo.write('src/empty.ts', '');
+        const commit = repo.commit('the sources');
+        const blob = repo.blob('src/empty.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/empty.ts',
+          '        line: 1',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('failed');
+        expect(report.errors).toHaveLength(1);
+        expect(report.errors[0]!.id).toBe('core');
+        expect(report.errors[0]!.message).toContain('line 1');
+        expect(report.errors[0]!.message).toContain('0 lines');
+      });
+    });
+
+    test('an item without lines names the whole file, and an empty file has a whole to name', () => {
       withRepo((repo) => {
         repo.write('src/empty.ts', '');
         const commit = repo.commit('the sources');
@@ -751,11 +783,9 @@ describe('the model check', () => {
 
         const report = checkModel(repo.path);
 
-        expect(report.outcome).toBe('failed');
-        expect(report.errors).toHaveLength(1);
-        expect(report.errors[0]!.id).toBe('core');
-        expect(report.errors[0]!.message).toContain('line 1');
-        expect(report.errors[0]!.message).toContain('0 lines');
+        expect(report.outcome).toBe('passed');
+        expect(report.errors).toEqual([]);
+        expect(report.notes).toEqual([]);
       });
     });
 
@@ -788,6 +818,36 @@ describe('the model check', () => {
         expect(report.notes).toHaveLength(1);
         expect(report.notes[0]!.id).toBe('core');
         expect(report.notes[0]!.message).toBe(`commit missing, blob found at ${growCommit}`);
+      });
+    });
+
+    test('an item naming the blob\'s exact last line resolves', () => {
+      withRepo((repo) => {
+        repo.write('src/core.ts', numberedLines(30));
+        const commit = repo.commit('the sources');
+        const blob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          '        line: 30',
+          '        endLine: 30',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('passed');
+        expect(report.errors).toEqual([]);
       });
     });
 

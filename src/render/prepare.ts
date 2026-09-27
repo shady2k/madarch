@@ -56,16 +56,16 @@ export function prepareRendering(repoFolder: string, version: RenderedVersion): 
   const engine = createLadybugEngine();
   try {
     const stored = history.store({ source: version.source, commit: version.commit, committedAt: version.at, model });
-    if (stored.errors.length > 0) return { errors: stored.errors.map((e) => `storing the model: ${e.message}`), notDrawn: [], warnings: warningLines };
+    if (stored.errors.length > 0) return { model, errors: stored.errors.map((e) => `storing the model: ${e.message}`), notDrawn: [], warnings: warningLines };
     engine.rebuild(history.assertions());
 
     const at = { valid: version.at, known: version.at };
     const viewSet = buildViewSet(engine, model, at);
-    if (viewSet.views === undefined) return { errors: viewSet.errors.map((e) => e.message), notDrawn: [], warnings: warningLines };
+    if (viewSet.views === undefined) return { model, errors: viewSet.errors.map((e) => e.message), notDrawn: [], warnings: warningLines };
     const rendered = renderMermaidPages(viewSet.views);
-    if (rendered.pages === undefined) return { errors: rendered.errors.map((e) => e.message), notDrawn: [], warnings: warningLines };
+    if (rendered.pages === undefined) return { model, errors: rendered.errors.map((e) => e.message), notDrawn: [], warnings: warningLines };
     const likec4 = renderLikeC4Workspace(engine, model, at);
-    if (likec4.workspace === undefined) return { errors: likec4.errors.map((e) => e.message), notDrawn: [], warnings: warningLines };
+    if (likec4.workspace === undefined) return { model, errors: likec4.errors.map((e) => e.message), notDrawn: [], warnings: warningLines };
     return { model, pages: rendered.pages, workspace: likec4.workspace, notDrawn: likec4.notDrawn!.map((relation) => relation.message), errors: [], warnings: warningLines };
   } finally {
     engine.close();
