@@ -40,8 +40,16 @@ with its context, the engine shall also return, marked as neighbours, the
 elements outside the scope that relations cross its boundary to or from, each
 end outside lifted to its ancestor (or itself) whose parent is the scope's
 parent or one of its ancestors, or which has no parent; those relations are
-lifted and merged the same way. Without a scope there is nothing outside, and
-the context adds nothing.
+lifted and merged the same way. In a view with its context, a refinement
+whose own end inside the scope is shown below the scope is drawn instead of
+the relation it refines when that relation's end inside is the scope itself,
+so an element's own view shows the part that does the work. Without a scope
+there is nothing outside, and the context adds nothing.
+
+### Scenario: refinement-in-own-view
+- Given: `checkout-api` "takes payment" towards the domain `payments`, refined by its module `checkout-payment-step` authorizing through `payments-api`
+- When: the view of `checkout-api` is asked with its context
+- Then: one relation is drawn, from `checkout-payment-step` to the neighbour `payments`, standing for the refinement, and none from `checkout-api` itself
 
 ### Scenario: collapse
 - Given: modules `checkout-cart` and `checkout-ui` of `checkout-web` both call `payments-api`

@@ -10,14 +10,19 @@ and its contract ids normalized.
 ## Requirement: shape — The compiled model is published with its schema
 When a valid model is compiled, the compiler shall produce `model.json` with a
 schema version, the model's elements with their ancestors, interfaces,
-relations and interactions with their names, refinements and transfers, zones,
-categories, environments and states, validated against a published JSON
-Schema.
+relations and interactions with their names, actions, refinements and
+transfers, zones, categories, environments and states, validated against a
+published JSON Schema.
 
 ### Scenario: compiled-validates
 - Given: the reference example of the format
 - When: it is compiled
 - Then: the result validates against the published compiled-model schema and holds every element, interface, relation, zone, category, environment and state of the example
+
+### Scenario: action-kept
+- Given: the relation `inventory-reserves-stock` with `action: receive`, and `checkout-calls-orders` with none
+- When: the model is compiled
+- Then: the compiled `inventory-reserves-stock` has action `receive`, and `checkout-calls-orders` has no action
 
 ## Requirement: deterministic — Same model, same bytes
 When the same model is compiled twice, from the same files or from the same
