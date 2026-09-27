@@ -36,7 +36,9 @@ const UNREVISIONED = ['.beads/', CHANGES, CAPABILITIES, CATALOGUE];
 // Product code is what no document or process file is: the paths a commit must
 // carry an admitted change for.
 export function isProduct(path) {
-  if (/^(docs|\.shady2k|\.beads|\.githooks)\//.test(path)) return false;
+  // CI workflows are the workflow's own tooling: they decide which checks run
+  // and cannot change what the product does (owner decision 2026-09-27).
+  if (/^(docs|\.shady2k|\.beads|\.githooks|\.github\/workflows)\//.test(path)) return false;
   if (!path.includes('/') && (path.endsWith('.md') || path.startsWith('.'))) return false;
   return true;
 }

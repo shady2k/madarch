@@ -1,8 +1,26 @@
 name: CI
 
+# The product's checks, once per change: on pushes to main and on each pull
+# request (a pushed branch runs them through its pull request, not twice). A
+# change that touches only documents, the tracker or the workflow's own tooling
+# cannot touch the product and runs nothing; that tooling is checked by the local
+# hooks (see .shady2k/integration.md, "CI").
 on:
   push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '.beads/**'
+      - '.shady2k/**'
+      - '.githooks/**'
+      - '*.md'
   pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '.beads/**'
+      - '.shady2k/**'
+      - '.githooks/**'
+      - '*.md'
 
 jobs:
   test:

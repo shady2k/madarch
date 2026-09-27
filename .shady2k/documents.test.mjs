@@ -126,8 +126,8 @@ const approval = (r, id) => {
 };
 
 test('product code is everything outside docs, tooling, tracker, hooks and root notes', () => {
-  for (const p of ['src/a.ts', 'package.json', 'test/x.test.ts', 'docs2/a.md']) assert.equal(isProduct(p), true, p);
-  for (const p of ['docs/vision.md', '.shady2k/documents.mjs', '.beads/issues.jsonl', '.githooks/pre-commit', 'README.md', '.gitattributes'])
+  for (const p of ['src/a.ts', 'package.json', 'test/x.test.ts', 'docs2/a.md', '.github/dependabot.yml', '.github/workflows2/x.yml']) assert.equal(isProduct(p), true, p);
+  for (const p of ['docs/vision.md', '.shady2k/documents.mjs', '.beads/issues.jsonl', '.githooks/pre-commit', 'README.md', '.gitattributes', '.github/workflows/ci.yml'])
     assert.equal(isProduct(p), false, p);
 });
 

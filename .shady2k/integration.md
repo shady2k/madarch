@@ -86,8 +86,8 @@ are the repository's installation, and each person's plugin and hooks are theirs
     them changes nothing.
   - **Phases:** the commit-msg hook runs `product` on every commit; `feature`
     for each change owning a task of a commit that stages product code
-    (anything outside `docs/`, `.shady2k/`, `.beads/`, `.githooks/`, root
-    `*.md` and root dotfiles); `close` for the owning change of a staged
+    (anything outside `docs/`, `.shady2k/`, `.beads/`, `.githooks/`,
+    `.github/workflows/`, root `*.md` and root dotfiles); `close` for the owning change of a staged
     `docs/system/capabilities/` file, which is refused if no change linked by
     the commit proposes that capability. A supporting change may not carry
     product code, and only `<capability>.md` files may live in
@@ -103,8 +103,10 @@ are the repository's installation, and each person's plugin and hooks are theirs
     staged against `HEAD`), and anything committed with `--no-verify`. The
     pre-commit tooling tests run the working-tree test files, not only the
     staged ones. Root dotfiles (`.gitattributes`, `.env`, …) count as tooling,
-    not product code; any other path outside the listed directories counts as
-    product code, dot-directories such as `.github/` included.
+    not product code; `.github/workflows/` is the workflow's own tooling (owner decision
+    2026-09-27: CI decides which checks run and cannot change what the product
+    does); any other path outside the listed directories counts as product
+    code, other dot-directories such as the rest of `.github/` included.
   - **Policy:** `.shady2k/document-policy.json`. Behavior and no-behavior
     changes owe `static`, `test`, `mutation` and `review`, plus the checks their
     coverage names; supporting changes owe `review`, and the tooling's own
