@@ -67,10 +67,12 @@ are the repository's installation, and each person's plugin and hooks are theirs
   The tracker at a revision is that file at the revision. `.githooks/tracker-home.sh`
   (run by pre-commit) refuses a commit from a checkout whose br resolves to
   another checkout's database (br finds a database by walking up, so a worktree
-  inside the main checkout without its own writes the main one's). Known limit:
-  br writes made in such an unconnected worktree still land in the other
-  checkout's export; the guard refuses the worktree's own commit, not the
-  other checkout's. At the end of a session, commit the export with the work
+  inside the main checkout without its own writes the main one's).
+  `.githooks/post-checkout` prevents that: git runs it after `git worktree add`,
+  and when the new checkout's br resolves elsewhere it runs the connect command
+  there; on any other checkout it passes silently. Only a worktree made with the
+  hooks off (or before they existed) can still write another checkout's
+  tracker; the guard refuses its commits until it is connected. At the end of a session, commit the export with the work
   that changed it on the branch that did it.
 - **Document gate:** `.shady2k/documents.mjs` exports the documents and tracker
   records into `check-docs.mjs`'s contract and runs it; tests in
@@ -178,7 +180,8 @@ are the repository's installation, and each person's plugin and hooks are theirs
 - **Commit-link input and check:** `node .shady2k/adapter.mjs commits --message <file>`
   (pending message) or `--range <a>..<b>` (every commit in a range), piped to
   `node .shady2k/checks/check-commits.mjs -`.
-- **Local entry points:** `.githooks/pre-commit` (privacy guard, tracker home
+- **Local entry points:** `.githooks/post-checkout` (connects a new
+  worktree's tracker), `.githooks/pre-commit` (privacy guard, tracker home
   guard, the tooling's tests when tooling is staged, then backlog gate) and `.githooks/commit-msg`
   (commit links, then the document gate).
 - **Connecting a clone:** `sh .shady2k/connect.sh`. It checks first and changes
@@ -209,14 +212,15 @@ are the repository's installation, and each person's plugin and hooks are theirs
   email (the one on the GitHub profile; owner decision 2026-09-24, madarch-xh6).
 - **Fresh clone:** create the private pattern list, set `user.email` to the
   owner's public email, then run `sh .shady2k/connect.sh`.
-- **CI:** GitHub Actions (`.github/workflows/ci.yml`) on pushes to `main` and
-  on each pull request (a branch runs through its pull request, once):
+- **CI:** GitHub Actions (`.github/workflows/ci.yml`) on every push of any
+  branch, once (a pull request from this repository shows its branch's push
+  run; `[skip ci]` in the pushed commit's message skips unfinished work):
   `bun install --frozen-lockfile`, `bun run check`, `bun test`,
   `bun run views:check` on Linux, about 7 minutes. A change touching only
   `docs/`, `.beads/`, `.shady2k/`, `.githooks/` or root `*.md` files runs
   nothing (`paths-ignore`): it cannot touch the product. It runs the product's
   checks only; the backlog, commit-link and document gates stay in the local
-  hooks (personal scope). A branch pushed without a pull request gets no CI.
+  hooks (personal scope).
 - **Bulk-edit age correction:** `check.mjs --ages-from <before.json> --ages-through <after.json>`
   with adapter snapshots taken before and after the edit.
 - **Runtime:** Bun 1.4.2 (`packageManager` in `package.json`), TypeScript 7
