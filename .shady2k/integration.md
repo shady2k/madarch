@@ -44,8 +44,34 @@ are the repository's installation, and each person's plugin and hooks are theirs
 
 - **Backlog adapter:** `node .shady2k/adapter.mjs backlog [--at <git-rev>]`;
   reads `.beads/issues.jsonl` (br rewrites it on every write), or that file at a revision.
-- **Rules:** `.shady2k/checks/{check,check-commits,check-docs}.mjs` and
-  `document-format.mjs`, verbatim copies of shady2k-skills plugin 0.57.1 (setup and rules 0.26.0).
+- **Rules:** `.shady2k/checks/{check,check-commits,check-docs}.mjs`,
+  `document-format.mjs` and `time-format.mjs` (which `check.mjs` reads records
+  by), verbatim copies of shady2k-skills plugin 0.65.1 (setup and rules 0.33.0).
+- **Work records:** the adapter's `backlog` export carries, on each issue,
+  every br comment whose text starts with `[shady2k-time`, raw, as `{id, at,
+  author, body}` (br's comment id as a string, its `created_at` and author);
+  other comments stay out. The run script reads that export:
+  `node .shady2k/adapter.mjs backlog | node <skills>/take-task/runs.mjs <command> --backlog - ...`,
+  always with `--agent <agent full name>` (the script otherwise names this
+  machine's real host name, which this public repository must not carry).
+  A record is posted exactly as printed: write the `body` of the script's
+  `--json` output to a file and `br comments add <id> --file <file> --actor
+  <agent> --author <agent>`; never retype, reflow or edit it.
+  `timeRecordsExempt` is empty: at adoption (2026-09-27) no work was active,
+  submitted or implemented.
+- **Tracker layout:** the export `.beads/issues.jsonl` is committed on each
+  branch, and each checkout (a git worktree included) has its own br database
+  beside its own export, created by the connect command. A branch therefore
+  carries only its own tracker writes on top of the tracker at its base; a task
+  filed on `main` during a run reaches the run's worktree only through a merge.
+  The tracker at a revision is that file at the revision. `.githooks/tracker-home.sh`
+  (run by pre-commit) refuses a commit from a checkout whose br resolves to
+  another checkout's database (br finds a database by walking up, so a worktree
+  inside the main checkout without its own writes the main one's). Known limit:
+  br writes made in such an unconnected worktree still land in the other
+  checkout's export; the guard refuses the worktree's own commit, not the
+  other checkout's. At the end of a session, commit the export with the work
+  that changed it on the branch that did it.
 - **Document gate:** `.shady2k/documents.mjs` exports the documents and tracker
   records into `check-docs.mjs`'s contract and runs it; tests in
   `.shady2k/documents.test.mjs` (`node --test .shady2k/*.test.mjs`).
@@ -109,6 +135,16 @@ are the repository's installation, and each person's plugin and hooks are theirs
     (their catalogue). Nothing else is left out, so filing a task, editing the
     change record or syncing specs at closure does not stale evidence, while
     any other edit does.
+  - **A receipt stands for what its check reads:** a policy entry's `ignores`
+    names paths its command cannot read; `static`, `test` and `mutation` ignore
+    `docs/` (`tsc` reads `src` and `test`, `bun test` and Stryker read no
+    document under `docs/`; checked 2026-09-27). Their receipts are recorded
+    against `documents.mjs revision --check <id>` (`check:…`, `checkRevision`
+    over the tree with the same exclusions plus `docs/`), exported as
+    `checkRevisions`; `review` and coverage-named checks use the whole
+    revision (`content:…`). An edit under `docs/` stales only those; any other
+    edit stales all. The list only grows where a command is shown not to read a
+    path; changing it stales every receipt.
   - **What a commit owes:** the wrapper judges each commit as it is made, not a
     range: a change is asked for only when the commit stages product code or a
     current spec. A commit that touches only the tracker (filing, commenting,
@@ -140,16 +176,18 @@ are the repository's installation, and each person's plugin and hooks are theirs
 - **Commit-link input and check:** `node .shady2k/adapter.mjs commits --message <file>`
   (pending message) or `--range <a>..<b>` (every commit in a range), piped to
   `node .shady2k/checks/check-commits.mjs -`.
-- **Local entry points:** `.githooks/pre-commit` (privacy guard, the tooling's
-  tests when tooling is staged, then backlog gate) and `.githooks/commit-msg`
+- **Local entry points:** `.githooks/pre-commit` (privacy guard, tracker home
+  guard, the tooling's tests when tooling is staged, then backlog gate) and `.githooks/commit-msg`
   (commit links, then the document gate).
 - **Connecting a clone:** `sh .shady2k/connect.sh`. It checks first and changes
   nothing unless every check passes: node and br present, a valid private
   pattern list, a readable tracker export, a local `main` (created from
   `origin/main` when only that exists) and a `user.email`. Then it imports the
-  tracker export into br's local database and migrates workspace paths through
+  tracker export into this checkout's own br database (`.beads/beads.db`
+  beside the export, a worktree included) and migrates workspace paths through
   br's reviewed plan, and only then writes the `br-portable-path` filter and
-  `core.hooksPath`, each write checked, and proves the privacy guard passes.
+  `core.hooksPath`, each write checked, and proves the privacy guard and the
+  tracker home guard pass.
   Safe to rerun; it writes no global git config. Tests:
   `.shady2k/hooks.test.mjs`. Known limit: in a clone that already had
   `core.hooksPath` set, a filter write that fails part way leaves the old
@@ -169,10 +207,14 @@ are the repository's installation, and each person's plugin and hooks are theirs
   email (the one on the GitHub profile; owner decision 2026-09-24, madarch-xh6).
 - **Fresh clone:** create the private pattern list, set `user.email` to the
   owner's public email, then run `sh .shady2k/connect.sh`.
-- **CI:** GitHub Actions (`.github/workflows/ci.yml`) on every push and pull
-  request: `bun install --frozen-lockfile`, `bun run check`, `bun test`,
-  `bun run views:check` on Linux. It runs the product's checks only; the backlog, commit-link and
-  document gates stay in the local hooks (personal scope).
+- **CI:** GitHub Actions (`.github/workflows/ci.yml`) on pushes to `main` and
+  on each pull request (a branch runs through its pull request, once):
+  `bun install --frozen-lockfile`, `bun run check`, `bun test`,
+  `bun run views:check` on Linux, about 7 minutes. A change touching only
+  `docs/`, `.beads/`, `.shady2k/`, `.githooks/` or root `*.md` files runs
+  nothing (`paths-ignore`): it cannot touch the product. It runs the product's
+  checks only; the backlog, commit-link and document gates stay in the local
+  hooks (personal scope). A branch pushed without a pull request gets no CI.
 - **Bulk-edit age correction:** `check.mjs --ages-from <before.json> --ages-through <after.json>`
   with adapter snapshots taken before and after the edit.
 - **Runtime:** Bun 1.4.2 (`packageManager` in `package.json`), TypeScript 7
@@ -207,13 +249,13 @@ Its own reference: `br robot-docs guide`, `br <command> --help`. Pass
 | --- | --- |
 | create | `br create --type <task\|bug\|chore\|epic> --title … --labels mvp,<area> [--parent <epic>] --description …`; an epic states `## Done when` |
 | link / unlink | `br dep add <issue> <prerequisite>` (type `blocks`, gating only), `br dep remove`; provenance uses `--type related` or `discovered-from`, which the adapter ignores |
-| claim | `node .shady2k/adapter.mjs claim <id> --actor <agent full name>`, then a comment with the start time and the checkout name (no absolute path). It claims only an open, unheld leaf, and judges each open blocker: an `implemented` prerequisite in the same stage passes once its recorded revision is an ancestor of `HEAD`; any other open one refuses with its reason. br's `--claim` stays atomic and exclusive (forced past br's own blocker check only in that case, and only when the shared parent is a stage), the blockers are judged again right after the claim, which is released if one no longer passes and it is still this actor's, and the edge is kept. Known limit: br has no release-if-mine, so a release racing another actor's claim in the moment between the check and the release could clear it; with one worker this does not arise |
+| claim | `node .shady2k/adapter.mjs claim <id> --actor <agent full name>`, then the run script's claim record posted on the item (see Work records). It claims only an open, unheld leaf, and judges each open blocker: an `implemented` prerequisite in the same stage passes once its recorded revision is an ancestor of `HEAD`; any other open one refuses with its reason. br's `--claim` stays atomic and exclusive (forced past br's own blocker check only in that case, and only when the shared parent is a stage), the blockers are judged again right after the claim, which is released if one no longer passes and it is still this actor's, and the edge is kept. Known limit: br has no release-if-mine, so a release racing another actor's claim in the moment between the check and the release could clear it; with one worker this does not arise |
 | release | `br update <id> --status open --assignee ""` for unfinished holds only; implemented work keeps its label and record |
 | implemented | coordinator: `br update <id> --add-label implemented` and `br comments add <id> 'implemented: {"revision":…,"evidence":…}'` |
 | submitted | worker: `br update <id> --add-label submitted --assignee ""` and `br comments add <id> 'submitted: {"revision":…,"evidence":…}'` |
 | reopen | `br reopen <id>`, remove `implemented`/`submitted` labels, comment why; reassess dependants |
 | close | `br close <id> --reason …` after stage acceptance, or with a cancellation/duplicate reason |
-| comment / edit | `br comments add`, `br update` (title, description, parent, labels) |
+| comment / edit | `br comments add`, `br update` (title, description, parent, labels); a work record posted exactly as the run script printed it (`--file`), never reflowed or edited |
 | defer / undefer | `br defer <id> --until <date>`, `br undefer <id>` |
 | milestone / label | labels from the config's `milestoneLabels` and `areaLabels` |
 | ready | `br ready --label mvp [--parent <stage>]`, excluding `submitted`/`implemented` labels. br treats only closed prerequisites as satisfied; inside one stage the coordinator also treats an integrated `implemented` prerequisite as satisfied, by reading its record |

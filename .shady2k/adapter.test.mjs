@@ -8,12 +8,26 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { claimPlan } from './adapter.mjs';
+import { claimPlan, normalize } from './adapter.mjs';
 
 const leaf = (id, extra = {}) => ({ id, type: 'task', status: 'open', parent: 'stage', blockedBy: [], holder: null, ...extra });
 const done = (id, extra = {}) => leaf(id, { status: 'implemented', integration: { revision: 'r1', evidence: 'x' }, ...extra });
 const merged = (rev) => rev === 'r1';
 const stage = { id: 'stage', type: 'epic', status: 'open', parent: null, blockedBy: [], holder: null };
+
+test('work records: every [shady2k-time comment goes out raw, with its tracker id, time and author; others stay out', () => {
+  const body = '[shady2k-time v1] claim\nat: 2026-09-27T10:00:00Z\n  trailing space kept  \n';
+  const row = { id: 'm-1', title: 't', issue_type: 'task', status: 'open', labels: [], created_at: '2026-09-27T09:00:00Z', updated_at: '2026-09-27T09:00:00Z',
+    comments: [
+      { id: 7, issue_id: 'm-1', author: 'claude-coordinator:x@y:main#1', text: body, created_at: '2026-09-27T10:00:01Z' },
+      { id: 8, issue_id: 'm-1', author: 'someone', text: 'implemented: {}', created_at: '2026-09-27T10:05:00Z' },
+      { id: 9, issue_id: 'm-1', author: 'someone', text: ' [shady2k-time v1] not at the start', created_at: '2026-09-27T10:06:00Z' },
+    ] };
+  const [issue] = normalize(JSON.stringify(row) + '\n', 'test').issues;
+  assert.deepEqual(issue.comments, [{ id: '7', at: '2026-09-27T10:00:01Z', author: 'claude-coordinator:x@y:main#1', body }]);
+  const [plain] = normalize(JSON.stringify({ ...row, comments: undefined }) + '\n', 'test').issues;
+  assert.deepEqual(plain.comments, []);
+});
 
 test('claim: a leaf with no open blocker is claimed without force', () => {
   assert.deepEqual(claimPlan([stage, leaf('a')], 'a', merged), { force: false });

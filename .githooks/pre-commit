@@ -3,6 +3,7 @@
 # project's rules. See .shady2k/integration.md.
 cd "$(git rev-parse --show-toplevel)" || exit 2
 .githooks/privacy-guard.sh || exit 1
+.githooks/tracker-home.sh || exit $?
 # The tooling's own tests, whenever the tooling itself is being committed.
 if git diff --cached --name-only | grep -q -E '^(\.shady2k|\.githooks)/'; then
   # git hands hooks its own index (GIT_INDEX_FILE, absolute for `commit -a`); the
