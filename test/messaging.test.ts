@@ -225,6 +225,76 @@ relations:
     expect(errors.length).toBeGreaterThan(0);
     expect(warnings.map((w) => w.path)).toEqual(['relations[0]']);
   });
+
+  test('a contract that does not name a topic or queue, even a "topic::"-shaped one, is no messaging: an action on it is refused naming the relation', () => {
+    const file = {
+      path: 'madarch/model.yaml',
+      text: `version: 1
+${ELEMENTS}
+interfaces:
+  - id: nameless-topic
+    provider: event-bus
+    contract: "topic::"
+  - id: not-a-contract
+    provider: event-bus
+    contract: topicx
+relations:
+  - id: publishes-through-nameless
+    name: publishes order-placed
+    from: orders-api
+    to: event-bus
+    interface: nameless-topic
+    action: send
+  - id: publishes-through-broken
+    name: publishes order-placed
+    from: inventory-api
+    to: event-bus
+    interface: not-a-contract
+    action: send
+`,
+    };
+    const { model: loaded, errors, warnings } = parseModel([file]);
+
+    expect(loaded).toBeUndefined();
+    expect(warnings).toEqual([]);
+    expect(errors.filter((error) => error.path.endsWith('.action')).map(({ file: at, line, path }) => ({ file: at, line, path }))).toEqual([
+      { file: 'madarch/model.yaml', line: lineOf(file, 'action: send'), path: 'relations[0].action' },
+      { file: 'madarch/model.yaml', line: lineOf(file, 'action: send', lineOf(file, 'publishes-through-broken')), path: 'relations[1].action' },
+    ]);
+    expect(errors.filter((error) => error.path.endsWith('.action')).every((error) => error.message.includes('topic or queue'))).toBe(true);
+  });
+
+  test('an action on a relation naming an unknown interface is refused naming the relation, not lost', () => {
+    const file = model(`  - id: checkout-calls-orders
+    name: places orders
+    from: checkout-web
+    to: orders-api
+    interface: nowhere
+    action: send
+`);
+    const { model: loaded, errors, warnings } = parseModel([file]);
+
+    expect(loaded).toBeUndefined();
+    expect(warnings).toEqual([]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({ file: 'madarch/model.yaml', path: 'relations[0].interface' });
+    expect(errors[0]!.message).toContain('"nowhere"');
+  });
+
+  test('a relation without an action naming an unknown interface gets no messaging warning', () => {
+    const file = model(`  - id: checkout-calls-orders
+    name: places orders
+    from: checkout-web
+    to: orders-api
+    interface: nowhere
+`);
+    const { model: loaded, errors, warnings } = parseModel([file]);
+
+    expect(loaded).toBeUndefined();
+    expect(warnings).toEqual([]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({ file: 'madarch/model.yaml', path: 'relations[0].interface' });
+  });
 });
 
 describe('compiled-model/shape: the compiled relation keeps its action', () => {
