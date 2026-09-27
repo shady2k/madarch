@@ -15,7 +15,7 @@
   "timeRecordsExempt": [],
   "execution": {
     "development": "tdd",
-    "runMode": "subagents",
+    "runMode": "worker-sessions",
     "maxBranchDays": 2,
     "landing": "push",
     "maxWorkers": 1,
