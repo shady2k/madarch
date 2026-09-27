@@ -179,6 +179,9 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
           line(['elements', index, 'environments', environmentIndex]),
         ),
         sinceLine: line(['elements', index, 'since']),
+        evidenceLines: (element.evidence ?? []).map((_item, evidenceIndex) =>
+          line(['elements', index, 'evidence', evidenceIndex]),
+        ),
         untilLine: line(['elements', index, 'until']),
       });
     });
@@ -191,6 +194,9 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
         line: line(['interfaces', index]),
         idLine: line(['interfaces', index, 'id']),
         providerLine: line(['interfaces', index, 'provider']),
+        evidenceLines: (iface.evidence ?? []).map((_item, evidenceIndex) =>
+          line(['interfaces', index, 'evidence', evidenceIndex]),
+        ),
         contractLine: line(['interfaces', index, 'contract']),
       });
     });
@@ -214,6 +220,9 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
         actionLine: line(['relations', index, 'action']),
         transferLines,
         sinceLine: line(['relations', index, 'since']),
+        evidenceLines: (relation.evidence ?? []).map((_item, evidenceIndex) =>
+          line(['relations', index, 'evidence', evidenceIndex]),
+        ),
         untilLine: line(['relations', index, 'until']),
       });
       const warning = unnamedRelationWarning(relation, relativeFile, index, line);

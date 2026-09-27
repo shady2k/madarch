@@ -34,6 +34,24 @@ export const Evidence = Type.Object(
   {
     file: Type.String(),
     line: Type.Optional(Type.Integer({ minimum: 1 })),
+    endLine: Type.Optional(
+      Type.Integer({
+        minimum: 1,
+        description: 'The last line of the range the item names; needs `line` and may not come before it (checked when the model is loaded).',
+      }),
+    ),
+    commit: Type.Optional(
+      Type.String({
+        description:
+          'The commit the file was read at: 40 hexadecimal digits, lower case. Given together with `blob` or with neither (checked when the model is loaded).',
+      }),
+    ),
+    blob: Type.Optional(
+      Type.String({
+        description:
+          "The file's git blob id at `commit`: 40 hexadecimal digits, lower case. Given together with `commit` or with neither (checked when the model is loaded).",
+      }),
+    ),
   },
   { additionalProperties: false },
 );

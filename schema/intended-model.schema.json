@@ -81,6 +81,19 @@
                 "line": {
                   "type": "integer",
                   "minimum": 1
+                },
+                "endLine": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "The last line of the range the item names; needs `line` and may not come before it (checked when the model is loaded)."
+                },
+                "commit": {
+                  "type": "string",
+                  "description": "The commit the file was read at: 40 hexadecimal digits, lower case. Given together with `blob` or with neither (checked when the model is loaded)."
+                },
+                "blob": {
+                  "type": "string",
+                  "description": "The file's git blob id at `commit`: 40 hexadecimal digits, lower case. Given together with `commit` or with neither (checked when the model is loaded)."
                 }
               },
               "additionalProperties": false
@@ -160,6 +173,19 @@
                 "line": {
                   "type": "integer",
                   "minimum": 1
+                },
+                "endLine": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "The last line of the range the item names; needs `line` and may not come before it (checked when the model is loaded)."
+                },
+                "commit": {
+                  "type": "string",
+                  "description": "The commit the file was read at: 40 hexadecimal digits, lower case. Given together with `blob` or with neither (checked when the model is loaded)."
+                },
+                "blob": {
+                  "type": "string",
+                  "description": "The file's git blob id at `commit`: 40 hexadecimal digits, lower case. Given together with `commit` or with neither (checked when the model is loaded)."
                 }
               },
               "additionalProperties": false
@@ -274,6 +300,19 @@
                 "line": {
                   "type": "integer",
                   "minimum": 1
+                },
+                "endLine": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "The last line of the range the item names; needs `line` and may not come before it (checked when the model is loaded)."
+                },
+                "commit": {
+                  "type": "string",
+                  "description": "The commit the file was read at: 40 hexadecimal digits, lower case. Given together with `blob` or with neither (checked when the model is loaded)."
+                },
+                "blob": {
+                  "type": "string",
+                  "description": "The file's git blob id at `commit`: 40 hexadecimal digits, lower case. Given together with `commit` or with neither (checked when the model is loaded)."
                 }
               },
               "additionalProperties": false
