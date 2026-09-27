@@ -1,5 +1,5 @@
 import { Type, type Static } from 'typebox';
-import { Binding, ElementKind, Evidence, ID_PATTERN_SOURCE, Transfer } from './schema.js';
+import { Binding, ElementKind, Evidence, ID_PATTERN_SOURCE, RelationAction, Transfer } from './schema.js';
 
 /**
  * The TypeBox schemas of the compiled model, `model.json`: the one source
@@ -105,6 +105,7 @@ export const CompiledRelation = Type.Object(
     to: Type.String(),
     refines: Type.Optional(Type.String()),
     interface: Type.Optional(Type.String()),
+    action: Type.Optional(RelationAction),
     interaction: Type.Boolean({ description: 'True when the relation carries an interface or transfers: it is an interaction.' }),
     binding: Type.Optional(Binding),
     bindingByEnvironment: Type.Optional(

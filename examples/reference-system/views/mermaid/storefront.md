@@ -25,7 +25,7 @@ flowchart LR
   customer -->|"browses and buys in the app"| mobile_app
   customer -->|"browses and buys on the web"| web_shop
   loyalty_api -->|"stores points"| loyalty_db
-  loyalty_api -->|"awards points for placed orders"| platform
+  loyalty_api -.->|"subscribes to order-placed"| platform
   mobile_app -->|"loads screens"| mobile_bff
   mobile_app -->|"tokenizes the card"| payments
   mobile_bff -->|"shows and edits the account"| accounts_api

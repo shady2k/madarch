@@ -125,7 +125,8 @@ function renderPage(view: View, scope: ShownElement | undefined): string {
     lines.push('  end');
   }
   for (const element of view.elements.filter((element) => element.place === 'neighbour')) lines.push(`  ${node(element, ids)}`);
-  for (const arrow of view.arrows) lines.push(`  ${ids.get(arrow.from)} -->|"${mermaidText(arrow.label)}"| ${ids.get(arrow.to)}`);
+  // A dotted link for an arrow of topic or queue relations that mark their action (views/labels).
+  for (const arrow of view.arrows) lines.push(`  ${ids.get(arrow.from)} ${arrow.dashed ? '-.->' : '-->'}|"${mermaidText(arrow.label)}"| ${ids.get(arrow.to)}`);
   const externals = view.elements.filter((element) => element.kind === 'external');
   if (externals.length > 0) lines.push(EXTERNAL_CLASS, `  class ${externals.map((element) => ids.get(element.id)).join(',')} external`);
   lines.push('```', '');

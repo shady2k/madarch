@@ -141,6 +141,7 @@ relations:
     from: products-api
     to: event-bus
     interface: topic-product-changed
+    action: send
   - id: prices-stores-prices
     name: stores list prices
     from: prices-api
@@ -150,6 +151,7 @@ relations:
     from: prices-api
     to: event-bus
     interface: topic-price-changed
+    action: send
   - id: search-queries-index
     name: queries and updates the index
     from: search-api
@@ -159,16 +161,19 @@ relations:
     from: search-api
     to: event-bus
     interface: topic-product-changed
+    action: receive
   - id: search-indexes-prices
     name: reindexes changed prices
     from: search-api
     to: event-bus
     interface: topic-price-changed
+    action: receive
   - id: search-indexes-stock
     name: updates availability in the index
     from: search-api
     to: event-bus
     interface: topic-stock-changed
+    action: receive
   - id: media-stores-images
     name: stores product images
     from: media-api
@@ -182,6 +187,7 @@ relations:
     from: recommendations-api
     to: event-bus
     interface: topic-order-placed
+    action: receive
   - id: recommendations-read-products
     name: reads product details
     from: recommendations-api

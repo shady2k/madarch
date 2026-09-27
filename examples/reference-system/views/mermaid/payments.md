@@ -24,7 +24,7 @@ flowchart LR
   payments_api -->|"screens the payment for fraud"| fraud_api
   payments_api -->|"charges the card; refunds the payment"| payment_provider
   payments_api -->|"records payments"| payments_db
-  payments_api -->|"3 relations, see 9"| platform
+  payments_api -.->|"3 relations, see 9"| platform
   reconciliation_job -->|"downloads settlement reports"| payment_provider
   reconciliation_job -->|"matches settlements against payments"| payments_db
   reconciliation_job -->|"records mismatches"| reconciliation_db

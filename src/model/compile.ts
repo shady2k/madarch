@@ -147,6 +147,7 @@ function compileRelation(
   if (!isUnnamed(relation.name)) compiled.name = relation.name;
   if (relation.refines !== undefined) compiled.refines = relation.refines;
   if (relation.interface !== undefined) compiled.interface = relation.interface;
+  if (relation.action !== undefined) compiled.action = relation.action;
   if (relation.binding !== undefined) {
     compiled.binding = rebuildBinding(relation.binding);
     compiled.bindingByEnvironment = compileBindingByEnvironment(relation.binding, presence.environmentIds, environments);

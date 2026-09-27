@@ -20,16 +20,16 @@ flowchart LR
   analytics_pipeline -->|"loads events for reporting"| analytics_warehouse
   analytics_pipeline -->|"streams every business event"| event_bus
   auth_api -->|"stores credentials and sessions"| auth_db
-  catalog -->|"6 relations, see 4"| event_bus
-  fulfilment -->|"7 relations, see 5"| event_bus
-  notification_api -->|"3 relations, see 6"| event_bus
+  catalog -.->|"6 relations, see 4"| event_bus
+  fulfilment -.->|"7 relations, see 5"| event_bus
+  notification_api -.->|"3 relations, see 6"| event_bus
   notification_api -->|"sends emails; sends text messages"| messaging_provider
   notification_api -->|"logs sent messages"| notification_db
   notification_api -->|"looks up contact details"| storefront
-  ordering -->|"8 relations, see 10"| event_bus
-  payments -->|"3 relations, see 11"| event_bus
+  ordering -.->|"8 relations, see 10"| event_bus
+  payments -.->|"3 relations, see 11"| event_bus
   storefront -->|"signs the customer in"| auth_api
-  storefront -->|"awards points for placed orders"| event_bus
+  storefront -.->|"subscribes to order-placed"| event_bus
   classDef external fill:#f4f4f4,stroke:#888888,stroke-dasharray:5 5
   class messaging_provider external
 ```

@@ -18,15 +18,15 @@ flowchart LR
   storefront["Storefront"]
   delivery_carrier -->|"reports tracking events"| shipping_api
   inventory_api -->|"stores stock levels"| inventory_db
-  inventory_api -->|"3 relations, see 3"| platform
+  inventory_api -.->|"3 relations, see 3"| platform
   ordering -->|"checks stock"| inventory_api
   ordering -->|"quotes delivery options"| shipping_api
   shipping_api -->|"books the delivery"| delivery_carrier
-  shipping_api -->|"2 relations, see 7"| platform
+  shipping_api -.->|"2 relations, see 7"| platform
   shipping_api -->|"stores shipments"| shipping_db
   storefront -->|"shows parcel tracking"| shipping_api
   warehouse_api -->|"deducts picked stock"| inventory_api
-  warehouse_api -->|"2 relations, see 11"| platform
+  warehouse_api -.->|"2 relations, see 11"| platform
   warehouse_api -->|"stores pick lists"| warehouse_db
   warehouse_app -->|"2 relations, see 13"| warehouse_api
   warehouse_operator -->|"picks and packs orders"| warehouse_app

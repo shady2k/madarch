@@ -8,6 +8,7 @@
  */
 import type { CompiledModel, CompiledRelation } from '../model/compile.js';
 import { byCodePoint } from '../model/order.js';
+import { messagingOf } from '../model/validate.js';
 import type { ElementAnswer, QueryEngine, QueryError, QueryTime, ViewRelation } from '../query/types.js';
 
 /** Where a shown element sits in its view. */
@@ -28,7 +29,9 @@ export interface ShownElement {
 /**
  * One arrow a view draws: the shown pair, every relation id behind it (code
  * point order), their distinct names in that order (views/labels, for the
- * view's table) and its short label.
+ * view's table) and its short label. Drawn from the initiator, as its
+ * relations go; `dashed` when every relation behind it marks its action on a
+ * topic or queue, left out otherwise.
  */
 export interface Arrow {
   from: string;
@@ -36,6 +39,7 @@ export interface Arrow {
   relationIds: string[];
   names: string[];
   label: string;
+  dashed?: true;
 }
 
 /** One view of the set: the landscape (no `scope`) or the view of one element with children. */
@@ -149,7 +153,7 @@ function assemble(
   const arrows: Arrow[] = [];
   for (const relation of [...relations].sort((a, b) => byCodePoint(a.from, b.from) || byCodePoint(a.to, b.to))) {
     const relationIds = [...relation.relationIds].sort(byCodePoint);
-    const names = namesOf(relationIds, (relationId, problem) => {
+    const words = namesOf.words(relationIds, (relationId, problem) => {
       const error: ViewSetError = {
         message: `${viewName(scope)}: the arrow from "${relation.from}" to "${relation.to}" stands for the relation "${relationId}", ${problem}`,
         relationId,
@@ -157,7 +161,11 @@ function assemble(
       if (scope !== undefined) error.scope = scope;
       errors.push(error);
     });
-    arrows.push({ from: relation.from, to: relation.to, relationIds, names, label: label(relationIds, names, arrows.length + 1) });
+    const names = distinct(words.map((word) => word.name));
+    const labels = distinct(words.map((word) => word.label));
+    const arrow: Arrow = { from: relation.from, to: relation.to, relationIds, names, label: label(relationIds, labels, arrows.length + 1) };
+    if (words.length === relationIds.length && words.every((word) => word.marked)) arrow.dashed = true;
+    arrows.push(arrow);
   }
 
   const view: View = { elements: shown, arrows };
@@ -172,14 +180,34 @@ function shownElement(element: ElementAnswer, place: Place, withChildren: Readon
   return { ...element, place, hasView: withChildren.has(element.id) };
 }
 
-export type Namer = (relationIds: readonly string[], fail: (relationId: string, problem: string) => void) => string[];
+type Fail = (relationId: string, problem: string) => void;
+
+/** What one relation is called (views/labels): its name for the table, its label on an arrow, and whether it marks its action on a topic or queue. */
+export interface RelationWords {
+  name: string;
+  label: string;
+  marked: boolean;
+}
+
+export interface Namer {
+  /** The relations' distinct labels, in relation-id order: what an arrow of them says. */
+  (relationIds: readonly string[], fail: Fail): string[];
+  /** Each relation's words, in relation-id order; a relation that fails is left out. */
+  words(relationIds: readonly string[], fail: Fail): RelationWords[];
+}
+
+const ROLES = {
+  topic: { send: 'publishes', receive: 'subscribes to' },
+  queue: { send: 'sends to', receive: 'receives from' },
+} as const;
 
 /**
- * The names of the relations behind an arrow (views/labels): each
- * relation's name, or for one without a name its interface's contract, or
- * its id where it names no interface; in relation-id order, a name repeated
- * among them kept once. The LikeC4 workspace labels each of its relations
- * with it too, one relation id at a time.
+ * The words of the relations behind an arrow (views/labels): each relation's
+ * name, or for one without a name its interface's contract, or its id where
+ * it names no interface; its label is that name, except for a relation that
+ * marks its action on a topic or queue, labelled by its role there
+ * ("subscribes to order-placed"). The LikeC4 workspace labels each of its
+ * relations with it too, one relation id at a time.
  */
 export function namer(model: CompiledModel): Namer {
   const relations = new Map(model.relations.map((relation) => [relation.id, relation]));
@@ -191,8 +219,8 @@ export function namer(model: CompiledModel): Namer {
     return contracts.get(relation.interface);
   };
 
-  return (relationIds, fail) => {
-    const names: string[] = [];
+  const words = (relationIds: readonly string[], fail: Fail): RelationWords[] => {
+    const found: RelationWords[] = [];
     for (const relationId of relationIds) {
       const relation = relations.get(relationId);
       if (relation === undefined) {
@@ -204,20 +232,33 @@ export function namer(model: CompiledModel): Namer {
         fail(relationId, `whose interface "${relation.interface}" the compiled model does not hold`);
         continue;
       }
-      if (!names.includes(name)) names.push(name);
+      // Loading refused an action on anything but a topic or queue, so a
+      // marked relation's contract names one.
+      const messaging = relation.action === undefined || relation.interface === undefined ? undefined : messagingOf(contracts.get(relation.interface) ?? '');
+      if (relation.action !== undefined && messaging !== undefined) {
+        found.push({ name, label: `${ROLES[messaging.kind][relation.action]} ${messaging.name}`, marked: true });
+      } else found.push({ name, label: name, marked: false });
     }
-    return names;
+    return found;
   };
+
+  const labels = (relationIds: readonly string[], fail: Fail): string[] => distinct(words(relationIds, fail).map((word) => word.label));
+  return Object.assign(labels, { words });
+}
+
+/** The values in their order, each kept once. */
+function distinct(values: readonly string[]): string[] {
+  return [...new Set(values)];
 }
 
 /**
- * An arrow's short label (views/labels): one relation's name as it is;
- * several relations' names joined by "; " while that is at most
+ * An arrow's short label (views/labels): one relation's label as it is;
+ * several relations' distinct labels joined by "; " while that is at most
  * `LISTED_LENGTH` code points, otherwise the number of relations and the
  * arrow's row in the view's table.
  */
-function label(relationIds: readonly string[], names: readonly string[], row: number): string {
-  const listed = names.join('; ');
+function label(relationIds: readonly string[], labels: readonly string[], row: number): string {
+  const listed = labels.join('; ');
   if (relationIds.length === 1 || [...listed].length <= LISTED_LENGTH) return listed;
   return `${relationIds.length} relations, see ${row}`;
 }

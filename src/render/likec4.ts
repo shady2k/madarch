@@ -139,6 +139,8 @@ interface WorkspaceRelation {
   from: string;
   to: string;
   label: string;
+  /** Marks its action on a topic or queue: drawn dashed (views/labels). */
+  dashed: boolean;
 }
 
 /**
@@ -201,14 +203,16 @@ export function renderLikeC4Workspace(engine: QueryEngine, model: CompiledModel,
     for (const id of pair.relationIds) {
       // Labelled first, drawn or not: a relation the compiled model does not
       // hold is an error even where LikeC4 could not draw it anyway.
-      const label = namesOf([id], (relationId, problem) => {
+      const words = namesOf.words([id], (relationId, problem) => {
         errors.push({ message: `the workspace: the arrow from "${pair.from}" to "${pair.to}" stands for the relation "${relationId}", ${problem}`, relationId });
-      }).join('; ');
+      });
+      const label = words.map((word) => word.label).join('; ');
+      const dashed = words.length === 1 && words[0]!.marked;
       if (reason !== undefined) {
         leaveOut(id, pair.from, pair.to, reason);
         continue;
       }
-      relations.push({ id, from: pair.from, to: pair.to, label });
+      relations.push({ id, from: pair.from, to: pair.to, label, dashed });
     }
   }
   if (errors.length > 0) return { errors };
@@ -241,7 +245,9 @@ export function renderLikeC4Workspace(engine: QueryEngine, model: CompiledModel,
   nest(undefined, '  ');
   if (relations.length > 0) lines.push('');
   for (const relation of relations.sort((a, b) => byCodePoint(a.id, b.id))) {
-    lines.push(`  ${fqns.get(relation.from)} -> ${fqns.get(relation.to)} ${text(relation.label)}`);
+    const line = `  ${fqns.get(relation.from)} -> ${fqns.get(relation.to)} ${text(relation.label)}`;
+    if (relation.dashed) lines.push(`${line} {`, '    style {', '      line dashed', '    }', '  }');
+    else lines.push(line);
   }
   lines.push('}', '', 'views {');
   for (const view of viewSet.views) {

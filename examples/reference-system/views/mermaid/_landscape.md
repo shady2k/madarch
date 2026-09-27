@@ -12,18 +12,18 @@ flowchart LR
   payments["Payments"]
   platform["Platform"]
   storefront["Storefront"]
-  catalog -->|"6 relations, see 1"| platform
+  catalog -.->|"6 relations, see 1"| platform
   customer -->|"2 relations, see 2"| storefront
   delivery_carrier -->|"reports tracking events"| fulfilment
   fulfilment -->|"books the delivery"| delivery_carrier
-  fulfilment -->|"7 relations, see 5"| platform
+  fulfilment -.->|"7 relations, see 5"| platform
   ordering -->|"reads list prices"| catalog
   ordering -->|"checks stock; quotes delivery options"| fulfilment
   ordering -->|"takes payment"| payments
-  ordering -->|"8 relations, see 9"| platform
+  ordering -.->|"8 relations, see 9"| platform
   payment_provider -->|"reports payment outcomes"| payments
   payments -->|"3 relations, see 11"| payment_provider
-  payments -->|"3 relations, see 12"| platform
+  payments -.->|"3 relations, see 12"| platform
   platform -->|"sends emails; sends text messages"| messaging_provider
   platform -->|"looks up contact details"| storefront
   storefront -->|"8 relations, see 15"| catalog

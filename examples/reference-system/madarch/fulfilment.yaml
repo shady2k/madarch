@@ -76,16 +76,19 @@ relations:
     from: inventory-api
     to: event-bus
     interface: topic-order-placed
+    action: receive
   - id: inventory-releases-stock
     name: releases stock of cancelled orders
     from: inventory-api
     to: event-bus
     interface: topic-order-cancelled
+    action: receive
   - id: inventory-publishes-changes
     name: publishes stock-changed
     from: inventory-api
     to: event-bus
     interface: topic-stock-changed
+    action: send
 
   - id: operator-picks-and-packs
     name: picks and packs orders
@@ -110,6 +113,7 @@ relations:
     from: warehouse-api
     to: event-bus
     interface: topic-order-confirmed
+    action: receive
   - id: warehouse-adjusts-stock
     name: deducts picked stock
     from: warehouse-api
@@ -120,6 +124,7 @@ relations:
     from: warehouse-api
     to: event-bus
     interface: topic-parcel-packed
+    action: send
 
   - id: shipping-stores-shipments
     name: stores shipments
@@ -130,6 +135,7 @@ relations:
     from: shipping-api
     to: event-bus
     interface: topic-parcel-packed
+    action: receive
   - id: shipping-books-delivery
     name: books the delivery
     from: shipping-api
@@ -149,6 +155,7 @@ relations:
     from: shipping-api
     to: event-bus
     interface: topic-shipment-dispatched
+    action: send
   - id: web-shop-tracks-parcel
     name: shows parcel tracking
     from: web-shop

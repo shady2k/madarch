@@ -208,6 +208,7 @@ relations:
     from: orders-api
     to: event-bus
     interface: topic-order-placed
+    action: send
     transfers:
       - direction: forward
         confidentiality: confidential
@@ -217,26 +218,31 @@ relations:
     from: orders-api
     to: event-bus
     interface: topic-payment-captured
+    action: receive
   - id: orders-cancels-unpaid
     name: cancels unpaid orders
     from: orders-api
     to: event-bus
     interface: topic-payment-failed
+    action: receive
   - id: orders-publishes-confirmed
     name: publishes order-confirmed
     from: orders-api
     to: event-bus
     interface: topic-order-confirmed
+    action: send
   - id: orders-publishes-cancelled
     name: publishes order-cancelled
     from: orders-api
     to: event-bus
     interface: topic-order-cancelled
+    action: send
   - id: orders-marks-shipped
     name: marks orders as shipped
     from: orders-api
     to: event-bus
     interface: topic-shipment-dispatched
+    action: receive
   - id: web-shop-shows-orders
     name: shows the order history
     from: web-shop
@@ -271,11 +277,13 @@ relations:
     from: returns-api
     to: event-bus
     interface: topic-return-approved
+    action: send
   - id: invoices-issue-for-orders
     name: issues invoices for confirmed orders
     from: invoices-api
     to: event-bus
     interface: topic-order-confirmed
+    action: receive
   - id: invoices-archives-pdfs
     name: archives invoice PDFs
     from: invoices-api

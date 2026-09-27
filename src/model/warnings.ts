@@ -1,5 +1,6 @@
 import type { ModelWarning } from './errors.js';
 import type { Relation } from './schema.js';
+import { messagingOf, type PositionedRelation } from './validate.js';
 import { segmentsToPath, type PathSegment } from './yaml-position.js';
 
 /**
@@ -32,5 +33,27 @@ export function unnamedRelationWarning(
     line: line(segments),
     path: segmentsToPath(segments),
     message: `relation "${relation.id}" ${problem}: give it a name saying what it does in a few words, such as "places orders"`,
+  };
+}
+
+/**
+ * The warning for a relation through a topic or queue that does not say
+ * whether its initiator sends or receives (intended-model/messaging), or none.
+ * Reported at the relation itself (`relations[i]`, the line its item starts
+ * on). `contracts` maps interface ids to their contracts; an interface it does
+ * not hold was not declared by any readable file, and is reference checking's
+ * to report.
+ */
+export function unmarkedMessagingWarning(entry: PositionedRelation, contracts: ReadonlyMap<string, string>): ModelWarning | undefined {
+  const { relation } = entry;
+  if (relation.action !== undefined || relation.interface === undefined) return undefined;
+  const contract = contracts.get(relation.interface);
+  const messaging = contract === undefined ? undefined : messagingOf(contract);
+  if (messaging === undefined) return undefined;
+  return {
+    file: entry.file,
+    line: entry.line,
+    path: segmentsToPath(['relations', entry.index]),
+    message: `relation "${relation.id}" goes through the ${messaging.kind} "${messaging.name}" without saying how: add "action: send" if it publishes or sends to it, "action: receive" if it subscribes to it or receives from it`,
   };
 }

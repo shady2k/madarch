@@ -722,3 +722,79 @@ describe("the reference system's committed views", () => {
     }
   });
 });
+
+describe('views/labels for a topic or queue', () => {
+  test('event-labels: a relation marking its action is labelled by its role and drawn dashed, still from the initiator; its name stays for the table', () => {
+    const landscape = viewOf(viewsOf('views-events'), undefined);
+
+    expect(landscape.arrows).toStrictEqual([
+      { from: 'checkout-web', to: 'ordering', relationIds: ['checkout-calls-orders'], names: ['places orders'], label: 'places orders' },
+      {
+        from: 'fulfilment',
+        to: 'jobs',
+        relationIds: ['inventory-asks-restock'],
+        names: ['asks for restock'],
+        label: 'sends to restock',
+        dashed: true,
+      },
+      {
+        from: 'fulfilment',
+        to: 'platform',
+        relationIds: ['inventory-reserves-stock', 'shipping-prepares-parcels'],
+        names: ['reserves stock for placed orders', 'prepares parcels for placed orders'],
+        label: 'subscribes to order-placed',
+        dashed: true,
+      },
+      {
+        from: 'ordering',
+        to: 'platform',
+        relationIds: ['orders-publishes-placed', 'orders-worker-publishes-cancellations'],
+        names: ['publishes order-placed', 'publishes cancellations'],
+        label: '2 relations, see 4',
+      },
+    ]);
+  });
+
+  test('in the view of a domain each relation is its own arrow: publishes, subscribes to, and an unmarked topic relation labelled by its name, solid', () => {
+    const ordering = viewOf(viewsOf('views-events'), 'ordering');
+    const fulfilment = viewOf(viewsOf('views-events'), 'fulfilment');
+
+    expect(ordering.arrows.filter((arrow) => arrow.to === 'platform').map(({ from, label, dashed }) => ({ from, label, dashed }))).toEqual([
+      { from: 'orders-api', label: 'publishes order-placed', dashed: true },
+      { from: 'orders-worker', label: 'publishes cancellations', dashed: undefined },
+    ]);
+    expect(fulfilment.arrows.map(({ from, to, label }) => [from, to, label])).toEqual([
+      ['inventory-api', 'jobs', 'sends to restock'],
+      ['inventory-api', 'platform', 'subscribes to order-placed'],
+      ['shipping-api', 'platform', 'subscribes to order-placed'],
+    ]);
+    expect(fulfilment.arrows.find((arrow) => arrow.to === 'jobs')).toHaveProperty('dashed', true);
+  });
+
+  test('a queue relation that receives is labelled "receives from"', () => {
+    const { model, errors } = loadModel(fixture('views-events'));
+    expect(errors).toEqual([]);
+    const compiled = compileModel(model!);
+    const restock = compiled.relations.find((relation) => relation.id === 'inventory-asks-restock')!;
+    restock.action = 'receive';
+    const history = createSqliteHistory({ clock: fakeClock(DAY(1)) });
+    expect(history.store({ source: 's', commit: 'receive', committedAt: DAY(1), model: compiled }).errors).toEqual([]);
+    const engine = createLadybugEngine();
+    engine.rebuild(history.assertions());
+    const { views } = buildViewSet(engine, compiled, AT);
+    engine.close();
+    history.close();
+
+    expect(viewOf(views!, undefined).arrows.find((arrow) => arrow.to === 'jobs')?.label).toBe('receives from restock');
+  });
+
+  test('mermaid: a dashed arrow is drawn with a dotted link, a solid one as before', () => {
+    const page = pagesOf('views-events').get('_landscape.md')!;
+
+    expect(page).toContain('-.->|"subscribes to order-placed"|');
+    expect(page).toContain('-.->|"sends to restock"|');
+    expect(page).toContain('-->|"places orders"|');
+    expect(page).toContain('-->|"2 relations, see 4"|');
+    expect(page).not.toContain('-.->|"places orders"|');
+  });
+});

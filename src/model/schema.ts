@@ -117,6 +117,12 @@ export const Binding = Type.Object(
 );
 export type Binding = Static<typeof Binding>;
 
+export const RelationAction = Type.Union([Type.Literal('send'), Type.Literal('receive')], {
+  description:
+    'How the initiator uses the topic or queue the relation goes through: "send" publishes or sends to it, "receive" subscribes to it or receives from it. Only on a relation through an interface of kind topic or queue; the relation still goes from the initiator to the broker.',
+});
+export type RelationAction = Static<typeof RelationAction>;
+
 export const Relation = Type.Object(
   {
     id: Id,
@@ -130,6 +136,7 @@ export const Relation = Type.Object(
     to: Type.String(),
     refines: Type.Optional(Type.String()),
     interface: Type.Optional(Type.String()),
+    action: Type.Optional(RelationAction),
     binding: Type.Optional(Binding),
     transfers: Type.Optional(Type.Array(Transfer)),
     evidence: Type.Optional(Type.Array(Evidence)),

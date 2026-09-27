@@ -19,7 +19,7 @@ import {
   type PositionedZone,
   type TransferLines,
 } from './validate.js';
-import { unnamedRelationWarning } from './warnings.js';
+import { unmarkedMessagingWarning, unnamedRelationWarning } from './warnings.js';
 import { jsonPointerToSegments, lineForPath, segmentsToPath, type PathSegment } from './yaml-position.js';
 
 export interface LoadResult {
@@ -86,7 +86,7 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
   }
 
   const errors: ModelError[] = [];
-  const warnings: ModelWarning[] = [];
+  const unnamed = new Map<PositionedRelation, ModelWarning>();
   const positioned: PositionedModel = {
     elements: [],
     interfaces: [],
@@ -211,12 +211,13 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
         toLine: line(['relations', index, 'to']),
         refinesLine: line(['relations', index, 'refines']),
         interfaceLine: line(['relations', index, 'interface']),
+        actionLine: line(['relations', index, 'action']),
         transferLines,
         sinceLine: line(['relations', index, 'since']),
         untilLine: line(['relations', index, 'until']),
       });
       const warning = unnamedRelationWarning(relation, relativeFile, index, line);
-      if (warning !== undefined) warnings.push(warning);
+      if (warning !== undefined) unnamed.set(positioned.relations.at(-1)!, warning);
     });
 
     (parsed.categories ?? []).forEach((category, index) => {
@@ -278,6 +279,18 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
   // that does not stop reference and the other checks from running over
   // every file that did pass — so this runs, and its errors join the ones
   // above, even when `errors` is already non-empty.
+  // Warnings come once every file is read: whether a relation goes through a
+  // topic or queue depends on an interface any file may declare. In file
+  // order, then in the order written, a relation's own warnings together.
+  const contracts = new Map(positioned.interfaces.map((entry) => [entry.iface.id, entry.iface.contract]));
+  const warnings: ModelWarning[] = [];
+  for (const entry of positioned.relations) {
+    const noName = unnamed.get(entry);
+    if (noName !== undefined) warnings.push(noName);
+    const noAction = unmarkedMessagingWarning(entry, contracts);
+    if (noAction !== undefined) warnings.push(noAction);
+  }
+
   const validationErrors = validateModel(positioned, extraKnownIds);
   const allErrors = [...errors, ...validationErrors];
   if (allErrors.length > 0) {

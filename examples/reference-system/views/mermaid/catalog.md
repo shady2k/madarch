@@ -21,15 +21,15 @@ flowchart LR
   storefront["Storefront"]
   media_api -->|"stores product images"| media_bucket
   ordering -->|"reads list prices"| prices_api
-  prices_api -->|"publishes price-changed"| platform
+  prices_api -.->|"publishes price-changed"| platform
   prices_api -->|"stores list prices"| prices_db
-  products_api -->|"publishes product-changed"| platform
+  products_api -.->|"publishes product-changed"| platform
   products_api -->|"stores the catalogue"| products_db
-  recommendations_api -->|"learns from placed orders"| platform
+  recommendations_api -.->|"subscribes to order-placed"| platform
   recommendations_api -->|"reads product details"| products_api
   recommendations_api -->|"caches recommendations"| recommendations_cache
   reviews_api -->|"stores reviews"| reviews_db
-  search_api -->|"3 relations, see 11"| platform
+  search_api -.->|"3 relations, see 11"| platform
   search_api -->|"queries and updates the index"| search_index
   storefront -->|"loads product images"| media_api
   storefront -->|"shows product pages"| products_api

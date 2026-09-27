@@ -28,12 +28,12 @@ flowchart LR
   checkout_api -->|"applies promotions"| promotions_api
   checkout_api -->|"calculates tax"| tax_api
   invoices_api -->|"archives invoice PDFs"| invoice_archive
-  invoices_api -->|"issues invoices for confirmed orders"| platform
+  invoices_api -.->|"subscribes to order-confirmed"| platform
   orders_api -->|"stores orders"| orders_db
-  orders_api -->|"6 relations, see 11"| platform
+  orders_api -.->|"6 relations, see 11"| platform
   promotions_api -->|"stores promotion rules"| promotions_db
   returns_api -->|"checks the returned order"| orders_api
-  returns_api -->|"publishes return-approved"| platform
+  returns_api -.->|"publishes return-approved"| platform
   returns_api -->|"stores returns"| returns_db
   storefront -->|"4 relations, see 16"| checkout_api
   storefront -->|"downloads an invoice"| invoices_api

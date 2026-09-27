@@ -140,16 +140,19 @@ relations:
     from: payments-api
     to: event-bus
     interface: topic-payment-captured
+    action: send
   - id: payments-publishes-failed
     name: publishes payment-failed
     from: payments-api
     to: event-bus
     interface: topic-payment-failed
+    action: send
   - id: payments-refunds-returns
     name: refunds approved returns
     from: payments-api
     to: event-bus
     interface: topic-return-approved
+    action: receive
   - id: payments-refunds-card
     name: refunds the payment
     from: payments-api

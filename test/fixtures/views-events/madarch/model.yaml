@@ -1,0 +1,88 @@
+version: 1
+
+elements:
+  - id: checkout-web
+    kind: service
+    name: Checkout web
+  - id: ordering
+    kind: domain
+    name: Ordering
+  - id: orders-api
+    kind: service
+    name: Orders API
+    parent: ordering
+  - id: orders-worker
+    kind: service
+    name: Orders worker
+    parent: ordering
+  - id: fulfilment
+    kind: domain
+    name: Fulfilment
+  - id: inventory-api
+    kind: service
+    name: Inventory API
+    parent: fulfilment
+  - id: shipping-api
+    kind: service
+    name: Shipping API
+    parent: fulfilment
+  - id: platform
+    kind: domain
+    name: Platform
+  - id: event-bus
+    kind: broker
+    name: Event bus
+    parent: platform
+  - id: jobs
+    kind: broker
+    name: Jobs
+
+interfaces:
+  - id: orders-http
+    provider: orders-api
+    contract: http::POST::/api/orders
+  - id: topic-order-placed
+    provider: event-bus
+    contract: topic::order-placed
+  - id: topic-order-cancelled
+    provider: event-bus
+    contract: topic::order-cancelled
+  - id: queue-restock
+    provider: jobs
+    contract: queue::restock
+
+relations:
+  - id: checkout-calls-orders
+    name: places orders
+    from: checkout-web
+    to: orders-api
+    interface: orders-http
+  - id: orders-publishes-placed
+    name: publishes order-placed
+    from: orders-api
+    to: event-bus
+    interface: topic-order-placed
+    action: send
+  - id: orders-worker-publishes-cancellations
+    name: publishes cancellations
+    from: orders-worker
+    to: event-bus
+    interface: topic-order-cancelled
+  - id: inventory-reserves-stock
+    name: reserves stock for placed orders
+    from: inventory-api
+    to: event-bus
+    interface: topic-order-placed
+    action: receive
+  - id: shipping-prepares-parcels
+    name: prepares parcels for placed orders
+    from: shipping-api
+    to: event-bus
+    interface: topic-order-placed
+    action: receive
+  - id: inventory-asks-restock
+    name: asks for restock
+    from: inventory-api
+    to: jobs
+    interface: queue-restock
+    action: send
