@@ -122,6 +122,31 @@ describe('the model check', () => {
         expect(report.errors[0]!.message).toContain('no-such-revision');
       });
     });
+
+    test('a madarch folder holding no *.yaml file is unreadable, naming the folder', () => {
+      withRepo((repo) => {
+        repo.write('README.md', 'nothing but a readme\n');
+        repo.commit('a repository with an empty model folder');
+        mkdirSync(join(repo.path, 'madarch'));
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('unreadable');
+        expect(report.errors).toHaveLength(1);
+        expect(report.errors[0]!.message).toContain('madarch');
+        expect(report.errors[0]!.message).toContain('*.yaml');
+      });
+    });
+
+    test('a madarch folder holding only *.yml files is unreadable too: the script exits 2', () => {
+      withRepo((repo) => {
+        repo.write('madarch/model.yml', 'version: 1\n\nelements: []\n');
+        repo.commit('a repository with a .yml model');
+
+        expect(runScript(repo.path).status).toBe(2);
+      });
+    });
+
   });
 
   describe('evidence-resolves', () => {
@@ -262,6 +287,93 @@ describe('the model check', () => {
         expect(report.errors[0]!.id).toBe('core');
         expect(report.errors[0]!.message).toContain('src/core.ts');
         expect(report.errors[0]!.message).toContain('does not exist');
+      });
+    });
+
+    test("an item whose file is a folder at its commit fails, saying it names a folder, not a file", () => {
+      withRepo((repo) => {
+        repo.write('src/lib/helper.ts', 'export const helper = 1;\n');
+        repo.write('src/core.ts', numberedLines(30));
+        const commit = repo.commit('the sources');
+        // `rev-parse commit:folder` answers the folder's tree id, which an
+        // item may carry as its blob; the item's file is no file at all.
+        const tree = repo.blob('src/lib', commit);
+        const coreBlob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${coreBlob}`,
+          '  - id: keeper',
+          '    kind: service',
+          '    name: Keeper',
+          '    evidence:',
+          '      - file: src/lib',
+          `        commit: ${commit}`,
+          `        blob: ${tree}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/', 'excluded', 'the sources']]));
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('failed');
+        const folder = report.errors.find((f) => f.id === 'keeper');
+        expect(folder?.message).toContain('element "keeper"');
+        expect(folder?.message).toContain('src/lib');
+        expect(folder?.message).toContain('is a folder');
+        expect(folder?.message).toContain('not a file');
+        expect(report.notes.find((f) => f.id === 'keeper')).toBeUndefined();
+      });
+    });
+
+    test('a folder an item names is not accepted through the history search either: only blob entries count', () => {
+      withRepo((repo) => {
+        repo.write('README.md', 'base\n');
+        repo.commit('base');
+        expect(repo.run(['checkout', '-b', 'feature']).ok).toBe(true);
+        repo.write('src/lib/helper.ts', 'export const helper = 1;\n');
+        const lostCommit = repo.commit('the library');
+        const lostTree = repo.blob('src/lib', lostCommit);
+        expect(repo.run(['checkout', '-q', 'main']).ok).toBe(true);
+        expect(repo.run(['merge', '--squash', 'feature']).ok).toBe(true);
+        repo.commit('the library, squashed');
+        expect(repo.run(['branch', '--delete', '--force', 'feature']).ok).toBe(true);
+        expect(repo.run(['reflog', 'expire', '--expire=now', '--all']).ok).toBe(true);
+        expect(repo.run(['gc', '--prune=now', '--quiet']).ok).toBe(true);
+        expect(repo.run(['cat-file', '-e', `${lostCommit}^{commit}`]).ok).toBe(false);
+
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: keeper',
+          '    kind: service',
+          '    name: Keeper',
+          '    evidence:',
+          '      - file: src/lib',
+          `        commit: ${lostCommit}`,
+          `        blob: ${lostTree}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['README.md', 'excluded', 'the readme'], ['src/', 'excluded', 'the library']]));
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('failed');
+        const folder = report.errors.find((f) => f.id === 'keeper');
+        expect(folder?.message).toContain('nowhere in the history');
+        expect(report.notes.find((f) => f.id === 'keeper')).toBeUndefined();
       });
     });
 
@@ -978,6 +1090,88 @@ describe('the model check', () => {
         expect(report.stale[0]!.id).toBe('core');
         expect(report.stale[0]!.message).toContain('gone');
         expect(report.stale[0]!.message).toContain(blob);
+      });
+    });
+
+    test('a path that is a folder at the checked revision is stale as not a file, not as file gone', () => {
+      withRepo((repo) => {
+        repo.write('src/lib', 'export const lib = 1;\n');
+        repo.write('src/core.ts', numberedLines(30));
+        const oldCommit = repo.commit('lib is a file');
+        const libBlob = repo.blob('src/lib', oldCommit);
+        const coreBlob = repo.blob('src/core.ts', oldCommit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: lib',
+          '    kind: service',
+          '    name: Lib',
+          '    evidence:',
+          '      - file: src/lib',
+          `        commit: ${oldCommit}`,
+          `        blob: ${libBlob}`,
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${oldCommit}`,
+          `        blob: ${coreBlob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/', 'excluded', 'the sources']]));
+        repo.commit('the model');
+        rmSync(join(repo.path, 'src', 'lib'));
+        repo.write('src/lib/inner.ts', 'export const inner = 1;\n');
+        repo.commit('lib becomes a folder');
+
+        const report = checkModel(repo.path);
+
+        const stale = report.stale.find((f) => f.id === 'lib');
+        expect(stale?.message).toContain('element "lib"');
+        expect(stale?.message).toContain('is a folder at the checked revision');
+        expect(stale?.message).not.toContain('file gone');
+      });
+    });
+
+    test('a claim whose document is a folder at the checked revision is stale as not a file too', () => {
+      withRepo((repo) => {
+        repo.write('src/lib', 'export const lib = 1;\n');
+        repo.write('src/core.ts', numberedLines(30));
+        const oldCommit = repo.commit('lib is a file');
+        const libBlob = repo.blob('src/lib', oldCommit);
+        const coreBlob = repo.blob('src/core.ts', oldCommit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${oldCommit}`,
+          `        blob: ${coreBlob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeReview(
+          [['The library is one file', 'src/lib', '', oldCommit, libBlob, 'src/lib:1', 'confirmed', 'core']],
+          assigned([['src/', 'excluded', 'the sources']]),
+        );
+        repo.commit('the model');
+        rmSync(join(repo.path, 'src', 'lib'));
+        repo.write('src/lib/inner.ts', 'export const inner = 1;\n');
+        repo.commit('lib becomes a folder');
+
+        const report = checkModel(repo.path);
+
+        const stale = report.stale.find((f) => f.file === 'madarch/review.md');
+        expect(stale?.message).toContain('The library is one file');
+        expect(stale?.message).toContain('is a folder at the checked revision');
+        expect(stale?.message).not.toContain('file gone');
       });
     });
 

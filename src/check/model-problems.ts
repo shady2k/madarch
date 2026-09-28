@@ -32,7 +32,14 @@ export interface ProblemFinding {
   message: string;
 }
 
-/** An element with this many relations in and out at its level is a hub. */
+/**
+ * An element with at least this many relations both in and out at its
+ * level is a hub. The count is of the arrows at the element's own level —
+ * the distinct siblings in and out, the relations collapsed to that
+ * level, which is how the requirement's "relations in and out at its
+ * level" reads — and Arcan's Hub-Like Dependency counts a hub's
+ * dependencies with other abstractions.
+ */
 export const HUB_THRESHOLD = 5;
 /** Hidden coupling counts commits whose date is within this many days before the checked revision's. */
 export const HIDDEN_COUPLING_WINDOW_DAYS = 180;
@@ -211,7 +218,9 @@ export function hubProblems(levels: readonly LevelGraph[]): ProblemFinding[] {
       const ce = outOf.get(elementId)?.size ?? 0;
       const ca = into.get(elementId)?.size ?? 0;
       if (ca < HUB_THRESHOLD || ce < HUB_THRESHOLD) continue;
-      findings.push(finding('hub', [elementId], `element "${elementId}" is a hub: ${ca} relations in, ${ce} relations out (threshold ${HUB_THRESHOLD})`));
+      // The finding names the relations behind the hub's arrows in and out at this level too.
+      const relationIds = level.arrows.filter((arrow) => arrow.from === elementId || arrow.to === elementId).flatMap((arrow) => arrow.relationIds);
+      findings.push(finding('hub', [elementId, ...relationIds], `element "${elementId}" is a hub: ${ca} relations in, ${ce} relations out (threshold ${HUB_THRESHOLD})`));
     }
   }
   return findings;

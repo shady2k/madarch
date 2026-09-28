@@ -213,4 +213,42 @@ describe("the model check's views", () => {
       }
     });
   });
+
+  test('a views folder that cannot be written is an error of the report, naming the folder and the cause, never a note', () => {
+    withShopRepo((repo) => {
+      const { base, views } = viewsFolder();
+      try {
+        writeFileSync(join(base, 'blocker'), 'a regular file where a folder is needed\n');
+        const blocked = join(base, 'blocker', 'views');
+
+        const report = checkModel(repo.path, { views: blocked });
+
+        expect(report.outcome).toBe('failed');
+        const viewsError = report.errors.find((f) => f.message.includes(blocked));
+        expect(viewsError?.message).toContain('could not be written');
+        expect(report.notes.find((f) => f.message.includes('view'))).toBeUndefined();
+      } finally {
+        rmSync(base, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test('the script prints that views error and exits 1, without a stack trace', () => {
+    withShopRepo((repo) => {
+      const { base, views } = viewsFolder();
+      try {
+        writeFileSync(join(base, 'blocker'), 'a regular file where a folder is needed\n');
+        const blocked = join(base, 'blocker', 'views');
+
+        const run = runScript(repo.path, '--views', blocked);
+
+        expect(run.status).toBe(1);
+        expect(run.stdout).toContain(`error: ${repo.path}:0:`);
+        expect(run.stdout).toContain(blocked);
+        expect(run.stderr).toBe('');
+      } finally {
+        rmSync(base, { recursive: true, force: true });
+      }
+    });
+  });
 });

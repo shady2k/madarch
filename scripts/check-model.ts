@@ -4,8 +4,9 @@
  * itself lives in `src/check/model-check.ts`; this script only parses
  * arguments, prints and exits: 0 when nothing fails, 1 when something
  * fails, 2 when the repository or its model cannot be read. Errors are
- * printed first, then stale items, then problems, then warnings, then
- * notes; `--json` prints the same report as one JSON object. `--views`
+ * printed first, then stale items, then problems — each with the ids of
+ * the elements and relations involved — then warnings, then notes;
+ * `--json` prints the same report as one JSON object. `--views`
  * names the folder every view of the model is rendered into when the
  * model compiles; without it nothing is written anywhere.
  */
@@ -63,7 +64,7 @@ function main(args: readonly string[]): number {
   } else {
     for (const finding of report.errors) console.log(`error: ${finding.file}:${finding.line}: ${finding.message}`);
     for (const finding of report.stale) console.log(`stale: ${finding.file}:${finding.line}: ${finding.message}`);
-    for (const problem of report.problems) console.log(`problem ${problem.problem}: ${problem.message} — method: ${problem.method}; source: ${problem.source}`);
+    for (const problem of report.problems) console.log(`problem ${problem.problem}: ${problem.message} (ids: ${problem.ids.join(', ')}) — method: ${problem.method}; source: ${problem.source}`);
     for (const finding of report.warnings) console.log(`warning: ${finding.file}:${finding.line}: ${finding.message}`);
     for (const finding of report.notes) console.log(`note: ${finding.file}:${finding.line}: ${finding.message}`);
   }

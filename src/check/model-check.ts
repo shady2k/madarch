@@ -7,10 +7,11 @@
  * arguments, prints and exits, and the tests call it directly.
  *
  * Git is read through the `git` binary, read-only. A missing input (the
- * path is not a git repository, there is no `madarch/` folder, the
- * revision does not name a commit) is `unreadable`, exit 2. A model that
- * does not compile fails the check and nothing else is computed from a
- * compiled model. The report grows by sections as the requirements land:
+ * path is not a git repository, there is no `madarch/` folder, the folder
+ * holds no `*.yaml` file, the revision does not name a commit) is
+ * `unreadable`, exit 2. A model that does not compile fails the check and
+ * nothing else is computed from a compiled model. The report grows by
+ * sections as the requirements land:
  * staleness and assignment read the review report (this module); the
  * problems read the compiled model, the view set and the history (this
  * module and `model-problems.ts`); the views, when the caller asks for
@@ -19,7 +20,7 @@
  * writes.
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname } from 'node:path/posix';
 import { join, resolve } from 'node:path';
 import type { CompiledModel } from '../model/compile.js';
@@ -29,7 +30,7 @@ import type { Evidence } from '../model/schema.js';
 import type { PositionedModel } from '../model/validate.js';
 import { prepareModel, renderModel } from '../render/prepare.js';
 import { buildViewSet } from '../render/view-set.js';
-import { writeViews } from '../render/write.js';
+import { writeViews, type WrittenViews } from '../render/write.js';
 import {
   BULK_COMMIT_FILES,
   HIDDEN_COUPLING_WINDOW_DAYS,
@@ -145,13 +146,12 @@ function trackedAt(repo: string, revCommit: string): Map<string, string> | undef
   return blobs;
 }
 
-/** The number of lines a blob holds, counting a last line without its newline. */
-function blobLineCount(repo: string, blob: string): number | undefined {
-  const run = git(repo, ['cat-file', 'blob', blob]);
+/** The type of the object git holds at `<rev>:<path>`: `blob`, `tree`, or nothing — `cat-file -t` names it. */
+function objectTypeAt(repo: string, rev: string, path: string): 'blob' | 'tree' | undefined {
+  const run = git(repo, ['cat-file', '-t', `${rev}:${path}`]);
   if (!run.ok) return undefined;
-  const text = run.stdout;
-  if (text.length === 0) return 0;
-  return text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
+  const type = run.stdout.trim();
+  return type === 'blob' || type === 'tree' ? type : undefined;
 }
 
 /**
@@ -169,11 +169,25 @@ function findBlobInHistory(repo: string, revCommit: string, file: string, blob: 
     } else if (line.startsWith(':')) {
       // A raw line's shape is `:100644 100644 <old blob> <new blob> R100\tpath`;
       // the status and the path may hold anything, the two blob ids cannot.
+      // Only a blob entry can carry the item's text: a folder's entry is a
+      // tree (mode 040000) and a submodule's a commit (160000), and each
+      // side is read only under a blob mode of its own — the old side's
+      // mode keeps the line's leading colon.
       const fields = (line.split('\t')[0] ?? '').split(' ');
-      if (fields[2] === blob || fields[3] === blob) return current;
+      if (fields[2] === blob && /^:?(?:100644|100755|120000)$/.test(fields[0] ?? '')) return current;
+      if (fields[3] === blob && /^:?(?:100644|100755|120000)$/.test(fields[1] ?? '')) return current;
     }
   }
   return undefined;
+}
+
+/** The number of lines a blob holds, counting a last line without its newline. */
+function blobLineCount(repo: string, blob: string): number | undefined {
+  const run = git(repo, ['cat-file', 'blob', blob]);
+  if (!run.ok) return undefined;
+  const text = run.stdout;
+  if (text.length === 0) return 0;
+  return text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
 }
 
 /** Every element, interface and relation of the model, with where each was written. */
@@ -253,6 +267,11 @@ function resolveItem(repo: string, revCommit: string, declared: Declared, item: 
 
   const atCommit = git(repo, ['rev-parse', '--verify', `${item.commit}:${item.file}`]);
   if (!atCommit.ok) return failed(`${declared.label} names ${item.file}, which does not exist at ${item.commit}`);
+  // evidence-resolves says the item's *file* has the item's blob: the object
+  // at the path must be a blob, not the tree of a folder the path names.
+  const typeAtCommit = objectTypeAt(repo, item.commit!, item.file);
+  if (typeAtCommit === 'tree') return failed(`${declared.label} names ${item.file}, which is a folder at ${item.commit}, not a file`);
+  if (typeAtCommit === undefined) return failed(`${declared.label} names ${item.file}, which does not exist at ${item.commit}`);
   const actual = atCommit.stdout.trim();
   if (actual !== item.blob) {
     return failed(`${declared.label} names blob ${item.blob}, but ${item.file} has ${actual} at ${item.commit}`);
@@ -329,7 +348,7 @@ function tableUnder(lines: readonly string[], headingLine: number, heading: stri
  * duplicate rows fail the check). A missing claims section is a note: a
  * repository may have no documents.
  */
-function reviewFindings(review: string, blobsAtRev: ReadonlyMap<string, string>, elementIds: ReadonlySet<string>): { errors: ModelCheckFinding[]; stale: ModelCheckFinding[]; notes: ModelCheckFinding[]; assignment: { path: string; element: string }[] } {
+function reviewFindings(review: string, repo: string, revCommit: string, blobsAtRev: ReadonlyMap<string, string>, elementIds: ReadonlySet<string>): { errors: ModelCheckFinding[]; stale: ModelCheckFinding[]; notes: ModelCheckFinding[]; assignment: { path: string; element: string }[] } {
   const errors: ModelCheckFinding[] = [];
   const stale: ModelCheckFinding[] = [];
   const notes: ModelCheckFinding[] = [];
@@ -368,7 +387,10 @@ function reviewFindings(review: string, blobsAtRev: ReadonlyMap<string, string>,
       if (!usable) continue;
       const atRev = blobsAtRev.get(document);
       if (atRev === undefined) {
-        stale.push(at(row.line, `the claim "${claim}" is stale, file gone: ${document} does not exist at the checked revision; the row names blob ${blob}`));
+        const gone = objectTypeAt(repo, revCommit, document) === 'tree'
+          ? `the claim "${claim}" is stale: ${document} is a folder at the checked revision, not a file; the row names blob ${blob}`
+          : `the claim "${claim}" is stale, file gone: ${document} does not exist at the checked revision; the row names blob ${blob}`;
+        stale.push(at(row.line, gone));
       } else if (atRev !== blob) {
         stale.push(at(row.line, `the claim "${claim}" is stale: ${document} has ${atRev} at the checked revision, not ${blob}`));
       }
@@ -432,6 +454,24 @@ function committedTime(repo: string, revCommit: string): number | undefined {
   if (!run.ok) return undefined;
   const seconds = Number(run.stdout.trim());
   return Number.isFinite(seconds) ? seconds * 1000 : undefined;
+}
+
+/**
+ * The time the available history of a shallow clone reaches back to: the
+ * oldest root `git rev-list --max-parents=0` names — in a shallow clone,
+ * the grafted commit at the shallow boundary. Undefined when git cannot
+ * say.
+ */
+function shallowBoundaryTime(repo: string, revCommit: string): number | undefined {
+  const run = git(repo, ['rev-list', '--max-parents=0', '--format=%ct', revCommit]);
+  if (!run.ok) return undefined;
+  let oldest: number | undefined;
+  for (const line of run.stdout.split('\n')) {
+    if (!/^\d+$/.test(line)) continue;
+    const seconds = Number(line);
+    if (Number.isFinite(seconds) && (oldest === undefined || seconds < oldest)) oldest = seconds;
+  }
+  return oldest === undefined ? undefined : oldest * 1000;
 }
 
 /**
@@ -517,6 +557,16 @@ function problemFindings(repo: string, revCommit: string, model: CompiledModel, 
     notes.push({ file: repo, line: 0, message: 'the commit history could not be read; hidden coupling was skipped' });
     return findings;
   }
+  // A shallow clone holds less history than the window asks for: say so,
+  // with the date the available history reaches back to, never quietly
+  // over less.
+  const shallow = git(repo, ['rev-parse', '--is-shallow-repository']);
+  if (shallow.ok && shallow.stdout.trim() === 'true') {
+    const boundary = shallowBoundaryTime(repo, revCommit);
+    if (boundary !== undefined && committedAt - boundary < HIDDEN_COUPLING_WINDOW_DAYS * 24 * 60 * 60 * 1000) {
+      notes.push({ file: repo, line: 0, message: `the repository is a shallow clone: the history reaches back only to ${new Date(boundary).toISOString()}; hidden coupling was computed over the available history only` });
+    }
+  }
   findings.push(...hiddenCouplingProblems(model, commits));
   return findings;
 }
@@ -526,22 +576,29 @@ function problemFindings(repo: string, revCommit: string, model: CompiledModel, 
  * already compiled — the same render the reference script's
  * load-compile-render ends in, at the checked revision's commit time,
  * never the clock, so the pages change only with the model — and writes
- * it into the folder the caller named. A rendering that fails writes
- * nothing and is reported as a note: the views are worth reading beside
- * the report, not the check's verdict.
+ * it into the folder the caller named. A rendering or a write that fails
+ * is an error of the report, naming the folder and the cause: the views
+ * were asked for, so their absence fails the check. The folder stays the
+ * only place the check writes.
  */
-function writeViewFolder(repo: string, revCommit: string, model: CompiledModel, folder: string, notes: ModelCheckFinding[]): void {
+function writeViewFolder(repo: string, revCommit: string, model: CompiledModel, folder: string, errors: ModelCheckFinding[], notes: ModelCheckFinding[]): void {
   const committedAt = committedTime(repo, revCommit);
   if (committedAt === undefined) {
-    notes.push({ file: repo, line: 0, message: `the checked revision ${revCommit} has no readable commit time; no views were rendered` });
+    errors.push({ file: repo, line: 0, message: `the views for ${folder} were not rendered: the checked revision ${revCommit} has no readable commit time` });
     return;
   }
   const rendered = renderModel(model, { source: 'model-check', commit: revCommit, at: committedAt });
   if (rendered.pages === undefined || rendered.workspace === undefined) {
-    notes.push({ file: repo, line: 0, message: `the views could not be rendered: ${rendered.errors[0] ?? 'no error named'}; nothing was written` });
+    errors.push({ file: repo, line: 0, message: `the views for ${folder} could not be rendered: ${rendered.errors[0] ?? 'no error named'}` });
     return;
   }
-  const written = writeViews(folder, rendered.pages, rendered.workspace);
+  let written: WrittenViews;
+  try {
+    written = writeViews(folder, rendered.pages, rendered.workspace);
+  } catch (error) {
+    errors.push({ file: repo, line: 0, message: `the views could not be written into ${folder}: ${(error as Error).message}` });
+    return;
+  }
   notes.push({ file: repo, line: 0, message: `wrote ${written.pageCount} view pages into ${written.mermaidFolder} and the LikeC4 workspace ${written.likec4File}` });
 }
 
@@ -559,6 +616,14 @@ export function checkModel(repoPath: string, options: ModelCheckOptions = {}): M
 
   if (!git(repo, ['rev-parse', '--git-dir']).ok) return unreadable(`${repo} is not a git repository`);
   if (!isDirectory(join(repo, 'madarch'))) return unreadable(`${repo} has no madarch folder`);
+  // No model files is no model to read: unreadable, not a failed check.
+  let modelYaml: string[];
+  try {
+    modelYaml = readdirSync(join(repo, 'madarch')).filter((name) => name.endsWith('.yaml'));
+  } catch (error) {
+    return unreadable(`${join(repo, 'madarch')} could not be read: ${(error as Error).message}`);
+  }
+  if (modelYaml.length === 0) return unreadable(`${join(repo, 'madarch')} holds no *.yaml file: a model needs at least one`);
   const checkedRev = git(repo, ['rev-parse', '--verify', `${rev}^{commit}`]);
   if (!checkedRev.ok) return unreadable(`unknown revision "${rev}"`);
   const revCommit = checkedRev.stdout.trim();
@@ -600,7 +665,10 @@ export function checkModel(repoPath: string, options: ModelCheckOptions = {}): M
       // simply no longer reads as the item says it did.
       const atRev = blobs.get(item.file);
       if (atRev === undefined) {
-        report.stale.push(findingOf(declared, itemLine, `${declared.label} is stale, file gone: ${item.file} does not exist at the checked revision; the item names blob ${item.blob}`));
+        const gone = objectTypeAt(repo, revCommit, item.file) === 'tree'
+          ? `${declared.label} is stale: ${item.file} is a folder at the checked revision, not a file; the item names blob ${item.blob}`
+          : `${declared.label} is stale, file gone: ${item.file} does not exist at the checked revision; the item names blob ${item.blob}`;
+        report.stale.push(findingOf(declared, itemLine, gone));
       } else if (atRev !== item.blob) {
         report.stale.push(findingOf(declared, itemLine, `${declared.label} is stale: ${item.file} has ${atRev} at the checked revision, not the item's blob ${item.blob}`));
       }
@@ -612,7 +680,7 @@ export function checkModel(repoPath: string, options: ModelCheckOptions = {}): M
   const elementIds = new Set(positions!.elements.map((p) => p.element.id));
   let review: { errors: ModelCheckFinding[]; stale: ModelCheckFinding[]; notes: ModelCheckFinding[]; assignment: { path: string; element: string }[] };
   try {
-    review = reviewFindings(readFileSync(join(repo, REVIEW), 'utf8'), blobs, elementIds);
+    review = reviewFindings(readFileSync(join(repo, REVIEW), 'utf8'), repo, revCommit, blobs, elementIds);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return unreadable(`${REVIEW} could not be read`);
     review = {
@@ -632,7 +700,7 @@ export function checkModel(repoPath: string, options: ModelCheckOptions = {}): M
 
   // The views, when the caller asked for them: the model compiled, so
   // every view of it is rendered and written into the folder they named.
-  if (options.views !== undefined) writeViewFolder(repo, revCommit, model!, options.views, report.notes);
+  if (options.views !== undefined) writeViewFolder(repo, revCommit, model!, options.views, report.errors, report.notes);
 
   // Warnings arrive ordered from the loader (file order, then the order
   // written); errors, stale items and notes are sorted here whatever order

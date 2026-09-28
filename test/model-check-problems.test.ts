@@ -1,7 +1,11 @@
 import { expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { assigned, checkModel, completeRepo, Repo, runScript, withRepo } from './model-check-repo.js';
 import type { ModelCheckReport } from '../src/check/model-check.js';
+import { sortedByCodePoint } from '../src/model/order.js';
 
 /**
  * The model check's problems (docs/changes/agent-model/capabilities/
@@ -181,6 +185,61 @@ test('hidden-coupling: two unrelated modules whose files changed together in six
   });
 });
 
+test('a shallow clone whose boundary falls inside the window says hidden coupling was computed over the available history only', () => {
+  withRepo((repo) => {
+    repo.write('src/svc.ts', 'export const svc = 1;\n');
+    repo.write('src/x.ts', 'export const x = 1;\n');
+    const sources = repo.commit('the sources');
+    repo.write('src/y.ts', 'export const y = 1;\n');
+    repo.commit('y arrives');
+    let last = '';
+    for (let round = 1; round <= 6; round++) {
+      repo.write('src/x.ts', `export const x = 1; // round ${round}\n`);
+      repo.write('src/y.ts', `export const y = 1; // round ${round}\n`);
+      last = repo.commit(`round ${round} touches both`);
+    }
+    commitModel(
+      repo,
+      [
+        elementGroup('svc', 'service', sources, repo.blob('src/svc.ts', sources)),
+        elementGroup('x', 'module', last, repo.blob('src/x.ts', last), ['    parent: svc']),
+        elementGroup('y', 'module', last, repo.blob('src/y.ts', last), ['    parent: svc']),
+      ],
+      [],
+      [],
+      [
+        ['src/svc.ts', 'svc', ''],
+        ['src/x.ts', 'x', ''],
+        ['src/y.ts', 'y', ''],
+      ],
+    );
+
+    // Control, the full history: six co-changes are reported, and nothing says shallow.
+    const whole = checkModel(repo.path);
+    expect(whole.problems.map((p) => p.problem)).toEqual(['hidden-coupling']);
+    expect(whole.notes.find((f) => f.message.includes('shallow'))).toBeUndefined();
+
+    // Two commits deep, the cut falls inside the 180-day window: one co-change survives.
+    const clonePath = join(tmpdir(), `madarch-shallow-${process.pid}-${Date.now()}`);
+    const cloned = spawnSync('git', ['clone', '--quiet', '--depth', '2', `file://${repo.path}`, clonePath], { encoding: 'utf8' });
+    try {
+      expect(cloned.status).toBe(0);
+      const boundary = spawnSync('git', ['rev-list', '--max-parents=0', '--format=%ct', 'HEAD'], { cwd: clonePath, encoding: 'utf8' });
+      expect(boundary.status).toBe(0);
+      const boundarySeconds = Number(boundary.stdout.split('\n').find((line) => /^\d+$/.test(line)));
+
+      const report = checkModel(clonePath);
+
+      expect(report.problems).toEqual([]);
+      const shallow = report.notes.find((f) => f.message.includes('shallow'));
+      expect(shallow?.message).toContain('hidden coupling was computed over the available history only');
+      expect(shallow?.message).toContain(new Date(boundarySeconds * 1000).toISOString());
+    } finally {
+      rmSync(clonePath, { recursive: true, force: true });
+    }
+  });
+});
+
 test('unstable dependency: an element depending on a sibling less stable than itself is reported with both instability values', () => {
   withRepo((repo) => {
     // Instabilities by hand: a points at r and s (Ce=2, Ca=1, I=2/3); c is pointed at by p and points at a (Ce=1, Ca=1, I=1/2);
@@ -240,13 +299,20 @@ test('hub: an element with five relations in and five out is reported with the t
     expect(problems).toHaveLength(1);
     const hub = problems[0]!;
     expect(hub.problem).toBe('hub');
-    expect(hub.ids).toEqual(['h']);
+    // The finding names the element and the relation ids behind its arrows in and out at its level.
+    const expectedHubIds = sortedByCodePoint(['h', ...inOfH.map((_, index) => `rh${index + 1}`), ...outOfH.map((_, index) => `rh-out${index + 1}`)]);
+    expect(hub.ids).toEqual(expectedHubIds);
     expect(hub.method).toBe('Arcan Hub-Like Dependency');
     expect(hub.source).toBe('F. Arcelli Fontana et al., Arcan (ICSA 2017)');
     expect(hub.message).toContain('5');
     expect(hub.message).toContain('threshold');
     expect(hub.message).not.toContain('h2');
     expect(hub.message).not.toContain('h3');
+    // The human output names the finding's ids too, not only the JSON.
+    const run = runScript(repo.path);
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain('problem hub:');
+    expect(run.stdout).toContain(`(ids: ${expectedHubIds.join(', ')})`);
   });
 });
 
