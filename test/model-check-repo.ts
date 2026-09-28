@@ -11,9 +11,9 @@ export { checkModel };
 export const SCRIPT = fileURLToPath(new URL('../scripts/check-model.ts', import.meta.url));
 
 /** Runs the check's script the way a person does, from a shell. */
-export function runScript(...args: string[]): { status: number | null; stdout: string } {
+export function runScript(...args: string[]): { status: number | null; stdout: string; stderr: string } {
   const run = spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8' });
-  return { status: run.status, stdout: run.stdout ?? '' };
+  return { status: run.status, stdout: run.stdout ?? '', stderr: run.stderr ?? '' };
 }
 
 /**
