@@ -71,9 +71,18 @@ Then survey the tree, and keep a note of what you found and where:
 
 ### 2. Read the documents first; write the claims ledger
 
-Read each document top to bottom. For every **architectural claim** it makes,
-write one row of a working ledger (a scratch file or notes, not yet the
-report):
+Claims come from the documents that describe the architecture: the README,
+architecture documents, accepted decision records, specifications, contract
+descriptions. Research notes, working plans and release notes are read for
+parts the code confirms, but not transcribed. Why: the report is read by a
+person deciding which documents are out of date, and a table that
+transcribes every sentence buries the decisions — a large repository's
+claims table is tens to a few hundred rows.
+
+Read each of these documents top to bottom. For every **architectural
+claim** it makes — a part, what it holds or does, what it talks to, its
+technology, a plan — write one row of a working ledger (a scratch file or
+notes, not yet the report), not one row per sentence:
 
 - the claim, in one sentence;
 - the document's path and the line or lines it is written on;
@@ -147,6 +156,16 @@ The model has three levels:
    assignment table accounts for each file, the model does not have to.
    For a small core, model its modules directly.
 
+At the third level, relations **between the groups** are the point of the
+page: for each pair of groups where code of one imports code of the other,
+write one relation from the importer to the imported group, named for what
+it uses, with one import line as its evidence (more lines optional). Derive
+the pairs from the language's import graph, not by guessing — for Go,
+`go list -f '{{.ImportPath}} {{join .Imports " "}}' ./...` mapped onto the
+groups by the assignment table; for TypeScript, the import statements. Why:
+a page of groups with no arrows between them says nothing, and the pairs
+the import graph shows are exactly the ones evidence can support.
+
 Element kinds: `person`, `external`, `domain`, `system`, `service`, `module`,
 `store`, `broker`. Pick the kind from what the part is, not from where it
 sits in a folder tree.
@@ -159,6 +178,11 @@ looks for where the data lives.
 Ids are stable: letters, digits, dots, dashes, underscores, starting with a
 letter or a digit (`orders-api`, `checkout.cart`). Never encode a path or a
 kind in an id — ids must survive moves and renames unchanged.
+
+An element's **name** is a reader's label of two to four words: "Model
+endpoint", "OS keystore". The detail behind the name goes into the review
+report, not into the name. Why: every level is drawn with every name at
+once, and one long name shrinks the whole page.
 
 ### 6. Interfaces by capability
 
@@ -189,6 +213,17 @@ ends stay initiator → what it depends on, usually the broker. A relation
 whose ends are known in more detail than another's may `refine` it. Where
 the code shows the data crossing, give the interaction **data transfers**
 with a direction, a confidentiality and categories.
+
+A relation to a store, an external system or another part starts at the
+**group whose code makes the call**, not at the service that contains it.
+Why: the views collapse the relation back to the service at the level
+above, so nothing is lost there, and the group's page keeps the arrow its
+own code earns.
+
+Before finishing, open the core's page: a level whose boxes have no arrows
+between them is not finished. A hidden-coupling problem between two groups
+is a prompt to look for a relation the model lacks — add it with evidence
+if the code shows one, otherwise report it.
 
 Model the dependencies you found evidence for, no more. Why: a relation
 without evidence cannot be checked, and one the code does not show is
