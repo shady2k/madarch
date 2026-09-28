@@ -458,20 +458,30 @@ function committedTime(repo: string, revCommit: string): number | undefined {
 
 /**
  * The time the available history of a shallow clone reaches back to: the
- * oldest root `git rev-list --max-parents=0` names — in a shallow clone,
- * the grafted commit at the shallow boundary. Undefined when git cannot
- * say.
+ * newest committer time among the shallow commits — the ones the file
+ * `git rev-parse --git-path shallow` lists — that are still reachable
+ * from the checked revision. A genuine root merged into the history is
+ * no shallow commit, so it cannot hide the real boundary. Undefined
+ * when git cannot say.
  */
 function shallowBoundaryTime(repo: string, revCommit: string): number | undefined {
-  const run = git(repo, ['rev-list', '--max-parents=0', '--format=%ct', revCommit]);
-  if (!run.ok) return undefined;
-  let oldest: number | undefined;
-  for (const line of run.stdout.split('\n')) {
-    if (!/^\d+$/.test(line)) continue;
-    const seconds = Number(line);
-    if (Number.isFinite(seconds) && (oldest === undefined || seconds < oldest)) oldest = seconds;
+  const shallowPath = git(repo, ['rev-parse', '--git-path', 'shallow']);
+  if (!shallowPath.ok) return undefined;
+  let listed: string;
+  try {
+    listed = readFileSync(resolve(repo, shallowPath.stdout.trim()), 'utf8');
+  } catch {
+    return undefined;
   }
-  return oldest === undefined ? undefined : oldest * 1000;
+  let newest: number | undefined;
+  for (const line of listed.split('\n')) {
+    const hash = line.trim();
+    if (!/^[0-9a-f]+$/.test(hash)) continue;
+    if (!git(repo, ['merge-base', '--is-ancestor', hash, revCommit]).ok) continue;
+    const committedAt = committedTime(repo, hash);
+    if (committedAt !== undefined && (newest === undefined || committedAt > newest)) newest = committedAt;
+  }
+  return newest;
 }
 
 /**
@@ -623,9 +633,17 @@ export function checkModel(repoPath: string, options: ModelCheckOptions = {}): M
   if (!git(repo, ['rev-parse', '--git-dir']).ok) return unreadable(`${repo} is not a git repository`);
   if (!isDirectory(join(repo, 'madarch'))) return unreadable(`${repo} has no madarch folder`);
   // No model files is no model to read: unreadable, not a failed check.
+  // A folder named *.yaml is not a model file: only regular files count.
   let modelYaml: string[];
   try {
-    modelYaml = readdirSync(join(repo, 'madarch')).filter((name) => name.endsWith('.yaml'));
+    modelYaml = readdirSync(join(repo, 'madarch')).filter((name) => {
+      if (!name.endsWith('.yaml')) return false;
+      try {
+        return statSync(join(repo, 'madarch', name)).isFile();
+      } catch {
+        return false;
+      }
+    });
   } catch (error) {
     return unreadable(`${join(repo, 'madarch')} could not be read: ${(error as Error).message}`);
   }

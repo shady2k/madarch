@@ -147,6 +147,23 @@ describe('the model check', () => {
       });
     });
 
+    test('a folder named *.yaml in madarch is not a model file: without a regular *.yaml file the check is unreadable', () => {
+      withRepo((repo) => {
+        repo.write('README.md', 'nothing but a readme\n');
+        repo.commit('a repository whose model folder holds a folder named fake.yaml');
+        mkdirSync(join(repo.path, 'madarch'));
+        mkdirSync(join(repo.path, 'madarch', 'fake.yaml'));
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('unreadable');
+        expect(report.errors).toHaveLength(1);
+        expect(report.errors[0]!.message).toContain('madarch');
+        expect(report.errors[0]!.message).toContain('*.yaml');
+        expect(runScript(repo.path).status).toBe(2);
+      });
+    });
+
   });
 
   describe('evidence-resolves', () => {
