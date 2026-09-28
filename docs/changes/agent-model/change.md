@@ -2,7 +2,7 @@
 
 Change: agent-model
 Base: 8c258f41e360dc4fb9319b24827a3a205411d56b
-Tasks: madarch-utk.1.1, madarch-utk.1.2, madarch-utk.1.3, madarch-utk.1.4, madarch-utk.1.5
+Tasks: madarch-utk.1.1, madarch-utk.1.2, madarch-utk.1.3, madarch-utk.1.4, madarch-utk.1.5, madarch-utk.2.1, madarch-utk.2.2, madarch-utk.2.3, madarch-utk.2.4
 Kind: behavior
 
 ## Intent
