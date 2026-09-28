@@ -374,4 +374,85 @@ files you added when there was no previous model). Write nothing outside
 
 ## Updating the model for a pull request
 
-Specified in model-authoring/update; written in a later task.
+The model is updated inside each pull request, by the author's agent,
+from the branch's changes: small increments are cheaper than a later
+catch-up, and the reviewer reads the model's change next to the code's.
+The update is committed in the same pull request as the code.
+
+### 1. Read the inputs
+
+```sh
+git -C "$REPO" merge-base <base branch> HEAD
+git -C "$REPO" diff --stat <base>..HEAD
+git -C "$REPO" log --oneline <base>..HEAD
+```
+
+The first command prints **the base**; the branch's changes are every
+commit after it. Read the branch's diff (`git -C "$REPO" diff
+<base>..HEAD`), the pull request's description when one is given — the
+author's words say why the change exists — and the model and report as
+they stand. The code must already be committed on the branch: evidence
+pins the branch's HEAD, and uncommitted work cannot be pinned (see
+"Before you start").
+
+### 2. Run the model check first
+
+```sh
+bun "$MADARCH/scripts/check-model.ts" "$REPO" --rev HEAD
+```
+
+Pass or fail, it lists **stale** items and **unassigned files** — exactly
+the places where the branch touched the model's evidence and its
+assignment. That list, with the diff, is the update's work list.
+
+### 3. Decide per changed area: architectural or not
+
+- **Architectural** — a part added, removed or moved, a new dependency
+  between groups, a new interface or contract file, a new store or
+  external — change the model: add, remove or change the element, its
+  relations and its assignment rows, every new evidence item pinning the
+  branch's HEAD.
+- **Not architectural** — a function body, a test, a comment — leave the
+  element alone and only re-pin its stale evidence whose text still
+  supports the claim: read the new lines, write the new line numbers,
+  the branch's commit and the new blob. Move an item whose supporting
+  text moved.
+
+Why: the model describes architecture, and re-pinning is how the update
+says the file changed and the fact stands.
+
+### 4. Change nothing the branch does not concern
+
+Keep every id, name and assignment the changes do not concern; never
+renumber or rename to tidy. A removed part: remove its element, its
+relations and its assignment rows. A new folder: an assignment row — to
+an element, or `excluded` with a reason.
+
+Why: the report, the views and later updates cite these ids; churn the
+branch did not ask for buries the change that matters.
+
+### 5. Re-read documents the branch changed
+
+For each document changed on the branch, re-read its claims and update
+their rows in the claims table — the verdict where the code moved, the
+branch's commit and the document's new blob. Documents the branch did
+not touch keep their rows.
+
+### 6. Write the update section
+
+Add to `madarch/review.md` a section
+`## Update <base short>..<head short>`, newest last, one per update:
+the range; the pull request's title, if known; and what changed in the
+model and why — elements, relations, interfaces added, removed or
+changed, how many evidence items were re-pinned, new assignment rows —
+naming ids. A branch with no architectural change says so in one line.
+
+### 7. Run the check with views, and finish
+
+```sh
+bun "$MADARCH/scripts/check-model.ts" "$REPO" --rev HEAD --views "$REPO/madarch/views"
+```
+
+Fix every error until it exits 0, and read each page the update touched
+the way step 10 above reads a page. Then commit: the model's change
+travels in the same pull request as the code's.
