@@ -22,7 +22,9 @@ domain, a system, a service, a module, a store, a broker. Fields:
   survives moves and renames.
 - `kind` (required) — one of `person`, `external`, `domain`, `system`,
   `service`, `module`, `store`, `broker`.
-- `name` — a readable name.
+- `name` — a readable name of two to four words, a reader's label ("Model
+  endpoint", "OS keystore"); the detail goes into the review report, not
+  the name.
 - `parent` — the id of the element this one is part of; elements nest to any
   depth.
 - `technology` — what it is built with ("TypeScript, NestJS").
@@ -39,7 +41,7 @@ domain, a system, a service, a module, a store, a broker. Fields:
 elements:
   - id: orders-api
     kind: service
-    name: Orders
+    name: Orders API
     parent: ordering
     technology: Java, Spring Boot
     zones:

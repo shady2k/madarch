@@ -56,7 +56,7 @@ elements:
 
   - id: importer
     kind: service
-    name: Importer
+    name: Receipt importer
     parent: receipts
     technology: TypeScript, Bun
     evidence:
@@ -73,7 +73,7 @@ elements:
 
   - id: webhook
     kind: module
-    name: Webhook
+    name: Receipt webhook
     parent: receipts
     evidence:
       - file: src/notify/webhook.ts
@@ -84,7 +84,7 @@ elements:
 
   - id: archive
     kind: store
-    name: Archive
+    name: Receipt archive
     parent: receipts
     evidence:
       - file: src/store.ts

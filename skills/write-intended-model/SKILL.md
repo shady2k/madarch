@@ -179,6 +179,11 @@ Ids are stable: letters, digits, dots, dashes, underscores, starting with a
 letter or a digit (`orders-api`, `checkout.cart`). Never encode a path or a
 kind in an id — ids must survive moves and renames unchanged.
 
+An element's **name** is a reader's label of two to four words: "Model
+endpoint", "OS keystore". The detail behind the name goes into the review
+report, not into the name. Why: every level is drawn with every name at
+once, and one long name shrinks the whole page.
+
 ### 6. Interfaces by capability
 
 One interface per **capability** a part offers — an API, a topic, a table,
