@@ -1,0 +1,8 @@
+{
+  "name": "receipts",
+  "module": "src/index.ts",
+  "scripts": {
+    "start": "bun src/index.ts",
+    "lookup": "bun src/lookup.ts"
+  }
+}
