@@ -587,19 +587,25 @@ function writeViewFolder(repo: string, revCommit: string, model: CompiledModel, 
     errors.push({ file: repo, line: 0, message: `the views for ${folder} were not rendered: the checked revision ${revCommit} has no readable commit time` });
     return;
   }
-  const rendered = renderModel(model, { source: 'model-check', commit: revCommit, at: committedAt });
-  if (rendered.pages === undefined || rendered.workspace === undefined) {
-    errors.push({ file: repo, line: 0, message: `the views for ${folder} could not be rendered: ${rendered.errors[0] ?? 'no error named'}` });
-    return;
-  }
-  let written: WrittenViews;
   try {
-    written = writeViews(folder, rendered.pages, rendered.workspace);
+    const rendered = renderModel(model, { source: 'model-check', commit: revCommit, at: committedAt });
+    if (rendered.pages === undefined || rendered.workspace === undefined) {
+      errors.push({ file: repo, line: 0, message: `the views for ${folder} could not be rendered: ${rendered.errors[0] ?? 'no error named'}` });
+      return;
+    }
+    let written: WrittenViews;
+    try {
+      written = writeViews(folder, rendered.pages, rendered.workspace);
+    } catch (error) {
+      errors.push({ file: repo, line: 0, message: `the views could not be written into ${folder}: ${(error as Error).message}` });
+      return;
+    }
+    notes.push({ file: repo, line: 0, message: `wrote ${written.pageCount} view pages into ${written.mermaidFolder} and the LikeC4 workspace ${written.likec4File}` });
   } catch (error) {
-    errors.push({ file: repo, line: 0, message: `the views could not be written into ${folder}: ${(error as Error).message}` });
-    return;
+    // A renderer that throws, rather than reporting its errors, fails the
+    // views the same way: an error of the report, never an uncaught one.
+    errors.push({ file: repo, line: 0, message: `the views for ${folder} could not be rendered: ${(error as Error).message}` });
   }
-  notes.push({ file: repo, line: 0, message: `wrote ${written.pageCount} view pages into ${written.mermaidFolder} and the LikeC4 workspace ${written.likec4File}` });
 }
 
 export function checkModel(repoPath: string, options: ModelCheckOptions = {}): ModelCheckReport {
