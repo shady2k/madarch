@@ -74,15 +74,22 @@ Then survey the tree, and keep a note of what you found and where:
 Claims come from the documents that describe the architecture: the README,
 architecture documents, accepted decision records, specifications, contract
 descriptions. Research notes, working plans and release notes are read for
-parts the code confirms, but not transcribed. Why: the report is read by a
-person deciding which documents are out of date, and a table that
-transcribes every sentence buries the decisions — a large repository's
-claims table is tens to a few hundred rows.
+parts the code confirms, but not transcribed.
 
-Read each of these documents top to bottom. For every **architectural
-claim** it makes — a part, what it holds or does, what it talks to, its
-technology, a plan — write one row of a working ledger (a scratch file or
-notes, not yet the report), not one row per sentence:
+Write one row per architectural claim **about a part of the model or a
+connection between parts** — not one row per sentence. A document that
+makes many claims about one part gets one row per part it describes, its
+claims summarised; a decision record's status bookkeeping (supersedes,
+amended) is not a claim. Why: the report is read by a person deciding which
+documents are out of date, and a table that transcribes every sentence
+buries the decisions.
+
+Keep the rows in a working ledger, not yet the report. The ledger lives
+outside the repository, in a temporary folder (`$(mktemp -d)` will do), and
+is not part of the result — only the model and the report under `madarch/`
+land in the repository. Read each of these documents top to bottom. For
+every **architectural claim** it makes — a part, what it holds or does,
+what it talks to, its technology, a plan — write its row:
 
 - the claim, in one sentence;
 - the document's path and the line or lines it is written on;
@@ -159,8 +166,12 @@ The model has three levels:
 At the third level, relations **between the groups** are the point of the
 page: for each pair of groups where code of one imports code of the other,
 write one relation from the importer to the imported group, named for what
-it uses, with one import line as its evidence (more lines optional). Derive
-the pairs from the language's import graph, not by guessing — for Go,
+the importer uses from the imported group — from the imported package's
+role: "reads settings", "opens SSH sessions", "stores notes". A bare
+"uses" or "depends on" is not a name: the table under the diagram is how a
+reader learns what an arrow means. Give the relation one import line as its
+evidence (more lines optional). Derive the pairs from the language's import
+graph, not by guessing — for Go,
 `go list -f '{{.ImportPath}} {{join .Imports " "}}' ./...` mapped onto the
 groups by the assignment table; for TypeScript, the import statements. Why:
 a page of groups with no arrows between them says nothing, and the pairs
@@ -275,9 +286,10 @@ committed text.
 
 ### 9. Write the review report `madarch/review.md`
 
-The report stands beside the model and is what a reader checks you against.
-It holds, in this order (the exact table shapes are in `reference.md` — the
-check parses them strictly):
+It holds, in this order, each section under its heading written verbatim:
+`## Claims`, `## Undocumented`, `## Assignment`, `## Problems`. The check
+finds each table by its exact heading and parses the table strictly (the
+exact shapes are in `reference.md`):
 
 - an opening line naming the commit the model describes (the HEAD from
   step 1);
@@ -318,6 +330,11 @@ Fix every error it reports and run it again — a line past the end of its
 file, a missing commit or blob, a tracked file no assignment row covers —
 until it exits 0. Stale items and problems do not fail the check; you
 report them, you do not fix them silently.
+
+One note is not silent material: on a repository that has documents, the
+note `the review report has no "## Claims" section` means the claims table
+was not read — the run is not finished. Write the table under its exact
+heading and run the check again.
 
 When it passes, open every page in `$REPO/madarch/views/mermaid/` and read
 each as a reader would:
