@@ -9,6 +9,9 @@ import { checkLikeC4Workspaces } from '../scripts/likec4-check.js';
 import { checkMermaidPages } from '../scripts/mermaid-check.js';
 import { renderMermaidPages, type View } from '../src/index.js';
 
+// About five times the slowest spawning test measured alone (~2.4 s): LikeC4 runs far slower under the full suite's load and hit bun's default 5000 ms.
+const COMMAND_TIMEOUT_MS = 12_000;
+
 /**
  * The views capability's mermaid requirement, "every flowchart shall be
  * accepted by Mermaid's parser" (docs/changes/readable-views/capabilities/
@@ -183,7 +186,7 @@ const BROKEN_C4 = ['specification {', '  element domain', '}', 'model {', '  sho
 describe('views:check likec4', () => {
   test('a workspace likec4 accepts passes, counting its files', () => {
     expect(checkLikeC4Workspaces([folderWith({ 'model.c4': GOOD_C4 })])).toEqual({ files: 1, errors: [] });
-  });
+  }, COMMAND_TIMEOUT_MS);
 
   test("a broken workspace fails naming each file, the 1-based line and LikeC4's error, in file then line order", () => {
     const dir = folderWith({ 'model.c4': BROKEN_C4, 'deep/other.c4': 'model {\n  q = domain "Q" {\n' });
@@ -199,13 +202,13 @@ describe('views:check likec4', () => {
     ]);
     expect(result.errors[1]!.message).toBe("Could not resolve reference to ElementKind named 'system'.");
     expect(result.errors[2]!.message).toBe("Could not resolve reference to Referenceable named 'nowhere'.");
-  });
+  }, COMMAND_TIMEOUT_MS);
 
   test('a folder without LikeC4 files fails: a check that checks nothing does not pass', () => {
     const dir = folderWith({ 'notes.txt': 'not a workspace' });
 
     expect(checkLikeC4Workspaces([dir])).toEqual({ files: 0, errors: [{ file: dir, line: 0, message: 'no LikeC4 files to check' }] });
-  });
+  }, COMMAND_TIMEOUT_MS);
 
   test('a folder that does not exist fails', () => {
     const dir = join(folderWith({}), 'missing');
@@ -228,7 +231,7 @@ describe('views:check likec4', () => {
     const two = folderWith({ 'model.c4': GOOD_C4 });
 
     expect(checkLikeC4Workspaces([one, two])).toEqual({ files: 2, errors: [] });
-  });
+  }, COMMAND_TIMEOUT_MS);
 
   test('a likec4 that cannot be run, or answers what is not its report, fails naming the folder', () => {
     const dir = folderWith({ 'model.c4': GOOD_C4 });
@@ -289,7 +292,7 @@ describe('views:check likec4', () => {
 
   test("the reference system's committed workspace validates", () => {
     expect(checkLikeC4Workspaces([LIKEC4_FOLDER])).toEqual({ files: 1, errors: [] });
-  });
+  }, COMMAND_TIMEOUT_MS);
 });
 
 describe('views:check the command', () => {
@@ -302,7 +305,7 @@ describe('views:check the command', () => {
     expect(result.stderr).toBe('');
     expect(result.stdout).toMatch(/^mermaid: checked (\d+) blocks in \1 pages, 0 errors\nlikec4: checked 1 files, 0 errors\n$/);
     expect(result.status).toBe(0);
-  });
+  }, COMMAND_TIMEOUT_MS);
 
   test('with --mermaid it checks that folder alone, printing every error and exiting 1', () => {
     const dir = folderWith({ 'broken.md': ['# Broken', '```mermaid', 'hello', '```', ''].join('\n'), 'plain.md': '# Plain\n' });
@@ -313,7 +316,7 @@ describe('views:check the command', () => {
     expect(result.stderr).toEndWith(`\nerror: ${join(dir, 'plain.md')}:0: the page has no mermaid block\n`);
     expect(result.stdout).toBe('mermaid: checked 1 blocks in 2 pages, 2 errors\n');
     expect(result.status).toBe(1);
-  });
+  }, COMMAND_TIMEOUT_MS);
 
   test('with --likec4 it validates that folder alone, printing every error and exiting 1', () => {
     const dir = folderWith({ 'model.c4': BROKEN_C4 });
@@ -324,7 +327,7 @@ describe('views:check the command', () => {
     expect(result.stderr.split('\n')).toHaveLength(4);
     expect(result.stdout).toBe('likec4: checked 1 files, 3 errors\n');
     expect(result.status).toBe(1);
-  });
+  }, COMMAND_TIMEOUT_MS);
 
   test('the exit status combines both checks: good pages and a broken workspace exit 1, both good exit 0', () => {
     const pages = folderWith({ 'shop.md': GOOD });
@@ -339,7 +342,7 @@ describe('views:check the command', () => {
     expect(passing.stderr).toBe('');
     expect(passing.stdout).toBe('mermaid: checked 1 blocks in 1 pages, 0 errors\nlikec4: checked 1 files, 0 errors\n');
     expect(passing.status).toBe(0);
-  });
+  }, COMMAND_TIMEOUT_MS);
 
   test('an argument that is not a check with its folder is refused with exit 2, checking nothing', () => {
     for (const args of [['somewhere'], ['--mermaid'], ['--likec4', '--mermaid'], ['--likec4', '--mermaid', 'x'], ['--svg', 'x']]) {
@@ -348,5 +351,5 @@ describe('views:check the command', () => {
       expect(result.stderr).toStartWith('error: usage: bun run views:check [--mermaid <folder>]... [--likec4 <folder>]...');
       expect(result.status).toBe(2);
     }
-  });
+  }, COMMAND_TIMEOUT_MS);
 });
