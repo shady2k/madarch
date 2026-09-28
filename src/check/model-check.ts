@@ -11,17 +11,35 @@
  * revision does not name a commit) is `unreadable`, exit 2. A model that
  * does not compile fails the check and nothing else is computed from a
  * compiled model. The report grows by sections as the requirements land:
- * staleness and assignment read the review report (this module); problems
- * and views come later.
+ * staleness and assignment read the review report (this module); the
+ * problems read the compiled model, the view set and the history (this
+ * module and `model-problems.ts`); views come later.
  */
 import { spawnSync } from 'node:child_process';
 import { readFileSync, statSync } from 'node:fs';
 import { dirname } from 'node:path/posix';
 import { join, resolve } from 'node:path';
+import type { CompiledModel } from '../model/compile.js';
 import { loadAndCompileModel } from '../model/load-and-compile.js';
-import { byCodePoint } from '../model/order.js';
+import { byCodePoint, sortedByCodePoint } from '../model/order.js';
 import type { Evidence } from '../model/schema.js';
 import type { PositionedModel } from '../model/validate.js';
+import { prepareModel } from '../render/prepare.js';
+import { buildViewSet } from '../render/view-set.js';
+import {
+  BULK_COMMIT_FILES,
+  HIDDEN_COUPLING_WINDOW_DAYS,
+  compareProblems,
+  cycleProblems,
+  hiddenCouplingProblems,
+  hubProblems,
+  levelsOf,
+  magicSourceOrSinkProblems,
+  trustBoundaryProblems,
+  unstableDependencyProblems,
+  type ProblemFinding,
+  type TouchedCommit,
+} from './model-problems.js';
 
 export interface ModelCheckFinding {
   /** The model id (element, interface or relation) the finding names, when it has one. */
@@ -40,6 +58,8 @@ export interface ModelCheckReport {
   errors: ModelCheckFinding[];
   /** Evidence items and document claims whose file no longer reads as it did; reported, never failing. */
   stale: ModelCheckFinding[];
+  /** Problems recognised methods define, reported with the model: they never fail the check. */
+  problems: ProblemFinding[];
   /** Problems that do not fail the check, reported with the model. */
   warnings: ModelCheckFinding[];
   /** Facts worth reading beside the report, such as where a missing commit's blob was found. */
@@ -299,10 +319,13 @@ function tableUnder(lines: readonly string[], headingLine: number, heading: stri
  * duplicate rows fail the check). A missing claims section is a note: a
  * repository may have no documents.
  */
-function reviewFindings(review: string, blobsAtRev: ReadonlyMap<string, string>, elementIds: ReadonlySet<string>): { errors: ModelCheckFinding[]; stale: ModelCheckFinding[]; notes: ModelCheckFinding[] } {
+function reviewFindings(review: string, blobsAtRev: ReadonlyMap<string, string>, elementIds: ReadonlySet<string>): { errors: ModelCheckFinding[]; stale: ModelCheckFinding[]; notes: ModelCheckFinding[]; assignment: { path: string; element: string }[] } {
   const errors: ModelCheckFinding[] = [];
   const stale: ModelCheckFinding[] = [];
   const notes: ModelCheckFinding[] = [];
+  // The assignment rows the report holds, kept for the hidden-coupling
+  // problem: which path belongs to which element (or is excluded).
+  const assignment: { path: string; element: string }[] = [];
   const at = (line: number, message: string): ModelCheckFinding => ({ file: REVIEW, line, message });
   const lines = review.split('\n');
   const headingOf = (name: string): number => lines.findIndex((line) => line.trim() === `## ${name}`);
@@ -348,7 +371,6 @@ function reviewFindings(review: string, blobsAtRev: ReadonlyMap<string, string>,
   } else {
     const { rows, findings } = tableUnder(lines, assignmentLine, 'Assignment', ASSIGNMENT_COLUMNS);
     errors.push(...findings);
-    const covering: string[] = [];
     const seen = new Map<string, number>();
     for (const row of rows ?? []) {
       const path = unquoted(row.cells[0]!);
@@ -371,16 +393,16 @@ function reviewFindings(review: string, blobsAtRev: ReadonlyMap<string, string>,
       } else if (!elementIds.has(element)) {
         errors.push(at(row.line, `the assignment row for ${path} names element "${element}", which the model does not have`));
       }
-      covering.push(path);
+      assignment.push({ path, element });
     }
     // A folder row covers everything under it, a file row that file; the
     // deepest row covering a file decides it. Files no row covers are
     // reported once per folder, in the order `git ls-tree` lists them —
     // byte order, which for UTF-8 paths is code-point order.
-    const deepestFirst = [...covering].sort((a, b) => b.length - a.length);
+    const deepestFirst = [...assignment].sort((a, b) => b.path.length - a.path.length);
     const unassigned = new Map<string, string[]>();
     for (const path of blobsAtRev.keys()) {
-      const cover = deepestFirst.find((rowPath) => (rowPath.endsWith('/') ? path.startsWith(rowPath) : path === rowPath));
+      const cover = deepestFirst.find((row) => (row.path.endsWith('/') ? path.startsWith(row.path) : path === row.path));
       if (cover !== undefined) continue;
       const folder = dirname(path);
       const files = unassigned.get(folder) ?? [];
@@ -391,7 +413,102 @@ function reviewFindings(review: string, blobsAtRev: ReadonlyMap<string, string>,
       errors.push({ file: folder, line: 0, message: `no assignment row covers ${files.join(', ')}` });
     }
   }
-  return { errors, stale, notes };
+  return { errors, stale, notes, assignment };
+}
+
+/** The checked revision's committer date, in epoch milliseconds. */
+function committedTime(repo: string, revCommit: string): number | undefined {
+  const run = git(repo, ['show', '-s', '--format=%ct', revCommit]);
+  if (!run.ok) return undefined;
+  const seconds = Number(run.stdout.trim());
+  return Number.isFinite(seconds) ? seconds * 1000 : undefined;
+}
+
+/**
+ * The non-merge commits the hidden-coupling window keeps, newest first:
+ * those whose committer date lies within the window before the checked
+ * revision's, skipping the bulk changes that carry no signal about single
+ * elements. Each carries the distinct model elements its files belong to
+ * under the review's assignment table.
+ */
+function touchedCommits(repo: string, revCommit: string, committedAt: number, fileElement: (file: string) => string | undefined, elementIds: ReadonlySet<string>): TouchedCommit[] | undefined {
+  const run = git(repo, ['log', '--no-merges', '--format=%x01%H%x09%ct', '--name-only', '-z', revCommit]);
+  if (!run.ok) return undefined;
+  const windowMs = HIDDEN_COUPLING_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  const commits: TouchedCommit[] = [];
+  // One record per commit: `<SOH>hash<TAB>time` then the NUL-separated
+  // files (the first preceded by a newline), the record itself NUL-ended.
+  for (const chunk of run.stdout.split('\x01')) {
+    if (chunk === '') continue;
+    const pieces = chunk.split('\0');
+    const meta = pieces[0] ?? '';
+    const tab = meta.indexOf('\t');
+    if (tab === -1) continue;
+    const at = Number(meta.slice(tab + 1)) * 1000;
+    const age = committedAt - at;
+    if (!Number.isFinite(at) || age < 0 || age > windowMs) continue;
+    const files = pieces
+      .slice(1)
+      .filter((piece) => piece !== '')
+      .map((piece, index) => (index === 0 && piece.startsWith('\n') ? piece.slice(1) : piece));
+    if (files.length > BULK_COMMIT_FILES) continue;
+    const elements = new Set<string>();
+    for (const file of files) {
+      const element = fileElement(file);
+      if (element !== undefined && elementIds.has(element)) elements.add(element);
+    }
+    commits.push({ hash: meta.slice(0, tab), elements: sortedByCodePoint([...elements]) });
+  }
+  return commits;
+}
+
+/**
+ * Every problem the compiled model and its history hold: the six kinds of
+ * `model-problems.ts`, the level ones read off the view set the views are
+ * drawn from. When a part could not be computed (the revision's time or
+ * the history unreadable, the model unstorable, the view set unbuildable)
+ * the rest is still reported and a note says what was skipped.
+ */
+function problemFindings(repo: string, revCommit: string, model: CompiledModel, assignment: readonly { path: string; element: string }[], elementIds: ReadonlySet<string>, notes: ModelCheckFinding[]): ProblemFinding[] {
+  const findings: ProblemFinding[] = [];
+  findings.push(...magicSourceOrSinkProblems(model), ...trustBoundaryProblems(model));
+
+  const committedAt = committedTime(repo, revCommit);
+  if (committedAt === undefined) {
+    notes.push({ file: repo, line: 0, message: `the checked revision ${revCommit} has no readable commit time; the problems that read the levels or the history were skipped` });
+    return findings;
+  }
+  const prepared = prepareModel(model, { source: 'model-check', commit: revCommit, at: committedAt });
+  try {
+    if (prepared.errors.length > 0) {
+      notes.push({ file: repo, line: 0, message: `${prepared.errors[0]}; the problems that read the levels were skipped` });
+    } else {
+      const viewSet = buildViewSet(prepared.engine, model, prepared.at);
+      if (viewSet.views === undefined) {
+        notes.push({ file: repo, line: 0, message: `the view set could not be built: ${viewSet.errors[0]?.message ?? 'no error named'}; the problems that read the levels were skipped` });
+      } else {
+        const levels = levelsOf(viewSet.views);
+        findings.push(...cycleProblems(levels), ...unstableDependencyProblems(levels), ...hubProblems(levels));
+      }
+    }
+  } finally {
+    prepared.close();
+  }
+
+  // A file belongs to the element of the deepest assignment row covering
+  // it; an excluded file belongs to no element.
+  const deepestFirst = [...assignment].sort((a, b) => b.path.length - a.path.length);
+  const fileElement = (file: string): string | undefined => {
+    const row = deepestFirst.find((candidate) => (candidate.path.endsWith('/') ? file.startsWith(candidate.path) : file === candidate.path));
+    return row === undefined || row.element === 'excluded' ? undefined : row.element;
+  };
+  const commits = touchedCommits(repo, revCommit, committedAt, fileElement, elementIds);
+  if (commits === undefined) {
+    notes.push({ file: repo, line: 0, message: 'the commit history could not be read; hidden coupling was skipped' });
+    return findings;
+  }
+  findings.push(...hiddenCouplingProblems(model, commits));
+  return findings;
 }
 
 export function checkModel(repoPath: string, options: ModelCheckOptions = {}): ModelCheckReport {
@@ -401,6 +518,7 @@ export function checkModel(repoPath: string, options: ModelCheckOptions = {}): M
     outcome: 'unreadable',
     errors: [{ file: repo, line: 0, message }],
     stale: [],
+    problems: [],
     warnings: [],
     notes: [],
   });
@@ -418,6 +536,7 @@ export function checkModel(repoPath: string, options: ModelCheckOptions = {}): M
     outcome: 'failed',
     errors: errors.map((e) => ({ file: e.file, line: e.line, message: e.message })),
     stale: [],
+    problems: [],
     warnings: warnings.map((w) => ({ file: w.file, line: w.line, message: w.message })),
     notes: [],
   };
@@ -457,7 +576,7 @@ export function checkModel(repoPath: string, options: ModelCheckOptions = {}): M
   // The review report: its claims are compared with the checked revision
   // like evidence; its assignment table must cover every tracked file.
   const elementIds = new Set(positions!.elements.map((p) => p.element.id));
-  let review: { errors: ModelCheckFinding[]; stale: ModelCheckFinding[]; notes: ModelCheckFinding[] };
+  let review: { errors: ModelCheckFinding[]; stale: ModelCheckFinding[]; notes: ModelCheckFinding[]; assignment: { path: string; element: string }[] };
   try {
     review = reviewFindings(readFileSync(join(repo, REVIEW), 'utf8'), blobs, elementIds);
   } catch (error) {
@@ -466,11 +585,16 @@ export function checkModel(repoPath: string, options: ModelCheckOptions = {}): M
       errors: [{ file: REVIEW, line: 0, message: `the review report ${REVIEW} is missing; a model without its review is incomplete` }],
       stale: [],
       notes: [],
+      assignment: [],
     };
   }
   report.errors.push(...review.errors);
   report.stale.push(...review.stale);
   report.notes.push(...review.notes);
+
+  // Problems never fail the check: they are computed from the compiled
+  // model and the history whenever both could be read.
+  report.problems = problemFindings(repo, revCommit, model!, review.assignment, elementIds, report.notes).sort(compareProblems);
 
   // Warnings arrive ordered from the loader (file order, then the order
   // written); errors, stale items and notes are sorted here whatever order
