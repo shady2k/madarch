@@ -10,11 +10,13 @@
  * path is not a git repository, there is no `madarch/` folder, the
  * revision does not name a commit) is `unreadable`, exit 2. A model that
  * does not compile fails the check and nothing else is computed from a
- * compiled model. Later requirements grow the report by sections:
- * staleness, assignment, problems and views.
+ * compiled model. The report grows by sections as the requirements land:
+ * staleness and assignment read the review report (this module); problems
+ * and views come later.
  */
 import { spawnSync } from 'node:child_process';
-import { statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
+import { dirname } from 'node:path/posix';
 import { join, resolve } from 'node:path';
 import { loadAndCompileModel } from '../model/load-and-compile.js';
 import { byCodePoint } from '../model/order.js';
@@ -36,6 +38,8 @@ export interface ModelCheckReport {
   outcome: 'passed' | 'failed' | 'unreadable';
   /** Every finding that fails the check. */
   errors: ModelCheckFinding[];
+  /** Evidence items and document claims whose file no longer reads as it did; reported, never failing. */
+  stale: ModelCheckFinding[];
   /** Problems that do not fail the check, reported with the model. */
   warnings: ModelCheckFinding[];
   /** Facts worth reading beside the report, such as where a missing commit's blob was found. */
@@ -70,6 +74,17 @@ function byFileLineId(a: ModelCheckFinding, b: ModelCheckFinding): number {
 
 const MAX_GIT_BUFFER = 64 * 1024 * 1024;
 
+/**
+ * The review report, beside the model (model-authoring, requirement
+ * review). The loader reads only `*.yaml`, so the report is not part of
+ * the model; the check reads its two tables by their level-2 headings.
+ */
+const REVIEW = 'madarch/review.md';
+const CLAIMS_COLUMNS = ['Claim', 'Document', 'Line', 'Commit', 'Blob', 'Checked in code', 'Verdict', 'In the model'];
+const ASSIGNMENT_COLUMNS = ['Path', 'Element', 'Reason'];
+const VERDICTS = ['confirmed', 'contradicted', 'stale', 'planned', 'unconfirmed'];
+const HEX40 = /^[0-9a-f]{40}$/;
+
 /** Whether `path` is a folder that exists; anything else, including a file or nothing, is not. */
 function isDirectory(path: string): boolean {
   try {
@@ -84,6 +99,20 @@ function git(repo: string, args: string[]): { ok: boolean; stdout: string } {
   const run = spawnSync('git', args, { cwd: repo, encoding: 'utf8', maxBuffer: MAX_GIT_BUFFER });
   if (run.error !== undefined || run.status !== 0) return { ok: false, stdout: '' };
   return { ok: true, stdout: run.stdout ?? '' };
+}
+
+/** Every path the revision tracks, with the object id each holds: one `git ls-tree -r -z`. */
+function trackedAt(repo: string, revCommit: string): Map<string, string> | undefined {
+  const run = git(repo, ['ls-tree', '-r', '-z', revCommit]);
+  if (!run.ok) return undefined;
+  const blobs = new Map<string, string>();
+  for (const entry of run.stdout.split('\0')) {
+    const tab = entry.indexOf('\t');
+    if (tab === -1) continue;
+    const meta = entry.slice(0, tab).split(' ');
+    blobs.set(entry.slice(tab + 1), meta[2] ?? '');
+  }
+  return blobs;
 }
 
 /** The number of lines a blob holds, counting a last line without its newline. */
@@ -202,12 +231,176 @@ function resolveItem(repo: string, revCommit: string, declared: Declared, item: 
   return lines === undefined ? { errors: [], notes: [] } : { errors: [lines], notes: [] };
 }
 
+/** One data row of a review report table, with the 1-based line it was written on. */
+interface ReviewRow {
+  cells: string[];
+  line: number;
+}
+
+/** The cells of one table row: whitespace trimmed, `\|` read as a pipe. */
+function cellsOf(row: string): string[] {
+  return row.slice(1, -1).split(/(?<!\\)\|/).map((cell) => cell.replaceAll('\\|', '|').trim());
+}
+
+/** A path cell may be written in backticks; the ticks are not part of the path. */
+function unquoted(cell: string): string {
+  return cell.length >= 2 && cell.startsWith('`') && cell.endsWith('`') ? cell.slice(1, -1) : cell;
+}
+
+/**
+ * Reads the one pipe table a review report section holds: the header row,
+ * the separator row, then the data rows, ending at the first line that is
+ * not a row. The tables' shape is decided (the skill writes exactly this),
+ * so a header or separator that differs from `columns`, and any row of
+ * another width, is a finding naming the line at fault; only well-shaped
+ * rows are kept.
+ */
+function tableUnder(lines: readonly string[], headingLine: number, heading: string, columns: readonly string[]): { rows: ReviewRow[] | undefined; findings: ModelCheckFinding[] } {
+  const findings: ModelCheckFinding[] = [];
+  const at = (line: number, message: string): ModelCheckFinding => ({ file: REVIEW, line, message });
+  const isRow = (text: string): boolean => text.startsWith('|') && text.endsWith('|');
+  let i = headingLine + 1;
+  while (i < lines.length && lines[i]!.trim() === '') i++;
+  if (i >= lines.length || !lines[i]!.trim().startsWith('|')) {
+    findings.push(at(Math.min(i + 1, lines.length), `the "## ${heading}" section is not followed by a table`));
+    return { rows: undefined, findings };
+  }
+  const header = isRow(lines[i]!.trim()) ? cellsOf(lines[i]!.trim()) : [];
+  if (header.length !== columns.length || columns.some((column, index) => header[index] !== column)) {
+    findings.push(at(i + 1, `the "## ${heading}" table's header is not "| ${columns.join(' | ')} |"`));
+    return { rows: undefined, findings };
+  }
+  i++;
+  const separator = i < lines.length && isRow(lines[i]!.trim()) ? cellsOf(lines[i]!.trim()) : [];
+  if (separator.length !== columns.length || !separator.every((cell) => /^:?-+:?$/.test(cell))) {
+    findings.push(at(Math.min(i + 1, lines.length), `the "## ${heading}" table has no separator row under its header`));
+    return { rows: undefined, findings };
+  }
+  i++;
+  const rows: ReviewRow[] = [];
+  while (i < lines.length && lines[i]!.trim().startsWith('|')) {
+    const text = lines[i]!.trim();
+    const cells = isRow(text) ? cellsOf(text) : [];
+    if (cells.length !== columns.length) {
+      findings.push(at(i + 1, `the "## ${heading}" table has a row of ${cells.length} cells where its header has ${columns.length}`));
+    } else {
+      rows.push({ cells, line: i + 1 });
+    }
+    i++;
+  }
+  return { rows, findings };
+}
+
+/**
+ * The review report's two sections: the claims table, whose documents are
+ * compared with the checked revision like evidence (staleness, which never
+ * fails), and the assignment table, which must give every tracked file a
+ * row (unassigned files, unknown elements, reasonless exclusions and
+ * duplicate rows fail the check). A missing claims section is a note: a
+ * repository may have no documents.
+ */
+function reviewFindings(review: string, blobsAtRev: ReadonlyMap<string, string>, elementIds: ReadonlySet<string>): { errors: ModelCheckFinding[]; stale: ModelCheckFinding[]; notes: ModelCheckFinding[] } {
+  const errors: ModelCheckFinding[] = [];
+  const stale: ModelCheckFinding[] = [];
+  const notes: ModelCheckFinding[] = [];
+  const at = (line: number, message: string): ModelCheckFinding => ({ file: REVIEW, line, message });
+  const lines = review.split('\n');
+  const headingOf = (name: string): number => lines.findIndex((line) => line.trim() === `## ${name}`);
+
+  const claimsLine = headingOf('Claims');
+  if (claimsLine === -1) {
+    notes.push(at(0, 'the review report has no "## Claims" section; a repository with no documents needs none'));
+  } else {
+    const { rows, findings } = tableUnder(lines, claimsLine, 'Claims', CLAIMS_COLUMNS);
+    errors.push(...findings);
+    for (const row of rows ?? []) {
+      const claim = row.cells[0]!;
+      const document = unquoted(row.cells[1]!);
+      const namedLines = row.cells[2]!;
+      const commit = row.cells[3]!;
+      const blob = row.cells[4]!;
+      const verdict = row.cells[6]!;
+      let usable = true;
+      const refuse = (message: string): void => {
+        errors.push(at(row.line, message));
+        usable = false;
+      };
+      if (document === '') refuse('the claim row does not name a Document');
+      if (commit === '') refuse('the claim row does not name a Commit');
+      else if (!HEX40.test(commit)) refuse(`the claim row names a commit "${commit}", which is not a 40-hex-digit object id`);
+      if (blob === '') refuse('the claim row does not name a Blob');
+      else if (!HEX40.test(blob)) refuse(`the claim row names a blob "${blob}", which is not a 40-hex-digit object id`);
+      if (!VERDICTS.includes(verdict)) refuse(`the claim row names a verdict "${verdict}", which is none of confirmed, contradicted, stale, planned, unconfirmed`);
+      if (namedLines !== '' && !/^\d+(?:-\d+)?$/.test(namedLines)) refuse(`the claim row names lines "${namedLines}", which is neither a line number nor a "from-to" range`);
+      if (!usable) continue;
+      const atRev = blobsAtRev.get(document);
+      if (atRev === undefined) {
+        stale.push(at(row.line, `the claim "${claim}" is stale, file gone: ${document} does not exist at the checked revision; the row names blob ${blob}`));
+      } else if (atRev !== blob) {
+        stale.push(at(row.line, `the claim "${claim}" is stale: ${document} has ${atRev} at the checked revision, not ${blob}`));
+      }
+    }
+  }
+
+  const assignmentLine = headingOf('Assignment');
+  if (assignmentLine === -1) {
+    errors.push(at(0, 'the review report has no "## Assignment" section; every tracked file must be under a row of it'));
+  } else {
+    const { rows, findings } = tableUnder(lines, assignmentLine, 'Assignment', ASSIGNMENT_COLUMNS);
+    errors.push(...findings);
+    const covering: string[] = [];
+    const seen = new Map<string, number>();
+    for (const row of rows ?? []) {
+      const path = unquoted(row.cells[0]!);
+      const element = row.cells[1]!;
+      const reason = row.cells[2]!;
+      if (path === '') {
+        errors.push(at(row.line, 'the assignment row does not name a path'));
+        continue;
+      }
+      const first = seen.get(path);
+      if (first !== undefined) {
+        errors.push(at(row.line, `duplicate assignment row for ${path}; line ${first} already covers it`));
+        continue;
+      }
+      seen.set(path, row.line);
+      // A row whose element is wrong, or whose exclusion gives no reason,
+      // still covers its path: its own problem is the finding.
+      if (element === 'excluded') {
+        if (reason === '') errors.push(at(row.line, `the excluded row for ${path} gives no reason`));
+      } else if (!elementIds.has(element)) {
+        errors.push(at(row.line, `the assignment row for ${path} names element "${element}", which the model does not have`));
+      }
+      covering.push(path);
+    }
+    // A folder row covers everything under it, a file row that file; the
+    // deepest row covering a file decides it. Files no row covers are
+    // reported once per folder, in the order `git ls-tree` lists them —
+    // byte order, which for UTF-8 paths is code-point order.
+    const deepestFirst = [...covering].sort((a, b) => b.length - a.length);
+    const unassigned = new Map<string, string[]>();
+    for (const path of blobsAtRev.keys()) {
+      const cover = deepestFirst.find((rowPath) => (rowPath.endsWith('/') ? path.startsWith(rowPath) : path === rowPath));
+      if (cover !== undefined) continue;
+      const folder = dirname(path);
+      const files = unassigned.get(folder) ?? [];
+      files.push(path);
+      unassigned.set(folder, files);
+    }
+    for (const [folder, files] of unassigned) {
+      errors.push({ file: folder, line: 0, message: `no assignment row covers ${files.join(', ')}` });
+    }
+  }
+  return { errors, stale, notes };
+}
+
 export function checkModel(repoPath: string, options: ModelCheckOptions = {}): ModelCheckReport {
   const repo = resolve(repoPath);
   const rev = options.rev ?? 'HEAD';
   const unreadable = (message: string): ModelCheckReport => ({
     outcome: 'unreadable',
     errors: [{ file: repo, line: 0, message }],
+    stale: [],
     warnings: [],
     notes: [],
   });
@@ -217,11 +410,14 @@ export function checkModel(repoPath: string, options: ModelCheckOptions = {}): M
   const checkedRev = git(repo, ['rev-parse', '--verify', `${rev}^{commit}`]);
   if (!checkedRev.ok) return unreadable(`unknown revision "${rev}"`);
   const revCommit = checkedRev.stdout.trim();
+  const blobs = trackedAt(repo, revCommit);
+  if (blobs === undefined) return unreadable(`the files ${rev} tracks could not be listed`);
 
   const { model, errors, warnings, positions } = loadAndCompileModel(repo);
   const report: ModelCheckReport = {
     outcome: 'failed',
     errors: errors.map((e) => ({ file: e.file, line: e.line, message: e.message })),
+    stale: [],
     warnings: warnings.map((w) => ({ file: w.file, line: w.line, message: w.message })),
     notes: [],
   };
@@ -247,13 +443,40 @@ export function checkModel(repoPath: string, options: ModelCheckOptions = {}): M
       const resolved = resolveItem(repo, revCommit, declared, item, itemLine);
       report.errors.push(...resolved.errors);
       report.notes.push(...resolved.notes);
+      // Staleness never fails the check: the file at the checked revision
+      // simply no longer reads as the item says it did.
+      const atRev = blobs.get(item.file);
+      if (atRev === undefined) {
+        report.stale.push(findingOf(declared, itemLine, `${declared.label} is stale, file gone: ${item.file} does not exist at the checked revision; the item names blob ${item.blob}`));
+      } else if (atRev !== item.blob) {
+        report.stale.push(findingOf(declared, itemLine, `${declared.label} is stale: ${item.file} has ${atRev} at the checked revision, not the item's blob ${item.blob}`));
+      }
     }
   }
 
+  // The review report: its claims are compared with the checked revision
+  // like evidence; its assignment table must cover every tracked file.
+  const elementIds = new Set(positions!.elements.map((p) => p.element.id));
+  let review: { errors: ModelCheckFinding[]; stale: ModelCheckFinding[]; notes: ModelCheckFinding[] };
+  try {
+    review = reviewFindings(readFileSync(join(repo, REVIEW), 'utf8'), blobs, elementIds);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return unreadable(`${REVIEW} could not be read`);
+    review = {
+      errors: [{ file: REVIEW, line: 0, message: `the review report ${REVIEW} is missing; a model without its review is incomplete` }],
+      stale: [],
+      notes: [],
+    };
+  }
+  report.errors.push(...review.errors);
+  report.stale.push(...review.stale);
+  report.notes.push(...review.notes);
+
   // Warnings arrive ordered from the loader (file order, then the order
-  // written); errors and notes are sorted here whatever order the walk
-  // above found them in.
+  // written); errors, stale items and notes are sorted here whatever order
+  // the walk above found them in.
   report.errors.sort(byFileLineId);
+  report.stale.sort(byFileLineId);
   report.notes.sort(byFileLineId);
   return { ...report, outcome: report.errors.length > 0 ? 'failed' : 'passed' };
 }
