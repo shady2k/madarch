@@ -80,6 +80,29 @@ export function prepareModel(model: CompiledModel, version: RenderedVersion): Pr
 }
 
 /**
+ * Renders an already compiled model: stores it as one version, builds the
+ * query engine from that history and renders every view — the render half
+ * of the seam. `prepareRendering` reaches it after its own load and
+ * compile; the model check reaches it with the model it already compiled,
+ * so its views are drawn from exactly the model its findings are.
+ */
+export function renderModel(model: CompiledModel, version: RenderedVersion): PreparedRendering {
+  const prepared = prepareModel(model, version);
+  try {
+    if (prepared.errors.length > 0) return { model, errors: prepared.errors, notDrawn: [], warnings: [] };
+    const viewSet = buildViewSet(prepared.engine, model, prepared.at);
+    if (viewSet.views === undefined) return { model, errors: viewSet.errors.map((e) => e.message), notDrawn: [], warnings: [] };
+    const rendered = renderMermaidPages(viewSet.views);
+    if (rendered.pages === undefined) return { model, errors: rendered.errors.map((e) => e.message), notDrawn: [], warnings: [] };
+    const likec4 = renderLikeC4Workspace(prepared.engine, model, prepared.at);
+    if (likec4.workspace === undefined) return { model, errors: likec4.errors.map((e) => e.message), notDrawn: [], warnings: [] };
+    return { model, pages: rendered.pages, workspace: likec4.workspace, notDrawn: likec4.notDrawn!.map((relation) => relation.message), errors: [], warnings: [] };
+  } finally {
+    prepared.close();
+  }
+}
+
+/**
  * Loads, compiles, stores and renders one repository's model, closing the
  * engine and the history it borrows before returning.
  */
@@ -87,18 +110,5 @@ export function prepareRendering(repoFolder: string, version: RenderedVersion): 
   const { model, errors, warnings } = loadAndCompileModel(repoFolder);
   const warningLines = warnings.map((w) => `${w.file}:${w.line}: ${w.path}: ${w.message}`);
   if (model === undefined) return { errors: errors.map((e) => `${e.file}:${e.line}: ${e.path}: ${e.message}`), notDrawn: [], warnings: warningLines };
-
-  const prepared = prepareModel(model, version);
-  try {
-    if (prepared.errors.length > 0) return { model, errors: prepared.errors, notDrawn: [], warnings: warningLines };
-    const viewSet = buildViewSet(prepared.engine, model, prepared.at);
-    if (viewSet.views === undefined) return { model, errors: viewSet.errors.map((e) => e.message), notDrawn: [], warnings: warningLines };
-    const rendered = renderMermaidPages(viewSet.views);
-    if (rendered.pages === undefined) return { model, errors: rendered.errors.map((e) => e.message), notDrawn: [], warnings: warningLines };
-    const likec4 = renderLikeC4Workspace(prepared.engine, model, prepared.at);
-    if (likec4.workspace === undefined) return { model, errors: likec4.errors.map((e) => e.message), notDrawn: [], warnings: warningLines };
-    return { model, pages: rendered.pages, workspace: likec4.workspace, notDrawn: likec4.notDrawn!.map((relation) => relation.message), errors: [], warnings: warningLines };
-  } finally {
-    prepared.close();
-  }
+  return { ...renderModel(model, version), warnings: warningLines };
 }

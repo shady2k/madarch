@@ -27,7 +27,7 @@ import { loadAndCompileModel } from '../model/load-and-compile.js';
 import { byCodePoint, sortedByCodePoint } from '../model/order.js';
 import type { Evidence } from '../model/schema.js';
 import type { PositionedModel } from '../model/validate.js';
-import { prepareModel, prepareRendering } from '../render/prepare.js';
+import { prepareModel, renderModel } from '../render/prepare.js';
 import { buildViewSet } from '../render/view-set.js';
 import { writeViews } from '../render/write.js';
 import {
@@ -522,21 +522,21 @@ function problemFindings(repo: string, revCommit: string, model: CompiledModel, 
 }
 
 /**
- * The views requirement (views-rendered): renders every view of the
- * compiled model through the same load-compile-render the reference
- * script uses, at the checked revision's commit time — never the clock,
- * so the pages change only with the model — and writes them into the
- * folder the caller named. A rendering that fails writes nothing and is
- * reported as a note: the views are worth reading beside the report, not
- * the check's verdict.
+ * The views requirement (views-rendered): renders the model the check
+ * already compiled — the same render the reference script's
+ * load-compile-render ends in, at the checked revision's commit time,
+ * never the clock, so the pages change only with the model — and writes
+ * it into the folder the caller named. A rendering that fails writes
+ * nothing and is reported as a note: the views are worth reading beside
+ * the report, not the check's verdict.
  */
-function writeViewFolder(repo: string, revCommit: string, folder: string, notes: ModelCheckFinding[]): void {
+function writeViewFolder(repo: string, revCommit: string, model: CompiledModel, folder: string, notes: ModelCheckFinding[]): void {
   const committedAt = committedTime(repo, revCommit);
   if (committedAt === undefined) {
     notes.push({ file: repo, line: 0, message: `the checked revision ${revCommit} has no readable commit time; no views were rendered` });
     return;
   }
-  const rendered = prepareRendering(repo, { source: 'model-check', commit: revCommit, at: committedAt });
+  const rendered = renderModel(model, { source: 'model-check', commit: revCommit, at: committedAt });
   if (rendered.pages === undefined || rendered.workspace === undefined) {
     notes.push({ file: repo, line: 0, message: `the views could not be rendered: ${rendered.errors[0] ?? 'no error named'}; nothing was written` });
     return;
@@ -632,7 +632,7 @@ export function checkModel(repoPath: string, options: ModelCheckOptions = {}): M
 
   // The views, when the caller asked for them: the model compiled, so
   // every view of it is rendered and written into the folder they named.
-  if (options.views !== undefined) writeViewFolder(repo, revCommit, options.views, report.notes);
+  if (options.views !== undefined) writeViewFolder(repo, revCommit, model!, options.views, report.notes);
 
   // Warnings arrive ordered from the loader (file order, then the order
   // written); errors, stale items and notes are sorted here whatever order
