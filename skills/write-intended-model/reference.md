@@ -245,9 +245,9 @@ repository's HEAD at the start of the run.
 
 | Claim | Document | Line | Commit | Blob | Checked in code | Verdict | In the model |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| The clerk scans receipts into `inbox/` | README.md | 3-5 | 3f9c2ab6… | ae41b0c9… | src/index.ts:10-12 | confirmed | importer |
-| The Cleaner removes duplicates | docs/architecture.md | 9 | 3f9c2ab6… | 5ad3e9c2… | src/ (no Cleaner exists) | contradicted | importer |
-| Phase 2 mirrors the archive to S3 | docs/architecture.md | 17 | 3f9c2ab6… | 5ad3e9c2… | announced plan; nothing in the code | planned | — |
+| The clerk scans receipts into `inbox/` | README.md | 3-5 | 3f9c2ab6e1d40977c88b9a2f5e0c11d78b8a6f21 | ae41b0c9127f3d55c1f4d68f2a99c53f2b18e7d0 | src/index.ts:10-12 | confirmed | importer |
+| The Cleaner removes duplicates | docs/architecture.md | 9 | 3f9c2ab6e1d40977c88b9a2f5e0c11d78b8a6f21 | 5ad3e9c2bb71f04a3e6d12c8f79b0a44e2d51c93 | src/ (no Cleaner exists) | contradicted | importer |
+| Phase 2 mirrors the archive to S3 | docs/architecture.md | 17 | 3f9c2ab6e1d40977c88b9a2f5e0c11d78b8a6f21 | 5ad3e9c2bb71f04a3e6d12c8f79b0a44e2d51c93 | announced plan; nothing in the code | planned | — |
 ```
 
 Columns, in order:
@@ -256,9 +256,10 @@ Columns, in order:
 - `Document` — the file's path from the repository root; backticks are
   stripped if present.
 - `Line` — the line, a `from-to` range, or empty.
-- `Commit` and `Blob` — of the **document file** the claim was read from,
-  computed the same way as evidence (`git -C "$REPO" rev-parse
-  "<commit>:<file>"`).
+- `Commit` and `Blob` — of the **document file** the claim was read from;
+  full ids of 40 hexadecimal digits, computed the same way as evidence
+  (`git -C "$REPO" rev-parse "<commit>:<file>"`) — a shortened id is
+  refused by the check.
 - `Checked in code` — the code the claim was checked against, as
   `file:lines`, or what you found in its place ("no Cleaner exists").
 - `Verdict` — exactly one of `confirmed`, `contradicted`, `stale`,
