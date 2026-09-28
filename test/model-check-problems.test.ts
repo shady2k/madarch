@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { assigned, checkModel, completeRepo, Repo, runScript, withRepo } from './model-check-repo.js';
+import { assigned, checkModel, completeRepo, GIT_ENV, Repo, runScript, withRepo } from './model-check-repo.js';
 import type { ModelCheckReport } from '../src/check/model-check.js';
 import { sortedByCodePoint } from '../src/model/order.js';
 
@@ -234,6 +234,72 @@ test('a shallow clone whose boundary falls inside the window says hidden couplin
       const shallow = report.notes.find((f) => f.message.includes('shallow'));
       expect(shallow?.message).toContain('hidden coupling was computed over the available history only');
       expect(shallow?.message).toContain(new Date(boundarySeconds * 1000).toISOString());
+    } finally {
+      rmSync(clonePath, { recursive: true, force: true });
+    }
+  });
+});
+
+test('a shallow clone of a history that merged an old unrelated root names the real shallow boundary, not the old root', () => {
+  withRepo((repo) => {
+    // The model commit lands on the factory's fixed moment; every other
+    // date is placed relative to it, so the window arithmetic never
+    // depends on the wall clock.
+    const tipSeconds = Number.parseInt(GIT_ENV.GIT_COMMITTER_DATE, 10);
+    const at = (daysBeforeTip: number): string => `${tipSeconds - daysBeforeTip * 24 * 60 * 60} +0000`;
+    // The main line: the root, then the commit the shallow cut falls on.
+    repo.write('src/svc.ts', 'export const svc = 1;\n');
+    repo.commitAt('the first commit', at(40));
+    repo.write('src/svc.ts', 'export const svc = 1; // changed\n');
+    const cut = repo.commitAt('the commit before the merge', at(30));
+    // An old unrelated root, 400 days before the model, merged into the
+    // main line: at depth 3 the clone holds it whole, a root by birth,
+    // while the shallow cut stays recent — the old root must not hide
+    // the real boundary.
+    expect(repo.run(['checkout', '--quiet', '--orphan', 'unrelated']).ok).toBe(true);
+    expect(repo.run(['rm', '--quiet', '-r', '-f', '.']).ok).toBe(true);
+    repo.write('src/old.ts', 'export const old = 1;\n');
+    repo.commitAt('the old unrelated root', at(400));
+    // An unmerged side line of its own, three commits deep, whose cut is
+    // 20 days back — newer than the main line's cut, but unreachable
+    // from the checked revision, so it must not win the note's date.
+    expect(repo.run(['checkout', '--quiet', '--orphan', 'longside']).ok).toBe(true);
+    expect(repo.run(['rm', '--quiet', '-r', '-f', '.']).ok).toBe(true);
+    repo.write('src/longside.ts', 'export const longside = 1; // v1\n');
+    repo.commitAt('the long side, first', at(20));
+    repo.write('src/longside.ts', 'export const longside = 1; // v2\n');
+    repo.commitAt('the long side, second', at(10));
+    repo.write('src/longside.ts', 'export const longside = 1; // v3\n');
+    repo.commitAt('the long side, third', at(5));
+    expect(repo.run(['checkout', '--quiet', 'main']).ok).toBe(true);
+    expect(repo.run(['merge', '--quiet', '--no-ff', '--allow-unrelated-histories', '-m', 'merge the old unrelated root', 'unrelated']).ok).toBe(true);
+    const blob = repo.blob('src/svc.ts', cut);
+    commitModel(repo, [elementGroup('svc', 'service', cut, blob)], [], [], [['src/', 'svc', '']]);
+
+    // Control, the full history: the check passes and nothing says shallow.
+    const whole = checkModel(repo.path);
+    expect(whole.outcome).toBe('passed');
+    expect(whole.notes.find((f) => f.message.includes('shallow'))).toBeUndefined();
+
+    // Three commits deep: the model, the merge, and every parent at that
+    // depth — the old root whole, the recent cut grafted, the long side's
+    // cut present but unreachable from HEAD. The note names the newest
+    // reachable shallow commit, never the old root, never the unreachable
+    // cut.
+    const clonePath = join(tmpdir(), `madarch-shallow-root-${process.pid}-${Date.now()}`);
+    const cloned = spawnSync('git', ['clone', '--quiet', '--depth', '3', '--no-single-branch', `file://${repo.path}`, clonePath], { encoding: 'utf8' });
+    try {
+      expect(cloned.status).toBe(0);
+
+      const report = checkModel(clonePath);
+
+      expect(report.outcome).toBe('passed');
+      expect(report.problems).toEqual([]);
+      const shallow = report.notes.find((f) => f.message.includes('shallow'));
+      expect(shallow?.message).toContain('hidden coupling was computed over the available history only');
+      expect(shallow?.message).toContain(new Date((tipSeconds - 30 * 24 * 60 * 60) * 1000).toISOString());
+      expect(shallow?.message).not.toContain(new Date((tipSeconds - 400 * 24 * 60 * 60) * 1000).toISOString());
+      expect(shallow?.message).not.toContain(new Date((tipSeconds - 20 * 24 * 60 * 60) * 1000).toISOString());
     } finally {
       rmSync(clonePath, { recursive: true, force: true });
     }
