@@ -8,12 +8,15 @@
  *
  * A model has no history of its own, so it is stored and rendered at one
  * fixed moment the caller names: the pages change only when the model or
- * the renderer does, never with the clock.
+ * the renderer does, never with the clock. The storing and the engine
+ * itself (`prepareModel`) are shared with the model check's problems, which
+ * need the same view set the pages are drawn from.
  */
 import { createLadybugEngine } from '../adapters/ladybug-engine.js';
 import { createSqliteHistory } from '../adapters/sqlite-history.js';
 import { loadAndCompileModel } from '../model/load-and-compile.js';
 import type { CompiledModel } from '../model/compile.js';
+import type { QueryEngine } from '../query/types.js';
 import { buildViewSet } from './view-set.js';
 import { renderMermaidPages, type MermaidPage } from './mermaid.js';
 import { renderLikeC4Workspace } from './likec4.js';
@@ -43,6 +46,39 @@ export interface PreparedRendering {
   warnings: string[];
 }
 
+/** A compiled model stored in a history of its own, with the query engine built from that history. `close` releases both. */
+export interface PreparedModel {
+  model: CompiledModel;
+  engine: QueryEngine;
+  /** The time and state the model is stored and answered at. */
+  at: { valid: number; known: number };
+  /** Every problem that kept the model from being stored; while it is nonempty the engine answers nothing. */
+  errors: string[];
+  close(): void;
+}
+
+/**
+ * Stores an already compiled model as one version and builds the query
+ * engine from that history: the seam the rendering and the model check's
+ * problems share, so neither keeps its own copy of the storing.
+ */
+export function prepareModel(model: CompiledModel, version: RenderedVersion): PreparedModel {
+  const history = createSqliteHistory({ clock: { now: () => version.at } });
+  const engine = createLadybugEngine();
+  const stored = history.store({ source: version.source, commit: version.commit, committedAt: version.at, model });
+  engine.rebuild(history.assertions());
+  return {
+    model,
+    engine,
+    at: { valid: version.at, known: version.at },
+    errors: stored.errors.map((error) => `storing the model: ${error.message}`),
+    close: () => {
+      engine.close();
+      history.close();
+    },
+  };
+}
+
 /**
  * Loads, compiles, stores and renders one repository's model, closing the
  * engine and the history it borrows before returning.
@@ -52,23 +88,17 @@ export function prepareRendering(repoFolder: string, version: RenderedVersion): 
   const warningLines = warnings.map((w) => `${w.file}:${w.line}: ${w.path}: ${w.message}`);
   if (model === undefined) return { errors: errors.map((e) => `${e.file}:${e.line}: ${e.path}: ${e.message}`), notDrawn: [], warnings: warningLines };
 
-  const history = createSqliteHistory({ clock: { now: () => version.at } });
-  const engine = createLadybugEngine();
+  const prepared = prepareModel(model, version);
   try {
-    const stored = history.store({ source: version.source, commit: version.commit, committedAt: version.at, model });
-    if (stored.errors.length > 0) return { model, errors: stored.errors.map((e) => `storing the model: ${e.message}`), notDrawn: [], warnings: warningLines };
-    engine.rebuild(history.assertions());
-
-    const at = { valid: version.at, known: version.at };
-    const viewSet = buildViewSet(engine, model, at);
+    if (prepared.errors.length > 0) return { model, errors: prepared.errors, notDrawn: [], warnings: warningLines };
+    const viewSet = buildViewSet(prepared.engine, model, prepared.at);
     if (viewSet.views === undefined) return { model, errors: viewSet.errors.map((e) => e.message), notDrawn: [], warnings: warningLines };
     const rendered = renderMermaidPages(viewSet.views);
     if (rendered.pages === undefined) return { model, errors: rendered.errors.map((e) => e.message), notDrawn: [], warnings: warningLines };
-    const likec4 = renderLikeC4Workspace(engine, model, at);
+    const likec4 = renderLikeC4Workspace(prepared.engine, model, prepared.at);
     if (likec4.workspace === undefined) return { model, errors: likec4.errors.map((e) => e.message), notDrawn: [], warnings: warningLines };
     return { model, pages: rendered.pages, workspace: likec4.workspace, notDrawn: likec4.notDrawn!.map((relation) => relation.message), errors: [], warnings: warningLines };
   } finally {
-    engine.close();
-    history.close();
+    prepared.close();
   }
 }
