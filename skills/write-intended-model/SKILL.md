@@ -166,6 +166,17 @@ groups by the assignment table; for TypeScript, the import statements. Why:
 a page of groups with no arrows between them says nothing, and the pairs
 the import graph shows are exactly the ones evidence can support.
 
+A page holds about five boxes and about twenty arrows at most. When a core
+has more than about five groups, or its groups' relations would put more
+than about twenty arrows on the service's page, nest: group the groups into
+three or four **layers** — module elements, children of the service, each
+holding two or three groups — by what they are for: the entry and the
+features users reach, the local runtime, the remote side, the stores and
+platform underneath, whatever fits the code. Relations stay written between
+the groups; the views collapse them onto the layers. Count a page's arrows
+as the rows of the table under its diagram. Why: GitHub shrinks a wide
+diagram until its labels cannot be read.
+
 Element kinds: `person`, `external`, `domain`, `system`, `service`, `module`,
 `store`, `broker`. Pick the kind from what the part is, not from where it
 sits in a folder tree.
@@ -219,6 +230,12 @@ A relation to a store, an external system or another part starts at the
 Why: the views collapse the relation back to the service at the level
 above, so nothing is lost there, and the group's page keeps the arrow its
 own code earns.
+
+A relation from a neighbour **into** the service ends at the **group that
+serves it** — the group whose code receives it, the handler's group — not
+at the service itself, as relations out of it start at the group that
+makes the call. Why: an arrow ending on the service's own frame overlaps
+the arrows that end on its groups.
 
 Before finishing, open the core's page: a level whose boxes have no arrows
 between them is not finished. A hidden-coupling problem between two groups
@@ -308,6 +325,8 @@ each as a reader would:
 - does the landscape hold about ten boxes or fewer?
 - does each level say something, or is it a list?
 - are the names readable at the size they are drawn?
+- does a page hold about five boxes of its own and about twenty rows in
+  its table at most? A page with more is not finished — nest or regroup.
 
 Copy the check's problems into the report's Problems section, each with its
 method and source and the ids it named (the check prints them). Add the
