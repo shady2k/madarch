@@ -26,6 +26,10 @@ const GIT_ENV = {
   GIT_COMMITTER_DATE: '1756728000 +0000',
 };
 
+/** The review report's table columns, the shape the skill writes; the check parses them strictly. */
+const CLAIMS_COLUMNS = ['Claim', 'Document', 'Line', 'Commit', 'Blob', 'Checked in code', 'Verdict', 'In the model'];
+const ASSIGNMENT_COLUMNS = ['Path', 'Element', 'Reason'];
+
 /** A tiny git repository a test builds step by step; removed when the test is over. */
 class Repo {
   readonly path: string;
@@ -68,6 +72,16 @@ class Repo {
   /** The blob id `file` has at `commit` (default HEAD). */
   blob(file: string, commit = 'HEAD'): string {
     return this.run(['rev-parse', `${commit}:${file}`]).stdout.trim();
+  }
+
+  /** Writes madarch/review.md with the given claims and assignment rows, keeping its text so tests can read line numbers off it. */
+  writeReview(claims: string[][], assignment: string[][]): void {
+    const table = (columns: string[], rows: string[][]): string => [
+      `| ${columns.join(' | ')} |`,
+      `|${columns.map(() => '---').join('|')}|`,
+      ...rows.map((row) => `| ${row.join(' | ')} |`),
+    ].join('\n');
+    this.writeModel('review.md', ['## Claims', '', table(CLAIMS_COLUMNS, claims), '', '## Assignment', '', table(ASSIGNMENT_COLUMNS, assignment), ''].join('\n'));
   }
 }
 
@@ -130,6 +144,16 @@ function completeRepo(): Repo {
     '',
   ].join('\n');
   repo.writeModel('model.yaml', yaml);
+  repo.writeReview(
+    [
+      ['The core is thirty lines of TypeScript', 'src/core.ts', '', commit, coreBlob, 'src/core.ts:1-30', 'confirmed', 'core'],
+      ['The web fronts the core', 'src/web.ts', '', commit, webBlob, 'src/web.ts:1', 'contradicted', 'web'],
+      ['The web is planned to move', 'src/web.ts', '', commit, webBlob, 'src/web.ts:1', 'planned', 'web'],
+      ['The web reads as stale prose', 'src/web.ts', '', commit, webBlob, 'src/web.ts:1', 'stale', 'web'],
+      ['The web is unconfirmed talk', 'src/web.ts', '', commit, webBlob, 'src/web.ts:1', 'unconfirmed', 'web'],
+    ],
+    [['src/web.ts', 'web', ''], ['src/core.ts', 'core', ''], ['madarch/', 'excluded', 'the model and its review']],
+  );
   repo.commit('the model');
   return repo;
 }
@@ -150,6 +174,38 @@ function squashFeature(repo: Repo): { lostCommit: string; lostBlob: string; squa
   expect(repo.run(['gc', '--prune=now', '--quiet']).ok).toBe(true);
   expect(repo.run(['cat-file', '-e', `${lostCommit}^{commit}`]).ok).toBe(false);
   return { lostCommit, lostBlob, squashCommit };
+}
+
+/** Assignment rows covering a fixture: each named path to its element, the model folder excluded. */
+function assigned(rows: string[][]): string[][] {
+  return [...rows, ['madarch/', 'excluded', 'the model and its review']];
+}
+
+/** A repository where src/core.ts changed after the model pinned it: the one stale item staleness reports. */
+function staleRepo(): { repo: Repo; oldBlob: string } {
+  const repo = new Repo();
+  repo.write('src/core.ts', 'line 1\n');
+  const sourceCommit = repo.commit('the sources');
+  const oldBlob = repo.blob('src/core.ts', sourceCommit);
+  const yaml = [
+    'version: 1',
+    '',
+    'elements:',
+    '  - id: core',
+    '    kind: service',
+    '    name: Core',
+    '    evidence:',
+    '      - file: src/core.ts',
+    `        commit: ${sourceCommit}`,
+    `        blob: ${oldBlob}`,
+    '',
+  ].join('\n');
+  repo.writeModel('model.yaml', yaml);
+  repo.writeReview([], assigned([['src/core.ts', 'core', '']]));
+  repo.commit('the model');
+  repo.write('src/core.ts', 'line 1 changed\n');
+  repo.commit('the file changes');
+  return { repo, oldBlob };
 }
 
 function withRepo(run: (repo: Repo) => void): void {
@@ -253,6 +309,7 @@ describe('the model check', () => {
           '',
         ].join('\n');
         repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/core.ts', 'core', ''], ['src/web.ts', 'excluded', 'not modelled']]));
         repo.commit('the model');
 
         const report = checkModel(repo.path);
@@ -289,6 +346,7 @@ describe('the model check', () => {
           '',
         ].join('\n');
         repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/core.ts', 'core', '']]));
         repo.commit('the model');
 
         const report = checkModel(repo.path);
@@ -323,6 +381,7 @@ describe('the model check', () => {
           '',
         ].join('\n');
         repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/core.ts', 'core', '']]));
         repo.commit('the model');
 
         const report = checkModel(repo.path);
@@ -356,6 +415,7 @@ describe('the model check', () => {
           '',
         ].join('\n');
         repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/core.ts', 'core', ''], ['src/web.ts', 'excluded', 'not modelled']]));
         repo.commit('the model');
 
         const report = checkModel(repo.path);
@@ -386,6 +446,7 @@ describe('the model check', () => {
           '',
         ].join('\n');
         repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/feature.ts', 'core', ''], ['README.md', 'excluded', 'the readme']]));
         repo.commit('the model');
 
         const report = checkModel(repo.path);
@@ -419,6 +480,7 @@ describe('the model check', () => {
           '',
         ].join('\n');
         repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/core.ts', 'core', '']]));
         repo.commit('the model');
 
         const report = checkModel(repo.path);
@@ -473,6 +535,7 @@ describe('the model check', () => {
           '',
         ].join('\n');
         repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/web.ts', 'web', ''], ['src/core.ts', 'core', '']]));
         repo.commit('the model');
 
         const report = checkModel(repo.path);
@@ -500,6 +563,7 @@ describe('the model check', () => {
         expect(report.errors).toEqual([]);
         expect(report.warnings).toEqual([]);
         expect(report.notes).toEqual([]);
+        expect(report.stale).toEqual([]);
       });
     });
   });
@@ -542,6 +606,7 @@ describe('the model check', () => {
           '',
         ].join('\n');
         repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/web.ts', 'web', ''], ['src/core.ts', 'core', '']]));
         repo.commit('the model');
 
         const report = checkModel(repo.path);
@@ -584,6 +649,7 @@ describe('the model check', () => {
           '',
         ].join('\n');
         repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/core.ts', 'core', '']]));
         repo.commit('the model');
 
         const run = runScript(repo.path);
@@ -617,6 +683,20 @@ describe('the model check', () => {
 
         expect(run.status).toBe(0);
         expect(JSON.parse(run.stdout)).toEqual(checkModel(repo.path));
+      } finally {
+        rmSync(repo.path, { recursive: true, force: true });
+      }
+    });
+
+    test('exit-codes: the script exits 0 for a repository with a stale item, printing it under stale', () => {
+      const { repo, oldBlob } = staleRepo();
+      try {
+        const run = runScript(repo.path);
+
+        expect(run.status).toBe(0);
+        expect(run.stdout).toContain('stale:');
+        expect(run.stdout).toContain('src/core.ts');
+        expect(run.stdout).toContain(oldBlob);
       } finally {
         rmSync(repo.path, { recursive: true, force: true });
       }
@@ -666,6 +746,7 @@ describe('the model check', () => {
           '',
         ].join('\n');
         repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/feature.ts', 'e2', ''], ['README.md', 'excluded', 'the readme']]));
         repo.commit('the model');
 
         const report = checkModel(repo.path);
@@ -717,6 +798,7 @@ describe('the model check', () => {
           '',
         ].join('\n');
         repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/core.ts', 'core', '']]));
         repo.commit('the model');
 
         const report = checkModel(repo.path);
@@ -748,6 +830,7 @@ describe('the model check', () => {
           '',
         ].join('\n');
         repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/empty.ts', 'core', '']]));
         repo.commit('the model');
 
         const report = checkModel(repo.path);
@@ -779,6 +862,7 @@ describe('the model check', () => {
           '',
         ].join('\n');
         repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/empty.ts', 'core', '']]));
         repo.commit('the model');
 
         const report = checkModel(repo.path);
@@ -809,6 +893,7 @@ describe('the model check', () => {
           '',
         ].join('\n');
         repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/feature.ts', 'core', ''], ['README.md', 'excluded', 'the readme']]));
         repo.commit('the model');
 
         const report = checkModel(repo.path);
@@ -842,6 +927,7 @@ describe('the model check', () => {
           '',
         ].join('\n');
         repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/core.ts', 'core', '']]));
         repo.commit('the model');
 
         const report = checkModel(repo.path);
@@ -872,6 +958,7 @@ describe('the model check', () => {
           '',
         ].join('\n');
         repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/core.ts', 'core', '']]));
         repo.commit('the model');
 
         const report = checkModel(repo.path);
@@ -903,6 +990,7 @@ describe('the model check', () => {
           '',
         ].join('\n');
         repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/feature.ts', 'core', ''], ['README.md', 'excluded', 'the readme']]));
         repo.commit('the model');
 
         const report = checkModel(repo.path);
@@ -937,12 +1025,909 @@ describe('the model check', () => {
           '',
         ].join('\n');
         repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/hand.ts', 'core', '']]));
         repo.commit('the model');
 
         const report = checkModel(repo.path);
 
         expect(report.outcome).toBe('passed');
         expect(report.errors).toEqual([]);
+      });
+    });
+  });
+
+  describe('staleness', () => {
+    test("file-changed-since: an item on core whose file changed after the item's commit is reported stale with both blobs, and the check passes", () => {
+      const { repo, oldBlob } = staleRepo();
+      try {
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('passed');
+        expect(report.errors).toEqual([]);
+        expect(report.stale).toHaveLength(1);
+        expect(report.stale[0]!.id).toBe('core');
+        expect(report.stale[0]!.file).toBe('madarch/model.yaml');
+        expect(report.stale[0]!.line).toBe(repo.lineOf('model.yaml', '- file: src/core.ts'));
+        expect(report.stale[0]!.message).toContain('src/core.ts');
+        expect(report.stale[0]!.message).toContain(oldBlob);
+        expect(report.stale[0]!.message).toContain(repo.blob('src/core.ts'));
+        expect(report.notes).toEqual([]);
+
+        const atTheModelCommit = checkModel(repo.path, { rev: repo.run(['rev-parse', 'HEAD^']).stdout.trim() });
+        expect(atTheModelCommit.stale).toEqual([]);
+      } finally {
+        rmSync(repo.path, { recursive: true, force: true });
+      }
+    });
+
+    test("a claim whose document changed after the report was written is reported stale, with the claim's text and the report's line", () => {
+      withRepo((repo) => {
+        repo.write('docs/architecture.md', 'The backend is one process behind a WebSocket.\n');
+        repo.write('src/core.ts', numberedLines(30));
+        const commit = repo.commit('the sources and the document');
+        const documentBlob = repo.blob('docs/architecture.md', commit);
+        const blob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeReview(
+          [
+            ['The backend is one process behind a WebSocket \\| mostly', 'docs/architecture.md', '', commit, documentBlob, 'docs/architecture.md:1', 'confirmed', 'core'],
+            ['The notification folder is gone', 'docs/gone.md', '', commit, blob, '', 'confirmed', 'core'],
+          ],
+          assigned([['src/core.ts', 'core', ''], ['docs/', 'excluded', 'documentation, read for claims']]),
+        );
+        repo.commit('the model and its review');
+        repo.write('docs/architecture.md', 'The backend is two processes behind a WebSocket.\n');
+        repo.commit('the document changes');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('passed');
+        expect(report.errors).toEqual([]);
+        expect(report.stale).toHaveLength(2);
+        expect(report.stale[0]!.file).toBe('madarch/review.md');
+        expect(report.stale[0]!.line).toBe(repo.lineOf('review.md', '| The backend is one process'));
+        expect(report.stale[0]!.message).toContain('The backend is one process behind a WebSocket | mostly');
+        expect(report.stale[0]!.message).toContain('docs/architecture.md');
+        expect(report.stale[0]!.message).toContain(documentBlob);
+        expect(report.stale[0]!.message).toContain(repo.blob('docs/architecture.md'));
+        expect(report.stale[1]!.line).toBe(repo.lineOf('review.md', '| The notification folder is gone'));
+        expect(report.stale[1]!.message).toContain('file gone');
+        expect(report.stale[1]!.message).toContain('docs/gone.md');
+      });
+    });
+
+    test('a file the checked revision no longer has makes its item stale, reported as file gone', () => {
+      withRepo((repo) => {
+        repo.write('src/core.ts', numberedLines(30));
+        const commit = repo.commit('the sources');
+        const blob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/core.ts', 'core', '']]));
+        repo.commit('the model');
+        expect(repo.run(['rm', 'src/core.ts']).ok).toBe(true);
+        repo.commit('the file goes');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('passed');
+        expect(report.errors).toEqual([]);
+        expect(report.stale).toHaveLength(1);
+        expect(report.stale[0]!.id).toBe('core');
+        expect(report.stale[0]!.message).toContain('gone');
+        expect(report.stale[0]!.message).toContain(blob);
+      });
+    });
+
+    test('stale items are sorted by file, then line, then id, whatever order the sections are written in', () => {
+      withRepo((repo) => {
+        repo.write('src/core.ts', 'export const core = 1;\n');
+        const commit = repo.commit('the sources');
+        const blob = repo.blob('src/core.ts', commit);
+        // relations first, elements last: the walk finds the elements
+        // first, the sorted report names the relation's item first
+        const yaml = [
+          'version: 1',
+          '',
+          'relations:',
+          '  - id: r',
+          '    from: e',
+          '    to: e2',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+          'elements:',
+          '  - id: e',
+          '    kind: service',
+          '    name: E',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '  - id: e2',
+          '    kind: service',
+          '    name: E2',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/', 'excluded', 'the sources']]));
+        repo.commit('the model');
+        repo.write('src/core.ts', 'export const core = 2;\n');
+        repo.commit('the file changes');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('passed');
+        expect(report.stale.map((item) => item.id)).toEqual(['r', 'e', 'e2']);
+      });
+    });
+  });
+
+  describe('assignment', () => {
+    test('unassigned-package: files under a folder no row covers fail the check, grouped by folder and named in code-point order', () => {
+      withRepo((repo) => {
+        repo.write('src/web.ts', 'export const web = 1;\n');
+        repo.write('src/core.ts', numberedLines(30));
+        repo.write('internal/notify/ping.ts', 'export const ping = 1;\n');
+        repo.write('internal/notify/sms.ts', 'export const sms = 1;\n');
+        repo.write('src/web.ts.bak', 'backup\n');
+        const commit = repo.commit('the sources');
+        const webBlob = repo.blob('src/web.ts', commit);
+        const blob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: web',
+          '    kind: service',
+          '    name: Web',
+          '    evidence:',
+          '      - file: src/web.ts',
+          `        commit: ${commit}`,
+          `        blob: ${webBlob}`,
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/web.ts', 'web', ''], ['src/core.ts', 'core', '']]));
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('failed');
+        expect(report.errors).toHaveLength(2);
+        expect(report.errors[0]!.file).toBe('internal/notify');
+        expect(report.errors[0]!.line).toBe(0);
+        expect(report.errors[0]!.message).toBe('no assignment row covers internal/notify/ping.ts, internal/notify/sms.ts');
+        expect(report.errors[1]!.file).toBe('src');
+        expect(report.errors[1]!.message).toBe('no assignment row covers src/web.ts.bak');
+      });
+    });
+
+    test('excluded-with-reason: a `docs/` row excluded with a reason keeps every file under docs/ unreported', () => {
+      withRepo((repo) => {
+        repo.write('docs/architecture.md', 'The backend is one process.\n');
+        repo.write('src/core.ts', numberedLines(30));
+        const commit = repo.commit('the sources');
+        const blob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeReview(
+          [['The backend is one process', 'docs/architecture.md', '', commit, repo.blob('docs/architecture.md', commit), 'docs/architecture.md:1', 'confirmed', 'core']],
+          assigned([['src/core.ts', 'core', ''], ['docs/', 'excluded', 'documentation, read for claims']]),
+        );
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('passed');
+        expect(report.errors).toEqual([]);
+        expect(report.stale).toEqual([]);
+      });
+    });
+
+    test("a row naming an element the model does not have fails, naming the row's line in the report", () => {
+      withRepo((repo) => {
+        repo.write('src/core.ts', numberedLines(30));
+        const commit = repo.commit('the sources');
+        const blob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/core.ts', 'ghost', '']]));
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('failed');
+        expect(report.errors).toHaveLength(1);
+        expect(report.errors[0]!.file).toBe('madarch/review.md');
+        expect(report.errors[0]!.line).toBe(repo.lineOf('review.md', '| src/core.ts | ghost |'));
+        expect(report.errors[0]!.message).toContain('ghost');
+      });
+    });
+
+    test("an excluded row without a reason fails, naming the row's line", () => {
+      withRepo((repo) => {
+        repo.write('docs/readme.md', 'docs\n');
+        repo.write('src/core.ts', numberedLines(30));
+        const commit = repo.commit('the sources');
+        const blob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/core.ts', 'core', ''], ['docs/', 'excluded', '']]));
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('failed');
+        expect(report.errors).toHaveLength(1);
+        expect(report.errors[0]!.file).toBe('madarch/review.md');
+        expect(report.errors[0]!.line).toBe(repo.lineOf('review.md', '| docs/ | excluded |'));
+        expect(report.errors[0]!.message).toContain('docs/');
+        expect(report.errors[0]!.message).toContain('reason');
+      });
+    });
+
+    test("duplicate rows for one path fail, naming the later row's line", () => {
+      withRepo((repo) => {
+        repo.write('src/core.ts', numberedLines(30));
+        const commit = repo.commit('the sources');
+        const blob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/core.ts', 'core', ''], ['src/core.ts', 'excluded', 'not ours']]));
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('failed');
+        expect(report.errors).toHaveLength(1);
+        expect(report.errors[0]!.file).toBe('madarch/review.md');
+        expect(report.errors[0]!.line).toBe(repo.lineOf('review.md', '| src/core.ts | excluded |'));
+        expect(report.errors[0]!.message).toContain('duplicate');
+        expect(report.errors[0]!.message).toContain('src/core.ts');
+      });
+    });
+
+    test('deepest row decides: a folder row internal/ excluded and a deeper internal/core/ to an element cover their files without error', () => {
+      withRepo((repo) => {
+        repo.write('internal/core/engine.ts', 'export const engine = 1;\n');
+        repo.write('internal/legacy.txt', 'legacy\n');
+        repo.write('src/core.ts', numberedLines(30));
+        const commit = repo.commit('the sources');
+        const blob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['internal/', 'excluded', 'generated'], ['internal/core/', 'core', ''], ['src/core.ts', 'core', '']]));
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('passed');
+        expect(report.errors).toEqual([]);
+        expect(report.stale).toEqual([]);
+      });
+    });
+  });
+
+  describe('the review report', () => {
+    test('a compiling model without a review report fails, saying the review is missing', () => {
+      withRepo((repo) => {
+        repo.write('src/core.ts', numberedLines(30));
+        const commit = repo.commit('the sources');
+        const blob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('failed');
+        expect(report.errors).toHaveLength(1);
+        expect(report.errors[0]!.file).toBe('madarch/review.md');
+        expect(report.errors[0]!.line).toBe(0);
+        expect(report.errors[0]!.message).toContain('missing');
+        expect(report.stale).toEqual([]);
+        expect(report.notes).toEqual([]);
+      });
+    });
+
+    test('a review report that cannot be read is refused as unreadable', () => {
+      withRepo((repo) => {
+        repo.write('src/core.ts', numberedLines(30));
+        const commit = repo.commit('the sources');
+        const blob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.commit('the model');
+        mkdirSync(join(repo.path, 'madarch', 'review.md'));
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('unreadable');
+        expect(report.errors[0]!.message).toContain('could not be read');
+      });
+    });
+
+    test('an assignment row without a path fails, naming the row\'s line', () => {
+      withRepo((repo) => {
+        repo.write('src/core.ts', numberedLines(30));
+        const commit = repo.commit('the sources');
+        const blob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], [['', 'core', ''], ['madarch/', 'excluded', 'the model and its review']]);
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('failed');
+        const refusals = report.errors.filter((error) => error.file === 'madarch/review.md');
+        expect(refusals).toHaveLength(1);
+        expect(refusals[0]!.line).toBe(repo.lineOf('review.md', '|  | core |'));
+        expect(refusals[0]!.message).toContain('path');
+      });
+    });
+
+    test('a section heading followed by prose instead of a table fails, naming the prose line', () => {
+      withRepo((repo) => {
+        repo.write('src/core.ts', numberedLines(30));
+        const commit = repo.commit('the sources');
+        const blob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeModel('review.md', [
+          '## Claims',
+          'Whatever prose the report carries here.',
+          '',
+          '## Assignment',
+          '| Path | Element | Reason |',
+          '|---|---|---|',
+          '| src/core.ts | core | |',
+          '| madarch/ | excluded | the model and its review |',
+          '',
+        ].join('\n'));
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('failed');
+        const refusals = report.errors.filter((error) => error.file === 'madarch/review.md');
+        expect(refusals).toHaveLength(1);
+        expect(refusals[0]!.line).toBe(repo.lineOf('review.md', 'Whatever prose'));
+        expect(refusals[0]!.message).toContain('not followed by a table');
+      });
+    });
+
+    test('a claims row of another width than its header fails, naming the row line', () => {
+      withRepo((repo) => {
+        repo.write('src/core.ts', numberedLines(30));
+        const commit = repo.commit('the sources');
+        const blob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeModel('review.md', [
+          '## Claims',
+          '| Claim | Document | Line | Commit | Blob | Checked in code | Verdict | In the model |',
+          '|---|---|---|---|---|---|---|---|',
+          '| only three | cells | here |',
+          '',
+          '## Assignment',
+          '| Path | Element | Reason |',
+          '|---|---|---|',
+          '| src/core.ts | core | |',
+          '| madarch/ | excluded | the model and its review |',
+          '',
+        ].join('\n'));
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('failed');
+        const refusals = report.errors.filter((error) => error.file === 'madarch/review.md');
+        expect(refusals).toHaveLength(1);
+        expect(refusals[0]!.line).toBe(repo.lineOf('review.md', '| only three | cells | here |'));
+        expect(refusals[0]!.message).toContain('row of 3 cells where its header has 8');
+      });
+    });
+
+    test('a header row without its trailing pipe is not the decided header', () => {
+      withRepo((repo) => {
+        repo.write('src/core.ts', numberedLines(30));
+        const commit = repo.commit('the sources');
+        const blob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeModel('review.md', [
+          '## Claims',
+          '| Claim | Document | Line | Commit | Blob | Checked in code | Verdict | In the model',
+          '|---|---|---|---|---|---|---|---|',
+          '',
+          '## Assignment',
+          '| Path | Element | Reason |',
+          '|---|---|---|',
+          '| src/core.ts | core | |',
+          '| madarch/ | excluded | the model and its review |',
+          '',
+        ].join('\n'));
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('failed');
+        const refusals = report.errors.filter((error) => error.file === 'madarch/review.md');
+        expect(refusals).toHaveLength(1);
+        expect(refusals[0]!.line).toBe(repo.lineOf('review.md', '| Claim | Document | Line | Commit | Blob | Checked in code | Verdict | In the model'));
+        expect(refusals[0]!.message).toContain('header');
+      });
+    });
+
+    test('a separator row with a cell that is not dashes is no separator', () => {
+      withRepo((repo) => {
+        repo.write('src/core.ts', numberedLines(30));
+        const commit = repo.commit('the sources');
+        const blob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeModel('review.md', [
+          '## Claims',
+          '| Claim | Document | Line | Commit | Blob | Checked in code | Verdict | In the model |',
+          '| --- | --- | --- | --x | --- | --- | --- | --- |',
+          '',
+          '## Assignment',
+          '| Path | Element | Reason |',
+          '|---|---|---|',
+          '| src/core.ts | core | |',
+          '| madarch/ | excluded | the model and its review |',
+          '',
+        ].join('\n'));
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('failed');
+        const refusals = report.errors.filter((error) => error.file === 'madarch/review.md');
+        expect(refusals).toHaveLength(1);
+        expect(refusals[0]!.line).toBe(repo.lineOf('review.md', '| --- | --- | --- | --x |'));
+        expect(refusals[0]!.message).toContain('separator');
+      });
+    });
+
+    test('a review without an assignment section fails', () => {
+      withRepo((repo) => {
+        repo.write('src/core.ts', numberedLines(30));
+        const commit = repo.commit('the sources');
+        const blob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeModel('review.md', [
+          '## Claims',
+          '| Claim | Document | Line | Commit | Blob | Checked in code | Verdict | In the model |',
+          '|---|---|---|---|---|---|---|---|',
+          '',
+        ].join('\n'));
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('failed');
+        const refusals = report.errors.filter((error) => error.file === 'madarch/review.md');
+        expect(refusals).toHaveLength(1);
+        expect(refusals[0]!.message).toContain('no "## Assignment" section');
+      });
+    });
+
+    test('a review without a claims section is a note, not an error', () => {
+      withRepo((repo) => {
+        repo.write('src/core.ts', numberedLines(30));
+        const commit = repo.commit('the sources');
+        const blob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeModel('review.md', [
+          'Review of the repository.',
+          '## Assignment',
+          '| Path | Element | Reason |',
+          '|---|---|---|',
+          '| src/core.ts | core | |',
+          '| madarch/ | excluded | the model and its review |',
+          '',
+        ].join('\n'));
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('passed');
+        expect(report.errors).toEqual([]);
+        expect(report.notes).toHaveLength(1);
+        expect(report.notes[0]!.message).toContain('Claims');
+      });
+    });
+
+    test("a claims row with an unknown verdict, and one without a blob, each fail naming the row's line", () => {
+      withRepo((repo) => {
+        repo.write('src/core.ts', numberedLines(30));
+        const commit = repo.commit('the sources');
+        const blob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeReview(
+          [
+            ['A claim', 'docs/a.md', '', commit, blob, '', 'maybe', 'core'],
+            ['Another', 'docs/b.md', '', commit, '', '', 'confirmed', 'core'],
+            ['A third', 'docs/c.md', 'x', commit, blob, '', 'confirmed', 'core'],
+            ['A fourth', 'docs/d.md', '', 'z' + commit, blob, '', 'confirmed', 'core'],
+            ['A fifth', 'docs/e.md', '', commit, blob + 'z', '', 'confirmed', 'core'],
+            ['A sixth', 'docs/f.md', '1x2', commit, blob, '', 'confirmed', 'core'],
+            ['A seventh', 'docs/g.md', '3-a', commit, blob, '', 'confirmed', 'core'],
+            ['An eighth', 'src/core.ts', '5', commit, blob, '', 'confirmed', 'core'],
+            ['A ninth', '', '', commit, blob, '', 'confirmed', 'core'],
+          ],
+          assigned([['src/core.ts', 'core', '']]),
+        );
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('failed');
+        expect(report.errors).toHaveLength(8);
+        expect(report.errors[0]!.file).toBe('madarch/review.md');
+        expect(report.errors[0]!.line).toBe(repo.lineOf('review.md', '| A claim |'));
+        expect(report.errors[0]!.message).toContain('verdict');
+        expect(report.errors[0]!.message).toContain('maybe');
+        expect(report.errors[1]!.line).toBe(repo.lineOf('review.md', '| Another |'));
+        expect(report.errors[1]!.message).toContain('Blob');
+        expect(report.errors[2]!.line).toBe(repo.lineOf('review.md', '| A third |'));
+        expect(report.errors[2]!.message).toContain('lines');
+        expect(report.errors[2]!.message).toContain('x');
+        expect(report.errors[3]!.line).toBe(repo.lineOf('review.md', '| A fourth |'));
+        expect(report.errors[3]!.message).toContain('commit');
+        expect(report.errors[4]!.line).toBe(repo.lineOf('review.md', '| A fifth |'));
+        expect(report.errors[4]!.message).toContain('blob');
+        expect(report.errors[5]!.line).toBe(repo.lineOf('review.md', '| A sixth |'));
+        expect(report.errors[5]!.message).toContain('1x2');
+        expect(report.errors[6]!.line).toBe(repo.lineOf('review.md', '| A seventh |'));
+        expect(report.errors[6]!.message).toContain('3-a');
+        expect(report.errors[7]!.line).toBe(repo.lineOf('review.md', '| A ninth |'));
+        expect(report.errors[7]!.message).toContain('Document');
+        expect(report.stale).toEqual([]);
+      });
+    });
+
+    test("a table whose header is not the decided columns fails, naming the header's line", () => {
+      withRepo((repo) => {
+        repo.write('src/core.ts', numberedLines(30));
+        const commit = repo.commit('the sources');
+        const blob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeModel('review.md', [
+          '## Claims',
+          '| Claim | Doc | Line | Commit | Blob | Checked in code | Verdict | In the model |',
+          '|---|---|---|---|---|---|---|---|',
+          '',
+          '## Assignment',
+          '| Path | Element | Reason |',
+          '|---|---|---|',
+          '| src/core.ts | core | |',
+          '| madarch/ | excluded | the model and its review |',
+          '',
+        ].join('\n'));
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('failed');
+        expect(report.errors).toHaveLength(1);
+        expect(report.errors[0]!.file).toBe('madarch/review.md');
+        expect(report.errors[0]!.line).toBe(repo.lineOf('review.md', '| Claim | Doc |'));
+        expect(report.errors[0]!.message).toContain('header');
+      });
+    });
+
+    test('a table without a separator row under its header fails, naming the line', () => {
+      withRepo((repo) => {
+        repo.write('src/core.ts', numberedLines(30));
+        const commit = repo.commit('the sources');
+        const blob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeModel('review.md', [
+          '## Claims',
+          '| Claim | Document | Line | Commit | Blob | Checked in code | Verdict | In the model |',
+          `| a claim | docs/a.md |  | ${commit} | ${blob} |  | confirmed | core |`,
+          '',
+          '## Assignment',
+          '| Path | Element | Reason |',
+          '|---|---|---|',
+          '| src/core.ts | core | |',
+          '| madarch/ | excluded | the model and its review |',
+          '',
+        ].join('\n'));
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('failed');
+        expect(report.errors).toHaveLength(1);
+        expect(report.errors[0]!.file).toBe('madarch/review.md');
+        expect(report.errors[0]!.line).toBe(repo.lineOf('review.md', '| a claim |'));
+        expect(report.errors[0]!.message).toContain('separator');
+      });
+    });
+
+    test('backticks around a path and an escaped pipe inside a cell are read as written', () => {
+      withRepo((repo) => {
+        repo.write('docs/readme.md', 'readme\n');
+        repo.write('src/core.ts', numberedLines(30));
+        const commit = repo.commit('the sources');
+        const blob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: core',
+          '    kind: service',
+          '    name: Core',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${commit}`,
+          `        blob: ${blob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeReview(
+          [['The core is thirty lines', '`docs/readme.md`', '', commit, repo.blob('docs/readme.md', commit), '', 'confirmed', 'core']],
+          assigned([['`src/core.ts`', 'core', ''], ['docs/', 'excluded', 'read for claims \\| architecture']]),
+        );
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('passed');
+        expect(report.errors).toEqual([]);
+        expect(report.stale).toEqual([]);
       });
     });
   });
