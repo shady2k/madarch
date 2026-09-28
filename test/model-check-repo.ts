@@ -11,7 +11,13 @@ export { checkModel };
 
 export const SCRIPT = fileURLToPath(new URL('../scripts/check-model.ts', import.meta.url));
 
-/** Runs the check's script the way a person does, from a shell. */
+/**
+ * Runs the check's script the way a person does, from a shell. Its
+ * environment is inherited on purpose: the script's git calls only read
+ * committed objects, which no machine config can alter, and a sealed
+ * whitelist would also strip the loader variables the native model-store
+ * module needs to load on machines like this one.
+ */
 export function runScript(...args: string[]): { status: number | null; stdout: string; stderr: string } {
   const run = spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8' });
   return { status: run.status, stdout: run.stdout ?? '', stderr: run.stderr ?? '' };
