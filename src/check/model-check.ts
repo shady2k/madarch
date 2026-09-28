@@ -13,7 +13,10 @@
  * compiled model. The report grows by sections as the requirements land:
  * staleness and assignment read the review report (this module); the
  * problems read the compiled model, the view set and the history (this
- * module and `model-problems.ts`); views come later.
+ * module and `model-problems.ts`); the views, when the caller asks for
+ * them, are rendered at the checked revision's commit time and written
+ * into the folder its `--views` option names — the only place the check
+ * writes.
  */
 import { spawnSync } from 'node:child_process';
 import { readFileSync, statSync } from 'node:fs';
@@ -24,8 +27,9 @@ import { loadAndCompileModel } from '../model/load-and-compile.js';
 import { byCodePoint, sortedByCodePoint } from '../model/order.js';
 import type { Evidence } from '../model/schema.js';
 import type { PositionedModel } from '../model/validate.js';
-import { prepareModel } from '../render/prepare.js';
+import { prepareModel, renderModel } from '../render/prepare.js';
 import { buildViewSet } from '../render/view-set.js';
+import { writeViews } from '../render/write.js';
 import {
   BULK_COMMIT_FILES,
   HIDDEN_COUPLING_WINDOW_DAYS,
@@ -69,6 +73,12 @@ export interface ModelCheckReport {
 export interface ModelCheckOptions {
   /** The revision the repository is checked at; the default is `HEAD`. */
   rev?: string;
+  /**
+   * The folder every view of the model is rendered into — the Mermaid
+   * pages and the LikeC4 workspace, created when missing. Left out, or
+   * the model does not compile: nothing is written anywhere.
+   */
+  views?: string;
 }
 
 /** An element, interface or relation of the model, named as the loader positions it. */
@@ -511,6 +521,30 @@ function problemFindings(repo: string, revCommit: string, model: CompiledModel, 
   return findings;
 }
 
+/**
+ * The views requirement (views-rendered): renders the model the check
+ * already compiled — the same render the reference script's
+ * load-compile-render ends in, at the checked revision's commit time,
+ * never the clock, so the pages change only with the model — and writes
+ * it into the folder the caller named. A rendering that fails writes
+ * nothing and is reported as a note: the views are worth reading beside
+ * the report, not the check's verdict.
+ */
+function writeViewFolder(repo: string, revCommit: string, model: CompiledModel, folder: string, notes: ModelCheckFinding[]): void {
+  const committedAt = committedTime(repo, revCommit);
+  if (committedAt === undefined) {
+    notes.push({ file: repo, line: 0, message: `the checked revision ${revCommit} has no readable commit time; no views were rendered` });
+    return;
+  }
+  const rendered = renderModel(model, { source: 'model-check', commit: revCommit, at: committedAt });
+  if (rendered.pages === undefined || rendered.workspace === undefined) {
+    notes.push({ file: repo, line: 0, message: `the views could not be rendered: ${rendered.errors[0] ?? 'no error named'}; nothing was written` });
+    return;
+  }
+  const written = writeViews(folder, rendered.pages, rendered.workspace);
+  notes.push({ file: repo, line: 0, message: `wrote ${written.pageCount} view pages into ${written.mermaidFolder} and the LikeC4 workspace ${written.likec4File}` });
+}
+
 export function checkModel(repoPath: string, options: ModelCheckOptions = {}): ModelCheckReport {
   const repo = resolve(repoPath);
   const rev = options.rev ?? 'HEAD';
@@ -595,6 +629,10 @@ export function checkModel(repoPath: string, options: ModelCheckOptions = {}): M
   // Problems never fail the check: they are computed from the compiled
   // model and the history whenever both could be read.
   report.problems = problemFindings(repo, revCommit, model!, review.assignment, elementIds, report.notes).sort(compareProblems);
+
+  // The views, when the caller asked for them: the model compiled, so
+  // every view of it is rendered and written into the folder they named.
+  if (options.views !== undefined) writeViewFolder(repo, revCommit, model!, options.views, report.notes);
 
   // Warnings arrive ordered from the loader (file order, then the order
   // written); errors, stale items and notes are sorted here whatever order

@@ -1,19 +1,22 @@
 /**
  * The model check's command line: `bun scripts/check-model.ts <repository
- * path> [--rev <git revision>] [--json]`. The check itself lives in
- * `src/check/model-check.ts`; this script only parses arguments, prints
- * and exits: 0 when nothing fails, 1 when something fails, 2 when the
- * repository or its model cannot be read. Errors are printed first, then
- * stale items, then problems, then warnings, then notes; `--json` prints
- * the same report as one JSON object.
+ * path> [--rev <git revision>] [--views <folder>] [--json]`. The check
+ * itself lives in `src/check/model-check.ts`; this script only parses
+ * arguments, prints and exits: 0 when nothing fails, 1 when something
+ * fails, 2 when the repository or its model cannot be read. Errors are
+ * printed first, then stale items, then problems, then warnings, then
+ * notes; `--json` prints the same report as one JSON object. `--views`
+ * names the folder every view of the model is rendered into when the
+ * model compiles; without it nothing is written anywhere.
  */
 import { checkModel } from '../src/check/model-check.js';
 
-const USAGE = 'usage: bun scripts/check-model.ts <repository path> [--rev <git revision>] [--json]';
+const USAGE = 'usage: bun scripts/check-model.ts <repository path> [--rev <git revision>] [--views <folder>] [--json]';
 
 function main(args: readonly string[]): number {
   let repoPath: string | undefined;
   let rev: string | undefined;
+  let views: string | undefined;
   let json = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
@@ -28,6 +31,15 @@ function main(args: readonly string[]): number {
       i++;
     } else if (arg.startsWith('--rev=')) {
       rev = arg.slice('--rev='.length);
+    } else if (arg === '--views') {
+      views = args[i + 1];
+      if (views === undefined) {
+        console.error(USAGE);
+        return 2;
+      }
+      i++;
+    } else if (arg.startsWith('--views=')) {
+      views = arg.slice('--views='.length);
     } else if (arg.startsWith('--')) {
       console.error(`unknown option "${arg}"`);
       console.error(USAGE);
@@ -45,7 +57,7 @@ function main(args: readonly string[]): number {
     return 2;
   }
 
-  const report = checkModel(repoPath, { rev });
+  const report = checkModel(repoPath, { rev, views });
   if (json) {
     console.log(JSON.stringify(report, null, 2));
   } else {
