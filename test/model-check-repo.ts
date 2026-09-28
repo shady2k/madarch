@@ -4,7 +4,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { checkModel } from '../src/check/model-check.js';
+import { checkModel, CLAIMS_COLUMNS, ASSIGNMENT_COLUMNS } from '../src/check/model-check.js';
+import { gitEnv } from './git-env.js';
 
 export { checkModel };
 
@@ -32,9 +33,8 @@ export const GIT_ENV = {
   GIT_COMMITTER_DATE: '1756728000 +0000',
 };
 
-/** The review report's table columns, the shape the skill writes; the check parses them strictly. */
-export const CLAIMS_COLUMNS = ['Claim', 'Document', 'Line', 'Commit', 'Blob', 'Checked in code', 'Verdict', 'In the model'];
-export const ASSIGNMENT_COLUMNS = ['Path', 'Element', 'Reason'];
+/** The review report's table columns, the shape the skill writes; re-exported from the check, which parses them strictly. */
+export { CLAIMS_COLUMNS, ASSIGNMENT_COLUMNS };
 
 /** A tiny git repository a test builds step by step; removed when the test is over. */
 export class Repo {
@@ -47,7 +47,7 @@ export class Repo {
   }
 
   run(args: string[]): { ok: boolean; stdout: string } {
-    const run = spawnSync('git', [...GIT_IDENTITY, ...args], { cwd: this.path, encoding: 'utf8', env: { ...process.env, ...GIT_ENV } });
+    const run = spawnSync('git', [...GIT_IDENTITY, ...args], { cwd: this.path, encoding: 'utf8', env: gitEnv(GIT_ENV) });
     return { ok: run.status === 0, stdout: run.stdout ?? '' };
   }
 
@@ -81,7 +81,7 @@ export class Repo {
     const run = spawnSync('git', [...GIT_IDENTITY, 'commit', '--quiet', '-m', message], {
       cwd: this.path,
       encoding: 'utf8',
-      env: { ...process.env, ...GIT_ENV, GIT_AUTHOR_DATE: when, GIT_COMMITTER_DATE: when },
+      env: gitEnv({ ...GIT_ENV, GIT_AUTHOR_DATE: when, GIT_COMMITTER_DATE: when }),
     });
     expect(run.status).toBe(0);
     return this.run(['rev-parse', 'HEAD']).stdout.trim();

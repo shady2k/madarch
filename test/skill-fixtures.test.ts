@@ -164,4 +164,31 @@ describe('the skill fixture repositories', () => {
       rmSync(folder, { recursive: true, force: true });
     }
   });
+
+  test('the build ignores the machine\'s git configuration and environment', () => {
+    withFixtures((sealed) => {
+      const folder = mkdtempSync(join(tmpdir(), 'madarch-skill-fixtures-'));
+      try {
+        // A global config with another identity and signing on, a foreign
+        // GIT_DIR and index: the builder must seal all of it, and build
+        // the same commits the sealed default environment builds.
+        const config = join(folder, 'poison.gitconfig');
+        writeFileSync(config, '[user]\n\tname = Poison\n\temail = poison@example.com\n[commit]\n\tgpgsign = true\n');
+        const run = spawnSync(process.execPath, [BUILDER, join(folder, 'built')], {
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            GIT_CONFIG_GLOBAL: config,
+            GIT_DIR: join(folder, 'elsewhere.git'),
+            GIT_INDEX_FILE: join(folder, 'elsewhere.index'),
+          },
+        });
+        expect(run.status, run.stderr).toBe(0);
+        expect(head(join(folder, 'built', 'stale-document'))).toBe(head(sealed.staleDocument));
+        expect(head(join(folder, 'built', 'undocumented-package'))).toBe(head(sealed.undocumentedPackage));
+      } finally {
+        rmSync(folder, { recursive: true, force: true });
+      }
+    });
+  });
 });

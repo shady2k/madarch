@@ -12,19 +12,19 @@ substitutes them; a real run computes them.
 
 | Claim | Document | Line | Commit | Blob | Checked in code | Verdict | In the model |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| The clerk scans paper receipts into `inbox/` and receipts imports every PDF there | README.md | 3-5 | COMMIT | BLOB:README.md | `src/index.ts:10-12` | confirmed | importer |
+| The clerk scans paper receipts into `inbox/` and receipts imports every PDF there | README.md | 3-5 | COMMIT | BLOB:README.md | `src/index.ts:12-14` | confirmed | importer |
 | Receipts are kept so they can be looked up again by id | README.md | 5 | COMMIT | BLOB:README.md | `src/store.ts:11-16`, `src/lookup.ts:4-5` | confirmed | archive |
 | receipts is one Bun process written in TypeScript | docs/architecture.md | 3 | COMMIT | BLOB:docs/architecture.md | `package.json:2-7`; every file under `src/` is TypeScript | confirmed | receipts |
 | The importer reads every PDF the clerk leaves in `inbox/`, parses each one, and extracts the vendor, the date and the total | docs/architecture.md | 7-8 | COMMIT | BLOB:docs/architecture.md | `src/importer.ts:5-11` | confirmed | importer |
-| The Cleaner removes duplicate receipts before they reach the archive | docs/architecture.md | 10 | COMMIT | BLOB:docs/architecture.md | `src/index.ts:1-15`, `src/importer.ts:1-11`, `src/store.ts:1-17`: no Cleaner and no duplicate check anywhere | contradicted | importer |
-| Imported receipts go to the archive, from which the lookup command reads one receipt by id | docs/architecture.md | 14-16 | COMMIT | BLOB:docs/architecture.md | `src/index.ts:13`, `src/lookup.ts:4-5` | confirmed | archive |
+| The Cleaner removes duplicate receipts before they reach the archive | docs/architecture.md | 10 | COMMIT | BLOB:docs/architecture.md | `src/index.ts:1-18`, `src/importer.ts:1-11`, `src/store.ts:1-17`: no Cleaner and no duplicate check anywhere | contradicted | importer |
+| Imported receipts go to the archive, from which the lookup command reads one receipt by id | docs/architecture.md | 14-16 | COMMIT | BLOB:docs/architecture.md | `src/index.ts:15`, `src/lookup.ts:4-5` | confirmed | archive |
 | A receipt is searchable within a minute of the scan | docs/architecture.md | 15-16 | COMMIT | BLOB:docs/architecture.md | nothing in the code states or measures a delay | unconfirmed | — |
 | Phase 2 mirrors the archive to S3 for off-site backup | docs/architecture.md | 20 | COMMIT | BLOB:docs/architecture.md | announced plan; nothing in the code mirrors anything | planned | — |
 
 ## Undocumented
 
 - The webhook module and the accounting system: after each receipt is
-  stored, `src/index.ts:14` posts it to the URL named at
+  stored, `src/index.ts:17` posts it to the URL named at
   `src/notify/webhook.ts:4`. No document mentions the folder `src/notify/`,
   the module, or the accounting system. Modelled as `webhook` and
   `accounting`; the folder is assigned to `webhook` in the assignment table.
@@ -89,7 +89,8 @@ that the entry point imports, and one call to it in the import loop:
 - re-pinned four evidence items that pin `src/index.ts` — the `importer`
   element and the relations `clerk-scans`, `importer-stores` and
   `importer-notifies` — to the branch's HEAD: the lines they name moved
-  with the new import and the new call;
+  with the new import and the new call, and the report's citations of
+  `src/index.ts` move with them;
 - added the assignment row `src/export/` → `export`.
 
 Nothing else changed: every other id, name, relation, assignment row and

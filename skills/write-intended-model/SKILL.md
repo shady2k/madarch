@@ -17,8 +17,11 @@ names where it came from, so a person can check it without asking you.
 ## Before you start
 
 - `$REPO` is the repository to model; `$MADARCH` is a checkout of madarch.
-  Both must exist; `$REPO` must be a git checkout. All commands below take
-  paths as arguments, so run them from anywhere.
+  Both must exist; `$REPO` must be a git checkout. The git commands below
+  take `-C`, so they run from anywhere; every command that runs the check
+  runs from `$MADARCH` — `bun` loads the current directory's `bunfig.toml`
+  and its `preload` runs, so the check must not run beside a `bunfig` it
+  does not know.
 - `git -C "$REPO" status --porcelain` must print nothing for the files you
   will describe. Evidence names committed text and the check resolves it in
   git, not in the working tree — if the code is uncommitted, the pin misses
@@ -171,13 +174,18 @@ role: "reads settings", "opens SSH sessions", "stores notes". A bare
 "uses" or "depends on" is not a name: the table under the diagram is how a
 reader learns what an arrow means. Give the relation one import line as its
 evidence (more lines optional). Derive the pairs from the language's import
-graph, not by guessing — for Go,
-`go list -f '{{.ImportPath}} {{join .Imports " "}}' ./...` mapped onto the
-groups by the assignment table; for TypeScript, the import statements. Why:
+graph, not by guessing — for Go, run in `$REPO`:
+`GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOPROXY=off go list -e -f '{{.ImportPath}} {{join .Imports " "}}' ./...`,
+mapped onto the groups by the assignment table — the variables keep `go`
+from downloading modules or a toolchain, and where that fails without the
+network, the import pairs come from reading the import statements instead;
+for TypeScript, the import statements. Why:
 a page of groups with no arrows between them says nothing, and the pairs
 the import graph shows are exactly the ones evidence can support.
 
-A page holds about five boxes and about twenty arrows at most. When a core
+A page holds about five boxes and about twenty arrows at most — the
+landscape is the exception, at about ten boxes: one per person, external
+system and the system itself, nothing smaller. When a core
 has more than about five groups, or its groups' relations would put more
 than about twenty arrows on the service's page, nest: group the groups into
 three or four **layers** — module elements, children of the service, each
@@ -266,10 +274,12 @@ evidence names, by the kind of thing (these rules are exact):
 | The thing | Its evidence names |
 | --- | --- |
 | an element | its entry point, where it is wired together, or its public contract |
+| a person element | the document line naming who uses the system |
 | an external element | the text that names or reaches it — the client's construction, the configured address or variable, the call site (an external system has no code in the repository) |
 | a dependency found in imports | the import line |
-| an interaction at run time | where the handler is registered, or where the call or send is made — never an import alone |
+| an interaction at run time | both the call or send site and the handler registration when both sides are in the repository; the side that is in the repository when only one is — never an import alone |
 | an interface | its contract file and where its provider registers it; where the repository has no contract file (no OpenAPI, protobuf or schema), where the provider registers it and the handler that serves it |
+| an interface whose provider is external | the client's call site, and the external's documented contract where the repository holds one |
 | a group of modules | where its members are wired, not a list of folders |
 
 Each evidence item names `file` (path from the repository root), `line`, and
@@ -296,8 +306,8 @@ exact shapes are in `reference.md`):
 - `## Claims` — one row per document claim from your ledger: the claim, its
   document, its line or range, the commit and blob **of the document file**,
   the code you checked it against (`file:lines`), the verdict (one of the
-  five words), and what the model does with it (an element id, or `—` when
-  nothing);
+  five words), and what the model does with it (a model id — an element, an
+  interface or a relation — or `—` when nothing);
 - `## Undocumented` — the findings from step 4, each with the code that shows
   it and the element or elements it became;
 - `## Assignment` — one row per path: a file, or a folder (path ending in
@@ -319,8 +329,11 @@ the code can confirm differently.
 ### 10. Run the check with views, and read what it rendered
 
 ```sh
-bun "$MADARCH/scripts/check-model.ts" "$REPO" --views "$REPO/madarch/views"
+(cd "$MADARCH" && bun scripts/check-model.ts "$REPO" --views "$REPO/madarch/views")
 ```
+
+Run it from `$MADARCH`, as "Before you start" says: `bun` reads the current
+directory's `bunfig.toml`, and its `preload` runs.
 
 Exit code 0 is a pass, 1 means something failed, 2 means the repository or
 its model could not be read. `--json` prints the same report as one JSON
@@ -356,7 +369,9 @@ Finish only after a run that exits 0 with the views read. Then tell the
 person what the check still lists as **stale** (files changed since the
 evidence was read) and as **problems**, and where the model and report are.
 Leave the commit of the model and report to them — the report is what they
-read to accept the work.
+read to accept the work. When they commit: the model and the report, never
+`madarch/views/` — the check generates the views, and every run renders
+them again.
 
 The check reads the model from the working folder; you do not need to commit
 it to run the check.
@@ -365,11 +380,13 @@ it to run the check.
 
 A failed run leaves the previous model and report as they were in git. Your
 files are worktree changes, never commits: until the check passes, an old
-`madarch/` is one `git -C "$REPO" restore madarch` away, and a repository
-with no model yet must not keep a half-written one. So stop only in one of
-two states — the check passes and the new model and report stand, or the
-previous state is restored (`git -C "$REPO" restore madarch`, deleting the
-files you added when there was no previous model). Write nothing outside
+`madarch/` is one `git -C "$REPO" restore madarch` away — restore puts back
+only the tracked files — and a repository with no model yet must not keep a
+half-written one. So stop only in one of two states — the check passes and
+the new model and report stand, or the previous state is restored:
+`git -C "$REPO" restore madarch`, then `git -C "$REPO" clean -fd madarch`
+for the files this run created — name them, and never clean a file the run
+did not create. Write nothing outside
 `madarch/`: the views go to `$REPO/madarch/views`.
 
 ## Updating the model for a pull request
@@ -398,7 +415,7 @@ pins the branch's HEAD, and uncommitted work cannot be pinned (see
 ### 2. Run the model check first
 
 ```sh
-bun "$MADARCH/scripts/check-model.ts" "$REPO" --rev HEAD
+(cd "$MADARCH" && bun scripts/check-model.ts "$REPO" --rev HEAD --views "$REPO/madarch/views")
 ```
 
 Pass or fail, it lists **stale** items and **unassigned files** — exactly
@@ -424,25 +441,36 @@ says the file changed and the fact stands.
 ### 4. Change nothing the branch does not concern
 
 Keep every id, name and assignment the changes do not concern; never
-renumber or rename to tidy. A removed part: remove its element, its
-relations and its assignment rows. A new folder: an assignment row — to
-an element, or `excluded` with a reason.
+renumber or rename to tidy. A removed part whose intent a decision record
+or specification still states keeps its element — intent enters even where
+the code disagrees, as in the first run, and the disagreement goes to the
+report. Any other removed part: remove its element, its relations and its
+assignment rows. A new folder: an assignment row — to an element, or
+`excluded` with a reason.
 
 Why: the report, the views and later updates cite these ids; churn the
 branch did not ask for buries the change that matters.
 
-### 5. Re-read documents the branch changed
+### 5. Re-read what the branch touched
 
 For each document changed on the branch, re-read its claims and update
 their rows in the claims table — the verdict where the code moved, the
-branch's commit and the document's new blob. Documents the branch did
-not touch keep their rows.
+branch's commit and the document's new blob. Then re-judge every other row
+the branch touched: a row whose "Checked in code" file the branch changed
+or removed, and a row whose "In the model" id the update removed — their
+verdicts may no longer hold though their documents stand. Every
+`file:line` citation in the report — "Checked in code", Undocumented,
+Problems, the reader questions — naming a file the branch changed is
+re-read and written at the file's new lines, and the report's opening line
+names the branch's HEAD: a citation to a line that moved points a reader
+at text it no longer says. A row and a citation nothing touched stand.
 
 ### 6. Write the update section
 
-Add to `madarch/review.md` a section
-`## Update <base short>..<head short>`, newest last, one per update:
-the range; the pull request's title, if known; and what changed in the
+`## Update <base short>..<head short>` — the short hashes from
+`git -C "$REPO" rev-parse --short=7 <commit>`, never sliced by hand —
+newest last, one per update: the range; the pull request's title, if known;
+and what changed in the
 model and why — elements, relations, interfaces added, removed or
 changed, how many evidence items were re-pinned, new assignment rows —
 naming ids. A branch with no architectural change says so in one line.
@@ -450,9 +478,11 @@ naming ids. A branch with no architectural change says so in one line.
 ### 7. Run the check with views, and finish
 
 ```sh
-bun "$MADARCH/scripts/check-model.ts" "$REPO" --rev HEAD --views "$REPO/madarch/views"
+(cd "$MADARCH" && bun scripts/check-model.ts "$REPO" --rev HEAD --views "$REPO/madarch/views")
 ```
 
 Fix every error until it exits 0, and read each page the update touched
-the way step 10 above reads a page. Then commit: the model's change
-travels in the same pull request as the code's.
+the way step 10 above reads a page. Then commit the model's change — the
+`madarch/*.yaml` files and `review.md`, never `madarch/views/`: the views
+are generated by the check, and the next run renders them again — in the
+same pull request as the code's.
