@@ -10,6 +10,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { gitEnv } from '../git-env.js';
 
 /** The two repository paths the builder wrote. */
 export interface SkillFixtures {
@@ -63,15 +64,14 @@ class FixtureRepo {
     const run = spawnSync('git', [...GIT_IDENTITY, ...args], {
       cwd: this.path,
       encoding: 'utf8',
-      env: {
-        ...process.env,
+      env: gitEnv({
         GIT_AUTHOR_NAME: 'Skill Fixtures',
         GIT_AUTHOR_EMAIL: 'fixtures@example.com',
         GIT_COMMITTER_NAME: 'Skill Fixtures',
         GIT_COMMITTER_EMAIL: 'fixtures@example.com',
         GIT_AUTHOR_DATE: `${instant} +0000`,
         GIT_COMMITTER_DATE: `${instant} +0000`,
-      },
+      }),
     });
     if (run.status !== 0) throw new Error(`git ${args.join(' ')} failed in ${this.path}: ${run.stderr}`);
     return { stdout: run.stdout ?? '' };

@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { checkModel } from '../src/check/model-check.js';
+import { checkModel, CLAIMS_COLUMNS, ASSIGNMENT_COLUMNS } from '../src/check/model-check.js';
 import { GIT_ENV, Repo, withRepo } from './model-check-repo.js';
 
 /**
@@ -82,14 +82,20 @@ function baseExample(repo: Repo): { pinned: string; base: string; substituteBase
 /**
  * Substitutes the update example's placeholders: BRANCH_COMMIT and
  * BRANCH_BLOB with the branch's ids (the update's evidence pins the
- * branch), BASE_SHORT and HEAD_SHORT with the range's short hashes, and
+ * branch), BASE_SHORT and HEAD_SHORT with the range's short hashes as
+ * `git rev-parse --short=7` computes them, and
  * the base placeholders with the commit the first run pinned. The
  * BRANCH_ tokens go first: BLOB: and COMMIT are their suffixes.
  */
+/** The short hash git itself computes (`git rev-parse --short=7`), as the update section's heading names it. */
+function shortOf(repo: Repo, commit: string): string {
+  return repo.run(['rev-parse', '--short=7', commit]).stdout.trim();
+}
+
 function substituteUpdate(text: string, repo: Repo, pinned: string, base: string, head: string): string {
   return text
-    .replaceAll('BASE_SHORT', base.slice(0, 7))
-    .replaceAll('HEAD_SHORT', head.slice(0, 7))
+    .replaceAll('BASE_SHORT', shortOf(repo, base))
+    .replaceAll('HEAD_SHORT', shortOf(repo, head))
     .replace(/BRANCH_BLOB:([A-Za-z0-9][A-Za-z0-9._/-]*)/g, (_: string, file: string) => repo.blob(file, head))
     .replaceAll('BRANCH_COMMIT', head)
     .replace(/BLOB:([A-Za-z0-9][A-Za-z0-9._/-]*)/g, (_: string, file: string) => repo.blob(file, pinned))
@@ -148,6 +154,22 @@ describe('the write-intended-model skill', () => {
       expect(existsSync(join(views, 'mermaid', '_landscape.md'))).toBe(true);
     });
   });
+
+  test('reference.md writes the check\'s table headers, and SKILL.md names the report\'s four headings', () => {
+    const reference = readFileSync(join(SKILL_DIR, 'reference.md'), 'utf8');
+    for (const [heading, columns] of [['Claims', CLAIMS_COLUMNS], ['Assignment', ASSIGNMENT_COLUMNS]] as const) {
+      const at = reference.indexOf(`### \`## ${heading}\``);
+      expect(at, `reference.md has no "### \`## ${heading}\`" section`).toBeGreaterThan(-1);
+      const header = reference.slice(at).split('\n').find((line) => line.trim().startsWith('|'));
+      expect(header, `the "## ${heading}" section of reference.md holds no table`).toBeDefined();
+      const cells = header!.trim().slice(1, -1).split('|').map((cell) => cell.trim());
+      expect(cells, `the "## ${heading}" table's header must be the check's columns`).toEqual(columns);
+    }
+    const skill = readFileSync(join(SKILL_DIR, 'SKILL.md'), 'utf8');
+    for (const heading of ['## Claims', '## Undocumented', '## Assignment', '## Problems']) {
+      expect(skill.includes(`\`${heading}\``), `SKILL.md does not name the report heading \`${heading}\` verbatim`).toBe(true);
+    }
+  });
 });
 
 describe('the write-intended-model skill updating a model', () => {
@@ -164,6 +186,11 @@ describe('the write-intended-model skill updating a model', () => {
         const text = readFileSync(join(EXAMPLE_DIR, 'update', 'madarch', name), 'utf8');
         writeFileSync(join(repo.path, 'madarch', name), substituteUpdate(text, repo, pinned, base, head));
       }
+
+      // The update section names its range and the element the branch adds.
+      const updatedReview = readFileSync(join(repo.path, 'madarch', 'review.md'), 'utf8');
+      expect(updatedReview).toContain(`## Update ${shortOf(repo, base)}..${shortOf(repo, head)}`);
+      expect(updatedReview).toContain('`export`');
 
       const views = join(repo.path, 'madarch', 'views');
       const report = checkModel(repo.path, { views });

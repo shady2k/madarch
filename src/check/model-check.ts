@@ -111,8 +111,8 @@ const MAX_GIT_BUFFER = 64 * 1024 * 1024;
  * the model; the check reads its two tables by their level-2 headings.
  */
 const REVIEW = 'madarch/review.md';
-const CLAIMS_COLUMNS = ['Claim', 'Document', 'Line', 'Commit', 'Blob', 'Checked in code', 'Verdict', 'In the model'];
-const ASSIGNMENT_COLUMNS = ['Path', 'Element', 'Reason'];
+export const CLAIMS_COLUMNS = ['Claim', 'Document', 'Line', 'Commit', 'Blob', 'Checked in code', 'Verdict', 'In the model'];
+export const ASSIGNMENT_COLUMNS = ['Path', 'Element', 'Reason'];
 const VERDICTS = ['confirmed', 'contradicted', 'stale', 'planned', 'unconfirmed'];
 const HEX40 = /^[0-9a-f]{40}$/;
 

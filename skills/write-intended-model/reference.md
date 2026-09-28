@@ -111,8 +111,10 @@ initiator to what it depends on. Fields:
   `public`, `internal`, `confidential`) and its `categories` (data category
   ids). Write them where the code shows the data crossing.
 - `evidence` — where the dependency is found: the import line for a
-  dependency in imports; for an interaction at run time, the handler
-  registration or the call or send site, never an import alone.
+  dependency in imports; for an interaction at run time, both the call or
+  send site and the handler registration when both sides are in the
+  repository, the side that is in it when only one is — never an import
+  alone.
 - `since`, `until` — architecture states, as on an element.
 
 ```yaml
@@ -172,15 +174,19 @@ What the evidence must name, by the kind of thing:
 
 - an element: its entry point, where it is wired together, or its public
   contract;
+- a person element: the document line naming who uses the system;
 - an external element: the text that names or reaches it — the client's
   construction, the configured address or variable, the call site (an
   external system has no code in the repository);
 - a dependency found in imports: the import line;
-- an interaction at run time: where the handler is registered, or the call
-  or send site — never an import alone;
+- an interaction at run time: both the call or send site and the handler
+  registration when both sides are in the repository; the side that is in
+  it when only one is — never an import alone;
 - an interface: its contract file and where its provider registers it;
   where the repository has no contract file (no OpenAPI, protobuf or
   schema), where the provider registers it and the handler that serves it;
+- an interface whose provider is external: the client's call site, and the
+  external's documented contract where the repository holds one;
 - a group of modules: where its members are wired, not a list of folders.
 
 Commit the code being described before pinning: evidence names committed
@@ -234,7 +240,9 @@ The report stands beside the model. The model check reads its two tables by
 their level-2 headings and parses them strictly: the header row and the
 separator row must be exactly as below, every data row must have the header's
 number of cells, a cell containing a literal `|` writes it escaped as `\|`,
-and a table ends at the first line that is not a row. The other two sections
+and a table ends at the first line that is not a row. Nothing but blank
+lines stands between a heading and its table: prose there reads as no table
+at all, and the check refuses the section. The other two sections
 (`Undocumented`, `Problems`) are free-form prose the check does not parse.
 
 Open the report with one line naming the commit the model describes — the
@@ -266,8 +274,8 @@ Columns, in order:
   `file:lines`, or what you found in its place ("no Cleaner exists").
 - `Verdict` — exactly one of `confirmed`, `contradicted`, `stale`,
   `planned`, `unconfirmed`.
-- `In the model` — the element id the claim became, or `—` when the model
-  holds nothing for it.
+- `In the model` — the model id the claim became — an element, an interface
+  or a relation — or `—` when the model holds nothing for it.
 
 ### `## Undocumented`
 
