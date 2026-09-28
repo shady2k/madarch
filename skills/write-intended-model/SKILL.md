@@ -24,6 +24,11 @@ names where it came from, so a person can check it without asking you.
   git, not in the working tree — if the code is uncommitted, the pin misses
   what you read. If it is not clean, stop and ask for the code to be
   committed first.
+- Confirm claims by reading: the code, its tests and its configuration — do
+  not run the repository's code, start its services or probe it with stubs.
+  Evidence is text at a commit, and running someone's code has effects
+  nobody asked for. A defect you suspect from reading goes into Problems as
+  a question, with the lines that raise it.
 - Read `reference.md` (beside this file) before writing anything. It holds
   the field names of every construct with one YAML example each, and the
   exact shape of the review report's tables, which the model check parses
@@ -102,6 +107,12 @@ registrations, schemas. Give every claim one verdict:
   yet);
 - `unconfirmed` — you searched the code and found nothing either way.
 
+Judge a claim that makes several statements per statement: a count that
+still holds beside a part the code replaced is `confirmed`, and the
+statement naming the replaced part is `contradicted`; a count that no
+longer holds with nothing in its place is `stale`. Why: one verdict for
+the whole claim would say the code agrees with all of it or with none.
+
 What enters the model:
 
 - intent enters even where the code disagrees, and the disagreement goes to
@@ -139,6 +150,11 @@ The model has three levels:
 Element kinds: `person`, `external`, `domain`, `system`, `service`, `module`,
 `store`, `broker`. Pick the kind from what the part is, not from where it
 sits in a folder tree.
+
+`store` is for where the system keeps its data of record, whatever holds it
+— a database, a file folder, or an in-memory register playing that role; a
+cache, or a helper holding data briefly, is a `module`. Why: the reader
+looks for where the data lives.
 
 Ids are stable: letters, digits, dots, dashes, underscores, starting with a
 letter or a digit (`orders-api`, `checkout.cart`). Never encode a path or a
@@ -187,9 +203,10 @@ evidence names, by the kind of thing (these rules are exact):
 | The thing | Its evidence names |
 | --- | --- |
 | an element | its entry point, where it is wired together, or its public contract |
+| an external element | the text that names or reaches it — the client's construction, the configured address or variable, the call site (an external system has no code in the repository) |
 | a dependency found in imports | the import line |
 | an interaction at run time | where the handler is registered, or where the call or send is made — never an import alone |
-| an interface | its contract file and where its provider registers it |
+| an interface | its contract file and where its provider registers it; where the repository has no contract file (no OpenAPI, protobuf or schema), where the provider registers it and the handler that serves it |
 | a group of modules | where its members are wired, not a list of folders |
 
 Each evidence item names `file` (path from the repository root), `line`, and

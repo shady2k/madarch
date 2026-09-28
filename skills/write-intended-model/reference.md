@@ -170,10 +170,15 @@ What the evidence must name, by the kind of thing:
 
 - an element: its entry point, where it is wired together, or its public
   contract;
+- an external element: the text that names or reaches it — the client's
+  construction, the configured address or variable, the call site (an
+  external system has no code in the repository);
 - a dependency found in imports: the import line;
 - an interaction at run time: where the handler is registered, or the call
   or send site — never an import alone;
 - an interface: its contract file and where its provider registers it;
+  where the repository has no contract file (no OpenAPI, protobuf or
+  schema), where the provider registers it and the handler that serves it;
 - a group of modules: where its members are wired, not a list of folders.
 
 Commit the code being described before pinning: evidence names committed
