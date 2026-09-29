@@ -5,12 +5,12 @@
  * title, a place in the navigation and content blocks — headings, paragraphs
  * and tables whose cells are text, a link to another page by its id (with an
  * anchor onto one of that page's headings), or several such links shown
- * together. Links are by page id: no engine-specific text and no paths live
- * here.
+ * together, and the diagram of the view the page belongs to. Links are by
+ * page id: no engine-specific text and no paths live here.
  *
- * Pure and deterministic: the same compiled model gives the same pages, in
- * the same order, every time — everything is sorted by code point, never by
- * locale, and nothing reads the clock.
+ * Pure and deterministic: the same compiled model and view set give the same
+ * pages, in the same order, every time — everything is sorted by code point,
+ * never by locale, and nothing reads the clock.
  */
 import type { CompiledElement, CompiledInterface, CompiledModel, CompiledRelation } from '../model/compile.js';
 
@@ -46,7 +46,20 @@ export interface WikiTableBlock {
   readonly rows: readonly (readonly WikiCell[])[];
 }
 
-export type WikiBlock = WikiHeadingBlock | WikiParagraphBlock | WikiTableBlock;
+export type WikiBlock = WikiHeadingBlock | WikiParagraphBlock | WikiTableBlock | WikiDiagramBlock;
+
+/**
+ * The diagram a home, domain or element page carries: the view the page
+ * belongs to (requirement `diagrams`), named by its scope — the element the
+ * view is of, or no scope for the landscape. The writer turns the block
+ * into the formats the reader switches between; the page data only says
+ * which view it is.
+ */
+export interface WikiDiagramBlock {
+  readonly kind: 'diagram';
+  /** The element whose view the page shows; absent for the landscape. */
+  readonly scope?: string;
+}
 
 export interface WikiPage {
   /** The page's stable id: `home`, `domain/<id>`, `element/<id>`, `interfaces`, `zones`, `data-categories`. */
@@ -69,6 +82,12 @@ interface ModelParts {
   readonly zoneName: Map<string, string>;
   readonly categoryName: Map<string, string>;
   readonly interfaceById: Map<string, CompiledInterface>;
+  /**
+   * The element ids the rendered view set holds a view of: what the
+   * nearest-view rule walks. The landscape is not listed — it is the rule's
+   * own fallback, and a rendered view set always holds it.
+   */
+  readonly views: ReadonlySet<string>;
 }
 
 /**
@@ -151,6 +170,21 @@ function callersOf(parts: ModelParts, interfaceId: string): WikiCell {
   return [...callers.values()].sort(byDisplayName).map(elementLink);
 }
 
+/**
+ * The view the page of `element` shows (requirement `diagrams`): the view
+ * of the part itself, else of its nearest ancestor that has one — the
+ * ancestor chain is root first, so the nearest is the last — else the
+ * landscape.
+ */
+function diagramFor(parts: ModelParts, element: CompiledElement): WikiDiagramBlock {
+  if (parts.views.has(element.id)) return { kind: 'diagram', scope: element.id };
+  for (let i = element.ancestors.length - 1; i >= 0; i--) {
+    const ancestorId = element.ancestors[i]!;
+    if (parts.views.has(ancestorId)) return { kind: 'diagram', scope: ancestorId };
+  }
+  return { kind: 'diagram' };
+}
+
 /** The home page: the model's counts, the elements by kind, and every domain by name, each linking to its page. */
 function homePage(model: CompiledModel, domains: readonly CompiledElement[], descendants: (domain: CompiledElement) => readonly CompiledElement[]): WikiPage {
   const byKind = new Map<string, number>();
@@ -176,18 +210,22 @@ function homePage(model: CompiledModel, domains: readonly CompiledElement[], des
         columns: ['Domain', 'Elements'],
         rows: domains.map((domain) => [{ page: `domain/${domain.id}`, text: displayName(domain) }, String(descendants(domain).length)]),
       },
+      { kind: 'heading', level: 2, text: 'Landscape' },
+      // The home page is about the whole system: its diagram is the landscape.
+      { kind: 'diagram' },
     ],
   };
 }
 
-/** One domain's page: its elements — everything under it — with kind and technology, each linking to its page. */
-function domainPage(domain: CompiledElement, elements: readonly CompiledElement[]): WikiPage {
+/** One domain's page: its diagram, then its elements — everything under it — with kind and technology, each linking to its page. */
+function domainPage(parts: ModelParts, domain: CompiledElement, elements: readonly CompiledElement[]): WikiPage {
   return {
     id: `domain/${domain.id}`,
     title: displayName(domain),
     nav: ['Domains'],
     blocks: [
       { kind: 'paragraph', text: `The ${displayName(domain)} domain holds ${count(elements.length, 'element')}.` },
+      diagramFor(parts, domain),
       {
         kind: 'table',
         columns: ['Element', 'Kind', 'Technology'],
@@ -199,9 +237,10 @@ function domainPage(domain: CompiledElement, elements: readonly CompiledElement[
 
 /**
  * One element's page: its kind, technology, zones and ancestor chain in one
- * row; the interfaces it provides with their callers; and its outgoing and
- * incoming relations, each row naming the other end, the relation's name,
- * its interface's contract, its action and its data categories.
+ * row, the view it belongs to under it; the interfaces it provides with
+ * their callers; and its outgoing and incoming relations, each row naming
+ * the other end, the relation's name, its interface's contract, its action
+ * and its data categories.
  */
 function elementPage(parts: ModelParts, element: CompiledElement): WikiPage {
   const rootAncestor = element.ancestors.length > 0 ? parts.elementById.get(element.ancestors[0]!) : undefined;
@@ -218,6 +257,8 @@ function elementPage(parts: ModelParts, element: CompiledElement): WikiPage {
       rows: [[element.kind, element.technology ?? '—', zones.length > 0 ? zones : '—', ancestors.length > 0 ? ancestors : '—']],
     },
   ];
+  // The page's diagram comes between the facts row and the relations below.
+  blocks.push(diagramFor(parts, element));
 
   const provided = parts.model.interfaces.filter((iface) => iface.provider === element.id);
   if (provided.length > 0) {
@@ -355,15 +396,18 @@ function categoriesPage(parts: ModelParts): WikiPage {
 /**
  * The pages this task builds: the home page, one page per domain and per
  * non-domain element, and the interfaces, zones and data categories pages.
- * Later tasks add the diagrams to the same structure.
+ * `views` holds the element ids the rendered view set has a view of; every
+ * home, domain and element page carries the diagram of the view it belongs
+ * to (requirement `diagrams`).
  */
-export function wikiPages(model: CompiledModel): WikiPage[] {
+export function wikiPages(model: CompiledModel, views: readonly string[]): WikiPage[] {
   const parts: ModelParts = {
     model,
     elementById: new Map(model.elements.map((element) => [element.id, element])),
     zoneName: new Map(model.zones.map((zone) => [zone.id, zone.name ?? zone.id])),
     categoryName: new Map(model.categories.map((category) => [category.id, category.name ?? category.id])),
     interfaceById: new Map(model.interfaces.map((iface) => [iface.id, iface])),
+    views: new Set(views),
   };
   validateParts(parts);
 
@@ -400,7 +444,7 @@ export function wikiPages(model: CompiledModel): WikiPage[] {
     for (const child of children) {
       underDomain.add(child.id);
       if (child.kind === 'domain') {
-        pages.push(domainPage(child, descendantsOf(child)));
+        pages.push(domainPage(parts, child, descendantsOf(child)));
       } else {
         pages.push(elementPage(parts, child));
       }
@@ -408,7 +452,7 @@ export function wikiPages(model: CompiledModel): WikiPage[] {
     }
   };
   for (const domain of roots) {
-    pages.push(domainPage(domain, descendantsOf(domain)));
+    pages.push(domainPage(parts, domain, descendantsOf(domain)));
     walkDomain(domain);
   }
   // Elements no domain holds: people, externals and the broker at the top level.
@@ -421,11 +465,13 @@ export function wikiPages(model: CompiledModel): WikiPage[] {
 /**
  * Every reference the pages will make, checked before any page is built: a
  * relation, interface or element naming an id the model lacks is an error
- * naming it here, even where no page would have rendered the row. The link
- * builders are the validators — the same refusal wherever the reference is
- * read.
+ * naming it here, even where no page would have rendered the row, and so is
+ * a view naming an element the model does not have — a diagram block naming
+ * no view never gets built. The link builders are the validators — the same
+ * refusal wherever the reference is read.
  */
 function validateParts(parts: ModelParts): void {
+  for (const scope of parts.views) mustElement(parts, scope, 'the view set');
   for (const element of parts.model.elements) {
     for (const zoneId of element.zones) zoneLink(parts, zoneId, `element "${element.id}"`);
     for (const ancestorId of element.ancestors) mustElement(parts, ancestorId, `element "${element.id}"`);
