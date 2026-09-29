@@ -1,0 +1,5 @@
+#!/bin/sh
+# The wiki tests' failing fake uvx: exits nonzero after printing, so a test can
+# pin what the wiki command prints when the engine's own build fails.
+echo "zensical exploded"
+exit 3
