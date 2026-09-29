@@ -150,6 +150,23 @@ describe('the template install and its cache', () => {
     }
   });
 
+  test('a bun whose --version fails counts as missing, and nothing is written', () => {
+    const bin = join(mkdtempSync(join(tmpdir(), 'madarch-deadbun-')), 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, 'bun'), '#!/bin/sh\nprintf "bun: broken\\n" >&2\nexit 3\n', { mode: 0o755 });
+    const savedPath = process.env.PATH;
+    process.env.PATH = `${bin}:${savedPath ?? ''}`;
+    const cache = join(mkdtempSync(join(tmpdir(), 'madarch-cache-')), 'cache');
+    try {
+      const result = ensureStarlightInstall(STARLIGHT_TEMPLATE_DIR, cache);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.message).toContain('bun was not found on PATH');
+      expect(existsSync(cache)).toBe(false);
+    } finally {
+      process.env.PATH = savedPath;
+    }
+  });
+
   test('refuses a missing bun naming how to install it, before writing anything', () => {
     const savedPath = process.env.PATH;
     process.env.PATH = mkdtempSync(join(tmpdir(), 'madarch-empty-'));
@@ -176,6 +193,14 @@ describe('the template install and its cache', () => {
       const first = ensureStarlightInstall(STARLIGHT_TEMPLATE_DIR, cache);
       expect(first.ok).toBe(true);
       if (!first.ok) throw new Error('the install must succeed');
+      // A folder left half-built at the install's place is rebuilt from the
+      // template, not reused: junk beside a removed install marker is gone
+      // after the next call.
+      writeFileSync(join(first.project, 'junk.txt'), 'stale');
+      rmSync(join(first.project, 'node_modules', '.bin', 'astro'));
+      const rebuilt = ensureStarlightInstall(STARLIGHT_TEMPLATE_DIR, cache);
+      expect(rebuilt.ok).toBe(true);
+      expect(existsSync(join(first.project, 'junk.txt'))).toBe(false);
       expect(first.project.startsWith(cache)).toBe(true);
       expect(existsSync(join(first.project, 'node_modules', '.bin', 'astro'))).toBe(true);
       expect(readFileSync(join(first.project, 'package.json'), 'utf8')).toContain('madarch-wiki-starlight');
