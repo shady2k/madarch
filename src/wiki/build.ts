@@ -40,7 +40,8 @@ import type { MermaidPage } from '../render/mermaid.js';
 import { renderModel, type RenderedVersion } from '../render/prepare.js';
 import { brokenLinks, readSiteFiles } from './links.js';
 import { wikiPages } from './pages.js';
-import { writeZensicalProject, type WikiDiagramAsset } from './zensical.js';
+import type { WikiDiagramAsset } from './render.js';
+import { writeZensicalProject } from './zensical.js';
 
 /** The pinned Zensical the engine runs, exactly as uvx names it. */
 export const ZENSICAL_SPEC = 'zensical==0.0.66';
