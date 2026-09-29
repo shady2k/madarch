@@ -73,6 +73,11 @@ describe('pageRoute', () => {
   test('refuses an id no page file exists for', () => {
     expect(() => pageRoute('note/orders')).toThrow('unknown kind');
   });
+  test('slugs a document page id the way the engine slugs its file names', () => {
+    expect(pageRoute('document/README')).toBe('/documents/readme/');
+    expect(pageRoute('document/docs/architecture')).toBe('/documents/docs/architecture/');
+    expect(pageRoute('document/docs/index')).toBe('/documents/docs/');
+  });
 });
 
 describe('starlightSidebar', () => {
@@ -83,6 +88,20 @@ describe('starlightSidebar', () => {
       { label: 'Interfaces', items: ['interfaces'] },
       { label: 'Zones', items: ['zones', 'zones/internal'] },
       { label: 'Data categories', items: ['data-categories', 'data-categories/personal'] },
+    ]);
+  });
+
+  test('spells a document entry as the slug the loader gives the page', () => {
+    const documents = [
+      { id: 'document/README', title: 'Documents fixture', nav: ['Documents'], body: '', blocks: [], insertTitle: false, links: [] },
+      { id: 'document/docs/architecture', title: 'Architecture', nav: ['Documents', 'docs'], body: '', blocks: [], insertTitle: false, links: [] },
+    ] as const;
+    expect(starlightSidebar(documents as unknown as readonly WikiPage[])).toEqual([
+      { label: 'Home', link: '/' },
+      {
+        label: 'Documents',
+        items: ['documents/readme', { label: 'docs', items: ['documents/docs/architecture'] }],
+      },
     ]);
   });
 });

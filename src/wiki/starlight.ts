@@ -8,8 +8,10 @@
  * them from. The page bodies, the tab markup and the nav tree come from
  * the shared render module; this writer adds what Starlight owns: root
  * relative route links, heading anchors slugged the way GitHub slugs (the
- * engine's own rule, mirrored), and the sidebar. The engine itself runs
- * later: the template is installed once with bun into a cache outside the
+ * engine's own rule, mirrored), and the sidebar. The repository's
+ * documents are pages of the same layout, their file names slugged the
+ * way the engine slugs them onto routes. The engine itself runs later:
+ * the template is installed once with bun into a cache outside the
  * repository (`STARLIGHT_CACHE_ROOT`), the build symlinks that install's
  * `node_modules` into the written project and runs `bun run build` there.
  *
@@ -22,10 +24,11 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symli
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDocumentPage, type AnyWikiPage } from './pages.js';
 import { pagePath } from './pages-path.js';
-import { byCodePoint, type WikiPage } from './pages.js';
+import { byCodePoint } from './pages.js';
 import { SLUGGER_REGEX } from './github-slugger-regex.js';
-import { diagramModuleJs, navTree, preparePages, renderPageBody, TABS_CSS, type NavEntry, type WriterLinks, type WikiRenderOptions } from './render.js';
+import { diagramModuleJs, navTree, preparePages, renderDocumentBody, renderPageBody, TABS_CSS, type NavEntry, type WriterLinks, type WikiRenderOptions } from './render.js';
 
 /** The madarch checkout the build runs from: where the template lives. */
 const PACKAGE_ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -50,10 +53,26 @@ export function starlightSlug(text: string): string {
   return text.toLowerCase().replace(SLUGGER_REGEX, '').replace(/ /g, '-');
 }
 
+/**
+ * The slug Starlight's content loader gives a page path: every path
+ * segment slugged by the same rule, joined with `/`, a trailing `index`
+ * segment dropped — Astro's own `getContentEntryIdAndSlug` slugs each
+ * segment and strips a trailing `/index`, so the sidebar's entries and
+ * the routes must be spelled exactly so. Model page ids are lower-case
+ * words that pass through unchanged; documents carry the repository's
+ * file names, `README.md` included.
+ */
+function sluggedDocumentPath(path: string): string {
+  const slug = path.split('/').map(starlightSlug).join('/');
+  return slug.endsWith('/index') ? slug.slice(0, -'/index'.length) : slug;
+}
+
 /** The route a page's file is served at in the built site: its page path, extensionless, from the root. */
 export function pageRoute(id: string): string {
   if (id === 'home') return '/';
-  return `/${pagePath(id).replace(/\.md$/, '')}/`;
+  const path = pagePath(id).replace(/\.md$/, '');
+  if (id.startsWith('document/')) return `/${sluggedDocumentPath(path)}/`;
+  return `/${path}/`;
 }
 
 /** Where a Starlight link points and how its anchors are spelled. */
@@ -66,7 +85,11 @@ export const starlightLinks: WriterLinks = {
 export type StarlightSidebarItem = string | { readonly label: string; readonly link: string } | { readonly label: string; readonly items: readonly StarlightSidebarItem[] };
 
 function sidebarEntry(entry: NavEntry): StarlightSidebarItem {
-  if ('path' in entry) return entry.path.replace(/\.md$/, '');
+  if ('path' in entry) {
+    const path = entry.path.replace(/\.md$/, '');
+    // A document's sidebar entry is the slug the engine serves it at.
+    return path.startsWith('documents/') ? sluggedDocumentPath(path) : path;
+  }
   return { label: entry.title, items: entry.children.map(sidebarEntry) };
 }
 
@@ -75,7 +98,7 @@ function sidebarEntry(entry: NavEntry): StarlightSidebarItem {
  * then one group per section — the same structure the Zensical nav
  * renders, so both engines read the same.
  */
-export function starlightSidebar(pages: readonly WikiPage[]): readonly StarlightSidebarItem[] {
+export function starlightSidebar(pages: readonly AnyWikiPage[]): readonly StarlightSidebarItem[] {
   return [
     { label: 'Home', link: pageRoute('home') },
     ...navTree(pages).map((section) => ({ label: section.title, items: section.entries.map(sidebarEntry) })),
@@ -83,7 +106,7 @@ export function starlightSidebar(pages: readonly WikiPage[]): readonly Starlight
 }
 
 /** A page's Starlight frontmatter: the title the sidebar and the browser name the page by. */
-function frontmatter(page: WikiPage): string {
+function frontmatter(page: AnyWikiPage): string {
   const title = `"${page.title.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
   return `---\ntitle: ${title}\n---\n`;
 }
@@ -114,15 +137,18 @@ const STARLIGHT_CSS_HEAD: readonly string[] = [
 /**
  * Writes the Starlight project for `pages` into `projectDir` (created):
  * the template's own files, `src/content/docs/<page path>.md` for every
- * page, the generated `src/generated/site.mjs` (title and sidebar, which
- * the template's `astro.config.mjs` imports), the diagram tabs'
- * stylesheet under `src/styles/` and their module under `public/` — the
- * LikeC4 web component and the Mermaid runtime themselves are the build's
- * to ship into `public/assets/`. Throws when a link names a page or a
- * heading the set does not hold, or a diagram block names a view the
- * diagrams map does not — a broken page never reaches the engine.
+ * page — the model pages rendered from their blocks, the repository's
+ * documents from their own Markdown, links rewritten, each under its
+ * frontmatter — the generated `src/generated/site.mjs` (title and
+ * sidebar, which the template's `astro.config.mjs` imports), the diagram
+ * tabs' stylesheet under `src/styles/` and their module under `public/` —
+ * the LikeC4 web component, the Mermaid runtime and the documents'
+ * images are the build's to ship into `public/assets/`. Throws when a
+ * link names a page or a heading the set does not hold, or a diagram
+ * block names a view the diagrams map does not — a broken page never
+ * reaches the engine.
  */
-export function writeStarlightProject(pages: readonly WikiPage[], projectDir: string, options: StarlightSiteOptions): void {
+export function writeStarlightProject(pages: readonly AnyWikiPage[], projectDir: string, options: StarlightSiteOptions): void {
   cpSync(STARLIGHT_TEMPLATE_DIR, projectDir, {
     recursive: true,
     filter: (source) => !source.slice(STARLIGHT_TEMPLATE_DIR.length).split(/[\\/]/).includes('node_modules'),
@@ -131,7 +157,8 @@ export function writeStarlightProject(pages: readonly WikiPage[], projectDir: st
   for (const page of pages) {
     const file = join(projectDir, 'src', 'content', 'docs', pagePath(page.id));
     mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, `${frontmatter(page)}${renderPageBody(page, options, prepared, starlightLinks)}`);
+    const body = isDocumentPage(page) ? renderDocumentBody(page, starlightLinks) : renderPageBody(page, options, prepared, starlightLinks);
+    writeFileSync(file, `${frontmatter(page)}${body}`);
   }
   const site = { title: options.siteName, sidebar: starlightSidebar(pages) };
   mkdirSync(join(projectDir, 'src', 'generated'), { recursive: true });

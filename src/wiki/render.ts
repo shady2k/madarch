@@ -11,8 +11,10 @@
  * text every time — nothing reads the clock, and every sort stays on code
  * points.
  */
+import { documentHeadings, scanDocument } from './documents.js';
+import { isDocumentPage, type AnyWikiPage, type WikiDocumentPage } from './pages.js';
 import type { WikiCell, WikiDiagramBlock, WikiLinkCell, WikiPage } from './pages.js';
-import { pagePath } from './pages-path.js';
+import { documentImageRoute, pagePath } from './pages-path.js';
 
 /**
  * What a view's tabs draw, per diagram block: the LikeC4 view id the
@@ -197,6 +199,9 @@ export function diagramModuleJs(mermaidImport: string): string {
     '  }',
     "  select(holder, holder.dataset.first === 'mermaid' ? 'mermaid' : 'likec4');",
     '}',
+    '// A document page carries Mermaid blocks of its own, outside any tabs:',
+    '// whatever is visible at load is drawn once here.',
+    'drawVisible();',
     '',
   ].join('\n');
 }
@@ -250,13 +255,19 @@ export interface PreparedPages {
   readonly headings: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
-export function preparePages(pages: readonly WikiPage[]): PreparedPages {
+export function preparePages(pages: readonly AnyWikiPage[]): PreparedPages {
   const knownIds = new Set(pages.map((page) => page.id));
   const headings = new Map<string, Set<string>>();
   for (const page of pages) {
     const ids = new Set<string>();
-    for (const block of page.blocks) {
-      if (block.kind === 'heading') ids.add(block.text);
+    if (isDocumentPage(page)) {
+      // A document's anchors land on the headings its own Markdown carries,
+      // plus the title line the writers insert when it has none.
+      for (const text of documentHeadings(page)) ids.add(text);
+    } else {
+      for (const block of page.blocks) {
+        if (block.kind === 'heading') ids.add(block.text);
+      }
     }
     headings.set(page.id, ids);
   }
@@ -303,38 +314,83 @@ export interface NavSection {
   readonly title: string;
   readonly entries: readonly NavEntry[];
 }
-
 /**
  * The navigation from the pages' `nav` places: one section per first nav
- * segment in page order. A page whose nav names a second segment nests
- * under a group of that name inside its section; the section's own page
- * for that group — a domain's page written before its elements' pages —
- * becomes the group's first child, so it shows once.
+ * segment in page order. A page whose nav names further segments nests
+ * under a group of each name inside its section — a document's folders —
+ * as deep as the segments go; at the first level a group whose own page
+ * was written before its group's entries (a domain) becomes that group's
+ * first child, so it shows once.
  */
-export function navTree(pages: readonly WikiPage[]): readonly NavSection[] {
+export function navTree(pages: readonly AnyWikiPage[]): readonly NavSection[] {
   const sections = new Map<string, NavEntry[]>();
   for (const page of pages) {
     if (page.id === 'home') continue;
     const section = page.nav[0] ?? page.title;
-    const entries = sections.get(section) ?? [];
-    const parent = page.nav[1];
-    if (parent === undefined) {
-      entries.push({ title: page.title, path: pagePath(page.id) });
-    } else {
+    const top = sections.get(section) ?? [];
+    let entries = top;
+    for (let depth = 1; depth < page.nav.length; depth++) {
+      const name = page.nav[depth]!;
       let group: Extract<NavEntry, { children: NavEntry[] }> | undefined;
       for (const entry of entries) {
-        if ('children' in entry && entry.title === parent) group = entry;
+        if ('children' in entry && entry.title === name) group = entry;
       }
       if (group === undefined) {
-        group = { title: parent, children: [] };
-        const direct = entries.findIndex((entry) => 'path' in entry && entry.title === parent);
-        if (direct >= 0) group.children.push(entries.splice(direct, 1)[0]!);
+        group = { title: name, children: [] };
+        // The section's own page for a first-level group — a domain's page
+        // written before its elements' pages — becomes the group's first
+        // child, so it shows once. Folder groups deeper in (a document's
+        // folders) have no page of their own.
+        if (depth === 1) {
+          const direct = entries.findIndex((entry) => 'path' in entry && entry.title === name);
+          if (direct >= 0) group.children.push(entries.splice(direct, 1)[0]!);
+        }
         entries.push(group);
       }
-      group.children.push({ title: page.title, path: pagePath(page.id) });
+      entries = group.children;
     }
-    sections.set(section, entries);
+    entries.push({ title: page.title, path: pagePath(page.id) });
+    sections.set(section, top);
   }
   return [...sections].map(([title, entries]) => ({ title, entries }));
+}
+
+/**
+ * One document page's body: the document's Markdown with every resolved
+ * link's target rewritten to where the writer serves it — another page by
+ * `links.pathOf`, its anchor slugged by `links.slugOf`, an image at the
+ * document asset route — and every Mermaid fence replaced by the raw
+ * `div.mermaid` the shipped runtime draws on load. Everything else is the
+ * document's own text, byte for byte; a document without a title gets its
+ * `# title` line above the body. Writers call this once per document page,
+ * with their own `WriterLinks`.
+ */
+export function renderDocumentBody(page: WikiDocumentPage, links: WriterLinks): string {
+  const context: LinkContext = { pageId: page.id, fromPath: pagePath(page.id), knownIds: new Set<string>(), headings: new Map<string, ReadonlySet<string>>() };
+  const urlOf = new Map<string, string>();
+  for (const link of page.links) {
+    if (link.kind === 'image') {
+      urlOf.set(link.written, documentImageRoute(link.filePath!));
+      continue;
+    }
+    if (link.kind === 'keep') continue;
+    const target = links.pathOf(link.pageId!, context);
+    urlOf.set(link.written, link.anchor === undefined ? target : `${target}#${links.slugOf(link.anchor)}`);
+  }
+  // Positions from the same scan the page data classified, so every
+  // resolved link has exactly one occurrence to land on. Applied last to
+  // first: the edits never overlap, and offsets stay valid.
+  const edits: { start: number; end: number; text: string }[] = [];
+  for (const occurrence of scanDocument(page.body).links) {
+    const url = urlOf.get(occurrence.written);
+    if (url !== undefined) edits.push({ start: occurrence.start, end: occurrence.end, text: url });
+  }
+  for (const block of scanDocument(page.body).mermaid) {
+    edits.push({ start: block.start, end: block.end, text: `<div class="mermaid">\n${htmlText(block.source)}\n</div>` });
+  }
+  edits.sort((a, b) => b.start - a.start);
+  let body = page.body;
+  for (const edit of edits) body = body.slice(0, edit.start) + edit.text + body.slice(edit.end);
+  return page.insertTitle ? `# ${page.title}\n\n${body}` : body;
 }
 

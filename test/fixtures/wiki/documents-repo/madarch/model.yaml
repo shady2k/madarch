@@ -1,0 +1,11 @@
+version: 1
+
+elements:
+  - id: ordering
+    kind: domain
+    name: Ordering
+  - id: checkout
+    kind: service
+    name: Checkout
+    parent: ordering
+    technology: TypeScript

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,6 +32,7 @@ const FAKE_BUN = fileURLToPath(new URL('./fixtures/wiki/fake-bun', import.meta.u
 const FAILING_INSTALL_BUN = fileURLToPath(new URL('./fixtures/wiki/failing-install-bun', import.meta.url));
 const FAILING_BUILD_BUN = fileURLToPath(new URL('./fixtures/wiki/failing-build-bun', import.meta.url));
 const BROKEN_SITE_BUN = fileURLToPath(new URL('./fixtures/wiki/broken-site-bun', import.meta.url));
+const DOCUMENTS_FIXTURE = fileURLToPath(new URL('./fixtures/wiki/documents-repo', import.meta.url));
 const FAKE_BUN_LOG = join(FAKE_BUN, 'invocations.log');
 const FAKE_LOG = join(FAKE_BIN, 'invocations.log');
 
@@ -420,6 +421,63 @@ describe('scripts/wiki.ts', () => {
     expect(toml).toContain('{ path = "assets/likec4-view.js", type = "module" }');
     expect(toml).toContain('{ path = "javascripts/wiki-diagram.mjs", type = "module" }');
   }, { timeout: 60_000 });
+
+  test('the documents fixture becomes pages on both engines, links rewritten and images copied', () => {
+    // Zensical: relative links, the image under docs/assets, folders in the nav.
+    const zensical = outFolder();
+    expect(runWiki([DOCUMENTS_FIXTURE, '--out', zensical]).status).toBe(0);
+    const docs = join(zensical, 'source', 'docs');
+    expect(existsSync(join(docs, 'index.md'))).toBe(true);
+    expect(existsSync(join(docs, 'domains', 'ordering.md'))).toBe(true);
+    const architecture = readFileSync(join(docs, 'documents', 'docs', 'architecture.md'), 'utf8');
+    expect(architecture).toContain('# Architecture');
+    expect(architecture).toContain('[the decision record](decisions/0001-use-grpc.md)');
+    expect(architecture).toContain('[the README](../README.md#documents-fixture)');
+    expect(architecture).toContain('![Overview](/assets/documents/docs/img/overview.png)');
+    expect(architecture).toContain('<div class="mermaid">');
+    expect(architecture).toContain('flowchart LR');
+    expect(architecture).toContain('{a, b}');
+    expect(architecture).toContain('<T>');
+    const decision = readFileSync(join(docs, 'documents', 'docs', 'decisions', '0001-use-grpc.md'), 'utf8');
+    expect(decision.startsWith('# 0001-use-grpc\n\n')).toBe(true);
+    expect(decision).toContain('not a link: [fake](also-missing.md)');
+    expect(readFileSync(join(docs, 'documents', 'README.md'), 'utf8')).toContain('# Documents fixture');
+    expect(readFileSync(join(docs, 'documents', 'madarch', 'review.md'), 'utf8')).toContain('# Architecture review');
+    expect(existsSync(join(docs, 'assets', 'documents', 'docs', 'img', 'overview.png'))).toBe(true);
+    const toml = readFileSync(join(zensical, 'source', 'zensical.toml'), 'utf8');
+    expect(toml).toContain('{ "Documents" = [{ "Documents fixture" = "documents/README.md" }');
+    expect(toml).toContain('{ "docs" = [{ "Architecture" = "documents/docs/architecture.md" }, { "decisions" = [{ "0001-use-grpc" = "documents/docs/decisions/0001-use-grpc.md" }] }] }');
+    expect(toml).toContain('{ "madarch" = [{ "Architecture review" = "documents/madarch/review.md" }] }');
+
+    // Starlight: root-relative routes slugged the engine's way, the image
+    // under public/assets, the sidebar entries the loader slugs the same way.
+    rmSync(STARLIGHT_CACHE_ROOT, { recursive: true, force: true });
+    const starlight = outFolder();
+    expect(runWiki([DOCUMENTS_FIXTURE, '--out', starlight, '--engine', 'starlight'], `${FAKE_BUN}:${process.env.PATH ?? ''}`).status).toBe(0);
+    const sdocs = join(starlight, 'source', 'src', 'content', 'docs');
+    expect(readFileSync(join(sdocs, 'documents', 'README.md'), 'utf8')).toContain('title: "Documents fixture"');
+    const sArchitecture = readFileSync(join(sdocs, 'documents', 'docs', 'architecture.md'), 'utf8');
+    expect(sArchitecture).toContain('[the decision record](/documents/docs/decisions/0001-use-grpc/)');
+    expect(sArchitecture).toContain('[the README](/documents/readme/#documents-fixture)');
+    expect(sArchitecture).toContain('![Overview](/assets/documents/docs/img/overview.png)');
+    expect(existsSync(join(starlight, 'source', 'public', 'assets', 'documents', 'docs', 'img', 'overview.png'))).toBe(true);
+    const sidebar = readFileSync(join(starlight, 'source', 'src', 'generated', 'site.mjs'), 'utf8');
+    expect(sidebar).toContain('"documents/readme"');
+    expect(sidebar).toContain('"documents/docs/decisions/0001-use-grpc"');
+  }, { timeout: 60_000 });
+
+  test('a document linking a missing document fails the build naming both, before anything is written', () => {
+    const root = mkdtempSync(join(tmpdir(), 'madarch-wiki-broken-doc-'));
+    cpSync(DOCUMENTS_FIXTURE, root, { recursive: true });
+    writeFileSync(join(root, 'docs', 'guide.md'), '# Guide\n\n[Missing](missing.md)\n');
+    const out = outFolder();
+    const run = runWiki([root, '--out', out]);
+    expect(run.status).toBe(1);
+    const said = combined(run);
+    expect(said).toContain('docs/guide.md');
+    expect(said).toContain('docs/missing.md');
+    expect(existsSync(join(out, 'source'))).toBe(false);
+  }, { timeout: 60_000 });
 });
 
 describe('scripts/wiki.ts with a real Zensical build', () => {
@@ -505,6 +563,46 @@ describe('scripts/wiki.ts with a real Starlight build', () => {
       expect(docFiles(join(starlight, 'source', 'src', 'content', 'docs'))).toEqual(docFiles(join(zensical, 'source', 'docs')));
       expect(readFileSync(join(starlight, 'source', 'src', 'content', 'docs', 'index.md'), 'utf8')).toContain('# Home');
       expect(readFileSync(join(zensical, 'source', 'docs', 'index.md'), 'utf8')).toContain('# Home');
+    },
+    { timeout: 300_000 },
+  );
+});
+
+describe('scripts/wiki.ts with real builds over the documents fixture', () => {
+  const REAL_PATH = process.env.PATH ?? '';
+
+  test.skipIf(!process.env.MADARCH_WIKI_E2E)(
+    'the zensical wiki holds the documents and passes the link check',
+    () => {
+      const out = outFolder();
+      // Exit 0 is the link check passing on the real built site.
+      expect(runWiki([DOCUMENTS_FIXTURE, '--out', out], REAL_PATH).status).toBe(0);
+      const site = join(out, 'site');
+      expect(existsSync(join(site, 'documents', 'docs', 'architecture', 'index.html'))).toBe(true);
+      expect(existsSync(join(site, 'documents', 'docs', 'decisions', '0001-use-grpc', 'index.html'))).toBe(true);
+      // Zensical serves a README.md as its folder's index, the way mkdocs does.
+      expect(existsSync(join(site, 'documents', 'index.html'))).toBe(true);
+      expect(existsSync(join(site, 'documents', 'madarch', 'review', 'index.html'))).toBe(true);
+      expect(existsSync(join(site, 'assets', 'documents', 'docs', 'img', 'overview.png'))).toBe(true);
+      const built = readFileSync(join(site, 'documents', 'docs', 'architecture', 'index.html'), 'utf8');
+      expect(built).toContain('<div class="mermaid"');
+      expect(built).toContain('src="/assets/documents/docs/img/overview.png"');
+    },
+    { timeout: 300_000 },
+  );
+
+  test.skipIf(!process.env.MADARCH_WIKI_E2E)(
+    'the starlight wiki holds the documents and passes the link check',
+    () => {
+      rmSync(STARLIGHT_CACHE_ROOT, { recursive: true, force: true });
+      const out = outFolder();
+      expect(runWiki([DOCUMENTS_FIXTURE, '--out', out, '--engine', 'starlight'], REAL_PATH).status).toBe(0);
+      const site = join(out, 'site');
+      // The engine slugs the file names onto routes: README.md is readme.
+      expect(existsSync(join(site, 'documents', 'docs', 'architecture', 'index.html'))).toBe(true);
+      expect(existsSync(join(site, 'documents', 'readme', 'index.html'))).toBe(true);
+      expect(existsSync(join(site, 'documents', 'madarch', 'review', 'index.html'))).toBe(true);
+      expect(existsSync(join(site, 'assets', 'documents', 'docs', 'img', 'overview.png'))).toBe(true);
     },
     { timeout: 300_000 },
   );

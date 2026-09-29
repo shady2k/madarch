@@ -36,13 +36,14 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadAndCompileModel } from '../model/load-and-compile.js';
 import type { MermaidPage } from '../render/mermaid.js';
 import { renderModel, type RenderedVersion } from '../render/prepare.js';
 import { brokenLinks, readSiteFiles } from './links.js';
-import { wikiPages } from './pages.js';
+import { documentImages, documentPages, DocumentLinkError } from './documents.js';
+import { wikiPages, type AnyWikiPage, type WikiDocumentPage } from './pages.js';
 import type { WikiDiagramAsset } from './render.js';
 import { cleanStarlightSource, ensureStarlightInstall, linkStarlightNodeModules, STARLIGHT_CACHE_ROOT, STARLIGHT_TEMPLATE_DIR, writeStarlightProject } from './starlight.js';
 import { writeZensicalProject } from './zensical.js';
@@ -256,6 +257,19 @@ export function buildWiki(repoPath: string, outPath: string, options: WikiBuildO
     rendering.pages.filter((page) => page.file !== '_landscape.md').map((page) => page.file.replace(/\.md$/, '')),
   );
 
+  // The repository's own documents, beside the model's pages. A broken
+  // document link fails the build here, before anything is written,
+  // naming every document and the target it misses (requirement links);
+  // a document that cannot be read is an unreadable input.
+  let documents: readonly WikiDocumentPage[];
+  try {
+    documents = documentPages(repo);
+  } catch (error) {
+    if (error instanceof DocumentLinkError) return { code: 1, message: error.message };
+    return { code: 2, message: error instanceof Error ? error.message : String(error) };
+  }
+  const allPages: readonly AnyWikiPage[] = [...pages, ...documents];
+
   // The LikeC4 web component, generated from the rendered workspace. The
   // scratch folder is named after the workspace's content, because the
   // generated bundle embeds ids the tool derives from the folder's path:
@@ -278,8 +292,8 @@ export function buildWiki(repoPath: string, outPath: string, options: WikiBuildO
   rmSync(site, { recursive: true, force: true });
   mkdirSync(source, { recursive: true });
   const siteOptions = { siteName: basename(repo), diagrams, firstTab: diagram.format };
-  if (engine === 'zensical') writeZensicalProject(pages, source, siteOptions);
-  else writeStarlightProject(pages, source, siteOptions);
+  if (engine === 'zensical') writeZensicalProject(allPages, source, siteOptions);
+  else writeStarlightProject(allPages, source, siteOptions);
   // The diagram assets ride where the engine serves static files from:
   // Zensical's project docs/, Starlight's public/.
   const assets = join(source, engine === 'zensical' ? join('docs', 'assets') : join('public', 'assets'));
@@ -287,6 +301,14 @@ export function buildWiki(repoPath: string, outPath: string, options: WikiBuildO
   cpSync(join(scratch, 'likec4-view.js'), join(assets, 'likec4-view.js'));
   cpSync(join(mermaidDist, 'mermaid.esm.min.mjs'), join(assets, 'mermaid', 'mermaid.esm.min.mjs'));
   cpSync(join(mermaidDist, 'chunks', 'mermaid.esm.min'), join(assets, 'mermaid', 'chunks', 'mermaid.esm.min'), { recursive: true });
+  // The documents' images, copied where their rewritten links point: the
+  // same documents asset route both writers spell, under this engine's
+  // static folder.
+  for (const image of documentImages(documents)) {
+    const file = join(assets, 'documents', image);
+    mkdirSync(dirname(file), { recursive: true });
+    cpSync(join(repo, image), file);
+  }
 
   if (engine === 'starlight') linkStarlightNodeModules(installedProject!, source);
   const build = engine === 'zensical' ? runZensicalBuild(source) : runStarlightBuild(source);
