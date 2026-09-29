@@ -199,6 +199,9 @@ export function diagramModuleJs(mermaidImport: string): string {
     '  }',
     "  select(holder, holder.dataset.first === 'mermaid' ? 'mermaid' : 'likec4');",
     '}',
+    '// A document page carries Mermaid blocks of its own, outside any tabs:',
+    '// whatever is visible at load is drawn once here.',
+    'drawVisible();',
     '',
   ].join('\n');
 }

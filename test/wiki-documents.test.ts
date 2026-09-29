@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { documentHeadings, documentImages, documentPages, DocumentLinkError, scanDocument } from '../src/wiki/documents.js';
 import { documentImageRoute } from '../src/wiki/pages-path.js';
 import { isDocumentPage, type AnyWikiPage, type WikiDocumentPage, type WikiPage } from '../src/wiki/pages.js';
-import { navTree, renderDocumentBody, type WriterLinks } from '../src/wiki/render.js';
+import { navTree, diagramModuleJs, renderDocumentBody, type WriterLinks } from '../src/wiki/render.js';
 
 /**
  * The repository's own documents as wiki pages (docs/changes/wiki/capabilities/wiki.md,
@@ -302,6 +302,12 @@ describe('renderDocumentBody', () => {
   test('a titleless document gets its title line above the body', () => {
     const [page] = documentPages(writeRepo({ 'docs/0001-x.md': 'Decision text.\n' }));
     expect(renderDocumentBody(page!, REWRITER)).toBe('# 0001-x\n\nDecision text.\n');
+  });
+
+  test('the diagram module draws the document\'s own Mermaid blocks at load, outside any tabs', () => {
+    // A document page has no .wiki-diagram holder, so the module must draw
+    // whatever is visible when it loads — the block a browser walk proves.
+    expect(diagramModuleJs('../assets/mermaid/mermaid.esm.min.mjs').trimEnd().endsWith('drawVisible();')).toBe(true);
   });
 
   test('a titled document is not given a second title', () => {
