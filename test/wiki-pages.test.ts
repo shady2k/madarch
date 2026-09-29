@@ -128,15 +128,15 @@ const MODEL_WITH_ZONES_YAML = [
   '    name: Mirror',
   '',
   'interfaces:',
+  '  - id: topic-orders',
+  '    provider: bus',
+  '    contract: topic::orders-placed',
   '  - id: p1',
   '    provider: audit',
   '    contract: http::POST::/refund',
   '  - id: p2',
   '    provider: audit',
   '    contract: http::POST::/pay',
-  '  - id: topic-orders',
-  '    provider: bus',
-  '    contract: topic::orders-placed',
   '',
   'relations:',
   '  - id: call-a',
@@ -536,7 +536,9 @@ describe('wiki page data', () => {
     expect(top.some((block) => block.kind === 'paragraph' && block.text === 'The model declares 2 data categories.')).toBe(true);
     expect([...sectionsOf(categories).keys()].filter((key) => key !== '(top)')).toEqual(['Order data', 'Personal data']);
 
-    expect(sectionTable(categories, 'Order data').rows).toEqual([['Reads audits', { page: 'element/orders', text: 'Orders' }, { page: 'element/audit', text: 'Audit' }]]);
+    const orderData = sectionTable(categories, 'Order data');
+    expect(orderData.columns).toEqual(['Relation', 'From', 'To']);
+    expect(orderData.rows).toEqual([['Reads audits', { page: 'element/orders', text: 'Orders' }, { page: 'element/audit', text: 'Audit' }]]);
     expect(sectionTable(categories, 'Personal data').rows).toEqual([
       ['Publishes orders', { page: 'element/orders', text: 'Orders' }, { page: 'element/bus', text: 'Event bus' }],
       ['Reads audits', { page: 'element/orders', text: 'Orders' }, { page: 'element/audit', text: 'Audit' }],
