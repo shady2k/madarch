@@ -112,6 +112,13 @@ describe('scripts/wiki.ts', () => {
     expect(readFileSync(join(out, 'source', 'docs', 'data-categories', 'personal.md'), 'utf8')).toContain('# Personal data');
     expect(readFileSync(join(out, 'source', 'zensical.toml'), 'utf8')).toContain('"Ordering" = "domains/ordering.md"');
     expect(readFileSync(join(out, 'source', 'zensical.toml'), 'utf8')).toContain('{ "Internal network" = "zones/internal.md" }');
+    // The zones and the data categories sit in one group each, their index
+    // page first — never a nested group of the same name (Zones → Zones →
+    // Zones), which the stage 1 review flagged.
+    const nav = readFileSync(join(out, 'source', 'zensical.toml'), 'utf8');
+    expect(nav).toContain('{ "Zones" = [{ "Zones" = "zones.md" }, { "Demilitarised zone" = "zones/dmz.md" }');
+    expect(nav).toContain('{ "Data categories" = [{ "Data categories" = "data-categories.md" }, { "Order data" = "data-categories/order.md" }');
+    expect(nav).not.toContain('= [{ "Zones" = [{');
     expect(readFileSync(FAKE_LOG, 'utf8')).toContain('zensical==0.0.66 build');
   }, { timeout: 60_000 });
 

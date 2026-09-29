@@ -380,8 +380,8 @@ function zonePage(parts: ModelParts, zone: CompiledZone): WikiPage {
   return {
     id: `zone/${zone.id}`,
     title: zone.name ?? zone.id,
-    // The second segment names the index page's group: it becomes the group's first child, the pages under it.
-    nav: ['Zones', 'Zones'],
+    // The index page leads the single group: every zone page sits beside it, one level deep.
+    nav: ['Zones'],
     blocks: [
       {
         kind: 'table',
@@ -419,7 +419,7 @@ function categoryPage(parts: ModelParts, category: CompiledCategory): WikiPage {
   return {
     id: `data-category/${category.id}`,
     title: category.name ?? category.id,
-    nav: ['Data categories', 'Data categories'],
+    nav: ['Data categories'],
     blocks: [
       {
         kind: 'table',
