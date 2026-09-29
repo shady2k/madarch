@@ -80,9 +80,10 @@ function byCodePoint(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-/** `2 relations`, `1 relation`: the counts read as English in every block. */
+/** `2 relations`, `1 relation`, `3 data categories`: the counts read as English in every block. */
 function count(n: number, noun: string): string {
-  return `${n} ${noun}${n === 1 ? '' : 's'}`;
+  const plural = noun.endsWith('y') ? `${noun.slice(0, -1)}ies` : `${noun}s`;
+  return `${n} ${n === 1 ? noun : plural}`;
 }
 
 /** The name a page and a table row show for an element: its name, else its id. */

@@ -10,7 +10,9 @@ import { Repo } from './model-check-repo.js';
  * requirement pages): the home page, a page per domain, a page per element
  * that is not a domain, the interfaces page grouped by contract kind, and the
  * zones and data categories pages. The expected pages below are written by
- * hand from the fixture, never produced by the builder and pasted back.
+ * hand from the fixture, never produced by the builder and pasted back. The
+ * fixtures declare their parts in orders the pages must not echo: every list
+ * the pages show comes out sorted, whatever order the model wrote.
  */
 
 const MODEL_YAML = [
@@ -43,6 +45,9 @@ const MODEL_YAML = [
   '    technology: Go',
   '',
   'interfaces:',
+  '  - id: pay-refund',
+  '    provider: payments-api',
+  '    contract: http::POST::/refund',
   '  - id: pay-api',
   '    provider: payments-api',
   '    contract: http::POST::/pay',
@@ -56,7 +61,13 @@ const MODEL_YAML = [
   '',
 ].join('\n');
 
-/** A second model, with zones, a data category, a topic interface and an action. */
+/**
+ * A second model, with zones, data categories, topic and bare contracts and
+ * actions. Deliberately unsorted where order matters: the categories come
+ * personal before order, the audit interfaces audit2 before audit and the
+ * plain contract in the middle, the relations name their mirrors first, and
+ * two elements share the name Mirror to force the id tiebreak.
+ */
 const MODEL_WITH_ZONES_YAML = [
   'version: 1',
   '',
@@ -74,6 +85,8 @@ const MODEL_WITH_ZONES_YAML = [
   'categories:',
   '  - id: personal',
   '    name: Personal data',
+  '  - id: order',
+  '    name: Order data',
   '',
   'elements:',
   '  - id: customer',
@@ -92,8 +105,22 @@ const MODEL_WITH_ZONES_YAML = [
   '  - id: bus',
   '    kind: broker',
   '    name: Event bus',
+  '    zones:',
+  '      add: [internal]',
+  '  - id: b-mirror',
+  '    kind: service',
+  '    name: Mirror',
+  '  - id: a-mirror',
+  '    kind: service',
+  '    name: Mirror',
   '',
   'interfaces:',
+  '  - id: audit-api2',
+  '    provider: audit',
+  '    contract: http::GET::/audit2',
+  '  - id: plain-table',
+  '    provider: audit',
+  '    contract: data::settlement-reports',
   '  - id: topic-orders',
   '    provider: bus',
   '    contract: topic::orders-placed',
@@ -102,6 +129,29 @@ const MODEL_WITH_ZONES_YAML = [
   '    contract: http::GET::/audit',
   '',
   'relations:',
+  '  - id: orders-relay2',
+  '    name: Relay two',
+  '    from: orders',
+  '    to: b-mirror',
+  '  - id: orders-relay1',
+  '    name: Relay one',
+  '    from: orders',
+  '    to: a-mirror',
+  '  - id: orders-reads',
+  '    name: Reads audits',
+  '    from: orders',
+  '    to: audit',
+  '    interface: audit-api',
+  '    transfers:',
+  '      - direction: reverse',
+  '        confidentiality: internal',
+  '        categories: [personal, order, personal]',
+  '  - id: audit-subscribes',
+  '    name: Subscribes to orders',
+  '    from: audit',
+  '    to: bus',
+  '    interface: topic-orders',
+  '    action: receive',
   '  - id: orders-publishes',
   '    name: Publishes orders',
   '    from: orders',
@@ -112,6 +162,9 @@ const MODEL_WITH_ZONES_YAML = [
   '      - direction: forward',
   '        confidentiality: restricted',
   '        categories: [personal]',
+  '      - direction: reverse',
+  '        confidentiality: internal',
+  '        categories: []',
   '',
 ].join('\n');
 
@@ -202,7 +255,9 @@ describe('wiki page data', () => {
     expect(home.title).toBe('Home');
     expect(home.nav).toEqual([]);
     const paragraphs = home.blocks.filter((block) => block.kind === 'paragraph');
-    expect(paragraphs.some((block) => block.kind === 'paragraph' && block.text === 'The model holds 6 elements, 1 interface and 1 relation.')).toBe(true);
+    expect(paragraphs.some((block) => block.kind === 'paragraph' && block.text === 'The model holds 6 elements, 2 interfaces and 1 relation.')).toBe(true);
+    expect(home.blocks).toContainEqual({ kind: 'heading', level: 2, text: 'Elements by kind' });
+    expect(home.blocks).toContainEqual({ kind: 'heading', level: 2, text: 'Domains' });
 
     const byKind = tableOf(home, ['Kind', 'Elements']);
     expect(byKind.rows).toEqual([
@@ -278,14 +333,14 @@ describe('wiki page data', () => {
       '  - id: outer',
       '    kind: domain',
       '    name: Outer',
-      '  - id: inner',
-      '    kind: domain',
-      '    name: Inner',
-      '    parent: outer',
       '  - id: leaf',
       '    kind: service',
       '    name: Leaf',
       '    parent: inner',
+      '  - id: inner',
+      '    kind: domain',
+      '    name: Inner',
+      '    parent: outer',
       '',
     ].join('\n');
     const pages = pagesOfModel(yaml);
@@ -295,21 +350,41 @@ describe('wiki page data', () => {
       [{ page: 'domain/inner', text: 'Inner' }, 'domain', '—'],
       [{ page: 'element/leaf', text: 'Leaf' }, 'service', '—'],
     ]);
+    // The home page still lists every domain, child domains included, by name.
+    const homeDomains = tableOf(pageOf(pages, 'home'), ['Domain', 'Elements']);
+    expect(homeDomains.rows).toEqual([
+      [{ page: 'domain/inner', text: 'Inner' }, '1'],
+      [{ page: 'domain/outer', text: 'Outer' }, '2'],
+    ]);
 
-    // Declaration order reversed against display order: the independents still come out sorted.
-    const reversed = pagesOfModel([
-      'version: 1',
-      '',
-      'elements:',
-      '  - id: bus',
-      '    kind: broker',
-      '    name: Event bus',
-      '  - id: customer',
-      '    kind: person',
-      '    name: Customer',
-      '',
-    ].join('\n'));
-    expect(reversed.map((page) => page.id)).toEqual(['home', 'element/customer', 'element/bus', 'interfaces', 'zones', 'data-categories']);
+    // A domain under a person is still a root domain; the independents come out sorted.
+    const held = pagesOfModel(
+      [
+        'version: 1',
+        '',
+        'elements:',
+        '  - id: bus',
+        '    kind: broker',
+        '    name: Event bus',
+        '  - id: customer',
+        '    kind: person',
+        '    name: Customer',
+        '  - id: venture',
+        '    kind: domain',
+        '    name: Venture',
+        '    parent: customer',
+        '',
+      ].join('\n'),
+    );
+    expect(held.map((page) => page.id)).toEqual([
+      'home',
+      'domain/venture',
+      'element/customer',
+      'element/bus',
+      'interfaces',
+      'zones',
+      'data-categories',
+    ]);
   });
 
   test('an element page names its kind, technology, zones and ancestor chain, and links them', () => {
@@ -340,12 +415,16 @@ describe('wiki page data', () => {
     expect(outgoing.rows).toEqual([[{ page: 'element/payments-api', text: 'Payments' }, 'Takes payment', { page: 'interfaces', anchor: 'http', text: 'http::POST::/pay' }, '—', '—']]);
     expect(sectionsOf(checkout).has('Incoming relations')).toBe(false);
 
-    // Payments provides the pay API; Checkout is its caller.
+    // Payments provides two interfaces, sorted by contract though declared the other way round.
     const payments = pageOf(pages, 'element/payments-api');
     const provides = sectionTable(payments, 'Provides');
     expect(provides.columns).toEqual(['Contract', 'Callers']);
-    expect(provides.rows).toEqual([['http::POST::/pay', [{ page: 'element/checkout', text: 'Checkout' }]]]);
+    expect(provides.rows).toEqual([
+      ['http::POST::/pay', [{ page: 'element/checkout', text: 'Checkout' }]],
+      ['http::POST::/refund', '—'],
+    ]);
     const incoming = sectionTable(payments, 'Incoming relations');
+    expect(incoming.columns).toEqual(['Other end', 'Name', 'Interface', 'Action', 'Data categories']);
     expect(incoming.rows).toEqual([
       [
         { page: 'element/checkout', text: 'Checkout' },
@@ -372,14 +451,22 @@ describe('wiki page data', () => {
     expect(interfaces.title).toBe('Interfaces');
     expect(interfaces.nav).toEqual(['Interfaces']);
     const top = sectionsOf(interfaces).get('(top)')!;
-    expect(top.some((block) => block.kind === 'paragraph' && block.text === 'The model declares 2 interfaces.')).toBe(true);
+    expect(top.some((block) => block.kind === 'paragraph' && block.text === 'The model declares 4 interfaces.')).toBe(true);
+    expect([...sectionsOf(interfaces).keys()]).toEqual(['(top)', 'data', 'http', 'topic']);
 
     const http = sectionTable(interfaces, 'http');
     expect(http.columns).toEqual(['Contract', 'Provider', 'Callers']);
-    expect(http.rows).toEqual([['http::GET::/audit', { page: 'element/audit', text: 'Audit' }, '—']]);
+    expect(http.rows).toEqual([
+      ['http::GET::/audit', { page: 'element/audit', text: 'Audit' }, [{ page: 'element/orders', text: 'Orders' }]],
+      ['http::GET::/audit2', { page: 'element/audit', text: 'Audit' }, '—'],
+    ]);
+    const data = sectionTable(interfaces, 'data');
+    expect(data.rows).toEqual([['data::settlement-reports', { page: 'element/audit', text: 'Audit' }, '—']]);
 
     const topic = sectionTable(interfaces, 'topic');
-    expect(topic.rows).toEqual([['topic::orders-placed', { page: 'element/bus', text: 'Event bus' }, [{ page: 'element/orders', text: 'Orders' }]]]);
+    expect(topic.rows).toEqual([
+      ['topic::orders-placed', { page: 'element/bus', text: 'Event bus' }, [{ page: 'element/audit', text: 'Audit' }, { page: 'element/orders', text: 'Orders' }]],
+    ]);
   });
 
   test('the zones page has a section per zone listing its elements, empty zones included', () => {
@@ -396,7 +483,10 @@ describe('wiki page data', () => {
     expect(dmz.columns).toEqual(['Element', 'Kind']);
     expect(dmz.rows).toEqual([[{ page: 'element/audit', text: 'Audit' }, 'service']]);
     const internal = sectionTable(zones, 'Internal network');
-    expect(internal.rows).toEqual([[{ page: 'element/orders', text: 'Orders' }, 'service']]);
+    expect(internal.rows).toEqual([
+      [{ page: 'element/bus', text: 'Event bus' }, 'broker'],
+      [{ page: 'element/orders', text: 'Orders' }, 'service'],
+    ]);
     expect(sectionTable(zones, 'PCI').rows).toEqual([]);
   });
 
@@ -406,11 +496,14 @@ describe('wiki page data', () => {
     expect(categories.title).toBe('Data categories');
     expect(categories.nav).toEqual(['Data categories']);
     const top = sectionsOf(categories).get('(top)')!;
-    expect(top.some((block) => block.kind === 'paragraph' && block.text === 'The model declares 1 data category.')).toBe(true);
+    expect(top.some((block) => block.kind === 'paragraph' && block.text === 'The model declares 2 data categories.')).toBe(true);
+    expect([...sectionsOf(categories).keys()].filter((key) => key !== '(top)')).toEqual(['Order data', 'Personal data']);
 
-    const personal = sectionTable(categories, 'Personal data');
-    expect(personal.columns).toEqual(['Relation', 'From', 'To']);
-    expect(personal.rows).toEqual([['Publishes orders', { page: 'element/orders', text: 'Orders' }, { page: 'element/bus', text: 'Event bus' }]]);
+    expect(sectionTable(categories, 'Order data').rows).toEqual([['Reads audits', { page: 'element/orders', text: 'Orders' }, { page: 'element/audit', text: 'Audit' }]]);
+    expect(sectionTable(categories, 'Personal data').rows).toEqual([
+      ['Publishes orders', { page: 'element/orders', text: 'Orders' }, { page: 'element/bus', text: 'Event bus' }],
+      ['Reads audits', { page: 'element/orders', text: 'Orders' }, { page: 'element/audit', text: 'Audit' }],
+    ]);
   });
 
   test('an element page links its zones, the contracts it calls and the categories its relations carry', () => {
@@ -423,12 +516,21 @@ describe('wiki page data', () => {
     const outgoing = sectionTable(orders, 'Outgoing relations');
     expect(outgoing.rows).toEqual([
       [
+        { page: 'element/audit', text: 'Audit' },
+        'Reads audits',
+        { page: 'interfaces', anchor: 'http', text: 'http::GET::/audit' },
+        '—',
+        [{ page: 'data-categories', anchor: 'Order data', text: 'Order data' }, { page: 'data-categories', anchor: 'Personal data', text: 'Personal data' }],
+      ],
+      [
         { page: 'element/bus', text: 'Event bus' },
         'Publishes orders',
         { page: 'interfaces', anchor: 'topic', text: 'topic::orders-placed' },
         'send',
         [{ page: 'data-categories', anchor: 'Personal data', text: 'Personal data' }],
       ],
+      [{ page: 'element/a-mirror', text: 'Mirror' }, 'Relay one', '—', '—', '—'],
+      [{ page: 'element/b-mirror', text: 'Mirror' }, 'Relay two', '—', '—', '—'],
     ]);
   });
 
