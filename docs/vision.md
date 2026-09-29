@@ -146,6 +146,7 @@ Near (MVP, `docs/milestones/mvp.md`):
 - An agent skill that writes a repository's intended model, with evidence.
 - A server that takes the model the skill sends from one repository and returns
   its views on request.
+- A wiki with diagrams generated from a repository's model, for people to read.
 
 Next (`live-graph`):
 - Webhooks, CI and polling; extraction plugins and the fact log's extracted

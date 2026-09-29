@@ -8,7 +8,7 @@ that turns the model the skill sends into diagrams (revised 2026-09-29).
 
 ## Outcomes and acceptance
 
-Outcomes 2, 3 and 4 rest on the foundation only; their order below is not a
+Outcomes 2, 3, 4 and 5 rest on the foundation only; their order below is not a
 dependency.
 
 1. **Store the graph on a sound foundation** (madarch-ozp). The intended-model
@@ -56,6 +56,19 @@ dependency.
    core come back as Mermaid that renders in Markdown and as LikeC4 that
    `likec4 validate` accepts; sending the same commit again changes nothing; a
    request for a source never sent is answered saying so and how to send one.
+5. **Generate a wiki with diagrams from a repository's model** (madarch-7br).
+   Documentation people read in a browser instead of Markdown files in a
+   repository: from the compiled model, one page per domain and per element
+   (its interfaces, its relations with their contracts and data categories,
+   its diagram), and pages for the interfaces, the zones and the data
+   categories, all cross-linked. One page-data layer feeds two engines,
+   Zensical and Starlight, chosen by `MADARCH_WIKI_ENGINE` (default
+   `zensical`) or `--engine`; `bun scripts/wiki.ts`, given a repository and
+   an output folder, builds the site, and the server of outcome 4 reuses it.
+   *Check:* the reference system's and nocx's wikis build on both engines from
+   the model alone; on their pages the interactive LikeC4 diagram opens with
+   element details and drill-down and the Mermaid diagram renders; the built
+   sites have no broken links.
 
 ## Exclusions
 
@@ -76,7 +89,9 @@ dependency.
 - Pull-request what-if checks and PR comments.
 - History queries through the API: history is stored from the first write, but
   asked for in the next milestone.
-- Authentication, a command-line client, MCP, our own web viewer.
+- Authentication, a command-line client, MCP, our own web viewer: the wiki's
+  pages are built by Zensical or Starlight and its diagrams drawn by LikeC4
+  and Mermaid; hosting the wiki, and choosing one engine, come later.
 - Runtime observation, network access matrices.
 - PostgreSQL, several server instances, several graphs.
 - Anything from the owner's private repositories in this public repository;
@@ -103,6 +118,10 @@ dependency.
   `live-graph`. The two tasks on the query engine's process and memory
   (madarch-ti6.1, madarch-ti6.2) still hold: the server keeps the history and
   the engine for days.
+- Revised 2026-09-29, later the same day: the owner added outcome 5, a wiki
+  with diagrams generated from the model, after comparing two throwaway sites
+  of the reference system (madarch-ti6.3) and keeping both engines behind an
+  environment variable ("Давай сливать, движок выбираем через env").
 - Finding budget: kept at the value agreed at setup (see `findingBudget` in
   `.shady2k/config.json`); there is no history yet to justify another.
 
