@@ -1,8 +1,10 @@
+import { readdirSync } from 'node:fs';
 import { describe, expect, test } from 'bun:test';
 import { loadAndCompileModel } from '../src/model/load-and-compile.js';
 import type { CompiledModel } from '../src/model/compile.js';
-import { wikiPages, type WikiBlock, type WikiCell, type WikiLinkCell, type WikiPage, type WikiTableBlock } from '../src/wiki/pages.js';
-import { REFERENCE_SYSTEM } from '../scripts/render-views.js';
+import { wikiPages, type WikiBlock, type WikiCell, type WikiDiagramBlock, type WikiLinkCell, type WikiPage, type WikiTableBlock } from '../src/wiki/pages.js';
+import { MERMAID_FOLDER, REFERENCE_SYSTEM } from '../scripts/render-views.js';
+import { byCodePoint } from '../src/model/order.js';
 import { Repo } from './model-check-repo.js';
 
 /**
@@ -184,12 +186,12 @@ const MODEL_WITH_ZONES_YAML = [
   '',
 ].join('\n');
 
-function pagesOfModel(yaml: string = MODEL_YAML): WikiPage[] {
+function pagesOfModel(yaml: string = MODEL_YAML, views: readonly string[] = []): WikiPage[] {
   const repo = new Repo();
   repo.writeModel('model.yaml', yaml);
   const { model, errors } = loadAndCompileModel(repo.path);
   expect(errors).toEqual([]);
-  return wikiPages(model as CompiledModel);
+  return wikiPages(model as CompiledModel, views);
 }
 
 function pageOf(pages: readonly WikiPage[], id: string): WikiPage {
@@ -576,31 +578,31 @@ describe('wiki page data', () => {
   test('a missing element, interface, zone or category is an error naming it, never a dropped row', () => {
     const relationGhost = emptyModel();
     relationGhost.relations.push(relationOf('r', 'ghost', 'ghost'));
-    expect(() => wikiPages(relationGhost)).toThrow('relation "r" names element "ghost", which the model does not have');
+    expect(() => wikiPages(relationGhost, [])).toThrow('relation "r" names element "ghost", which the model does not have');
 
     const interfaceGhost = emptyModel();
     interfaceGhost.elements.push(elementOf('api', 'service'));
     interfaceGhost.relations.push(relationOf('r', 'api', 'api', { interface: 'ghost' }));
-    expect(() => wikiPages(interfaceGhost)).toThrow('relation "r" names interface "ghost", which the model does not have');
+    expect(() => wikiPages(interfaceGhost, [])).toThrow('relation "r" names interface "ghost", which the model does not have');
 
     const providerGhost = emptyModel();
     providerGhost.interfaces.push({ id: 'i', provider: 'ghost', contract: 'http::X' });
-    expect(() => wikiPages(providerGhost)).toThrow('interface "i" names element "ghost", which the model does not have');
+    expect(() => wikiPages(providerGhost, [])).toThrow('interface "i" names element "ghost", which the model does not have');
 
     const zoneGhost = emptyModel();
     zoneGhost.elements.push(elementOf('api', 'service', { zones: ['ghost'] }));
-    expect(() => wikiPages(zoneGhost)).toThrow('element "api" names zone "ghost", which the model does not have');
+    expect(() => wikiPages(zoneGhost, [])).toThrow('element "api" names zone "ghost", which the model does not have');
 
     const ancestorGhost = emptyModel();
     ancestorGhost.elements.push(elementOf('api', 'service', { ancestors: ['ghost'] }));
-    expect(() => wikiPages(ancestorGhost)).toThrow('element "api" names element "ghost", which the model does not have');
+    expect(() => wikiPages(ancestorGhost, [])).toThrow('element "api" names element "ghost", which the model does not have');
 
     const categoryGhost = emptyModel();
     categoryGhost.elements.push(elementOf('api', 'service'));
     categoryGhost.relations.push(
       relationOf('r', 'api', 'api', { transfers: [{ direction: 'forward', confidentiality: 'internal', categories: ['ghost'] }] }),
     );
-    expect(() => wikiPages(categoryGhost)).toThrow('relation "r" carries data category "ghost", which the model does not have');
+    expect(() => wikiPages(categoryGhost, [])).toThrow('relation "r" carries data category "ghost", which the model does not have');
   });
 
   test('the same model gives the same pages twice', () => {
@@ -625,7 +627,13 @@ describe('wiki page data', () => {
   test('the reference system: a page per non-domain element, contracts grouped by kind, zones and categories', () => {
     const { model, errors } = loadAndCompileModel(REFERENCE_SYSTEM);
     expect(errors).toEqual([]);
-    const pages = wikiPages(model as CompiledModel);
+    // The view set the renderer has on file for the reference system (kept
+    // current by the views tests): its scopes are the views the pages name.
+    const views = readdirSync(MERMAID_FOLDER)
+      .filter((file) => file !== '_landscape.md')
+      .map((file) => file.replace(/\.md$/, ''))
+      .sort(byCodePoint);
+    const pages = wikiPages(model as CompiledModel, views);
 
     const elementPages = pages.filter((page) => page.id.startsWith('element/'));
     expect(elementPages.length).toBe(64);
@@ -661,5 +669,102 @@ describe('wiki page data', () => {
     ]);
     const outgoing = sectionTable(checkout, 'Outgoing relations');
     expect(outgoing.rows).toContainEqual([{ page: 'domain/payments', text: 'Payments' }, 'takes payment', '—', '—', '—']);
+
+    // The nearest-view rule over the real view set: checkout-api has a view
+    // of its own (it holds modules), the checkout-cart module takes the
+    // nearest ancestor's, a top-level person and the home page fall back to
+    // the landscape.
+    const diagramOf = (id: string): WikiDiagramBlock | undefined => {
+      const page = pageOf(pages, id);
+      return page.blocks.find((block): block is WikiDiagramBlock => block.kind === 'diagram');
+    };
+    expect(diagramOf('home')).toEqual({ kind: 'diagram' });
+    expect(diagramOf('element/checkout-api')).toEqual({ kind: 'diagram', scope: 'checkout-api' });
+    expect(diagramOf('element/checkout-cart')).toEqual({ kind: 'diagram', scope: 'checkout-api' });
+    expect(diagramOf('element/customer')).toEqual({ kind: 'diagram' });
+    expect(diagramOf('domain/ordering')).toEqual({ kind: 'diagram', scope: 'ordering' });
+  });
+});
+
+describe('wiki page diagrams', () => {
+  /** The one diagram block a page carries, refusing a page without exactly one. */
+  function diagramOf(page: WikiPage): WikiDiagramBlock {
+    const diagrams = page.blocks.filter((block): block is WikiDiagramBlock => block.kind === 'diagram');
+    expect(diagrams).toHaveLength(1);
+    return diagrams[0]!;
+  }
+
+  test('home, domain and element pages each carry one diagram; the other pages carry none', () => {
+    const pages = pagesOfModel(MODEL_YAML, ['ordering', 'checkout', 'payments']);
+    const home = pageOf(pages, 'home');
+    expect(diagramOf(home)).toEqual({ kind: 'diagram' });
+    expect(home.blocks.slice(-2)).toEqual([{ kind: 'heading', level: 2, text: 'Landscape' }, { kind: 'diagram' }]);
+
+    const ordering = pageOf(pages, 'domain/ordering');
+    expect(diagramOf(ordering)).toEqual({ kind: 'diagram', scope: 'ordering' });
+    expect(ordering.blocks[0]).toEqual({ kind: 'paragraph', text: 'The Ordering domain holds 3 elements.' });
+    expect(ordering.blocks[1]).toEqual({ kind: 'diagram', scope: 'ordering' });
+
+    // The view of the part itself, then its elements' nearest ancestors.
+    expect(diagramOf(pageOf(pages, 'element/checkout'))).toEqual({ kind: 'diagram', scope: 'checkout' });
+    expect(diagramOf(pageOf(pages, 'element/checkout-cart'))).toEqual({ kind: 'diagram', scope: 'checkout' });
+    expect(diagramOf(pageOf(pages, 'element/orders-db'))).toEqual({ kind: 'diagram', scope: 'ordering' });
+    expect(diagramOf(pageOf(pages, 'element/payments-api'))).toEqual({ kind: 'diagram', scope: 'payments' });
+
+    for (const id of ['interfaces', 'zones', 'data-categories']) {
+      expect(pageOf(pages, id).blocks.some((block) => block.kind === 'diagram')).toBe(false);
+    }
+  });
+
+  test('the nearest ancestor with a view: a module whose own parent has none', () => {
+    // Checkout holds no view here, so its cart takes the Ordering domain's.
+    const pages = pagesOfModel(MODEL_YAML, ['ordering']);
+    expect(diagramOf(pageOf(pages, 'element/checkout'))).toEqual({ kind: 'diagram', scope: 'ordering' });
+    expect(diagramOf(pageOf(pages, 'element/checkout-cart'))).toEqual({ kind: 'diagram', scope: 'ordering' });
+    expect(diagramOf(pageOf(pages, 'element/orders-db'))).toEqual({ kind: 'diagram', scope: 'ordering' });
+  });
+
+  test('an element with no view in its ancestry falls back to the landscape', () => {
+    const pages = pagesOfModel(MODEL_WITH_ZONES_YAML, ['a-z', 'z-a']);
+    expect(diagramOf(pageOf(pages, 'element/customer'))).toEqual({ kind: 'diagram' });
+    expect(diagramOf(pageOf(pages, 'element/orders'))).toEqual({ kind: 'diagram' });
+    expect(diagramOf(pageOf(pages, 'element/z-a'))).toEqual({ kind: 'diagram', scope: 'z-a' });
+  });
+
+  test('with no views at all every diagram is the landscape', () => {
+    const pages = pagesOfModel();
+    expect(diagramOf(pageOf(pages, 'home'))).toEqual({ kind: 'diagram' });
+    expect(diagramOf(pageOf(pages, 'domain/ordering'))).toEqual({ kind: 'diagram' });
+    expect(diagramOf(pageOf(pages, 'element/checkout-cart'))).toEqual({ kind: 'diagram' });
+  });
+
+  test('a child domain without children takes the view of the nearest ancestor that has one', () => {
+    const yaml = [
+      'version: 1',
+      '',
+      'elements:',
+      '  - id: d1',
+      '    kind: domain',
+      '    name: Outer',
+      '  - id: d2',
+      '    kind: domain',
+      '    name: Inner',
+      '    parent: d1',
+      '  - id: s1',
+      '    kind: service',
+      '    name: Zed',
+      '    parent: d1',
+      '',
+    ].join('\n');
+    const pages = pagesOfModel(yaml, ['d1']);
+    expect(diagramOf(pageOf(pages, 'domain/d2'))).toEqual({ kind: 'diagram', scope: 'd1' });
+  });
+
+  test('a view naming an element the model does not have is an error naming it', () => {
+    const repo = new Repo();
+    repo.writeModel('model.yaml', MODEL_YAML);
+    const { model, errors } = loadAndCompileModel(repo.path);
+    expect(errors).toEqual([]);
+    expect(() => wikiPages(model as CompiledModel, ['ghost'])).toThrow('the view set names element "ghost", which the model does not have');
   });
 });
