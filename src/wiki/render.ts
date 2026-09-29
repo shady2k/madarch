@@ -1,0 +1,340 @@
+/**
+ * The pieces of a page both engine writers render: the text escaping, the
+ * diagram tabs (the LikeC4 web component against the Mermaid runtime the
+ * site ships), the table and link rendering, and the navigation tree each
+ * engine shapes into its own nav format. A writer stays engine-specific
+ * only where its engine differs: where a page's file sits, where a link
+ * points (`WriterLinks`) and the heading anchors its engine's Markdown
+ * reader spells.
+ *
+ * Pure and deterministic: the same pages and options render to the same
+ * text every time — nothing reads the clock, and every sort stays on code
+ * points.
+ */
+import type { WikiCell, WikiDiagramBlock, WikiLinkCell, WikiPage } from './pages.js';
+import { pagePath } from './pages-path.js';
+
+/**
+ * What a view's tabs draw, per diagram block: the LikeC4 view id the
+ * shipped web component accepts, the view's diagram as Mermaid source
+ * (exactly what madarch's Mermaid page draws, init directive included) and
+ * the relation table under it. Keyed by the view's scope, `''` for the
+ * landscape — the same naming the diagram blocks use.
+ */
+export interface WikiDiagramAsset {
+  readonly likec4: string;
+  readonly mermaid: string;
+  /** The columns and the cells of madarch's relation table, as its page wrote them. */
+  readonly table: { readonly columns: readonly string[]; readonly rows: readonly (readonly string[])[] };
+}
+
+/** The diagram assets and the first tab the writers render the diagram blocks with. */
+export interface WikiRenderOptions {
+  /** What each view's tabs draw, keyed by the view's scope, `''` for the landscape. */
+  readonly diagrams: ReadonlyMap<string, WikiDiagramAsset>;
+  /** The diagram tab shown first on every page. */
+  readonly firstTab: 'likec4' | 'mermaid';
+}
+
+/**
+ * Text in Markdown output: the characters Markdown reads as markup
+ * escaped, control characters (a table cell's newline included) as
+ * spaces — the same rule `src/render/mermaid.ts` writes its pages by.
+ */
+function markdownText(text: string): string {
+  return text.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/[\\`*_[\]<>|]/g, '\\$&');
+}
+
+/** Text in raw HTML output: HTML's own specials escaped, nothing else. */
+function htmlText(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * One cell of the relation table under the Mermaid diagram, as table text:
+ * madarch's page escapes Markdown in its cells, so those backslashes come
+ * off again, and HTML's own specials are escaped.
+ */
+function tableCell(value: string): string {
+  return htmlText(value.replace(/\\([\\`*_[\]<>|])/g, '$1').trim());
+}
+
+/**
+ * A page's diagram block as two tabs the reader switches between: LikeC4's
+ * web component for the interactive view, a raw `div.mermaid` with the
+ * view's diagram and its relation table for the static one. The first tab
+ * is the build's diagram choice; the other panel carries `hidden`, which
+ * the site's module toggles. The relation table is HTML here, not
+ * Markdown, because it sits inside the raw HTML the tabs are. Refuses a
+ * block naming a view the wiki holds no assets for — a page never shows an
+ * empty tab.
+ */
+export function diagramHtml(page: WikiPage, block: WikiDiagramBlock, options: WikiRenderOptions): string {
+  const asset = options.diagrams.get(block.scope ?? '');
+  if (asset === undefined) {
+    const named = block.scope === undefined ? 'the landscape' : `the view of "${block.scope}"`;
+    throw new Error(`page "${page.id}" shows ${named}, which this wiki does not hold: render the model's views before building the wiki`);
+  }
+  const head = `<tr>${asset.table.columns.map((column) => `<th>${tableCell(column)}</th>`).join('')}</tr>`;
+  const body = asset.table.rows.map((row) => `<tr>${row.map((value) => `<td>${tableCell(value)}</td>`).join('')}</tr>`).join('');
+  return [
+    `<div class="wiki-diagram" data-first="${options.firstTab}">`,
+    '<div class="wiki-tabs" role="tablist">',
+    `<button type="button" class="wiki-tab" data-tab="likec4" role="tab" aria-selected="${options.firstTab === 'likec4' ? 'true' : 'false'}">LikeC4</button>`,
+    `<button type="button" class="wiki-tab" data-tab="mermaid" role="tab" aria-selected="${options.firstTab === 'mermaid' ? 'true' : 'false'}">Mermaid</button>`,
+    '</div>',
+    `<div class="wiki-panel" data-panel="likec4"${options.firstTab === 'likec4' ? '' : ' hidden'}>`,
+    `<likec4-view view-id="${htmlText(asset.likec4)}"></likec4-view>`,
+    '</div>',
+    `<div class="wiki-panel" data-panel="mermaid"${options.firstTab === 'mermaid' ? '' : ' hidden'}>`,
+    '<div class="mermaid">',
+    htmlText(asset.mermaid),
+    '</div>',
+    '<table class="wiki-relations">',
+    `<thead>${head}</thead>`,
+    `<tbody>${body}</tbody>`,
+    '</table>',
+    '</div>',
+    '</div>',
+  ].join('\n');
+}
+
+/**
+ * The diagram tabs' stylesheet, shared whole by both engines: the tab
+ * strip, the LikeC4 panel's breakout to the content area and the sizes the
+ * two formats need. The rule that turns the engine's own content wrapper
+ * into the measured container (`.md-content` for Zensical, Starlight's
+ * main pane for Starlight) and the file's banner comment are each writer's
+ * own, prepended ahead of these lines.
+ */
+export const TABS_CSS: readonly string[] = [
+  '.wiki-panel[data-panel="likec4"] {',
+  '  width: 100cqw;',
+  '  margin-inline: calc((100% - 100cqw) / 2);',
+  '  overflow-x: auto;',
+  '}',
+  '/* The component draws its view at the box width and the aspect ratio of',
+  '   the view (its injected style carries aspect-ratio), so an automatic',
+  '   height follows the diagram — no empty band below it. */',
+  'likec4-view {',
+  '  display: block;',
+  '  width: 100%;',
+  '  height: auto;',
+  '}',
+  '.wiki-tabs {',
+  '  display: flex;',
+  '  gap: 0.25rem;',
+  '  margin-bottom: 0.5rem;',
+  '  border-bottom: 1px solid rgba(128, 128, 128, 0.3);',
+  '}',
+  '.wiki-tab {',
+  '  appearance: none;',
+  '  background: none;',
+  '  border: none;',
+  '  border-bottom: 2px solid transparent;',
+  '  padding: 0.4rem 0.8rem;',
+  '  cursor: pointer;',
+  '  font: inherit;',
+  '  color: inherit;',
+  '  opacity: 0.7;',
+  '}',
+  ".wiki-tab[aria-selected='true'] {",
+  '  border-bottom-color: currentColor;',
+  '  font-weight: 600;',
+  '  opacity: 1;',
+  '}',
+  '.wiki-panel[hidden] {',
+  '  display: none;',
+  '}',
+  'table.wiki-relations {',
+  '  margin-top: 0.5rem;',
+  '}',
+  '',
+];
+
+/**
+ * The diagram tabs' module: the Mermaid runtime the site ships draws every
+ * visible `div.mermaid` on load and when a tab reveals one; a closed
+ * panel's diagram is drawn when first shown, never at zero width. The tab
+ * buttons swap the panels and nudge LikeC4, which sizes to its box when it
+ * is revealed. `mermaidImport` is the module specifier the runtime sits at
+ * in the writer's own layout, relative to where the module is written.
+ */
+export function diagramModuleJs(mermaidImport: string): string {
+  return [
+    '// Generated by madarch (scripts/wiki.ts) — edit the generator, not this file.',
+    "// The diagram tabs: LikeC4's web component against the Mermaid runtime the",
+    '// site ships (no CDN at reading time). A panel hidden at load draws when',
+    '// it is first shown.',
+    `import mermaid from '${mermaidImport}';`,
+    '',
+    "mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });",
+    '',
+    'async function drawVisible() {',
+    "  const nodes = [...document.querySelectorAll('.mermaid')].filter(",
+    '    (node) => node.dataset.wikiMermaid === undefined && node.offsetParent !== null,',
+    '  );',
+    '  if (nodes.length === 0) return;',
+    '  await mermaid.run({ nodes });',
+    "  for (const node of nodes) node.dataset.wikiMermaid = 'drawn';",
+    '}',
+    '',
+    'function select(holder, tab) {',
+    "  for (const button of holder.querySelectorAll('.wiki-tab')) {",
+    "    button.setAttribute('aria-selected', button.dataset.tab === tab ? 'true' : 'false');",
+    '  }',
+    "  for (const panel of holder.querySelectorAll('.wiki-panel')) {",
+    '    panel.hidden = panel.dataset.panel !== tab;',
+    '  }',
+    "  // LikeC4 sizes its diagram to the box it is revealed in.",
+    "  window.dispatchEvent(new Event('resize'));",
+    '  drawVisible();',
+    '}',
+    '',
+    "for (const holder of document.querySelectorAll('.wiki-diagram')) {",
+    "  for (const button of holder.querySelectorAll('.wiki-tab')) {",
+    "    button.addEventListener('click', () => select(holder, button.dataset.tab));",
+    '  }',
+    "  select(holder, holder.dataset.first === 'mermaid' ? 'mermaid' : 'likec4');",
+    '}',
+    '',
+  ].join('\n');
+}
+
+/** What link rendering needs: the page written, where from, and what the wiki holds. */
+export interface LinkContext {
+  readonly pageId: string;
+  readonly fromPath: string;
+  readonly knownIds: ReadonlySet<string>;
+  /** The headings each page carries, by page id: what an anchored link may land on. */
+  readonly headings: ReadonlyMap<string, ReadonlySet<string>>;
+}
+
+/**
+ * Where an engine's links point: a link's target as the built site
+ * resolves it from the page carrying it, and the anchor id a heading's
+ * text lands on there. Zensical spells relative `.md` paths slugged by its
+ * own reader; Starlight spells root-relative route URLs slugged the way
+ * GitHub slugs.
+ */
+export interface WriterLinks {
+  readonly pathOf: (pageId: string, context: LinkContext) => string;
+  readonly slugOf: (headingText: string) => string;
+}
+
+/** The links a cell leaves as, comma-joined, each refusing a page or a heading the wiki does not hold. */
+function linkText(cells: readonly WikiLinkCell[], context: LinkContext, links: WriterLinks): string {
+  return cells
+    .map((cell) => {
+      if (!context.knownIds.has(cell.page)) {
+        throw new Error(`page "${context.pageId}" links to "${cell.page}", which is not a page of this wiki: add the page or fix the link`);
+      }
+      const target = links.pathOf(cell.page, context);
+      if (cell.anchor === undefined) return `[${markdownText(cell.text)}](${target})`;
+      if (!context.headings.get(cell.page)?.has(cell.anchor)) {
+        throw new Error(`page "${context.pageId}" links to "${cell.page}" at the heading "${cell.anchor}", which that page does not have`);
+      }
+      return `[${markdownText(cell.text)}](${target}#${links.slugOf(cell.anchor)})`;
+    })
+    .join(', ');
+}
+
+function renderCell(cell: WikiCell, context: LinkContext, links: WriterLinks): string {
+  if (typeof cell === 'string') return markdownText(cell);
+  return linkText(Array.isArray(cell) ? cell : [cell], context, links);
+}
+
+/** The link and heading lookups every page of one build shares, computed once. */
+export interface PreparedPages {
+  readonly knownIds: ReadonlySet<string>;
+  readonly headings: ReadonlyMap<string, ReadonlySet<string>>;
+}
+
+export function preparePages(pages: readonly WikiPage[]): PreparedPages {
+  const knownIds = new Set(pages.map((page) => page.id));
+  const headings = new Map<string, Set<string>>();
+  for (const page of pages) {
+    const ids = new Set<string>();
+    for (const block of page.blocks) {
+      if (block.kind === 'heading') ids.add(block.text);
+    }
+    headings.set(page.id, ids);
+  }
+  return { knownIds, headings };
+}
+
+/**
+ * One page's body as Markdown: its title as the heading, then every
+ * block. The writer adds its engine's own wrapper (frontmatter, config)
+ * around this text.
+ */
+export function renderPageBody(page: WikiPage, options: WikiRenderOptions, prepared: PreparedPages, links: WriterLinks): string {
+  const context: LinkContext = { pageId: page.id, fromPath: pagePath(page.id), knownIds: prepared.knownIds, headings: prepared.headings };
+  const chunks: string[] = [];
+  for (const block of page.blocks) {
+    if (block.kind === 'heading') {
+      chunks.push(`${'#'.repeat(block.level)} ${markdownText(block.text)}`);
+    } else if (block.kind === 'paragraph') {
+      chunks.push(markdownText(block.text));
+    } else if (block.kind === 'diagram') {
+      chunks.push(diagramHtml(page, block, options));
+    } else {
+      chunks.push(
+        [
+          `| ${block.columns.map(markdownText).join(' | ')} |`,
+          `| ${block.columns.map(() => '---').join(' | ')} |`,
+          ...block.rows.map((row) => `| ${row.map((cell) => renderCell(cell, context, links)).join(' | ')} |`),
+        ].join('\n'),
+      );
+    }
+  }
+  const head = `# ${markdownText(page.title)}`;
+  return chunks.length === 0 ? `${head}\n` : `${head}\n\n${chunks.join('\n\n')}\n`;
+}
+
+/**
+ * One entry of the navigation: a page, or a group of entries under one
+ * title — Zensical renders both, and nests a group's entries beneath it.
+ */
+export type NavEntry = { readonly title: string; readonly path: string } | { readonly title: string; readonly children: NavEntry[] };
+
+/** One section of the navigation: the pages that share a first nav segment, in page order. */
+export interface NavSection {
+  readonly title: string;
+  readonly entries: readonly NavEntry[];
+}
+
+/**
+ * The navigation from the pages' `nav` places: one section per first nav
+ * segment in page order. A page whose nav names a second segment nests
+ * under a group of that name inside its section; the section's own page
+ * for that group — a domain's page written before its elements' pages —
+ * becomes the group's first child, so it shows once.
+ */
+export function navTree(pages: readonly WikiPage[]): readonly NavSection[] {
+  const sections = new Map<string, NavEntry[]>();
+  for (const page of pages) {
+    if (page.id === 'home') continue;
+    const section = page.nav[0] ?? page.title;
+    const entries = sections.get(section) ?? [];
+    const parent = page.nav[1];
+    if (parent === undefined) {
+      entries.push({ title: page.title, path: pagePath(page.id) });
+    } else {
+      let group: Extract<NavEntry, { children: NavEntry[] }> | undefined;
+      for (const entry of entries) {
+        if ('children' in entry && entry.title === parent) group = entry;
+      }
+      if (group === undefined) {
+        group = { title: parent, children: [] };
+        const direct = entries.findIndex((entry) => 'path' in entry && entry.title === parent);
+        if (direct >= 0) group.children.push(entries.splice(direct, 1)[0]!);
+        entries.push(group);
+      }
+      group.children.push({ title: page.title, path: pagePath(page.id) });
+    }
+    sections.set(section, entries);
+  }
+  return [...sections].map(([title, entries]) => ({ title, entries }));
+}
+

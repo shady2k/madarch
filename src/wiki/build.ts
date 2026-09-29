@@ -9,8 +9,10 @@
  * `likec4`, and the pinned `mermaid`'s own runtime is copied into the
  * project, so the built site draws both formats without a CDN. Zensical
  * runs as `uvx zensical==0.0.66 build` (pinned) in the written project
- * folder, and the site it writes moves to `<out>/site`; the project itself
- * stays at `<out>/source`. Regenerating replaces both.
+ * folder; Starlight builds from the template in `wiki/starlight/` with
+ * `bun run build`, its install cached outside the repository. The site
+ * the engine writes moves to `<out>/site`; the project itself stays at
+ * `<out>/source`. Regenerating replaces both.
  *
  * The model is rendered at one version that never comes from the clock: the
  * repository's HEAD commit and its commit time when the folder is a git
@@ -27,7 +29,8 @@
  * unknown engine or diagram format, a repository or model that cannot be
  * read or rendered (every error with its file and line), a missing
  * toolchain, or a built site whose files cannot be read. The choices are
- * refused and the toolchains are checked before anything is written.
+ * refused and the chosen engine's toolchain is checked before anything is
+ * written.
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -40,7 +43,9 @@ import type { MermaidPage } from '../render/mermaid.js';
 import { renderModel, type RenderedVersion } from '../render/prepare.js';
 import { brokenLinks, readSiteFiles } from './links.js';
 import { wikiPages } from './pages.js';
-import { writeZensicalProject, type WikiDiagramAsset } from './zensical.js';
+import type { WikiDiagramAsset } from './render.js';
+import { cleanStarlightSource, ensureStarlightInstall, linkStarlightNodeModules, STARLIGHT_CACHE_ROOT, STARLIGHT_TEMPLATE_DIR, writeStarlightProject } from './starlight.js';
+import { writeZensicalProject } from './zensical.js';
 
 /** The pinned Zensical the engine runs, exactly as uvx names it. */
 export const ZENSICAL_SPEC = 'zensical==0.0.66';
@@ -85,10 +90,12 @@ function isDirectory(path: string): boolean {
   }
 }
 
-function chooseEngine(explicit: string | undefined, env: Readonly<Record<string, string | undefined>>): WikiBuildResult | { engine: 'zensical' } {
+/** The wiki engine a build runs: the writer, the toolchain and the build command change with it. */
+type Engine = 'zensical' | 'starlight';
+
+function chooseEngine(explicit: string | undefined, env: Readonly<Record<string, string | undefined>>): WikiBuildResult | { engine: Engine } {
   const chosen = explicit ?? env.MADARCH_WIKI_ENGINE ?? 'zensical';
-  if (chosen === 'zensical') return { engine: 'zensical' };
-  if (chosen === 'starlight') return { code: 2, message: 'the starlight wiki engine is not built yet: only zensical is implemented; leave the engine unset or pass --engine zensical' };
+  if (chosen === 'zensical' || chosen === 'starlight') return { engine: chosen };
   return { code: 2, message: `unknown wiki engine "${chosen}": allowed engines are "zensical" and "starlight" (--engine or MADARCH_WIKI_ENGINE)` };
 }
 
@@ -175,10 +182,21 @@ function mermaidOfPage(content: string): { mermaid: string; table: { columns: st
   };
 }
 
-function runEngineBuild(source: string): { status: number | null; output: string; ran: boolean } {
+function runZensicalBuild(source: string): { status: number | null; output: string; ran: boolean } {
   const build = spawnSync('uvx', [ZENSICAL_SPEC, 'build'], { cwd: source, encoding: 'utf8' });
+  return finish(build, 'uvx');
+}
+
+function runStarlightBuild(source: string): { status: number | null; output: string; ran: boolean } {
+  // Astro's telemetry is off: the build reports to the reader, not to a
+  // service, and stays quiet and deterministic.
+  const build = spawnSync('bun', ['run', 'build'], { cwd: source, encoding: 'utf8', env: { ...process.env, ASTRO_TELEMETRY_DISABLED: '1' } });
+  return finish(build, 'bun');
+}
+
+function finish(build: ReturnType<typeof spawnSync>, tool: string): { status: number | null; output: string; ran: boolean } {
   const ran = build.error === undefined;
-  const output = ran ? `${build.stdout ?? ''}${build.stderr ?? ''}`.trim() : `uvx could not be run: ${build.error?.message}`;
+  const output = ran ? `${build.stdout ?? ''}${build.stderr ?? ''}`.trim() : `${tool} could not be run: ${build.error?.message}`;
   return { status: ran ? build.status : null, output, ran };
 }
 
@@ -190,6 +208,7 @@ export function buildWiki(repoPath: string, outPath: string, options: WikiBuildO
   const env = options.env ?? process.env;
   const chosen = chooseEngine(options.engine, env);
   if ('code' in chosen) return chosen;
+  const engine = chosen.engine;
   const diagram = chooseDiagram(env);
   if ('code' in diagram) return diagram;
 
@@ -207,10 +226,19 @@ export function buildWiki(repoPath: string, outPath: string, options: WikiBuildO
     return { code: 2, message: ['the model cannot be rendered:', ...rendering.errors].join('\n') };
   }
 
-  // Nothing has been written yet: a missing toolchain is still an unreadable input.
-  const uv = spawnSync('uv', ['--version'], { stdio: 'ignore' });
-  if (uv.error !== undefined || uv.status !== 0) {
-    return { code: 2, message: `uv was not found on PATH: the zensical engine builds with "uvx ${ZENSICAL_SPEC} build"; ${UV_INSTALL_HINT}` };
+  // Nothing has been written yet: a missing toolchain is still an unreadable
+  // input. Each engine brings its own: uv for Zensical, bun and a template
+  // install for Starlight.
+  let installedProject: string | undefined;
+  if (engine === 'zensical') {
+    const uv = spawnSync('uv', ['--version'], { stdio: 'ignore' });
+    if (uv.error !== undefined || uv.status !== 0) {
+      return { code: 2, message: `uv was not found on PATH: the zensical engine builds with "uvx ${ZENSICAL_SPEC} build"; ${UV_INSTALL_HINT}` };
+    }
+  } else {
+    const install = ensureStarlightInstall(STARLIGHT_TEMPLATE_DIR, STARLIGHT_CACHE_ROOT);
+    if (!install.ok) return { code: 2, message: install.message };
+    installedProject = install.project;
   }
   const likec4Bin = join(PACKAGE_ROOT, 'node_modules', '.bin', 'likec4');
   if (!existsSync(likec4Bin)) {
@@ -249,22 +277,28 @@ export function buildWiki(repoPath: string, outPath: string, options: WikiBuildO
   rmSync(source, { recursive: true, force: true });
   rmSync(site, { recursive: true, force: true });
   mkdirSync(source, { recursive: true });
-  writeZensicalProject(pages, source, { siteName: basename(repo), diagrams, firstTab: diagram.format });
-  const assets = join(source, 'docs', 'assets');
+  const siteOptions = { siteName: basename(repo), diagrams, firstTab: diagram.format };
+  if (engine === 'zensical') writeZensicalProject(pages, source, siteOptions);
+  else writeStarlightProject(pages, source, siteOptions);
+  // The diagram assets ride where the engine serves static files from:
+  // Zensical's project docs/, Starlight's public/.
+  const assets = join(source, engine === 'zensical' ? join('docs', 'assets') : join('public', 'assets'));
   mkdirSync(join(assets, 'mermaid', 'chunks'), { recursive: true });
   cpSync(join(scratch, 'likec4-view.js'), join(assets, 'likec4-view.js'));
   cpSync(join(mermaidDist, 'mermaid.esm.min.mjs'), join(assets, 'mermaid', 'mermaid.esm.min.mjs'));
   cpSync(join(mermaidDist, 'chunks', 'mermaid.esm.min'), join(assets, 'mermaid', 'chunks', 'mermaid.esm.min'), { recursive: true });
 
-  const build = runEngineBuild(source);
-  if (!build.ran || build.status !== 0) return { code: 1, message: `the zensical build failed (exit ${build.status ?? 'unknown'}):\n${build.output}` };
+  if (engine === 'starlight') linkStarlightNodeModules(installedProject!, source);
+  const build = engine === 'zensical' ? runZensicalBuild(source) : runStarlightBuild(source);
+  if (!build.ran || build.status !== 0) return { code: 1, message: `the ${engine} build failed (exit ${build.status ?? 'unknown'}):\n${build.output}` };
   const built = join(source, 'site');
-  if (!existsSync(built)) return { code: 1, message: `the zensical build wrote no site folder:\n${build.output}` };
+  if (!existsSync(built)) return { code: 1, message: `the ${engine} build wrote no site folder:\n${build.output}` };
   renameSync(built, site);
-  // The engine's build cache is its own byproduct, not the project the pages
-  // wrote: remove it, so source/ holds exactly the project and two runs of
-  // the same model leave byte-identical trees.
-  rmSync(join(source, '.cache'), { recursive: true, force: true });
+  // The engine's build cache and link are its own byproducts, not the
+  // project the pages wrote: remove them, so source/ holds exactly the
+  // project and two runs of the same model leave byte-identical trees.
+  if (engine === 'zensical') rmSync(join(source, '.cache'), { recursive: true, force: true });
+  else cleanStarlightSource(source);
 
   // The link check (requirement links): the engine has built the site, so
   // every internal link of it must open a page, an asset or an anchor the

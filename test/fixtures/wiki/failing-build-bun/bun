@@ -1,0 +1,16 @@
+#!/bin/sh
+# The wiki tests' fake bun whose engine build fails: the writer's project
+# stays written, the site does not appear, and the failure exits 1 with the
+# engine's output printed.
+case "$1" in
+  --version) printf '1.4.2-fake\n' ;;
+  install)
+    mkdir -p node_modules/.bin
+    : > node_modules/.bin/astro
+    : > node_modules/fake-installed
+    ;;
+  run)
+    printf 'astro exploded\n' >&2
+    exit 1
+    ;;
+esac

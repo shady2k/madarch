@@ -396,7 +396,7 @@ describe('wiki page data', () => {
     const second = pageOf(pages, 'zone/z2');
     expect(first.title).toBe('Same');
     expect(second.title).toBe('Same');
-    expect(first.nav).toEqual(['Zones', 'Zones']);
+    expect(first.nav).toEqual(['Zones']);
     expect(tableOf(first, ['Element', 'Kind']).rows).toEqual([[{ page: 'element/e1', text: 'One' }, 'service']]);
     expect(tableOf(second, ['Element', 'Kind']).rows).toEqual([[{ page: 'element/e2', text: 'Two' }, 'service']]);
 
@@ -596,7 +596,7 @@ describe('wiki page data', () => {
     // A page per zone: the elements it holds, with kind, each linked, empty zones included.
     const dmz = pageOf(pages, 'zone/dmz');
     expect(dmz.title).toBe('DMZ');
-    expect(dmz.nav).toEqual(['Zones', 'Zones']);
+    expect(dmz.nav).toEqual(['Zones']);
     expect(tableOf(dmz, ['Element', 'Kind']).rows).toEqual([[{ page: 'element/audit', text: 'Audit' }, 'service']]);
     const internal = pageOf(pages, 'zone/internal');
     expect(internal.title).toBe('Internal network');
@@ -625,7 +625,7 @@ describe('wiki page data', () => {
     // A page per category: the relations that carry it, each end linked.
     const orderData = pageOf(pages, 'data-category/cat-z');
     expect(orderData.title).toBe('Order data');
-    expect(orderData.nav).toEqual(['Data categories', 'Data categories']);
+    expect(orderData.nav).toEqual(['Data categories']);
     expect(tableOf(orderData, ['Relation', 'From', 'To']).rows).toEqual([
       ['Reads audits', { page: 'element/orders', text: 'Orders' }, { page: 'element/audit', text: 'Audit' }],
     ]);
