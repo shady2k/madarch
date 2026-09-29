@@ -27,6 +27,10 @@ const MODEL_YAML = [
   '    name: Checkout',
   '    parent: ordering',
   '    technology: TypeScript',
+  '  - id: checkout-cart',
+  '    kind: module',
+  '    name: Cart',
+  '    parent: checkout',
   '  - id: orders-db',
   '    kind: store',
   '    name: Orders database',
@@ -83,18 +87,19 @@ describe('wiki page data', () => {
     expect(home.title).toBe('Home');
     expect(home.nav).toEqual([]);
     const paragraphs = home.blocks.filter((block) => block.kind === 'paragraph');
-    expect(paragraphs.some((block) => block.kind === 'paragraph' && block.text === 'The model holds 5 elements, 1 interface and 1 relation.')).toBe(true);
+    expect(paragraphs.some((block) => block.kind === 'paragraph' && block.text === 'The model holds 6 elements, 1 interface and 1 relation.')).toBe(true);
 
     const byKind = tableOf(home, ['Kind', 'Elements']);
     expect(byKind.rows).toEqual([
       ['domain', '2'],
+      ['module', '1'],
       ['service', '2'],
       ['store', '1'],
     ]);
 
     const domains = tableOf(home, ['Domain', 'Elements']);
     expect(domains.rows).toEqual([
-      [{ page: 'domain/ordering', text: 'Ordering' }, '2'],
+      [{ page: 'domain/ordering', text: 'Ordering' }, '3'],
       [{ page: 'domain/payments', text: 'Payments' }, '1'],
     ]);
   });
@@ -105,10 +110,11 @@ describe('wiki page data', () => {
     expect(ordering.title).toBe('Ordering');
     expect(ordering.nav).toEqual(['Domains']);
     const paragraphs = ordering.blocks.filter((block) => block.kind === 'paragraph');
-    expect(paragraphs.some((block) => block.kind === 'paragraph' && block.text === 'The Ordering domain holds 2 elements.')).toBe(true);
+    expect(paragraphs.some((block) => block.kind === 'paragraph' && block.text === 'The Ordering domain holds 3 elements.')).toBe(true);
     const elements = tableOf(ordering, ['Element', 'Kind', 'Technology']);
     expect(elements.rows).toEqual([
       ['Checkout', 'service', 'TypeScript'],
+      ['Cart', 'module', '—'],
       ['Orders database', 'store', '—'],
     ]);
 
