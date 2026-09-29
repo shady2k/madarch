@@ -21,7 +21,7 @@ are the repository's installation, and each person's plugin and hooks are theirs
   `- <capability>/<requirement>: <reason | check ids>`. Optional `design.md`.
 - **Document resources:** the skills' `documents.md` contract and templates; no local overrides.
 - **Workflow ownership:** shady2k-skills owns the workflow; br is the only task list.
-- **Architecture and explorations:** `docs/system/architecture.md`; `docs/explorations/` only when retention is requested.
+- **Architecture and explorations:** `docs/system/architecture.md` (not written yet; listed as a present document so it is checked once it is); `docs/explorations/` only when retention is requested.
 - **Glossary and decisions:** `docs/glossary.md`, `docs/decisions/NNNN-<slug>.md` (MADR).
 - **Acceptance records:** a comment on the stage (epic) whose first line is
   `accepted:` with base and final revisions, included tasks, criteria, test,
@@ -44,9 +44,21 @@ are the repository's installation, and each person's plugin and hooks are theirs
 
 - **Backlog adapter:** `node .shady2k/adapter.mjs backlog [--at <git-rev>]`;
   reads `.beads/issues.jsonl` (br rewrites it on every write), or that file at a revision.
-- **Rules:** `.shady2k/checks/{check,check-commits,check-docs}.mjs`,
-  `document-format.mjs` and `time-format.mjs` (which `check.mjs` reads records
-  by), verbatim copies of shady2k-skills plugin 0.65.1 (setup and rules 0.33.0).
+- **Rules:** `.shady2k/checks/{check,check-commits,check-docs,check-present}.mjs`,
+  `document-format.mjs` (which `check-docs.mjs` and `check-present.mjs` read
+  documents by) and `time-format.mjs` (which `check.mjs` reads records by),
+  verbatim copies of shady2k-skills plugin 0.73.0 (setup and rules 0.37.0).
+  Their self-tests run from the plugin's setup skill directory, where their
+  fixtures are.
+- **Present documents:** the config's `presentDocuments` (`AGENTS.md`, the
+  glossary, the architecture once written, the current capability specs).
+  `node .shady2k/checks/check-present.mjs --config .shady2k/config.json --base
+  <rev> [--head <rev>]` runs in the pre-push hook for every pushed ref that
+  introduces commits, against the revision just before the first of them (see
+  "What a push introduces"); with personal scope and pushes straight to `main`
+  there is no pull-request step, so the push stands in for a pull request's
+  opening. At adoption (2026-09-29) it reported no dead references and two
+  areas no present document mentions (`examples/`, `scripts/`), filed as debt.
 - **Work records:** the adapter's `backlog` export carries, on each issue,
   every br comment whose text starts with `[shady2k-time`, raw, as `{id, at,
   author, body}` (br's comment id as a string, its `created_at` and author);
@@ -102,7 +114,8 @@ are the repository's installation, and each person's plugin and hooks are theirs
     same capability is a new change with a new `Base:`.
   - **What the hooks do not see:** `commit --amend` of an already committed
     product change, rebases and cherry-picks (commit-msg judges only what is
-    staged against `HEAD`), and anything committed with `--no-verify`. The
+    staged against `HEAD`; the pre-push hook catches their task links, not their
+    documents), and anything committed or pushed with `--no-verify`. The
     pre-commit tooling tests run the working-tree test files, not only the
     staged ones. Root dotfiles (`.gitattributes`, `.env`, …) count as tooling,
     not product code; `.github/workflows/` is the workflow's own tooling (owner decision
@@ -182,8 +195,22 @@ are the repository's installation, and each person's plugin and hooks are theirs
   `node .shady2k/checks/check-commits.mjs -`.
 - **Local entry points:** `.githooks/post-checkout` (connects a new
   worktree's tracker), `.githooks/pre-commit` (privacy guard, tracker home
-  guard, the tooling's tests when tooling is staged, then backlog gate) and `.githooks/commit-msg`
-  (commit links, then the document gate).
+  guard, the tooling's tests when tooling is staged, then backlog gate), `.githooks/commit-msg`
+  (commit links, then the document gate) and `.githooks/pre-push`
+  (`.shady2k/push.mjs`: commit links of every introduced commit, then the
+  present-documents check).
+- **What a push introduces:** for each pushed ref, the commits of its tip (a
+  tag peeled to its commit) that neither the remote's head for that ref nor
+  any `refs/remotes/<remote>/*` reaches (`git rev-list <tip> --not
+  --remotes=<remote> [<remote sha>]`), with their links resolved against the
+  tracker export at the tip. A ref that introduces none (a tag or a new branch
+  on a commit the remote holds) prints "introduces no commits: nothing to
+  check" and passes; a deletion passes. Refused as unreadable (exit 2): no ref
+  lines, a malformed line, a tip that is no commit, a remote head this clone
+  does not have (fetch first). The document gate judges each commit as it is
+  made and has no range mode, so the push does not judge it again, and the
+  backlog gate at `block` strength needs no baseline. Tests:
+  `.shady2k/push.test.mjs`, through real pushes to a scratch remote.
 - **Connecting a clone:** `sh .shady2k/connect.sh`. It checks first and changes
   nothing unless every check passes: node and br present, a valid private
   pattern list, a readable tracker export, a local `main` (created from
@@ -238,6 +265,10 @@ are the repository's installation, and each person's plugin and hooks are theirs
   a config mutating `src/**/*.ts` except the TypeBox schema files; about two
   minutes for the model code. Message-text and always-populated-fallback
   survivors are equivalent; others are investigated.
+- **Jev:** consent given 2026-09-29 (owner, madarch-u2g), route OpenRouter;
+  tracker ids (`madarch-…`) are masked by the config's `jev.idPattern`. The
+  key's place is this machine's, in `~/.config/shady2k-skills/jev.json`, never
+  the config; a machine without it works without Jev.
 - **Reviewer:** another model where available (Codex through its MCP server or
   CLI; available when the server is connected in the session). Fallback: an
   independent same-model reviewer, disclosed in the acceptance record.
