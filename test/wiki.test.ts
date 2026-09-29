@@ -581,7 +581,12 @@ describe('scripts/wiki.ts with a real Starlight build', () => {
       const docFiles = (root: string): string[] =>
         [...walkFiles(root).keys()].filter((file) => file.endsWith('.md')).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
       expect(docFiles(join(starlight, 'source', 'src', 'content', 'docs'))).toEqual(docFiles(join(zensical, 'source', 'docs')));
-      expect(readFileSync(join(starlight, 'source', 'src', 'content', 'docs', 'index.md'), 'utf8')).toContain('# Home');
+      // Starlight names the page by its frontmatter title once: the body
+      // carries the invisible title anchor, not a second heading.
+      const starlightHome = readFileSync(join(starlight, 'source', 'src', 'content', 'docs', 'index.md'), 'utf8');
+      expect(starlightHome).toContain('title: "Home"');
+      expect(starlightHome).toContain('<span id="home"></span>');
+      expect(starlightHome).not.toContain('# Home');
       expect(readFileSync(join(zensical, 'source', 'docs', 'index.md'), 'utf8')).toContain('# Home');
     },
     { timeout: 300_000 },
