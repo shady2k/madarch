@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -101,7 +101,7 @@ describe('scripts/wiki.ts', () => {
     expect(readFileSync(join(out, 'source', 'docs', 'data-categories.md'), 'utf8')).toContain('## Personal data');
     expect(readFileSync(join(out, 'source', 'zensical.toml'), 'utf8')).toContain('"Ordering" = "domains/ordering.md"');
     expect(readFileSync(FAKE_LOG, 'utf8')).toContain('zensical==0.0.66 build');
-  });
+  }, { timeout: 60_000 });
 
   test('--engine hugo exits 2 naming the value and the allowed engines, and writes nothing', () => {
     const out = outFolder();
@@ -123,7 +123,7 @@ describe('scripts/wiki.ts', () => {
     const run = runWiki([REFERENCE_SYSTEM, '--out', built, '--engine', 'zensical'], undefined, { MADARCH_WIKI_ENGINE: 'hugo' });
     expect(run.status).toBe(0);
     expect(existsSync(join(built, 'site', 'index.html'))).toBe(true);
-  });
+  }, { timeout: 60_000 });
 
   test('--engine starlight exits 2 saying it is not built yet, and writes nothing', () => {
     const out = outFolder();
@@ -147,7 +147,7 @@ describe('scripts/wiki.ts', () => {
     expect(said).toContain('uv');
     expect(said).toContain('astral.sh');
     expect(existsSync(out)).toBe(false);
-  });
+  }, { timeout: 60_000 });
 
   test('a failing engine build exits 1 and prints the engine output', () => {
     const out = outFolder();
@@ -158,7 +158,7 @@ describe('scripts/wiki.ts', () => {
     expect(said).toContain('zensical build failed');
     expect(existsSync(join(out, 'site'))).toBe(false);
     expect(existsSync(join(out, 'source', 'docs', 'index.md'))).toBe(true);
-  });
+  }, { timeout: 60_000 });
 
   test('a model naming an unknown parent exits 2 with the error file and line, and builds nothing', () => {
     const repo = new Repo();
@@ -183,7 +183,7 @@ describe('scripts/wiki.ts', () => {
     const right = walkFiles(join(second, 'source'));
     const entries = (files: Map<string, string>): [string, string][] => [...files.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
     expect(entries(left)).toEqual(entries(right));
-  });
+  }, { timeout: 120_000 });
 
   test('usage errors exit 2 with the usage line', () => {
     expect(runWiki([]).status).toBe(2);
@@ -192,6 +192,84 @@ describe('scripts/wiki.ts', () => {
     expect(runWiki([REFERENCE_SYSTEM, '--out']).status).toBe(2);
     expect(runWiki([REFERENCE_SYSTEM, '--out', outFolder(), '--bogus']).status).toBe(2);
   });
+
+  test('every home, domain and element page carries one diagram, the LikeC4 tab first by default', () => {
+    const out = outFolder();
+    expect(runWiki([REFERENCE_SYSTEM, '--out', out]).status).toBe(0);
+    const source = join(out, 'source', 'docs');
+    const ordering = readFileSync(join(source, 'domains', 'ordering.md'), 'utf8');
+    expect(ordering).toContain('data-first="likec4"');
+    expect(ordering).toContain('<likec4-view view-id="ordering"></likec4-view>');
+    expect(ordering).toContain('data-panel="mermaid" hidden');
+    // Checkout's service page shows the view of checkout-api, its nearest
+    // ancestor that has one; the cart module the same; a top-level person
+    // and the home page the landscape.
+    expect(readFileSync(join(source, 'elements', 'checkout-api.md'), 'utf8')).toContain('<likec4-view view-id="checkout-api"></likec4-view>');
+    expect(readFileSync(join(source, 'elements', 'checkout-cart.md'), 'utf8')).toContain('<likec4-view view-id="checkout-api"></likec4-view>');
+    expect(readFileSync(join(source, 'elements', 'customer.md'), 'utf8')).toContain('<likec4-view view-id="index"></likec4-view>');
+    expect(readFileSync(join(source, 'index.md'), 'utf8')).toContain('<likec4-view view-id="index"></likec4-view>');
+    // The Mermaid tab carries madarch's diagram and its relation table, not the source text.
+    expect(ordering).toContain('class="mermaid"');
+    expect(ordering).toContain('flowchart LR');
+    expect(ordering).toContain('<table class="wiki-relations">');
+    expect(ordering).toContain('<th>Relations</th>');
+    expect(ordering).not.toContain('```mermaid');
+    // Exactly one diagram per home, domain and element page; none on the rest.
+    for (const file of ['index.md', ...readdirSync(join(source, 'domains')).map((name) => `domains/${name}`), ...readdirSync(join(source, 'elements')).map((name) => `elements/${name}`)]) {
+      const text = readFileSync(join(source, ...file.split('/')), 'utf8');
+      expect(text.split('class="wiki-diagram"').length - 1).toBe(1);
+    }
+    for (const file of ['interfaces.md', 'zones.md', 'data-categories.md']) {
+      expect(readFileSync(join(source, file), 'utf8')).not.toContain('wiki-diagram');
+    }
+  }, { timeout: 60_000 });
+
+  test('MADARCH_WIKI_DIAGRAM=mermaid shows the Mermaid tab first, LikeC4 hidden', () => {
+    const out = outFolder();
+    const run = runWiki([REFERENCE_SYSTEM, '--out', out], undefined, { MADARCH_WIKI_DIAGRAM: 'mermaid' });
+    expect(run.status).toBe(0);
+    const ordering = readFileSync(join(out, 'source', 'docs', 'domains', 'ordering.md'), 'utf8');
+    expect(ordering).toContain('data-first="mermaid"');
+    expect(ordering).toContain('data-panel="likec4" hidden');
+    expect(ordering).not.toContain('data-panel="mermaid" hidden');
+  }, { timeout: 60_000 });
+
+  test('MADARCH_WIKI_DIAGRAM=archify exits 2 saying it is not built yet, and writes nothing', () => {
+    const out = outFolder();
+    const run = runWiki([REFERENCE_SYSTEM, '--out', out], undefined, { MADARCH_WIKI_DIAGRAM: 'archify' });
+    expect(run.status).toBe(2);
+    const said = combined(run);
+    expect(said).toContain('archify');
+    expect(said).toContain('not built yet');
+    expect(existsSync(out)).toBe(false);
+  });
+
+  test('an unknown MADARCH_WIKI_DIAGRAM exits 2 naming the value and the three allowed, and writes nothing', () => {
+    const out = outFolder();
+    const run = runWiki([REFERENCE_SYSTEM, '--out', out], undefined, { MADARCH_WIKI_DIAGRAM: 'graphviz' });
+    expect(run.status).toBe(2);
+    const said = combined(run);
+    expect(said).toContain('graphviz');
+    expect(said).toContain('likec4');
+    expect(said).toContain('mermaid');
+    expect(said).toContain('archify');
+    expect(existsSync(out)).toBe(false);
+  });
+
+  test('the LikeC4 web component and the Mermaid runtime ship inside the project', () => {
+    const out = outFolder();
+    expect(runWiki([REFERENCE_SYSTEM, '--out', out]).status).toBe(0);
+    const assets = join(out, 'source', 'docs', 'assets');
+    expect(statSync(join(assets, 'likec4-view.js')).size).toBeGreaterThan(1_000_000);
+    expect(existsSync(join(assets, 'mermaid', 'mermaid.esm.min.mjs'))).toBe(true);
+    expect(existsSync(join(assets, 'mermaid', 'chunks', 'mermaid.esm.min'))).toBe(true);
+    expect(existsSync(join(out, 'source', 'docs', 'stylesheets', 'wiki.css'))).toBe(true);
+    expect(existsSync(join(out, 'source', 'docs', 'javascripts', 'wiki-diagram.mjs'))).toBe(true);
+    const toml = readFileSync(join(out, 'source', 'zensical.toml'), 'utf8');
+    expect(toml).toContain('extra_css = ["stylesheets/wiki.css"]');
+    expect(toml).toContain('{ path = "assets/likec4-view.js", type = "module" }');
+    expect(toml).toContain('{ path = "javascripts/wiki-diagram.mjs", type = "module" }');
+  }, { timeout: 60_000 });
 });
 
 describe('scripts/wiki.ts with a real Zensical build', () => {
