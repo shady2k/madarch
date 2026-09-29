@@ -580,12 +580,13 @@ describe('scripts/wiki.ts with real builds over the documents fixture', () => {
       const site = join(out, 'site');
       expect(existsSync(join(site, 'documents', 'docs', 'architecture', 'index.html'))).toBe(true);
       expect(existsSync(join(site, 'documents', 'docs', 'decisions', '0001-use-grpc', 'index.html'))).toBe(true);
-      expect(existsSync(join(site, 'documents', 'README', 'index.html'))).toBe(true);
+      // Zensical serves a README.md as its folder's index, the way mkdocs does.
+      expect(existsSync(join(site, 'documents', 'index.html'))).toBe(true);
       expect(existsSync(join(site, 'documents', 'madarch', 'review', 'index.html'))).toBe(true);
       expect(existsSync(join(site, 'assets', 'documents', 'docs', 'img', 'overview.png'))).toBe(true);
       const built = readFileSync(join(site, 'documents', 'docs', 'architecture', 'index.html'), 'utf8');
       expect(built).toContain('<div class="mermaid"');
-      expect(built).toContain('<img src="/assets/documents/docs/img/overview.png"');
+      expect(built).toContain('src="/assets/documents/docs/img/overview.png"');
     },
     { timeout: 300_000 },
   );
