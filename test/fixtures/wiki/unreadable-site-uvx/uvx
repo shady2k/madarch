@@ -1,0 +1,8 @@
+#!/bin/sh
+# The wiki tests' unreadable-site uvx: stands in for the engine and writes a
+# built site whose one file the checker cannot read, so the build must refuse
+# with exit 2 naming the path, never pass silently.
+printf '%s\n' "$*" >> "$(dirname "$0")/invocations.log"
+mkdir -p site
+printf '<html><body>unreadable fake site</body></html>\n' > site/index.html
+chmod 000 site/index.html

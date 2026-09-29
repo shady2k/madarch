@@ -9,9 +9,12 @@ import { Repo } from './model-check-repo.js';
 
 /**
  * The wiki command end to end (docs/changes/wiki/capabilities/wiki.md,
- * requirements engine and result): exit codes 0, 1 and 2, what each refuses
- * to write, and the engine choice from --engine, then MADARCH_WIKI_ENGINE,
- * then zensical. The engine's own build is faked by the fixtures under
+ * requirements engine, links and result): exit codes 0, 1 and 2, what each
+ * refuses to write, the engine choice from --engine, then
+ * MADARCH_WIKI_ENGINE, then zensical, and the link check of the built
+ * site — a link leading nowhere after the writer's own validation fails
+ * the build naming every one of them, and a site the checker cannot read
+ * is an unreadable input. The engine's own build is faked by the fixtures under
  * test/fixtures/wiki/ so the regular suite never needs uv; the one real
  * Zensical build is gated at the bottom, because CI has no uv and the
  * owner has decided real engine builds run only under MADARCH_WIKI_E2E=1.
@@ -20,6 +23,8 @@ import { Repo } from './model-check-repo.js';
 const SCRIPT = fileURLToPath(new URL('../scripts/wiki.ts', import.meta.url));
 const FAKE_BIN = fileURLToPath(new URL('./fixtures/wiki/fake-uvx', import.meta.url));
 const FAILING_BIN = fileURLToPath(new URL('./fixtures/wiki/failing-uvx', import.meta.url));
+const BROKEN_BIN = fileURLToPath(new URL('./fixtures/wiki/broken-site-uvx', import.meta.url));
+const UNREADABLE_BIN = fileURLToPath(new URL('./fixtures/wiki/unreadable-site-uvx', import.meta.url));
 const FAKE_LOG = join(FAKE_BIN, 'invocations.log');
 
 function outFolder(): string {
@@ -160,6 +165,34 @@ describe('scripts/wiki.ts', () => {
     expect(existsSync(join(out, 'source', 'docs', 'index.md'))).toBe(true);
   }, { timeout: 60_000 });
 
+  test('a site whose link leads nowhere after the writer exits 1 naming every broken link, sorted by code point', () => {
+    const out = outFolder();
+    const run = runWiki([REFERENCE_SYSTEM, '--out', out], `${BROKEN_BIN}:${process.env.PATH ?? ''}`);
+    expect(run.status).toBe(1);
+    const said = combined(run);
+    expect(said).toContain('the built site carries broken links');
+    // Every one of them, each with its page (site-relative) and the link as
+    // written; code-point order: "." (46) before "Z" (90) before "a" (97),
+    // a locale sort would put "apple" before "Zebra".
+    const ghost = said.indexOf('index.html: "./ghost/"');
+    const script = said.indexOf('index.html: "./missing.js"');
+    const zebra = said.indexOf('index.html: "Zebra/"');
+    const apple = said.indexOf('index.html: "apple/"');
+    const second = said.indexOf('real/index.html: "also-gone/"');
+    expect(ghost).toBeGreaterThan(-1);
+    expect(script).toBeGreaterThan(ghost);
+    expect(zebra).toBeGreaterThan(script);
+    expect(apple).toBeGreaterThan(zebra);
+    expect(second).toBeGreaterThan(apple);
+  }, { timeout: 60_000 });
+
+  test('a site the checker cannot read exits 2 naming the file, never a silent pass', () => {
+    const out = outFolder();
+    const run = runWiki([REFERENCE_SYSTEM, '--out', out], `${UNREADABLE_BIN}:${process.env.PATH ?? ''}`);
+    expect(run.status).toBe(2);
+    expect(combined(run)).toContain(join(out, 'site', 'index.html'));
+  }, { timeout: 60_000 });
+
   test('a model naming an unknown parent exits 2 with the error file and line, and builds nothing', () => {
     const repo = new Repo();
     repo.writeModel(
@@ -284,5 +317,20 @@ describe('scripts/wiki.ts with a real Zensical build', () => {
       expect(existsSync(join(out, 'source', 'docs', 'index.md'))).toBe(true);
     },
     { timeout: 180_000 },
+  );
+
+  test.skipIf(!process.env.MADARCH_WIKI_E2E)(
+    'two real builds of the same repository give byte-identical source trees, and the built site passes the link check',
+    () => {
+      const first = outFolder();
+      const second = outFolder();
+      // Exit 0 is itself the link check passing on a real built site.
+      expect(runWiki([REFERENCE_SYSTEM, '--out', first], process.env.PATH ?? '').status).toBe(0);
+      expect(runWiki([REFERENCE_SYSTEM, '--out', second], process.env.PATH ?? '').status).toBe(0);
+      const entries = (files: Map<string, string>): [string, string][] =>
+        [...files.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+      expect(entries(walkFiles(join(first, 'source')))).toEqual(entries(walkFiles(join(second, 'source'))));
+    },
+    { timeout: 300_000 },
   );
 });

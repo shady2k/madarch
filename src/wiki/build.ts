@@ -17,12 +17,17 @@
  * work tree, else a fixed moment (`NO_REPO_TIME`), so the same input gives
  * the same pages.
  *
+ * After the engine has built the site, every internal link of it is
+ * checked against the built files and the anchors in them (requirement
+ * `links`), engine-neutral so the Starlight writer reuses the check.
+ *
  * Exit codes: 0 built (the site's path as the message); 1 the engine's
- * build failed (its output printed); 2 the input cannot be read — an
+ * build failed (its output printed) or the built site carries broken links
+ * (every one named, sorted by code point); 2 the input cannot be read — an
  * unknown engine or diagram format, a repository or model that cannot be
- * read or rendered (every error with its file and line), or a missing
- * toolchain. The choices are refused and the toolchains are checked before
- * anything is written.
+ * read or rendered (every error with its file and line), a missing
+ * toolchain, or a built site whose files cannot be read. The choices are
+ * refused and the toolchains are checked before anything is written.
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -33,6 +38,7 @@ import { fileURLToPath } from 'node:url';
 import { loadAndCompileModel } from '../model/load-and-compile.js';
 import type { MermaidPage } from '../render/mermaid.js';
 import { renderModel, type RenderedVersion } from '../render/prepare.js';
+import { brokenLinks, readSiteFiles } from './links.js';
 import { wikiPages } from './pages.js';
 import { writeZensicalProject, type WikiDiagramAsset } from './zensical.js';
 
@@ -255,5 +261,23 @@ export function buildWiki(repoPath: string, outPath: string, options: WikiBuildO
   // wrote: remove it, so source/ holds exactly the project and two runs of
   // the same model leave byte-identical trees.
   rmSync(join(source, '.cache'), { recursive: true, force: true });
+
+  // The link check (requirement links): the engine has built the site, so
+  // every internal link of it must open a page, an asset or an anchor the
+  // site holds — a page whose link leads nowhere fails the build, naming
+  // every one of them. A site that cannot be read stays an unreadable input.
+  let siteFiles: Map<string, string>;
+  try {
+    siteFiles = readSiteFiles(site);
+  } catch (error) {
+    return { code: 2, message: error instanceof Error ? error.message : String(error) };
+  }
+  const broken = brokenLinks(siteFiles);
+  if (broken.length > 0) {
+    return {
+      code: 1,
+      message: ['the built site carries broken links:', ...broken.map((link) => `${link.page}: "${link.link}" — ${link.problem}`)].join('\n'),
+    };
+  }
   return { code: 0, message: site };
 }
