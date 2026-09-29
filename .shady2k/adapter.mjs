@@ -5,6 +5,7 @@
 //   adapter.mjs backlog [--at <git-rev>]     normalized backlog
 //   adapter.mjs commits --message <file>      commit-link input for a pending message
 //   adapter.mjs commits --range <a>..<b>      commit-link input for every commit in a range
+//   (push.mjs builds the same input for the commits a push introduces: commitLinks)
 //   adapter.mjs claim <id> --actor <name>     the integration's claim operation (see claimPlan)
 //
 // The export is .beads/issues.jsonl, which br rewrites on every write. Each
@@ -83,9 +84,16 @@ export function normalize(text, source) {
   return { generatedAt: new Date().toISOString(), source, issues };
 }
 
-function backlog(rev) {
+export function backlog(rev) {
   const where = rev ? `${EXPORT} @ ${rev}` : `${EXPORT} @ working tree`;
   return normalize(readExport(rev), `br ${where}`);
+}
+
+// Commit-link input for the given commits, their tasks resolved against the
+// tracker export at `rev` (the working tree without one).
+export function commitLinks(shas, rev) {
+  const { issues } = backlog(rev);
+  return { issues: issues.map(({ id, type, parent }) => ({ id, type, parent })), commits: shas.map((id) => ({ id, taskIds: taskIds(git('log', '-1', '--format=%B', id)) })) };
 }
 
 function commits(args) {

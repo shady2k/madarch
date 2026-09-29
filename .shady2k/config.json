@@ -1,18 +1,42 @@
 {
   "strength": "block",
   "currentMilestone": "mvp",
-  "milestoneLabels": ["mvp", "live-graph"],
-  "areaLabels": ["model", "checks", "views", "ingest", "tooling"],
+  "milestoneLabels": [
+    "mvp",
+    "live-graph"
+  ],
+  "areaLabels": [
+    "model",
+    "checks",
+    "views",
+    "ingest",
+    "tooling"
+  ],
   "roadmapLabels": [],
   "triageLabels": [],
-  "ideaLabels": ["idea"],
+  "ideaLabels": [
+    "idea"
+  ],
   "ideaTitlePrefixes": [],
-  "findingLabels": ["finding"],
+  "findingLabels": [
+    "finding"
+  ],
   "findingBudget": 5,
   "staleDays": 14,
   "holdDays": 2,
   "bulkCluster": 20,
   "timeRecordsExempt": [],
+  "presentDocuments": [
+    "AGENTS.md",
+    "docs/glossary.md",
+    "docs/system/architecture.md",
+    "docs/system/capabilities/*.md"
+  ],
+  "presentAreas": [
+    ""
+  ],
+  "presentIgnores": [],
+  "presentChurnCommits": 20,
   "execution": {
     "development": "tdd",
     "runMode": "worker-sessions",
@@ -24,8 +48,19 @@
     "reviewPreference": "different-model",
     "reviewFallback": "same-model independent reviewer, disclosed"
   },
+  "jev": {
+    "consent": true,
+    "route": "openrouter",
+    "idPattern": "madarch-[a-z0-9]+(?:\\.[0-9]+)*",
+    "maskPatterns": []
+  },
   "scope": "personal",
   "artifactLanguage": "en",
-  "projectWords": ["madarch"],
-  "trackerWords": ["beads", "beads_rust"]
+  "projectWords": [
+    "madarch"
+  ],
+  "trackerWords": [
+    "beads",
+    "beads_rust"
+  ]
 }

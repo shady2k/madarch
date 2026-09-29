@@ -1,0 +1,7 @@
+#!/bin/sh
+# Push checks (shady2k-skills): every commit a pushed ref introduces names its
+# task, and no document that describes the present names a path the push
+# removes. Git passes the remote as $1 and the refs on stdin. See
+# .shady2k/integration.md, "Local entry points".
+cd "$(git rev-parse --show-toplevel)" || exit 2
+node .shady2k/push.mjs "$1"
