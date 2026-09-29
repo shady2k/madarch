@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { REFERENCE_SYSTEM } from '../scripts/render-views.js';
+import { STARLIGHT_CACHE_ROOT } from '../src/wiki/starlight.js';
 import { Repo } from './model-check-repo.js';
 
 /**
@@ -14,10 +15,12 @@ import { Repo } from './model-check-repo.js';
  * MADARCH_WIKI_ENGINE, then zensical, and the link check of the built
  * site — a link leading nowhere after the writer's own validation fails
  * the build naming every one of them, and a site the checker cannot read
- * is an unreadable input. The engine's own build is faked by the fixtures under
- * test/fixtures/wiki/ so the regular suite never needs uv; the one real
- * Zensical build is gated at the bottom, because CI has no uv and the
- * owner has decided real engine builds run only under MADARCH_WIKI_E2E=1.
+ * is an unreadable input. The engines' own builds are faked by the fixtures
+ * under test/fixtures/wiki/ (fake uv/uvx for Zensical, fake bun for
+ * Starlight) so the regular suite needs neither uv nor bun to build; the
+ * real builds of both engines are gated at the bottom, because CI has
+ * neither uv nor a warmed bun cache and the owner has decided real engine
+ * builds run only under MADARCH_WIKI_E2E=1.
  */
 
 const SCRIPT = fileURLToPath(new URL('../scripts/wiki.ts', import.meta.url));
@@ -25,6 +28,11 @@ const FAKE_BIN = fileURLToPath(new URL('./fixtures/wiki/fake-uvx', import.meta.u
 const FAILING_BIN = fileURLToPath(new URL('./fixtures/wiki/failing-uvx', import.meta.url));
 const BROKEN_BIN = fileURLToPath(new URL('./fixtures/wiki/broken-site-uvx', import.meta.url));
 const UNREADABLE_BIN = fileURLToPath(new URL('./fixtures/wiki/unreadable-site-uvx', import.meta.url));
+const FAKE_BUN = fileURLToPath(new URL('./fixtures/wiki/fake-bun', import.meta.url));
+const FAILING_INSTALL_BUN = fileURLToPath(new URL('./fixtures/wiki/failing-install-bun', import.meta.url));
+const FAILING_BUILD_BUN = fileURLToPath(new URL('./fixtures/wiki/failing-build-bun', import.meta.url));
+const BROKEN_SITE_BUN = fileURLToPath(new URL('./fixtures/wiki/broken-site-bun', import.meta.url));
+const FAKE_BUN_LOG = join(FAKE_BUN, 'invocations.log');
 const FAKE_LOG = join(FAKE_BIN, 'invocations.log');
 
 function outFolder(): string {
@@ -144,18 +152,90 @@ describe('scripts/wiki.ts', () => {
     expect(existsSync(join(built, 'site', 'index.html'))).toBe(true);
   }, { timeout: 60_000 });
 
-  test('--engine starlight exits 2 saying it is not built yet, and writes nothing', () => {
+  test('--engine starlight builds through the template install and the fake engine, and the source project is complete', () => {
+    rmSync(FAKE_BUN_LOG, { force: true });
+    rmSync(STARLIGHT_CACHE_ROOT, { recursive: true, force: true });
     const out = outFolder();
-    const run = runWiki([REFERENCE_SYSTEM, '--out', out, '--engine', 'starlight']);
-    expect(run.status).toBe(2);
-    expect(combined(run)).toContain('starlight');
-    expect(existsSync(out)).toBe(false);
+    const run = runWiki([REFERENCE_SYSTEM, '--out', out, '--engine', 'starlight'], `${FAKE_BUN}:${process.env.PATH ?? ''}`);
+    expect(run.status).toBe(0);
+    const site = resolve(out, 'site');
+    expect(run.stdout).toContain(site);
+    expect(readFileSync(join(site, 'index.html'), 'utf8')).toContain('fake starlight site');
+    // The project: the template's own files, the generated pages and the
+    // sidebar module, and none of the engine's build byproducts.
+    expect(existsSync(join(out, 'source', 'astro.config.mjs'))).toBe(true);
+    const home = readFileSync(join(out, 'source', 'src', 'content', 'docs', 'index.md'), 'utf8');
+    expect(home).toContain('title: "Home"');
+    expect(home).toContain('<likec4-view view-id="index"></likec4-view>');
+    expect(existsSync(join(out, 'source', 'src', 'content', 'docs', 'zones', 'internal.md'))).toBe(true);
+    expect(readFileSync(join(out, 'source', 'src', 'generated', 'site.mjs'), 'utf8')).toContain('"label": "Zones"');
+    expect(existsSync(join(out, 'source', 'node_modules'))).toBe(false);
+    // The exact invocations, in order: the template install, then the build.
+    const log = readFileSync(FAKE_BUN_LOG, 'utf8');
+    expect(log.indexOf('install --frozen-lockfile')).toBeGreaterThan(-1);
+    expect(log.indexOf('run build')).toBeGreaterThan(log.indexOf('install --frozen-lockfile'));
+    // The cache install the removed link pointed at survives the build:
+    // the link is unlinked, never followed.
+    const installed = readdirSync(STARLIGHT_CACHE_ROOT).some((name) => existsSync(join(STARLIGHT_CACHE_ROOT, name, 'node_modules', 'fake-installed')));
+    expect(installed).toBe(true);
+  }, { timeout: 60_000 });
 
+  test('the starlight engine comes from MADARCH_WIKI_ENGINE, and --engine wins over it', () => {
     const byEnv = outFolder();
-    const envRun = runWiki([REFERENCE_SYSTEM, '--out', byEnv], undefined, { MADARCH_WIKI_ENGINE: 'starlight' });
-    expect(envRun.status).toBe(2);
-    expect(existsSync(byEnv)).toBe(false);
-  });
+    const byEnvRun = runWiki([REFERENCE_SYSTEM, '--out', byEnv], `${FAKE_BUN}:${process.env.PATH ?? ''}`, { MADARCH_WIKI_ENGINE: 'starlight' });
+    expect(byEnvRun.status).toBe(0);
+    expect(existsSync(join(byEnv, 'site', 'index.html'))).toBe(true);
+
+    const byFlag = outFolder();
+    const byFlagRun = runWiki([REFERENCE_SYSTEM, '--out', byFlag, '--engine', 'zensical'], `${FAKE_BIN}:${FAKE_BUN}:${process.env.PATH ?? ''}`, { MADARCH_WIKI_ENGINE: 'starlight' });
+    expect(byFlagRun.status).toBe(0);
+    expect(readFileSync(join(byFlag, 'site', 'index.html'), 'utf8')).toContain('fake zensical site');
+  }, { timeout: 60_000 });
+
+  test('without bun on PATH the starlight engine exits 2 naming how to install bun, and writes nothing', () => {
+    const out = outFolder();
+    const empty = mkdtempSync(join(tmpdir(), 'madarch-wiki-nobun-'));
+    const run = runWiki([REFERENCE_SYSTEM, '--out', out, '--engine', 'starlight'], empty);
+    expect(run.status).toBe(2);
+    const said = combined(run);
+    expect(said).toContain('bun');
+    expect(said).toContain('bun.sh');
+    expect(existsSync(out)).toBe(false);
+  }, { timeout: 60_000 });
+
+  test('a failed starlight template install exits 2 naming the cause, and writes nothing', () => {
+    rmSync(STARLIGHT_CACHE_ROOT, { recursive: true, force: true });
+    const out = outFolder();
+    const run = runWiki([REFERENCE_SYSTEM, '--out', out, '--engine', 'starlight'], `${FAILING_INSTALL_BUN}:${process.env.PATH ?? ''}`);
+    expect(run.status).toBe(2);
+    const said = combined(run);
+    expect(said).toContain('could not be installed');
+    expect(said).toContain('bun install exploded');
+    expect(existsSync(out)).toBe(false);
+  }, { timeout: 60_000 });
+
+  test('a failing starlight build exits 1 and prints the engine output', () => {
+    rmSync(STARLIGHT_CACHE_ROOT, { recursive: true, force: true });
+    const out = outFolder();
+    const run = runWiki([REFERENCE_SYSTEM, '--out', out, '--engine', 'starlight'], `${FAILING_BUILD_BUN}:${process.env.PATH ?? ''}`);
+    expect(run.status).toBe(1);
+    const said = combined(run);
+    expect(said).toContain('astro exploded');
+    expect(said).toContain('starlight build failed');
+    expect(existsSync(join(out, 'site'))).toBe(false);
+    expect(existsSync(join(out, 'source', 'src', 'content', 'docs', 'index.md'))).toBe(true);
+  }, { timeout: 60_000 });
+
+  test('a starlight site whose link leads nowhere after the writer exits 1 naming every broken link', () => {
+    rmSync(STARLIGHT_CACHE_ROOT, { recursive: true, force: true });
+    const out = outFolder();
+    const run = runWiki([REFERENCE_SYSTEM, '--out', out, '--engine', 'starlight'], `${BROKEN_SITE_BUN}:${process.env.PATH ?? ''}`);
+    expect(run.status).toBe(1);
+    const said = combined(run);
+    expect(said).toContain('the built site carries broken links');
+    expect(said).toContain('index.html: "./ghost/"');
+    expect(said).toContain('real/index.html: "also-gone/"');
+  }, { timeout: 60_000 });
 
   test('without uv on PATH it exits 2 naming how to install uv, and writes nothing', () => {
     const out = outFolder();
@@ -367,6 +447,61 @@ describe('scripts/wiki.ts with a real Zensical build', () => {
       const entries = (files: Map<string, string>): [string, string][] =>
         [...files.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
       expect(entries(walkFiles(join(first, 'source')))).toEqual(entries(walkFiles(join(second, 'source'))));
+    },
+    { timeout: 300_000 },
+  );
+});
+
+describe('scripts/wiki.ts with a real Starlight build', () => {
+  const REAL_PATH = process.env.PATH ?? '';
+
+  test.skipIf(!process.env.MADARCH_WIKI_E2E)(
+    'builds the reference system into a real Starlight site, tabs and assets shipped',
+    () => {
+      const out = outFolder();
+      const run = runWiki([REFERENCE_SYSTEM, '--out', out, '--engine', 'starlight'], REAL_PATH);
+      expect(run.status).toBe(0);
+      expect(run.stdout).toContain(resolve(out, 'site'));
+      expect(existsSync(join(out, 'site', 'index.html'))).toBe(true);
+      // The diagram tab contract in the built HTML, with the module and the
+      // runtimes the site ships beside it.
+      const ordering = readFileSync(join(out, 'site', 'domains', 'ordering', 'index.html'), 'utf8');
+      expect(ordering).toContain('class="wiki-diagram"');
+      expect(ordering).toContain('<likec4-view view-id="ordering"></likec4-view>');
+      expect(ordering).toContain('/wiki-diagram.mjs');
+      expect(existsSync(join(out, 'site', 'assets', 'likec4-view.js'))).toBe(true);
+      expect(existsSync(join(out, 'site', 'assets', 'mermaid', 'mermaid.esm.min.mjs'))).toBe(true);
+      expect(existsSync(join(out, 'site', 'wiki-diagram.mjs'))).toBe(true);
+    },
+    { timeout: 300_000 },
+  );
+
+  test.skipIf(!process.env.MADARCH_WIKI_E2E)(
+    'two real Starlight builds give byte-identical source trees',
+    () => {
+      const first = outFolder();
+      const second = outFolder();
+      expect(runWiki([REFERENCE_SYSTEM, '--out', first, '--engine', 'starlight'], REAL_PATH).status).toBe(0);
+      expect(runWiki([REFERENCE_SYSTEM, '--out', second, '--engine', 'starlight'], REAL_PATH).status).toBe(0);
+      const entries = (files: Map<string, string>): [string, string][] =>
+        [...files.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+      expect(entries(walkFiles(join(first, 'source')))).toEqual(entries(walkFiles(join(second, 'source'))));
+    },
+    { timeout: 300_000 },
+  );
+
+  test.skipIf(!process.env.MADARCH_WIKI_E2E)(
+    'both engines write the same pages',
+    () => {
+      const zensical = outFolder();
+      const starlight = outFolder();
+      expect(runWiki([REFERENCE_SYSTEM, '--out', zensical], REAL_PATH).status).toBe(0);
+      expect(runWiki([REFERENCE_SYSTEM, '--out', starlight, '--engine', 'starlight'], REAL_PATH).status).toBe(0);
+      const docFiles = (root: string): string[] =>
+        [...walkFiles(root).keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+      expect(docFiles(join(starlight, 'source', 'src', 'content'))).toEqual(docFiles(join(zensical, 'source', 'docs')));
+      expect(readFileSync(join(starlight, 'source', 'src', 'content', 'docs', 'index.md'), 'utf8')).toContain('# Home');
+      expect(readFileSync(join(zensical, 'source', 'docs', 'index.md'), 'utf8')).toContain('# Home');
     },
     { timeout: 300_000 },
   );
