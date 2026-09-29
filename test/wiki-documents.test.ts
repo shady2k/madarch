@@ -138,8 +138,9 @@ describe('documentPages', () => {
   test('a link outside README.md and docs/ is broken, never silently kept', () => {
     try {
       documentsOf({
-        'README.md': '# Read me\n\n[Licence](LICENSE)\n',
+        'README.md': '# Read me\n\n[Licence](LICENSE), ![Badge](badge.png)\n',
         'docs/a.md': '# A\n\n[App](../src/app.ts), [notes](notes.txt)\n',
+        'badge.png': 'png bytes',
         'LICENSE': 'MIT',
         'src/app.ts': 'export {};\n',
         'docs/notes.txt': 'notes',
@@ -151,10 +152,18 @@ describe('documentPages', () => {
       // README's licence, then docs/a.md's two.
       expect(broken).toEqual([
         { source: 'README.md', written: 'LICENSE', target: 'LICENSE' },
+        { source: 'README.md', written: 'badge.png', target: 'badge.png' },
         { source: 'docs/a.md', written: '../src/app.ts', target: 'src/app.ts' },
         { source: 'docs/a.md', written: 'notes.txt', target: 'docs/notes.txt' },
       ]);
     }
+  });
+
+  test('a tilde fence is code all the same', () => {
+    const pages = documentsOf({
+      'docs/a.md': ['~~~text', 'not a link: [fake](also-missing.md)', '~~~', ''].join('\n'),
+    });
+    expect(pageOf(pages, 'docs/a.md').links).toEqual([]);
   });
 
   test('a link to an image that is not there is broken, naming the full path', () => {
