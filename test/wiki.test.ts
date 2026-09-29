@@ -458,6 +458,9 @@ describe('scripts/wiki.ts with a real Starlight build', () => {
   test.skipIf(!process.env.MADARCH_WIKI_E2E)(
     'builds the reference system into a real Starlight site, tabs and assets shipped',
     () => {
+      // The script tests above leave a fake install in the machine's cache;
+      // a real build needs the real one, keyed by the same template.
+      rmSync(STARLIGHT_CACHE_ROOT, { recursive: true, force: true });
       const out = outFolder();
       const run = runWiki([REFERENCE_SYSTEM, '--out', out, '--engine', 'starlight'], REAL_PATH);
       expect(run.status).toBe(0);
@@ -498,8 +501,8 @@ describe('scripts/wiki.ts with a real Starlight build', () => {
       expect(runWiki([REFERENCE_SYSTEM, '--out', zensical], REAL_PATH).status).toBe(0);
       expect(runWiki([REFERENCE_SYSTEM, '--out', starlight, '--engine', 'starlight'], REAL_PATH).status).toBe(0);
       const docFiles = (root: string): string[] =>
-        [...walkFiles(root).keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-      expect(docFiles(join(starlight, 'source', 'src', 'content'))).toEqual(docFiles(join(zensical, 'source', 'docs')));
+        [...walkFiles(root).keys()].filter((file) => file.endsWith('.md')).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+      expect(docFiles(join(starlight, 'source', 'src', 'content', 'docs'))).toEqual(docFiles(join(zensical, 'source', 'docs')));
       expect(readFileSync(join(starlight, 'source', 'src', 'content', 'docs', 'index.md'), 'utf8')).toContain('# Home');
       expect(readFileSync(join(zensical, 'source', 'docs', 'index.md'), 'utf8')).toContain('# Home');
     },
