@@ -403,6 +403,21 @@ describe('writeStarlightProject', () => {
     const home = readFileSync(join(dir, 'src', 'content', 'docs', 'index.md'), 'utf8');
     expect(home.startsWith('---\ntitle: "Home"\n---\n')).toBe(true);
     expect(home).not.toContain('# Home');
+    // Only a LEADING title goes: a document with prose before its first
+    // heading keeps that heading — content, not a second title.
+    const later: WikiPage = {
+      id: 'document/docs/notes',
+      title: 'Later',
+      nav: ['Documents', 'docs'],
+      body: 'Intro.\n\n# Later\n\nText.\n',
+      blocks: [],
+      insertTitle: false,
+      links: [],
+    } as unknown as WikiPage;
+    writeStarlightProject([later], dir, OPTIONS);
+    const notes = readFileSync(join(dir, 'src', 'content', 'docs', 'documents', 'docs', 'notes.md'), 'utf8');
+    expect(notes).toContain('# Later');
+    expect(notes).toContain('Intro.');
     // The strip eats the title line and its blank line, nothing else: the
     // tabs follow the anchor directly.
     expect(home.startsWith('---\ntitle: "Home"\n---\n<span id="home"></span>\n\n<div')).toBe(true);
