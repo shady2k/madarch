@@ -150,7 +150,7 @@ function linkProblem(
   const path = decodePercent(raw);
   const file = normalize(path.startsWith('/') ? path.slice(1) : joinPath(dirname(page), path)).replace(/\/+$/, '');
   const name = file === '' || file === '.' ? 'index.html' : file;
-  const first = hadSlash ? `${name}/index.html` : name;
+  const first = name === 'index.html' ? name : hadSlash ? `${name}/index.html` : name;
   let target: string | undefined;
   if (files.has(first)) target = first;
   else if (!hadSlash && files.has(`${name}/index.html`)) target = `${name}/index.html`;

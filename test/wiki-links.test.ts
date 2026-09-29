@@ -195,6 +195,56 @@ describe('brokenLinks', () => {
     ]);
   });
 
+  test('the site root and a directory named without a trailing slash are link targets', () => {
+    const files = new Map<string, string>([
+      page('deep/nested/page.html', '<a href="../../">root</a> <a href="../../up">up</a>'),
+      page('index.html', 'home'),
+      page('up/index.html', 'x'),
+    ]);
+    expect(brokenLinks(files)).toEqual([]);
+  });
+
+  test('a relative path that carries a colon is still a site link', () => {
+    const files = new Map<string, string>([
+      page('index.html', '<a href="a/b:c/">colon</a>'),
+      page('a/b:c/index.html', 'x'),
+    ]);
+    expect(brokenLinks(files)).toEqual([]);
+  });
+
+  test('a page cut off mid-tag is checked as far as it can be read', () => {
+    const files = new Map<string, string>([
+      page(
+        'index.html',
+        ['<a href="./ok/">ok</a>', '<a href="./unclosed/', '<img src="./cut" alt'].join('\n'),
+      ),
+      page('ok/index.html', 'x'),
+    ]);
+    // A tag cut off after an unterminated quote carries one attribute value
+    // that runs to the next quote in the file, one line below — as a browser
+    // reads it — and names no file: broken, as written. What follows that
+    // quote is read as bare attribute names, not links. (A browser would
+    // drop the cut-off tag at the end of the file altogether; the checker
+    // stays conservative and reports the link it can read.)
+    expect(pairs(brokenLinks(files))).toEqual([['index.html', './unclosed/\n<img src=']]);
+  });
+
+  test('a comment that never closes swallows the links after it', () => {
+    const files = new Map<string, string>([
+      page('index.html', '<a href="./ok/">ok</a>\n<!-- <a href="./in-comment/">c</a>'),
+      page('ok/index.html', 'x'),
+    ]);
+    expect(brokenLinks(files)).toEqual([]);
+  });
+
+  test('only html pages are read for links', () => {
+    const files = new Map<string, string>([
+      page('index.html', 'home'),
+      page('notes.txt', '<a href="./ghosted/">g</a>'),
+    ]);
+    expect(brokenLinks(files)).toEqual([]);
+  });
+
   test("the same links give the same broken links, whatever the map's order", () => {
     const build = (): Map<string, string> =>
       new Map<string, string>([
@@ -242,10 +292,13 @@ describe('readSiteFiles', () => {
     writeFileSync(join(site, 'index.html'), '<html>home</html>');
     writeFileSync(join(site, 'guide', 'index.html'), '<html>guide</html>');
     try {
+      mkdirSync(join(site, 'guide', 'sub'), { recursive: true });
+      writeFileSync(join(site, 'guide', 'sub', 'index.html'), '<html>deep</html>');
       const files = readSiteFiles(site);
       expect(files.get('index.html')).toBe('<html>home</html>');
       expect(files.get('guide/index.html')).toBe('<html>guide</html>');
-      expect(files.size).toBe(2);
+      expect(files.get('guide/sub/index.html')).toBe('<html>deep</html>');
+      expect(files.size).toBe(3);
     } finally {
       rmSync(site, { recursive: true, force: true });
     }
