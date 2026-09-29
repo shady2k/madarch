@@ -1,0 +1,15 @@
+#!/bin/sh
+# The wiki tests' broken-site uvx: stands in for the engine and writes a
+# built site whose links lead nowhere AFTER the writer's own validation —
+# the pages are already written, the site itself carries the broken links.
+printf '%s\n' "$*" >> "$(dirname "$0")/invocations.log"
+mkdir -p site/real
+printf '%s\n' \
+  '<html><body>broken fake site' \
+  '<a href="./ghost/">ghost</a>' \
+  '<a href="Zebra/">Z</a>' \
+  '<a href="apple/">a</a>' \
+  '<script src="./missing.js"></script>' \
+  '<a href="./real/">real</a>' \
+  '</body></html>' > site/index.html
+printf '<html><body><a href="also-gone/">gone</a></body></html>\n' > site/real/index.html

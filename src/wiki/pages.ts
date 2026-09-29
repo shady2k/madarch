@@ -93,9 +93,9 @@ interface ModelParts {
 /**
  * Orders two strings by Unicode code point. Several sorts below must agree
  * with each other and stay off the machine's locale, so they share this one
- * comparator.
+ * comparator; the link checker sorts its report by it too.
  */
-function byCodePoint(a: string, b: string): number {
+export function byCodePoint(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
