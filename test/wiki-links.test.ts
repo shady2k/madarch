@@ -45,10 +45,15 @@ describe('brokenLinks', () => {
 
   test('a link to a missing file names the page and the link as written', () => {
     const files = new Map<string, string>([
-      page('index.html', '<a href="./ghost/">ghost</a><script src="./missing.js"></script>'),
+      page(
+        'index.html',
+        '<a href="./ghost/">ghost</a><script src="./missing.js"></script><img src="./fine.png"><a href="./after-img/">x</a>',
+      ),
       page('real/index.html', 'real'),
+      page('fine.png', 'png'),
     ]);
     expect(brokenLinks(files)).toEqual([
+      { page: 'index.html', link: './after-img/', problem: 'no file "after-img/index.html" in the site' },
       { page: 'index.html', link: './ghost/', problem: 'no file "ghost/index.html" in the site' },
       { page: 'index.html', link: './missing.js', problem: 'no file "missing.js" in the site' },
     ]);
@@ -160,7 +165,19 @@ describe('brokenLinks', () => {
     const files = new Map<string, string>([
       page('index.html', '<h2 id="here">h</h2><a href="#here">ok</a><a href="#not-there">bad</a>'),
     ]);
-    expect(pairs(brokenLinks(files))).toEqual([['index.html', '#not-there']]);
+    expect(brokenLinks(files)).toEqual([
+      { page: 'index.html', link: '#not-there', problem: 'no anchor "not-there" in "index.html"' },
+    ]);
+  });
+
+  test("a same-page anchor on a nested page checks that page, not the site's index", () => {
+    const files = new Map<string, string>([
+      page('sub/page.html', '<h2 id="here">h</h2><a href="#here">ok</a><a href="#not-there">bad</a>'),
+      page('index.html', '<h2 id="not-there">sneaky</h2>'),
+    ]);
+    expect(brokenLinks(files)).toEqual([
+      { page: 'sub/page.html', link: '#not-there', problem: 'no anchor "not-there" in "sub/page.html"' },
+    ]);
   });
 
   test('uppercase tags, single quotes and unquoted attribute values are links too, as written', () => {
@@ -197,9 +214,9 @@ describe('brokenLinks', () => {
 
   test('the site root and a directory named without a trailing slash are link targets', () => {
     const files = new Map<string, string>([
-      page('deep/nested/page.html', '<a href="../../">root</a> <a href="../../up">up</a>'),
+      page('deep/nested/page.html', '<a href="../../">root</a> <a href="../../up">up</a> <a href="../../up#top">anchored</a>'),
       page('index.html', 'home'),
-      page('up/index.html', 'x'),
+      page('up/index.html', '<h2 id="top">Up</h2>'),
     ]);
     expect(brokenLinks(files)).toEqual([]);
   });
@@ -207,7 +224,16 @@ describe('brokenLinks', () => {
   test('a relative path that carries a colon is still a site link', () => {
     const files = new Map<string, string>([
       page('index.html', '<a href="a/b:c/">colon</a>'),
-      page('a/b:c/index.html', 'x'),
+    ]);
+    expect(brokenLinks(files)).toEqual([
+      { page: 'index.html', link: 'a/b:c/', problem: 'no file "a/b:c/index.html" in the site' },
+    ]);
+  });
+
+  test('a link that is not valid percent-encoding is checked as written', () => {
+    const files = new Map<string, string>([
+      page('index.html', '<a href="./bad%2zz/">bad</a>'),
+      page('bad%2zz/index.html', 'x'),
     ]);
     expect(brokenLinks(files)).toEqual([]);
   });
