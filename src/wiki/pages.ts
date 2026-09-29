@@ -71,6 +71,57 @@ export interface WikiPage {
 }
 
 /**
+ * One inline link or image of a document, resolved to what it names in the
+ * repository: another document's page, an image the build copies into the
+ * site, or something left as written — an external scheme, a `#anchor` of
+ * the same page, a site-rooted path — that the built-site link check judges
+ * like every other link. Everything else is a broken link the build refuses.
+ */
+export interface WikiDocumentLink {
+  /** The link target exactly as the document wrote it, parentheses excluded. */
+  readonly written: string;
+  readonly kind: 'page' | 'image' | 'keep';
+  /** For a `page` link: the id of the page the target document is. */
+  readonly pageId?: string;
+  /** For an `image` link: the image's path in the repository. */
+  readonly filePath?: string;
+  /** The `#anchor` the link carries, without the `#`; images have none. */
+  readonly anchor?: string;
+}
+
+/**
+ * A page of the repository's own documents (requirement `documents`): the
+ * Markdown file copied whole as the body, with a title where the document
+ * has none. The body keeps everything else — prose, tables, code — exactly
+ * as written; the writers rewrite the links (each `links` entry to its own
+ * paths) and turn the document's Mermaid blocks over to the shipped runtime.
+ */
+export interface WikiDocumentPage {
+  /** The page's stable id: `document/<repository path without .md>`. */
+  readonly id: string;
+  /** The document's level-1 heading, else its first heading, else its file name. */
+  readonly title: string;
+  /** `Documents`, then one segment per folder the document sits in. */
+  readonly nav: readonly string[];
+  /** The document's Markdown, exactly as the repository holds it. */
+  readonly body: string;
+  /** A document page has no blocks: the body is the page whole. */
+  readonly blocks: readonly never[];
+  /** True when the body carries no heading a reader could take for the title: the writers put `# title` above the body. */
+  readonly insertTitle: boolean;
+  /** The body's inline links and images, in order, each resolved. */
+  readonly links: readonly WikiDocumentLink[];
+}
+
+/** Every page a wiki holds: the model's pages and the repository's documents. */
+export type AnyWikiPage = WikiPage | WikiDocumentPage;
+
+/** Whether a page is a document (its Markdown whole) rather than a model page. */
+export function isDocumentPage(page: AnyWikiPage): page is WikiDocumentPage {
+  return 'body' in page;
+}
+
+/**
  * Everything the page builders read, resolved once: the model plus the
  * lookups that turn an id into the part it names, each refusing an id the
  * model lacks — a relation, interface or element naming a missing part is

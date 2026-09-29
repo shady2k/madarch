@@ -6,10 +6,21 @@
  */
 
 /** The folder a prefixed page id lives in, one level under the content root. */
-const FOLDER_BY_PREFIX: Record<string, string> = { domain: 'domains', element: 'elements', zone: 'zones', 'data-category': 'data-categories' };
+const FOLDER_BY_PREFIX: Record<string, string> = { domain: 'domains', element: 'elements', zone: 'zones', 'data-category': 'data-categories', document: 'documents' };
 
 /** Pages that sit directly under the content root: the interfaces page and the zones and data categories indexes. */
 const PATH_BY_TOP_LEVEL_ID: Record<string, string> = { interfaces: 'interfaces.md', zones: 'zones.md', 'data-categories': 'data-categories.md' };
+
+/**
+ * Where a document's image is served from in the built site: the assets the
+ * build ships, under one `documents` folder named by the image's own path in
+ * the repository — so two documents' same-named images never collide. The
+ * writers rewrite image links to this route and the build copies each image
+ * exactly there, into the engine's static folder.
+ */
+export function documentImageRoute(filePath: string): string {
+  return `/assets/documents/${filePath}`;
+}
 
 /**
  * The project-relative file a page id is written to: `home` is the site's
