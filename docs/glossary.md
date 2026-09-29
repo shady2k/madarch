@@ -110,7 +110,17 @@ derived relation)
 
 **Evidence**:
 The facts, with their files and lines, from which a derived relation was joined;
-in the intended model, the files an agent read to write an element or relation.
+in the intended model, the text an agent read to write an element, interface or
+relation: a file, its lines, and the commit and blob it was read at.
+
+**Stale**:
+Said of evidence or a claim whose file has changed since the blob it names; the
+text read then may no longer say what was written from it.
+
+**Claim**:
+One architectural statement a repository's document makes, with its verdict
+from the code: confirmed, contradicted, stale, planned or unconfirmed.
+_Avoid_: finding (a problem the model check reports)
 
 **Proposal**:
 An assertion inferred by an AI agent or a heuristic that is not accepted yet.
@@ -163,6 +173,28 @@ rebuildable at any time.
 **Compiled model**:
 The normalized JSON the server publishes (`model.json`); the contract every
 frontend and agent reads.
+
+**Model check** (`scripts/check-model.ts`):
+The local command that checks a repository's intended model against the
+repository: it compiles, its evidence resolves, every file is assigned, what is
+stale, the problems recognised methods find, and its views.
+
+**Review report** (`madarch/review.md`):
+The Markdown beside a repository's intended model that says where it came from:
+the claims and their verdicts, what no document mentions, the assignment table
+and the problems.
+
+**Assignment table**:
+The review report's table that gives every tracked file of the repository to an
+element, or excludes it with a reason; the deepest row covering a file decides.
+
+**The write-intended-model skill** (`skills/write-intended-model`):
+The agent skill that writes and updates a repository's intended model and review
+report, documents first and confirmed in the code.
+
+**Layer**:
+A module element grouping a core's groups of modules when one page would hold
+too many of them; a modelling choice, not a kind of element.
 
 ## Open
 

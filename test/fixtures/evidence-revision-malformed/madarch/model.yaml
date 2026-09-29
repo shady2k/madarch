@@ -1,0 +1,33 @@
+version: 1
+
+elements:
+  - id: checkout-web
+    kind: service
+  - id: checkout-cart
+    kind: module
+    parent: checkout-web
+    evidence:
+      - file: services/checkout/src/cart/index.ts
+        line: 1
+        endLine: 4
+        commit: 9f2d1b0a4c8e7f3a6d5c2b1e0f9a8d7c6b5e4f
+      - file: services/checkout/src/cart/store.ts
+        blob: 1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4z
+
+interfaces:
+  - id: checkout-list
+    provider: checkout-cart
+    contract: http::GET::/api/cart
+    evidence:
+      - file: services/checkout/src/cart/api.ts
+        endLine: 9
+
+relations:
+  - id: checkout-web-uses-cart
+    from: checkout-web
+    to: checkout-cart
+    evidence:
+      - file: services/checkout/README.md
+        line: 5
+        commit: 9F2D1B0A4C8E7F3A6D5C2B1E0F9A8D7C6B5E4F31
+        blob: 1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d

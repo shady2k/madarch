@@ -32,6 +32,12 @@ export interface LoadResult {
    * empty when there are none, and empty when no file could be read.
    */
   warnings: ModelWarning[];
+  /**
+   * Where every element, interface and relation was written, the positions
+   * loading itself reports errors by; present only when the model was
+   * accepted, and complete only there.
+   */
+  positions?: PositionedModel;
 }
 
 /**
@@ -179,6 +185,9 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
           line(['elements', index, 'environments', environmentIndex]),
         ),
         sinceLine: line(['elements', index, 'since']),
+        evidenceLines: (element.evidence ?? []).map((_item, evidenceIndex) =>
+          line(['elements', index, 'evidence', evidenceIndex]),
+        ),
         untilLine: line(['elements', index, 'until']),
       });
     });
@@ -191,6 +200,9 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
         line: line(['interfaces', index]),
         idLine: line(['interfaces', index, 'id']),
         providerLine: line(['interfaces', index, 'provider']),
+        evidenceLines: (iface.evidence ?? []).map((_item, evidenceIndex) =>
+          line(['interfaces', index, 'evidence', evidenceIndex]),
+        ),
         contractLine: line(['interfaces', index, 'contract']),
       });
     });
@@ -214,6 +226,9 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
         actionLine: line(['relations', index, 'action']),
         transferLines,
         sinceLine: line(['relations', index, 'since']),
+        evidenceLines: (relation.evidence ?? []).map((_item, evidenceIndex) =>
+          line(['relations', index, 'evidence', evidenceIndex]),
+        ),
         untilLine: line(['relations', index, 'until']),
       });
       const warning = unnamedRelationWarning(relation, relativeFile, index, line);
@@ -312,7 +327,7 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
   // that produces a `ValidatedModel`: this is the one, deliberate cast at
   // that boundary, so `compileModel` can require the brand instead of
   // trusting every caller to have validated first.
-  return { model: model as unknown as ValidatedModel, errors: [], warnings };
+  return { model: model as unknown as ValidatedModel, errors: [], warnings, positions: positioned };
 }
 
 /**
@@ -376,13 +391,13 @@ export function loadModel(repoRoot: string): LoadResult {
     }
   }
 
-  const { model, errors: parseErrors, warnings } = parseModel(files);
-  errors.push(...parseErrors);
+  const parsed = parseModel(files);
+  errors.push(...parsed.errors);
 
-  if (errors.length > 0 || model === undefined) {
-    return { errors, warnings };
+  if (errors.length > 0 || parsed.model === undefined) {
+    return { errors, warnings: parsed.warnings };
   }
-  return { model, errors: [], warnings };
+  return { model: parsed.model, errors: [], warnings: parsed.warnings, positions: parsed.positions };
 }
 
 interface NormalizedError {

@@ -1,0 +1,170 @@
+# The intended model of the receipts repository, as the skill would write
+# it: every element, interface and relation carries evidence, and the
+# review report beside this file (review.md) tells each document claim's
+# verdict. The placeholders COMMIT and BLOB:<file> stand for the values a
+# real run computes (see reference.md, Evidence); the skill's test
+# substitutes the real ids after committing the example repository.
+version: 1
+
+zones:
+  - id: internal
+    kind: network
+    name: Internal network
+  - id: internet
+    kind: network
+    name: Public internet
+
+categories:
+  - id: personal
+    name: Personal data
+
+elements:
+  - id: clerk
+    kind: person
+    name: Accounts clerk
+    evidence:
+      - file: README.md
+        line: 3
+        endLine: 5
+        commit: COMMIT
+        blob: BLOB:README.md
+
+  - id: accounting
+    kind: external
+    name: Accounting system
+    zones:
+      add: [internet]
+    evidence:
+      - file: src/notify/webhook.ts
+        line: 4
+        endLine: 8
+        commit: COMMIT
+        blob: BLOB:src/notify/webhook.ts
+
+  - id: receipts
+    kind: system
+    name: Receipts archiver
+    zones:
+      add: [internal]
+    technology: TypeScript, Bun
+    evidence:
+      - file: package.json
+        line: 2
+        endLine: 7
+        commit: COMMIT
+        blob: BLOB:package.json
+
+  - id: importer
+    kind: service
+    name: Receipt importer
+    parent: receipts
+    technology: TypeScript, Bun
+    evidence:
+      - file: src/index.ts
+        line: 1
+        endLine: 15
+        commit: COMMIT
+        blob: BLOB:src/index.ts
+      - file: src/importer.ts
+        line: 1
+        endLine: 11
+        commit: COMMIT
+        blob: BLOB:src/importer.ts
+
+  - id: webhook
+    kind: module
+    name: Receipt webhook
+    parent: receipts
+    evidence:
+      - file: src/notify/webhook.ts
+        line: 1
+        endLine: 8
+        commit: COMMIT
+        blob: BLOB:src/notify/webhook.ts
+
+  - id: archive
+    kind: store
+    name: Receipt archive
+    parent: receipts
+    evidence:
+      - file: src/store.ts
+        line: 1
+        endLine: 17
+        commit: COMMIT
+        blob: BLOB:src/store.ts
+
+interfaces:
+  - id: receipts-hook
+    provider: accounting
+    contract: http::POST::/hooks/receipts
+    evidence:
+      - file: src/notify/webhook.ts
+        line: 4
+        endLine: 8
+        commit: COMMIT
+        blob: BLOB:src/notify/webhook.ts
+
+relations:
+  - id: clerk-scans
+    name: scans receipts into the inbox
+    from: clerk
+    to: importer
+    evidence:
+      - file: src/index.ts
+        line: 10
+        endLine: 12
+        commit: COMMIT
+        blob: BLOB:src/index.ts
+
+  - id: clerk-looks-up
+    name: looks one receipt up again
+    from: clerk
+    to: archive
+    evidence:
+      - file: src/lookup.ts
+        line: 4
+        endLine: 5
+        commit: COMMIT
+        blob: BLOB:src/lookup.ts
+
+  - id: importer-stores
+    name: stores each imported receipt
+    from: importer
+    to: archive
+    evidence:
+      - file: src/index.ts
+        line: 13
+        commit: COMMIT
+        blob: BLOB:src/index.ts
+
+  # A dependency found in imports is evidenced by the import line, an
+  # interaction at run time by the call site: this relation carries both,
+  # never the import alone (see SKILL.md, step 8).
+  - id: importer-notifies
+    name: hands each receipt to the webhook
+    from: importer
+    to: webhook
+    evidence:
+      - file: src/index.ts
+        line: 5
+        commit: COMMIT
+        blob: BLOB:src/index.ts
+      - file: src/index.ts
+        line: 14
+        commit: COMMIT
+        blob: BLOB:src/index.ts
+
+  - id: webhook-posts
+    name: posts the receipt to accounting
+    from: webhook
+    to: accounting
+    interface: receipts-hook
+    transfers:
+      - direction: forward
+        confidentiality: confidential
+        categories: [personal]
+    evidence:
+      - file: src/notify/webhook.ts
+        line: 7
+        commit: COMMIT
+        blob: BLOB:src/notify/webhook.ts
