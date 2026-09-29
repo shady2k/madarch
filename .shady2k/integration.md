@@ -209,7 +209,10 @@ are the repository's installation, and each person's plugin and hooks are theirs
   lines, a malformed line, a tip that is no commit, a remote head this clone
   does not have (fetch first). The document gate judges each commit as it is
   made and has no range mode, so the push does not judge it again, and the
-  backlog gate at `block` strength needs no baseline. Tests:
+  backlog gate at `block` strength needs no baseline. The checks start without
+  git's repository variables (`GIT_DIR` and the rest, which git exports to a
+  linked worktree's hooks): under an inherited `GIT_DIR`, `check-present.mjs`'s
+  scratch `git init` reinitialised the shared repository as bare (madarch-ry5). Tests:
   `.shady2k/push.test.mjs`, through real pushes to a scratch remote.
 - **Connecting a clone:** `sh .shady2k/connect.sh`. It checks first and changes
   nothing unless every check passes: node and br present, a valid private

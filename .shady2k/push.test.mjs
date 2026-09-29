@@ -146,3 +146,17 @@ test('documents are compared with the revision before the first commit pushed, n
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /src\/tool\.ts/);
 });
+
+test('a push from a linked worktree leaves the shared repository a work tree', () => {
+  const s = setup();
+  const wt = join(dirname(s.root), 'wt');
+  s.run('git', ['worktree', 'add', '-q', '-b', 'side', wt]);
+  writeFileSync(join(wt, 'note.md'), 'x\n');
+  const inWt = (args) => spawnSync('git', args, { cwd: wt, encoding: 'utf8', env });
+  inWt(['add', '-A']);
+  inWt(['commit', '-q', '-m', 'note\n\nTask: madarch-t1']);
+  const r = inWt(['push', 'origin', 'side']);
+  assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
+  const bare = spawnSync('git', ['config', '--file', join(s.root, '.git/config'), 'core.bare'], { encoding: 'utf8' });
+  assert.equal(bare.stdout.trim(), 'false');
+});

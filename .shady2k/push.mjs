@@ -55,8 +55,15 @@ export function introduced(remote, localSha, remoteSha) {
   return { tip: tip.out, shas, base: parent.ok ? parent.out : null };
 }
 
+// Git exports the repository to its hooks (GIT_DIR and the rest; in a linked
+// worktree always). The checks find the repository from ROOT themselves, and a
+// `git init` of a scratch folder under an inherited GIT_DIR reinitialises the
+// shared repository as bare, so none of it reaches them.
+const CHECK_ENV = Object.fromEntries(Object.entries(process.env)
+  .filter(([k]) => !/^GIT_(DIR|WORK_TREE|INDEX_FILE|COMMON_DIR|PREFIX|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES)$/.test(k)));
+
 function node(args, stdio) {
-  return spawnSync(process.execPath, args, { cwd: ROOT, stdio: stdio ?? 'inherit' }).status ?? 2;
+  return spawnSync(process.execPath, args, { cwd: ROOT, stdio: stdio ?? 'inherit', env: CHECK_ENV }).status ?? 2;
 }
 
 function checkRef(remote, [localRef, localSha, remoteRef, remoteSha]) {
