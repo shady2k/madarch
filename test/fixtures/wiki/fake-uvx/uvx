@@ -1,0 +1,7 @@
+#!/bin/sh
+# The wiki tests' fake uvx: stands in for `uvx zensical==0.0.66 build`, which
+# runs in the engine project's folder and writes ./site there. It records its
+# arguments so a test can pin the exact invocation; the log is git-ignored.
+printf '%s\n' "$*" >> "$(dirname "$0")/invocations.log"
+mkdir -p site
+printf '<html><body>fake zensical site</body></html>\n' > site/index.html

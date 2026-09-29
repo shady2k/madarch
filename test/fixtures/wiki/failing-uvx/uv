@@ -1,0 +1,3 @@
+#!/bin/sh
+# Presence-only fake uv beside the failing uvx (see fake-uvx/uv).
+printf 'fake uv 1.0.0\n'
