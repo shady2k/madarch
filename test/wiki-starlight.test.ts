@@ -312,7 +312,6 @@ describe('writeStarlightProject', () => {
     // The pages, under the shared page paths.
     const home = readFileSync(join(dir, 'src', 'content', 'docs', 'index.md'), 'utf8');
     expect(home.startsWith('---\ntitle: "Home"\n---\n')).toBe(true);
-    expect(home).toContain('# Home');
     expect(home).toContain('<likec4-view view-id="index"></likec4-view>');
     expect(exists(join(dir, 'src', 'content', 'docs', 'zones', 'internal.md'))).toBe(true);
     expect(exists(join(dir, 'src', 'content', 'docs', 'domains', 'ordering.md'))).toBe(true);
@@ -327,6 +326,35 @@ describe('writeStarlightProject', () => {
     expect(css.replace(/\/\*[\s\S]*?\*\//g, '')).not.toContain('//');
     // The diagram module, finding the runtime the build ships beside it.
     expect(readFileSync(join(dir, 'public', 'wiki-diagram.mjs'), 'utf8')).toContain("import mermaid from './assets/mermaid/mermaid.esm.min.mjs';");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('shows each page\'s title once: the body does not repeat the frontmatter title', () => {
+    const document: WikiPage = {
+      id: 'document/docs/guide',
+      title: 'Guide',
+      nav: ['Documents', 'docs'],
+      body: '# Guide\n\nThe guide\'s text.\n',
+      blocks: [],
+      insertTitle: false,
+      links: [],
+    } as unknown as WikiPage;
+    const dir = project();
+    writeStarlightProject([...PAGES, document], dir, OPTIONS);
+    // The model page: the frontmatter's title is the one heading.
+    const home = readFileSync(join(dir, 'src', 'content', 'docs', 'index.md'), 'utf8');
+    expect(home.startsWith('---\ntitle: "Home"\n---\n')).toBe(true);
+    expect(home).not.toContain('# Home');
+    // A document page alike: its own first-level heading does not come
+    // back under the frontmatter title.
+    const guide = readFileSync(join(dir, 'src', 'content', 'docs', 'documents', 'docs', 'guide.md'), 'utf8');
+    expect(guide.startsWith('---\ntitle: "Guide"\n---\n')).toBe(true);
+    expect(guide).not.toContain('# Guide');
+    expect(guide).toContain('The guide\'s text.');
+    // A page with no blocks keeps the frontmatter as its whole file: the
+    // engine still renders the title heading from it.
+    const zones = readFileSync(join(dir, 'src', 'content', 'docs', 'zones.md'), 'utf8');
+    expect(zones).toBe('---\ntitle: "Zones"\n---\n');
     rmSync(dir, { recursive: true, force: true });
   });
 

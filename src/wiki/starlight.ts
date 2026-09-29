@@ -111,6 +111,15 @@ function frontmatter(page: AnyWikiPage): string {
   return `---\ntitle: ${title}\n---\n`;
 }
 
+/**
+ * The body's own first-level title: the engine renders the frontmatter
+ * title as the page heading already, and the same text again as the body's
+ * first `# heading` would name every page twice. Only a leading level-1
+ * heading matches — a body opening `## deeper` keeps its line, and a
+ * level-1 heading after content is content.
+ */
+const LEADING_TITLE = /^#[ \t]+[^\n]*\n(?:[ \t]*\n)?/;
+
 /** Where the diagram tabs' module finds the Mermaid runtime the build ships: beside it under public/. */
 const MERMAID_IMPORT = './assets/mermaid/mermaid.esm.min.mjs';
 
@@ -158,7 +167,7 @@ export function writeStarlightProject(pages: readonly AnyWikiPage[], projectDir:
     const file = join(projectDir, 'src', 'content', 'docs', pagePath(page.id));
     mkdirSync(dirname(file), { recursive: true });
     const body = isDocumentPage(page) ? renderDocumentBody(page, starlightLinks) : renderPageBody(page, options, prepared, starlightLinks);
-    writeFileSync(file, `${frontmatter(page)}${body}`);
+    writeFileSync(file, `${frontmatter(page)}${body.replace(LEADING_TITLE, '')}`);
   }
   const site = { title: options.siteName, sidebar: starlightSidebar(pages) };
   mkdirSync(join(projectDir, 'src', 'generated'), { recursive: true });
