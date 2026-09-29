@@ -40,8 +40,11 @@ export const STARLIGHT_TEMPLATE_DIR = join(PACKAGE_ROOT, 'wiki', 'starlight');
  * Where the template's installs live: a cache outside the repository and
  * the out folder — the system's temporary folder, keyed by the template's
  * content, holding the installed `node_modules` builds share.
+ * `MADARCH_WIKI_STARLIGHT_CACHE` moves it for one run: the script tests
+ * install with a fake toolchain, and what they install must never sit
+ * where a real build looks for a real one.
  */
-export const STARLIGHT_CACHE_ROOT = join(tmpdir(), 'madarch-wiki-starlight');
+export const STARLIGHT_CACHE_ROOT = process.env.MADARCH_WIKI_STARLIGHT_CACHE ?? join(tmpdir(), 'madarch-wiki-starlight');
 
 /**
  * The heading anchor Starlight's Markdown pipeline spells for a heading's
@@ -111,6 +114,15 @@ function frontmatter(page: AnyWikiPage): string {
   return `---\ntitle: ${title}\n---\n`;
 }
 
+/**
+ * The body's own first-level title: the engine renders the frontmatter
+ * title as the page heading already, and the same text again as the body's
+ * first `# heading` would name every page twice. Only a leading level-1
+ * heading matches — a body opening `## deeper` keeps its line, and a
+ * level-1 heading after content is content.
+ */
+const LEADING_TITLE = /^#[ \t]+[^\n]*\n(?:[ \t]*\n)?/;
+
 /** Where the diagram tabs' module finds the Mermaid runtime the build ships: beside it under public/. */
 const MERMAID_IMPORT = './assets/mermaid/mermaid.esm.min.mjs';
 
@@ -158,7 +170,12 @@ export function writeStarlightProject(pages: readonly AnyWikiPage[], projectDir:
     const file = join(projectDir, 'src', 'content', 'docs', pagePath(page.id));
     mkdirSync(dirname(file), { recursive: true });
     const body = isDocumentPage(page) ? renderDocumentBody(page, starlightLinks) : renderPageBody(page, options, prepared, starlightLinks);
-    writeFileSync(file, `${frontmatter(page)}${body}`);
+    // Where the body's own title heading was, an invisible anchor keeps
+    // the title's slug: links aimed at the page's title heading must
+    // still land, and the engine's own h1 (from the frontmatter) carries
+    // the engine's `_top` id, not this slug. A slug holds only letters,
+    // digits, underscores and dashes, so it is safe as an id as it is.
+    writeFileSync(file, `${frontmatter(page)}<span id="${starlightSlug(page.title)}"></span>\n\n${body.replace(LEADING_TITLE, '')}`);
   }
   const site = { title: options.siteName, sidebar: starlightSidebar(pages) };
   mkdirSync(join(projectDir, 'src', 'generated'), { recursive: true });
@@ -176,8 +193,19 @@ export interface StarlightSiteOptions extends WikiRenderOptions {
   readonly siteName: string;
 }
 
-/** The file whose presence says a cache folder holds a working install. */
+/** The astro shim a cache folder must carry — and it must answer `--version` — for the install to count as working. */
 const INSTALL_MARKER = join('node_modules', '.bin', 'astro');
+
+/**
+ * Whether a cached install's astro actually works: the marker must run,
+ * exit 0 and name a version. Presence alone is not trust — a fake install
+ * (the script tests') or a killed real one can leave a file at the
+ * marker's path that no build could execute.
+ */
+function astroAnswers(marker: string): boolean {
+  const probe = spawnSync(marker, ['--version'], { encoding: 'utf8', timeout: 60000 });
+  return probe.error === undefined && probe.status === 0 && (probe.stdout ?? '').trim() !== '';
+}
 
 /** The template's content fingerprint: its files, paths and bytes, sorted by code point. */
 function templateDigest(templateDir: string): string {
@@ -213,7 +241,7 @@ export function ensureStarlightInstall(templateDir: string, cacheRoot: string): 
   }
   const dir = join(cacheRoot, `template-${templateDigest(templateDir)}`);
   const marker = join(dir, ...INSTALL_MARKER.split('/'));
-  if (!existsSync(marker)) {
+  if (!astroAnswers(marker)) {
     rmSync(dir, { recursive: true, force: true });
     cpSync(templateDir, dir, {
       recursive: true,
@@ -222,12 +250,14 @@ export function ensureStarlightInstall(templateDir: string, cacheRoot: string): 
     const install = spawnSync('bun', ['install', '--frozen-lockfile'], { cwd: dir, encoding: 'utf8' });
     const ran = install.error === undefined;
     const output = ran ? `${install.stdout ?? ''}${install.stderr ?? ''}`.trim() : `bun could not be run: ${install.error?.message}`;
-    if (!ran || install.status !== 0 || !existsSync(marker)) {
+    if (!ran || install.status !== 0 || !astroAnswers(marker)) {
       const why = !ran
         ? 'bun could not be run'
         : install.status !== 0
           ? `"bun install --frozen-lockfile" failed (exit ${install.status})`
-          : `"bun install --frozen-lockfile" finished without astro at ${marker}`;
+          : !existsSync(marker)
+            ? `"bun install --frozen-lockfile" finished without astro at ${marker}`
+            : '"bun install --frozen-lockfile" finished, but the astro it wrote does not answer --version';
       return { ok: false, message: `the starlight template could not be installed at ${dir}: ${why}${output === '' ? '' : `:\n${output}`}` };
     }
   }

@@ -41,6 +41,15 @@ function outFolder(): string {
 }
 
 /**
+ * The install cache for one script run, moved off the machine's: the
+ * script tests run a fake toolchain, and what it installs must never sit
+ * where a real build looks for a real one.
+ */
+function scriptCache(): { MADARCH_WIKI_STARLIGHT_CACHE: string } {
+  return { MADARCH_WIKI_STARLIGHT_CACHE: join(mkdtempSync(join(tmpdir(), 'madarch-starlight-cache-')), 'cache') };
+}
+
+/**
  * Runs the wiki script with `path` as the child's whole PATH. The fake
  * bins come first so they are the `uv`/`uvx` the script finds, with the
  * real system kept behind them for the fakes' own commands; a PATH of one
@@ -155,9 +164,9 @@ describe('scripts/wiki.ts', () => {
 
   test('--engine starlight builds through the template install and the fake engine, and the source project is complete', () => {
     rmSync(FAKE_BUN_LOG, { force: true });
-    rmSync(STARLIGHT_CACHE_ROOT, { recursive: true, force: true });
+    const cache = scriptCache();
     const out = outFolder();
-    const run = runWiki([REFERENCE_SYSTEM, '--out', out, '--engine', 'starlight'], `${FAKE_BUN}:${process.env.PATH ?? ''}`);
+    const run = runWiki([REFERENCE_SYSTEM, '--out', out, '--engine', 'starlight'], `${FAKE_BUN}:${process.env.PATH ?? ''}`, cache);
     expect(run.status).toBe(0);
     const site = resolve(out, 'site');
     expect(run.stdout).toContain(site);
@@ -177,13 +186,27 @@ describe('scripts/wiki.ts', () => {
     expect(log.indexOf('run build')).toBeGreaterThan(log.indexOf('install --frozen-lockfile'));
     // The cache install the removed link pointed at survives the build:
     // the link is unlinked, never followed.
-    const installed = readdirSync(STARLIGHT_CACHE_ROOT).some((name) => existsSync(join(STARLIGHT_CACHE_ROOT, name, 'node_modules', 'fake-installed')));
+    const installed = readdirSync(cache.MADARCH_WIKI_STARLIGHT_CACHE).some((name) => existsSync(join(cache.MADARCH_WIKI_STARLIGHT_CACHE, name, 'node_modules', 'fake-installed')));
     expect(installed).toBe(true);
+  }, { timeout: 60_000 });
+
+  test('the install cache moves with MADARCH_WIKI_STARLIGHT_CACHE, away from the machine cache', () => {
+    rmSync(FAKE_BUN_LOG, { force: true });
+    rmSync(STARLIGHT_CACHE_ROOT, { recursive: true, force: true });
+    const cache = scriptCache();
+    const out = outFolder();
+    const run = runWiki([REFERENCE_SYSTEM, '--out', out, '--engine', 'starlight'], `${FAKE_BUN}:${process.env.PATH ?? ''}`, cache);
+    expect(run.status).toBe(0);
+    // The install the script made sits in the moved cache...
+    expect(readdirSync(cache.MADARCH_WIKI_STARLIGHT_CACHE).some((name) => existsSync(join(cache.MADARCH_WIKI_STARLIGHT_CACHE, name, 'node_modules', 'fake-installed')))).toBe(true);
+    // ...and the machine cache stays untouched: no fake install of this
+    // run where a real build would look for a real one.
+    expect(existsSync(STARLIGHT_CACHE_ROOT)).toBe(false);
   }, { timeout: 60_000 });
 
   test('the starlight engine comes from MADARCH_WIKI_ENGINE, and --engine wins over it', () => {
     const byEnv = outFolder();
-    const byEnvRun = runWiki([REFERENCE_SYSTEM, '--out', byEnv], `${FAKE_BUN}:${process.env.PATH ?? ''}`, { MADARCH_WIKI_ENGINE: 'starlight' });
+    const byEnvRun = runWiki([REFERENCE_SYSTEM, '--out', byEnv], `${FAKE_BUN}:${process.env.PATH ?? ''}`, { MADARCH_WIKI_ENGINE: 'starlight', ...scriptCache() });
     expect(byEnvRun.status).toBe(0);
     expect(existsSync(join(byEnv, 'site', 'index.html'))).toBe(true);
 
@@ -205,9 +228,8 @@ describe('scripts/wiki.ts', () => {
   }, { timeout: 60_000 });
 
   test('a failed starlight template install exits 2 naming the cause, and writes nothing', () => {
-    rmSync(STARLIGHT_CACHE_ROOT, { recursive: true, force: true });
     const out = outFolder();
-    const run = runWiki([REFERENCE_SYSTEM, '--out', out, '--engine', 'starlight'], `${FAILING_INSTALL_BUN}:${process.env.PATH ?? ''}`);
+    const run = runWiki([REFERENCE_SYSTEM, '--out', out, '--engine', 'starlight'], `${FAILING_INSTALL_BUN}:${process.env.PATH ?? ''}`, scriptCache());
     expect(run.status).toBe(2);
     const said = combined(run);
     expect(said).toContain('could not be installed');
@@ -216,9 +238,8 @@ describe('scripts/wiki.ts', () => {
   }, { timeout: 60_000 });
 
   test('a failing starlight build exits 1 and prints the engine output', () => {
-    rmSync(STARLIGHT_CACHE_ROOT, { recursive: true, force: true });
     const out = outFolder();
-    const run = runWiki([REFERENCE_SYSTEM, '--out', out, '--engine', 'starlight'], `${FAILING_BUILD_BUN}:${process.env.PATH ?? ''}`);
+    const run = runWiki([REFERENCE_SYSTEM, '--out', out, '--engine', 'starlight'], `${FAILING_BUILD_BUN}:${process.env.PATH ?? ''}`, scriptCache());
     expect(run.status).toBe(1);
     const said = combined(run);
     expect(said).toContain('astro exploded');
@@ -228,9 +249,8 @@ describe('scripts/wiki.ts', () => {
   }, { timeout: 60_000 });
 
   test('a starlight site whose link leads nowhere after the writer exits 1 naming every broken link', () => {
-    rmSync(STARLIGHT_CACHE_ROOT, { recursive: true, force: true });
     const out = outFolder();
-    const run = runWiki([REFERENCE_SYSTEM, '--out', out, '--engine', 'starlight'], `${BROKEN_SITE_BUN}:${process.env.PATH ?? ''}`);
+    const run = runWiki([REFERENCE_SYSTEM, '--out', out, '--engine', 'starlight'], `${BROKEN_SITE_BUN}:${process.env.PATH ?? ''}`, scriptCache());
     expect(run.status).toBe(1);
     const said = combined(run);
     expect(said).toContain('the built site carries broken links');
@@ -451,9 +471,9 @@ describe('scripts/wiki.ts', () => {
 
     // Starlight: root-relative routes slugged the engine's way, the image
     // under public/assets, the sidebar entries the loader slugs the same way.
-    rmSync(STARLIGHT_CACHE_ROOT, { recursive: true, force: true });
+    const cache = scriptCache();
     const starlight = outFolder();
-    expect(runWiki([DOCUMENTS_FIXTURE, '--out', starlight, '--engine', 'starlight'], `${FAKE_BUN}:${process.env.PATH ?? ''}`).status).toBe(0);
+    expect(runWiki([DOCUMENTS_FIXTURE, '--out', starlight, '--engine', 'starlight'], `${FAKE_BUN}:${process.env.PATH ?? ''}`, cache).status).toBe(0);
     const sdocs = join(starlight, 'source', 'src', 'content', 'docs');
     expect(readFileSync(join(sdocs, 'documents', 'README.md'), 'utf8')).toContain('title: "Documents fixture"');
     const sArchitecture = readFileSync(join(sdocs, 'documents', 'docs', 'architecture.md'), 'utf8');
@@ -516,8 +536,8 @@ describe('scripts/wiki.ts with a real Starlight build', () => {
   test.skipIf(!process.env.MADARCH_WIKI_E2E)(
     'builds the reference system into a real Starlight site, tabs and assets shipped',
     () => {
-      // The script tests above leave a fake install in the machine's cache;
-      // a real build needs the real one, keyed by the same template.
+      // The script tests install off the machine's cache now; the wipe
+      // keeps the real build's install clean of anything older runs left.
       rmSync(STARLIGHT_CACHE_ROOT, { recursive: true, force: true });
       const out = outFolder();
       const run = runWiki([REFERENCE_SYSTEM, '--out', out, '--engine', 'starlight'], REAL_PATH);
@@ -561,7 +581,12 @@ describe('scripts/wiki.ts with a real Starlight build', () => {
       const docFiles = (root: string): string[] =>
         [...walkFiles(root).keys()].filter((file) => file.endsWith('.md')).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
       expect(docFiles(join(starlight, 'source', 'src', 'content', 'docs'))).toEqual(docFiles(join(zensical, 'source', 'docs')));
-      expect(readFileSync(join(starlight, 'source', 'src', 'content', 'docs', 'index.md'), 'utf8')).toContain('# Home');
+      // Starlight names the page by its frontmatter title once: the body
+      // carries the invisible title anchor, not a second heading.
+      const starlightHome = readFileSync(join(starlight, 'source', 'src', 'content', 'docs', 'index.md'), 'utf8');
+      expect(starlightHome).toContain('title: "Home"');
+      expect(starlightHome).toContain('<span id="home"></span>');
+      expect(starlightHome).not.toContain('# Home');
       expect(readFileSync(join(zensical, 'source', 'docs', 'index.md'), 'utf8')).toContain('# Home');
     },
     { timeout: 300_000 },

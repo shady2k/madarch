@@ -136,10 +136,16 @@ describe('the template install and its cache', () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(
       join(dir, 'bun'),
-      '#!/bin/sh\ncase "$1" in\n  --version) printf "1.4.2-fake\\n" ;;\n  install) mkdir -p node_modules/.bin && : > node_modules/.bin/astro ;;\nesac\n',
+      '#!/bin/sh\ncase "$1" in\n  --version) printf "1.4.2-fake\\n" ;;\n  install) mkdir -p node_modules/.bin && printf \'#!/bin/sh\\ncase "$1" in --version) printf "7.3.5-fake" ;; esac\\n\' > node_modules/.bin/astro && chmod +x node_modules/.bin/astro ;;\nesac\n',
       { mode: 0o755 },
     );
     return dir;
+  }
+
+  /** Whether an installed astro answers `--version`: exit 0 with output. */
+  function astroAnswers(marker: string): boolean {
+    const probe = spawnSync(marker, ['--version'], { encoding: 'utf8' });
+    return probe.error === undefined && probe.status === 0 && probe.stdout.trim() !== '';
   }
 
   test('refuses a template folder that is not there, naming the path', () => {
@@ -203,6 +209,25 @@ describe('the template install and its cache', () => {
     }
   });
 
+  test('refuses an install whose astro stays silent, naming the probe', () => {
+    const bin = join(mkdtempSync(join(tmpdir(), 'madarch-silentmark-')), 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(
+      join(bin, 'bun'),
+      '#!/bin/sh\ncase "$1" in\n  --version) printf "1.4.2-fake\\n" ;;\n  install) mkdir -p node_modules/.bin && printf "#!/bin/sh\\n" > node_modules/.bin/astro && chmod +x node_modules/.bin/astro ;;\nesac\n',
+      { mode: 0o755 },
+    );
+    const savedPath = process.env.PATH;
+    process.env.PATH = `${bin}:${savedPath ?? ''}`;
+    try {
+      const result = ensureStarlightInstall(STARLIGHT_TEMPLATE_DIR, join(mkdtempSync(join(tmpdir(), 'madarch-cache-')), 'cache'));
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.message).toContain('does not answer --version');
+    } finally {
+      process.env.PATH = savedPath;
+    }
+  });
+
   test('installs the template once into the cache the first time, and skips the second', () => {
     const bin = fakeBunDir();
     const cache = join(mkdtempSync(join(tmpdir(), 'madarch-cache-')), 'cache');
@@ -251,6 +276,39 @@ describe('the template install and its cache', () => {
     } finally {
       process.env.PATH = savedPath;
     }
+  });
+
+  test('a stub left at the marker is rebuilt, not trusted', () => {
+    const cache = join(mkdtempSync(join(tmpdir(), 'madarch-cache-')), 'cache');
+    const first = ensureStarlightInstall(STARLIGHT_TEMPLATE_DIR, cache);
+    expect(first.ok).toBe(true);
+    if (!first.ok) throw new Error('the install must succeed');
+    // The stub the script tests' fake install leaves at the marker: a
+    // 0-byte plain file no engine could run. The next install must
+    // rebuild from the template, not skip.
+    rmSync(join(first.project, 'node_modules', '.bin', 'astro'));
+    writeFileSync(join(first.project, 'node_modules', '.bin', 'astro'), '', { mode: 0o644 });
+    const real = ensureStarlightInstall(STARLIGHT_TEMPLATE_DIR, cache);
+    expect(real.ok).toBe(true);
+    if (!real.ok) throw new Error('the install must succeed');
+    expect(astroAnswers(join(real.project, 'node_modules', '.bin', 'astro'))).toBe(true);
+  });
+
+  test('an executable marker that answers nothing is rebuilt, not trusted', () => {
+    const cache = join(mkdtempSync(join(tmpdir(), 'madarch-cache-')), 'cache');
+    const first = ensureStarlightInstall(STARLIGHT_TEMPLATE_DIR, cache);
+    expect(first.ok).toBe(true);
+    if (!first.ok) throw new Error('the install must succeed');
+    // Executable, yet silent: an empty shebang script exits 0 with no
+    // output, and only a real astro names its version. The link goes
+    // first: writing through the marker's symlink would follow it into
+    // the package the cache hardlinks.
+    rmSync(join(first.project, 'node_modules', '.bin', 'astro'));
+    writeFileSync(join(first.project, 'node_modules', '.bin', 'astro'), '#!/bin/sh\n', { mode: 0o755 });
+    const real = ensureStarlightInstall(STARLIGHT_TEMPLATE_DIR, cache);
+    expect(real.ok).toBe(true);
+    if (!real.ok) throw new Error('the install must succeed');
+    expect(astroAnswers(join(real.project, 'node_modules', '.bin', 'astro'))).toBe(true);
   });
 });
 
@@ -312,7 +370,6 @@ describe('writeStarlightProject', () => {
     // The pages, under the shared page paths.
     const home = readFileSync(join(dir, 'src', 'content', 'docs', 'index.md'), 'utf8');
     expect(home.startsWith('---\ntitle: "Home"\n---\n')).toBe(true);
-    expect(home).toContain('# Home');
     expect(home).toContain('<likec4-view view-id="index"></likec4-view>');
     expect(exists(join(dir, 'src', 'content', 'docs', 'zones', 'internal.md'))).toBe(true);
     expect(exists(join(dir, 'src', 'content', 'docs', 'domains', 'ordering.md'))).toBe(true);
@@ -327,6 +384,60 @@ describe('writeStarlightProject', () => {
     expect(css.replace(/\/\*[\s\S]*?\*\//g, '')).not.toContain('//');
     // The diagram module, finding the runtime the build ships beside it.
     expect(readFileSync(join(dir, 'public', 'wiki-diagram.mjs'), 'utf8')).toContain("import mermaid from './assets/mermaid/mermaid.esm.min.mjs';");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('shows each page\'s title once: the body does not repeat the frontmatter title', () => {
+    const document: WikiPage = {
+      id: 'document/docs/guide',
+      title: 'Guide',
+      nav: ['Documents', 'docs'],
+      body: '# Guide\n\nThe guide\'s text.\n',
+      blocks: [],
+      insertTitle: false,
+      links: [],
+    } as unknown as WikiPage;
+    const dir = project();
+    writeStarlightProject([...PAGES, document], dir, OPTIONS);
+    // The model page: the frontmatter's title is the one heading.
+    const home = readFileSync(join(dir, 'src', 'content', 'docs', 'index.md'), 'utf8');
+    expect(home.startsWith('---\ntitle: "Home"\n---\n')).toBe(true);
+    expect(home).not.toContain('# Home');
+    // Only a LEADING title goes: a document with prose before its first
+    // heading keeps that heading — content, not a second title.
+    const later: WikiPage = {
+      id: 'document/docs/notes',
+      title: 'Later',
+      nav: ['Documents', 'docs'],
+      body: 'Intro.\n\n# Later\n\nText.\n',
+      blocks: [],
+      insertTitle: false,
+      links: [],
+    } as unknown as WikiPage;
+    writeStarlightProject([later], dir, OPTIONS);
+    const notes = readFileSync(join(dir, 'src', 'content', 'docs', 'documents', 'docs', 'notes.md'), 'utf8');
+    expect(notes).toContain('# Later');
+    expect(notes).toContain('Intro.');
+    // The strip eats the title line and its blank line, nothing else: the
+    // tabs follow the anchor directly.
+    expect(home.startsWith('---\ntitle: "Home"\n---\n<span id="home"></span>\n\n<div')).toBe(true);
+    // A multi-word title goes whole: no fragment of it may survive.
+    const internal = readFileSync(join(dir, 'src', 'content', 'docs', 'zones', 'internal.md'), 'utf8');
+    expect(internal).not.toContain('# Internal network');
+    // A link to the title heading still lands: where the body's heading
+    // was, an invisible anchor keeps the title's slug.
+    expect(home).toContain('<span id="home"></span>');
+    // A document page alike: its own first-level heading does not come
+    // back under the frontmatter title.
+    const guide = readFileSync(join(dir, 'src', 'content', 'docs', 'documents', 'docs', 'guide.md'), 'utf8');
+    expect(guide.startsWith('---\ntitle: "Guide"\n---\n')).toBe(true);
+    expect(guide).not.toContain('# Guide');
+    expect(guide).toContain('The guide\'s text.');
+    expect(guide).toContain('<span id="guide"></span>');
+    // A page with no blocks keeps the frontmatter as its whole file: the
+    // engine still renders the title heading from it.
+    const zones = readFileSync(join(dir, 'src', 'content', 'docs', 'zones.md'), 'utf8');
+    expect(zones).toBe('---\ntitle: "Zones"\n---\n<span id="zones"></span>\n\n');
     rmSync(dir, { recursive: true, force: true });
   });
 
