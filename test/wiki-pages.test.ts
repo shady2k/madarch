@@ -254,6 +254,64 @@ describe('wiki page data', () => {
     ]);
   });
 
+  test('the pages come in one order: home, each domain then its elements, the rest after', () => {
+    const pages = pagesOfModel();
+    expect(pages.map((page) => page.id)).toEqual([
+      'home',
+      'domain/ordering',
+      'element/checkout',
+      'element/checkout-cart',
+      'element/orders-db',
+      'domain/payments',
+      'element/payments-api',
+      'interfaces',
+      'zones',
+      'data-categories',
+    ]);
+  });
+
+  test('a child domain keeps its own page kind, ordered before its elements, and independents sort by name', () => {
+    const yaml = [
+      'version: 1',
+      '',
+      'elements:',
+      '  - id: outer',
+      '    kind: domain',
+      '    name: Outer',
+      '  - id: inner',
+      '    kind: domain',
+      '    name: Inner',
+      '    parent: outer',
+      '  - id: leaf',
+      '    kind: service',
+      '    name: Leaf',
+      '    parent: inner',
+      '',
+    ].join('\n');
+    const pages = pagesOfModel(yaml);
+    expect(pages.map((page) => page.id)).toEqual(['home', 'domain/outer', 'domain/inner', 'element/leaf', 'interfaces', 'zones', 'data-categories']);
+    const outer = tableOf(pageOf(pages, 'domain/outer'), ['Element', 'Kind', 'Technology']);
+    expect(outer.rows).toEqual([
+      [{ page: 'domain/inner', text: 'Inner' }, 'domain', '—'],
+      [{ page: 'element/leaf', text: 'Leaf' }, 'service', '—'],
+    ]);
+
+    // Declaration order reversed against display order: the independents still come out sorted.
+    const reversed = pagesOfModel([
+      'version: 1',
+      '',
+      'elements:',
+      '  - id: bus',
+      '    kind: broker',
+      '    name: Event bus',
+      '  - id: customer',
+      '    kind: person',
+      '    name: Customer',
+      '',
+    ].join('\n'));
+    expect(reversed.map((page) => page.id)).toEqual(['home', 'element/customer', 'element/bus', 'interfaces', 'zones', 'data-categories']);
+  });
+
   test('an element page names its kind, technology, zones and ancestor chain, and links them', () => {
     const pages = pagesOfModel();
     const checkout = pageOf(pages, 'element/checkout');
@@ -391,6 +449,10 @@ describe('wiki page data', () => {
     const zoneGhost = emptyModel();
     zoneGhost.elements.push(elementOf('api', 'service', { zones: ['ghost'] }));
     expect(() => wikiPages(zoneGhost)).toThrow('element "api" names zone "ghost", which the model does not have');
+
+    const ancestorGhost = emptyModel();
+    ancestorGhost.elements.push(elementOf('api', 'service', { ancestors: ['ghost'] }));
+    expect(() => wikiPages(ancestorGhost)).toThrow('element "api" names element "ghost", which the model does not have');
 
     const categoryGhost = emptyModel();
     categoryGhost.elements.push(elementOf('api', 'service'));

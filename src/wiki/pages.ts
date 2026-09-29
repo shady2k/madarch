@@ -390,13 +390,25 @@ export function wikiPages(model: CompiledModel): WikiPage[] {
 
   const pages: WikiPage[] = [homePage(model, domains, descendantsOf)];
   const underDomain = new Set<string>();
-  for (const domain of domains) {
-    const descendants = descendantsOf(domain);
-    pages.push(domainPage(domain, descendants));
-    for (const descendant of descendants) {
-      underDomain.add(descendant.id);
-      if (descendant.kind !== 'domain') pages.push(elementPage(parts, descendant));
+  // Root domains only, each walked once: a nested domain's page comes out
+  // inside its root's walk, after its parent, and every element's page is
+  // written once — under the root domain it belongs to.
+  const roots = domains.filter((domain) => !domain.ancestors.some((id) => parts.elementById.get(id)?.kind === 'domain'));
+  const walkDomain = (current: CompiledElement): void => {
+    const children = [...(childrenOf.get(current.id) ?? [])].sort(byDisplayName);
+    for (const child of children) {
+      underDomain.add(child.id);
+      if (child.kind === 'domain') {
+        pages.push(domainPage(child, descendantsOf(child)));
+      } else {
+        pages.push(elementPage(parts, child));
+      }
+      walkDomain(child);
     }
+  };
+  for (const domain of roots) {
+    pages.push(domainPage(domain, descendantsOf(domain)));
+    walkDomain(domain);
   }
   // Elements no domain holds: people, externals and the broker at the top level.
   const independents = model.elements.filter((element) => element.kind !== 'domain' && !underDomain.has(element.id)).sort(byDisplayName);
