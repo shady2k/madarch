@@ -40,8 +40,11 @@ export const STARLIGHT_TEMPLATE_DIR = join(PACKAGE_ROOT, 'wiki', 'starlight');
  * Where the template's installs live: a cache outside the repository and
  * the out folder — the system's temporary folder, keyed by the template's
  * content, holding the installed `node_modules` builds share.
+ * `MADARCH_WIKI_STARLIGHT_CACHE` moves it for one run: the script tests
+ * install with a fake toolchain, and what they install must never sit
+ * where a real build looks for a real one.
  */
-export const STARLIGHT_CACHE_ROOT = join(tmpdir(), 'madarch-wiki-starlight');
+export const STARLIGHT_CACHE_ROOT = process.env.MADARCH_WIKI_STARLIGHT_CACHE ?? join(tmpdir(), 'madarch-wiki-starlight');
 
 /**
  * The heading anchor Starlight's Markdown pipeline spells for a heading's
@@ -167,7 +170,12 @@ export function writeStarlightProject(pages: readonly AnyWikiPage[], projectDir:
     const file = join(projectDir, 'src', 'content', 'docs', pagePath(page.id));
     mkdirSync(dirname(file), { recursive: true });
     const body = isDocumentPage(page) ? renderDocumentBody(page, starlightLinks) : renderPageBody(page, options, prepared, starlightLinks);
-    writeFileSync(file, `${frontmatter(page)}${body.replace(LEADING_TITLE, '')}`);
+    // Where the body's own title heading was, an invisible anchor keeps
+    // the title's slug: links aimed at the page's title heading must
+    // still land, and the engine's own h1 (from the frontmatter) carries
+    // the engine's `_top` id, not this slug. A slug holds only letters,
+    // digits, underscores and dashes, so it is safe as an id as it is.
+    writeFileSync(file, `${frontmatter(page)}<span id="${starlightSlug(page.title)}"></span>\n\n${body.replace(LEADING_TITLE, '')}`);
   }
   const site = { title: options.siteName, sidebar: starlightSidebar(pages) };
   mkdirSync(join(projectDir, 'src', 'generated'), { recursive: true });

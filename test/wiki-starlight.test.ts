@@ -384,16 +384,20 @@ describe('writeStarlightProject', () => {
     const home = readFileSync(join(dir, 'src', 'content', 'docs', 'index.md'), 'utf8');
     expect(home.startsWith('---\ntitle: "Home"\n---\n')).toBe(true);
     expect(home).not.toContain('# Home');
+    // A link to the title heading still lands: where the body's heading
+    // was, an invisible anchor keeps the title's slug.
+    expect(home).toContain('<span id="home"></span>');
     // A document page alike: its own first-level heading does not come
     // back under the frontmatter title.
     const guide = readFileSync(join(dir, 'src', 'content', 'docs', 'documents', 'docs', 'guide.md'), 'utf8');
     expect(guide.startsWith('---\ntitle: "Guide"\n---\n')).toBe(true);
     expect(guide).not.toContain('# Guide');
     expect(guide).toContain('The guide\'s text.');
+    expect(guide).toContain('<span id="guide"></span>');
     // A page with no blocks keeps the frontmatter as its whole file: the
     // engine still renders the title heading from it.
     const zones = readFileSync(join(dir, 'src', 'content', 'docs', 'zones.md'), 'utf8');
-    expect(zones).toBe('---\ntitle: "Zones"\n---\n');
+    expect(zones).toBe('---\ntitle: "Zones"\n---\n<span id="zones"></span>\n\n');
     rmSync(dir, { recursive: true, force: true });
   });
 
