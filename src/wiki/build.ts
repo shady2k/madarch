@@ -94,5 +94,9 @@ export function buildWiki(repoPath: string, outPath: string, options: WikiBuildO
   const built = join(source, 'site');
   if (!existsSync(built)) return { code: 1, message: `the zensical build wrote no site folder:\n${build.output}` };
   renameSync(built, site);
+  // The engine's build cache is its own byproduct, not the project the pages
+  // wrote: remove it, so source/ holds exactly the project and two runs of
+  // the same model leave byte-identical trees.
+  rmSync(join(source, '.cache'), { recursive: true, force: true });
   return { code: 0, message: site };
 }
