@@ -4,7 +4,7 @@ Chartered 2026-09-24, revised the same day after the owner restated their
 expectations (madarch-tid). The foundation first: the model's format, its
 storage with history and the query engine. Then readable views of a large
 invented system, an agent skill that writes a repository's model, and a server
-that turns a repository's address into diagrams.
+that turns the model the skill sends into diagrams (revised 2026-09-29).
 
 ## Outcomes and acceptance
 
@@ -43,16 +43,19 @@ dependency.
    *Check:* on the owner's public repository nocx the skill writes a model that
    compiles and shows three levels (context, the application's parts, the
    modules of its core), with evidence on every element and relation.
-4. **Build the graph of a real repository from its address** (madarch-ti6).
-   `POST /sources` with a repository URL: the server clones it, reads its model,
-   compiles and stores it, and renders Mermaid and LikeC4 views. A view is also
-   returned on request: a `POST` whose body names the source, the element to
-   show, the depth and the format returns that view's text, ready to paste into
-   documentation. No CI, no webhooks.
-   *Check:* a public repository holding a model yields Mermaid and LikeC4 views;
-   a view requested with a scope and a depth comes back as Mermaid that renders
-   in Markdown; a repository without a model gets an answer saying so and how to
-   write one.
+4. **Show a repository's model as views from madarch's server** (madarch-ti6).
+   After the model check passes, the `write-intended-model` skill (or a command
+   beside the check) sends one repository's compiled model with its commit and
+   commit time to the server. The server never clones or reads a repository: it
+   stores the model in the history and answers a view request (the source, the
+   element to show, the depth and the format) with Mermaid or LikeC4 text,
+   ready to paste into documentation. One repository per graph.
+   *Check:* nocx's model written by the skill and the invented reference
+   system's model (`examples/reference-system`) are sent; for each, views
+   requested at the top level, at a domain or service and at the modules of a
+   core come back as Mermaid that renders in Markdown and as LikeC4 that
+   `likec4 validate` accepts; sending the same commit again changes nothing; a
+   request for a source never sent is answered saying so and how to send one.
 
 ## Exclusions
 
@@ -63,7 +66,13 @@ dependency.
 - Views per environment and per architecture state: both are in the format and
   the storage, not yet in views.
 - Rules and flows in the model.
-- Webhooks, CI triggers and polling: sources are added on request by address.
+- Webhooks, CI triggers and polling: a model arrives when the skill sends it.
+- The server cloning or reading repositories; several repositories in one
+  graph, relations between them joined by contract ids, the list of
+  repositories composing a system, and ids unique across repositories (next
+  milestone).
+- Calling the skill's send step from other skill sets: the owner's own skill
+  set is outside this repository.
 - Pull-request what-if checks and PR comments.
 - History queries through the API: history is stored from the first write, but
   asked for in the next milestone.
@@ -86,6 +95,14 @@ dependency.
 - Revised 2026-09-25: after looking at the merged views of outcome 2, the
   owner added "Make the reference system's views readable" (madarch-48x) to
   this milestone: measured on GitHub, 5 of 8 pages had labels under 12 px.
+- Revised 2026-09-29: after the agent skill was accepted, the owner narrowed
+  outcome 4 to one repository ("для MVP хватит одного репозитория. Я хочу
+  просто посмотреть, как это будет выглядеть для начала"): the skill sends the
+  model and the server never reads repositories; the invented reference system
+  is the server's second acceptance case. Joining several repositories moved to
+  `live-graph`. The two tasks on the query engine's process and memory
+  (madarch-ti6.1, madarch-ti6.2) still hold: the server keeps the history and
+  the engine for days.
 - Finding budget: kept at the value agreed at setup (see `findingBudget` in
   `.shady2k/config.json`); there is no history yet to justify another.
 
@@ -96,4 +113,5 @@ current from webhooks, CI and polling; extract facts with static plugins into
 the fact log; check a pull request against the graph before merge; answer
 questions about the past on both time axes; serve the graph to agents over MCP;
 find interactions in source code; show views per environment and architecture
-state; protect the server with tokens and single sign-on.
+state; protect the server with tokens and single sign-on; join several
+repositories into one graph by contract ids.

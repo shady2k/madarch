@@ -144,13 +144,14 @@ Near (MVP, `docs/milestones/mvp.md`):
 - A large invented reference system rendered as Mermaid and LikeC4 views, down
   to the modules of a service.
 - An agent skill that writes a repository's intended model, with evidence.
-- A server that turns a repository's address into diagrams and returns a view
-  on request.
+- A server that takes the model the skill sends from one repository and returns
+  its views on request.
 
 Next (`live-graph`):
 - Webhooks, CI and polling; extraction plugins and the fact log's extracted
   layer; pull-request checks; history queries; MCP; extraction from code; views
-  per environment and architecture state; authentication.
+  per environment and architecture state; authentication; several repositories
+  joined into one graph by contract ids.
 
 Later hypotheses:
 - Pull-request comments on the git hosts; a runner for closed networks that
