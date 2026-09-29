@@ -18,15 +18,16 @@ import { dirname, join, relative } from 'node:path';
 import type { WikiCell, WikiDiagramBlock, WikiLinkCell, WikiPage } from './pages.js';
 
 /** The folder a prefixed page id lives in, one level under `docs/`. */
-const FOLDER_BY_PREFIX: Record<string, string> = { domain: 'domains', element: 'elements' };
+const FOLDER_BY_PREFIX: Record<string, string> = { domain: 'domains', element: 'elements', zone: 'zones', 'data-category': 'data-categories' };
 
-/** Pages that sit directly under docs/: single pages holding a section apiece. */
+/** Pages that sit directly under docs/: the interfaces page and the zones and data categories indexes. */
 const PATH_BY_TOP_LEVEL_ID: Record<string, string> = { interfaces: 'interfaces.md', zones: 'zones.md', 'data-categories': 'data-categories.md' };
 
 /**
  * The project-relative file a page id is written to: `home` is the site's
- * index, a top-level id its own file under `docs/`, and `domain/<id>` or
- * `element/<id>` a file in its kind's folder. Throws for an id this writer
+ * index, a top-level id its own file under `docs/`, and a `<kind>/<id>` id
+ * (`domain/`, `element/`, `zone/`, `data-category/`) a file in its kind's
+ * folder. Throws for an id this writer
  * has no place for, so a new page kind cannot silently build into the
  * wrong place.
  */

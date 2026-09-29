@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -99,12 +99,19 @@ describe('scripts/wiki.ts', () => {
     expect(elementFiles.length).toBe(64);
     const checkout = readFileSync(join(out, 'source', 'docs', 'elements', 'checkout-api.md'), 'utf8');
     expect(checkout).toContain('# Checkout');
-    expect(checkout).toContain('| service | TypeScript, NestJS | [Internal network](../zones.md#internal-network) | [Ordering](../domains/ordering.md) |');
+    expect(checkout).toContain('| service | TypeScript, NestJS | [Internal network](../zones/internal.md) | [Ordering](../domains/ordering.md) |');
     expect(checkout).toContain('| [Payments](../domains/payments.md) | takes payment | — | — | — |');
     expect(readFileSync(join(out, 'source', 'docs', 'interfaces.md'), 'utf8')).toContain('## grpc');
-    expect(readFileSync(join(out, 'source', 'docs', 'zones.md'), 'utf8')).toContain('## Internal network');
-    expect(readFileSync(join(out, 'source', 'docs', 'data-categories.md'), 'utf8')).toContain('## Personal data');
+    const zonesIndex = readFileSync(join(out, 'source', 'docs', 'zones.md'), 'utf8');
+    expect(zonesIndex).toContain('[Internal network](zones/internal.md)');
+    const zonePage = readFileSync(join(out, 'source', 'docs', 'zones', 'internal.md'), 'utf8');
+    expect(zonePage).toContain('# Internal network');
+    expect(zonePage).toContain('| [Checkout](../elements/checkout-api.md) | service |');
+    const categoriesIndex = readFileSync(join(out, 'source', 'docs', 'data-categories.md'), 'utf8');
+    expect(categoriesIndex).toContain('[Personal data](data-categories/personal.md)');
+    expect(readFileSync(join(out, 'source', 'docs', 'data-categories', 'personal.md'), 'utf8')).toContain('# Personal data');
     expect(readFileSync(join(out, 'source', 'zensical.toml'), 'utf8')).toContain('"Ordering" = "domains/ordering.md"');
+    expect(readFileSync(join(out, 'source', 'zensical.toml'), 'utf8')).toContain('{ "Internal network" = "zones/internal.md" }');
     expect(readFileSync(FAKE_LOG, 'utf8')).toContain('zensical==0.0.66 build');
   }, { timeout: 60_000 });
 
@@ -226,6 +233,23 @@ describe('scripts/wiki.ts', () => {
     expect(runWiki([REFERENCE_SYSTEM, '--out', outFolder(), '--bogus']).status).toBe(2);
   });
 
+  test('--out= and --out "" exit 2 with the usage and leave the current directory alone', () => {
+    const cases: readonly string[][] = [
+      [REFERENCE_SYSTEM, '--out='],
+      [REFERENCE_SYSTEM, '--out', ''],
+    ];
+    for (const args of cases) {
+      const cwd = mkdtempSync(join(tmpdir(), 'madarch-wiki-emptyout-'));
+      mkdirSync(join(cwd, 'source'));
+      writeFileSync(join(cwd, 'source', 'marker.txt'), 'kept');
+      const run = spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8', cwd, env: { ...process.env, PATH: `${FAKE_BIN}:${process.env.PATH ?? ''}` } });
+      expect(run.status).toBe(2);
+      expect(`${run.stderr ?? ''}\n${run.stdout ?? ''}`).toContain('usage: bun scripts/wiki.ts');
+      expect(readFileSync(join(cwd, 'source', 'marker.txt'), 'utf8')).toBe('kept');
+      expect(existsSync(join(cwd, 'site'))).toBe(false);
+    }
+  }, { timeout: 120_000 });
+
   test('every home, domain and element page carries one diagram, the LikeC4 tab first by default', () => {
     const out = outFolder();
     expect(runWiki([REFERENCE_SYSTEM, '--out', out]).status).toBe(0);
@@ -252,8 +276,14 @@ describe('scripts/wiki.ts', () => {
       const text = readFileSync(join(source, ...file.split('/')), 'utf8');
       expect(text.split('class="wiki-diagram"').length - 1).toBe(1);
     }
-    for (const file of ['interfaces.md', 'zones.md', 'data-categories.md']) {
-      expect(readFileSync(join(source, file), 'utf8')).not.toContain('wiki-diagram');
+    for (const file of [
+      'interfaces.md',
+      'zones.md',
+      'data-categories.md',
+      ...readdirSync(join(source, 'zones')).map((name) => `zones/${name}`),
+      ...readdirSync(join(source, 'data-categories')).map((name) => `data-categories/${name}`),
+    ]) {
+      expect(readFileSync(join(source, ...file.split('/')), 'utf8')).not.toContain('wiki-diagram');
     }
   }, { timeout: 60_000 });
 

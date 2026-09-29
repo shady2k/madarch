@@ -12,7 +12,7 @@
  * pages, in the same order, every time — everything is sorted by code point,
  * never by locale, and nothing reads the clock.
  */
-import type { CompiledElement, CompiledInterface, CompiledModel, CompiledRelation } from '../model/compile.js';
+import type { CompiledCategory, CompiledElement, CompiledInterface, CompiledModel, CompiledRelation, CompiledZone } from '../model/compile.js';
 
 /** A link to another page of the same wiki, named by that page's id. */
 export interface WikiLinkCell {
@@ -62,7 +62,7 @@ export interface WikiDiagramBlock {
 }
 
 export interface WikiPage {
-  /** The page's stable id: `home`, `domain/<id>`, `element/<id>`, `interfaces`, `zones`, `data-categories`. */
+  /** The page's stable id: `home`, `domain/<id>`, `element/<id>`, `interfaces`, `zones`, `zone/<id>`, `data-categories`, `data-category/<id>`. */
   readonly id: string;
   readonly title: string;
   /** Where the page sits in the navigation, outermost first; empty for the home page. */
@@ -133,18 +133,18 @@ function elementLink(element: CompiledElement): WikiLinkCell {
   return { page: element.kind === 'domain' ? `domain/${element.id}` : `element/${element.id}`, text: displayName(element) };
 }
 
-/** The link to a zone's section of the zones page, refusing a zone the model does not declare. */
+/** The link to a zone's own page, refusing a zone the model does not declare. */
 function zoneLink(parts: ModelParts, zoneId: string, named: string): WikiLinkCell {
   const name = parts.zoneName.get(zoneId);
   if (name === undefined) throw new Error(`${named} names zone "${zoneId}", which the model does not have`);
-  return { page: 'zones', anchor: name, text: name };
+  return { page: `zone/${zoneId}`, text: name };
 }
 
-/** The link to a data category's section of its page, refusing a category the model does not declare. */
+/** The link to a data category's own page, refusing a category the model does not declare. */
 function categoryLink(parts: ModelParts, categoryId: string, named: string): WikiLinkCell {
   const name = parts.categoryName.get(categoryId);
   if (name === undefined) throw new Error(`${named} carries data category "${categoryId}", which the model does not have`);
-  return { page: 'data-categories', anchor: name, text: name };
+  return { page: `data-category/${categoryId}`, text: name };
 }
 
 /** The link to a contract's section of the interfaces page, refusing an interface the model does not declare. */
@@ -268,7 +268,7 @@ function elementPage(parts: ModelParts, element: CompiledElement): WikiPage {
       columns: ['Contract', 'Callers'],
       rows: [...provided]
         .sort((a, b) => byCodePoint(a.contract, b.contract) || byCodePoint(a.id, b.id))
-        .map((iface) => [iface.contract, callersOf(parts, iface.id)]),
+        .map((iface) => [contractLink(parts, iface.id, `interface "${iface.id}"`), callersOf(parts, iface.id)]),
     });
   }
 
@@ -349,53 +349,95 @@ function interfacesPage(parts: ModelParts): WikiPage {
   return { id: 'interfaces', title: 'Interfaces', nav: ['Interfaces'], blocks };
 }
 
-/** The zones page: a section per zone — its kind in the heading order — listing the elements in it. */
-function zonesPage(parts: ModelParts): WikiPage {
-  const blocks: WikiBlock[] = [{ kind: 'paragraph', text: `The model declares ${count(parts.model.zones.length, 'zone')}.` }];
-  const zones = parts.model.zones
-    .map((zone) => ({ zone, name: zone.name ?? zone.id }))
-    .sort((a, b) => byCodePoint(a.name, b.name) || byCodePoint(a.zone.id, b.zone.id));
-  for (const { zone, name } of zones) {
-    blocks.push({ kind: 'heading', level: 2, text: name });
-    const members = parts.model.elements.filter((element) => element.zones.includes(zone.id)).sort(byDisplayName);
-    blocks.push({
-      kind: 'table',
-      columns: ['Element', 'Kind'],
-      rows: members.map((element) => [elementLink(element), element.kind]),
-    });
-  }
-  return { id: 'zones', title: 'Zones', nav: ['Zones'], blocks };
+/** The model's zones or categories in the order the wiki shows them: by shown name, ties by id. */
+function orderedNamedParts<T extends { id: string; name?: string }>(declared: readonly T[]): readonly { part: T; name: string }[] {
+  return declared
+    .map((part) => ({ part, name: part.name ?? part.id }))
+    .sort((a, b) => byCodePoint(a.name, b.name) || byCodePoint(a.part.id, b.part.id));
 }
 
-/** The data categories page: a section per category listing the relations that carry it. */
-function categoriesPage(parts: ModelParts): WikiPage {
-  const blocks: WikiBlock[] = [
-    { kind: 'paragraph', text: `The model declares ${count(parts.model.categories.length, 'data category')}.` },
-  ];
-  const categories = parts.model.categories
-    .map((category) => ({ category, name: category.name ?? category.id }))
-    .sort((a, b) => byCodePoint(a.name, b.name) || byCodePoint(a.category.id, b.category.id));
-  for (const { category, name } of categories) {
-    blocks.push({ kind: 'heading', level: 2, text: name });
-    const carriers = parts.model.relations
-      .filter((relation) => (relation.transfers ?? []).some((transfer) => transfer.categories.includes(category.id)))
-      .sort((a, b) => byCodePoint(a.name ?? a.id, b.name ?? b.id) || byCodePoint(a.id, b.id));
-    blocks.push({
-      kind: 'table',
-      columns: ['Relation', 'From', 'To'],
-      rows: carriers.map((relation) => [
-        relation.name ?? relation.id,
-        elementLink(mustElement(parts, relation.from, `relation "${relation.id}"`)),
-        elementLink(mustElement(parts, relation.to, `relation "${relation.id}"`)),
-      ]),
-    });
-  }
-  return { id: 'data-categories', title: 'Data categories', nav: ['Data categories'], blocks };
+/** The zones index: every zone, listed and linked, with the count of the elements it holds. */
+function zonesPage(parts: ModelParts, zones: readonly { part: CompiledZone; name: string }[]): WikiPage {
+  const membersOf = (zoneId: string): number => parts.model.elements.filter((element) => element.zones.includes(zoneId)).length;
+  return {
+    id: 'zones',
+    title: 'Zones',
+    nav: ['Zones'],
+    blocks: [
+      { kind: 'paragraph', text: `The model declares ${count(parts.model.zones.length, 'zone')}.` },
+      {
+        kind: 'table',
+        columns: ['Zone', 'Elements'],
+        rows: zones.map(({ part, name }) => [zoneLink(parts, part.id, 'the zones page'), String(membersOf(part.id))]),
+      },
+    ],
+  };
+}
+
+/** One zone's page: the elements it holds — empty zones included — with kind, each linking to its page. */
+function zonePage(parts: ModelParts, zone: CompiledZone): WikiPage {
+  const members = parts.model.elements.filter((element) => element.zones.includes(zone.id)).sort(byDisplayName);
+  return {
+    id: `zone/${zone.id}`,
+    title: zone.name ?? zone.id,
+    // The second segment names the index page's group: it becomes the group's first child, the pages under it.
+    nav: ['Zones', 'Zones'],
+    blocks: [
+      {
+        kind: 'table',
+        columns: ['Element', 'Kind'],
+        rows: members.map((element) => [elementLink(element), element.kind]),
+      },
+    ],
+  };
+}
+
+/** The data categories index: every category, listed and linked, with the count of the relations that carry it. */
+function categoriesPage(parts: ModelParts, categories: readonly { part: CompiledCategory; name: string }[]): WikiPage {
+  const carriersOf = (categoryId: string): number =>
+    parts.model.relations.filter((relation) => (relation.transfers ?? []).some((transfer) => transfer.categories.includes(categoryId))).length;
+  return {
+    id: 'data-categories',
+    title: 'Data categories',
+    nav: ['Data categories'],
+    blocks: [
+      { kind: 'paragraph', text: `The model declares ${count(parts.model.categories.length, 'data category')}.` },
+      {
+        kind: 'table',
+        columns: ['Data category', 'Relations'],
+        rows: categories.map(({ part, name }) => [categoryLink(parts, part.id, 'the data categories page'), String(carriersOf(part.id))]),
+      },
+    ],
+  };
+}
+
+/** One data category's page: the relations that carry it, each with its name and its ends linked. */
+function categoryPage(parts: ModelParts, category: CompiledCategory): WikiPage {
+  const carriers = parts.model.relations
+    .filter((relation) => (relation.transfers ?? []).some((transfer) => transfer.categories.includes(category.id)))
+    .sort((a, b) => byCodePoint(a.name ?? a.id, b.name ?? b.id) || byCodePoint(a.id, b.id));
+  return {
+    id: `data-category/${category.id}`,
+    title: category.name ?? category.id,
+    nav: ['Data categories', 'Data categories'],
+    blocks: [
+      {
+        kind: 'table',
+        columns: ['Relation', 'From', 'To'],
+        rows: carriers.map((relation) => [
+          relation.name ?? relation.id,
+          elementLink(mustElement(parts, relation.from, `relation "${relation.id}"`)),
+          elementLink(mustElement(parts, relation.to, `relation "${relation.id}"`)),
+        ]),
+      },
+    ],
+  };
 }
 
 /**
  * The pages this task builds: the home page, one page per domain and per
- * non-domain element, and the interfaces, zones and data categories pages.
+ * non-domain element, the interfaces page, and the zones and data
+ * categories indexes — each followed by a page per zone and per category.
  * `views` holds the element ids the rendered view set has a view of; every
  * home, domain and element page carries the diagram of the view it belongs
  * to (requirement `diagrams`).
@@ -458,7 +500,11 @@ export function wikiPages(model: CompiledModel, views: readonly string[]): WikiP
   // Elements no domain holds: people, externals and the broker at the top level.
   const independents = model.elements.filter((element) => element.kind !== 'domain' && !underDomain.has(element.id)).sort(byDisplayName);
   pages.push(...independents.map((element) => elementPage(parts, element)));
-  pages.push(interfacesPage(parts), zonesPage(parts), categoriesPage(parts));
+  pages.push(interfacesPage(parts));
+  const zones = orderedNamedParts(model.zones);
+  pages.push(zonesPage(parts, zones), ...zones.map(({ part }) => zonePage(parts, part)));
+  const categories = orderedNamedParts(model.categories);
+  pages.push(categoriesPage(parts, categories), ...categories.map(({ part }) => categoryPage(parts, part)));
   return pages;
 }
 
