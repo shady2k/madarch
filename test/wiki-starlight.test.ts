@@ -209,6 +209,25 @@ describe('the template install and its cache', () => {
     }
   });
 
+  test('refuses an install whose astro stays silent, naming the probe', () => {
+    const bin = join(mkdtempSync(join(tmpdir(), 'madarch-silentmark-')), 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(
+      join(bin, 'bun'),
+      '#!/bin/sh\ncase "$1" in\n  --version) printf "1.4.2-fake\\n" ;;\n  install) mkdir -p node_modules/.bin && printf "#!/bin/sh\\n" > node_modules/.bin/astro && chmod +x node_modules/.bin/astro ;;\nesac\n',
+      { mode: 0o755 },
+    );
+    const savedPath = process.env.PATH;
+    process.env.PATH = `${bin}:${savedPath ?? ''}`;
+    try {
+      const result = ensureStarlightInstall(STARLIGHT_TEMPLATE_DIR, join(mkdtempSync(join(tmpdir(), 'madarch-cache-')), 'cache'));
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.message).toContain('does not answer --version');
+    } finally {
+      process.env.PATH = savedPath;
+    }
+  });
+
   test('installs the template once into the cache the first time, and skips the second', () => {
     const bin = fakeBunDir();
     const cache = join(mkdtempSync(join(tmpdir(), 'madarch-cache-')), 'cache');
@@ -384,6 +403,12 @@ describe('writeStarlightProject', () => {
     const home = readFileSync(join(dir, 'src', 'content', 'docs', 'index.md'), 'utf8');
     expect(home.startsWith('---\ntitle: "Home"\n---\n')).toBe(true);
     expect(home).not.toContain('# Home');
+    // The strip eats the title line and its blank line, nothing else: the
+    // tabs follow the anchor directly.
+    expect(home.startsWith('---\ntitle: "Home"\n---\n<span id="home"></span>\n\n<div')).toBe(true);
+    // A multi-word title goes whole: no fragment of it may survive.
+    const internal = readFileSync(join(dir, 'src', 'content', 'docs', 'zones', 'internal.md'), 'utf8');
+    expect(internal).not.toContain('# Internal network');
     // A link to the title heading still lands: where the body's heading
     // was, an invisible anchor keeps the title's slug.
     expect(home).toContain('<span id="home"></span>');
