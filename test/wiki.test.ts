@@ -85,10 +85,20 @@ describe('scripts/wiki.ts', () => {
     const ordering = readFileSync(join(out, 'source', 'docs', 'domains', 'ordering.md'), 'utf8');
     expect(ordering).toContain('# Ordering');
     expect(ordering).toContain('The Ordering domain holds 15 elements.');
-    expect(ordering).toContain('| Checkout | service | TypeScript, NestJS |');
+    expect(ordering).toContain('| [Checkout](../elements/checkout-api.md) | service | TypeScript, NestJS |');
 
     const domainFiles = readdirSync(join(out, 'source', 'docs', 'domains'));
     expect(domainFiles.sort()).toEqual(['catalog.md', 'fulfilment.md', 'ordering.md', 'payments.md', 'platform.md', 'storefront.md']);
+
+    const elementFiles = readdirSync(join(out, 'source', 'docs', 'elements'));
+    expect(elementFiles.length).toBe(64);
+    const checkout = readFileSync(join(out, 'source', 'docs', 'elements', 'checkout-api.md'), 'utf8');
+    expect(checkout).toContain('# Checkout');
+    expect(checkout).toContain('| service | TypeScript, NestJS | [Internal network](../zones.md#internal-network) | [Ordering](../domains/ordering.md) |');
+    expect(checkout).toContain('| [Payments](../domains/payments.md) | takes payment | — | — | — |');
+    expect(readFileSync(join(out, 'source', 'docs', 'interfaces.md'), 'utf8')).toContain('## grpc');
+    expect(readFileSync(join(out, 'source', 'docs', 'zones.md'), 'utf8')).toContain('## Internal network');
+    expect(readFileSync(join(out, 'source', 'docs', 'data-categories.md'), 'utf8')).toContain('## Personal data');
     expect(readFileSync(join(out, 'source', 'zensical.toml'), 'utf8')).toContain('"Ordering" = "domains/ordering.md"');
     expect(readFileSync(FAKE_LOG, 'utf8')).toContain('zensical==0.0.66 build');
   });
