@@ -183,6 +183,10 @@ function runEngineBuild(source: string): { status: number | null; output: string
 }
 
 export function buildWiki(repoPath: string, outPath: string, options: WikiBuildOptions = {}): WikiBuildResult {
+  // A reusable entry point (the server calls it too): an empty output value
+  // would resolve to the current directory and be cleared below. The command
+  // line refuses it earlier, with the usage; this guard stands behind it.
+  if (outPath.trim() === '') return { code: 2, message: 'the output folder is empty: pass the folder the wiki is built into, e.g. --out <folder>' };
   const env = options.env ?? process.env;
   const chosen = chooseEngine(options.engine, env);
   if ('code' in chosen) return chosen;

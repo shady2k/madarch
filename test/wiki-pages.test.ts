@@ -343,6 +343,78 @@ describe('wiki page data', () => {
     ]);
   });
 
+  test('a page per zone and per data category sits after its index page, in name order', () => {
+    const pages = pagesOfModel(MODEL_WITH_ZONES_YAML);
+    expect(pages.map((page) => page.id)).toEqual([
+      'home',
+      'element/z-a',
+      'element/audit',
+      'element/customer',
+      'element/bus',
+      'element/a-mirror',
+      'element/b-mirror',
+      'element/orders',
+      'element/a-z',
+      'interfaces',
+      'zones',
+      'zone/dmz',
+      'zone/internal',
+      'zone/pci',
+      'data-categories',
+      'data-category/cat-z',
+      'data-category/cat-a',
+    ]);
+  });
+
+  test('two zones with the same name give two pages and two distinct links', () => {
+    const yaml = [
+      'version: 1',
+      '',
+      'zones:',
+      '  - id: z1',
+      '    kind: network',
+      '    name: Same',
+      '  - id: z2',
+      '    kind: network',
+      '    name: Same',
+      '',
+      'elements:',
+      '  - id: e1',
+      '    kind: service',
+      '    name: One',
+      '    zones:',
+      '      add: [z1]',
+      '  - id: e2',
+      '    kind: service',
+      '    name: Two',
+      '    zones:',
+      '      add: [z2]',
+      '',
+    ].join('\n');
+    const pages = pagesOfModel(yaml);
+    const first = pageOf(pages, 'zone/z1');
+    const second = pageOf(pages, 'zone/z2');
+    expect(first.title).toBe('Same');
+    expect(second.title).toBe('Same');
+    expect(first.nav).toEqual(['Zones', 'Zones']);
+    expect(tableOf(first, ['Element', 'Kind']).rows).toEqual([[{ page: 'element/e1', text: 'One' }, 'service']]);
+    expect(tableOf(second, ['Element', 'Kind']).rows).toEqual([[{ page: 'element/e2', text: 'Two' }, 'service']]);
+
+    // Each element page links its own zone's page, never a shared heading.
+    expect(tableOf(pageOf(pages, 'element/e1'), ['Kind', 'Technology', 'Zones', 'Ancestors']).rows).toEqual([
+      ['service', '—', [{ page: 'zone/z1', text: 'Same' }], '—'],
+    ]);
+    expect(tableOf(pageOf(pages, 'element/e2'), ['Kind', 'Technology', 'Zones', 'Ancestors']).rows).toEqual([
+      ['service', '—', [{ page: 'zone/z2', text: 'Same' }], '—'],
+    ]);
+
+    // The index lists and links both, name ties broken by id.
+    expect(tableOf(pageOf(pages, 'zones'), ['Zone', 'Elements']).rows).toEqual([
+      [{ page: 'zone/z1', text: 'Same' }, '1'],
+      [{ page: 'zone/z2', text: 'Same' }, '1'],
+    ]);
+  });
+
   test('a child domain keeps its own page kind, ordered before its elements, and independents sort by name', () => {
     const yaml = [
       'version: 1',
@@ -453,8 +525,8 @@ describe('wiki page data', () => {
     const provides = sectionTable(payments, 'Provides');
     expect(provides.columns).toEqual(['Contract', 'Callers']);
     expect(provides.rows).toEqual([
-      ['http::POST::/pay', [{ page: 'element/checkout', text: 'Checkout' }]],
-      ['http::POST::/refund', '—'],
+      [{ page: 'interfaces', anchor: 'http', text: 'http::POST::/pay' }, [{ page: 'element/checkout', text: 'Checkout' }]],
+      [{ page: 'interfaces', anchor: 'http', text: 'http::POST::/refund' }, '—'],
     ]);
     const incoming = sectionTable(payments, 'Incoming relations');
     expect(incoming.columns).toEqual(['Other end', 'Name', 'Interface', 'Action', 'Data categories']);
@@ -506,7 +578,7 @@ describe('wiki page data', () => {
     ]);
   });
 
-  test('the zones page has a section per zone listing its elements, empty zones included', () => {
+  test('the zones page lists and links every zone, and a page per zone holds its elements', () => {
     const pages = pagesOfModel(MODEL_WITH_ZONES_YAML);
     const zones = pageOf(pages, 'zones');
     expect(zones.title).toBe('Zones');
@@ -514,34 +586,52 @@ describe('wiki page data', () => {
     const top = sectionsOf(zones).get('(top)')!;
     expect(top.some((block) => block.kind === 'paragraph' && block.text === 'The model declares 3 zones.')).toBe(true);
 
-    // Sections in code-point order of the zones' names; a zone with no elements still lists under its heading.
-    expect([...sectionsOf(zones).keys()].filter((key) => key !== '(top)')).toEqual(['DMZ', 'Internal network', 'PCI']);
-    const dmz = sectionTable(zones, 'DMZ');
-    expect(dmz.columns).toEqual(['Element', 'Kind']);
-    expect(dmz.rows).toEqual([[{ page: 'element/audit', text: 'Audit' }, 'service']]);
-    const internal = sectionTable(zones, 'Internal network');
-    expect(internal.rows).toEqual([
+    // Every zone linked, in code-point order of the zones' names; an empty zone still lists, with 0.
+    expect(tableOf(zones, ['Zone', 'Elements']).rows).toEqual([
+      [{ page: 'zone/dmz', text: 'DMZ' }, '1'],
+      [{ page: 'zone/internal', text: 'Internal network' }, '4'],
+      [{ page: 'zone/pci', text: 'PCI' }, '0'],
+    ]);
+
+    // A page per zone: the elements it holds, with kind, each linked, empty zones included.
+    const dmz = pageOf(pages, 'zone/dmz');
+    expect(dmz.title).toBe('DMZ');
+    expect(dmz.nav).toEqual(['Zones', 'Zones']);
+    expect(tableOf(dmz, ['Element', 'Kind']).rows).toEqual([[{ page: 'element/audit', text: 'Audit' }, 'service']]);
+    const internal = pageOf(pages, 'zone/internal');
+    expect(internal.title).toBe('Internal network');
+    expect(tableOf(internal, ['Element', 'Kind']).rows).toEqual([
       [{ page: 'element/z-a', text: 'Alpha' }, 'service'],
       [{ page: 'element/bus', text: 'Event bus' }, 'broker'],
       [{ page: 'element/orders', text: 'Orders' }, 'service'],
       [{ page: 'element/a-z', text: 'Zulu' }, 'service'],
     ]);
-    expect(sectionTable(zones, 'PCI').rows).toEqual([]);
+    expect(tableOf(pageOf(pages, 'zone/pci'), ['Element', 'Kind']).rows).toEqual([]);
   });
 
-  test('the data categories page has a section per category listing the relations that carry it', () => {
+  test('the data categories page lists and links every category, and a page per category holds its relations', () => {
     const pages = pagesOfModel(MODEL_WITH_ZONES_YAML);
     const categories = pageOf(pages, 'data-categories');
     expect(categories.title).toBe('Data categories');
     expect(categories.nav).toEqual(['Data categories']);
     const top = sectionsOf(categories).get('(top)')!;
     expect(top.some((block) => block.kind === 'paragraph' && block.text === 'The model declares 2 data categories.')).toBe(true);
-    expect([...sectionsOf(categories).keys()].filter((key) => key !== '(top)')).toEqual(['Order data', 'Personal data']);
 
-    const orderData = sectionTable(categories, 'Order data');
-    expect(orderData.columns).toEqual(['Relation', 'From', 'To']);
-    expect(orderData.rows).toEqual([['Reads audits', { page: 'element/orders', text: 'Orders' }, { page: 'element/audit', text: 'Audit' }]]);
-    expect(sectionTable(categories, 'Personal data').rows).toEqual([
+    expect(tableOf(categories, ['Data category', 'Relations']).rows).toEqual([
+      [{ page: 'data-category/cat-z', text: 'Order data' }, '1'],
+      [{ page: 'data-category/cat-a', text: 'Personal data' }, '2'],
+    ]);
+
+    // A page per category: the relations that carry it, each end linked.
+    const orderData = pageOf(pages, 'data-category/cat-z');
+    expect(orderData.title).toBe('Order data');
+    expect(orderData.nav).toEqual(['Data categories', 'Data categories']);
+    expect(tableOf(orderData, ['Relation', 'From', 'To']).rows).toEqual([
+      ['Reads audits', { page: 'element/orders', text: 'Orders' }, { page: 'element/audit', text: 'Audit' }],
+    ]);
+    const personal = pageOf(pages, 'data-category/cat-a');
+    expect(personal.title).toBe('Personal data');
+    expect(tableOf(personal, ['Relation', 'From', 'To']).rows).toEqual([
       ['Publishes orders', { page: 'element/orders', text: 'Orders' }, { page: 'element/bus', text: 'Event bus' }],
       ['Reads audits', { page: 'element/orders', text: 'Orders' }, { page: 'element/audit', text: 'Audit' }],
     ]);
@@ -552,7 +642,7 @@ describe('wiki page data', () => {
     const orders = pageOf(pages, 'element/orders');
 
     const summary = tableOf(orders, ['Kind', 'Technology', 'Zones', 'Ancestors']);
-    expect(summary.rows).toEqual([['service', '—', [{ page: 'zones', anchor: 'Internal network', text: 'Internal network' }], '—']]);
+    expect(summary.rows).toEqual([['service', '—', [{ page: 'zone/internal', text: 'Internal network' }], '—']]);
 
     const outgoing = sectionTable(orders, 'Outgoing relations');
     expect(outgoing.rows).toEqual([
@@ -561,14 +651,14 @@ describe('wiki page data', () => {
         'Reads audits',
         { page: 'interfaces', anchor: 'http', text: 'http::POST::/pay' },
         '—',
-        [{ page: 'data-categories', anchor: 'Order data', text: 'Order data' }, { page: 'data-categories', anchor: 'Personal data', text: 'Personal data' }],
+        [{ page: 'data-category/cat-z', text: 'Order data' }, { page: 'data-category/cat-a', text: 'Personal data' }],
       ],
       [
         { page: 'element/bus', text: 'Event bus' },
         'Publishes orders',
         { page: 'interfaces', anchor: 'topic', text: 'topic::orders-placed' },
         'send',
-        [{ page: 'data-categories', anchor: 'Personal data', text: 'Personal data' }],
+        [{ page: 'data-category/cat-a', text: 'Personal data' }],
       ],
       [{ page: 'element/a-mirror', text: 'Mirror' }, 'Relay one', '—', '—', '—'],
       [{ page: 'element/b-mirror', text: 'Mirror' }, 'Relay two', '—', '—', '—'],
@@ -650,11 +740,29 @@ describe('wiki page data', () => {
       for (const link of linksOf(row[1]!)) expect(link.page).toMatch(/^(element|domain)\//);
       for (const link of linksOf(row[2]!)) expect(link.page).toMatch(/^(element|domain)\//);
     }
-
-    const zones = pageOf(pages, 'zones');
-    expect([...sectionsOf(zones).keys()].filter((key) => key !== '(top)')).toEqual(['Demilitarised zone', 'Internal network', 'PCI DSS cardholder data environment', 'Public internet']);
-    const categories = pageOf(pages, 'data-categories');
-    expect([...sectionsOf(categories).keys()].filter((key) => key !== '(top)')).toEqual(['Order data', 'Payment card data', 'Personal data']);
+    // Every zone and category linked from its index page, in name order; a page per id behind each.
+    expect(tableOf(pageOf(pages, 'zones'), ['Zone', 'Elements']).rows.map((row) => row[0])).toEqual([
+      { page: 'zone/dmz', text: 'Demilitarised zone' },
+      { page: 'zone/internal', text: 'Internal network' },
+      { page: 'zone/pci', text: 'PCI DSS cardholder data environment' },
+      { page: 'zone/internet', text: 'Public internet' },
+    ]);
+    expect(tableOf(pageOf(pages, 'data-categories'), ['Data category', 'Relations']).rows.map((row) => row[0])).toEqual([
+      { page: 'data-category/order', text: 'Order data' },
+      { page: 'data-category/payment-card', text: 'Payment card data' },
+      { page: 'data-category/personal', text: 'Personal data' },
+    ]);
+    expect(pages.filter((page) => page.id.startsWith('zone/')).map((page) => page.id).sort()).toEqual([
+      'zone/dmz',
+      'zone/internal',
+      'zone/internet',
+      'zone/pci',
+    ]);
+    expect(pages.filter((page) => page.id.startsWith('data-category/')).map((page) => page.id).sort()).toEqual([
+      'data-category/order',
+      'data-category/payment-card',
+      'data-category/personal',
+    ]);
 
     // Scenario element-page: checkout-api's own page.
     const checkout = pageOf(pages, 'element/checkout-api');
@@ -663,7 +771,7 @@ describe('wiki page data', () => {
       [
         'service',
         'TypeScript, NestJS',
-        [{ page: 'zones', anchor: 'Internal network', text: 'Internal network' }],
+        [{ page: 'zone/internal', text: 'Internal network' }],
         [{ page: 'domain/ordering', text: 'Ordering' }],
       ],
     ]);
@@ -713,6 +821,12 @@ describe('wiki page diagrams', () => {
 
     for (const id of ['interfaces', 'zones', 'data-categories']) {
       expect(pageOf(pages, id).blocks.some((block) => block.kind === 'diagram')).toBe(false);
+    }
+
+    // A zone or category page carries no diagram either.
+    const zoned = pagesOfModel(MODEL_WITH_ZONES_YAML, ['a-z', 'z-a']);
+    for (const id of ['zones', 'zone/dmz', 'zone/internal', 'data-categories', 'data-category/cat-a']) {
+      expect(pageOf(zoned, id).blocks.some((block) => block.kind === 'diagram')).toBe(false);
     }
   });
 

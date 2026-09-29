@@ -48,7 +48,10 @@ function main(args: readonly string[]): number {
       return 2;
     }
   }
-  if (repoPath === undefined || out === undefined) {
+  // An empty output value (`--out=` or `--out ""`) would resolve to the
+  // current directory and the build would remove its `source/` and `site/`
+  // there: refuse it with the usage, before anything is removed or written.
+  if (repoPath === undefined || out === undefined || out.trim() === '') {
     console.error(USAGE);
     return 2;
   }
