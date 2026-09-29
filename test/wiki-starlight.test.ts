@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { cleanStarlightSource, ensureStarlightInstall, linkStarlightNodeModules, STARLIGHT_TEMPLATE_DIR } from '../src/wiki/starlight.js';
 import type { WikiPage } from '../src/wiki/pages.js';
 import { preparePages, renderPageBody, type WikiDiagramAsset } from '../src/wiki/render.js';
 import { pageRoute, starlightLinks, starlightSidebar, starlightSlug, writeStarlightProject, STARLIGHT_CACHE_ROOT } from '../src/wiki/starlight.js';
@@ -109,8 +111,146 @@ describe('starlight page rendering', () => {
   });
 });
 
+describe('the template install and its cache', () => {
+  function fakeBunDir(): string {
+    const dir = join(mkdtempSync(join(tmpdir(), 'madarch-fakebun-')), 'bin');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, 'bun'),
+      '#!/bin/sh\ncase "$1" in\n  --version) printf "1.4.2-fake\\n" ;;\n  install) mkdir -p node_modules/.bin && : > node_modules/.bin/astro ;;\nesac\n',
+      { mode: 0o755 },
+    );
+    return dir;
+  }
+
+  test('refuses a template folder that is not there, naming the path', () => {
+    const absent = join(tmpdir(), 'madarch-absent-template');
+    const result = ensureStarlightInstall(absent, join(tmpdir(), 'madarch-cache-x'));
+    expect(result).toEqual({ ok: false, message: expect.stringContaining(absent) });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain('restore it there');
+  });
+
+  test('refuses a failed install naming the cause and the install output', () => {
+    const bin = join(mkdtempSync(join(tmpdir(), 'madarch-failbun-')), 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, 'bun'), '#!/bin/sh\ncase "$1" in\n  --version) printf "1.4.2-fake\\n" ;;\n  install) printf "bun install exploded\\n" >&2; exit 1 ;;\nesac\n', { mode: 0o755 });
+    const savedPath = process.env.PATH;
+    process.env.PATH = `${bin}:${savedPath ?? ''}`;
+    try {
+      const result = ensureStarlightInstall(STARLIGHT_TEMPLATE_DIR, join(mkdtempSync(join(tmpdir(), 'madarch-cache-')), 'cache'));
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.message).toContain('could not be installed');
+        expect(result.message).toContain('failed (exit 1)');
+        expect(result.message).toContain('bun install exploded');
+      }
+    } finally {
+      process.env.PATH = savedPath;
+    }
+  });
+
+  test('refuses a missing bun naming how to install it, before writing anything', () => {
+    const savedPath = process.env.PATH;
+    process.env.PATH = mkdtempSync(join(tmpdir(), 'madarch-empty-'));
+    const cache = join(mkdtempSync(join(tmpdir(), 'madarch-cache-')), 'cache');
+    try {
+      const result = ensureStarlightInstall(STARLIGHT_TEMPLATE_DIR, cache);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.message).toContain('bun');
+        expect(result.message).toContain('bun.sh');
+      }
+      expect(existsSync(cache)).toBe(false);
+    } finally {
+      process.env.PATH = savedPath;
+    }
+  });
+
+  test('installs the template once into the cache the first time, and skips the second', () => {
+    const bin = fakeBunDir();
+    const cache = join(mkdtempSync(join(tmpdir(), 'madarch-cache-')), 'cache');
+    const savedPath = process.env.PATH;
+    process.env.PATH = `${bin}:${savedPath ?? ''}`;
+    try {
+      const first = ensureStarlightInstall(STARLIGHT_TEMPLATE_DIR, cache);
+      expect(first.ok).toBe(true);
+      if (!first.ok) throw new Error('the install must succeed');
+      expect(first.project.startsWith(cache)).toBe(true);
+      expect(existsSync(join(first.project, 'node_modules', '.bin', 'astro'))).toBe(true);
+      expect(readFileSync(join(first.project, 'package.json'), 'utf8')).toContain('madarch-wiki-starlight');
+      // A sentinel beside the install marker: the second call must skip the
+      // install and leave it exactly as the first one left it.
+      writeFileSync(join(first.project, 'node_modules', 'sentinel'), 'kept');
+      const second = ensureStarlightInstall(STARLIGHT_TEMPLATE_DIR, cache);
+      expect(second).toEqual(first);
+      expect(readFileSync(join(first.project, 'node_modules', 'sentinel'), 'utf8')).toBe('kept');
+    } finally {
+      process.env.PATH = savedPath;
+    }
+  });
+
+  test('the same template digests to one cache folder, a changed template to another', () => {
+    const bin = fakeBunDir();
+    const cache = join(mkdtempSync(join(tmpdir(), 'madarch-cache-')), 'cache');
+    const savedPath = process.env.PATH;
+    process.env.PATH = `${bin}:${savedPath ?? ''}`;
+    try {
+      const template = join(mkdtempSync(join(tmpdir(), 'madarch-tpl-')), 'starlight');
+      cpDirectory(STARLIGHT_TEMPLATE_DIR, template);
+      const one = ensureStarlightInstall(template, cache);
+      const two = ensureStarlightInstall(template, cache);
+      expect(one.ok && two.ok && one.project).toBe(two.ok && two.project);
+      writeFileSync(join(template, 'package.json'), '{}\n');
+      const changed = ensureStarlightInstall(template, cache);
+      expect(one.ok && changed.ok && one.project !== changed.project).toBe(true);
+    } finally {
+      process.env.PATH = savedPath;
+    }
+  });
+});
+
+describe('the engine build seams', () => {
+  test('linkStarlightNodeModules points node_modules at the install; cleanStarlightSource removes the link and caches, never the target', () => {
+    const dir = join(mkdtempSync(join(tmpdir(), 'madarch-link-')), 'project');
+    const cache = join(mkdtempSync(join(tmpdir(), 'madarch-link-')), 'cache');
+    mkdirSync(join(cache, 'node_modules'), { recursive: true });
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'marker.txt'), 'kept');
+    linkStarlightNodeModules(cache, dir);
+    expect(readlinkSync(join(dir, 'node_modules'))).toBe(join(cache, 'node_modules'));
+    cleanStarlightSource(dir);
+    mkdirSync(join(dir, '.astro'), { recursive: true });
+    symlinkSync(cache, join(dir, 'node_modules'), 'dir');
+    cleanStarlightSource(dir);
+    expect(existsSync(join(dir, '.astro'))).toBe(false);
+    expect(existsSync(join(dir, 'node_modules'))).toBe(false);
+    expect(existsSync(join(cache, 'node_modules'))).toBe(true);
+    expect(readFileSync(join(dir, 'marker.txt'), 'utf8')).toBe('kept');
+  });
+});
+
+function cpDirectory(from: string, to: string): void {
+  mkdirSync(to, { recursive: true });
+  for (const entry of readdirSync(from, { withFileTypes: true })) {
+    const source = join(from, entry.name);
+    const target = join(to, entry.name);
+    if (entry.isDirectory()) cpDirectory(source, target);
+    else writeFileSync(target, readFileSync(source));
+  }
+}
+
 describe('writeStarlightProject', () => {
   const OPTIONS = { siteName: 'reference-system', diagrams: DIAGRAMS, firstTab: 'likec4' as const };
+
+  test('escapes backslashes and quotes in the frontmatter title', () => {
+    const page: WikiPage = { id: 'zone/internal', title: 'a"b\\c', nav: ['Zones'], blocks: [] };
+    const dir = join(mkdtempSync(join(tmpdir(), 'madarch-frontmatter-')), 'source');
+    writeStarlightProject([page], dir, OPTIONS);
+    const text = readFileSync(join(dir, 'src', 'content', 'docs', 'zones', 'internal.md'), 'utf8');
+    expect(text.startsWith('---\ntitle: "a\\"b\\\\c"\n---\n')).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+  });
 
   function project(): string {
     return join(mkdtempSync(join(tmpdir(), 'madarch-starlight-')), 'source');
@@ -159,8 +299,16 @@ describe('writeStarlightProject', () => {
   });
 
   test('the install cache sits outside the repository and the out folder', () => {
-    expect(STARLIGHT_CACHE_ROOT.startsWith(tmpdir())).toBe(true);
+    expect(STARLIGHT_CACHE_ROOT).toBe(join(tmpdir(), 'madarch-wiki-starlight'));
     expect(STARLIGHT_CACHE_ROOT.includes(process.cwd())).toBe(false);
+  });
+
+  test('the stylesheet pins the container rule on the engine pane', () => {
+    const dir = project();
+    writeStarlightProject(PAGES, dir, OPTIONS);
+    const css = readFileSync(join(dir, 'src', 'styles', 'wiki.css'), 'utf8');
+    expect(css).toContain('.main-pane {\n  container-type: inline-size;\n}');
+    rmSync(dir, { recursive: true, force: true });
   });
 });
 
