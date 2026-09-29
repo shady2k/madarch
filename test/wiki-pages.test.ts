@@ -45,10 +45,10 @@ const MODEL_YAML = [
   '    technology: Go',
   '',
   'interfaces:',
-  '  - id: pay-refund',
+  '  - id: p1',
   '    provider: payments-api',
   '    contract: http::POST::/refund',
-  '  - id: pay-api',
+  '  - id: p2',
   '    provider: payments-api',
   '    contract: http::POST::/pay',
   '',
@@ -57,16 +57,19 @@ const MODEL_YAML = [
   '    name: Takes payment',
   '    from: checkout',
   '    to: payments-api',
-  '    interface: pay-api',
+  '    interface: p2',
   '',
 ].join('\n');
 
 /**
- * A second model, with zones, data categories, topic and bare contracts and
- * actions. Deliberately unsorted where order matters: the categories come
- * personal before order, the audit interfaces audit2 before audit and the
- * plain contract in the middle, the relations name their mirrors first, and
- * two elements share the name Mirror to force the id tiebreak.
+ * A second model, with zones, data categories, topic and data contracts and
+ * actions. Deliberately unsorted where order matters, in both directions the
+ * pages must not echo: the compiled model hands everything over sorted by
+ * id, so ids run against the names (a-z is Zulu, cat-a is Personal data,
+ * p1 is the refund contract, r1 is Reads audits), a transfer repeats a
+ * category, another carries none, and two elements share the name Mirror
+ * to force the id tiebreak. Every list the pages show must come out in
+ * code-point order of what the reader sees.
  */
 const MODEL_WITH_ZONES_YAML = [
   'version: 1',
@@ -83,9 +86,9 @@ const MODEL_WITH_ZONES_YAML = [
   '    name: PCI',
   '',
   'categories:',
-  '  - id: personal',
+  '  - id: cat-a',
   '    name: Personal data',
-  '  - id: order',
+  '  - id: cat-z',
   '    name: Order data',
   '',
   'elements:',
@@ -107,6 +110,16 @@ const MODEL_WITH_ZONES_YAML = [
   '    name: Event bus',
   '    zones:',
   '      add: [internal]',
+  '  - id: a-z',
+  '    kind: service',
+  '    name: Zulu',
+  '    zones:',
+  '      add: [internal]',
+  '  - id: z-a',
+  '    kind: service',
+  '    name: Alpha',
+  '    zones:',
+  '      add: [internal]',
   '  - id: b-mirror',
   '    kind: service',
   '    name: Mirror',
@@ -115,20 +128,29 @@ const MODEL_WITH_ZONES_YAML = [
   '    name: Mirror',
   '',
   'interfaces:',
-  '  - id: audit-api2',
+  '  - id: p1',
   '    provider: audit',
-  '    contract: http::GET::/audit2',
-  '  - id: plain-table',
+  '    contract: http::POST::/refund',
+  '  - id: p2',
   '    provider: audit',
-  '    contract: data::settlement-reports',
+  '    contract: http::POST::/pay',
   '  - id: topic-orders',
   '    provider: bus',
   '    contract: topic::orders-placed',
-  '  - id: audit-api',
-  '    provider: audit',
-  '    contract: http::GET::/audit',
   '',
   'relations:',
+  '  - id: call-a',
+  '    name: Alpha calls',
+  '    from: z-a',
+  '    to: bus',
+  '    interface: topic-orders',
+  '    action: send',
+  '  - id: call-z',
+  '    name: Zulu calls',
+  '    from: a-z',
+  '    to: bus',
+  '    interface: topic-orders',
+  '    action: send',
   '  - id: orders-relay2',
   '    name: Relay two',
   '    from: orders',
@@ -137,22 +159,16 @@ const MODEL_WITH_ZONES_YAML = [
   '    name: Relay one',
   '    from: orders',
   '    to: a-mirror',
-  '  - id: orders-reads',
+  '  - id: r1',
   '    name: Reads audits',
   '    from: orders',
   '    to: audit',
-  '    interface: audit-api',
+  '    interface: p2',
   '    transfers:',
   '      - direction: reverse',
   '        confidentiality: internal',
-  '        categories: [personal, order, personal]',
-  '  - id: audit-subscribes',
-  '    name: Subscribes to orders',
-  '    from: audit',
-  '    to: bus',
-  '    interface: topic-orders',
-  '    action: receive',
-  '  - id: orders-publishes',
+  '        categories: [cat-a, cat-z, cat-a]',
+  '  - id: r2',
   '    name: Publishes orders',
   '    from: orders',
   '    to: bus',
@@ -161,7 +177,7 @@ const MODEL_WITH_ZONES_YAML = [
   '    transfers:',
   '      - direction: forward',
   '        confidentiality: restricted',
-  '        categories: [personal]',
+  '        categories: [cat-a]',
   '      - direction: reverse',
   '        confidentiality: internal',
   '        categories: []',
@@ -330,31 +346,46 @@ describe('wiki page data', () => {
       'version: 1',
       '',
       'elements:',
-      '  - id: outer',
+      '  - id: d1',
       '    kind: domain',
       '    name: Outer',
-      '  - id: leaf',
+      '  - id: s1',
       '    kind: service',
-      '    name: Leaf',
-      '    parent: inner',
-      '  - id: inner',
+      '    name: Zed',
+      '    parent: d1',
+      '  - id: s2',
+      '    kind: service',
+      '    name: Abc',
+      '    parent: d1',
+      '  - id: d2',
       '    kind: domain',
       '    name: Inner',
-      '    parent: outer',
+      '    parent: d1',
       '',
     ].join('\n');
     const pages = pagesOfModel(yaml);
-    expect(pages.map((page) => page.id)).toEqual(['home', 'domain/outer', 'domain/inner', 'element/leaf', 'interfaces', 'zones', 'data-categories']);
-    const outer = tableOf(pageOf(pages, 'domain/outer'), ['Element', 'Kind', 'Technology']);
+    // The walk goes by name: Abc first, then the Inner domain and what it holds, then Zed.
+    expect(pages.map((page) => page.id)).toEqual([
+      'home',
+      'domain/d1',
+      'element/s2',
+      'domain/d2',
+      'element/s1',
+      'interfaces',
+      'zones',
+      'data-categories',
+    ]);
+    const outer = tableOf(pageOf(pages, 'domain/d1'), ['Element', 'Kind', 'Technology']);
     expect(outer.rows).toEqual([
-      [{ page: 'domain/inner', text: 'Inner' }, 'domain', '—'],
-      [{ page: 'element/leaf', text: 'Leaf' }, 'service', '—'],
+      [{ page: 'element/s2', text: 'Abc' }, 'service', '—'],
+      [{ page: 'domain/d2', text: 'Inner' }, 'domain', '—'],
+      [{ page: 'element/s1', text: 'Zed' }, 'service', '—'],
     ]);
     // The home page still lists every domain, child domains included, by name.
     const homeDomains = tableOf(pageOf(pages, 'home'), ['Domain', 'Elements']);
     expect(homeDomains.rows).toEqual([
-      [{ page: 'domain/inner', text: 'Inner' }, '1'],
-      [{ page: 'domain/outer', text: 'Outer' }, '2'],
+      [{ page: 'domain/d2', text: 'Inner' }, '0'],
+      [{ page: 'domain/d1', text: 'Outer' }, '3'],
     ]);
 
     // A domain under a person is still a root domain; the independents come out sorted.
@@ -451,21 +482,25 @@ describe('wiki page data', () => {
     expect(interfaces.title).toBe('Interfaces');
     expect(interfaces.nav).toEqual(['Interfaces']);
     const top = sectionsOf(interfaces).get('(top)')!;
-    expect(top.some((block) => block.kind === 'paragraph' && block.text === 'The model declares 4 interfaces.')).toBe(true);
-    expect([...sectionsOf(interfaces).keys()]).toEqual(['(top)', 'data', 'http', 'topic']);
+    expect(top.some((block) => block.kind === 'paragraph' && block.text === 'The model declares 3 interfaces.')).toBe(true);
+    expect([...sectionsOf(interfaces).keys()]).toEqual(['(top)', 'http', 'topic']);
 
+    // Contracts in code-point order though their ids sort the other way.
     const http = sectionTable(interfaces, 'http');
     expect(http.columns).toEqual(['Contract', 'Provider', 'Callers']);
     expect(http.rows).toEqual([
-      ['http::GET::/audit', { page: 'element/audit', text: 'Audit' }, [{ page: 'element/orders', text: 'Orders' }]],
-      ['http::GET::/audit2', { page: 'element/audit', text: 'Audit' }, '—'],
+      ['http::POST::/pay', { page: 'element/audit', text: 'Audit' }, [{ page: 'element/orders', text: 'Orders' }]],
+      ['http::POST::/refund', { page: 'element/audit', text: 'Audit' }, '—'],
     ]);
-    const data = sectionTable(interfaces, 'data');
-    expect(data.rows).toEqual([['data::settlement-reports', { page: 'element/audit', text: 'Audit' }, '—']]);
 
+    // Callers by name, not by the id order the compiled model hands over.
     const topic = sectionTable(interfaces, 'topic');
     expect(topic.rows).toEqual([
-      ['topic::orders-placed', { page: 'element/bus', text: 'Event bus' }, [{ page: 'element/audit', text: 'Audit' }, { page: 'element/orders', text: 'Orders' }]],
+      [
+        'topic::orders-placed',
+        { page: 'element/bus', text: 'Event bus' },
+        [{ page: 'element/z-a', text: 'Alpha' }, { page: 'element/orders', text: 'Orders' }, { page: 'element/a-z', text: 'Zulu' }],
+      ],
     ]);
   });
 
@@ -484,8 +519,10 @@ describe('wiki page data', () => {
     expect(dmz.rows).toEqual([[{ page: 'element/audit', text: 'Audit' }, 'service']]);
     const internal = sectionTable(zones, 'Internal network');
     expect(internal.rows).toEqual([
+      [{ page: 'element/z-a', text: 'Alpha' }, 'service'],
       [{ page: 'element/bus', text: 'Event bus' }, 'broker'],
       [{ page: 'element/orders', text: 'Orders' }, 'service'],
+      [{ page: 'element/a-z', text: 'Zulu' }, 'service'],
     ]);
     expect(sectionTable(zones, 'PCI').rows).toEqual([]);
   });
@@ -518,7 +555,7 @@ describe('wiki page data', () => {
       [
         { page: 'element/audit', text: 'Audit' },
         'Reads audits',
-        { page: 'interfaces', anchor: 'http', text: 'http::GET::/audit' },
+        { page: 'interfaces', anchor: 'http', text: 'http::POST::/pay' },
         '—',
         [{ page: 'data-categories', anchor: 'Order data', text: 'Order data' }, { page: 'data-categories', anchor: 'Personal data', text: 'Personal data' }],
       ],
