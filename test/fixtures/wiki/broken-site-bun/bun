@@ -8,7 +8,8 @@ case "$1" in
   --version) printf '1.4.2-fake\n' ;;
   install)
     mkdir -p node_modules/.bin
-    : > node_modules/.bin/astro
+    printf '#!/bin/sh\ncase "$1" in --version) printf "7.3.5-fake\n" ;; esac\n' > node_modules/.bin/astro
+    chmod +x node_modules/.bin/astro
     ;;
   run)
     mkdir -p site/real

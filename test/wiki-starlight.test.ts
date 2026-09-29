@@ -136,10 +136,16 @@ describe('the template install and its cache', () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(
       join(dir, 'bun'),
-      '#!/bin/sh\ncase "$1" in\n  --version) printf "1.4.2-fake\\n" ;;\n  install) mkdir -p node_modules/.bin && : > node_modules/.bin/astro ;;\nesac\n',
+      '#!/bin/sh\ncase "$1" in\n  --version) printf "1.4.2-fake\\n" ;;\n  install) mkdir -p node_modules/.bin && printf \'#!/bin/sh\\ncase "$1" in --version) printf "7.3.5-fake" ;; esac\\n\' > node_modules/.bin/astro && chmod +x node_modules/.bin/astro ;;\nesac\n',
       { mode: 0o755 },
     );
     return dir;
+  }
+
+  /** Whether an installed astro answers `--version`: exit 0 with output. */
+  function astroAnswers(marker: string): boolean {
+    const probe = spawnSync(marker, ['--version'], { encoding: 'utf8' });
+    return probe.error === undefined && probe.status === 0 && probe.stdout.trim() !== '';
   }
 
   test('refuses a template folder that is not there, naming the path', () => {
@@ -251,6 +257,39 @@ describe('the template install and its cache', () => {
     } finally {
       process.env.PATH = savedPath;
     }
+  });
+
+  test('a stub left at the marker is rebuilt, not trusted', () => {
+    const cache = join(mkdtempSync(join(tmpdir(), 'madarch-cache-')), 'cache');
+    const first = ensureStarlightInstall(STARLIGHT_TEMPLATE_DIR, cache);
+    expect(first.ok).toBe(true);
+    if (!first.ok) throw new Error('the install must succeed');
+    // The stub the script tests' fake install leaves at the marker: a
+    // 0-byte plain file no engine could run. The next install must
+    // rebuild from the template, not skip.
+    rmSync(join(first.project, 'node_modules', '.bin', 'astro'));
+    writeFileSync(join(first.project, 'node_modules', '.bin', 'astro'), '', { mode: 0o644 });
+    const real = ensureStarlightInstall(STARLIGHT_TEMPLATE_DIR, cache);
+    expect(real.ok).toBe(true);
+    if (!real.ok) throw new Error('the install must succeed');
+    expect(astroAnswers(join(real.project, 'node_modules', '.bin', 'astro'))).toBe(true);
+  });
+
+  test('an executable marker that answers nothing is rebuilt, not trusted', () => {
+    const cache = join(mkdtempSync(join(tmpdir(), 'madarch-cache-')), 'cache');
+    const first = ensureStarlightInstall(STARLIGHT_TEMPLATE_DIR, cache);
+    expect(first.ok).toBe(true);
+    if (!first.ok) throw new Error('the install must succeed');
+    // Executable, yet silent: an empty shebang script exits 0 with no
+    // output, and only a real astro names its version. The link goes
+    // first: writing through the marker's symlink would follow it into
+    // the package the cache hardlinks.
+    rmSync(join(first.project, 'node_modules', '.bin', 'astro'));
+    writeFileSync(join(first.project, 'node_modules', '.bin', 'astro'), '#!/bin/sh\n', { mode: 0o755 });
+    const real = ensureStarlightInstall(STARLIGHT_TEMPLATE_DIR, cache);
+    expect(real.ok).toBe(true);
+    if (!real.ok) throw new Error('the install must succeed');
+    expect(astroAnswers(join(real.project, 'node_modules', '.bin', 'astro'))).toBe(true);
   });
 });
 

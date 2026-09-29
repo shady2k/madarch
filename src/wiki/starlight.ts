@@ -185,8 +185,19 @@ export interface StarlightSiteOptions extends WikiRenderOptions {
   readonly siteName: string;
 }
 
-/** The file whose presence says a cache folder holds a working install. */
+/** The astro shim a cache folder must carry — and it must answer `--version` — for the install to count as working. */
 const INSTALL_MARKER = join('node_modules', '.bin', 'astro');
+
+/**
+ * Whether a cached install's astro actually works: the marker must run,
+ * exit 0 and name a version. Presence alone is not trust — a fake install
+ * (the script tests') or a killed real one can leave a file at the
+ * marker's path that no build could execute.
+ */
+function astroAnswers(marker: string): boolean {
+  const probe = spawnSync(marker, ['--version'], { encoding: 'utf8', timeout: 60000 });
+  return probe.error === undefined && probe.status === 0 && (probe.stdout ?? '').trim() !== '';
+}
 
 /** The template's content fingerprint: its files, paths and bytes, sorted by code point. */
 function templateDigest(templateDir: string): string {
@@ -222,7 +233,7 @@ export function ensureStarlightInstall(templateDir: string, cacheRoot: string): 
   }
   const dir = join(cacheRoot, `template-${templateDigest(templateDir)}`);
   const marker = join(dir, ...INSTALL_MARKER.split('/'));
-  if (!existsSync(marker)) {
+  if (!astroAnswers(marker)) {
     rmSync(dir, { recursive: true, force: true });
     cpSync(templateDir, dir, {
       recursive: true,
@@ -231,12 +242,14 @@ export function ensureStarlightInstall(templateDir: string, cacheRoot: string): 
     const install = spawnSync('bun', ['install', '--frozen-lockfile'], { cwd: dir, encoding: 'utf8' });
     const ran = install.error === undefined;
     const output = ran ? `${install.stdout ?? ''}${install.stderr ?? ''}`.trim() : `bun could not be run: ${install.error?.message}`;
-    if (!ran || install.status !== 0 || !existsSync(marker)) {
+    if (!ran || install.status !== 0 || !astroAnswers(marker)) {
       const why = !ran
         ? 'bun could not be run'
         : install.status !== 0
           ? `"bun install --frozen-lockfile" failed (exit ${install.status})`
-          : `"bun install --frozen-lockfile" finished without astro at ${marker}`;
+          : !existsSync(marker)
+            ? `"bun install --frozen-lockfile" finished without astro at ${marker}`
+            : '"bun install --frozen-lockfile" finished, but the astro it wrote does not answer --version';
       return { ok: false, message: `the starlight template could not be installed at ${dir}: ${why}${output === '' ? '' : `:\n${output}`}` };
     }
   }
