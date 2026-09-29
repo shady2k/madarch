@@ -25,9 +25,17 @@ Changed and added 2026-09-25 with the change readable-views (`docs/changes/reada
 
 Its run's decisions are in `docs/changes/readable-views/design.md`, "Decided during the run".
 
+Changed and added 2026-09-29 with the change agent-model (`docs/changes/agent-model/`):
+
+- intended-model: an evidence item may name a range of lines, the commit and the file's blob id.
+- [model-authoring](capabilities/model-authoring.md): the skill that lets a coding agent write and update a repository's intended model and its review report.
+- [model-check](capabilities/model-check.md): checking a repository's model against the repository, without a server.
+
+Its run's decisions are in `docs/changes/agent-model/change.md`, "Design and decisions".
+
 ## Known unknowns
 
-- The server and the agent skill: later outcomes of the MVP.
+- The server: the last outcome of the MVP.
 - The query engine's memory in a long-lived process: bounded by fewer
   execution threads and fewer prepared statements (madarch-ti6.2), not yet
   measured over a long run (madarch-ti6.1).

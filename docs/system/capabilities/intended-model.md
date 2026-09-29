@@ -214,14 +214,32 @@ the states branch, cycle or have no first state, then the model is refused.
 - When: the model is loaded
 - Then: loading fails naming the two states that follow the same one
 
-## Requirement: evidence — Elements and relations may name their evidence
-An element, an interface and a relation may list the files, optionally with a
-line, from which it was written; the compiled model keeps them as given.
+## Requirement: evidence — Evidence names a file at a revision
+An element, an interface and a relation may list its evidence: each item names
+a file by its path from the repository's root, optionally a line or a range of
+lines (`line`, and `endLine` not before it), and optionally the commit it was
+read at together with the file's git blob id there (`commit` and `blob`, each
+40 hexadecimal digits, given both or neither), so the item still identifies
+the exact text read after a squash or a rebase removes the commit. The
+compiled model keeps every item as given. If an item has `endLine` without
+`line` or before it, a `commit` without a `blob` or the reverse, or a commit or
+blob that is not 40 hexadecimal digits, then the model is refused naming the
+item, its file and line.
 
 ### Scenario: evidence-kept
-- Given: `checkout-cart` with evidence `services/checkout/src/cart/index.ts` line 1
+- Given: `checkout-cart` with evidence `services/checkout/src/cart/index.ts` lines 1 to 12 at a commit with the file's blob id there, and `checkout-ui` with evidence `services/checkout/src/ui/index.ts` and nothing else
 - When: the model is compiled
-- Then: the compiled element carries that file and line
+- Then: the compiled `checkout-cart` carries that file, lines 1 to 12, that commit and that blob, and `checkout-ui` carries only its file
+
+### Scenario: commit-without-blob
+- Given: an evidence item with a commit and no blob
+- When: the model is loaded
+- Then: loading fails naming the element, the item's file and line, and saying a commit and a blob are given together
+
+### Scenario: range-reversed
+- Given: an evidence item with `line: 20` and `endLine: 12`
+- When: the model is loaded
+- Then: loading fails naming the element, the item's file and line, and saying `endLine` may not come before `line`
 
 ## Quality requirements
 - Performance: loading and compiling a model of 10 000 elements takes under
