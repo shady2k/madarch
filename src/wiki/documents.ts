@@ -818,7 +818,10 @@ function resolveLink(repo: string, source: string, written: string, documents: R
   // The repository root normalizes to the current directory — `.` or
   // `./` (`normalize` keeps a trailing separator) — and its repository
   // path is the empty one: nothing after the commit in the host address.
-  const target = normalized === '.' || normalized === './' ? '' : normalized;
+  // A folder written with a trailing slash (`../decisions/`) is the
+  // folder itself: the commit's tree names folders without one, so the
+  // slash is judged away and the link spells the bare path.
+  const target = (normalized === '.' || normalized === './' ? '' : normalized).replace(/\/+$/, '');
   if (target.endsWith('.md') && documents.has(target)) {
     const pageId = `document/${target.slice(0, -'.md'.length)}`;
     return anchor === undefined ? { written, kind: 'page', pageId } : { written, kind: 'page', pageId, anchor };
