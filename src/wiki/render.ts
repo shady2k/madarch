@@ -11,7 +11,7 @@
  * text every time — nothing reads the clock, and every sort stays on code
  * points.
  */
-import { documentHeadings, scanDocument } from './documents.js';
+import { documentHeadings, refusedLinkClosers, scanDocument } from './documents.js';
 import { isDocumentPage, type AnyWikiPage, type WikiDocumentPage } from './pages.js';
 import type { WikiCell, WikiDiagramBlock, WikiLinkCell, WikiPage } from './pages.js';
 import { documentImageRoute, pagePath } from './pages-path.js';
@@ -400,9 +400,14 @@ function urlDestination(url: string): string {
 export function renderDocumentBody(page: WikiDocumentPage, links: WriterLinks): string {
   const context: LinkContext = { pageId: page.id, fromPath: pagePath(page.id), knownIds: new Set<string>(), headings: new Map<string, ReadonlySet<string>>() };
   const urlOf = new Map<string, string>();
+  const refused = new Set<string>();
   for (const link of page.links) {
     if (link.kind === 'image') {
       urlOf.set(link.written, documentImageRoute(link.filePath!));
+      continue;
+    }
+    if (link.kind === 'refused') {
+      refused.add(link.written);
       continue;
     }
     if (link.kind === 'keep') continue;
@@ -415,6 +420,13 @@ export function renderDocumentBody(page: WikiDocumentPage, links: WriterLinks): 
   const scan = scanDocument(page.body);
   const edits: { start: number; end: number; text: string }[] = [];
   for (const occurrence of scan.links) {
+    if (refused.has(occurrence.written)) {
+      // A refused link is shown as text: its opening bracket escaped, so
+      // no engine reads a link out of it; the closer pass over the
+      // finished body below stops any label the line scan never paired.
+      edits.push({ start: occurrence.bracket, end: occurrence.bracket + 1, text: '\\[' });
+      continue;
+    }
     const url = urlOf.get(occurrence.written);
     if (url !== undefined) edits.push({ start: occurrence.start, end: occurrence.end, text: urlDestination(url) });
   }
@@ -427,7 +439,12 @@ export function renderDocumentBody(page: WikiDocumentPage, links: WriterLinks): 
   // `<script>` or `<img onerror=…>` reaches the reader as those
   // characters, never as an element. `>` and `&` stay as written: no
   // element begins without `<`, and blockquotes and entities keep working.
-  const guarded = [...scan.code, ...scan.links.map((link) => ({ start: link.start, end: link.end }))];
+  const guarded = [
+    ...scan.code,
+    // A kept destination's `<` is its own; a refused one's is text, the
+    // same as every `<` outside the guarded regions.
+    ...scan.links.filter((link) => !refused.has(link.written)).map((link) => ({ start: link.start, end: link.end })),
+  ];
   const isGuarded = (position: number): boolean => guarded.some((span) => position >= span.start && position < span.end);
   for (let at = page.body.indexOf('<'); at >= 0; at = page.body.indexOf('<', at + 1)) {
     if (!isGuarded(at)) edits.push({ start: at, end: at + 1, text: '&lt;' });
@@ -435,6 +452,15 @@ export function renderDocumentBody(page: WikiDocumentPage, links: WriterLinks): 
   edits.sort((a, b) => b.start - a.start);
   let body = page.body;
   for (const edit of edits) body = body.slice(0, edit.start) + edit.text + body.slice(edit.end);
+  // The closer pass, last: every `](` the finished body still holds whose
+  // destination names a refused scheme — a link the line scan never
+  // paired, its label wrapped across lines — loses its closer, so no
+  // engine reads a link out of it either.
+  const closers = refusedLinkClosers(body);
+  for (let index = closers.length - 1; index >= 0; index--) {
+    const at = closers[index]!;
+    body = body.slice(0, at) + '\\]' + body.slice(at + 1);
+  }
   return page.insertTitle ? `# ${page.title}\n\n${body}` : body;
 }
 

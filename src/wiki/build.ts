@@ -41,7 +41,7 @@ import { loadAndCompileModel } from '../model/load-and-compile.js';
 import type { MermaidPage } from '../render/mermaid.js';
 import { renderModel, type RenderedVersion } from '../render/prepare.js';
 import { brokenLinks, readSiteFiles } from './links.js';
-import { documentImages, documentPages, DocumentLinkError } from './documents.js';
+import { documentImages, documentPages, DocumentLinkError, refusedDocumentLinks } from './documents.js';
 import { archifyDocument, archifyPageLinks, componentId, type ArchifyDocument, type ArchifyLayoutedView, type LayoutPoint } from './archify.js';
 import { wikiPages, type AnyWikiPage, type WikiDocumentPage } from './pages.js';
 import type { WikiDiagramAsset } from './render.js';
@@ -340,6 +340,15 @@ export async function buildWiki(repoPath: string, outPath: string, options: Wiki
   } catch (error) {
     if (error instanceof DocumentLinkError) return { code: 1, message: error.message };
     return { code: 2, message: error instanceof Error ? error.message : String(error) };
+  }
+
+  // A document link whose scheme the wiki does not keep is shown as text:
+  // the build says so, naming document, line and destination, and goes
+  // on — a refused link is a warning, never a refused build.
+  for (const refused of refusedDocumentLinks(documents)) {
+    console.error(
+      `warning: ${join(repo, refused.source)}:${refused.line}: links to "${refused.written}" — the wiki keeps only http, https and mailto links; the link is shown as text`,
+    );
   }
 
   // Two documents the Starlight loader would serve at one route cannot

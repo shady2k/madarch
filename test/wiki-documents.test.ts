@@ -335,6 +335,24 @@ describe('documentPages', () => {
     ]);
   });
 
+  test('a link whose scheme the wiki does not keep is refused, never kept', () => {
+    const pages = documentsOf({
+      'docs/a.md':
+        '# A\n\n[Run](javascript:alert(1)), [Case](JaVaScRiPt:alert(1)), [Data](data:text/html;base64,PGI+), [File]( file:///etc/passwd ), [Vb](vbscript:x), ![Logo](vbscript:y)\n',
+    });
+    // Only http, https and mailto are kept; every other scheme, in any
+    // case, with the spaces a destination may carry, is refused: shown as
+    // text, warned about by the build, never a link of the built site.
+    expect(pageOf(pages, 'docs/a.md').links).toEqual([
+      { written: 'javascript:alert(1)', kind: 'refused', line: 3 },
+      { written: 'JaVaScRiPt:alert(1)', kind: 'refused', line: 3 },
+      { written: 'data:text/html;base64,PGI+', kind: 'refused', line: 3 },
+      { written: 'file:///etc/passwd', kind: 'refused', line: 3 },
+      { written: 'vbscript:x', kind: 'refused', line: 3 },
+      { written: 'vbscript:y', kind: 'refused', line: 3 },
+    ]);
+  });
+
   test('a query string is dropped when a document link resolves', () => {
     const pages = documentsOf({
       'docs/a.md': '# A\n\n[B](b.md?v=2)\n',
@@ -528,6 +546,23 @@ describe('renderDocumentBody', () => {
     expect(out).toBe('# doc\n\nBefore.\n\n&lt;script>alert(1)&lt;/script>\n\n&lt;img src=x onerror="alert(2)">\n\n&lt;T>\n');
     expect(out.includes('<script')).toBe(false);
     expect(out.includes('<img')).toBe(false);
+  });
+
+  test('a link whose scheme the wiki does not keep is shown as text, never a link', () => {
+    expect(rewrite('Do [run](javascript:alert(1)) and ![see](vbscript:msgbox) now.\n')).toBe(
+      '# doc\n\nDo \\[run\\](javascript:alert(1)) and !\\[see\\](vbscript:msgbox) now.\n',
+    );
+    // An angle-bracket destination of a refused scheme is text too: its
+    // `<` is escaped, so no engine reads an autolink out of it either.
+    expect(rewrite('[x](<javascript:alert(1)>)\n')).toBe('# doc\n\n\\[x](&lt;javascript:alert(1)>)\n');
+  });
+
+  test('a refused link whose label wraps to its destination line is text too', () => {
+    expect(rewrite('Do [run\nthis](javascript:alert(1)) now.\n')).toBe('# doc\n\nDo [run\nthis\\](javascript:alert(1)) now.\n');
+  });
+
+  test('a refused reference definition stops being one, its uses plain text', () => {
+    expect(rewrite('Use [x][r].\n\n[r]: javascript:alert(1)\n')).toBe('# doc\n\nUse [x][r].\n\n\\[r]: javascript:alert(1)\n');
   });
 
   test('a code span on a later line is spared by its true position, not by accident', () => {

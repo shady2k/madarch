@@ -633,6 +633,16 @@ describe('scripts/wiki.ts', () => {
     expect(statSync(copied).isFile()).toBe(true);
     expect(readFileSync(copied)).toEqual(readFileSync(join(root, 'docs', 'img', 'real-extra.png')));
   }, { timeout: 60_000 });
+
+  test('a document link with a scheme the wiki does not keep is shown as text: exit 0, the build warns naming document, line and destination', () => {
+    const out = outFolder();
+    const run = runWiki([DOCUMENTS_FIXTURE, '--out', out]);
+    expect(run.status).toBe(0);
+    const said = combined(run);
+    expect(said).toContain(`warning: ${join(DOCUMENTS_FIXTURE, 'docs', 'architecture.md')}:21: links to "javascript:alert(document.domain)"`);
+    expect(said).toContain('the wiki keeps only http, https and mailto links; the link is shown as text');
+    expect(existsSync(join(out, 'site', 'index.html'))).toBe(true);
+  }, { timeout: 60_000 });
 });
 
 describe('scripts/wiki.ts with a real Zensical build', () => {
@@ -758,7 +768,8 @@ describe('scripts/wiki.ts with real builds over the documents fixture', () => {
     () => {
       for (const [engine, env] of [['zensical', {}], ['starlight', scriptCache()]] as const) {
         const out = outFolder();
-        expect(runWiki([DOCUMENTS_FIXTURE, '--out', out, ...(engine === 'zensical' ? [] : ['--engine', 'starlight'])], REAL_PATH, env).status).toBe(0);
+        const run = runWiki([DOCUMENTS_FIXTURE, '--out', out, ...(engine === 'zensical' ? [] : ['--engine', 'starlight'])], REAL_PATH, env);
+        expect(run.status).toBe(0);
         // The document's markup is on the page, as characters:
         const built = readFileSync(join(out, 'site', 'documents', 'docs', 'architecture', 'index.html'), 'utf8');
         expect(built).toContain('alert(');
@@ -771,6 +782,19 @@ describe('scripts/wiki.ts with real builds over the documents fixture', () => {
           if (file.endsWith('.html')) {
             expect(body.replace(/<script[\s\S]*?<\/script>/g, '').includes('<script')).toBe(false);
             expect(/<(?:img|svg|iframe|body)[^>]*onerror/.test(body)).toBe(false);
+          }
+        }
+        // The build said what it refused, naming document, line and
+        // destination, and went on:
+        const said = combined(run);
+        expect(said).toContain(`warning: ${join(DOCUMENTS_FIXTURE, 'docs', 'architecture.md')}:21: links to "javascript:alert(document.domain)"`);
+        // And nowhere in the built HTML does an href or src carry a scheme
+        // the wiki does not keep:
+        for (const [file, body] of walkFiles(join(out, 'site'))) {
+          if (!file.endsWith('.html')) continue;
+          for (const match of body.matchAll(/(?:href|src)\s*=\s*"([^"]*)"/gi)) {
+            const scheme = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(match[1]!.trim());
+            if (scheme !== null) expect(['http', 'https', 'mailto']).toContain(scheme[1]!.toLowerCase());
           }
         }
       }

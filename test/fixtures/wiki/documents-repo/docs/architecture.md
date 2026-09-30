@@ -18,4 +18,8 @@ markup a repository has no business running in a reader's browser:
 <script>alert("wiki")</script> and <img src=x onerror="alert(1)"> are shown,
 never run.
 
+A link a repository has no business making — [run this](javascript:alert(document.domain)) —
+is shown as text: the build warns about it and keeps only http, https and
+mailto links.
+
 Back to [the README](../README.md#documents-fixture), at its own heading.
