@@ -160,6 +160,13 @@ batch, "Да"):
   performance tests, `views:check`, the mutation run over every changed
   range, the Codex review and the `server-views` check run once, on the
   final revision, and every stage's acceptance record rests on that run.
+- Performance tests, skipped for this run by the owner, 2026-09-30 23:40
+  MSK ("Тесты производительности пропусти в этот раз"): the final run is
+  `MADARCH_SKIP_PERF=1 bun test`. The engine's long-run, stability and
+  performance tests last passed on 2026-09-30 after madarch-ti6.2's rework
+  (6 pass: final RSS 162 MB) and on its first merge (all perf files green);
+  the server's view timing (13 ms) was measured by its worker. No
+  performance test ran on the final revision.
 - Forecast: 2 to 4 hours of agent work, the pull request expected about
   00:00 to 02:00 MSK on 2026-10-01; past 06:00 MSK without word the run has
   stopped. The owner named no absence; the due time stands for it.
