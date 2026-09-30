@@ -178,6 +178,8 @@ const MAX_GIT_BUFFER = 64 * 1024 * 1024;
 /**
  * Every path the commit holds, with what it is there — a `blob` (a file)
  * or a `tree` (a folder) — from one `git ls-tree` of the whole commit.
+ * The root is there too, as the empty path: `ls-tree` lists what the root
+ * holds, never the root itself, and the commit always holds it as a tree.
  * The URL names the commit, so what the repository holds is judged
  * there, never in the mutable worktree: a committed folder deleted from
  * the worktree is still a tree, an untracked file is not in the
@@ -197,6 +199,9 @@ function treeAtCommit(repo: string, commit: string): ReadonlyMap<string, 'file' 
     if (type === 'blob') entries.set(record.slice(tab + 1), 'file');
     if (type === 'tree') entries.set(record.slice(tab + 1), 'folder');
   }
+  // `ls-tree -r -t` lists every entry under the root but never the root
+  // itself; the commit always holds the root, and holds it as a tree.
+  entries.set('', 'folder');
   return entries;
 }
 
@@ -774,7 +779,10 @@ export function isRefusedScheme(written: string): boolean {
  * destination. A
  * root-relative target names a repository path from the root
  * (`/docs/guide.md`), any other target a path from the document's own
- * folder. A `.md` target inside the document set is a page. Every other
+ * folder. A target that resolves to the root itself — `..` from a
+ * folder, `./` beside the root, `/` — is held as the tree the root is,
+ * addressed with nothing after the commit. A `.md` target inside the
+ * document set is a page. Every other
  * target leads to the repository's host at the commit the wiki is built
  * from — a file the built commit holds as a `blob`, a folder it holds as
  * a `tree`, a target it does not hold as a `blob` all the
@@ -806,7 +814,11 @@ function resolveLink(repo: string, source: string, written: string, documents: R
   } catch {
     path = raw;
   }
-  const target = normalize(trimmed.startsWith('/') ? path.slice(1) : joinPath(dirOf(source), path));
+  const normalized = normalize(trimmed.startsWith('/') ? path.slice(1) : joinPath(dirOf(source), path));
+  // The repository root normalizes to the current directory — `.` or
+  // `./` (`normalize` keeps a trailing separator) — and its repository
+  // path is the empty one: nothing after the commit in the host address.
+  const target = normalized === '.' || normalized === './' ? '' : normalized;
   if (target.endsWith('.md') && documents.has(target)) {
     const pageId = `document/${target.slice(0, -'.md'.length)}`;
     return anchor === undefined ? { written, kind: 'page', pageId } : { written, kind: 'page', pageId, anchor };
