@@ -75,7 +75,7 @@ function main(args: readonly string[]): number {
 
   try {
     const server = startServer({ dataFolder: data, host, port });
-    console.log(`the server listens on ${server.url} — POST /models, GET /sources`);
+    console.log(`the server listens on ${server.url} — POST /models, GET /sources, POST /views`);
   } catch (error) {
     console.error((error as Error).message);
     return 2;
