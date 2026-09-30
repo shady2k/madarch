@@ -254,8 +254,8 @@ describe('POST /views of the reference system', () => {
     expect(missing.status).toBe(404);
 
     expect(lines).toHaveLength(2);
-    expect(lines[0]).toMatch(/^POST \/views 200 source=reference-system \d+ms$/);
-    expect(lines[1]).toMatch(/^POST \/views 404 source=github\.com\/acme\/shop \d+ms: no model has been sent/);
+    expect(lines[0]).toMatch(/^POST \/views 200 source="reference-system" \d+ms$/);
+    expect(lines[1]).toMatch(/^POST \/views 404 source="github\.com\/acme\/shop" \d+ms: no model has been sent/);
   });
 });
 

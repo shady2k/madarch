@@ -328,8 +328,12 @@ function createHandler(dependencies: {
     const read = sources.historyOf(asked.source).read({ source: asked.source });
     if (read.model === undefined || read.errors.length > 0) {
       const why = read.errors.map((error) => error.message).join('; ');
+      // The failure of the server itself is logged at error level with
+      // its cause; the answer says what failed without a stack.
+      const message = `the model of the source ${JSON.stringify(asked.source)} could not be read from its history: ${why || 'nothing was read'}`;
+      errorLog(message);
       return {
-        ...refused(500, { message: `the model of the source ${JSON.stringify(asked.source)} could not be read from its history: ${why || 'nothing was read'}` }),
+        ...refused(500, { message }),
         source: asked.source,
       };
     }
@@ -371,7 +375,11 @@ function createHandler(dependencies: {
         message: `the element ${JSON.stringify(asked.element)} does not exist in the source ${JSON.stringify(asked.source)} now`,
       });
     }
-    return refused(500, { message: errors.map((error) => error.message).join('; ') });
+    // A renderer failure that is not the asked element's own (that one
+    // is a 404 above) is the server failing: logged at error level.
+    const message = errors.map((error) => error.message).join('; ');
+    errorLog(message);
+    return refused(500, { message });
   }
 
   /**
@@ -384,6 +392,11 @@ function createHandler(dependencies: {
       return { problems: [{ message: 'the body must be a JSON object naming source and format, with element and depth beside them when they are wanted' }] };
     }
     const problems: Refusal[] = [];
+    for (const key of Object.keys(body).sort(byCodePoint)) {
+      if (key !== 'source' && key !== 'element' && key !== 'depth' && key !== 'format') {
+        problems.push({ field: key, message: `"${key}" is not a field the server takes: accepted fields are source, element, depth, format` });
+      }
+    }
 
     let source: string | undefined;
     if (!('source' in body) || body.source === undefined) {
