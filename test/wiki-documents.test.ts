@@ -602,6 +602,26 @@ describe("document links to the repository's host, encoded and judged at the bui
     expect(documentLinkWarnings(pages, host)).toEqual([]);
   });
 
+  test('a link resolving to the repository root leads to the tree of the root, and warns nothing', () => {
+    const root = gitRepo({ 'README.md': '[Here](./)\n', 'docs/guide.md': '[Up](..), [Root](/)\n' });
+    const commit = headCommit(root);
+    for (const [origin, address] of [
+      ['https://github.com/acme/shop.git', `https://github.com/acme/shop/tree/${commit}/`],
+      ['https://gitlab.com/acme/shop.git', `https://gitlab.com/acme/shop/-/tree/${commit}/`],
+    ] as const) {
+      const host: DocumentHost = { commit, origin };
+      const pages = documentPages(root, host);
+      expect(pageOf(pages, 'docs/guide.md').links).toEqual([
+        { written: '..', kind: 'host', url: address, target: '', line: 1, missing: false },
+        { written: '/', kind: 'host', url: address, target: '', line: 1, missing: false },
+      ]);
+      expect(pageOf(pages, 'README.md').links).toEqual([
+        { written: './', kind: 'host', url: address, target: '', line: 1, missing: false },
+      ]);
+      expect(documentLinkWarnings(pages, host)).toEqual([]);
+    }
+  });
+
   test('an untracked file is warned as not in the repository, its host link kept', () => {
     const root = gitRepo({ 'docs/guide.md': '[Local](draft.txt)\n' });
     const commit = headCommit(root);
