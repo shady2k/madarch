@@ -114,7 +114,7 @@ export function startServer(options: ServerOptions): StartedServer {
   const clock: Clock = options.clock ?? { now: () => Date.now() };
   const log = options.log ?? ((line: string) => console.log(line));
   const errorLog = options.errorLog ?? ((line: string) => console.error(line));
-  const sources = createSourceStores({ dataFolder: options.dataFolder, clock });
+  const sources = createSourceStores({ dataFolder: options.dataFolder, clock, log });
   const graphs = createGraphs({ historyOf: (source) => sources.historyOf(source), clock });
   const handle = createHandler({ sources, graphs, log, errorLog });
   const server = Bun.serve({ hostname: options.host ?? '127.0.0.1', port: options.port ?? 4180, fetch: handle });

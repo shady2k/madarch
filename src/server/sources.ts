@@ -14,18 +14,24 @@
  * reversible, but the sidecar, not the name, is what a restart reads the
  * source's identity from.
  *
- * The folder is the server's own store: at start, every `<stem>.json` must
- * have its `<stem>.sqlite` beside it and the other way round, every
- * sidecar must name the same source its file name decodes to, and anything
- * else is refused with the file named. Files that are neither a history
- * nor a sidecar (`README.md`, a leftover `.json.tmp` from an interrupted
- * sidecar write) are ignored.
+ * The folder is the server's own store, and the history is its truth: at
+ * start every history is opened and its sidecar brought to the head the
+ * history itself holds — a sidecar that went missing or was left stale
+ * by an interrupted write is repaired from the history (its one source
+ * name, its head by the history's own commit order) and the repair is
+ * logged. What cannot be named is refused with the file named: a sidecar
+ * without its history, a history holding no source or more than one, a
+ * sidecar and a history that disagree about the source, a stem this
+ * server never wrote. Files that are neither a history nor a sidecar
+ * (`README.md`, a leftover `.json.tmp` from an interrupted sidecar
+ * write) are ignored.
  *
  * One `createSourceStores` per folder; a second instance on the same
- * folder is not supported. Not multi-process safe: the sidecar is written
- * after the history's own transaction has committed, so a crash between
- * the two can leave a history file without its sidecar, which the next
- * start refuses until the folder is repaired by hand.
+ * folder is not supported. Not multi-process safe: the sidecar is
+ * written after the history's own transaction has committed, so a crash
+ * between the two can leave a history file without its sidecar or with
+ * a stale one — which the next start repairs from the history, since
+ * the history, not the sidecar, is the truth.
  */
 import { join } from 'node:path';
 import { readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
@@ -51,6 +57,8 @@ export interface SourceStoresOptions {
   dataFolder: string;
   /** Supplies recorded time's "now" for the histories and the heads; tests inject a fake clock. */
   clock: Clock;
+  /** Where startup repair lines go; standard output by default. */
+  log?: (line: string) => void;
 }
 
 /** One source's current head: the newest version stored for it, by commit order. */
@@ -157,6 +165,7 @@ interface SidecarFile {
 
 export function createSourceStores(options: SourceStoresOptions): SourceStores {
   const { dataFolder, clock } = options;
+  const log = options.log ?? ((line: string) => console.log(line));
 
   let stat: Stats;
   try {
@@ -180,15 +189,31 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
       problems.push(`the data folder holds "${stem}.json" but no "${stem}.sqlite" beside it: the source's history file is missing`);
     }
   }
-  for (const stem of sqliteStems) {
-    if (!jsonStems.has(stem)) {
-      problems.push(`the data folder holds the history file "${stem}.sqlite" but no "${stem}.json" beside it naming its source: restore the sidecar or remove the file, then start again`);
-    }
-  }
   if (problems.length > 0) throw new Error(problems.join('; '));
 
   const heads = new Map<string, SourceHead>();
   const histories = new Map<string, HistoryStore>();
+
+  /** Opens one history file, refusing with the file named when SQLite cannot. */
+  function openHistory(stem: string): HistoryStore {
+    try {
+      return createSqliteHistory({ path: join(dataFolder, `${stem}.sqlite`), clock });
+    } catch (error) {
+      throw new Error(`the history file "${stem}.sqlite" cannot be opened: ${(error as Error).message}`, { cause: error });
+    }
+  }
+
+  /** The head a history itself holds: the newest of its commits by the history's own commit order. */
+  function newestCommit(source: string, history: HistoryStore): SourceHead {
+    const commits = history.commits(source);
+    const last = commits[commits.length - 1]!;
+    return { source, commit: last.commit, committedAt: last.committedAt, storedAt: last.storedAt };
+  }
+
+  /** Whether the two heads say the same thing about the same version. */
+  function sameHead(a: SourceHead, b: SourceHead): boolean {
+    return a.commit === b.commit && a.committedAt === b.committedAt && a.storedAt === b.storedAt;
+  }
 
   for (const stem of jsonStems) {
     const path = join(dataFolder, `${stem}.json`);
@@ -206,8 +231,44 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
     if (decoded !== head.source) {
       throw new Error(`the sidecar "${path}" names its source "${head.source}" but its file name decodes to "${decoded}": the sidecar and the file name disagree`);
     }
-    heads.set(head.source, head);
+    const history = openHistory(stem);
+    const names = history.sources();
+    if (names.length !== 1 || names[0] !== head.source) {
+      history.close();
+      const holds = names.length === 0 ? 'no source' : `the sources ${names.join(', ')}`;
+      throw new Error(`the history file "${stem}.sqlite" holds ${holds}, but its sidecar "${stem}.json" names "${head.source}": the sidecar and the history disagree`);
+    }
+    const trueHead = newestCommit(head.source, history);
+    if (!sameHead(trueHead, head)) {
+      writeSidecar(stem, trueHead);
+      log(`repaired the sidecar "${stem}.json": it named the head ${JSON.stringify(head.commit)} of "${head.source}", but the history's head is ${JSON.stringify(trueHead.commit)} at ${new Date(trueHead.committedAt).toISOString()}`);
+    }
+    heads.set(head.source, trueHead);
+    histories.set(head.source, history);
   }
+
+  for (const stem of sqliteStems) {
+    if (jsonStems.has(stem)) continue;
+    const history = openHistory(stem);
+    const names = history.sources();
+    if (names.length !== 1) {
+      history.close();
+      const holds = names.length === 0 ? 'no source it could be named from' : `the sources ${names.join(', ')}`;
+      throw new Error(`the data folder holds the history file "${stem}.sqlite" but no "${stem}.json" beside it, and the history holds ${holds}: a history one sidecar is to name must hold exactly that one source`);
+    }
+    const source = names[0]!;
+    const decoded = decodeSourceName(stem);
+    if (decoded === undefined || decoded !== source) {
+      history.close();
+      throw new Error(`the data folder holds the history file "${stem}.sqlite" but no "${stem}.json" beside it, and the file name does not decode to the history's source "${source}": the folder was not written by this server`);
+    }
+    const head = newestCommit(source, history);
+    writeSidecar(stem, head);
+    log(`repaired the data folder: the history file "${stem}.sqlite" had no sidecar beside it; it holds the source "${source}" at its head ${JSON.stringify(head.commit)} at ${new Date(head.committedAt).toISOString()}`);
+    heads.set(source, head);
+    histories.set(source, history);
+  }
+
 
   function historyOf(source: string): HistoryStore {
     let history = histories.get(source);
