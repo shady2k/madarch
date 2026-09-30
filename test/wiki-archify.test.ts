@@ -207,4 +207,109 @@ describe('src/wiki/archify.ts', () => {
   test('a link naming an id the page does not carry is refused naming it', () => {
     expect(() => archifyPageLinks('<g id="node-storefront"></g>', { ghost: 'g.html' })).toThrow(/ghost/);
   });
+
+  test('a truncated page with no closing tag for a component is refused, never half-linked', () => {
+    expect(() => archifyPageLinks('<g id="node-storefront" data-node-id="storefront">', { storefront: 's.html' })).toThrow(/storefront/);
+    expect(() => archifyPageLinks('<g id="node-storefront" data-node-id="storefront">', { storefront: 's.html' })).toThrow(/truncated/);
+  });
+
+  test('two links land in code-point order, one input one output', () => {
+    const html = [
+      '<g id="node-zz" data-node-id="zz"><text>ZZ</text></g>',
+      '<g id="node-aa" data-node-id="aa"><text>AA</text></g>',
+    ].join('\n');
+    const linked = archifyPageLinks(html, { zz: 'zz.html', aa: 'aa.html' });
+    // The anchors wrap each component where it stands — the links are
+    // applied in code-point order, the lines stay in the page's own.
+    expect(linked).toBe([
+      '<a href="zz.html" data-wiki-view="zz"><g id="node-zz" data-node-id="zz"><text>ZZ</text></g></a>',
+      '<a href="aa.html" data-wiki-view="aa"><g id="node-aa" data-node-id="aa"><text>AA</text></g></a>',
+    ].join('\n'));
+  });
+
+  test("the label's place LikeC4 chose rides onto the connection", () => {
+    const document = archifyDocument(
+      {
+        id: 'v',
+        title: 'V',
+        nodes: [
+          { id: 'a', kind: 'service', title: 'A', parent: null, x: 0, y: 0, width: 320, height: 180 },
+          { id: 'b', kind: 'store', title: 'B', parent: null, x: 640, y: 0, width: 320, height: 180 },
+        ],
+        edges: [{ source: 'a', target: 'b', label: 'syncs', labelAt: [480, 24] }],
+      },
+      { output: 'v.html' },
+    );
+    expect(document.connections).toEqual([{ from: 'a', to: 'b', label: 'syncs', labelAt: [480, 24] }]);
+  });
+
+  test('connections sharing one endpoint sort by the other, then by label', () => {
+    const document = archifyDocument(
+      {
+        id: 'v',
+        title: 'V',
+        nodes: [
+          { id: 'hub', kind: 'service', title: 'Hub', parent: null, x: 0, y: 0, width: 320, height: 180 },
+          { id: 'x', kind: 'store', title: 'X', parent: null, x: 640, y: 0, width: 320, height: 180 },
+          { id: 'y', kind: 'store', title: 'Y', parent: null, x: 640, y: 360, width: 320, height: 180 },
+        ],
+        edges: [
+          { source: 'hub', target: 'y', label: 'same' },
+          { source: 'hub', target: 'x', label: 'same' },
+          { source: 'hub', target: 'x', label: 'aaa' },
+        ],
+      },
+      { output: 'v.html' },
+    );
+    expect(document.connections).toEqual([
+      { from: 'hub', to: 'x', label: 'aaa' },
+      { from: 'hub', to: 'x', label: 'same' },
+      { from: 'hub', to: 'y', label: 'same' },
+    ]);
+  });
+
+  test('a zero-size node is refused like an unplaced one, width or height', () => {
+    for (const broken of [
+      { id: 'n', kind: 'service', title: 'N', parent: null, x: 0, y: 0, width: 0, height: 180 },
+      { id: 'n', kind: 'service', title: 'N', parent: null, x: 0, y: 0, width: 320, height: 0 },
+    ]) {
+      const flat = { id: 'v', title: 'V', nodes: [broken], edges: [] };
+      expect(() => archifyDocument(flat, { output: 'v.html' })).toThrow(/did not lay out|not laid out/);
+    }
+  });
+
+  test('a kind the mapping does not name draws external, the legend fallback', () => {
+    const document = archifyDocument(
+      { id: 'v', title: 'V', nodes: [{ id: 'n', kind: 'mystery', title: 'N', parent: null, x: 0, y: 0, width: 320, height: 180 }], edges: [] },
+      { output: 'v.html' },
+    );
+    expect(document.components[0]?.type).toBe('external');
+    expect(document.components[0]?.icon).toBeUndefined();
+  });
+
+  test('an empty label rides as no label at all', () => {
+    const document = archifyDocument(
+      {
+        id: 'v',
+        title: 'V',
+        nodes: [
+          { id: 'a', kind: 'service', title: 'A', parent: null, x: 0, y: 0, width: 320, height: 180 },
+          { id: 'b', kind: 'store', title: 'B', parent: null, x: 640, y: 0, width: 320, height: 180 },
+        ],
+        edges: [{ source: 'a', target: 'b', label: '' }],
+      },
+      { output: 'v.html' },
+    );
+    expect(document.connections).toEqual([{ from: 'a', to: 'b' }]);
+  });
+
+  test('a whitespace-only label is refused naming the node', () => {
+    const blank = {
+      id: 'v',
+      title: 'V',
+      nodes: [{ id: 'n', kind: 'service', title: '   ', parent: null, x: 0, y: 0, width: 320, height: 180 }],
+      edges: [],
+    };
+    expect(() => archifyDocument(blank, { output: 'v.html' })).toThrow(/"n"/);
+  });
 });
