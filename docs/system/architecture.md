@@ -35,15 +35,18 @@ rebuildable at any time (decision 0009). LadybugDB 0.20.4 carries it.
 
 **Renderer** (`src/render/`): turns views into text a reader sees — the view
 set's Mermaid pages and LikeC4 workspace (`src/render/view-set.ts`,
-`src/render/mermaid.ts`, `src/render/likec4.ts`), and one view on request
-(`src/render/one-view.ts`), which the server answers with.
+`src/render/mermaid.ts`, `src/render/likec4.ts`), which the check and the
+wiki use, and one view on request at any depth (`src/render/one-view.ts`),
+built from the same parts, which the server answers with.
 
 **Wiki** (`src/wiki/`, `scripts/wiki.ts`): the static site generated from a
 repository's compiled model and its own documents, each view offered as
 LikeC4, Mermaid and archify.
 
 **Server** (`src/server/`, `scripts/serve.ts`): keeps the models repositories
-send and answers requests about them. It never reads a repository (decision
+send and answers requests about them. The send command
+(`scripts/send-model.ts`, `src/send/`) runs the check and sends a passing
+model. It never reads a repository (decision
 0007); what it shows is what was sent, at the commit it was sent for.
 
 ## From a repository to a view
@@ -65,8 +68,12 @@ layer in front of the handlers.
 
 `POST /models` stores a sent model — idempotently for the same commit and
 model, refusing with 409 the same commit sent with another model or time —
-and `GET /sources` lists what it holds, in code point order of the names.
-Every refusal is JSON naming the request field at fault and what it accepts.
+`GET /sources` lists what it holds, in code point order of the names, and
+`POST /views` answers one view of a source (an element or the landscape, a
+depth, Mermaid or LikeC4) as text, explaining a request it cannot answer: a
+source never sent names the send command. Every refusal is JSON with a
+message; a refusal about a request field also names the field and, where it
+can, what is accepted.
 One line per request goes to the log; no model content ever does.
 
 The data folder holds one SQLite history file per source
@@ -86,6 +93,6 @@ stored does not change. The engine is built lazily on first use and kept in
 step with each store's own report; a test builds a graph from two sources'
 histories and gets the union's view.
 
-A view of a sent source is answered by the same renderer the check and the
-wiki use (`src/render/one-view.ts`); the server's route table takes that way
-in beside the present ones.
+A view of a sent source is answered from its graph's engine by the one-view
+renderer (`src/render/one-view.ts`), at the current time and the first state;
+a LikeC4 answer lists, as comment lines, the relations LikeC4 cannot draw.

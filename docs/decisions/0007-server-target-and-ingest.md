@@ -42,4 +42,6 @@ of 2026-09-29): in the first milestone the server reads no repository. The
 send command, run beside the model check, sends a repository's compiled model
 with its commit and commit time (`POST /models`); storing it is the ingest,
 idempotent and ordered by commit time. `POST /sources` by repository address,
-and decision 0011's cloning, wait for `live-graph`.
+and decision 0011's cloning, wait for `live-graph`. The first consequence
+below (a queue, retries, credentials) is deferred with them: the MVP's server
+stores what is sent, synchronously, and has no authentication (decision 0012).

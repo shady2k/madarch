@@ -181,9 +181,12 @@ batch, "Да"):
   the owner.
 
 Acceptance (the check named in Coverage):
-- `server-views`: a server started on a scratch data folder; the reference
-  system and nocx's model (the accepted skill run on nocx at `3f0e46e`, in
-  its local checkout) sent with the send command; for each, the views at the
+- `server-views`: a server started on a scratch data folder; nocx's model
+  (the accepted skill run on nocx at `3f0e46e`, in its local checkout) sent
+  with the send command, and the reference system's compiled model sent
+  through `POST /models` (decided in the run: the reference system is
+  invented, has no evidence and no review report, and the model check the
+  send command gates on refuses it, correctly); for each, the views at the
   top level, at a domain or service, and at the modules of a core requested
   as Mermaid and as LikeC4: every Mermaid answer parses, and rendered by
   GitHub's Mermaid in a 1150-pixel column its labels are at least 12 pixels

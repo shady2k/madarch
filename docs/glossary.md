@@ -8,9 +8,10 @@ names; a word under _Avoid_ is not used for the concept.
 **Graph**:
 The complete state madarch keeps for one organisation's system: the intended
 model, every fact from every source with its times, and the relations derived
-from them. A graph is built from the sources it lists. One server holds one
-graph; in the MVP each repository sent is a graph of its own, listing that one
-source (decision 0013, amended 2026-09-30).
+from them. A graph is built from the sources it lists. In the MVP a server
+holds one graph per repository sent, each listing that one source; a graph
+listing a product's several repositories comes with `live-graph` (decision
+0013, amended 2026-09-30).
 _Avoid_: landscape, workspace, model (for the whole)
 
 **Intended model**:

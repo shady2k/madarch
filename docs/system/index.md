@@ -41,10 +41,14 @@ Its run's decisions are in `docs/changes/wiki/change.md`, "Design and decisions"
 
 ## Known unknowns
 
-- The server: the last outcome of the MVP.
+- The server (the last outcome of the MVP) is built by the change
+  server-views (`docs/changes/server-views/`) and joins the coverage above
+  when that change is accepted.
 - The query engine's memory in a long-lived process: measured with the
   change server-views (madarch-ti6.2) — at a fixed 2 execution threads and
   query times reduced to the history's own times, a long run of
   `dependents` and `view` calls at an advancing clock levels off well
-  under the long-run test's 400 MB bound. That is the evidence
-  madarch-ti6.1's decision on a restartable engine process rests on.
+  under the long-run test's 400 MB bound, so the server holds one engine per
+  graph without a restartable process (madarch-ti6.1). The update path is
+  not bounded yet: about 115 KB per update, the buffer pool full after about
+  5 000 updates without a rebuild (madarch-8iw, `live-graph`).
