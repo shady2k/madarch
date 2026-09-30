@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/index.js';
@@ -358,6 +358,41 @@ describe('the log', () => {
     expect((await errorOf(response)).message).toContain('secret-kind');
     expect(lines.join('\n')).not.toContain('secret-kind');
     expect(lines[0]).toContain('/elements/0/kind');
+  });
+
+  test('an unknown field name holding a newline leaves exactly one log line', async () => {
+    start();
+    lines = [];
+    const response = await post('/models', { source: 'shop', commit: 'c1', committedAt: '2026-09-01T12:00:00Z', model: model([element('a')]), 'a\nb': 1 });
+    expect(response.status).toBe(400);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('a\\nb');
+    expect(lines[0]!.includes('\n')).toBe(false);
+  });
+
+  test('a commit id holding a newline is named in the 409 and still leaves exactly one log line', async () => {
+    start();
+    await send('shop', 'c\n1', '2026-09-01T12:00:00Z', [element('a')]);
+    lines = [];
+
+    const response = await send('shop', 'c\n1', '2026-09-02T12:00:00Z', [element('a')]);
+    expect(response.status).toBe(409);
+    expect((await errorOf(response)).message).toContain('c\n1');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('c\\n1');
+    expect(lines[0]!.includes('\n')).toBe(false);
+  });
+
+  test('an error-level line is one physical line too, its stack escaped', async () => {
+    start();
+    mkdirSync(join(folder!, 'shop.json.tmp')); // the sidecar write fails; the history stored the commit
+    errors = [];
+    const response = await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    expect(response.status).toBe(500);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.includes('\n')).toBe(false);
+    expect(errors[0]).toContain('\\n');
+    rmdirSync(join(folder!, 'shop.json.tmp'));
   });
 });
 
