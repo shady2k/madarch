@@ -574,8 +574,9 @@ describe('views/mermaid node ids', () => {
   });
 
   test('clashing ids take _2, _3, ... in code point order of the element ids, whatever order the view lists them in', () => {
-    // Drawn in the view's own order; "a-b" (0x2D) sorts before "a.b" (0x2E).
-    expect(nodeLines(['a.b', 'a_b', 'a-b'])).toEqual(['  a_b_3["a.b"]', '  a_b["a_b"]', '  a_b_2["a-b"]']);
+    // Drawn in code point order of the ids ("a-b" (0x2D) sorts before
+    // "a.b" (0x2E)), not in the order the view lists them.
+    expect(nodeLines(['a.b', 'a_b', 'a-b'])).toEqual(['  a_b_2["a-b"]', '  a_b_3["a.b"]', '  a_b["a_b"]']);
   });
 });
 

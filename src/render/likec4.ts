@@ -12,7 +12,7 @@ import type { CompiledElement, CompiledModel } from '../model/compile.js';
 import { byCodePoint } from '../model/order.js';
 import type { ElementAnswer, QueryEngine, QueryError, QueryTime } from '../query/types.js';
 import { uniqueSafeIds } from './safe-ids.js';
-import { buildViewSet, EVERY_LEVEL, namer, type View } from './view-set.js';
+import { buildViewSet, childrenByParent, EVERY_LEVEL, namer, type View } from './view-set.js';
 
 /** One problem that kept the workspace from being rendered. */
 export interface LikeC4Error {
@@ -276,7 +276,15 @@ export function writeLikeC4Workspace(engine: QueryEngine, model: CompiledModel, 
   for (const view of views) {
     const scope = view.scope === undefined ? undefined : compiled.get(view.scope)!;
     const head = scope === undefined ? 'view index' : `view ${names.get(scope.id)} of ${fqns.get(scope.id)}`;
-    lines.push(`  ${head} {`, `    title ${text(scope === undefined ? 'Landscape' : (scope.name ?? scope.id))}`, '    include *', '  }');
+    // The children of every frame among the shown elements, one wildcard
+    // each (views/one-view, a depth above 1); a scoped view's own children
+    // come with `*`, the landscape's roots do.
+    const frames = new Set(view.elements.filter((element) => element.parent !== undefined).map((element) => element.parent!));
+    const wildcards = view.elements
+      .filter((element) => frames.has(element.id) && element.id !== view.scope)
+      .map((element) => `${fqns.get(element.id)}.*`)
+      .sort(byCodePoint);
+    lines.push(`  ${head} {`, `    title ${text(scope === undefined ? 'Landscape' : (scope.name ?? scope.id))}`, `    include ${['*', ...wildcards].join(', ')}`, '  }');
   }
   lines.push('}', '');
   return { workspace: lines.join('\n'), notDrawn: [...notDrawn.values()].sort((a, b) => byCodePoint(a.relationId, b.relationId)), errors: [] };
@@ -308,17 +316,6 @@ function fullNames(elements: readonly ElementAnswer[], names: ReadonlyMap<string
   };
   for (const element of elements) fqn(element);
   return fqns;
-}
-
-/** Each parent's children (the elements with no parent under `undefined`), by id in code point order. */
-function childrenByParent(elements: readonly ElementAnswer[]): Map<string | undefined, ElementAnswer[]> {
-  const children = new Map<string | undefined, ElementAnswer[]>();
-  for (const element of [...elements].sort((a, b) => byCodePoint(a.id, b.id))) {
-    const siblings = children.get(element.parent) ?? [];
-    siblings.push(element);
-    children.set(element.parent, siblings);
-  }
-  return children;
 }
 
 function kindLines(kind: CompiledElement['kind']): string[] {

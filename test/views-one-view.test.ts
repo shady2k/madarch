@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MERMAID_FOLDER, REFERENCE_SYSTEM, REFERENCE_TIME } from '../scripts/render-views.js';
-import { checkLikeC4Workspaces, type LikeC4CheckResult } from '../scripts/likec4-check.js';
+import { checkLikeC4Workspaces, LIKEC4_BIN, type LikeC4CheckResult } from '../scripts/likec4-check.js';
 import { checkMermaidPages } from '../scripts/mermaid-check.js';
 import {
   compileModel,
@@ -156,6 +157,59 @@ const CATALOG_PAGE = [
   '',
 ].join('\n');
 
+/** The view of `shop` at depth 2: the modules framed inside `checkout-web` inside `shop`, `payments` outside, arrows to the deepest shown elements. */
+const SHOP_DEPTH2_PAGE = [
+  '# Shop (domain)',
+  '',
+  '```mermaid',
+  '%%{init: {"flowchart": {"curve": "linear"}}}%%',
+  'flowchart LR',
+  '  subgraph shop ["Shop"]',
+  '    catalog_api["Catalog API"]',
+  '    subgraph checkout_web ["Checkout web"]',
+  '      checkout_cart["Cart"]',
+  '      checkout_ui["Checkout UI"]',
+  '    end',
+  '  end',
+  '  payments["Payments"]',
+  '  checkout_cart -->|"1"| catalog_api',
+  '  checkout_cart -->|"2"| payments',
+  '  checkout_ui -->|"3"| checkout_cart',
+  '```',
+  '',
+  '| # | From | To | Relations |',
+  '| --- | --- | --- | --- |',
+  '| 1 | Cart | Catalog API | reads prices |',
+  '| 2 | Cart | Payments | charges the card |',
+  '| 3 | Checkout UI | Cart | renders the cart |',
+  '',
+].join('\n');
+
+/** The landscape at depth 2: every root a frame around its children, relations collapsed to the children. */
+const LANDSCAPE_DEPTH2_PAGE = [
+  '# Landscape',
+  '',
+  '```mermaid',
+  '%%{init: {"flowchart": {"curve": "linear"}}}%%',
+  'flowchart LR',
+  '  subgraph payments ["Payments"]',
+  '    payments_api["Payments API"]',
+  '  end',
+  '  subgraph shop ["Shop"]',
+  '    catalog_api["Catalog API"]',
+  '    checkout_web["Checkout web"]',
+  '  end',
+  '  checkout_web -->|"1"| catalog_api',
+  '  checkout_web -->|"2"| payments_api',
+  '```',
+  '',
+  '| # | From | To | Relations |',
+  '| --- | --- | --- | --- |',
+  '| 1 | Checkout web | Catalog API | reads prices |',
+  '| 2 | Checkout web | Payments API | charges the card |',
+  '',
+].join('\n');
+
 describe('views/one-view mermaid', () => {
   test('depth-one-equals-page: the asked view is the view set page of it without its Up and Open lines', () => {
     const built = build('views-drill-down');
@@ -218,11 +272,56 @@ describe('views/one-view mermaid', () => {
     }
   });
 
-  test('a depth above 1 is an error naming the depth and saying it is not rendered yet', () => {
+  test('depth-two-frames: the view of shop at depth 2 frames the modules inside checkout-web inside shop, draws payments outside, and parses', async () => {
+    const built = build('views-drill-down');
+    let page: string;
+    try {
+      const asked = renderOneViewMermaid(built.engine, built.model, { element: 'shop', depth: 2 }, AT);
+      expect(asked.errors).toEqual([]);
+      page = asked.page!;
+    } finally {
+      close(built);
+    }
+
+    expect(page).toBe(SHOP_DEPTH2_PAGE);
+    const dir = mkdtempSync(join(tmpdir(), 'madarch-one-view-'));
+    try {
+      writeFileSync(join(dir, 'shop-depth2.md'), page);
+      expect(await checkMermaidPages([dir])).toEqual({ pages: 1, blocks: 1, errors: [] });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('the landscape at depth 2 frames every root around its children, and parses', async () => {
+    const built = build('views-drill-down');
+    let page: string;
+    try {
+      const asked = renderOneViewMermaid(built.engine, built.model, { depth: 2 }, AT);
+      expect(asked.errors).toEqual([]);
+      page = asked.page!;
+    } finally {
+      close(built);
+    }
+
+    expect(page).toBe(LANDSCAPE_DEPTH2_PAGE);
+    const dir = mkdtempSync(join(tmpdir(), 'madarch-one-view-'));
+    try {
+      writeFileSync(join(dir, 'landscape-depth2.md'), page);
+      expect(await checkMermaidPages([dir])).toEqual({ pages: 1, blocks: 1, errors: [] });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('a depth that is not a whole number is an error naming it, in both formats', () => {
     const built = build('views-drill-down');
     try {
-      expect(renderOneViewMermaid(built.engine, built.model, { element: 'shop', depth: 2 }, AT)).toStrictEqual({
-        errors: [{ message: 'the depth 2 is not rendered yet: only depth 1 is', depth: 2, element: 'shop' }],
+      expect(renderOneViewMermaid(built.engine, built.model, { element: 'shop', depth: 1.5 }, AT)).toStrictEqual({
+        errors: [{ message: 'the depth 1.5 is not a whole number: the depth is how many levels to draw', depth: 1.5, element: 'shop' }],
+      });
+      expect(renderOneViewLikeC4(built.engine, built.model, { element: 'shop', depth: 1.5 }, AT)).toStrictEqual({
+        errors: [{ message: 'the depth 1.5 is not a whole number: the depth is how many levels to draw', depth: 1.5, element: 'shop' }],
       });
     } finally {
       close(built);
@@ -310,18 +409,75 @@ describe('views/one-view likec4', () => {
     expect(validate(workspace)).toEqual({ files: 1, errors: [] });
   });
 
-  test('a depth below or above 1 is an error, and no workspace comes back', () => {
+  test('a depth below 1 is an error, and no workspace comes back', () => {
     const built = build('views-drill-down');
     try {
       expect(renderOneViewLikeC4(built.engine, built.model, { depth: -1 }, AT)).toStrictEqual({
         errors: [{ message: 'the depth -1 is below 1: the smallest depth rendered is 1', depth: -1 }],
       });
-      expect(renderOneViewLikeC4(built.engine, built.model, { element: 'shop', depth: 3 }, AT)).toStrictEqual({
-        errors: [{ message: 'the depth 3 is not rendered yet: only depth 1 is', depth: 3, element: 'shop' }],
-      });
     } finally {
       close(built);
     }
+  });
+
+  test('depth-two-frames: the view of shop at depth 2 includes the grandchildren, validates, and LikeC4 draws the frames and the collapsed arrows', () => {
+    const built = build('views-drill-down');
+    let workspace: string;
+    try {
+      const asked = renderOneViewLikeC4(built.engine, built.model, { element: 'shop', depth: 2 }, AT);
+      expect(asked.errors).toEqual([]);
+      workspace = asked.workspace!;
+    } finally {
+      close(built);
+    }
+
+    expect(workspace).toBe(drillDownWorkspace(['  view shop of shop {', '    title "Shop"', '    include *, shop.checkout-web.*', '  }']));
+    expect(viewsIn(workspace)).toEqual(['shop of shop']);
+
+    // What LikeC4 draws, not only that it validates: the modules inside the
+    // checkout-web frame, payments outside, the arrows collapsed to the
+    // deepest shown elements.
+    const dir = mkdtempSync(join(tmpdir(), 'madarch-one-view-'));
+    try {
+      writeFileSync(join(dir, 'model.c4'), workspace);
+      const run = spawnSync(LIKEC4_BIN, ['export', 'json', '-o', join(dir, 'drawn.json'), dir], { encoding: 'utf8', timeout: 120_000 });
+      expect(run.error).toBeUndefined();
+      const drawn = JSON.parse(readFileSync(join(dir, 'drawn.json'), 'utf8')) as {
+        views: Record<string, { nodes: { id: string }[]; edges: { source: string; target: string; label: string | null }[] }>;
+      };
+      const drawnShop = drawn.views.shop!;
+      expect(drawnShop.nodes.map((node) => node.id).sort()).toEqual([
+        'payments',
+        'shop',
+        'shop.catalog-api',
+        'shop.checkout-web',
+        'shop.checkout-web.checkout-cart',
+        'shop.checkout-web.checkout-ui',
+      ]);
+      expect(drawnShop.edges.map((edge) => `${edge.source} -> ${edge.target} ${edge.label}`).sort()).toEqual([
+        'shop.checkout-web.checkout-cart -> payments charges the card',
+        'shop.checkout-web.checkout-cart -> shop.catalog-api reads prices',
+        'shop.checkout-web.checkout-ui -> shop.checkout-web.checkout-cart renders the cart',
+      ]);
+      expect(validate(workspace)).toEqual({ files: 1, errors: [] });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('the landscape at depth 2 includes the children of every root and validates', () => {
+    const built = build('views-drill-down');
+    let workspace: string;
+    try {
+      const asked = renderOneViewLikeC4(built.engine, built.model, { depth: 2 }, AT);
+      expect(asked.errors).toEqual([]);
+      workspace = asked.workspace!;
+    } finally {
+      close(built);
+    }
+
+    expect(workspace).toBe(drillDownWorkspace(['  view index {', '    title "Landscape"', '    include *, payments.*, shop.*', '  }']));
+    expect(validate(workspace)).toEqual({ files: 1, errors: [] });
   });
 
   test('an element that does not exist at the asked time is an error naming it and the time', () => {
@@ -468,5 +624,34 @@ describe("the reference system's one view", () => {
     } finally {
       ref.close();
     }
+  }, 120_000);
+
+  test('the landscape and ordering asked at depth 2 and 3 parse as Mermaid and validate as LikeC4', async () => {
+    const ref = reference();
+    const pages: { name: string; text: string }[] = [];
+    const workspaces: string[] = [];
+    try {
+      for (const [name, request] of [['landscape', {}], ['ordering', { element: 'ordering' }]] as const) {
+        for (const depth of [2, 3]) {
+          const mermaid = renderOneViewMermaid(ref.engine, ref.model, { ...request, depth }, ref.at);
+          expect(mermaid.errors).toEqual([]);
+          pages.push({ name: `${name}-depth${depth}.md`, text: mermaid.page! });
+          const likec4 = renderOneViewLikeC4(ref.engine, ref.model, { ...request, depth }, ref.at);
+          expect(likec4.errors).toEqual([]);
+          workspaces.push(likec4.workspace!);
+        }
+      }
+    } finally {
+      ref.close();
+    }
+
+    const dir = mkdtempSync(join(tmpdir(), 'madarch-one-view-'));
+    try {
+      for (const page of pages) writeFileSync(join(dir, page.name), page.text);
+      expect(await checkMermaidPages([dir])).toEqual({ pages: 4, blocks: 4, errors: [] });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    for (const workspace of workspaces) expect(validate(workspace)).toEqual({ files: 1, errors: [] });
   }, 120_000);
 });
