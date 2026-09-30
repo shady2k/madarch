@@ -237,3 +237,43 @@ describe('graph names', () => {
     graphs.close();
   });
 });
+
+describe('the graph engine and its clock', () => {
+  test('the sources are held in code point order, whatever order they were listed in', () => {
+    const clock = fakeClock(DAY(9));
+    const one = createSqliteHistory({ clock });
+    const graphs = createGraphs({ historyOf: () => one, clock });
+    const union = graphs.addGraph('union', ['github.com/b/two', 'github.com/a/one', 'github.com/c/three']);
+    expect(union.sources).toEqual(['github.com/a/one', 'github.com/b/two', 'github.com/c/three']);
+    graphs.close();
+  });
+
+  test('the engine answers at the clock the graphs were given, not the real one', () => {
+    // A commit dated far past the real "now": only an engine answering at
+    // the injected clock sees it as current.
+    const far = Date.UTC(2030, 0, 2);
+    const clock = fakeClock(far);
+    const one = createSqliteHistory({ clock });
+    one.store({ source: 'shop', commit: 'c1', committedAt: Date.UTC(2030, 0, 1), model: model([element('far-future')]) });
+    const graphs = createGraphs({ historyOf: () => one, clock });
+    const view = graphs.graphForSource('shop').engine().view({ depth: 0 });
+    graphs.close();
+    expect(view.elements?.map((each) => each.id)).toEqual(['far-future']);
+  });
+
+  test('a store report applied before the engine was ever built is not lost and does not build it', () => {
+    const clock = fakeClock(DAY(9));
+    const one = createSqliteHistory({ clock });
+    one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('root', { kind: 'system' })]) });
+    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graph = graphs.addGraph('shop', ['shop']);
+
+    const result = one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('root', { kind: 'system' }), element('child', { parent: 'root', ancestors: ['root'] })]) });
+    expect(result.errors).toEqual([]);
+    expect(() => graphs.applyStore('shop', result)).not.toThrow();
+
+    expect(graph.engine().view({ depth: 1 }).elements?.map((each) => each.id).sort()).toEqual(['child', 'root']);
+    graphs.close();
+  });
+});
+
