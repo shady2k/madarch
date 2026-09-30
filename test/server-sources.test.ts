@@ -185,6 +185,32 @@ describe('heads', () => {
     expect(sources.heads()).toEqual([{ source: 'shop', commit: 'zzz', committedAt: DAY(1), storedAt: DAY(10) }]);
   });
 
+  test('the first-stored commit of a tie is superseded by the bigger id, not kept', () => {
+    const dir = scratchFolder();
+    const clock = fakeClock(DAY(10));
+    const sources = createSourceStores({ dataFolder: dir, clock });
+
+    sources.store(storeInput('shop', 'aaa', DAY(1), [element('a')]));
+    sources.store(storeInput('shop', 'zzz', DAY(1), [element('b')]));
+    sources.close();
+
+    // The second store closes the first's rows, so its own recorded
+    // moment is clamped strictly past the clock's reading.
+    expect(sources.heads()).toEqual([{ source: 'shop', commit: 'zzz', committedAt: DAY(1), storedAt: DAY(10) + 1 }]);
+  });
+
+  test('a later commit time wins even when the older commit sorts the other way', () => {
+    const dir = scratchFolder();
+    const clock = fakeClock(DAY(10));
+    const sources = createSourceStores({ dataFolder: dir, clock });
+
+    sources.store(storeInput('shop', 'a9', DAY(2), [element('a')]));
+    sources.store(storeInput('shop', 'z9', DAY(1), [element('b')])); // older, though its id sorts higher
+    sources.close();
+
+    expect(sources.heads()).toEqual([{ source: 'shop', commit: 'a9', committedAt: DAY(2), storedAt: DAY(10) }]);
+  });
+
   test('a sidecar write that fails after the commit was stored is healed by retrying the same commit', () => {
     const dir = scratchFolder();
     const clock = fakeClock(DAY(10));
@@ -326,6 +352,49 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
     writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', storedAt: 2 }));
     expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).toThrow(/shop\.json/);
   });
+
+  test('a sidecar holding a field of the wrong shape is refused naming its file and the field', () => {
+    const broken: { name: string; sidecar: Record<string, unknown> }[] = [
+      { name: 'source is not a string', sidecar: { source: 42, commit: 'c1', committedAt: 1, storedAt: 2 } },
+      { name: 'source is empty', sidecar: { source: '', commit: 'c1', committedAt: 1, storedAt: 2 } },
+      { name: 'commit is not a string', sidecar: { source: 'shop', commit: 42, committedAt: 1, storedAt: 2 } },
+      { name: 'committedAt is not a number', sidecar: { source: 'shop', commit: 'c1', committedAt: '1', storedAt: 2 } },
+      { name: 'committedAt is not finite', sidecar: { source: 'shop', commit: 'c1', committedAt: Number.NaN, storedAt: 2 } },
+      { name: 'storedAt is not a number', sidecar: { source: 'shop', commit: 'c1', committedAt: 1, storedAt: '2' } },
+      { name: 'storedAt is not finite', sidecar: { source: 'shop', commit: 'c1', committedAt: 1, storedAt: Number.POSITIVE_INFINITY } },
+    ];
+    for (const { name, sidecar } of broken) {
+      const dir = mkdtempSync(join(tmpdir(), 'madarch-server-sources-'));
+      try {
+        writeFileSync(join(dir, 'shop.sqlite'), '');
+        writeFileSync(join(dir, 'shop.json'), JSON.stringify(sidecar));
+        expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) }), name).toThrow(/shop\.json/);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test('a file name this server never writes is refused, even when the sidecar matches what it would decode to', () => {
+    // A raw `~` is always encoded, a `%zz` escape is not hexadecimal, and
+    // `%FF` alone is not valid UTF-8: none of these stems was written by
+    // this server, whatever the sidecar beside them claims.
+    const stems: [string, string][] = [
+      ['sh~op', 'sh~op'],
+      ['a%zzb', 'azzb'],
+      ['a%FFb', 'a\uFFFDb'],
+    ];
+    for (const [stem, source] of stems) {
+      const dir = mkdtempSync(join(tmpdir(), 'madarch-server-sources-'));
+      try {
+        writeFileSync(join(dir, `${stem}.sqlite`), '');
+        writeFileSync(join(dir, `${stem}.json`), JSON.stringify({ source, commit: 'c1', committedAt: 1, storedAt: 2 }));
+        expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) }), stem).toThrow(/does not decode to a source name/);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
 });
 
 describe('the data folder itself', () => {
@@ -338,7 +407,7 @@ describe('the data folder itself', () => {
     const dir = scratchFolder();
     const filePath = join(dir, 'afile');
     writeFileSync(filePath, '');
-    expect(() => createSourceStores({ dataFolder: filePath, clock: fakeClock(DAY(1)) })).toThrow(/afile/);
+    expect(() => createSourceStores({ dataFolder: filePath, clock: fakeClock(DAY(1)) })).toThrow(/afile.*is not a folder|is not a folder.*afile/s);
   });
 
   test('stray files that are not histories or sidecars are ignored', () => {
@@ -382,6 +451,28 @@ describe('the history behind a source', () => {
     expect(refused.result.errors).toHaveLength(1);
     expect(refused.result.errors[0]!.id).toBe('c1');
     expect(sources.heads()).toEqual(before);
+  });
+
+  test('a store reached with a name that must be refused first throws as a caller defect', () => {
+    const dir = scratchFolder();
+    const sources = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    expect(() => sources.store(storeInput('a\nb', 'c1', DAY(1), [element('a')]))).toThrow(/refused first/);
+    sources.close();
+  });
+
+  test('a model with no assertions at all still stores, and the restart reads its sidecar', () => {
+    const dir = scratchFolder();
+    const clock = fakeClock(DAY(10));
+    const sources = createSourceStores({ dataFolder: dir, clock });
+
+    const stored = sources.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: { ...model([]), states: [] } });
+    expect(stored.result.errors).toEqual([]);
+    expect(stored.result.opened).toEqual([]);
+    sources.close();
+
+    const second = createSourceStores({ dataFolder: dir, clock });
+    expect(second.heads()).toEqual([{ source: 'shop', commit: 'c1', committedAt: DAY(1), storedAt: DAY(10) }]);
+    second.close();
   });
 });
 
