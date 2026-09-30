@@ -17,6 +17,7 @@
  * (decision 0003's duplicate-id check); sending and storing never refuse
  * on them.
  */
+import { CLASHABLE_KINDS } from '../history/assertions.js';
 import { createLadybugEngine } from '../adapters/ladybug-engine.js';
 import type { AssertionRecord, Clock, HistoryStore, StoreResult } from '../history/types.js';
 import type { QueryEngine } from '../query/types.js';
@@ -77,6 +78,8 @@ function newGraph(name: string, sources: readonly string[], historyOf: (source: 
       let engine = engineInstance;
       if (engine === undefined) {
         const assertions: AssertionRecord[] = listed.flatMap((source) => historyOf(source).assertions({ source }));
+        const clash = clashingId(assertions);
+        if (clash !== undefined) throw new Error(clash);
         engine = createLadybugEngine({ clock });
         engine.rebuild(assertions);
         engineInstance = engine;
@@ -94,6 +97,50 @@ function newGraph(name: string, sources: readonly string[], historyOf: (source: 
   };
 }
 
+/**
+ * The message naming every id (in code point order) that two sources of
+ * one graph declare over overlapping valid spans — an element, interface
+ * or relation id belongs to one source only (decision 0003) — or
+ * `undefined` when no id clashes. A clashing union is never built: the
+ * engine would hold duplicate rows for the id and answer no graph's
+ * question.
+ */
+function clashingId(assertions: readonly AssertionRecord[]): string | undefined {
+  const groups = new Map<string, AssertionRecord[]>();
+  for (const row of assertions) {
+    if (!CLASHABLE_KINDS.includes(row.kind)) continue;
+    const key = `${row.kind}\u0000${row.id}`;
+    const group = groups.get(key);
+    if (group === undefined) groups.set(key, [row]);
+    else group.push(row);
+  }
+  const clashes: { id: string; kind: string; sources: string[] }[] = [];
+  for (const group of groups.values()) {
+    const sources = new Set<string>();
+    for (const row of group) {
+      for (const other of group) {
+        if (row.source === other.source) continue;
+        // Two declarations can only disagree where both were believed
+        // (the recorded axis) and both were true (the valid axis): a row
+        // a later store closed on the recorded axis is history, not a
+        // live clash.
+        if (
+          row.validFrom < (other.validTo ?? Infinity) && other.validFrom < (row.validTo ?? Infinity) &&
+          row.recordedFrom < (other.recordedTo ?? Infinity) && other.recordedFrom < (row.recordedTo ?? Infinity)
+        ) {
+          sources.add(row.source);
+          sources.add(other.source);
+        }
+      }
+    }
+    if (sources.size > 0) clashes.push({ id: group[0]!.id, kind: group[0]!.kind, sources: [...sources].sort(byCodePoint) });
+  }
+  if (clashes.length === 0) return undefined;
+  clashes.sort((a, b) => byCodePoint(a.id, b.id));
+  const named = clashes.map((each) => `"${each.id}" (${each.kind}: ${each.sources.join(', ')})`);
+  return `the graph would hold ${named.join(', ')} more than once: an element, interface or relation id is declared by one source only (decision 0003)`;
+}
+
 export function createGraphs(options: GraphsOptions): Graphs {
   const { historyOf } = options;
   const clock: Clock = options.clock ?? { now: () => Date.now() };
@@ -102,6 +149,15 @@ export function createGraphs(options: GraphsOptions): Graphs {
   function addGraph(name: string, sources: readonly string[]): Graph {
     if (graphs.has(name)) throw new Error(`a graph named "${name}" already exists: one graph per name`);
     if (sources.length === 0) throw new Error(`the graph "${name}" lists no source: a graph is built from the sources it lists`);
+    const listed = new Set<string>();
+    const duplicated = new Set<string>();
+    for (const source of sources) {
+      if (listed.has(source)) duplicated.add(source);
+      listed.add(source);
+    }
+    if (duplicated.size > 0) {
+      throw new Error(`the graph "${name}" lists ${[...duplicated].sort(byCodePoint).map((each) => `"${each}"`).join(', ')} more than once: a graph is a set of sources, each listed once`);
+    }
     const graph = newGraph(name, sources, historyOf, clock);
     graphs.set(name, graph);
     return graph;

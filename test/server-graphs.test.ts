@@ -12,9 +12,14 @@ import {
 const DAY = (day: number) => Date.UTC(2026, 8, day); // September 2026
 
 /** A clock a test moves by hand, never the real one. */
-function fakeClock(initial: number): Clock {
+function fakeClock(initial: number): Clock & { set(t: number): void } {
   let current = initial;
-  return { now: () => current };
+  return {
+    now: () => current,
+    set(t: number) {
+      current = t;
+    },
+  };
 }
 
 function element(id: string, extra: Partial<CompiledElement> = {}): CompiledElement {
@@ -94,6 +99,52 @@ describe('a graph built from two sources', () => {
   });
 });
 
+describe('a graph is a set of sources', () => {
+  test('a graph listing the same source twice is refused naming it', () => {
+    const clock = fakeClock(DAY(9));
+    const one = createSqliteHistory({ clock });
+    const graphs = createGraphs({ historyOf: () => one, clock });
+    expect(() => graphs.addGraph('union', ['shop', 'shop'])).toThrow(/shop/);
+    graphs.close();
+  });
+
+  test('two sources declaring the same element id are an error naming the id and both sources', () => {
+    const clock = fakeClock(DAY(9));
+    const one = storedHistory('github.com/a/one', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('core')] }]);
+    const two = storedHistory('github.com/b/two', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('core')] }]);
+    const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/a/one' ? one : two), clock });
+    const union = graphs.addGraph('union', ['github.com/a/one', 'github.com/b/two']);
+
+    let thrown: unknown;
+    try {
+      union.engine();
+    } catch (error) {
+      thrown = error;
+    }
+    expect((thrown as Error).message).toContain('"core"');
+    expect((thrown as Error).message).toContain('github.com/a/one');
+    expect((thrown as Error).message).toContain('github.com/b/two');
+    graphs.close();
+  });
+
+  test('an id one source dropped before another declares it is no clash', () => {
+    const clock = fakeClock(DAY(9));
+    const one = createSqliteHistory({ clock });
+    const two = createSqliteHistory({ clock });
+    clock.set(DAY(10));
+    one.store({ source: 'github.com/a/one', commit: 'c1', committedAt: DAY(1), model: model([element('core')]) });
+    clock.set(DAY(12));
+    one.store({ source: 'github.com/a/one', commit: 'c2', committedAt: DAY(3), model: model([]) });
+    clock.set(DAY(14));
+    two.store({ source: 'github.com/b/two', commit: 'c1', committedAt: DAY(3), model: model([element('core')]) });
+
+    const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/a/one' ? one : two), clock });
+    const union = graphs.addGraph('union', ['github.com/a/one', 'github.com/b/two']);
+    expect(union.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['core']);
+    graphs.close();
+  });
+});
+
 describe('keeping a built graph in step', () => {
   test('a store after the engine was built is applied, and the view changes with it', () => {
     const clock = fakeClock(DAY(9));
@@ -110,6 +161,53 @@ describe('keeping a built graph in step', () => {
     const view = graph.engine().view({ depth: 1 });
     graphs.close();
     expect(view.elements?.map((e) => e.id).sort()).toEqual(['child', 'root']);
+  });
+
+  test('a store report that both closes and opens rows reaches a built engine', () => {
+    // The closed row leaves the assertion-driven view; the opened child
+    // row must arrive in the same update.
+    const clock = fakeClock(DAY(9));
+    const one = createSqliteHistory({ clock });
+    one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a'), element('keep')]) });
+    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graph = graphs.graphForSource('shop');
+    expect(graph.engine().view({ depth: 1 }).elements?.map((each) => each.id).sort()).toEqual(['a', 'keep']);
+
+    const result = one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('keep'), element('child', { parent: 'keep', ancestors: ['keep'] })]) });
+    expect(result.errors).toEqual([]);
+    expect(result.closed.length).toBeGreaterThan(0);
+    expect(result.opened.length).toBeGreaterThan(0);
+    graphs.applyStore('shop', result);
+    // Closing `a` clamped the store's own recorded moment 1 ms past the
+    // frozen clock; move real time past it, as a running server would,
+    // before asking the view.
+    clock.set(DAY(15));
+    const view = graph.engine().view({ depth: 1 });
+    graphs.close();
+    expect(view.elements?.map((each) => each.id).sort()).toEqual(['child', 'keep']);
+  });
+
+  test('a store report that only closes rows reaches a built engine', () => {
+    // A commit at the very instant the dropped row starts, sorting after
+    // it by id, closes the old row and opens no replacement (a zero-width
+    // slice is never written).
+    const clock = fakeClock(DAY(9));
+    const one = createSqliteHistory({ clock });
+    one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
+    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graph = graphs.graphForSource('shop');
+    expect(graph.engine().view({ depth: 1 }).elements?.map((each) => each.id)).toEqual(['a']);
+
+    const result = one.store({ source: 'shop', commit: 'c2', committedAt: DAY(1), model: model([]) });
+    expect(result.errors).toEqual([]);
+    expect(result.closed.length).toBeGreaterThan(0);
+    expect(result.opened).toEqual([]);
+    graphs.applyStore('shop', result);
+    clock.set(DAY(15));
+
+    const view = graph.engine().view({ depth: 1 });
+    graphs.close();
+    expect(view.elements?.map((each) => each.id)).toEqual([]);
   });
 
   test('a graph built after several stores sees all of them without any update call', () => {
@@ -186,3 +284,43 @@ describe('graph names', () => {
     graphs.close();
   });
 });
+
+describe('the graph engine and its clock', () => {
+  test('the sources are held in code point order, whatever order they were listed in', () => {
+    const clock = fakeClock(DAY(9));
+    const one = createSqliteHistory({ clock });
+    const graphs = createGraphs({ historyOf: () => one, clock });
+    const union = graphs.addGraph('union', ['github.com/b/two', 'github.com/a/one', 'github.com/c/three']);
+    expect(union.sources).toEqual(['github.com/a/one', 'github.com/b/two', 'github.com/c/three']);
+    graphs.close();
+  });
+
+  test('the engine answers at the clock the graphs were given, not the real one', () => {
+    // A commit dated far past the real "now": only an engine answering at
+    // the injected clock sees it as current.
+    const far = Date.UTC(2030, 0, 2);
+    const clock = fakeClock(far);
+    const one = createSqliteHistory({ clock });
+    one.store({ source: 'shop', commit: 'c1', committedAt: Date.UTC(2030, 0, 1), model: model([element('far-future')]) });
+    const graphs = createGraphs({ historyOf: () => one, clock });
+    const view = graphs.graphForSource('shop').engine().view({ depth: 0 });
+    graphs.close();
+    expect(view.elements?.map((each) => each.id)).toEqual(['far-future']);
+  });
+
+  test('a store report applied before the engine was ever built is not lost and does not build it', () => {
+    const clock = fakeClock(DAY(9));
+    const one = createSqliteHistory({ clock });
+    one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('root', { kind: 'system' })]) });
+    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graph = graphs.addGraph('shop', ['shop']);
+
+    const result = one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('root', { kind: 'system' }), element('child', { parent: 'root', ancestors: ['root'] })]) });
+    expect(result.errors).toEqual([]);
+    expect(() => graphs.applyStore('shop', result)).not.toThrow();
+
+    expect(graph.engine().view({ depth: 1 }).elements?.map((each) => each.id).sort()).toEqual(['child', 'root']);
+    graphs.close();
+  });
+});
+

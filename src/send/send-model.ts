@@ -157,6 +157,10 @@ export function sourceNameFromRemote(url: string): string | undefined {
     if (host.length < 2) return undefined;
     path = `/${scp[2]}`;
   }
+  // The query and fragment are not part of the repository's path: an URL
+  // like https://host/acme/shop.git?access_token=... carries credentials
+  // there that must never reach the source's name.
+  path = path.replace(/[?#].*$/, '');
   let name = `${host}${path}`.replace(/\/+$/, '');
   if (name.toLowerCase().endsWith('.git')) name = name.slice(0, -'.git'.length);
   if (host === '' || name === '' || name === host) return undefined;

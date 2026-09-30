@@ -7,22 +7,31 @@
  * file's source and `GET /sources` can answer without opening a history.
  *
  * The file name is derived by percent-encoding every byte the file system
- * should not see; the encoding is injective (two sources never share a
- * file, `a/b` and `a%2Fb` included) and reversible, but the sidecar, not
- * the name, is what a restart reads the source's identity from.
+ * should not see — the upper-case letters included, so a file name never
+ * depends on letter case and two names that differ only in case never
+ * share one file on a case-insensitive volume. The encoding is injective
+ * (two sources never share a file, `a/b` and `a%2Fb` included) and
+ * reversible, but the sidecar, not the name, is what a restart reads the
+ * source's identity from.
  *
- * The folder is the server's own store: at start, every `<stem>.json` must
- * have its `<stem>.sqlite` beside it and the other way round, every
- * sidecar must name the same source its file name decodes to, and anything
- * else is refused with the file named. Files that are neither a history
- * nor a sidecar (`README.md`, a leftover `.json.tmp` from an interrupted
- * sidecar write) are ignored.
+ * The folder is the server's own store, and the history is its truth: at
+ * start every history is opened and its sidecar brought to the head the
+ * history itself holds — a sidecar that went missing or was left stale
+ * by an interrupted write is repaired from the history (its one source
+ * name, its head by the history's own commit order) and the repair is
+ * logged. What cannot be named is refused with the file named: a sidecar
+ * without its history, a history holding no source or more than one, a
+ * sidecar and a history that disagree about the source, a stem this
+ * server never wrote. Files that are neither a history nor a sidecar
+ * (`README.md`, a leftover `.json.tmp` from an interrupted sidecar
+ * write) are ignored.
  *
  * One `createSourceStores` per folder; a second instance on the same
- * folder is not supported. Not multi-process safe: the sidecar is written
- * after the history's own transaction has committed, so a crash between
- * the two can leave a history file without its sidecar, which the next
- * start refuses until the folder is repaired by hand.
+ * folder is not supported. Not multi-process safe: the sidecar is
+ * written after the history's own transaction has committed, so a crash
+ * between the two can leave a history file without its sidecar or with
+ * a stale one — which the next start repairs from the history, since
+ * the history, not the sidecar, is the truth.
  */
 import { join } from 'node:path';
 import { readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
@@ -31,8 +40,8 @@ import { createSqliteHistory } from '../adapters/sqlite-history.js';
 import type { Clock, HistoryStore, StoreInput, StoreResult } from '../history/types.js';
 import { byCodePoint } from '../model/order.js';
 
-/** The bytes that may appear in a file name as they are: unreserved in RFC 3986, minus `~` (kept out on purpose; it encodes fine). */
-const UNRESERVED = /^[A-Za-z0-9._-]$/;
+/** The bytes that may appear in a file name as they are: the lower-case unreserved bytes of RFC 3986 minus `~` (kept out on purpose; it encodes fine). Upper-case letters encode too, so a stem never depends on case; a stem holding a raw upper-case letter, or a lower-case `%xx` escape, was not written by this server. */
+const UNRESERVED = /^[a-z0-9._-]$/;
 
 /**
  * The longest encoded file-name stem the server accepts, in bytes: three
@@ -48,6 +57,8 @@ export interface SourceStoresOptions {
   dataFolder: string;
   /** Supplies recorded time's "now" for the histories and the heads; tests inject a fake clock. */
   clock: Clock;
+  /** Where startup repair lines go; standard output by default. */
+  log?: (line: string) => void;
 }
 
 /** One source's current head: the newest version stored for it, by commit order. */
@@ -71,10 +82,13 @@ export interface SourceStores {
   historyOf(source: string): HistoryStore;
   /**
    * Stores one version in the source's history and, when the store
-   * succeeded and the commit is the source's newest by commit order,
-   * rewrites the sidecar. `input` must first pass `sourceNameProblem`
-   * (the HTTP layer validates every field before calling); a store
-   * reached with a name that fails it is a caller defect and throws.
+   * succeeded, brings the sidecar to the source's head — on every store,
+   * new or already stored, so a sidecar write that failed after the
+   * commit was stored is healed by storing that commit again: the
+   * history, not the sidecar, is the truth. `input` must first pass
+   * `sourceNameProblem` (the HTTP layer validates every field before
+   * calling); a store reached with a name that fails it is a caller
+   * defect and throws.
    */
   store(input: StoreInput): SourceStoreResult;
   /** Every source's head, in code point order of the names. */
@@ -85,9 +99,10 @@ export interface SourceStores {
 
 /**
  * What is wrong with a source name a request carries, for the caller to
- * refuse with; `undefined` when the name is usable. Any string at all is
- * encodable — separators, dots, non-ASCII letters — so only emptiness and
- * the encoded-length limit can be wrong.
+ * refuse with; `undefined` when the name is usable. Most strings are
+ * encodable — separators, dots, non-ASCII letters — so besides
+ * emptiness and the encoded-length limit, only a control character can
+ * be wrong.
  */
 export function sourceNameProblem(source: unknown): string | undefined {
   if (typeof source !== 'string') {
@@ -95,6 +110,9 @@ export function sourceNameProblem(source: unknown): string | undefined {
   }
   if (source.length === 0) {
     return `"source" is empty: the source's name is required, like "github.com/shady2k/nocx"`;
+  }
+  if (/[\u0000-\u001F\u007F-\u009F]/.test(source)) {
+    return `"source" must not hold a control character, but ${JSON.stringify(source)} does: a control character could split the log line the request is written to; use a name without them, like "github.com/shady2k/nocx"`;
   }
   const encoded = encodeSourceName(source);
   if (Buffer.byteLength(encoded) > MAX_ENCODED_STEM_BYTES) {
@@ -147,12 +165,13 @@ interface SidecarFile {
 
 export function createSourceStores(options: SourceStoresOptions): SourceStores {
   const { dataFolder, clock } = options;
+  const log = options.log ?? ((line: string) => console.log(line));
 
   let stat: Stats;
   try {
     stat = statSync(dataFolder);
   } catch (error) {
-    throw new Error(`the data folder "${dataFolder}" cannot be read: ${(error as Error).message}; the server keeps its sources' history files there`);
+    throw new Error(`the data folder "${dataFolder}" cannot be read: ${(error as Error).message}; the server keeps its sources' history files there`, { cause: error });
   }
   if (!stat.isDirectory()) {
     throw new Error(`the data folder "${dataFolder}" is not a folder; the server keeps its sources' history files there`);
@@ -170,15 +189,31 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
       problems.push(`the data folder holds "${stem}.json" but no "${stem}.sqlite" beside it: the source's history file is missing`);
     }
   }
-  for (const stem of sqliteStems) {
-    if (!jsonStems.has(stem)) {
-      problems.push(`the data folder holds the history file "${stem}.sqlite" but no "${stem}.json" beside it naming its source: restore the sidecar or remove the file, then start again`);
-    }
-  }
   if (problems.length > 0) throw new Error(problems.join('; '));
 
   const heads = new Map<string, SourceHead>();
   const histories = new Map<string, HistoryStore>();
+
+  /** Opens one history file, refusing with the file named when SQLite cannot. */
+  function openHistory(stem: string): HistoryStore {
+    try {
+      return createSqliteHistory({ path: join(dataFolder, `${stem}.sqlite`), clock });
+    } catch (error) {
+      throw new Error(`the history file "${stem}.sqlite" cannot be opened: ${(error as Error).message}`, { cause: error });
+    }
+  }
+
+  /** The head a history itself holds: the newest of its commits by the history's own commit order. */
+  function newestCommit(source: string, history: HistoryStore): SourceHead {
+    const commits = history.commits(source);
+    const last = commits[commits.length - 1]!;
+    return { source, commit: last.commit, committedAt: last.committedAt, storedAt: last.storedAt };
+  }
+
+  /** Whether the two heads say the same thing about the same version. */
+  function sameHead(a: SourceHead, b: SourceHead): boolean {
+    return a.commit === b.commit && a.committedAt === b.committedAt && a.storedAt === b.storedAt;
+  }
 
   for (const stem of jsonStems) {
     const path = join(dataFolder, `${stem}.json`);
@@ -186,7 +221,7 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
     try {
       file = JSON.parse(readFileSync(path, 'utf8')) as SidecarFile;
     } catch (error) {
-      throw new Error(`the sidecar "${path}" is not valid JSON: ${(error as Error).message}`);
+      throw new Error(`the sidecar "${path}" is not valid JSON: ${(error as Error).message}`, { cause: error });
     }
     const head = headOfSidecar(file, path);
     const decoded = decodeSourceName(stem);
@@ -196,8 +231,44 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
     if (decoded !== head.source) {
       throw new Error(`the sidecar "${path}" names its source "${head.source}" but its file name decodes to "${decoded}": the sidecar and the file name disagree`);
     }
-    heads.set(head.source, head);
+    const history = openHistory(stem);
+    const names = history.sources();
+    if (names.length !== 1 || names[0] !== head.source) {
+      history.close();
+      const holds = names.length === 0 ? 'no source' : `the sources ${names.join(', ')}`;
+      throw new Error(`the history file "${stem}.sqlite" holds ${holds}, but its sidecar "${stem}.json" names "${head.source}": the sidecar and the history disagree`);
+    }
+    const trueHead = newestCommit(head.source, history);
+    if (!sameHead(trueHead, head)) {
+      writeSidecar(stem, trueHead);
+      log(`repaired the sidecar "${stem}.json": it named the head ${JSON.stringify(head.commit)} of "${head.source}", but the history's head is ${JSON.stringify(trueHead.commit)} at ${new Date(trueHead.committedAt).toISOString()}`);
+    }
+    heads.set(head.source, trueHead);
+    histories.set(head.source, history);
   }
+
+  for (const stem of sqliteStems) {
+    if (jsonStems.has(stem)) continue;
+    const history = openHistory(stem);
+    const names = history.sources();
+    if (names.length !== 1) {
+      history.close();
+      const holds = names.length === 0 ? 'no source it could be named from' : `the sources ${names.join(', ')}`;
+      throw new Error(`the data folder holds the history file "${stem}.sqlite" but no "${stem}.json" beside it, and the history holds ${holds}: a history one sidecar is to name must hold exactly that one source`);
+    }
+    const source = names[0]!;
+    const decoded = decodeSourceName(stem);
+    if (decoded === undefined || decoded !== source) {
+      history.close();
+      throw new Error(`the data folder holds the history file "${stem}.sqlite" but no "${stem}.json" beside it, and the file name does not decode to the history's source "${source}": the folder was not written by this server`);
+    }
+    const head = newestCommit(source, history);
+    writeSidecar(stem, head);
+    log(`repaired the data folder: the history file "${stem}.sqlite" had no sidecar beside it; it holds the source "${source}" at its head ${JSON.stringify(head.commit)} at ${new Date(head.committedAt).toISOString()}`);
+    heads.set(source, head);
+    histories.set(source, history);
+  }
+
 
   function historyOf(source: string): HistoryStore {
     let history = histories.get(source);
@@ -230,7 +301,7 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
     const wasNew = !history.hasCommit(input.source, input.commit);
     const result = history.store(input);
 
-    if (result.errors.length === 0 && wasNew) {
+    if (result.errors.length === 0) {
       const candidate: SourceHead = {
         source: input.source,
         commit: input.commit,

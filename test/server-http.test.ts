@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/index.js';
+import { Database } from 'bun:sqlite';
 
 const DAY = (day: number) => Date.UTC(2026, 8, day); // September 2026
 
@@ -228,6 +229,27 @@ describe('POST /models', () => {
   });
 });
 
+describe('unknown request fields', () => {
+  test('a store request holding a field the server does not take is refused naming it and what is accepted', async () => {
+    start();
+    const response = await post('/models', { source: 'shop', format: 'mermaid', depht: 2, commit: 'c1', committedAt: '2026-09-01T12:00:00Z', model: model([element('a')]) });
+    expect(response.status).toBe(400);
+    const error = await errorOf(response);
+    expect(error.message).toContain('"depht"');
+    expect(error.message).toContain('"format"');
+    expect(error.message).toContain('accepted fields are source, commit, committedAt, model');
+  });
+
+  test('a view request with a misspelled field is refused, not answered as the landscape', async () => {
+    start();
+    await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    const response = await post('/views', { source: 'shop', formatt: 'mermaid' });
+    expect(response.status).toBe(400);
+    const error = await errorOf(response);
+    expect(error.message).toContain('"formatt"');
+    expect(error.message).toContain('accepted fields are source, element, depth, format');
+  });
+});
 describe('two sources that both declare core', () => {
   test('both are stored, each in its own graph, and both are listed in code point order', async () => {
     start();
@@ -297,7 +319,7 @@ describe('the log', () => {
     await fetch(`${server!.url}/nope`);
 
     expect(lines).toHaveLength(3);
-    expect(lines[0]).toMatch(/^POST \/models 201 source=shop \d+ms$/);
+    expect(lines[0]).toMatch(/^POST \/models 201 source="shop" \d+ms$/);
     expect(lines[1]).toMatch(/^GET \/sources 200 \d+ms$/);
     expect(lines[2]).toMatch(/^GET \/nope 404 \d+ms/);
     expect(lines.join('\n')).not.toContain(SECRET_ELEMENT);
@@ -309,7 +331,55 @@ describe('the log', () => {
     await send('shop', 'c1', 'not a time', [element('a')]);
 
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatch(/^POST \/models 400 source=shop \d+ms: /);
+    expect(lines[0]).toMatch(/^POST \/models 400 source="shop" \d+ms: /);
     expect(lines[0]).toContain('ISO 8601');
+  });
+
+  test('a source name holding a control character is refused, and the log stays one line per request', async () => {
+    start();
+    lines = [];
+    const response = await send('a\nb', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    expect(response.status).toBe(400);
+    const error = await errorOf(response);
+    expect(error.field).toBe('source');
+    expect(error.message).toContain('control character');
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.includes('\n')).toBe(false);
+    expect(lines[0]).toContain('source="a\\nb"');
+  });
+
+  test('a refusal about the model keeps its values out of the log line', async () => {
+    start();
+    lines = [];
+    const sent = model([element('a', { kind: 'secret-kind' })]);
+    const response = await post('/models', { source: 'shop', commit: 'c1', committedAt: '2026-09-01T12:00:00Z', model: sent });
+    expect(response.status).toBe(400);
+    expect((await errorOf(response)).message).toContain('secret-kind');
+    expect(lines.join('\n')).not.toContain('secret-kind');
+    expect(lines[0]).toContain('/elements/0/kind');
+  });
+});
+
+describe('a failing history read', () => {
+  test('answers 500 and reaches the error log with its cause', async () => {
+    start();
+    await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+
+    // A row written outside the store: the read's clash safety net
+    // refuses the source's model, and the view cannot be answered.
+    const raw = new Database(join(folder!, 'shop.sqlite'));
+    raw.run(
+      `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to)
+       VALUES ('shop', 'element', 'a', ?, ?, NULL, 'outside', NULL, ?, NULL)`,
+      [JSON.stringify({ id: 'a', kind: 'service', ancestors: [], zones: [], zonesByEnvironment: {}, environments: ['*'], states: ['as-is'], technology: 'injected' }), DAY(1), DAY(1)],
+    );
+    raw.close();
+
+    errors = [];
+    const response = await post('/views', { source: 'shop', format: 'mermaid' });
+    expect(response.status).toBe(500);
+    expect((await errorOf(response)).message).toContain('could not be read');
+    expect(errors.join('\n')).toContain('could not be read');
   });
 });
