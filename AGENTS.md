@@ -12,7 +12,15 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
 - Checks: `bun run check`, `bun test`; `MADARCH_SKIP_PERF=1 bun test` skips the
   performance tests (about 6 s instead of minutes). Mutation testing is StrykerJS 9
   run from a scratch folder outside the repository with `typescript@5` beside it
-  (TypeScript 7 has no JS API); see `.shady2k/integration.md`.
+  (TypeScript 7 has no JS API); see `.shady2k/integration.md`. With bun's command
+  runner, mutate only the changed line ranges (`"src/x.ts:120-180"`) against one
+  fast test file, under `timeout 600`: a whole file run through a suite that builds
+  sites takes hours and finishes no mutant.
+- This machine is shared: other projects' Go tests and indexers can take most of
+  the memory and fill the disk. Timeouts in a full `bun test` outside the changed
+  code are load, not a defect: check `free` and `df`, rerun the failing files alone,
+  and never blame the change before that. The wiki's real builds run only with
+  `MADARCH_WIKI_E2E=1`; point `MADARCH_WIKI_CACHE` at a scratch folder in tests.
 - LadybugDB 0.20.4: close every query result, or the buffer pool fills after a few
   hundred queries. `$parameters` are refused inside list lambdas and recursive
   relationship filters, so validated literals go into the query text; bound any
