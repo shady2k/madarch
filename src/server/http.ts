@@ -1,8 +1,9 @@
 /**
  * The server's HTTP layer: Bun's own server, no framework (decision 0008),
- * with the ways in held in one route table, so the next one (`POST /views`)
- * slots in beside them and authentication can later be added as one layer
- * in front of them, without reshaping either (decision 0012).
+ * with the ways in (`POST /models`, `POST /views`, `GET /sources`) held in
+ * one route table, so the next one slots in beside them and authentication
+ * can later be added as one layer in front of them, without reshaping
+ * either (decision 0012).
  *
  * Every refusal is JSON `{"error": {"message", "field"?, "accepted"?}}`
  * with 400, 404, 405, 409 or 413; a failure of the server itself is 500,
@@ -25,6 +26,7 @@ import type { Clock } from '../history/types.js';
 import type { CompiledModel } from '../model/compile.js';
 import { CompiledModel as CompiledModelSchema } from '../model/compiled-schema.js';
 import { byCodePoint } from '../model/order.js';
+import { renderOneViewLikeC4, renderOneViewMermaid, type OneViewError, type OneViewRequest } from '../render/one-view.js';
 import type { Graphs } from './graphs.js';
 import { createGraphs } from './graphs.js';
 import type { SourceStores } from './sources.js';
@@ -35,6 +37,15 @@ const MAX_BODY_BYTES = 50 * 1024 * 1024;
 
 /** What the server tells a sender whose `committedAt` it refused. */
 const ISO_ACCEPTED = 'an ISO 8601 time with a UTC offset, like 2026-09-30T12:34:56Z or 2026-09-30T12:34:56+02:00';
+
+/** What the server tells a requester whose `format` it refused. */
+const FORMAT_ACCEPTED = '"mermaid" or "likec4"';
+
+/** What the server tells a requester whose `depth` it refused. */
+const DEPTH_ACCEPTED = 'a whole number from 1';
+
+/** The command that sends a model, named in the answer to a source never sent; the command itself lands with the skill's send step. */
+const SEND_COMMAND = "bun scripts/send-model.ts <repository> --server <this server's address>";
 
 export interface ServerOptions {
   /** The folder the histories and their sidecars live in; it must exist (see `createSourceStores`). */
@@ -85,6 +96,14 @@ interface SentStore {
   model: CompiledModel;
 }
 
+/** A view request, every field checked and parsed; `depth` carries its default of 1. */
+interface AskedView {
+  source: string;
+  element?: string;
+  depth: number;
+  format: 'mermaid' | 'likec4';
+}
+
 export function startServer(options: ServerOptions): StartedServer {
   const clock: Clock = options.clock ?? { now: () => Date.now() };
   const log = options.log ?? ((line: string) => console.log(line));
@@ -113,7 +132,7 @@ function createHandler(dependencies: {
 }): (request: Request) => Promise<Response> {
   const { sources, graphs, log, errorLog } = dependencies;
 
-  /** One way in. A later route (`POST /views`) is one more entry here, nothing else. */
+  /** One way in. A new route is one more entry here, nothing else. */
   interface Route {
     method: string;
     path: string;
@@ -122,6 +141,7 @@ function createHandler(dependencies: {
 
   const routes: Route[] = [
     { method: 'POST', path: '/models', handle: storeModel },
+    { method: 'POST', path: '/views', handle: answerView },
     { method: 'GET', path: '/sources', handle: listSources },
   ];
 
@@ -144,21 +164,26 @@ function createHandler(dependencies: {
     return refused(status, error);
   }
 
-  async function storeModel(request: Request): Promise<Handled> {
+  /** The parsed JSON body, or the refusal that replaces it: past the size limit, or not JSON at all. */
+  async function jsonBody(request: Request): Promise<{ body?: unknown; bad?: Handled }> {
     const declaredLength = request.headers.get('content-length');
     if (declaredLength !== null && Number(declaredLength) > MAX_BODY_BYTES) {
-      return refused(413, { message: `the body is ${declaredLength} bytes by its own content-length, past the ${MAX_BODY_BYTES}-byte (50 MB) limit` });
+      return { bad: refused(413, { message: `the body is ${declaredLength} bytes by its own content-length, past the ${MAX_BODY_BYTES}-byte (50 MB) limit` }) };
     }
     const text = await request.text();
     if (Buffer.byteLength(text) > MAX_BODY_BYTES) {
-      return refused(413, { message: `the body is ${Buffer.byteLength(text)} bytes, past the ${MAX_BODY_BYTES}-byte (50 MB) limit` });
+      return { bad: refused(413, { message: `the body is ${Buffer.byteLength(text)} bytes, past the ${MAX_BODY_BYTES}-byte (50 MB) limit` }) };
     }
-    let body: unknown;
     try {
-      body = JSON.parse(text);
+      return { body: JSON.parse(text) };
     } catch (error) {
-      return refused(400, { message: `the body is not valid JSON: ${(error as Error).message}` });
+      return { bad: refused(400, { message: `the body is not valid JSON: ${(error as Error).message}` }) };
     }
+  }
+
+  async function storeModel(request: Request): Promise<Handled> {
+    const { body, bad } = await jsonBody(request);
+    if (bad !== undefined) return bad;
 
     const { sent, problems } = parseStoreRequest(body);
     if (sent === undefined) {
@@ -250,6 +275,140 @@ function createHandler(dependencies: {
       return { problems };
     }
     return { sent: { source, commit, committedAtMs, model }, problems: [] };
+  }
+
+  /**
+   * A view request: answered from the source's graph's query engine and
+   * the source's compiled model (the history's latest read of it), at the
+   * current time and the first state — the engine's own defaults, which
+   * reduce to the history's own times, so no clock moment of the server's
+   * own leaks into the text. A request that cannot be answered is
+   * explained, never answered with an empty diagram.
+   */
+  async function answerView(request: Request): Promise<Handled> {
+    const { body, bad } = await jsonBody(request);
+    if (bad !== undefined) return bad;
+
+    const { asked, problems } = parseViewRequest(body);
+    if (asked === undefined) {
+      return { ...joinedRefusal(400, problems), source: namedSourceOf(body) };
+    }
+
+    const heads = sources.heads();
+    if (!heads.some((head) => head.source === asked.source)) {
+      const held = heads.map((head) => head.source);
+      const holds = held.length === 0 ? 'the server holds no source yet' : `the server holds ${held.join(', ')}`;
+      return {
+        ...refused(404, {
+          field: 'source',
+          message: `no model has been sent for the source ${JSON.stringify(asked.source)}: ${holds}; send one with: ${SEND_COMMAND}`,
+        }),
+        source: asked.source,
+      };
+    }
+
+    const read = sources.historyOf(asked.source).read({ source: asked.source });
+    if (read.model === undefined || read.errors.length > 0) {
+      const why = read.errors.map((error) => error.message).join('; ');
+      return {
+        ...refused(500, { message: `the model of the source ${JSON.stringify(asked.source)} could not be read from its history: ${why || 'nothing was read'}` }),
+        source: asked.source,
+      };
+    }
+    // A source-filtered read returns that source's own compiled model,
+    // byte for byte what its store was given (the history's lossless rule).
+    const model = read.model as CompiledModel;
+    const engine = graphs.graphForSource(asked.source).engine();
+    const one: OneViewRequest = asked.element === undefined ? { depth: asked.depth } : { element: asked.element, depth: asked.depth };
+
+    if (asked.format === 'mermaid') {
+      const rendered = renderOneViewMermaid(engine, model, one);
+      if (rendered.page === undefined) return { ...renderRefusal(asked, rendered.errors), source: asked.source };
+      return { response: new Response(rendered.page, { headers: { 'content-type': 'text/markdown; charset=utf-8' } }), source: asked.source };
+    }
+    const rendered = renderOneViewLikeC4(engine, model, one);
+    if (rendered.workspace === undefined) return { ...renderRefusal(asked, rendered.errors), source: asked.source };
+    // A relation LikeC4 cannot draw (of an element to itself or its own
+    // descendant) is the renderer's own omission, listed in its result and
+    // never silently dropped; the answer itself stays the validating
+    // workspace, and no model content goes to the log.
+    return { response: new Response(rendered.workspace, { headers: { 'content-type': 'text/plain; charset=utf-8' } }), source: asked.source };
+  }
+
+  /**
+   * A view the renderer could not render: an element the source's model
+   * does not hold now is a 404 naming the element and the source (the
+   * explains requirement); every other renderer error is passed on with
+   * its messages, never swallowed.
+   */
+  function renderRefusal(asked: AskedView, errors: OneViewError[]): Handled {
+    if (asked.element !== undefined && errors.some((error) => error.query?.id === asked.element)) {
+      return refused(404, {
+        field: 'element',
+        message: `the element ${JSON.stringify(asked.element)} does not exist in the source ${JSON.stringify(asked.source)} now`,
+      });
+    }
+    return refused(500, { message: errors.map((error) => error.message).join('; ') });
+  }
+
+  /**
+   * Everything wrong with a view request, and, when nothing is wrong, the
+   * request as the answer takes it. Every field is checked; none of them
+   * stops the rest from being checked too.
+   */
+  function parseViewRequest(body: unknown): { asked?: AskedView; problems: Refusal[] } {
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      return { problems: [{ message: 'the body must be a JSON object naming source and format, with element and depth beside them when they are wanted' }] };
+    }
+    const problems: Refusal[] = [];
+
+    let source: string | undefined;
+    if (!('source' in body) || body.source === undefined) {
+      problems.push({ field: 'source', message: '"source" is required: the name of the source the view is asked of, like "github.com/shady2k/nocx"' });
+    } else {
+      const problem = sourceNameProblem(body.source);
+      if (problem !== undefined) problems.push({ field: 'source', message: problem });
+      if (typeof body.source === 'string') source = body.source;
+    }
+
+    let element: string | undefined;
+    if ('element' in body && body.element !== undefined) {
+      if (typeof body.element === 'string' && body.element.length > 0) {
+        element = body.element;
+      } else {
+        problems.push({ field: 'element', message: `"element" must be a string naming an element of the source's model, or left out for the landscape, but is ${JSON.stringify(body.element)}` });
+      }
+    }
+
+    let depth = 1;
+    if ('depth' in body && body.depth !== undefined) {
+      const value: unknown = body.depth;
+      if (typeof value === 'number' && Number.isInteger(value) && value >= 1) {
+        depth = value;
+      } else {
+        problems.push({
+          field: 'depth',
+          message: typeof value === 'number' && Number.isInteger(value)
+            ? `"depth" ${value} is below 1: the depth is ${DEPTH_ACCEPTED}`
+            : `"depth" ${JSON.stringify(value)} is not ${DEPTH_ACCEPTED}`,
+          accepted: DEPTH_ACCEPTED,
+        });
+      }
+    }
+
+    let format: AskedView['format'] | undefined;
+    if (!('format' in body) || body.format === undefined) {
+      problems.push({ field: 'format', message: '"format" is required: the format the view is rendered as', accepted: FORMAT_ACCEPTED });
+    } else if (body.format === 'mermaid' || body.format === 'likec4') {
+      format = body.format;
+    } else {
+      problems.push({ field: 'format', message: `"format" ${JSON.stringify(body.format)} is not a format the server renders`, accepted: FORMAT_ACCEPTED });
+    }
+
+    if (problems.length > 0 || source === undefined || format === undefined) {
+      return { problems };
+    }
+    return { asked: { source, element, depth, format }, problems: [] };
   }
 
   function listSources(): Handled {
