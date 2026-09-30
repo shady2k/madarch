@@ -485,6 +485,13 @@ describe('scanDocument', () => {
     expect(scan.mermaid).toEqual([{ source: 'flowchart LR\n  A[One] --> B[Two]', start: body.indexOf('```mermaid'), end: body.indexOf('\n\n## Second') }]);
   });
 
+  test('an autolink the wiki keeps is a region of its own, brackets markup and all', () => {
+    const body = 'See [page](page.md) and <https://example.com/x> and <a@b.c>.\n';
+    const scan = scanDocument(body);
+    expect(scan.links.map((link) => link.written)).toEqual(['page.md']);
+    expect(scan.autolinks.map((span) => body.slice(span.start, span.end))).toEqual(['<https://example.com/x>', '<a@b.c>']);
+  });
+
   test('every link occurrence is found, images and plain links alike', () => {
     const scan = scanDocument('[a](x.md) then ![b](y.png) then [c](z.md)\n');
     expect(scan.links.map((link) => link.written)).toEqual(['x.md', 'y.png', 'z.md']);
@@ -559,6 +566,12 @@ describe('renderDocumentBody', () => {
 
   test('a refused link whose label wraps to its destination line is text too', () => {
     expect(rewrite('Do [run\nthis](javascript:alert(1)) now.\n')).toBe('# doc\n\nDo [run\nthis\\](javascript:alert(1)) now.\n');
+  });
+
+  test('an autolink is markup again: a kept scheme renders as a link, a refused one as text', () => {
+    const body = 'See <https://example.com> and <mailto:a@b.c> and <a@b.c>.\n';
+    expect(rewrite(body)).toBe(`# doc\n\n${body}`);
+    expect(rewrite('No <javascript:alert(1)> here.\n')).toBe('# doc\n\nNo &lt;javascript:alert(1)> here.\n');
   });
 
   test('a refused reference definition stops being one, its uses plain text', () => {

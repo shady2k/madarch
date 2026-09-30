@@ -22,4 +22,7 @@ A link a repository has no business making — [run this](javascript:alert(docum
 is shown as text: the build warns about it and keeps only http, https and
 mailto links.
 
+A bare address is a link again: <https://example.com/scheme-probe>. Neither
+is <javascript:alert(document.domain)> one — it stays text.
+
 Back to [the README](../README.md#documents-fixture), at its own heading.

@@ -773,6 +773,10 @@ describe('scripts/wiki.ts with real builds over the documents fixture', () => {
         // The document's markup is on the page, as characters:
         const built = readFileSync(join(out, 'site', 'documents', 'docs', 'architecture', 'index.html'), 'utf8');
         expect(built).toContain('alert(');
+        // An autolink of a kept scheme is a link again; the refused one
+        // beside it stays text, and the sweep below proves it never
+        // becomes an anchor:
+        expect(built).toContain('href="https://example.com/scheme-probe"');
         // ...and nowhere in the site does it stand as an element: no
         // document-authored script block or event handler survived. Only
         // the HTML files are parsed as markup — the site's own bundles

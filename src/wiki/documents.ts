@@ -50,13 +50,15 @@ export interface ScannedMermaid {
   readonly end: number;
 }
 
-/** What one document's Markdown holds: its headings, its links, its Mermaid fences, and every code region. */
+/** What one document's Markdown holds: its headings, its links, its Mermaid fences, every code region, and the autolinks the wiki keeps. */
 export interface DocumentScan {
   readonly headings: readonly ScannedHeading[];
   readonly links: readonly ScannedLink[];
   readonly mermaid: readonly ScannedMermaid[];
   /** Inline code spans and fenced blocks, any language: the regions whose `<` is code, never markup. */
   readonly code: readonly ScannedCode[];
+  /** The kept autolinks: the regions whose `<` opens one, never markup to escape. */
+  readonly autolinks: readonly ScannedAutolink[];
 }
 
 /** One code region of the body — a code span or a fence — its whole extent. */
@@ -64,6 +66,14 @@ export interface ScannedCode {
   /** Where the code starts: the first backtick, or the fence's opening line. */
   readonly start: number;
   /** Where it ends: past the closing run or the fence's last line. */
+  readonly end: number;
+}
+
+/** One autolink the wiki keeps — `<https://example.com>`, `<mailto:a@b.c>`, `<a@b.c>` — its whole extent, the `<` and `>` included. */
+export interface ScannedAutolink {
+  /** Where the autolink starts: its `<`. */
+  readonly start: number;
+  /** Where it ends: past its `>`. */
   readonly end: number;
 }
 
@@ -106,6 +116,7 @@ export function scanDocument(body: string): DocumentScan {
   const links: ScannedLink[] = [];
   const mermaid: ScannedMermaid[] = [];
   const code: ScannedCode[] = [];
+  const autolinks: ScannedAutolink[] = [];
   const lines = body.split('\n');
   let offset = 0;
   let fence: { char: string; length: number; mermaid: boolean; contentStart: number; fenceStart: number } | undefined;
@@ -148,12 +159,12 @@ export function scanDocument(body: string): DocumentScan {
         continue;
       }
     }
-    scanLineLinks(line, start, links, code, lineNumber);
+    scanLineLinks(line, start, links, code, autolinks, lineNumber);
   }
   // A fence never closed runs to the end of the body; its content is code
   // all the way.
   if (fence !== undefined) code.push({ start: fence.fenceStart, end: body.length });
-  return { headings, links, mermaid, code };
+  return { headings, links, mermaid, code, autolinks };
 }
 
 /** One destination parsed off a link's parentheses or a definition's tail: the target as written, and the span its token covers. */
@@ -228,16 +239,35 @@ function parseDestination(inside: string): ParsedDestination {
   return { text: text!, start, end: end! };
 }
 
+const AUTOLINK = /^<([a-zA-Z][a-zA-Z0-9+.-]*):([^ \t<>]*)>/;
+const EMAIL_AUTOLINK = /^<[\w.+-]+@[\w-]+(?:\.[\w-]+)*>/;
+
+/**
+ * The length of the autolink at `at` when the wiki keeps its scheme —
+ * http, https or mailto, or an email address — else none: the `<` of any
+ * other scheme, `javascript:` among them, is markup to escape, and the
+ * link it would open is shown as text.
+ */
+function keptAutolinkLength(line: string, at: number): number | undefined {
+  const uri = AUTOLINK.exec(line.slice(at));
+  if (uri !== null) return KEPT_SCHEME[uri[1]!.toLowerCase()] === true ? uri[0].length : undefined;
+  const mail = EMAIL_AUTOLINK.exec(line.slice(at));
+  return mail !== null ? mail[0].length : undefined;
+}
+
 /**
  * Finds one line's inline links and images outside code spans:
  * `[text](target)`, `![alt](target)`, with a title after the target, an
  * angle-bracket target, balanced brackets and parentheses, backslash
  * escapes skipped, and a code span — a backtick run and its matching run
- * — passed over entirely, recorded as a code region. Each found target's
- * exact span — the destination token whole, brackets included — is
- * recorded, with the 1-based line it sits on.
+ * — passed over entirely, recorded as a code region. An autolink the wiki
+ * keeps — `<https://example.com>`, `<mailto:a@b.c>`, `<a@b.c>` — is
+ * recorded whole as a region of its own; a `<` of any other shape is
+ * left for the writers to escape. Each found target's exact span — the
+ * destination token whole, brackets included — is recorded, with the
+ * 1-based line it sits on.
  */
-function scanLineLinks(line: string, lineStart: number, links: ScannedLink[], code: ScannedCode[], lineNumber: number): void {
+function scanLineLinks(line: string, lineStart: number, links: ScannedLink[], code: ScannedCode[], autolinks: ScannedAutolink[], lineNumber: number): void {
   let i = 0;
   while (i < line.length) {
     const ch = line[i]!;
@@ -264,6 +294,16 @@ function scanLineLinks(line: string, lineStart: number, links: ScannedLink[], co
     }
     if (ch === '\\') {
       i += 2;
+      continue;
+    }
+    if (ch === '<') {
+      const autolink = keptAutolinkLength(line, i);
+      if (autolink !== undefined) {
+        autolinks.push({ start: lineStart + i, end: lineStart + i + autolink });
+        i += autolink;
+        continue;
+      }
+      i++;
       continue;
     }
     const image = ch === '!' && line[i + 1] === '[';

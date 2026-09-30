@@ -441,6 +441,7 @@ export function renderDocumentBody(page: WikiDocumentPage, links: WriterLinks): 
   // element begins without `<`, and blockquotes and entities keep working.
   const guarded = [
     ...scan.code,
+    ...scan.autolinks,
     // A kept destination's `<` is its own; a refused one's is text, the
     // same as every `<` outside the guarded regions.
     ...scan.links.filter((link) => !refused.has(link.written)).map((link) => ({ start: link.start, end: link.end })),
