@@ -114,8 +114,12 @@ function pageFile(elementId: string): string {
   return `${elementId}.md`;
 }
 
-/** `scope` is the view's own element, left out for the landscape. */
-function renderPage(view: View, scope: ShownElement | undefined): string {
+/**
+ * The page without its links (views/one-view): the heading, the flowchart
+ * and the table of arrows, ending with the blank line a page leaves before
+ * its links. `scope` is the view's own element, left out for the landscape.
+ */
+export function renderPageBody(view: View, scope: ShownElement | undefined): string {
   const ids = nodeIds(view.elements.map((element) => element.id));
 
   const lines: string[] = [];
@@ -136,14 +140,19 @@ function renderPage(view: View, scope: ShownElement | undefined): string {
   if (externals.length > 0) lines.push(EXTERNAL_CLASS, `  class ${externals.map((element) => ids.get(element.id)).join(',')} external`);
   lines.push('```', '');
   if (view.arrows.length > 0) lines.push(...arrowTable(view), '');
+  return lines.join('\n');
+}
 
+/** `scope` is the view's own element, left out for the landscape. */
+function renderPage(view: View, scope: ShownElement | undefined): string {
+  let page = renderPageBody(view, scope);
   if (scope !== undefined) {
     const up = view.up === undefined ? `[Landscape](${LANDSCAPE_FILE})` : `[${markdownText(view.up.name ?? view.up.id)}](${pageFile(view.up.id)})`;
-    lines.push(`Up: ${up}`, '');
+    page += `\nUp: ${up}\n`;
   }
   const open = view.elements.filter((element) => element.hasView && element.place !== 'scope');
-  if (open.length > 0) lines.push(`Open: ${open.map((element) => `[${markdownText(title(element))}](${pageFile(element.id)})`).join(' · ')}`, '');
-  return lines.join('\n');
+  if (open.length > 0) page += `\nOpen: ${open.map((element) => `[${markdownText(title(element))}](${pageFile(element.id)})`).join(' · ')}\n`;
+  return page;
 }
 
 /**
