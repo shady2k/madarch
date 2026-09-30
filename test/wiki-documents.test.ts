@@ -426,6 +426,23 @@ describe("document links to the repository's host", () => {
     ]);
   });
 
+  test('a link inside a heading is a link all the same: resolved and rewritten where it stands', () => {
+    const pages = documentsOf(
+      {
+        'docs/guide.md': "## Amended by [ADR-0040](0040-a-block.md) and [the readme](../README.md)\n",
+        'README.md': '# Read me\n',
+      },
+      GITHUB,
+    );
+    expect(pageOf(pages, 'docs/guide.md').links).toEqual([
+      { written: '0040-a-block.md', kind: 'host', url: 'https://github.com/acme/shop/blob/c0ffee0/docs/0040-a-block.md', target: 'docs/0040-a-block.md', line: 1, missing: true },
+      { written: '../README.md', kind: 'page', pageId: 'document/README' },
+    ]);
+    expect(renderDocumentBody(pageOf(pages, 'docs/guide.md'), REWRITER)).toBe(
+      '## Amended by [ADR-0040](https://github.com/acme/shop/blob/c0ffee0/docs/0040-a-block.md) and [the readme](/document/README/)\n',
+    );
+  });
+
   test('a repository without an origin shows the link as text, and warns', () => {
     const pages = documentsOf({ 'docs/guide.md': '[Code](../src/app.ts)\n', 'src/app.ts': 'export {};\n' });
     expect(pageOf(pages, 'docs/guide.md').links).toEqual([

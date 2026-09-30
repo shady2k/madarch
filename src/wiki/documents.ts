@@ -228,6 +228,10 @@ export function scanDocument(body: string): DocumentScan {
     if (heading !== null) {
       const text = (heading[2] ?? '').replace(/\s+#+\s*$/, '').trim();
       if (text !== '') headings.push({ level: heading[1]!.length, text });
+      // A heading's links are links all the same: scanned like any line's,
+      // resolved and rewritten where they stand. The heading still ends a
+      // paragraph: a label left open here is not carried below.
+      scanLineLinks(line, start, links, code, autolinks, lineNumber, undefined, refusedWrapped);
       carry = undefined;
       continue;
     }
