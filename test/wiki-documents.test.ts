@@ -622,6 +622,28 @@ describe("document links to the repository's host, encoded and judged at the bui
     }
   });
 
+  test('a folder the commit holds linked with a trailing slash is the tree the one without spells, and warns nothing', () => {
+    const root = gitRepo({
+      'docs/docs/guide.md': '[Contracts](../../contracts/), [Decisions](../decisions/), [Decisions plain](../decisions)\n',
+      'docs/decisions/0001-x.md': 'Chosen.\n',
+      'contracts/terms.md': 'Terms.\n',
+    });
+    const commit = headCommit(root);
+    for (const [origin, address] of [
+      ['https://github.com/acme/shop.git', `https://github.com/acme/shop/tree/${commit}`],
+      ['https://gitlab.com/acme/shop.git', `https://gitlab.com/acme/shop/-/tree/${commit}`],
+    ] as const) {
+      const host: DocumentHost = { commit, origin };
+      const pages = documentPages(root, host);
+      expect(pageOf(pages, 'docs/docs/guide.md').links).toEqual([
+        { written: '../../contracts/', kind: 'host', url: `${address}/contracts`, target: 'contracts', line: 1, missing: false },
+        { written: '../decisions/', kind: 'host', url: `${address}/docs/decisions`, target: 'docs/decisions', line: 1, missing: false },
+        { written: '../decisions', kind: 'host', url: `${address}/docs/decisions`, target: 'docs/decisions', line: 1, missing: false },
+      ]);
+      expect(documentLinkWarnings(pages, host)).toEqual([]);
+    }
+  });
+
   test('an untracked file is warned as not in the repository, its host link kept', () => {
     const root = gitRepo({ 'docs/guide.md': '[Local](draft.txt)\n' });
     const commit = headCommit(root);
