@@ -158,6 +158,20 @@ export function scanDocument(body: string): DocumentScan {
         links.push({ written: destination.text, start: base + destination.start, end: base + destination.end, line: lineNumber, bracket: start + definition[0].indexOf('[') });
         continue;
       }
+      // The destination may stand on the next line, an optional title
+      // after it — one line ending between the parts, as the engines
+      // read a definition. Recorded like any definition, at the line the
+      // definition starts on, and only when that line is a destination
+      // whole: never a list item or another block a bare `[label]:`
+      // happens to sit above.
+      const next = lines[index + 1];
+      if (next !== undefined) {
+        const split = parseDestination(next);
+        if (split.complete && split.text.trim() !== '') {
+          links.push({ written: split.text, start: offset + split.start, end: offset + split.end, line: lineNumber, bracket: start + definition[0].indexOf('[') });
+          continue;
+        }
+      }
     }
     scanLineLinks(line, start, links, code, autolinks, lineNumber);
   }
@@ -174,6 +188,8 @@ interface ParsedDestination {
   /** Where the whole destination token starts and ends, relative to the text parsed. */
   readonly start: number;
   readonly end: number;
+  /** Whether the destination — and any title after it — consumed the whole tail: a split definition's destination is read only when it does. */
+  readonly complete: boolean;
 }
 
 /**
@@ -235,8 +251,8 @@ function parseDestination(inside: string): ParsedDestination {
       }
     }
   }
-  if (!strict) return { text: inside, start: 0, end: inside.length };
-  return { text: text!, start, end: end! };
+  if (!strict) return { text: inside, start: 0, end: inside.length, complete: false };
+  return { text: text!, start, end: end!, complete: true };
 }
 
 const AUTOLINK = /^<([a-zA-Z][a-zA-Z0-9+.-]*):([^ \t<>]*)>/;

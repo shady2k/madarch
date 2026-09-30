@@ -265,6 +265,28 @@ describe('documentPages', () => {
     );
   });
 
+  test('a reference definition with its destination on the next line is a definition like any other', () => {
+    const pages = documentsOf({
+      'docs/a.md': 'Use [x][r].\n\n[r]:\n  decisions/d.md\n  "the decision"\n',
+      'docs/decisions/d.md': 'D.\n',
+    });
+    expect(pageOf(pages, 'docs/a.md').links).toEqual([{ written: 'decisions/d.md', kind: 'page', pageId: 'document/docs/decisions/d' }]);
+    // The destination is rewritten where it stands, the indent and the
+    // title riding along, so the engines still read one definition.
+    expect(renderDocumentBody(pageOf(pages, 'docs/a.md'), REWRITER)).toBe(
+      '# a\n\nUse [x][r].\n\n[r]:\n  /document/docs/decisions/d/\n  "the decision"\n',
+    );
+  });
+
+  test('a split definition to a missing document is broken at the definition line', () => {
+    try {
+      documentsOf({ 'docs/a.md': 'Use [x][r].\n\n[r]:\n  missing.md\n' });
+      throw new Error('expected DocumentLinkError');
+    } catch (error) {
+      expect((error as DocumentLinkError).broken).toEqual([{ source: 'docs/a.md', written: 'missing.md', target: 'docs/missing.md', line: 3 }]);
+    }
+  });
+
   test('a reference definition to a missing document is broken at the definition line', () => {
     try {
       documentsOf({ 'docs/a.md': 'Text.\n\n[x][ref]\n\n[ref]: missing.md\n' });
@@ -501,6 +523,18 @@ describe('scanDocument', () => {
     const scan2 = scanDocument(body);
     expect(body.slice(scan2.links[0]!.start, scan2.links[0]!.end)).toBe('x.md');
     expect(body.slice(scan2.links[1]!.start, scan2.links[1]!.end)).toBe('y.png');
+  });
+
+  test('a definition with its destination on the next line is an occurrence at the definition', () => {
+    const body = 'Use [x][r].\n\n[r]:\n  b.md\n';
+    const scan = scanDocument(body);
+    expect(scan.links.map((link) => [link.written, link.line])).toEqual([['b.md', 3]]);
+    expect(body.slice(scan.links[0]!.start, scan.links[0]!.end)).toBe('b.md');
+  });
+
+  test('a line after a bare `[label]:` that is no destination starts no definition', () => {
+    expect(scanDocument('[r]:\n- item\n').links).toEqual([]);
+    expect(scanDocument('[r]:\n## Heading\n').links).toEqual([]);
   });
 
   test('a title is no part of the destination, and an angle destination spans its brackets', () => {
