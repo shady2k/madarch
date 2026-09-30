@@ -116,6 +116,8 @@ export interface WikiDocumentPage {
   readonly insertTitle: boolean;
   /** The body's inline links and images, in order, each resolved. */
   readonly links: readonly WikiDocumentLink[];
+  /** The body's refused links whose label wraps over lines, so the per-line scan cannot pair them: each with the line the link starts on, warned like every refused link. */
+  readonly refusedWrapped: readonly { written: string; line: number }[];
 }
 
 /** Every page a wiki holds: the model's pages and the repository's documents. */

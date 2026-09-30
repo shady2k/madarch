@@ -131,6 +131,34 @@ describe('brokenLinks', () => {
     expect(brokenLinks(files)).toEqual([]);
   });
 
+  test('an entity-encoded scheme link is outside the check, spelled as the engines spell it', () => {
+    const files = new Map<string, string>([
+      page(
+        'index.html',
+        [
+          // The exact value Zensical writes for a document's `<mailto:a@b.c>`
+          // autolink:
+          '<a href="&#109;&#97;&#105;&#108;&#116;&#111;&#58;&#97;&#64;&#98;&#46;&#99;">mail</a>',
+          '<a href="&#x6D;ailto&#x3A;a&#64;b.c">hex mail</a>',
+          '<a href="mailto&colon;a@b.c">named colon</a>',
+          '<a href="https://example.com/&amp;x">named amp</a>',
+          '<a href="ht&#9;tp://example.com">tab stripped like a browser strips it</a>',
+        ].join('\n'),
+      ),
+    ]);
+    expect(brokenLinks(files)).toEqual([]);
+  });
+
+  test('an entity-encoded path resolves as the browser reads it, and a broken one is named as written', () => {
+    const files = new Map<string, string>([
+      page('index.html', '<a href="./&#103;uide/">guide</a><a href="./&#103;host/">ghost</a>'),
+      page('guide/index.html', 'guide'),
+    ]);
+    expect(brokenLinks(files)).toEqual([
+      { page: 'index.html', link: './&#103;host/', problem: 'no file "ghost/index.html" in the site' },
+    ]);
+  });
+
   test('text inside comments, scripts and styles is not link-checked', () => {
     const files = new Map<string, string>([
       page(

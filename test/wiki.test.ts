@@ -643,6 +643,19 @@ describe('scripts/wiki.ts', () => {
     expect(said).toContain('the wiki keeps only http, https and mailto links; the link is shown as text');
     expect(existsSync(join(out, 'site', 'index.html'))).toBe(true);
   }, { timeout: 60_000 });
+
+  test('a refused link whose label wraps over lines is warned about too, at the line the link starts on', () => {
+    const root = tempFolder('madarch-wiki-wrapped-');
+    cpSync(DOCUMENTS_FIXTURE, root, { recursive: true });
+    writeFileSync(join(root, 'docs', 'wrapped.md'), '# Wrapped\n\nDo [run\nthis](javascript:alert(1)) now.\n');
+    const out = outFolder();
+    const run = runWiki([root, '--out', out]);
+    expect(run.status).toBe(0);
+    const said = combined(run);
+    expect(said).toContain(`warning: ${join(root, 'docs', 'wrapped.md')}:3: links to "javascript:alert(1)"`);
+    expect(said).toContain('the wiki keeps only http, https and mailto links; the link is shown as text');
+    expect(existsSync(join(out, 'site', 'index.html'))).toBe(true);
+  }, { timeout: 60_000 });
 });
 
 describe('scripts/wiki.ts with a real Zensical build', () => {
@@ -820,5 +833,32 @@ describe('scripts/wiki.ts with real builds over the documents fixture', () => {
       expect(existsSync(join(site, 'assets', 'documents', 'docs', 'img', 'overview.png'))).toBe(true);
     },
     { timeout: 300_000 },
+  );
+
+  test.skipIf(!process.env.MADARCH_WIKI_E2E)(
+    'a document holding mail and address autolinks builds on both engines, the built page carrying the mail link',
+    () => {
+      const root = tempFolder('madarch-wiki-mail-');
+      cpSync(DOCUMENTS_FIXTURE, root, { recursive: true });
+      writeFileSync(join(root, 'docs', 'contact.md'), '# Contact\n\nWrite <mailto:a@b.c> or browse <a@b.c>.\n');
+      // Zensical writes a kept autolink's href entity-encoded — the exact
+      // value the checker once misread as a local `&…` path — so the build
+      // only exits 0 when the link is judged as the browser reads it.
+      // Starlight writes the href plainly; both must carry the link.
+      for (const [engine, env] of [['zensical', {}], ['starlight', scriptCache()]] as const) {
+        const out = outFolder();
+        const args = engine === 'zensical' ? [root, '--out', out] : [root, '--out', out, '--engine', 'starlight'];
+        const run = runWiki(args, REAL_PATH, env);
+        expect(run.status).toBe(0);
+        const built = readFileSync(join(out, 'site', 'documents', 'docs', 'contact', 'index.html'), 'utf8');
+        const hrefs = [...built.matchAll(/href="([^"]*)"/g)].map((match) =>
+          match[1]!
+            .replace(/&#x([0-9a-fA-F]+);/g, (_, digits: string) => String.fromCodePoint(parseInt(digits, 16)))
+            .replace(/&#(\d+);/g, (_, digits: string) => String.fromCodePoint(Number(digits))),
+        );
+        expect(hrefs).toContain('mailto:a@b.c');
+      }
+    },
+    { timeout: 600_000 },
   );
 });
