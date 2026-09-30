@@ -157,25 +157,27 @@ describe('documentPages', () => {
   });
 
   test('a link to a missing document is broken: the error names the document and the target', () => {
+    const root = writeRepo({ 'docs/guide.md': '# Guide\n\n[Missing](missing.md)\n' });
     try {
-      documentsOf({ 'docs/guide.md': '# Guide\n\n[Missing](missing.md)\n' });
+      documentPages(root);
       throw new Error('expected DocumentLinkError');
     } catch (error) {
       expect(error).toBeInstanceOf(DocumentLinkError);
       const broken = (error as DocumentLinkError).broken;
       expect(broken).toEqual([{ source: 'docs/guide.md', written: 'missing.md', target: 'docs/missing.md', line: 3 }]);
-      expect((error as Error).message).toContain('docs/guide.md');
+      expect((error as Error).message).toContain(`${join(root, 'docs', 'guide.md')}:3`);
       expect((error as Error).message).toContain('docs/missing.md');
     }
   });
 
-  test('a broken link is named with its document, its line, the target as written and what fixes it', () => {
+  test("a broken link is named with its document's full path, its line, the target as written and what fixes it", () => {
+    const root = writeRepo({ 'docs/guide.md': '# Guide\n\nText.\n\n[Missing](missing.md)\n' });
     try {
-      documentsOf({ 'docs/guide.md': '# Guide\n\nText.\n\n[Missing](missing.md)\n' });
+      documentPages(root);
       throw new Error('expected DocumentLinkError');
     } catch (error) {
       expect((error as Error).message).toContain(
-        'docs/guide.md:5: links to "missing.md" — docs/missing.md is not a page of this wiki; fix the link or add the document',
+        `${join(root, 'docs', 'guide.md')}:5: links to "missing.md" — docs/missing.md is not a page of this wiki; fix the link or add the document`,
       );
     }
   });
@@ -265,6 +267,28 @@ describe('documentPages', () => {
     );
   });
 
+  test('a reference definition with its destination on the next line is a definition like any other', () => {
+    const pages = documentsOf({
+      'docs/a.md': 'Use [x][r].\n\n[r]:\n  decisions/d.md\n  "the decision"\n',
+      'docs/decisions/d.md': 'D.\n',
+    });
+    expect(pageOf(pages, 'docs/a.md').links).toEqual([{ written: 'decisions/d.md', kind: 'page', pageId: 'document/docs/decisions/d' }]);
+    // The destination is rewritten where it stands, the indent and the
+    // title riding along, so the engines still read one definition.
+    expect(renderDocumentBody(pageOf(pages, 'docs/a.md'), REWRITER)).toBe(
+      '# a\n\nUse [x][r].\n\n[r]:\n  /document/docs/decisions/d/\n  "the decision"\n',
+    );
+  });
+
+  test('a split definition to a missing document is broken at the definition line', () => {
+    try {
+      documentsOf({ 'docs/a.md': 'Use [x][r].\n\n[r]:\n  missing.md\n' });
+      throw new Error('expected DocumentLinkError');
+    } catch (error) {
+      expect((error as DocumentLinkError).broken).toEqual([{ source: 'docs/a.md', written: 'missing.md', target: 'docs/missing.md', line: 3 }]);
+    }
+  });
+
   test('a reference definition to a missing document is broken at the definition line', () => {
     try {
       documentsOf({ 'docs/a.md': 'Text.\n\n[x][ref]\n\n[ref]: missing.md\n' });
@@ -332,6 +356,24 @@ describe('documentPages', () => {
       { written: 'mailto:a@b.c', kind: 'keep' },
       { written: '#a', kind: 'keep' },
       { written: '//host/x', kind: 'keep' },
+    ]);
+  });
+
+  test('a link whose scheme the wiki does not keep is refused, never kept', () => {
+    const pages = documentsOf({
+      'docs/a.md':
+        '# A\n\n[Run](javascript:alert(1)), [Case](JaVaScRiPt:alert(1)), [Data](data:text/html;base64,PGI+), [File]( file:///etc/passwd ), [Vb](vbscript:x), ![Logo](vbscript:y)\n',
+    });
+    // Only http, https and mailto are kept; every other scheme, in any
+    // case, with the spaces a destination may carry, is refused: shown as
+    // text, warned about by the build, never a link of the built site.
+    expect(pageOf(pages, 'docs/a.md').links).toEqual([
+      { written: 'javascript:alert(1)', kind: 'refused', line: 3 },
+      { written: 'JaVaScRiPt:alert(1)', kind: 'refused', line: 3 },
+      { written: 'data:text/html;base64,PGI+', kind: 'refused', line: 3 },
+      { written: 'file:///etc/passwd', kind: 'refused', line: 3 },
+      { written: 'vbscript:x', kind: 'refused', line: 3 },
+      { written: 'vbscript:y', kind: 'refused', line: 3 },
     ]);
   });
 
@@ -467,6 +509,13 @@ describe('scanDocument', () => {
     expect(scan.mermaid).toEqual([{ source: 'flowchart LR\n  A[One] --> B[Two]', start: body.indexOf('```mermaid'), end: body.indexOf('\n\n## Second') }]);
   });
 
+  test('an autolink the wiki keeps is a region of its own, brackets markup and all', () => {
+    const body = 'See [page](page.md) and <https://example.com/x> and <a@b.c>.\n';
+    const scan = scanDocument(body);
+    expect(scan.links.map((link) => link.written)).toEqual(['page.md']);
+    expect(scan.autolinks.map((span) => body.slice(span.start, span.end))).toEqual(['<https://example.com/x>', '<a@b.c>']);
+  });
+
   test('every link occurrence is found, images and plain links alike', () => {
     const scan = scanDocument('[a](x.md) then ![b](y.png) then [c](z.md)\n');
     expect(scan.links.map((link) => link.written)).toEqual(['x.md', 'y.png', 'z.md']);
@@ -476,6 +525,18 @@ describe('scanDocument', () => {
     const scan2 = scanDocument(body);
     expect(body.slice(scan2.links[0]!.start, scan2.links[0]!.end)).toBe('x.md');
     expect(body.slice(scan2.links[1]!.start, scan2.links[1]!.end)).toBe('y.png');
+  });
+
+  test('a definition with its destination on the next line is an occurrence at the definition', () => {
+    const body = 'Use [x][r].\n\n[r]:\n  b.md\n';
+    const scan = scanDocument(body);
+    expect(scan.links.map((link) => [link.written, link.line])).toEqual([['b.md', 3]]);
+    expect(body.slice(scan.links[0]!.start, scan.links[0]!.end)).toBe('b.md');
+  });
+
+  test('a line after a bare `[label]:` that is no destination starts no definition', () => {
+    expect(scanDocument('[r]:\n- item\n').links).toEqual([]);
+    expect(scanDocument('[r]:\n## Heading\n').links).toEqual([]);
   });
 
   test('a title is no part of the destination, and an angle destination spans its brackets', () => {
@@ -528,6 +589,29 @@ describe('renderDocumentBody', () => {
     expect(out).toBe('# doc\n\nBefore.\n\n&lt;script>alert(1)&lt;/script>\n\n&lt;img src=x onerror="alert(2)">\n\n&lt;T>\n');
     expect(out.includes('<script')).toBe(false);
     expect(out.includes('<img')).toBe(false);
+  });
+
+  test('a link whose scheme the wiki does not keep is shown as text, never a link', () => {
+    expect(rewrite('Do [run](javascript:alert(1)) and ![see](vbscript:msgbox) now.\n')).toBe(
+      '# doc\n\nDo \\[run\\](javascript:alert(1)) and !\\[see\\](vbscript:msgbox) now.\n',
+    );
+    // An angle-bracket destination of a refused scheme is text too: its
+    // `<` is escaped, so no engine reads an autolink out of it either.
+    expect(rewrite('[x](<javascript:alert(1)>)\n')).toBe('# doc\n\n\\[x](&lt;javascript:alert(1)>)\n');
+  });
+
+  test('a refused link whose label wraps to its destination line is text too', () => {
+    expect(rewrite('Do [run\nthis](javascript:alert(1)) now.\n')).toBe('# doc\n\nDo [run\nthis\\](javascript:alert(1)) now.\n');
+  });
+
+  test('an autolink is markup again: a kept scheme renders as a link, a refused one as text', () => {
+    const body = 'See <https://example.com> and <mailto:a@b.c> and <a@b.c>.\n';
+    expect(rewrite(body)).toBe(`# doc\n\n${body}`);
+    expect(rewrite('No <javascript:alert(1)> here.\n')).toBe('# doc\n\nNo &lt;javascript:alert(1)> here.\n');
+  });
+
+  test('a refused reference definition stops being one, its uses plain text', () => {
+    expect(rewrite('Use [x][r].\n\n[r]: javascript:alert(1)\n')).toBe('# doc\n\nUse [x][r].\n\n\\[r]: javascript:alert(1)\n');
   });
 
   test('a code span on a later line is spared by its true position, not by accident', () => {

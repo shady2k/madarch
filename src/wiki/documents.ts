@@ -33,6 +33,8 @@ export interface ScannedLink {
   readonly end: number;
   /** The 1-based body line the link sits on, named by the broken-link report. */
   readonly line: number;
+  /** Where the occurrence's opening bracket sits — the `[` of a link or a definition, the `[` of an image's `![`: the character the rewriter escapes to show a refused link as text. */
+  readonly bracket: number;
 }
 
 /** One ATX heading outside code fences, its level (1–6) and its text. */
@@ -48,13 +50,15 @@ export interface ScannedMermaid {
   readonly end: number;
 }
 
-/** What one document's Markdown holds: its headings, its links, its Mermaid fences, and every code region. */
+/** What one document's Markdown holds: its headings, its links, its Mermaid fences, every code region, and the autolinks the wiki keeps. */
 export interface DocumentScan {
   readonly headings: readonly ScannedHeading[];
   readonly links: readonly ScannedLink[];
   readonly mermaid: readonly ScannedMermaid[];
   /** Inline code spans and fenced blocks, any language: the regions whose `<` is code, never markup. */
   readonly code: readonly ScannedCode[];
+  /** The kept autolinks: the regions whose `<` opens one, never markup to escape. */
+  readonly autolinks: readonly ScannedAutolink[];
 }
 
 /** One code region of the body — a code span or a fence — its whole extent. */
@@ -62,6 +66,14 @@ export interface ScannedCode {
   /** Where the code starts: the first backtick, or the fence's opening line. */
   readonly start: number;
   /** Where it ends: past the closing run or the fence's last line. */
+  readonly end: number;
+}
+
+/** One autolink the wiki keeps — `<https://example.com>`, `<mailto:a@b.c>`, `<a@b.c>` — its whole extent, the `<` and `>` included. */
+export interface ScannedAutolink {
+  /** Where the autolink starts: its `<`. */
+  readonly start: number;
+  /** Where it ends: past its `>`. */
   readonly end: number;
 }
 
@@ -80,17 +92,20 @@ export interface BrokenDocumentLink {
 /**
  * The documents' broken links, all of them: thrown after the whole document
  * set is read, so one broken link never hides another. The message names
- * each document and the target it misses, sorted by code point.
+ * each document by its full path — the repository's own path joined with
+ * the document's repository path — and the target it misses, sorted by
+ * code point.
  */
 export class DocumentLinkError extends Error {
   readonly broken: readonly BrokenDocumentLink[];
 
-  constructor(broken: readonly BrokenDocumentLink[]) {
+  constructor(broken: readonly BrokenDocumentLink[], repo: string) {
     super(
       [
         'the documents carry broken links:',
         ...broken.map(
-          (link) => `${link.source}:${link.line}: links to "${link.written}" — ${link.target} is not a page of this wiki; fix the link or add the document`,
+          (link) =>
+            `${joinPath(repo, link.source)}:${link.line}: links to "${link.written}" — ${link.target} is not a page of this wiki; fix the link or add the document`,
         ),
       ].join('\n'),
     );
@@ -104,6 +119,7 @@ export function scanDocument(body: string): DocumentScan {
   const links: ScannedLink[] = [];
   const mermaid: ScannedMermaid[] = [];
   const code: ScannedCode[] = [];
+  const autolinks: ScannedAutolink[] = [];
   const lines = body.split('\n');
   let offset = 0;
   let fence: { char: string; length: number; mermaid: boolean; contentStart: number; fenceStart: number } | undefined;
@@ -142,16 +158,30 @@ export function scanDocument(body: string): DocumentScan {
       const destination = parseDestination(rest);
       if (destination.text.trim() !== '') {
         const base = start + definition[0].length;
-        links.push({ written: destination.text, start: base + destination.start, end: base + destination.end, line: lineNumber });
+        links.push({ written: destination.text, start: base + destination.start, end: base + destination.end, line: lineNumber, bracket: start + definition[0].indexOf('[') });
         continue;
       }
+      // The destination may stand on the next line, an optional title
+      // after it — one line ending between the parts, as the engines
+      // read a definition. Recorded like any definition, at the line the
+      // definition starts on, and only when that line is a destination
+      // whole: never a list item or another block a bare `[label]:`
+      // happens to sit above.
+      const next = lines[index + 1];
+      if (next !== undefined) {
+        const split = parseDestination(next);
+        if (split.complete && split.text.trim() !== '') {
+          links.push({ written: split.text, start: offset + split.start, end: offset + split.end, line: lineNumber, bracket: start + definition[0].indexOf('[') });
+          continue;
+        }
+      }
     }
-    scanLineLinks(line, start, links, code, lineNumber);
+    scanLineLinks(line, start, links, code, autolinks, lineNumber);
   }
   // A fence never closed runs to the end of the body; its content is code
   // all the way.
   if (fence !== undefined) code.push({ start: fence.fenceStart, end: body.length });
-  return { headings, links, mermaid, code };
+  return { headings, links, mermaid, code, autolinks };
 }
 
 /** One destination parsed off a link's parentheses or a definition's tail: the target as written, and the span its token covers. */
@@ -161,6 +191,8 @@ interface ParsedDestination {
   /** Where the whole destination token starts and ends, relative to the text parsed. */
   readonly start: number;
   readonly end: number;
+  /** Whether the destination — and any title after it — consumed the whole tail: a split definition's destination is read only when it does. */
+  readonly complete: boolean;
 }
 
 /**
@@ -222,8 +254,24 @@ function parseDestination(inside: string): ParsedDestination {
       }
     }
   }
-  if (!strict) return { text: inside, start: 0, end: inside.length };
-  return { text: text!, start, end: end! };
+  if (!strict) return { text: inside, start: 0, end: inside.length, complete: false };
+  return { text: text!, start, end: end!, complete: true };
+}
+
+const AUTOLINK = /^<([a-zA-Z][a-zA-Z0-9+.-]*):([^ \t<>]*)>/;
+const EMAIL_AUTOLINK = /^<[\w.+-]+@[\w-]+(?:\.[\w-]+)*>/;
+
+/**
+ * The length of the autolink at `at` when the wiki keeps its scheme —
+ * http, https or mailto, or an email address — else none: the `<` of any
+ * other scheme, `javascript:` among them, is markup to escape, and the
+ * link it would open is shown as text.
+ */
+function keptAutolinkLength(line: string, at: number): number | undefined {
+  const uri = AUTOLINK.exec(line.slice(at));
+  if (uri !== null) return KEPT_SCHEME[uri[1]!.toLowerCase()] === true ? uri[0].length : undefined;
+  const mail = EMAIL_AUTOLINK.exec(line.slice(at));
+  return mail !== null ? mail[0].length : undefined;
 }
 
 /**
@@ -231,11 +279,14 @@ function parseDestination(inside: string): ParsedDestination {
  * `[text](target)`, `![alt](target)`, with a title after the target, an
  * angle-bracket target, balanced brackets and parentheses, backslash
  * escapes skipped, and a code span — a backtick run and its matching run
- * — passed over entirely, recorded as a code region. Each found target's
- * exact span — the destination token whole, brackets included — is
- * recorded, with the 1-based line it sits on.
+ * — passed over entirely, recorded as a code region. An autolink the wiki
+ * keeps — `<https://example.com>`, `<mailto:a@b.c>`, `<a@b.c>` — is
+ * recorded whole as a region of its own; a `<` of any other shape is
+ * left for the writers to escape. Each found target's exact span — the
+ * destination token whole, brackets included — is recorded, with the
+ * 1-based line it sits on.
  */
-function scanLineLinks(line: string, lineStart: number, links: ScannedLink[], code: ScannedCode[], lineNumber: number): void {
+function scanLineLinks(line: string, lineStart: number, links: ScannedLink[], code: ScannedCode[], autolinks: ScannedAutolink[], lineNumber: number): void {
   let i = 0;
   while (i < line.length) {
     const ch = line[i]!;
@@ -262,6 +313,16 @@ function scanLineLinks(line: string, lineStart: number, links: ScannedLink[], co
     }
     if (ch === '\\') {
       i += 2;
+      continue;
+    }
+    if (ch === '<') {
+      const autolink = keptAutolinkLength(line, i);
+      if (autolink !== undefined) {
+        autolinks.push({ start: lineStart + i, end: lineStart + i + autolink });
+        i += autolink;
+        continue;
+      }
+      i++;
       continue;
     }
     const image = ch === '!' && line[i + 1] === '[';
@@ -308,6 +369,7 @@ function scanLineLinks(line: string, lineStart: number, links: ScannedLink[], co
       start: lineStart + j + 1 + destination.start,
       end: lineStart + j + 1 + destination.end,
       line: lineNumber,
+      bracket: image ? lineStart + i + 1 : lineStart + i,
     });
     i = k;
   }
@@ -331,6 +393,28 @@ export function documentImages(documents: readonly WikiDocumentPage[]): readonly
     }
   }
   return [...images].sort(byCodePoint);
+}
+
+/** One refused link of the documents: who wrote it, where, and what it wrote. */
+export interface RefusedDocumentLink {
+  /** The document carrying the link, as a repository path. */
+  readonly source: string;
+  /** The 1-based line the link sits on. */
+  readonly line: number;
+  /** The destination exactly as the document wrote it. */
+  readonly written: string;
+}
+
+/**
+ * The documents' refused links — destinations whose scheme the wiki does
+ * not keep — one row each, sorted by code point: the build warns about
+ * every one of them, and the page shows the link as text.
+ */
+export function refusedDocumentLinks(documents: readonly WikiDocumentPage[]): readonly RefusedDocumentLink[] {
+  const rows = documents.flatMap((page) =>
+    page.links.flatMap((link) => (link.kind === 'refused' ? [{ source: `${page.id.slice('document/'.length)}.md`, line: link.line!, written: link.written }] : [])),
+  );
+  return rows.sort((a, b) => byCodePoint(a.source, b.source) || a.line - b.line || byCodePoint(a.written, b.written));
 }
 
 /**
@@ -377,7 +461,7 @@ export function documentPages(repo: string): readonly WikiDocumentPage[] {
   for (const image of documentImages(pages)) realPathInRepo(repo, image, 'image');
   if (broken.length > 0) {
     broken.sort((a, b) => byCodePoint(a.source, b.source) || a.line - b.line || byCodePoint(a.written, b.written) || byCodePoint(a.target, b.target));
-    throw new DocumentLinkError(broken);
+    throw new DocumentLinkError(broken, repo);
   }
   return pages;
 }
@@ -456,10 +540,28 @@ function realPathInRepo(repo: string, path: string, what: 'document' | 'image'):
   return real;
 }
 
+/** The schemes a document link may keep: the ones a reader's browser may be told to follow. */
+const KEPT_SCHEME: Record<string, true> = { http: true, https: true, mailto: true };
+
+/**
+ * Whether a written destination names a scheme the wiki does not keep —
+ * `javascript:`, `data:`, `vbscript:`, `file:`, any other, in any case,
+ * with the leading whitespace a destination may carry. The wiki shows
+ * such a link as text and the build warns: a repository has no business
+ * running code in a reader's browser.
+ */
+export function isRefusedScheme(written: string): boolean {
+  const scheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.exec(written.trim());
+  return scheme !== null && KEPT_SCHEME[scheme[0]!.slice(0, -1).toLowerCase()] !== true;
+}
+
 /**
  * What one written link target names, from the document that carries it.
- * Kept: empty and `#anchor` targets, scheme links and protocol-relative
- * ones — the built-site link check judges those in the built site. A
+ * Kept: empty and `#anchor` targets, kept scheme links and
+ * protocol-relative ones — the built-site link check judges those in the
+ * built site. A link whose scheme the wiki does not keep is refused:
+ * shown as text, warned about by the build naming document, line and
+ * destination. A
  * root-relative target names a repository path from the root
  * (`/docs/guide.md`), any other target a path from the document's own
  * folder. A `.md` target inside the document set is a page; a missing one
@@ -471,8 +573,12 @@ function realPathInRepo(repo: string, path: string, what: 'document' | 'image'):
  */
 function resolveLink(repo: string, source: string, written: string, documents: ReadonlySet<string>, broken: BrokenDocumentLink[], line: number): WikiDocumentLink | undefined {
   const trimmed = written.trim();
-  if (trimmed === '' || trimmed.startsWith('#') || trimmed.startsWith('//') || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {
-    return { written, kind: 'keep' };
+  if (trimmed === '' || trimmed.startsWith('#') || trimmed.startsWith('//')) return { written, kind: 'keep' };
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {
+    // Only the schemes a reader's browser may follow are kept: every
+    // other one is refused, the link shown as text, the build warning
+    // about it naming the document, the line and the destination.
+    return isRefusedScheme(trimmed) ? { written, kind: 'refused', line } : { written, kind: 'keep' };
   }
   const hash = trimmed.indexOf('#');
   const anchor = hash < 0 ? undefined : trimmed.slice(hash + 1);
@@ -495,3 +601,35 @@ function resolveLink(repo: string, source: string, written: string, documents: R
   return undefined;
 }
 
+
+/**
+ * The `]` positions of a finished page body that must stop being link
+ * closers: every `](` outside code regions and Mermaid blocks whose
+ * destination names a scheme the wiki does not keep. The rewriter escapes
+ * each into `\]`, so no engine can read a link — or an image — out of the
+ * text: a label that cannot close never parses as a link, whoever wrote
+ * its opening bracket, on the destination's line or a line above. An
+ * escaped `]` shows as `]`, so a hit that was never a link changes
+ * nothing a reader sees; code regions and Mermaid blocks are code and
+ * diagram source, drawn as written, never links.
+ */
+export function refusedLinkClosers(body: string): readonly number[] {
+  const closers: number[] = [];
+  const code = scanDocument(body).code;
+  const inCode = (position: number): boolean => code.some((span) => position >= span.start && position < span.end);
+  for (let at = body.indexOf(']('); at >= 0; at = body.indexOf('](', at + 1)) {
+    if (inCode(at) || inMermaidBlock(body, at)) continue;
+    if (!isRefusedScheme(parseDestination(body.slice(at + 2)).text)) continue;
+    closers.push(at);
+  }
+  return closers;
+}
+
+/** Whether `at` sits in a `<div class="mermaid">…</div>` block: diagram source the shipped runtime draws, never a link of the page. */
+function inMermaidBlock(body: string, at: number): boolean {
+  for (let open = body.indexOf('<div class="mermaid">'); open >= 0 && open < at; open = body.indexOf('<div class="mermaid">', open + 1)) {
+    const close = body.indexOf('</div>', open);
+    if (close >= 0 && at < close) return true;
+  }
+  return false;
+}
