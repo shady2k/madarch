@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, mkdtempSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   createSqliteHistory,
   createSourceStores,
@@ -183,6 +183,26 @@ describe('heads', () => {
     sources.close();
 
     expect(sources.heads()).toEqual([{ source: 'shop', commit: 'zzz', committedAt: DAY(1), storedAt: DAY(10) }]);
+  });
+
+  test('a sidecar write that fails after the commit was stored is healed by retrying the same commit', () => {
+    const dir = scratchFolder();
+    const clock = fakeClock(DAY(10));
+    const sources = createSourceStores({ dataFolder: dir, clock });
+    sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+
+    // Sabotage at the file-system boundary: the sidecar's own temporary
+    // path is a folder, so the history stores the commit and the sidecar
+    // write then fails.
+    mkdirSync(join(dir, 'shop.json.tmp'));
+    expect(() => sources.store(storeInput('shop', 'c2', DAY(2), [element('b')]))).toThrow();
+    rmdirSync(join(dir, 'shop.json.tmp'));
+
+    const retry = sources.store(storeInput('shop', 'c2', DAY(2), [element('b')]));
+    expect(retry.wasNew).toBe(false);
+    expect(retry.result.errors).toEqual([]);
+    expect(sources.heads()).toEqual([{ source: 'shop', commit: 'c2', committedAt: DAY(2), storedAt: DAY(10) }]);
+    sources.close();
   });
 
   test('a repeat store changes nothing', () => {

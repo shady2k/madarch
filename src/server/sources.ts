@@ -74,10 +74,13 @@ export interface SourceStores {
   historyOf(source: string): HistoryStore;
   /**
    * Stores one version in the source's history and, when the store
-   * succeeded and the commit is the source's newest by commit order,
-   * rewrites the sidecar. `input` must first pass `sourceNameProblem`
-   * (the HTTP layer validates every field before calling); a store
-   * reached with a name that fails it is a caller defect and throws.
+   * succeeded, brings the sidecar to the source's head — on every store,
+   * new or already stored, so a sidecar write that failed after the
+   * commit was stored is healed by storing that commit again: the
+   * history, not the sidecar, is the truth. `input` must first pass
+   * `sourceNameProblem` (the HTTP layer validates every field before
+   * calling); a store reached with a name that fails it is a caller
+   * defect and throws.
    */
   store(input: StoreInput): SourceStoreResult;
   /** Every source's head, in code point order of the names. */
@@ -236,7 +239,7 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
     const wasNew = !history.hasCommit(input.source, input.commit);
     const result = history.store(input);
 
-    if (result.errors.length === 0 && wasNew) {
+    if (result.errors.length === 0) {
       const candidate: SourceHead = {
         source: input.source,
         commit: input.commit,
