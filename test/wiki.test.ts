@@ -565,17 +565,17 @@ describe('scripts/wiki.ts', () => {
     expect(sidebar).toContain('"documents/docs/decisions/0001-use-grpc"');
   }, { timeout: 60_000 });
 
-  test('a document linking a missing document fails the build naming both, before anything is written', () => {
+  test('a document linking a missing document builds: the build warns naming document, line and target, and the site is written', () => {
     const root = tempFolder('madarch-wiki-broken-doc-');
     cpSync(DOCUMENTS_FIXTURE, root, { recursive: true });
     writeFileSync(join(root, 'docs', 'guide.md'), '# Guide\n\n[Missing](missing.md)\n');
     const out = outFolder();
     const run = runWiki([root, '--out', out]);
-    expect(run.status).toBe(1);
+    expect(run.status).toBe(0);
     const said = combined(run);
-    expect(said).toContain('docs/guide.md');
-    expect(said).toContain('docs/missing.md');
-    expect(existsSync(join(out, 'source'))).toBe(false);
+    expect(said).toContain(`warning: ${join(root, 'docs', 'guide.md')}:3: links to "missing.md"`);
+    expect(said).toContain('docs/missing.md is not a page of this wiki and the repository has no origin to link to; the link is shown as text');
+    expect(existsSync(join(out, 'site', 'index.html'))).toBe(true);
   }, { timeout: 60_000 });
 
   test('two documents one starlight route would serve are refused with exit 2, before anything is written', () => {

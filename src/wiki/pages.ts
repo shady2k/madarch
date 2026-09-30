@@ -75,23 +75,34 @@ export interface WikiPage {
  * repository: another document's page, an image the build copies into the
  * site, something left as written — an external scheme, a `#anchor` of
  * the same page, a protocol-relative link — that the built-site link
- * check judges like every other link, or a refused link whose scheme the
- * wiki does not keep (only http, https and mailto are kept), shown as
- * text and warned about by the build. Everything else is a broken link
- * the build refuses.
+ * check judges like every other link, the full address of the path it
+ * names on the repository's host at the built commit (`host`), or a link
+ * shown as text — a refused scheme, or one with nowhere on the host to
+ * lead: no origin, a host the wiki does not link to, a path that climbs
+ * out of the repository. The build warns about every link shown as text
+ * and about every host link the repository does not hold; it never fails
+ * on a document link.
  */
 export interface WikiDocumentLink {
   /** The link destination exactly as the document wrote it, brackets and title excluded. */
   readonly written: string;
-  readonly kind: 'page' | 'image' | 'keep' | 'refused';
+  readonly kind: 'page' | 'image' | 'keep' | 'refused' | 'host' | 'text';
   /** For a `page` link: the id of the page the target document is. */
   readonly pageId?: string;
   /** For an `image` link: the image's path in the repository. */
   readonly filePath?: string;
   /** The `#anchor` the link carries, without the `#`; images have none. */
   readonly anchor?: string;
-  /** For a `refused` link: the 1-based line the link sits on, named by the build's warning. */
+  /** The 1-based line the link sits on, named by the build's warnings. */
   readonly line?: number;
+  /** For a `host` link: the full address on the repository's host, anchor included; the writers emit it unchanged. */
+  readonly url?: string;
+  /** For a `host` or `text` link: the repository path the target names, as far as it reaches into — or past — the repository. */
+  readonly target?: string;
+  /** For a `host` link: whether the repository does not hold the target — the build names it in a warning. */
+  readonly missing?: boolean;
+  /** For a `text` link: why the link leads nowhere the wiki can spell. */
+  readonly reason?: 'escapes-repository' | 'no-origin' | 'unlinked-host';
 }
 
 /**

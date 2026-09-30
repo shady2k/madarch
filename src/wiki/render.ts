@@ -390,24 +390,35 @@ function urlDestination(url: string): string {
  * One document page's body: the document's Markdown with every resolved
  * link's target rewritten to where the writer serves it — another page by
  * `links.pathOf`, its anchor slugged by `links.slugOf`, an image at the
- * document asset route — and every Mermaid fence replaced by the raw
- * `div.mermaid` the shipped runtime draws on load. Everything else is the
- * document's own text, its raw markup escaped to text outside code spans,
- * fences and link targets; a document without a title gets its `# title`
- * line above the body. Writers call this once per document page, with
- * their own `WriterLinks`.
+ * document asset route, a host link's full address unchanged — and every
+ * Mermaid fence replaced by the raw `div.mermaid` the shipped runtime
+ * draws on load. A link shown as text loses its opening bracket instead.
+ * Everything else is the document's own text, its raw markup escaped to
+ * text outside code spans, fences and link targets; a document without a
+ * title gets its `# title` line above the body. Writers call this once
+ * per document page, with their own `WriterLinks`.
  */
 export function renderDocumentBody(page: WikiDocumentPage, links: WriterLinks): string {
   const context: LinkContext = { pageId: page.id, fromPath: pagePath(page.id), knownIds: new Set<string>(), headings: new Map<string, ReadonlySet<string>>() };
   const urlOf = new Map<string, string>();
-  const refused = new Set<string>();
+  const shownAsText = new Set<string>();
   for (const link of page.links) {
     if (link.kind === 'image') {
       urlOf.set(link.written, documentImageRoute(link.filePath!));
       continue;
     }
-    if (link.kind === 'refused') {
-      refused.add(link.written);
+    if (link.kind === 'refused' || link.kind === 'text') {
+      // A refused link, and one with nowhere on the host to lead, are
+      // shown as text: their opening bracket escaped, so no engine reads
+      // a link out of them; the closer pass over the finished body below
+      // stops any label the line scan never paired.
+      shownAsText.add(link.written);
+      continue;
+    }
+    if (link.kind === 'host') {
+      // The full address on the repository's host, emitted unchanged: no
+      // rewrite through page paths.
+      urlOf.set(link.written, link.url!);
       continue;
     }
     if (link.kind === 'keep') continue;
@@ -420,10 +431,9 @@ export function renderDocumentBody(page: WikiDocumentPage, links: WriterLinks): 
   const scan = scanDocument(page.body);
   const edits: { start: number; end: number; text: string }[] = [];
   for (const occurrence of scan.links) {
-    if (refused.has(occurrence.written)) {
-      // A refused link is shown as text: its opening bracket escaped, so
-      // no engine reads a link out of it; the closer pass over the
-      // finished body below stops any label the line scan never paired.
+    if (shownAsText.has(occurrence.written)) {
+      // The link is shown as text: its opening bracket escaped, so no
+      // engine reads a link out of it.
       edits.push({ start: occurrence.bracket, end: occurrence.bracket + 1, text: '\\[' });
       continue;
     }
@@ -442,9 +452,9 @@ export function renderDocumentBody(page: WikiDocumentPage, links: WriterLinks): 
   const guarded = [
     ...scan.code,
     ...scan.autolinks,
-    // A kept destination's `<` is its own; a refused one's is text, the
-    // same as every `<` outside the guarded regions.
-    ...scan.links.filter((link) => !refused.has(link.written)).map((link) => ({ start: link.start, end: link.end })),
+    // A kept destination's `<` is its own; a shown-as-text one's is
+    // text, the same as every `<` outside the guarded regions.
+    ...scan.links.filter((link) => !shownAsText.has(link.written)).map((link) => ({ start: link.start, end: link.end })),
   ];
   const isGuarded = (position: number): boolean => guarded.some((span) => position >= span.start && position < span.end);
   for (let at = page.body.indexOf('<'); at >= 0; at = page.body.indexOf('<', at + 1)) {

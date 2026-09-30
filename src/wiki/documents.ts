@@ -6,18 +6,20 @@
  * a title where the document has none, and its links resolved — an inline
  * one, with its title or in angle brackets, a reference definition, a
  * root-relative one — to another document's page, to an image the build
- * copies into the site, or left as written: an external scheme, a
- * `#anchor` of the same page, a protocol-relative link. A link to
- * anything else is broken: the build refuses it, naming the document, the
- * line and the target, all of them at once (requirement `links`).
- * Markdown outside README.md and docs/ is out of scope, so a link into it
- * is broken too, never silently kept.
+ * copies into the site, to the full address of the path it names on the
+ * repository's host at the commit the wiki is built from, or left as
+ * written: an external scheme, a `#anchor` of the same page, a
+ * protocol-relative link. Where there is no host to lead to — no origin,
+ * a host the wiki does not link to, a path that climbs out of the
+ * repository — and for a scheme the wiki refuses, the link is shown as
+ * text; the build warns about each (requirement `links` stays for the
+ * built site: every link within it must open).
  *
  * The scan a document page is built from is exported for the writers: they
  * walk the same links and Mermaid fences when they rewrite the body.
  */
 import { byCodePoint, type WikiDocumentLink, type WikiDocumentPage } from './pages.js';
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync, type Dirent } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, statSync, type Dirent } from 'node:fs';
 import { basename, dirname as dirOf, isAbsolute, join as joinPath, normalize, relative } from 'node:path';
 
 /** Files a document link may point at and be copied into the site: what a reader's browser shows. */
@@ -85,41 +87,103 @@ export interface ScannedWrappedLink {
   readonly line: number;
 }
 
-/** One broken link of the documents: who wrote it, as written, and what it names. */
-export interface BrokenDocumentLink {
-  /** The document carrying the link, as a repository path. */
-  readonly source: string;
-  /** The link exactly as the document wrote it. */
-  readonly written: string;
-  /** The repository path the link resolves to. */
-  readonly target: string;
-  /** The 1-based line of the document the link sits on. */
-  readonly line: number;
+/**
+ * Where a document's outside links lead: the repository's HEAD commit —
+ * the revision the rendering uses — and its origin remote's URL as git
+ * spells it, when there is one. The build reads both off the repository
+ * and passes them in; the tests pass them standing still.
+ */
+export interface DocumentHost {
+  /** The repository's HEAD commit, spelled the way git spells it. */
+  readonly commit: string;
+  /** The origin remote's URL, when the repository has one. */
+  readonly origin?: string;
+}
+
+/** The repository hosts the wiki can link a document's path to. */
+const HOSTS: Record<string, 'github' | 'gitlab'> = { 'github.com': 'github', 'gitlab.com': 'gitlab' };
+
+/**
+ * The host, owner and repository an origin remote names, when the wiki
+ * can link to it: an `https://` or `ssh://` URL or the `git@host:path`
+ * form, on github.com or gitlab.com, the `.git` suffix dropped. Any other
+ * spelling — another host, a local path — is none.
+ */
+function originHost(origin: string): { kind: 'github' | 'gitlab'; owner: string; repo: string } | undefined {
+  let host: string;
+  let path: string;
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(origin)) {
+    let url: URL;
+    try {
+      url = new URL(origin);
+    } catch {
+      return undefined;
+    }
+    host = url.hostname.toLowerCase();
+    path = url.pathname.replace(/^\/+/, '').replace(/\/+$/, '');
+  } else {
+    const scp = /^(?:[^@/]+@)?([^:/]+):(.+)$/.exec(origin);
+    if (scp === null) return undefined;
+    host = scp[1]!.toLowerCase();
+    path = scp[2]!.replace(/\/+$/, '');
+  }
+  const kind = HOSTS[host];
+  if (kind === undefined) return undefined;
+  const segments = path.replace(/\.git$/, '').split('/').filter((segment) => segment !== '');
+  if (segments.length < 2) return undefined;
+  return { kind, owner: segments.slice(0, -1).join('/'), repo: segments[segments.length - 1]! };
 }
 
 /**
- * The documents' broken links, all of them: thrown after the whole document
- * set is read, so one broken link never hides another. The message names
- * each document by its full path — the repository's own path joined with
- * the document's repository path — and the target it misses, sorted by
- * code point.
+ * The address of `path` on the repository's host at `commit`: a `blob`
+ * for a file, a `tree` for a folder the repository holds, in the shape
+ * the host spells. An origin the wiki does not link to gives none.
  */
-export class DocumentLinkError extends Error {
-  readonly broken: readonly BrokenDocumentLink[];
+function hostFileUrl(origin: string, commit: string, path: string, folder: boolean): string | undefined {
+  const parsed = originHost(origin);
+  if (parsed === undefined) return undefined;
+  const kind = folder ? 'tree' : 'blob';
+  return parsed.kind === 'github'
+    ? `https://github.com/${parsed.owner}/${parsed.repo}/${kind}/${commit}/${path}`
+    : `https://gitlab.com/${parsed.owner}/${parsed.repo}/-/${kind}/${commit}/${path}`;
+}
 
-  constructor(broken: readonly BrokenDocumentLink[], repo: string) {
-    super(
-      [
-        'the documents carry broken links:',
-        ...broken.map(
-          (link) =>
-            `${joinPath(repo, link.source)}:${link.line}: links to "${link.written}" — ${link.target} is not a page of this wiki; fix the link or add the document`,
-        ),
-      ].join('\n'),
-    );
-    this.name = 'DocumentLinkError';
-    this.broken = broken;
-  }
+/** One document link the build warns about: who wrote it, where, as written, and why it is not a link. */
+export interface DocumentLinkWarning {
+  /** The document carrying the link, as a repository path. */
+  readonly source: string;
+  /** The 1-based line the link sits on. */
+  readonly line: number;
+  /** The link exactly as the document wrote it. */
+  readonly written: string;
+  /** The warning's reason clause, after the em dash. */
+  readonly why: string;
+}
+
+/**
+ * Every document link the build warns about, one row each, sorted by
+ * document, line and target as written: every link shown as text — with
+ * the reason it leads nowhere — and every host link the repository does
+ * not hold. A host link the repository holds warns nothing.
+ */
+export function documentLinkWarnings(documents: readonly WikiDocumentPage[], host?: DocumentHost): readonly DocumentLinkWarning[] {
+  const rows = documents.flatMap((page) =>
+    page.links.flatMap((link) => {
+      const source = `${page.id.slice('document/'.length)}.md`;
+      if (link.kind === 'host') {
+        return link.missing === true ? [{ source, line: link.line!, written: link.written, why: `${link.target} is not in the repository; linked to the host` }] : [];
+      }
+      if (link.kind !== 'text') return [];
+      const why =
+        link.reason === 'escapes-repository'
+          ? `${link.target} climbs out of the repository; the link is shown as text`
+          : link.reason === 'no-origin'
+            ? `${link.target} is not a page of this wiki and the repository has no origin to link to; the link is shown as text`
+            : `${link.target} is not a page of this wiki and the origin ${host?.origin} is not a host the wiki links to; the link is shown as text`;
+      return [{ source, line: link.line!, written: link.written, why }];
+    }),
+  );
+  return rows.sort((a, b) => byCodePoint(a.source, b.source) || a.line - b.line || byCodePoint(a.written, b.written));
 }
 
 export function scanDocument(body: string): DocumentScan {
@@ -509,14 +573,14 @@ export function refusedDocumentLinks(documents: readonly WikiDocumentPage[]): re
 /**
  * The repository's document pages: `README.md`, every `.md` under `docs/`,
  * and `madarch/review.md` when there is one, sorted by repository path.
- * Reads every document, resolves every link; when any link is broken, throws
- * `DocumentLinkError` naming all of them. A document that cannot be read is
- * refused on its own, naming the full path.
+ * Reads every document and resolves every link against the host the build
+ * passes in — the repository's HEAD commit and its origin remote, where
+ * it has them. A document that cannot be read is refused on its own,
+ * naming the full path; a link never refuses the build.
  */
-export function documentPages(repo: string): readonly WikiDocumentPage[] {
+export function documentPages(repo: string, host?: DocumentHost): readonly WikiDocumentPage[] {
   const paths = documentPaths(repo);
   const documentSet = new Set(paths);
-  const broken: BrokenDocumentLink[] = [];
   const pages: WikiDocumentPage[] = [];
   for (const path of paths) {
     realPathInRepo(repo, path, 'document');
@@ -529,7 +593,7 @@ export function documentPages(repo: string): readonly WikiDocumentPage[] {
     const scan = scanDocument(body);
     const links: WikiDocumentLink[] = [];
     for (const occurrence of scan.links) {
-      const link = resolveLink(repo, path, occurrence.written, documentSet, broken, occurrence.line);
+      const link = resolveLink(repo, path, occurrence.written, documentSet, host, occurrence.line);
       if (link !== undefined) links.push(link);
     }
     const first = scan.headings[0];
@@ -549,10 +613,6 @@ export function documentPages(repo: string): readonly WikiDocumentPage[] {
   // The images the pages reference, under the same rule: a symlinked image
   // out of the repository would be copied into the site.
   for (const image of documentImages(pages)) realPathInRepo(repo, image, 'image');
-  if (broken.length > 0) {
-    broken.sort((a, b) => byCodePoint(a.source, b.source) || a.line - b.line || byCodePoint(a.written, b.written) || byCodePoint(a.target, b.target));
-    throw new DocumentLinkError(broken, repo);
-  }
   return pages;
 }
 
@@ -654,14 +714,17 @@ export function isRefusedScheme(written: string): boolean {
  * destination. A
  * root-relative target names a repository path from the root
  * (`/docs/guide.md`), any other target a path from the document's own
- * folder. A `.md` target inside the document set is a page; a missing one
- * is broken, and so is any other file a browser could not show — an image
- * anywhere inside the repository is copied and linked, a target that
- * walks out of the repository (`../…`) is broken, never followed. Every
- * broken link is recorded in `broken`, with the 1-based line it sits on,
- * and nothing is returned for it.
+ * folder. A `.md` target inside the document set is a page. Every other
+ * target leads to the repository's host at the commit the wiki is built
+ * from — an existing file as a `blob`, a folder the repository holds as
+ * a `tree`, a target the repository does not hold as a `blob` all the
+ * same, named in a warning — and an image the repository holds is copied
+ * and linked as before. Where there is no host to lead to — no origin,
+ * a host the wiki does not link to, a path that climbs out of the
+ * repository (`../…` past the root) — the link is shown as text, with
+ * the line it sits on and the repository path it names.
  */
-function resolveLink(repo: string, source: string, written: string, documents: ReadonlySet<string>, broken: BrokenDocumentLink[], line: number): WikiDocumentLink | undefined {
+function resolveLink(repo: string, source: string, written: string, documents: ReadonlySet<string>, host: DocumentHost | undefined, line: number): WikiDocumentLink | undefined {
   const trimmed = written.trim();
   if (trimmed === '' || trimmed.startsWith('#') || trimmed.startsWith('//')) return { written, kind: 'keep' };
   if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {
@@ -674,21 +737,27 @@ function resolveLink(repo: string, source: string, written: string, documents: R
   const anchor = hash < 0 ? undefined : trimmed.slice(hash + 1);
   const raw = (hash < 0 ? trimmed : trimmed.slice(0, hash)).split('?')[0]!;
   const target = normalize(trimmed.startsWith('/') ? raw.slice(1) : joinPath(dirOf(source), raw));
-  if (target.endsWith('.md')) {
-    if (documents.has(target)) {
-      const pageId = `document/${target.slice(0, -'.md'.length)}`;
-      return anchor === undefined ? { written, kind: 'page', pageId } : { written, kind: 'page', pageId, anchor };
-    }
-    broken.push({ source, written, target, line });
-    return undefined;
+  if (target.endsWith('.md') && documents.has(target)) {
+    const pageId = `document/${target.slice(0, -'.md'.length)}`;
+    return anchor === undefined ? { written, kind: 'page', pageId } : { written, kind: 'page', pageId, anchor };
   }
-  if (IMAGE_EXTENSION.test(target) && !target.startsWith('..') && !isAbsolute(target)) {
-    if (existsSync(joinPath(repo, target))) return { written, kind: 'image', filePath: target };
-    broken.push({ source, written, target, line });
-    return undefined;
+  if (target.startsWith('..') || isAbsolute(target)) {
+    return { written, kind: 'text', target, reason: 'escapes-repository', line };
   }
-  broken.push({ source, written, target, line });
-  return undefined;
+  let onDisk: 'missing' | 'file' | 'folder';
+  try {
+    const stat = statSync(joinPath(repo, target));
+    onDisk = stat.isDirectory() ? 'folder' : 'file';
+  } catch {
+    onDisk = 'missing';
+  }
+  // An image the repository holds is copied into the site, as before; an
+  // image it does not hold leads to the host like any other miss.
+  if (IMAGE_EXTENSION.test(target) && onDisk === 'file') return { written, kind: 'image', filePath: target };
+  if (host?.origin === undefined) return { written, kind: 'text', target, reason: 'no-origin', line };
+  const url = hostFileUrl(host.origin, host.commit, target, onDisk === 'folder');
+  if (url === undefined) return { written, kind: 'text', target, reason: 'unlinked-host', line };
+  return { written, kind: 'host', url: anchor === undefined ? url : `${url}#${anchor}`, target, missing: onDisk === 'missing', line };
 }
 
 
