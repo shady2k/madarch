@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'bun:test';
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { afterEach, describe, expect, test } from 'bun:test';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { documentHeadings, documentImages, documentPages, DocumentLinkError, scanDocument } from '../src/wiki/documents.js';
@@ -16,9 +16,29 @@ import { navTree, diagramModuleJs, renderDocumentBody, type WriterLinks } from '
  * writers' shared pure part: the same Markdown in, each writer's links out.
  */
 
+/**
+ * Every temporary folder this file makes, removed after each test and on
+ * exit with whatever is left, pass or fail: a run of the suite leaves the
+ * system temporary folder as it found it.
+ */
+const made: string[] = [];
+
+function tempFolder(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+}
+
+const removeMadeFolders = (): void => {
+  for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
+};
+
+afterEach(removeMadeFolders);
+process.on('exit', removeMadeFolders);
+
 /** A repository folder a test writes its files into; no model, no git. */
 function writeRepo(files: Record<string, string>): string {
-  const root = mkdtempSync(join(tmpdir(), 'madarch-wiki-docs-'));
+  const root = tempFolder('madarch-wiki-docs-');
   for (const [name, content] of Object.entries(files)) {
     mkdirSync(dirname(join(root, name)), { recursive: true });
     writeFileSync(join(root, name), content);

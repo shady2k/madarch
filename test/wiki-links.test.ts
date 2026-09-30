@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +11,26 @@ import { brokenLinks, readSiteFiles, type BrokenLink } from '../src/wiki/links.j
  * written, all of them, sorted by code point. Links outside the site — a
  * scheme and host, `mailto:`, the engine's own 404 page — are not checked.
  */
+
+/**
+ * Every temporary folder this file makes, removed after each test and on
+ * exit with whatever is left, pass or fail: a run of the suite leaves the
+ * system temporary folder as it found it.
+ */
+const made: string[] = [];
+
+function tempFolder(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+}
+
+const removeMadeFolders = (): void => {
+  for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
+};
+
+afterEach(removeMadeFolders);
+process.on('exit', removeMadeFolders);
 
 const page = (name: string, body: string): [string, string] => [name, body];
 
@@ -286,7 +306,7 @@ describe('brokenLinks', () => {
 
 describe('readSiteFiles', () => {
   test('a site folder that does not exist is an error naming the path', () => {
-    const missing = join(mkdtempSync(join(tmpdir(), 'madarch-links-')), 'no-such-site');
+    const missing = join(tempFolder('madarch-links-'), 'no-such-site');
     try {
       readSiteFiles(missing);
       expect.unreachable();
@@ -296,7 +316,7 @@ describe('readSiteFiles', () => {
   });
 
   test('an unreadable file in the site is an error naming the file', () => {
-    const site = join(mkdtempSync(join(tmpdir(), 'madarch-links-')), 'site');
+    const site = join(tempFolder('madarch-links-'), 'site');
     mkdirSync(site);
     const file = join(site, 'index.html');
     writeFileSync(file, '<html></html>');
@@ -313,7 +333,7 @@ describe('readSiteFiles', () => {
   });
 
   test('reads every file of the site under its site-relative path', () => {
-    const site = join(mkdtempSync(join(tmpdir(), 'madarch-links-')), 'site');
+    const site = join(tempFolder('madarch-links-'), 'site');
     mkdirSync(join(site, 'guide'), { recursive: true });
     writeFileSync(join(site, 'index.html'), '<html>home</html>');
     writeFileSync(join(site, 'guide', 'index.html'), '<html>guide</html>');

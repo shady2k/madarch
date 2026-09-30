@@ -1,5 +1,5 @@
-import { readdirSync } from 'node:fs';
-import { describe, expect, test } from 'bun:test';
+import { readdirSync, rmSync } from 'node:fs';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { loadAndCompileModel } from '../src/model/load-and-compile.js';
 import type { CompiledModel } from '../src/model/compile.js';
 import { wikiPages, type WikiBlock, type WikiCell, type WikiDiagramBlock, type WikiLinkCell, type WikiPage, type WikiTableBlock } from '../src/wiki/pages.js';
@@ -16,6 +16,20 @@ import { Repo } from './model-check-repo.js';
  * fixtures declare their parts in orders the pages must not echo: every list
  * the pages show comes out sorted, whatever order the model wrote.
  */
+
+/**
+ * Every git repository fixture the pages are built from, removed after
+ * each test and on exit with whatever is left, pass or fail: a run of the
+ * suite leaves the system temporary folder as it found it.
+ */
+const made: string[] = [];
+
+const removeMadeFolders = (): void => {
+  for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
+};
+
+afterEach(removeMadeFolders);
+process.on('exit', removeMadeFolders);
 
 const MODEL_YAML = [
   'version: 1',
@@ -188,6 +202,7 @@ const MODEL_WITH_ZONES_YAML = [
 
 function pagesOfModel(yaml: string = MODEL_YAML, views: readonly string[] = []): WikiPage[] {
   const repo = new Repo();
+  made.push(repo.path);
   repo.writeModel('model.yaml', yaml);
   const { model, errors } = loadAndCompileModel(repo.path);
   expect(errors).toEqual([]);
@@ -876,6 +891,7 @@ describe('wiki page diagrams', () => {
 
   test('a view naming an element the model does not have is an error naming it', () => {
     const repo = new Repo();
+    made.push(repo.path);
     repo.writeModel('model.yaml', MODEL_YAML);
     const { model, errors } = loadAndCompileModel(repo.path);
     expect(errors).toEqual([]);
