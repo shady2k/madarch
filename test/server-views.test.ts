@@ -12,7 +12,9 @@ import {
   loadAndCompileModel,
   loadModel,
   renderOneViewMermaid,
+  renderOneViewLikeC4,
   startServer,
+  type LikeC4Result,
   type CompiledModel,
   type HistoryStore,
   type QueryEngine,
@@ -254,6 +256,61 @@ describe('POST /views of the reference system', () => {
     expect(lines).toHaveLength(2);
     expect(lines[0]).toMatch(/^POST \/views 200 source=reference-system \d+ms$/);
     expect(lines[1]).toMatch(/^POST \/views 404 source=github\.com\/acme\/shop \d+ms: no model has been sent/);
+  });
+});
+
+describe('POST /views names the relations LikeC4 cannot draw', () => {
+  /** The fixture whose model holds relations LikeC4 cannot draw, compiled. */
+  function notDrawnModel(): CompiledModel {
+    const { model, errors } = loadModel(fileURLToPath(new URL('./fixtures/views-likec4-not-drawn', import.meta.url)));
+    expect(errors).toEqual([]);
+    return compileModel(model!);
+  }
+
+  /** The renderer's own answer for a model, asked of an independent engine at the version's own time. */
+  function renderExpected(model: CompiledModel, at: number): LikeC4Result {
+    const independent = independentEngine(model, at);
+    try {
+      const rendered = renderOneViewLikeC4(independent.engine, model, {}, { valid: at, known: at });
+      expect(rendered.errors).toEqual([]);
+      return rendered;
+    } finally {
+      independent.close();
+    }
+  }
+
+  test('the answer opens with one comment line per not-drawn relation, in code point order of relation id, and still validates', async () => {
+    start();
+    const model = notDrawnModel();
+    expect((await post('/models', { source: 'not-drawn', commit: 'c1', committedAt: '2026-09-02T00:00:00Z', model })).status).toBe(201);
+
+    const response = await post('/views', { source: 'not-drawn', format: 'likec4' });
+    expect(response.status).toBe(200);
+    const answer = await response.text();
+
+    // The fixture's own relations in code point order of id, read off the model, not off the renderer.
+    const expected = renderExpected(model, DAY(2));
+    expect(expected.notDrawn!.map((relation) => relation.relationId)).toEqual(['loop-retries', 'shop-runs-cart', 'ui-reports-to-shop']);
+
+    const lines = answer.split('\n');
+    for (const [index, relation] of expected.notDrawn!.entries()) {
+      expect(lines[index]).toBe(`// not drawn: ${relation.message}`);
+    }
+    expect(lines.slice(expected.notDrawn!.length).join('\n')).toBe(expected.workspace!);
+    expect(validate(answer).errors).toEqual([]);
+  });
+
+  test('a model with no relation LikeC4 cannot draw is answered unchanged: the workspace alone, no comment line', async () => {
+    start();
+    expect((await sendReference()).status).toBe(201);
+
+    const response = await post('/views', { source: REFERENCE_SOURCE, format: 'likec4' });
+    expect(response.status).toBe(200);
+    const answer = await response.text();
+
+    const expected = renderExpected(referenceModel(), REFERENCE_TIME);
+    expect(expected.notDrawn).toEqual([]);
+    expect(answer).toBe(expected.workspace!);
   });
 });
 

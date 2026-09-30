@@ -329,10 +329,15 @@ function createHandler(dependencies: {
     const rendered = renderOneViewLikeC4(engine, model, one);
     if (rendered.workspace === undefined) return { ...renderRefusal(asked, rendered.errors), source: asked.source };
     // A relation LikeC4 cannot draw (of an element to itself or its own
-    // descendant) is the renderer's own omission, listed in its result and
-    // never silently dropped; the answer itself stays the validating
-    // workspace, and no model content goes to the log.
-    return { response: new Response(rendered.workspace, { headers: { 'content-type': 'text/plain; charset=utf-8' } }), source: asked.source };
+    // descendant) is named in one comment line at the top of the answer,
+    // before the workspace text, in code point order of relation id, so
+    // nothing the model holds is dropped silently and the text still
+    // validates on its own; no model content goes to the log.
+    const notDrawn = [...(rendered.notDrawn ?? [])].sort((a, b) => byCodePoint(a.relationId, b.relationId));
+    const text = notDrawn.length === 0
+      ? rendered.workspace
+      : `${notDrawn.map((relation) => `// not drawn: ${relation.message}`).join('\n')}\n${rendered.workspace}`;
+    return { response: new Response(text, { headers: { 'content-type': 'text/plain; charset=utf-8' } }), source: asked.source };
   }
 
   /**
