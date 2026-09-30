@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
+import { spawnSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -51,6 +52,31 @@ function writeRepo(files: Record<string, string>): string {
 
 function documentsOf(files: Record<string, string>, host?: DocumentHost): readonly WikiDocumentPage[] {
   return documentPages(writeRepo(files), host);
+}
+
+/**
+ * A repository folder whose files are committed: one real `git init` and
+ * commit over the written files, so a test can judge link targets at the
+ * commit the build names rather than at the worktree. Removed with the
+ * rest of the temporary folders.
+ */
+function gitRepo(files: Record<string, string>): string {
+  const root = writeRepo(files);
+  const git = (args: string[]): void => {
+    const run = spawnSync('git', ['-c', 'user.name=Wiki Documents', '-c', 'user.email=docs@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8' });
+    if (run.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${run.stderr ?? ''}`);
+  };
+  git(['init', '-b', 'main', '--quiet']);
+  git(['add', '-A']);
+  git(['commit', '--quiet', '-m', 'seed']);
+  return root;
+}
+
+/** The commit `HEAD` names in the repository at `root`, spelled the way git spells it. */
+function headCommit(root: string): string {
+  const run = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' });
+  if (run.status !== 0) throw new Error(`git rev-parse HEAD failed: ${run.stderr ?? ''}`);
+  return run.stdout.trim();
 }
 
 /** The document page whose body was written at `name` (a repository path with the .md). */
@@ -472,6 +498,168 @@ describe("document links to the repository's host", () => {
         why: 'src/app.ts is not a page of this wiki and the origin https://bitbucket.org/acme/shop.git is not a host the wiki links to; the link is shown as text',
       },
     ]);
+  });
+});
+
+describe("document links to the repository's host, encoded and judged at the built commit", () => {
+  /** The blob address every encoded probe hangs off: github, a fixed commit. */
+  const BLOB = 'https://github.com/acme/shop/blob/c0ffee0';
+
+  /**
+   * The review's probes, and every reserved or markup-bearing spelling a
+   * repository path can carry, each with the exact address it must come
+   * out as: one percent-encoded URL path segment per name, so nothing a
+   * repository wrote can leave the URL, end the Markdown destination or
+   * become markup.
+   */
+  const ENCODING: { written: string; url: string }[] = [
+    { written: '<my file.txt>', url: `${BLOB}/docs/my%20file.txt` },
+    { written: 'a%23b.txt', url: `${BLOB}/docs/a%23b.txt` },
+    { written: 'c%3Fd.txt', url: `${BLOB}/docs/c%3Fd.txt` },
+    { written: '100%25.txt', url: `${BLOB}/docs/100%25.txt` },
+    { written: 'e%3Cf.txt', url: `${BLOB}/docs/e%3Cf.txt` },
+    { written: 'g%3Eh.txt', url: `${BLOB}/docs/g%3Eh.txt` },
+    { written: 'i%22j.txt', url: `${BLOB}/docs/i%22j.txt` },
+    { written: "k%27l.txt", url: `${BLOB}/docs/k'l.txt` },
+    { written: 'm(n)o.txt', url: `${BLOB}/docs/m(n)o.txt` },
+    { written: 'p%5Cq.txt', url: `${BLOB}/docs/p%5Cq.txt` },
+    { written: 'файл.txt', url: `${BLOB}/docs/%D1%84%D0%B0%D0%B9%D0%BB.txt` },
+  ];
+
+  test('every reserved or markup-bearing character of a path is percent-encoded as one URL path segment', () => {
+    for (const probe of ENCODING) {
+      const pages = documentsOf({ 'docs/guide.md': `[Link](${probe.written})\n` }, GITHUB);
+      expect(pageOf(pages, 'docs/guide.md').links[0]!.url).toBe(probe.url);
+      const rendered = renderDocumentBody(pageOf(pages, 'docs/guide.md'), REWRITER);
+      // The destination the reader is handed is the URL and nothing else:
+      // no raw `<` of the path's own survives, wrapped or bare, so no
+      // character of a repository path can end it or become markup.
+      const destination = rendered.slice(rendered.indexOf('](') + 2, rendered.lastIndexOf(')'));
+      expect(destination.replace(/^</, '').replace(/>$/, '')).toBe(probe.url);
+    }
+  });
+
+  test('an anchor carrying markup is encoded with the fragment, never emitted raw', () => {
+    const pages = documentsOf({ 'docs/guide.md': '[open](missing.txt#x><script>alert(1)</script>)\n' }, GITHUB);
+    expect(pageOf(pages, 'docs/guide.md').links).toEqual([
+      {
+        written: 'missing.txt#x><script>alert(1)</script>',
+        kind: 'host',
+        url: `${BLOB}/docs/missing.txt#x%3E%3Cscript%3Ealert(1)%3C%2Fscript%3E`,
+        target: 'docs/missing.txt',
+        line: 1,
+        missing: true,
+      },
+    ]);
+    const rendered = renderDocumentBody(pageOf(pages, 'docs/guide.md'), REWRITER);
+    expect(rendered).toBe(`# guide\n\n[open](<${BLOB}/docs/missing.txt#x%3E%3Cscript%3Ealert(1)%3C%2Fscript%3E>)\n`);
+    expect(rendered.includes('<script')).toBe(false);
+  });
+
+  test('a path that leaves the repository once its percent escapes are read is shown as text, and warned', () => {
+    for (const probe of [
+      { written: '%2e%2e/%2e%2e/%2e%2e/beyond.txt', target: '../../beyond.txt' },
+      { written: 'a/%2e%2e/%2e%2e/%2e%2e/beyond.txt', target: '../beyond.txt' },
+    ]) {
+      const pages = documentsOf({ 'docs/guide.md': `[Beyond](${probe.written})\n` }, GITHUB);
+      expect(pageOf(pages, 'docs/guide.md').links).toEqual([
+        { written: probe.written, kind: 'text', target: probe.target, reason: 'escapes-repository', line: 1 },
+      ]);
+      expect(renderDocumentBody(pageOf(pages, 'docs/guide.md'), REWRITER)).toBe(`# guide\n\n\\[Beyond](${probe.written})\n`);
+      expect(documentLinkWarnings(pages, GITHUB)).toEqual([
+        { source: 'docs/guide.md', line: 1, written: probe.written, why: `${probe.target} climbs out of the repository; the link is shown as text` },
+      ]);
+    }
+  });
+
+  test('a path that stays inside once its escapes are read links to where it decodes to, written plain', () => {
+    const pages = documentsOf({ 'docs/guide.md': '[Root](%2e%2e/other/x)\n' }, GITHUB);
+    // One level up from docs/ is the repository's root, not past it: the
+    // decoded path is judged there, and the address carries `other/x`,
+    // not the `%2e%2e` spelling a browser would decode on its own.
+    expect(pageOf(pages, 'docs/guide.md').links).toEqual([
+      { written: '%2e%2e/other/x', kind: 'host', url: `${BLOB}/other/x`, target: 'other/x', line: 1, missing: true },
+    ]);
+  });
+
+  test('a percent-encoded target is judged, and warned about, by the name it decodes to', () => {
+    const pages = documentsOf({ 'docs/guide.md': '[Hash](a%23b.txt)\n', 'docs/a#b.txt': 'held\n' }, GITHUB);
+    expect(pageOf(pages, 'docs/guide.md').links).toEqual([
+      { written: 'a%23b.txt', kind: 'host', url: `${BLOB}/docs/a%23b.txt`, target: 'docs/a#b.txt', line: 1, missing: false },
+    ]);
+  });
+
+  test('a committed folder deleted from the worktree is still a tree at the built commit, and warns nothing', () => {
+    const root = gitRepo({ 'docs/guide.md': '[Src](../src), [App](../src/app.ts)\n', 'src/app.ts': 'export {};\n' });
+    const commit = headCommit(root);
+    rmSync(join(root, 'src'), { recursive: true });
+    const host: DocumentHost = { commit, origin: 'https://github.com/acme/shop.git' };
+    const pages = documentPages(root, host);
+    expect(pageOf(pages, 'docs/guide.md').links).toEqual([
+      { written: '../src', kind: 'host', url: `https://github.com/acme/shop/tree/${commit}/src`, target: 'src', line: 1, missing: false },
+      { written: '../src/app.ts', kind: 'host', url: `${BLOB.replace('c0ffee0', commit)}/src/app.ts`, target: 'src/app.ts', line: 1, missing: false },
+    ]);
+    expect(documentLinkWarnings(pages, host)).toEqual([]);
+  });
+
+  test('an untracked file is warned as not in the repository, its host link kept', () => {
+    const root = gitRepo({ 'docs/guide.md': '[Local](draft.txt)\n' });
+    const commit = headCommit(root);
+    writeFileSync(join(root, 'docs', 'draft.txt'), 'work in progress\n');
+    const host: DocumentHost = { commit, origin: 'https://github.com/acme/shop.git' };
+    const pages = documentPages(root, host);
+    expect(pageOf(pages, 'docs/guide.md').links).toEqual([
+      { written: 'draft.txt', kind: 'host', url: `${BLOB.replace('c0ffee0', commit)}/docs/draft.txt`, target: 'docs/draft.txt', line: 1, missing: true },
+    ]);
+    expect(documentLinkWarnings(pages, host)).toEqual([
+      { source: 'docs/guide.md', line: 1, written: 'draft.txt', why: 'docs/draft.txt is not in the repository; linked to the host' },
+    ]);
+  });
+
+  test('an origin whose scheme the wiki does not admit is no host: text and warning, the github hostname notwithstanding', () => {
+    for (const origin of ['file://github.com/acme/shop.git', 'http://github.com/acme/shop.git', 'git://github.com/acme/shop.git']) {
+      const host: DocumentHost = { commit: 'c0ffee0', origin };
+      const pages = documentsOf({ 'docs/guide.md': '[Code](../src/app.ts)\n', 'src/app.ts': 'export {};\n' }, host);
+      expect(pageOf(pages, 'docs/guide.md').links).toEqual([
+        { written: '../src/app.ts', kind: 'text', target: 'src/app.ts', reason: 'unlinked-host', line: 1 },
+      ]);
+      expect(documentLinkWarnings(pages, host)).toEqual([
+        {
+          source: 'docs/guide.md',
+          line: 1,
+          written: '../src/app.ts',
+          why: `src/app.ts is not a page of this wiki and the origin ${origin} is not a host the wiki links to; the link is shown as text`,
+        },
+      ]);
+    }
+  });
+
+  test('an scp origin is admitted only in the git@ spelling: a bare host or another user is no host', () => {
+    for (const origin of ['github.com:acme/shop.git', 'deploy@github.com:acme/shop.git']) {
+      const host: DocumentHost = { commit: 'c0ffee0', origin };
+      const pages = documentsOf({ 'docs/guide.md': '[Code](../src/app.ts)\n', 'src/app.ts': 'export {};\n' }, host);
+      expect(pageOf(pages, 'docs/guide.md').links).toEqual([
+        { written: '../src/app.ts', kind: 'text', target: 'src/app.ts', reason: 'unlinked-host', line: 1 },
+      ]);
+      expect(documentLinkWarnings(pages, host)).toEqual([
+        {
+          source: 'docs/guide.md',
+          line: 1,
+          written: '../src/app.ts',
+          why: `src/app.ts is not a page of this wiki and the origin ${origin} is not a host the wiki links to; the link is shown as text`,
+        },
+      ]);
+    }
+  });
+
+  test('a gitlab subgroup splits into owner segments and links through the -/blob address, in both spellings', () => {
+    for (const origin of ['ssh://git@gitlab.com/group/sub/repo.git', 'https://gitlab.com/group/sub/repo.git', 'git@gitlab.com:group/sub/repo.git']) {
+      const pages = documentsOf(
+        { 'docs/guide.md': '[Code](../src/app.ts)\n', 'src/app.ts': 'export {};\n' },
+        { commit: 'c0ffee0', origin },
+      );
+      expect(pageOf(pages, 'docs/guide.md').links[0]!.url).toBe('https://gitlab.com/group/sub/repo/-/blob/c0ffee0/src/app.ts');
+    }
   });
 });
 

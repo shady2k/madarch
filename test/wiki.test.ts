@@ -861,4 +861,85 @@ describe('scripts/wiki.ts with real builds over the documents fixture', () => {
     },
     { timeout: 600_000 },
   );
+
+  test.skipIf(!process.env.MADARCH_WIKI_E2E)(
+    'a document holding adversarial host addresses builds on both engines: no script element, every host href on the repository host',
+    () => {
+      const root = tempFolder('madarch-wiki-host-');
+      cpSync(DOCUMENTS_FIXTURE, root, { recursive: true });
+      const git = (args: string[]): void => {
+        const run = spawnSync('git', ['-c', 'user.name=Wiki E2E', '-c', 'user.email=e2e@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8' });
+        if (run.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${run.stderr ?? ''}`);
+      };
+      git(['init', '-b', 'main', '--quiet']);
+      git(['remote', 'add', 'origin', 'https://github.com/acme/shop.git']);
+      writeFileSync(
+        join(root, 'docs', 'adversarial.md'),
+        [
+          '# Adversarial',
+          '',
+          '[script](missing.txt#x><script>alert(1)</script>)',
+          '',
+          '[escape](%2e%2e/%2e%2e/beyond.md)',
+          '',
+          '[space](<my file.txt>)',
+          '',
+          '[hash](a%23b.txt)',
+          '',
+          '[unicode](файл.txt)',
+          '',
+          '[App](../src/app.ts)',
+          '',
+        ].join('\n'),
+      );
+      writeFileSync(join(root, 'docs', 'my file.txt'), 'spaced\n');
+      writeFileSync(join(root, 'docs', 'a#b.txt'), 'hashed\n');
+      writeFileSync(join(root, 'docs', 'файл.txt'), 'written\n');
+      mkdirSync(join(root, 'src'), { recursive: true });
+      writeFileSync(join(root, 'src', 'app.ts'), 'export {};\n');
+      git(['add', '-A']);
+      git(['commit', '--quiet', '-m', 'adversarial']);
+      // One real engine build at a time, each in its own moved cache.
+      for (const [engine, env] of [['zensical', scriptCache()], ['starlight', scriptCache()]] as const) {
+        const out = outFolder();
+        const run = runWiki([root, '--out', out, ...(engine === 'zensical' ? [] : ['--engine', 'starlight'])], REAL_PATH, env);
+        expect(run.status).toBe(0);
+        // Nothing the document wrote stands as a script element of the
+        // site: not in the adversarial page, not anywhere in the built
+        // HTML — only the site's own script blocks may carry markup.
+        for (const [, body] of walkFiles(join(out, 'site'))) {
+          expect(/<script[^>]*>[^<]*alert\(/.test(body)).toBe(false);
+        }
+        for (const [file, body] of walkFiles(join(out, 'site'))) {
+          if (file.endsWith('.html')) expect(body.replace(/<script[\s\S]*?<\/script>/g, '').includes('<script')).toBe(false);
+        }
+        // The page's every http(s) href leads to this repository's own
+        // host path, read the way a browser reads it (entities decoded);
+        // the anchor's payload rides only as the percent-encoded
+        // fragment, so no `<` or `>` a document wrote is in any of them.
+        const built = readFileSync(join(out, 'site', 'documents', 'docs', 'adversarial', 'index.html'), 'utf8');
+        const hrefs = [...built.matchAll(/href="([^"]*)"/g)].map((match) =>
+          match[1]!
+            .replace(/&#x([0-9a-fA-F]+);/g, (_, digits: string) => String.fromCodePoint(parseInt(digits, 16)))
+            .replace(/&#(\d+);/g, (_, digits: string) => String.fromCodePoint(Number(digits))),
+        );
+        const hostHrefs = hrefs.filter((href) => /^https:\/\/github\.com\//.test(href));
+        expect(hostHrefs.length).toBeGreaterThan(0);
+        for (const href of hostHrefs) {
+          expect(href.startsWith('https://github.com/acme/shop/')).toBe(true);
+          expect(href.includes('<') || href.includes('>')).toBe(false);
+        }
+        expect(hostHrefs.some((href) => href.includes('/docs/my%20file.txt'))).toBe(true);
+        expect(hostHrefs.some((href) => href.includes('/docs/a%23b.txt'))).toBe(true);
+        expect(hostHrefs.some((href) => href.includes('/docs/%D1%84%D0%B0%D0%B9%D0%BB.txt'))).toBe(true);
+        // The build said what it refused — the decoded escape — and what
+        // the commit does not hold, and went on:
+        const said = combined(run);
+        expect(said).toContain('links to "%2e%2e/%2e%2e/beyond.md"');
+        expect(said).toContain('climbs out of the repository');
+        expect(said).toContain('is not in the repository; linked to the host');
+      }
+    },
+    { timeout: 600_000 },
+  );
 });
