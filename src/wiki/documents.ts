@@ -59,6 +59,8 @@ export interface DocumentScan {
   readonly code: readonly ScannedCode[];
   /** The kept autolinks: the regions whose `<` opens one, never markup to escape. */
   readonly autolinks: readonly ScannedAutolink[];
+  /** Refused links whose label wraps over lines, so the per-line scan never pairs them: the build warns about each, at the line the link starts on. */
+  readonly refusedWrapped: readonly ScannedWrappedLink[];
 }
 
 /** One code region of the body — a code span or a fence — its whole extent. */
@@ -75,6 +77,12 @@ export interface ScannedAutolink {
   readonly start: number;
   /** Where it ends: past its `>`. */
   readonly end: number;
+}
+
+/** One refused link whose label wraps over lines: the destination as written, and the 1-based line the link starts on. */
+export interface ScannedWrappedLink {
+  readonly written: string;
+  readonly line: number;
 }
 
 /** One broken link of the documents: who wrote it, as written, and what it names. */
@@ -120,8 +128,15 @@ export function scanDocument(body: string): DocumentScan {
   const mermaid: ScannedMermaid[] = [];
   const code: ScannedCode[] = [];
   const autolinks: ScannedAutolink[] = [];
+  const refusedWrapped: ScannedWrappedLink[] = [];
   const lines = body.split('\n');
   let offset = 0;
+  // A label still open at a line's end — its unclosed `[` count and the
+  // line the link starts on — carried into the lines below, where its
+  // `](` may stand. Every block boundary ends a paragraph the way the
+  // engines read one, so the carry dies there: a blank line, a fence, a
+  // heading, a definition.
+  let carry: { depth: number; line: number } | undefined;
   let fence: { char: string; length: number; mermaid: boolean; contentStart: number; fenceStart: number } | undefined;
   for (const [index, line] of lines.entries()) {
     const lineNumber = index + 1;
@@ -129,6 +144,7 @@ export function scanDocument(body: string): DocumentScan {
     const end = offset + line.length;
     offset = end + 1;
     const trimmed = line.trim();
+    if (trimmed === '') carry = undefined;
     if (fence !== undefined) {
       const close = trimmed.match(/^(`{3,}|~{3,})$/);
       if (close !== null && close[0]![0] === fence.char && close[0]!.length >= fence.length) {
@@ -141,16 +157,19 @@ export function scanDocument(body: string): DocumentScan {
     const open = trimmed.match(/^(`{3,}|~{3,})(.*)$/);
     if (open !== null) {
       fence = { char: open[1]![0]!, length: open[1]!.length, mermaid: open[2]!.trim() === 'mermaid', contentStart: end + 1, fenceStart: start };
+      carry = undefined;
       continue;
     }
     const heading = line.match(/^ {0,3}(#{1,6})(?:\s+(.*?))?\s*$/);
     if (heading !== null) {
       const text = (heading[2] ?? '').replace(/\s+#+\s*$/, '').trim();
       if (text !== '') headings.push({ level: heading[1]!.length, text });
+      carry = undefined;
       continue;
     }
     const definition = line.match(/^ {0,3}\[([^\]]+)\]:[ \t]*/);
     if (definition !== null) {
+      carry = undefined;
       // A link reference definition: its destination is the link the
       // engines render every `[text][label]` use from, so it is recorded
       // like an occurrence of its own, resolved and rewritten there.
@@ -176,12 +195,12 @@ export function scanDocument(body: string): DocumentScan {
         }
       }
     }
-    scanLineLinks(line, start, links, code, autolinks, lineNumber);
+    carry = scanLineLinks(line, start, links, code, autolinks, lineNumber, carry, refusedWrapped);
   }
   // A fence never closed runs to the end of the body; its content is code
   // all the way.
   if (fence !== undefined) code.push({ start: fence.fenceStart, end: body.length });
-  return { headings, links, mermaid, code, autolinks };
+  return { headings, links, mermaid, code, autolinks, refusedWrapped };
 }
 
 /** One destination parsed off a link's parentheses or a definition's tail: the target as written, and the span its token covers. */
@@ -285,9 +304,30 @@ function keptAutolinkLength(line: string, at: number): number | undefined {
  * left for the writers to escape. Each found target's exact span — the
  * destination token whole, brackets included — is recorded, with the
  * 1-based line it sits on.
+ *
+ * A label the line above left open is resumed through `carry` — its
+ * unclosed `[` count and the line the link starts on — and a `](` at its
+ * closing bracket names a wrapped link: refused schemes only are pushed
+ * onto `refusedWrapped`, for the build's warning, at the line the link
+ * starts on; the occurrence never enters `links`, so what the rewriter
+ * writes and the closer backstop catches stay as they are. The line's
+ * own label left open at its end is returned for the line below.
  */
-function scanLineLinks(line: string, lineStart: number, links: ScannedLink[], code: ScannedCode[], autolinks: ScannedAutolink[], lineNumber: number): void {
+function scanLineLinks(
+  line: string,
+  lineStart: number,
+  links: ScannedLink[],
+  code: ScannedCode[],
+  autolinks: ScannedAutolink[],
+  lineNumber: number,
+  carry: { depth: number; line: number } | undefined,
+  refusedWrapped: ScannedWrappedLink[],
+): { depth: number; line: number } | undefined {
   let i = 0;
+  let depth = carry?.depth ?? 0;
+  let carriedLine = carry?.line ?? 0;
+  let carrying = carry !== undefined;
+  let open: { depth: number; line: number } | undefined;
   while (i < line.length) {
     const ch = line[i]!;
     if (ch === '`') {
@@ -325,24 +365,69 @@ function scanLineLinks(line: string, lineStart: number, links: ScannedLink[], co
       i++;
       continue;
     }
+    if (carrying) {
+      if (ch === '[') {
+        depth++;
+        i++;
+        continue;
+      }
+      if (ch === ']') {
+        depth--;
+        if (depth > 0) {
+          i++;
+          continue;
+        }
+        carrying = false;
+        if (line[i + 1] !== '(') {
+          i++;
+          continue;
+        }
+        let parens = 1;
+        let k = i + 2;
+        while (k < line.length && parens > 0) {
+          if (line[k] === '\\') {
+            k += 2;
+            continue;
+          }
+          if (line[k] === '(') parens++;
+          else if (line[k] === ')') parens--;
+          k++;
+        }
+        if (parens === 0) {
+          const destination = parseDestination(line.slice(i + 2, k - 1));
+          if (isRefusedScheme(destination.text.trim())) refusedWrapped.push({ written: destination.text, line: carriedLine });
+          i = k;
+        } else {
+          i++;
+        }
+        continue;
+      }
+      i++;
+      continue;
+    }
     const image = ch === '!' && line[i + 1] === '[';
     if (ch !== '[' && !image) {
       i++;
       continue;
     }
     const bracket = image ? i + 1 : i;
-    let depth = 1;
+    let unclosed = 1;
     let j = bracket + 1;
-    while (j < line.length && depth > 0) {
+    while (j < line.length && unclosed > 0) {
       if (line[j] === '\\') {
         j += 2;
         continue;
       }
-      if (line[j] === '[') depth++;
-      else if (line[j] === ']') depth--;
+      if (line[j] === '[') unclosed++;
+      else if (line[j] === ']') unclosed--;
       j++;
     }
-    if (depth !== 0 || line[j] !== '(') {
+    if (unclosed !== 0 || line[j] !== '(') {
+      // The label still stands open at the line's end: the link starts
+      // here, its destination possibly standing on a line below. The
+      // first scan that ends open is the outermost unclosed `[` — its
+      // count is the one the next line resumes.
+      if (unclosed !== 0 && open === undefined) open = { depth: unclosed, line: lineNumber };
       i = image ? i + 2 : i + 1;
       continue;
     }
@@ -373,6 +458,7 @@ function scanLineLinks(line: string, lineStart: number, links: ScannedLink[], co
     });
     i = k;
   }
+  return carrying ? { depth, line: carriedLine } : open;
 }
 
 /** The document's own headings, plus the title line the writers insert when it has none. */
@@ -408,12 +494,15 @@ export interface RefusedDocumentLink {
 /**
  * The documents' refused links — destinations whose scheme the wiki does
  * not keep — one row each, sorted by code point: the build warns about
- * every one of them, and the page shows the link as text.
+ * every one of them, and the page shows the link as text. A refused link
+ * whose label wraps over lines stands among them too, named at the line
+ * the link starts on, though the per-line scan could never pair it.
  */
 export function refusedDocumentLinks(documents: readonly WikiDocumentPage[]): readonly RefusedDocumentLink[] {
-  const rows = documents.flatMap((page) =>
-    page.links.flatMap((link) => (link.kind === 'refused' ? [{ source: `${page.id.slice('document/'.length)}.md`, line: link.line!, written: link.written }] : [])),
-  );
+  const rows = documents.flatMap((page) => [
+    ...page.links.flatMap((link) => (link.kind === 'refused' ? [{ source: `${page.id.slice('document/'.length)}.md`, line: link.line!, written: link.written }] : [])),
+    ...page.refusedWrapped.map((link) => ({ source: `${page.id.slice('document/'.length)}.md`, line: link.line, written: link.written })),
+  ]);
   return rows.sort((a, b) => byCodePoint(a.source, b.source) || a.line - b.line || byCodePoint(a.written, b.written));
 }
 
@@ -454,6 +543,7 @@ export function documentPages(repo: string): readonly WikiDocumentPage[] {
       blocks: [],
       insertTitle: first === undefined,
       links,
+      refusedWrapped: scan.refusedWrapped,
     });
   }
   // The images the pages reference, under the same rule: a symlinked image

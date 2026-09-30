@@ -643,6 +643,19 @@ describe('scripts/wiki.ts', () => {
     expect(said).toContain('the wiki keeps only http, https and mailto links; the link is shown as text');
     expect(existsSync(join(out, 'site', 'index.html'))).toBe(true);
   }, { timeout: 60_000 });
+
+  test('a refused link whose label wraps over lines is warned about too, at the line the link starts on', () => {
+    const root = tempFolder('madarch-wiki-wrapped-');
+    cpSync(DOCUMENTS_FIXTURE, root, { recursive: true });
+    writeFileSync(join(root, 'docs', 'wrapped.md'), '# Wrapped\n\nDo [run\nthis](javascript:alert(1)) now.\n');
+    const out = outFolder();
+    const run = runWiki([root, '--out', out]);
+    expect(run.status).toBe(0);
+    const said = combined(run);
+    expect(said).toContain(`warning: ${join(root, 'docs', 'wrapped.md')}:3: links to "javascript:alert(1)"`);
+    expect(said).toContain('the wiki keeps only http, https and mailto links; the link is shown as text');
+    expect(existsSync(join(out, 'site', 'index.html'))).toBe(true);
+  }, { timeout: 60_000 });
 });
 
 describe('scripts/wiki.ts with a real Zensical build', () => {

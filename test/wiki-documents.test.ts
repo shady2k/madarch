@@ -4,7 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, s
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { documentHeadings, documentImages, documentPages, DocumentLinkError, scanDocument } from '../src/wiki/documents.js';
+import { documentHeadings, documentImages, documentPages, DocumentLinkError, refusedDocumentLinks, scanDocument } from '../src/wiki/documents.js';
 import { documentImageRoute } from '../src/wiki/pages-path.js';
 import { isDocumentPage, type AnyWikiPage, type WikiDocumentPage, type WikiPage } from '../src/wiki/pages.js';
 import { navTree, diagramModuleJs, renderDocumentBody, type WriterLinks } from '../src/wiki/render.js';
@@ -406,6 +406,14 @@ describe('documentPages', () => {
     const files = { 'README.md': '# Read me\n', 'docs/a.md': '# A\n\n[B](b.md)\n', 'docs/b.md': 'B\n' };
     expect(documentPages(writeRepo(files))).toEqual(documentPages(writeRepo(files)));
   });
+
+  test('a refused link whose label wraps over lines is among the refused links, at the line the link starts on', () => {
+    const pages = documentsOf({ 'docs/wrapped.md': '# Wrapped\n\nDo [run\nthis](javascript:alert(1)) now.\n' });
+    const page = pageOf(pages, 'docs/wrapped.md');
+    expect(page.links).toEqual([]);
+    expect(page.refusedWrapped).toEqual([{ written: 'javascript:alert(1)', line: 3 }]);
+    expect(refusedDocumentLinks(pages)).toEqual([{ source: 'docs/wrapped.md', line: 3, written: 'javascript:alert(1)' }]);
+  });
 });
 
 describe('documents and images that leave the repository', () => {
@@ -550,6 +558,29 @@ describe('scanDocument', () => {
   test('a link reference definition is an occurrence with its line, a use is none', () => {
     const scan = scanDocument('[text][ref]\n\n[ref]: b.md\n');
     expect(scan.links.map((link) => [link.written, link.line])).toEqual([['b.md', 3]]);
+  });
+
+  test('a refused link whose label wraps over lines is recorded once, at the line the link starts on', () => {
+    const scan = scanDocument('Do [run\nthis](javascript:alert(1)) now.\n');
+    expect(scan.links).toEqual([]);
+    expect(scan.refusedWrapped).toEqual([{ written: 'javascript:alert(1)', line: 1 }]);
+  });
+
+  test('only refused schemes are recorded for a wrapped label, and a single-line link never is', () => {
+    const scan = scanDocument('[one](javascript:alert(1)) then [a\nb](https://example.com) and [c\nd](vbscript:x)\n');
+    expect(scan.links.map((link) => link.written)).toEqual(['javascript:alert(1)']);
+    expect(scan.refusedWrapped).toEqual([{ written: 'vbscript:x', line: 2 }]);
+  });
+
+  test('a label wrapping over several lines is named at the line the link starts on', () => {
+    expect(scanDocument('Do [run\nthe\nthing](javascript:alert(1)) now.\n').refusedWrapped).toEqual([
+      { written: 'javascript:alert(1)', line: 1 },
+    ]);
+  });
+
+  test('a blank line or a destination that names no refused scheme warns nothing', () => {
+    expect(scanDocument('Do [run\n\nthis](javascript:alert(1)) now.\n').refusedWrapped).toEqual([]);
+    expect(scanDocument('Do [run\nthis](alert(1)) now.\n').refusedWrapped).toEqual([]);
   });
 
   test('documentHeadings adds the inserted title line to the body\'s own headings', () => {
