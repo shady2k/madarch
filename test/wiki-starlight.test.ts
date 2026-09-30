@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { cleanStarlightSource, ensureStarlightInstall, linkStarlightNodeModules, STARLIGHT_TEMPLATE_DIR } from '../src/wiki/starlight.js';
 import type { WikiPage } from '../src/wiki/pages.js';
 import { preparePages, renderPageBody, type WikiDiagramAsset } from '../src/wiki/render.js';
-import { pageRoute, starlightLinks, starlightSidebar, starlightSlug, writeStarlightProject, STARLIGHT_CACHE_ROOT } from '../src/wiki/starlight.js';
+import { pageRoute, starlightLinks, starlightSidebar, starlightSlug, writeStarlightProject } from '../src/wiki/starlight.js';
+import { wikiCacheRoot } from '../src/wiki/cache.js';
 
 /**
  * The Starlight writer's pure parts (src/wiki/starlight.ts): the slug rule
@@ -244,9 +245,13 @@ describe('the template install and its cache', () => {
     const savedPath = process.env.PATH;
     process.env.PATH = `${bin}:${savedPath ?? ''}`;
     try {
-      const result = ensureStarlightInstall(STARLIGHT_TEMPLATE_DIR, join(tempFolder('madarch-cache-'), 'cache'));
+      const cache = join(tempFolder('madarch-cache-'), 'cache');
+      const result = ensureStarlightInstall(STARLIGHT_TEMPLATE_DIR, cache);
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.message).toContain('does not answer --version');
+      // The refusal leaves nothing behind at the install's address or
+      // beside it: an install exists whole or not at all.
+      expect(existsSync(cache) ? readdirSync(cache) : []).toEqual([]);
     } finally {
       process.env.PATH = savedPath;
     }
@@ -477,9 +482,9 @@ describe('writeStarlightProject', () => {
     rmSync(second, { recursive: true, force: true });
   });
 
-  test('the install cache sits outside the repository and the out folder', () => {
-    expect(STARLIGHT_CACHE_ROOT).toBe(join(tmpdir(), 'madarch-wiki-starlight'));
-    expect(STARLIGHT_CACHE_ROOT.includes(process.cwd())).toBe(false);
+  test('the wiki cache root is madarch/wiki under the XDG cache home, never inside the checkout', () => {
+    expect(wikiCacheRoot({ XDG_CACHE_HOME: '/xdg' })).toBe(join('/xdg', 'madarch', 'wiki'));
+    expect(wikiCacheRoot({}).includes(process.cwd())).toBe(false);
   });
 
   test('the stylesheet pins the container rule on the engine pane', () => {
