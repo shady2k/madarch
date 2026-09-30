@@ -278,7 +278,10 @@ function createHandler(dependencies: {
     } else {
       const candidate: unknown = body.model;
       if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) {
-        problems.push({ field: 'model', message: `"model" must be the compiled model as a JSON object, but is ${JSON.stringify(candidate)}` });
+        // The value itself is model content: the refusal names the field
+        // and the JSON type the field arrived as, never the value.
+        const type = candidate === null ? 'null' : Array.isArray(candidate) ? 'array' : typeof candidate;
+        problems.push({ field: 'model', message: `"model" must be the compiled model as a JSON object, but is of type ${type}` });
       } else if (!Value.Check(CompiledModelSchema, candidate)) {
         const details = schemaProblems(Value.Errors(CompiledModelSchema, candidate), candidate);
         const detailText = details.map((detail) => (detail.path === '' ? detail.message : `${detail.path}: ${detail.message}`)).join('; ');

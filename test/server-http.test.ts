@@ -162,6 +162,20 @@ describe('POST /models', () => {
     expect(error.message).toContain('"service"');
   });
 
+  test('a model that is not an object is refused naming its type, never its value', async () => {
+    start();
+    lines = [];
+    for (const bad of [['secret'], 'secret', 7, true, null]) {
+      const response = await post('/models', { source: 'shop', commit: 'c1', committedAt: '2026-09-01T12:00:00Z', model: bad });
+      expect(response.status).toBe(400);
+      const error = await errorOf(response);
+      expect(error.field).toBe('model');
+      expect(error.message).toMatch(/of type (array|string|number|boolean|null)/);
+      expect(error.message).not.toContain('secret');
+    }
+    expect(lines.join('\n')).not.toContain('secret');
+  });
+
   test('several missing fields are refused together, not stopped at the first', async () => {
     start();
     const response = await post('/models', { model: model([element('a')]) });
