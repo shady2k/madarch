@@ -209,7 +209,7 @@ describe('the send command', () => {
     try {
       const noName = await runSend(named.path, '--server', url);
       expect(noName.status).toBe(2);
-      expect(noName.stderr).toContain('origin');
+      expect(noName.stderr).toContain('has no "origin" remote');
       expect(noName.stderr).toContain('--source');
     } finally {
       rmSync(named.path, { recursive: true, force: true });
