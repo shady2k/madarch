@@ -4,7 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, s
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { documentHeadings, documentImages, documentPages, DocumentLinkError, refusedDocumentLinks, scanDocument } from '../src/wiki/documents.js';
+import { documentHeadings, documentImages, documentLinkWarnings, documentPages, refusedDocumentLinks, scanDocument, type DocumentHost } from '../src/wiki/documents.js';
 import { documentImageRoute } from '../src/wiki/pages-path.js';
 import { isDocumentPage, type AnyWikiPage, type WikiDocumentPage, type WikiPage } from '../src/wiki/pages.js';
 import { navTree, diagramModuleJs, renderDocumentBody, type WriterLinks } from '../src/wiki/render.js';
@@ -49,8 +49,8 @@ function writeRepo(files: Record<string, string>): string {
   return root;
 }
 
-function documentsOf(files: Record<string, string>): readonly WikiDocumentPage[] {
-  return documentPages(writeRepo(files));
+function documentsOf(files: Record<string, string>, host?: DocumentHost): readonly WikiDocumentPage[] {
+  return documentPages(writeRepo(files), host);
 }
 
 /** The document page whose body was written at `name` (a repository path with the .md). */
@@ -64,10 +64,13 @@ const REWRITER: WriterLinks = {
   pathOf: (pageId: string) => `/${pageId}/`,
   slugOf: (text: string) => text.toLowerCase().replace(/ /g, '-'),
 };
-function rewrite(body: string, files: Record<string, string> = {}): string {
-  const pages = documentPages(writeRepo({ 'docs/doc.md': body, ...files }));
+function rewrite(body: string, files: Record<string, string> = {}, host?: DocumentHost): string {
+  const pages = documentPages(writeRepo({ 'docs/doc.md': body, ...files }), host);
   return renderDocumentBody(pages.find((page) => page.id === 'document/docs/doc')!, REWRITER);
 }
+
+/** The host every hosted test builds with: github at a fixed commit. */
+const GITHUB: DocumentHost = { commit: 'c0ffee0', origin: 'https://github.com/acme/shop.git' };
 
 describe('documentPages', () => {
   test('a repository with README, docs and a review gives one page per document, sorted by path', () => {
@@ -156,55 +159,6 @@ describe('documentPages', () => {
     expect(documentImages(pages)).toEqual(['docs/img/overview.png']);
   });
 
-  test('a link to a missing document is broken: the error names the document and the target', () => {
-    const root = writeRepo({ 'docs/guide.md': '# Guide\n\n[Missing](missing.md)\n' });
-    try {
-      documentPages(root);
-      throw new Error('expected DocumentLinkError');
-    } catch (error) {
-      expect(error).toBeInstanceOf(DocumentLinkError);
-      const broken = (error as DocumentLinkError).broken;
-      expect(broken).toEqual([{ source: 'docs/guide.md', written: 'missing.md', target: 'docs/missing.md', line: 3 }]);
-      expect((error as Error).message).toContain(`${join(root, 'docs', 'guide.md')}:3`);
-      expect((error as Error).message).toContain('docs/missing.md');
-    }
-  });
-
-  test("a broken link is named with its document's full path, its line, the target as written and what fixes it", () => {
-    const root = writeRepo({ 'docs/guide.md': '# Guide\n\nText.\n\n[Missing](missing.md)\n' });
-    try {
-      documentPages(root);
-      throw new Error('expected DocumentLinkError');
-    } catch (error) {
-      expect((error as Error).message).toContain(
-        `${join(root, 'docs', 'guide.md')}:5: links to "missing.md" — docs/missing.md is not a page of this wiki; fix the link or add the document`,
-      );
-    }
-  });
-
-  test('a link outside README.md and docs/ is broken, never silently kept', () => {
-    try {
-      documentsOf({
-        'README.md': '# Read me\n\n[Licence](LICENSE)\n',
-        'docs/a.md': '# A\n\n[App](../src/app.ts), [notes](notes.txt)\n',
-        'badge.png': 'png bytes',
-        'LICENSE': 'MIT',
-        'src/app.ts': 'export {};\n',
-        'docs/notes.txt': 'notes',
-      });
-      throw new Error('expected DocumentLinkError');
-    } catch (error) {
-      const broken = (error as DocumentLinkError).broken;
-      // Every one of them, sorted by document path, then line, then as
-      // written, each by code point: README's licence, then docs/a.md's two.
-      expect(broken).toEqual([
-        { source: 'README.md', written: 'LICENSE', target: 'LICENSE', line: 3 },
-        { source: 'docs/a.md', written: '../src/app.ts', target: 'src/app.ts', line: 3 },
-        { source: 'docs/a.md', written: 'notes.txt', target: 'docs/notes.txt', line: 3 },
-      ]);
-    }
-  });
-
   test('a tilde fence is code all the same', () => {
     const pages = documentsOf({
       'docs/a.md': ['~~~text', 'not a link: [fake](also-missing.md)', '~~~', ''].join('\n'),
@@ -212,13 +166,12 @@ describe('documentPages', () => {
     expect(pageOf(pages, 'docs/a.md').links).toEqual([]);
   });
 
-  test('a link to an image that is not there is broken, naming the full path', () => {
-    try {
-      documentsOf({ 'docs/a.md': '# A\n\n![gone](img/gone.png)\n' });
-      throw new Error('expected DocumentLinkError');
-    } catch (error) {
-      expect((error as DocumentLinkError).broken).toEqual([{ source: 'docs/a.md', written: 'img/gone.png', target: 'docs/img/gone.png', line: 3 }]);
-    }
+  test('an image that is not there is linked to the host like any missing target, and warned about', () => {
+    const pages = documentsOf({ 'docs/a.md': '# A\n\n![gone](img/gone.png)\n' }, GITHUB);
+    expect(pageOf(pages, 'docs/a.md').links).toEqual([
+      { written: 'img/gone.png', kind: 'host', url: 'https://github.com/acme/shop/blob/c0ffee0/docs/img/gone.png', target: 'docs/img/gone.png', line: 3, missing: true },
+    ]);
+    expect(documentImages(pages)).toEqual([]);
   });
 
   test('a link with a title resolves the destination, the title riding along the rewrite', () => {
@@ -280,22 +233,18 @@ describe('documentPages', () => {
     );
   });
 
-  test('a split definition to a missing document is broken at the definition line', () => {
-    try {
-      documentsOf({ 'docs/a.md': 'Use [x][r].\n\n[r]:\n  missing.md\n' });
-      throw new Error('expected DocumentLinkError');
-    } catch (error) {
-      expect((error as DocumentLinkError).broken).toEqual([{ source: 'docs/a.md', written: 'missing.md', target: 'docs/missing.md', line: 3 }]);
-    }
+  test('a split definition to a missing document leads to the host, named at the definition line', () => {
+    const pages = documentsOf({ 'docs/a.md': 'Use [x][r].\n\n[r]:\n  missing.md\n' }, GITHUB);
+    expect(pageOf(pages, 'docs/a.md').links).toEqual([
+      { written: 'missing.md', kind: 'host', url: 'https://github.com/acme/shop/blob/c0ffee0/docs/missing.md', target: 'docs/missing.md', line: 3, missing: true },
+    ]);
   });
 
-  test('a reference definition to a missing document is broken at the definition line', () => {
-    try {
-      documentsOf({ 'docs/a.md': 'Text.\n\n[x][ref]\n\n[ref]: missing.md\n' });
-      throw new Error('expected DocumentLinkError');
-    } catch (error) {
-      expect((error as DocumentLinkError).broken).toEqual([{ source: 'docs/a.md', written: 'missing.md', target: 'docs/missing.md', line: 5 }]);
-    }
+  test('a reference definition to a missing document leads to the host, named at the definition line', () => {
+    const pages = documentsOf({ 'docs/a.md': 'Text.\n\n[x][ref]\n\n[ref]: missing.md\n' }, GITHUB);
+    expect(pageOf(pages, 'docs/a.md').links).toEqual([
+      { written: 'missing.md', kind: 'host', url: 'https://github.com/acme/shop/blob/c0ffee0/docs/missing.md', target: 'docs/missing.md', line: 5, missing: true },
+    ]);
   });
 
   test('a root-relative link names a repository path from the root', () => {
@@ -326,25 +275,18 @@ describe('documentPages', () => {
     expect(pageOf(pages, 'docs/a.md').links).toEqual([{ written: '', kind: 'keep' }]);
   });
 
-  test('broken links of one document are named in line order', () => {
-    try {
-      documentsOf({ 'docs/a.md': '# A\n\n[First](first-gone.md)\n\nText.\n\n[Second](second-gone.md)\n' });
-      throw new Error('expected DocumentLinkError');
-    } catch (error) {
-      expect((error as DocumentLinkError).broken).toEqual([
-        { source: 'docs/a.md', written: 'first-gone.md', target: 'docs/first-gone.md', line: 3 },
-        { source: 'docs/a.md', written: 'second-gone.md', target: 'docs/second-gone.md', line: 7 },
-      ]);
-    }
+  test('the links a document shows as text or links away are named in line order', () => {
+    const pages = documentsOf({ 'docs/a.md': '# A\n\n[First](first-gone.md)\n\nText.\n\n[Second](second-gone.md)\n' }, GITHUB);
+    expect(documentLinkWarnings(pages, GITHUB).map((warning) => [warning.line, warning.written])).toEqual([
+      [3, 'first-gone.md'],
+      [7, 'second-gone.md'],
+    ]);
   });
 
-  test('an image link that leaves the repository is broken, never copied', () => {
-    try {
-      documentsOf({ 'docs/a.md': '# A\n\n![x](../../evil.png)\n', 'evil.png': 'png' });
-      throw new Error('expected DocumentLinkError');
-    } catch (error) {
-      expect((error as DocumentLinkError).broken).toEqual([{ source: 'docs/a.md', written: '../../evil.png', target: '../evil.png', line: 3 }]);
-    }
+  test('an image link that leaves the repository is shown as text, never copied', () => {
+    const pages = documentsOf({ 'docs/a.md': '# A\n\n![x](../../evil.png)\n', 'evil.png': 'png' }, GITHUB);
+    expect(pageOf(pages, 'docs/a.md').links).toEqual([{ written: '../../evil.png', kind: 'text', target: '../evil.png', reason: 'escapes-repository', line: 3 }]);
+    expect(documentImages(pages)).toEqual([]);
   });
 
   test('external links, anchors and protocol-relative links are left as written', () => {
@@ -413,6 +355,123 @@ describe('documentPages', () => {
     expect(page.links).toEqual([]);
     expect(page.refusedWrapped).toEqual([{ written: 'javascript:alert(1)', line: 3 }]);
     expect(refusedDocumentLinks(pages)).toEqual([{ source: 'docs/wrapped.md', line: 3, written: 'javascript:alert(1)' }]);
+  });
+});
+
+describe("document links to the repository's host", () => {
+  test("a link to an existing file outside the documents leads to the repository's host, both writers emitting the URL unchanged", () => {
+    const pages = documentsOf({ 'docs/guide.md': '[Code](../src/app.ts)\n', 'src/app.ts': 'export {};\n' }, GITHUB);
+    expect(pageOf(pages, 'docs/guide.md').links).toEqual([
+      { written: '../src/app.ts', kind: 'host', url: 'https://github.com/acme/shop/blob/c0ffee0/src/app.ts', target: 'src/app.ts', line: 1, missing: false },
+    ]);
+    // No rewrite through page paths: the full address stands as the
+    // destination, whatever writer renders the body.
+    expect(renderDocumentBody(pageOf(pages, 'docs/guide.md'), REWRITER)).toBe(
+      '# guide\n\n[Code](https://github.com/acme/shop/blob/c0ffee0/src/app.ts)\n',
+    );
+    expect(renderDocumentBody(pageOf(pages, 'docs/guide.md'), starlightLinks)).toBe(
+      '# guide\n\n[Code](https://github.com/acme/shop/blob/c0ffee0/src/app.ts)\n',
+    );
+  });
+
+  test('a folder the repository holds links to its tree, a file to its blob', () => {
+    const pages = documentsOf({ 'docs/guide.md': '[Src](../src), [Code](../src/app.ts)\n', 'src/app.ts': 'export {};\n' }, GITHUB);
+    expect(pageOf(pages, 'docs/guide.md').links.map((link) => link.url)).toEqual([
+      'https://github.com/acme/shop/tree/c0ffee0/src',
+      'https://github.com/acme/shop/blob/c0ffee0/src/app.ts',
+    ]);
+  });
+
+  test('a github origin is read in its ssh forms, the .git suffix dropped', () => {
+    for (const origin of ['git@github.com:acme/shop.git', 'ssh://git@github.com/acme/shop.git', 'ssh://git@github.com:22/acme/shop.git', 'https://github.com/acme/shop']) {
+      const pages = documentsOf({ 'docs/guide.md': '[Code](../src/app.ts)\n', 'src/app.ts': 'export {};\n' }, { commit: 'c0ffee0', origin });
+      expect(pageOf(pages, 'docs/guide.md').links[0]!.url).toBe('https://github.com/acme/shop/blob/c0ffee0/src/app.ts');
+    }
+  });
+
+  test('a gitlab origin links through its -/blob and -/tree addresses', () => {
+    const pages = documentsOf(
+      { 'docs/guide.md': '[Src](../src), [Code](../src/app.ts)\n', 'src/app.ts': 'export {};\n' },
+      { commit: 'c0ffee0', origin: 'https://gitlab.com/acme/shop.git' },
+    );
+    expect(pageOf(pages, 'docs/guide.md').links.map((link) => link.url)).toEqual([
+      'https://gitlab.com/acme/shop/-/tree/c0ffee0/src',
+      'https://gitlab.com/acme/shop/-/blob/c0ffee0/src/app.ts',
+    ]);
+  });
+
+  test('an anchor rides the full address, unslugged', () => {
+    const pages = documentsOf({ 'docs/guide.md': '[Code](../src/app.ts#section)\n', 'src/app.ts': 'export {};\n' }, GITHUB);
+    expect(pageOf(pages, 'docs/guide.md').links[0]!.url).toBe('https://github.com/acme/shop/blob/c0ffee0/src/app.ts#section');
+  });
+
+  test('a target the repository does not hold is linked to the host all the same, and named in a warning', () => {
+    const pages = documentsOf({ 'docs/guide.md': '[Missing](missing.md)\n' }, GITHUB);
+    expect(pageOf(pages, 'docs/guide.md').links).toEqual([
+      { written: 'missing.md', kind: 'host', url: 'https://github.com/acme/shop/blob/c0ffee0/docs/missing.md', target: 'docs/missing.md', line: 1, missing: true },
+    ]);
+    expect(documentLinkWarnings(pages, GITHUB)).toEqual([
+      { source: 'docs/guide.md', line: 1, written: 'missing.md', why: 'docs/missing.md is not in the repository; linked to the host' },
+    ]);
+  });
+
+  test('a path that climbs out of the repository is shown as text, and warned about', () => {
+    const pages = documentsOf({ 'docs/guide.md': '[Beyond](../../beyond.md)\n' }, GITHUB);
+    expect(pageOf(pages, 'docs/guide.md').links).toEqual([
+      { written: '../../beyond.md', kind: 'text', target: '../beyond.md', reason: 'escapes-repository', line: 1 },
+    ]);
+    expect(renderDocumentBody(pageOf(pages, 'docs/guide.md'), REWRITER)).toBe('# guide\n\n\\[Beyond](../../beyond.md)\n');
+    expect(documentLinkWarnings(pages, GITHUB)).toEqual([
+      { source: 'docs/guide.md', line: 1, written: '../../beyond.md', why: '../beyond.md climbs out of the repository; the link is shown as text' },
+    ]);
+  });
+
+  test('a link inside a heading is a link all the same: resolved and rewritten where it stands', () => {
+    const pages = documentsOf(
+      {
+        'docs/guide.md': "## Amended by [ADR-0040](0040-a-block.md) and [the readme](../README.md)\n",
+        'README.md': '# Read me\n',
+      },
+      GITHUB,
+    );
+    expect(pageOf(pages, 'docs/guide.md').links).toEqual([
+      { written: '0040-a-block.md', kind: 'host', url: 'https://github.com/acme/shop/blob/c0ffee0/docs/0040-a-block.md', target: 'docs/0040-a-block.md', line: 1, missing: true },
+      { written: '../README.md', kind: 'page', pageId: 'document/README' },
+    ]);
+    expect(renderDocumentBody(pageOf(pages, 'docs/guide.md'), REWRITER)).toBe(
+      '## Amended by [ADR-0040](https://github.com/acme/shop/blob/c0ffee0/docs/0040-a-block.md) and [the readme](/document/README/)\n',
+    );
+  });
+
+  test('a repository without an origin shows the link as text, and warns', () => {
+    const pages = documentsOf({ 'docs/guide.md': '[Code](../src/app.ts)\n', 'src/app.ts': 'export {};\n' });
+    expect(pageOf(pages, 'docs/guide.md').links).toEqual([
+      { written: '../src/app.ts', kind: 'text', target: 'src/app.ts', reason: 'no-origin', line: 1 },
+    ]);
+    expect(documentLinkWarnings(pages)).toEqual([
+      {
+        source: 'docs/guide.md',
+        line: 1,
+        written: '../src/app.ts',
+        why: 'src/app.ts is not a page of this wiki and the repository has no origin to link to; the link is shown as text',
+      },
+    ]);
+  });
+
+  test('an origin on a host the wiki does not link to shows the link as text, and warns naming the origin', () => {
+    const host: DocumentHost = { commit: 'c0ffee0', origin: 'https://bitbucket.org/acme/shop.git' };
+    const pages = documentsOf({ 'docs/guide.md': '[Code](../src/app.ts)\n', 'src/app.ts': 'export {};\n' }, host);
+    expect(pageOf(pages, 'docs/guide.md').links).toEqual([
+      { written: '../src/app.ts', kind: 'text', target: 'src/app.ts', reason: 'unlinked-host', line: 1 },
+    ]);
+    expect(documentLinkWarnings(pages, host)).toEqual([
+      {
+        source: 'docs/guide.md',
+        line: 1,
+        written: '../src/app.ts',
+        why: 'src/app.ts is not a page of this wiki and the origin https://bitbucket.org/acme/shop.git is not a host the wiki links to; the link is shown as text',
+      },
+    ]);
   });
 });
 

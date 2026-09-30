@@ -41,7 +41,7 @@ import { loadAndCompileModel } from '../model/load-and-compile.js';
 import type { MermaidPage } from '../render/mermaid.js';
 import { renderModel, type RenderedVersion } from '../render/prepare.js';
 import { brokenLinks, readSiteFiles } from './links.js';
-import { documentImages, documentPages, DocumentLinkError, refusedDocumentLinks } from './documents.js';
+import { documentImages, documentLinkWarnings, documentPages, refusedDocumentLinks, type DocumentHost } from './documents.js';
 import { archifyDocument, archifyPageLinks, componentId, type ArchifyDocument, type ArchifyLayoutedView, type LayoutPoint } from './archify.js';
 import { wikiPages, type AnyWikiPage, type WikiDocumentPage } from './pages.js';
 import type { WikiDiagramAsset } from './render.js';
@@ -121,6 +121,12 @@ function renderVersion(repo: string): RenderedVersion {
   const seconds = time.status === 0 ? Number(time.stdout.trim()) : Number.NaN;
   if (commit.length > 0 && Number.isFinite(seconds)) return { source: repo, commit, at: seconds * 1000 };
   return { source: repo, commit: 'no-git', at: NO_REPO_TIME };
+}
+
+/** The repository's origin remote as git spells it, when the repository has one. */
+function originRemote(repo: string): string | undefined {
+  const remote = spawnSync('git', ['-C', repo, 'remote', 'get-url', 'origin'], { encoding: 'utf8' });
+  return remote.status === 0 ? remote.stdout.trim() : undefined;
 }
 
 /**
@@ -279,14 +285,15 @@ export async function buildWiki(repoPath: string, outPath: string, options: Wiki
 
   const repo = resolve(repoPath);
   if (!isDirectory(repo)) return { code: 2, message: `${repo} is not a directory: pass the path of a repository whose madarch/ folder holds the model` };
-
   const { model, errors } = loadAndCompileModel(repo);
   if (model === undefined) {
     return { code: 2, message: errors.map((error) => `error: ${error.file}:${error.line}: ${error.path}: ${error.message}`).join('\n') };
   }
 
   // The views, from the shared renderer at a version that never moves.
-  const rendering = renderModel(model, renderVersion(repo));
+  // The same HEAD commit is what a document's outside links lead to.
+  const version = renderVersion(repo);
+  const rendering = renderModel(model, version);
   if (rendering.pages === undefined || rendering.workspace === undefined) {
     return { code: 2, message: ['the model cannot be rendered:', ...rendering.errors].join('\n') };
   }
@@ -330,15 +337,15 @@ export async function buildWiki(repoPath: string, outPath: string, options: Wiki
     rendering.pages.filter((page) => page.file !== '_landscape.md').map((page) => page.file.replace(/\.md$/, '')),
   );
 
-  // The repository's own documents, beside the model's pages. A broken
-  // document link fails the build here, before anything is written,
-  // naming every document and the target it misses (requirement links);
-  // a document that cannot be read is an unreadable input.
+  // The repository's own documents, beside the model's pages. Every link
+  // that is not a page of the wiki or a copied image leads to the
+  // repository's host at this HEAD commit; a document that cannot be read
+  // is an unreadable input.
+  const host: DocumentHost = { commit: version.commit, origin: originRemote(repo) };
   let documents: readonly WikiDocumentPage[];
   try {
-    documents = documentPages(repo);
+    documents = documentPages(repo, host);
   } catch (error) {
-    if (error instanceof DocumentLinkError) return { code: 1, message: error.message };
     return { code: 2, message: error instanceof Error ? error.message : String(error) };
   }
 
@@ -349,6 +356,14 @@ export async function buildWiki(repoPath: string, outPath: string, options: Wiki
     console.error(
       `warning: ${join(repo, refused.source)}:${refused.line}: links to "${refused.written}" — the wiki keeps only http, https and mailto links; the link is shown as text`,
     );
+  }
+
+  // So is a link with nowhere on the host to lead — no origin, a host the
+  // wiki does not link to, a path that climbs out of the repository — and
+  // a host link the repository does not hold is named as linked all the
+  // same. The build says so and goes on.
+  for (const warning of documentLinkWarnings(documents, host)) {
+    console.error(`warning: ${join(repo, warning.source)}:${warning.line}: links to "${warning.written}" — ${warning.why}`);
   }
 
   // Two documents the Starlight loader would serve at one route cannot
