@@ -92,17 +92,20 @@ export interface BrokenDocumentLink {
 /**
  * The documents' broken links, all of them: thrown after the whole document
  * set is read, so one broken link never hides another. The message names
- * each document and the target it misses, sorted by code point.
+ * each document by its full path — the repository's own path joined with
+ * the document's repository path — and the target it misses, sorted by
+ * code point.
  */
 export class DocumentLinkError extends Error {
   readonly broken: readonly BrokenDocumentLink[];
 
-  constructor(broken: readonly BrokenDocumentLink[]) {
+  constructor(broken: readonly BrokenDocumentLink[], repo: string) {
     super(
       [
         'the documents carry broken links:',
         ...broken.map(
-          (link) => `${link.source}:${link.line}: links to "${link.written}" — ${link.target} is not a page of this wiki; fix the link or add the document`,
+          (link) =>
+            `${joinPath(repo, link.source)}:${link.line}: links to "${link.written}" — ${link.target} is not a page of this wiki; fix the link or add the document`,
         ),
       ].join('\n'),
     );
@@ -458,7 +461,7 @@ export function documentPages(repo: string): readonly WikiDocumentPage[] {
   for (const image of documentImages(pages)) realPathInRepo(repo, image, 'image');
   if (broken.length > 0) {
     broken.sort((a, b) => byCodePoint(a.source, b.source) || a.line - b.line || byCodePoint(a.written, b.written) || byCodePoint(a.target, b.target));
-    throw new DocumentLinkError(broken);
+    throw new DocumentLinkError(broken, repo);
   }
   return pages;
 }

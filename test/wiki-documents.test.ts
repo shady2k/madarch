@@ -157,25 +157,27 @@ describe('documentPages', () => {
   });
 
   test('a link to a missing document is broken: the error names the document and the target', () => {
+    const root = writeRepo({ 'docs/guide.md': '# Guide\n\n[Missing](missing.md)\n' });
     try {
-      documentsOf({ 'docs/guide.md': '# Guide\n\n[Missing](missing.md)\n' });
+      documentPages(root);
       throw new Error('expected DocumentLinkError');
     } catch (error) {
       expect(error).toBeInstanceOf(DocumentLinkError);
       const broken = (error as DocumentLinkError).broken;
       expect(broken).toEqual([{ source: 'docs/guide.md', written: 'missing.md', target: 'docs/missing.md', line: 3 }]);
-      expect((error as Error).message).toContain('docs/guide.md');
+      expect((error as Error).message).toContain(`${join(root, 'docs', 'guide.md')}:3`);
       expect((error as Error).message).toContain('docs/missing.md');
     }
   });
 
-  test('a broken link is named with its document, its line, the target as written and what fixes it', () => {
+  test("a broken link is named with its document's full path, its line, the target as written and what fixes it", () => {
+    const root = writeRepo({ 'docs/guide.md': '# Guide\n\nText.\n\n[Missing](missing.md)\n' });
     try {
-      documentsOf({ 'docs/guide.md': '# Guide\n\nText.\n\n[Missing](missing.md)\n' });
+      documentPages(root);
       throw new Error('expected DocumentLinkError');
     } catch (error) {
       expect((error as Error).message).toContain(
-        'docs/guide.md:5: links to "missing.md" — docs/missing.md is not a page of this wiki; fix the link or add the document',
+        `${join(root, 'docs', 'guide.md')}:5: links to "missing.md" — docs/missing.md is not a page of this wiki; fix the link or add the document`,
       );
     }
   });
