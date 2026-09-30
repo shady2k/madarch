@@ -120,6 +120,17 @@ describe('documentPages', () => {
     expect(pages.map((page) => page.id)).toEqual(['document/README', 'document/docs/a', 'document/madarch/review']);
   });
 
+  test('a docs folder that cannot be read is refused, naming it', () => {
+    const root = writeRepo({ 'README.md': '# Read me\n' });
+    mkdirSync(join(root, 'docs'));
+    chmodSync(join(root, 'docs'), 0o000);
+    try {
+      expect(() => documentPages(root)).toThrow(`the documents folder ${join(root, 'docs')} cannot be read`);
+    } finally {
+      chmodSync(join(root, 'docs'), 0o755);
+    }
+  });
+
   test('links between documents resolve to their pages, anchors carried along', () => {
     const pages = documentsOf({
       'README.md': '# Read me\n\n[Guide](docs/guide.md)\n',
@@ -392,6 +403,15 @@ describe('renderDocumentBody', () => {
     expect(out.includes('<img')).toBe(false);
   });
 
+  test('a code span on a later line is spared by its true position, not by accident', () => {
+    const body = 'First line.\n\nSecond line has `<script>x</script>` inline.\n';
+    expect(rewrite(body)).toBe(`# doc\n\n${body}`);
+  });
+
+  test('a code span spares only its own extent: markup before it on the same line is still escaped', () => {
+    const body = 'A <T> and `<script>x</script>` here.\n';
+    expect(rewrite(body)).toBe('# doc\n\nA &lt;T> and `<script>x</script>` here.\n');
+  });
   test('HTML inside code spans and fences stays code, for the engine to escape', () => {
     const body = 'Inline `<script>x</script>` stays code.\n\n```html\n<script>alert(1)</script>\n```\n';
     expect(rewrite(body)).toBe(`# doc\n\n${body}`);

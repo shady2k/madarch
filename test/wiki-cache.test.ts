@@ -40,6 +40,11 @@ describe('wikiCacheRoot', () => {
     expect(wikiCacheRoot({ XDG_CACHE_HOME: '/xdg' })).toBe(join('/xdg', 'madarch', 'wiki'));
     expect(wikiCacheRoot({})).toBe(join(homedir(), '.cache', 'madarch', 'wiki'));
   });
+
+  test('an override or XDG cache home of only spaces counts as unset', () => {
+    expect(wikiCacheRoot({ MADARCH_WIKI_CACHE: '   ', XDG_CACHE_HOME: '/xdg' })).toBe(join('/xdg', 'madarch', 'wiki'));
+    expect(wikiCacheRoot({ MADARCH_WIKI_CACHE: '', XDG_CACHE_HOME: '   ' })).toBe(join(homedir(), '.cache', 'madarch', 'wiki'));
+  });
 });
 
 describe('ensureWikiCacheRoot', () => {
@@ -69,6 +74,25 @@ describe('ensureWikiCacheRoot', () => {
       expect(ensured.message).toContain(root);
       expect(ensured.message).toContain('chmod 700');
       expect(ensured.message).toContain('MADARCH_WIKI_CACHE');
+    }
+  });
+
+  test('a root owned by another user is refused, naming the fix', () => {
+    const root = tempFolder('madarch-cache-owner-');
+    // The ownership rule reads the running user; the test stands in for
+    // one the folder does not belong to by stubbing the accessor.
+    const asProcess = process as unknown as { getuid: () => number };
+    const saved = asProcess.getuid;
+    asProcess.getuid = () => (saved === undefined ? 1 : saved() + 1);
+    try {
+      const ensured = ensureWikiCacheRoot({ MADARCH_WIKI_CACHE: root });
+      expect(ensured.ok).toBe(false);
+      if (!ensured.ok) {
+        expect(ensured.message).toContain('owned by another user');
+        expect(ensured.message).toContain('chown');
+      }
+    } finally {
+      asProcess.getuid = saved;
     }
   });
 
