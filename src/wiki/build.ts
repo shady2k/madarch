@@ -35,7 +35,6 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadAndCompileModel } from '../model/load-and-compile.js';
@@ -46,7 +45,8 @@ import { documentImages, documentPages, DocumentLinkError } from './documents.js
 import { archifyDocument, archifyPageLinks, componentId, type ArchifyDocument, type ArchifyLayoutedView, type LayoutPoint } from './archify.js';
 import { wikiPages, type AnyWikiPage, type WikiDocumentPage } from './pages.js';
 import type { WikiDiagramAsset } from './render.js';
-import { cleanStarlightSource, ensureStarlightInstall, linkStarlightNodeModules, STARLIGHT_CACHE_ROOT, STARLIGHT_TEMPLATE_DIR, writeStarlightProject } from './starlight.js';
+import { ensureWikiCacheRoot } from './cache.js';
+import { cleanStarlightSource, ensureStarlightInstall, linkStarlightNodeModules, STARLIGHT_TEMPLATE_DIR, writeStarlightProject } from './starlight.js';
 import { writeZensicalProject } from './zensical.js';
 
 /** The pinned Zensical the engine runs, exactly as uvx names it. */
@@ -293,7 +293,12 @@ export async function buildWiki(repoPath: string, outPath: string, options: Wiki
 
   // Nothing has been written yet: a missing toolchain is still an unreadable
   // input. Each engine brings its own: uv for Zensical, bun and a template
-  // install for Starlight.
+  // install for Starlight. Both engines keep their scratch under the
+  // wiki's per-user cache root, created private to the user and refused
+  // when it cannot be trusted: installs run from it, and the LikeC4
+  // scratch stays in it.
+  const cache = ensureWikiCacheRoot(env);
+  if (!cache.ok) return { code: 2, message: cache.message };
   let installedProject: string | undefined;
   if (engine === 'zensical') {
     const uv = spawnSync('uv', ['--version'], { stdio: 'ignore' });
@@ -301,7 +306,7 @@ export async function buildWiki(repoPath: string, outPath: string, options: Wiki
       return { code: 2, message: `uv was not found on PATH: the zensical engine builds with "uvx ${ZENSICAL_SPEC} build"; ${UV_INSTALL_HINT}` };
     }
   } else {
-    const install = ensureStarlightInstall(STARLIGHT_TEMPLATE_DIR, STARLIGHT_CACHE_ROOT);
+    const install = ensureStarlightInstall(STARLIGHT_TEMPLATE_DIR, cache.root);
     if (!install.ok) return { code: 2, message: install.message };
     installedProject = install.project;
   }
@@ -339,13 +344,18 @@ export async function buildWiki(repoPath: string, outPath: string, options: Wiki
   const allPages: readonly AnyWikiPage[] = [...pages, ...documents];
 
   // The LikeC4 web component, generated from the rendered workspace. The
-  // scratch folder is named after the workspace's content, because the
-  // generated bundle embeds ids the tool derives from the folder's path:
-  // the same workspace always generates the same bytes, wherever the site
-  // is built, and two builds of one model share the folder harmlessly,
-  // writing the same bytes into it.
-  const scratch = join(tmpdir(), `madarch-wiki-likec4-${createHash('sha256').update(rendering.workspace).digest('hex').slice(0, 16)}`);
-  mkdirSync(scratch, { recursive: true });
+  // scratch folder lives in the private cache root and is named after the
+  // workspace's content, because the generated bundle embeds ids the tool
+  // derives from the folder's path: the same workspace always generates
+  // the same bytes, wherever the site is built, and two builds of one
+  // model share the folder harmlessly, writing the same bytes into it. It
+  // stays: the root is the user's alone (0700, owner-only), so keeping it
+  // there is a cache like the template installs are, and the rendered
+  // model never sits in a folder others can read.
+  const scratch = join(cache.root, `likec4-${createHash('sha256').update(rendering.workspace).digest('hex').slice(0, 16)}`);
+  // Private like the root itself: the rendered model never gains a
+  // world-readable folder, whatever umask the build runs under.
+  mkdirSync(scratch, { recursive: true, mode: 0o700 });
   writeFileSync(join(scratch, 'model.c4'), rendering.workspace);
   const gen = spawnSync(likec4Bin, ['gen', 'webcomponent', scratch, '-o', join(scratch, 'likec4-view.js')], { encoding: 'utf8' });
   if (gen.status !== 0 || !existsSync(join(scratch, 'likec4-view.js'))) {
@@ -410,11 +420,12 @@ export async function buildWiki(repoPath: string, outPath: string, options: Wiki
   cpSync(join(mermaidDist, 'chunks', 'mermaid.esm.min'), join(assets, 'mermaid', 'chunks', 'mermaid.esm.min'), { recursive: true });
   // The documents' images, copied where their rewritten links point: the
   // same documents asset route both writers spell, under this engine's
-  // static folder.
+  // static folder. Copied as file content, dereferenced: a symlinked image
+  // never becomes a link in the built tree.
   for (const image of documentImages(documents)) {
     const file = join(assets, 'documents', image);
     mkdirSync(dirname(file), { recursive: true });
-    cpSync(join(repo, image), file);
+    cpSync(join(repo, image), file, { dereference: true });
   }
 
   if (engine === 'starlight') linkStarlightNodeModules(installedProject!, source);

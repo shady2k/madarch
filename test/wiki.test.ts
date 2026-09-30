@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { REFERENCE_SYSTEM } from '../scripts/render-views.js';
-import { STARLIGHT_CACHE_ROOT } from '../src/wiki/starlight.js';
+import { wikiCacheRoot } from '../src/wiki/cache.js';
 import { Repo } from './model-check-repo.js';
 
 /**
@@ -61,12 +61,12 @@ function outFolder(): string {
 }
 
 /**
- * The install cache for one script run, moved off the machine's: the
+ * The wiki cache root for one script run, moved off the machine's: the
  * script tests run a fake toolchain, and what it installs must never sit
  * where a real build looks for a real one.
  */
-function scriptCache(): { MADARCH_WIKI_STARLIGHT_CACHE: string } {
-  return { MADARCH_WIKI_STARLIGHT_CACHE: join(tempFolder('madarch-starlight-cache-'), 'cache') };
+function scriptCache(): { MADARCH_WIKI_CACHE: string } {
+  return { MADARCH_WIKI_CACHE: join(tempFolder('madarch-wiki-cache-'), 'cache') };
 }
 
 /**
@@ -206,22 +206,23 @@ describe('scripts/wiki.ts', () => {
     expect(log.indexOf('run build')).toBeGreaterThan(log.indexOf('install --frozen-lockfile'));
     // The cache install the removed link pointed at survives the build:
     // the link is unlinked, never followed.
-    const installed = readdirSync(cache.MADARCH_WIKI_STARLIGHT_CACHE).some((name) => existsSync(join(cache.MADARCH_WIKI_STARLIGHT_CACHE, name, 'node_modules', 'fake-installed')));
+    const installed = readdirSync(cache.MADARCH_WIKI_CACHE).some((name) => existsSync(join(cache.MADARCH_WIKI_CACHE, name, 'node_modules', 'fake-installed')));
     expect(installed).toBe(true);
   }, { timeout: 60_000 });
 
-  test('the install cache moves with MADARCH_WIKI_STARLIGHT_CACHE, away from the machine cache', () => {
+  test('a build keeps the machine cache root untouched: its install goes to the folder MADARCH_WIKI_CACHE names', () => {
     rmSync(FAKE_BUN_LOG, { force: true });
-    rmSync(STARLIGHT_CACHE_ROOT, { recursive: true, force: true });
+    const real = wikiCacheRoot(process.env);
+    const before = existsSync(real) ? readdirSync(real).sort() : null;
     const cache = scriptCache();
     const out = outFolder();
     const run = runWiki([REFERENCE_SYSTEM, '--out', out, '--engine', 'starlight'], `${FAKE_BUN}:${process.env.PATH ?? ''}`, cache);
     expect(run.status).toBe(0);
     // The install the script made sits in the moved cache...
-    expect(readdirSync(cache.MADARCH_WIKI_STARLIGHT_CACHE).some((name) => existsSync(join(cache.MADARCH_WIKI_STARLIGHT_CACHE, name, 'node_modules', 'fake-installed')))).toBe(true);
-    // ...and the machine cache stays untouched: no fake install of this
-    // run where a real build would look for a real one.
-    expect(existsSync(STARLIGHT_CACHE_ROOT)).toBe(false);
+    expect(readdirSync(cache.MADARCH_WIKI_CACHE).some((name) => existsSync(join(cache.MADARCH_WIKI_CACHE, name, 'node_modules', 'fake-installed')))).toBe(true);
+    // ...and the real cache root is exactly as the run found it: no fake
+    // install of this run where a real build would look for a real one.
+    expect(existsSync(real) ? readdirSync(real).sort() : null).toEqual(before);
   }, { timeout: 60_000 });
 
   test('the starlight engine comes from MADARCH_WIKI_ENGINE, and --engine wins over it', () => {
@@ -499,6 +500,22 @@ describe('scripts/wiki.ts', () => {
     expect(toml).toContain('{ path = "javascripts/wiki-diagram.mjs", type = "module" }');
   }, { timeout: 60_000 });
 
+  test('the LikeC4 scratch lives in the moved cache root, never in the shared temporary folder', () => {
+    const cache = scriptCache();
+    const out = outFolder();
+    expect(runWiki([REFERENCE_SYSTEM, '--out', out], undefined, cache).status).toBe(0);
+    // The scratch — the rendered model and its archify pages — stays in
+    // the private cache root the run named, kept there as a cache: the
+    // root is the user's alone, and regenerating it costs a tool run. It
+    // is private in its own right, not only behind the root.
+    const scratchName = readdirSync(cache.MADARCH_WIKI_CACHE).find((name) => name.startsWith('likec4-'))!;
+    const scratch = join(cache.MADARCH_WIKI_CACHE, scratchName);
+    expect(existsSync(join(scratch, 'model.c4'))).toBe(true);
+    expect(statSync(scratch).mode & 0o777).toBe(0o700);
+    // And no predictable scratch of the old shape is created in /tmp.
+    expect(readdirSync(tmpdir()).some((name) => name.startsWith('madarch-wiki-likec4-'))).toBe(false);
+  }, { timeout: 60_000 });
+
   test('the documents fixture becomes pages on both engines, links rewritten and images copied', () => {
     // Zensical: relative links, the image under docs/assets, folders in the nav.
     const zensical = outFolder();
@@ -514,7 +531,12 @@ describe('scripts/wiki.ts', () => {
     expect(architecture).toContain('<div class="mermaid">');
     expect(architecture).toContain('flowchart LR');
     expect(architecture).toContain('{a, b}');
-    expect(architecture).toContain('<T>');
+    expect(architecture).toContain('&lt;T>');
+    // A repository's markup is text in the built page, never elements.
+    expect(architecture).toContain('&lt;script>alert("wiki")&lt;/script>');
+    expect(architecture).toContain('&lt;img src=x onerror="alert(1)">');
+    expect(architecture.includes('<script')).toBe(false);
+    expect(architecture.includes('<img')).toBe(false);
     const decision = readFileSync(join(docs, 'documents', 'docs', 'decisions', '0001-use-grpc.md'), 'utf8');
     expect(decision.startsWith('# 0001-use-grpc\n\n')).toBe(true);
     expect(decision).toContain('not a link: [fake](also-missing.md)');
@@ -555,6 +577,37 @@ describe('scripts/wiki.ts', () => {
     expect(said).toContain('docs/missing.md');
     expect(existsSync(join(out, 'source'))).toBe(false);
   }, { timeout: 60_000 });
+
+  test('a document that is a symlink out of the repository is refused with exit 2, naming the file and where it points', () => {
+    const root = tempFolder('madarch-wiki-symlink-');
+    cpSync(DOCUMENTS_FIXTURE, root, { recursive: true });
+    const outside = tempFolder('madarch-wiki-outside-');
+    writeFileSync(join(outside, 'elsewhere.md'), 'stolen\n');
+    rmSync(join(root, 'README.md'));
+    symlinkSync(join(outside, 'elsewhere.md'), join(root, 'README.md'));
+    const out = outFolder();
+    const run = runWiki([root, '--out', out]);
+    expect(run.status).toBe(2);
+    const said = combined(run);
+    expect(said).toContain(join(root, 'README.md'));
+    expect(said).toContain(join(outside, 'elsewhere.md'));
+    expect(existsSync(out)).toBe(false);
+  }, { timeout: 60_000 });
+
+  test('a referenced image is copied as file content, never as a link in the built tree', () => {
+    const root = tempFolder('madarch-wiki-imglink-');
+    cpSync(DOCUMENTS_FIXTURE, root, { recursive: true });
+    writeFileSync(join(root, 'docs', 'img', 'real-extra.png'), readFileSync(join(root, 'docs', 'img', 'overview.png')));
+    symlinkSync('real-extra.png', join(root, 'docs', 'img', 'extra.png'));
+    const doc = join(root, 'docs', 'architecture.md');
+    writeFileSync(doc, readFileSync(doc, 'utf8').replace('![Overview](img/overview.png)', '![Overview](img/overview.png)\n\n![Extra](img/extra.png)\n'));
+    const out = outFolder();
+    expect(runWiki([root, '--out', out]).status).toBe(0);
+    const copied = join(out, 'source', 'docs', 'assets', 'documents', 'docs', 'img', 'extra.png');
+    expect(lstatSync(copied).isSymbolicLink()).toBe(false);
+    expect(statSync(copied).isFile()).toBe(true);
+    expect(readFileSync(copied)).toEqual(readFileSync(join(root, 'docs', 'img', 'real-extra.png')));
+  }, { timeout: 60_000 });
 });
 
 describe('scripts/wiki.ts with a real Zensical build', () => {
@@ -593,11 +646,11 @@ describe('scripts/wiki.ts with a real Starlight build', () => {
   test.skipIf(!process.env.MADARCH_WIKI_E2E)(
     'builds the reference system into a real Starlight site, tabs and assets shipped',
     () => {
-      // The script tests install off the machine's cache now; the wipe
-      // keeps the real build's install clean of anything older runs left.
-      rmSync(STARLIGHT_CACHE_ROOT, { recursive: true, force: true });
+      // The real build installs into this run's own moved cache: nothing
+      // of it ever sits where a real developer's install lives.
+      const cache = scriptCache();
       const out = outFolder();
-      const run = runWiki([REFERENCE_SYSTEM, '--out', out, '--engine', 'starlight'], REAL_PATH);
+      const run = runWiki([REFERENCE_SYSTEM, '--out', out, '--engine', 'starlight'], REAL_PATH, cache);
       expect(run.status).toBe(0);
       expect(run.stdout).toContain(resolve(out, 'site'));
       expect(existsSync(join(out, 'site', 'index.html'))).toBe(true);
@@ -619,8 +672,9 @@ describe('scripts/wiki.ts with a real Starlight build', () => {
     () => {
       const first = outFolder();
       const second = outFolder();
-      expect(runWiki([REFERENCE_SYSTEM, '--out', first, '--engine', 'starlight'], REAL_PATH).status).toBe(0);
-      expect(runWiki([REFERENCE_SYSTEM, '--out', second, '--engine', 'starlight'], REAL_PATH).status).toBe(0);
+      const cache = scriptCache();
+      expect(runWiki([REFERENCE_SYSTEM, '--out', first, '--engine', 'starlight'], REAL_PATH, cache).status).toBe(0);
+      expect(runWiki([REFERENCE_SYSTEM, '--out', second, '--engine', 'starlight'], REAL_PATH, cache).status).toBe(0);
       const entries = (files: Map<string, string>): [string, string][] =>
         [...files.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
       expect(entries(walkFiles(join(first, 'source')))).toEqual(entries(walkFiles(join(second, 'source'))));
@@ -634,7 +688,8 @@ describe('scripts/wiki.ts with a real Starlight build', () => {
       const zensical = outFolder();
       const starlight = outFolder();
       expect(runWiki([REFERENCE_SYSTEM, '--out', zensical], REAL_PATH).status).toBe(0);
-      expect(runWiki([REFERENCE_SYSTEM, '--out', starlight, '--engine', 'starlight'], REAL_PATH).status).toBe(0);
+      const samePagesCache = scriptCache();
+      expect(runWiki([REFERENCE_SYSTEM, '--out', starlight, '--engine', 'starlight'], REAL_PATH, samePagesCache).status).toBe(0);
       const docFiles = (root: string): string[] =>
         [...walkFiles(root).keys()].filter((file) => file.endsWith('.md')).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
       expect(docFiles(join(starlight, 'source', 'src', 'content', 'docs'))).toEqual(docFiles(join(zensical, 'source', 'docs')));
@@ -674,11 +729,36 @@ describe('scripts/wiki.ts with real builds over the documents fixture', () => {
   );
 
   test.skipIf(!process.env.MADARCH_WIKI_E2E)(
+    'no script or event handler of a document reaches the built site as markup, on either engine',
+    () => {
+      for (const [engine, env] of [['zensical', {}], ['starlight', scriptCache()]] as const) {
+        const out = outFolder();
+        expect(runWiki([DOCUMENTS_FIXTURE, '--out', out, ...(engine === 'zensical' ? [] : ['--engine', 'starlight'])], REAL_PATH, env).status).toBe(0);
+        // The document's markup is on the page, as characters:
+        const built = readFileSync(join(out, 'site', 'documents', 'docs', 'architecture', 'index.html'), 'utf8');
+        expect(built).toContain('alert(');
+        // ...and nowhere in the site does it stand as an element: no
+        // document-authored script block or event handler survived. Only
+        // the HTML files are parsed as markup — the site's own bundles
+        // carry the characters '<script' inside program strings.
+        for (const [file, body] of walkFiles(join(out, 'site'))) {
+          expect(/<script[^>]*>[^<]*alert\(/.test(body)).toBe(false);
+          if (file.endsWith('.html')) {
+            expect(body.replace(/<script[\s\S]*?<\/script>/g, '').includes('<script')).toBe(false);
+            expect(/<(?:img|svg|iframe|body)[^>]*onerror/.test(body)).toBe(false);
+          }
+        }
+      }
+    },
+    { timeout: 600_000 },
+  );
+
+  test.skipIf(!process.env.MADARCH_WIKI_E2E)(
     'the starlight wiki holds the documents and passes the link check',
     () => {
-      rmSync(STARLIGHT_CACHE_ROOT, { recursive: true, force: true });
+      const cache = scriptCache();
       const out = outFolder();
-      expect(runWiki([DOCUMENTS_FIXTURE, '--out', out, '--engine', 'starlight'], REAL_PATH).status).toBe(0);
+      expect(runWiki([DOCUMENTS_FIXTURE, '--out', out, '--engine', 'starlight'], REAL_PATH, cache).status).toBe(0);
       const site = join(out, 'site');
       // The engine slugs the file names onto routes: README.md is readme.
       expect(existsSync(join(site, 'documents', 'docs', 'architecture', 'index.html'))).toBe(true);

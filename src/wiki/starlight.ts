@@ -11,17 +11,16 @@
  * engine's own rule, mirrored), and the sidebar. The repository's
  * documents are pages of the same layout, their file names slugged the
  * way the engine slugs them onto routes. The engine itself runs later:
- * the template is installed once with bun into a cache outside the
- * repository (`STARLIGHT_CACHE_ROOT`), the build symlinks that install's
+ * the template is installed once with bun into the wiki's per-user cache
+ * root (src/wiki/cache.ts), the build symlinks that install's
  * `node_modules` into the written project and runs `bun run build` there.
  *
  * Deterministic: the same pages and options give the same bytes — no
  * clock, and every sort stays on code points.
  */
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { createHash, randomBytes } from 'node:crypto';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDocumentPage, type AnyWikiPage } from './pages.js';
@@ -35,16 +34,6 @@ const PACKAGE_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 
 /** The Starlight project template the writer copies every project from. */
 export const STARLIGHT_TEMPLATE_DIR = join(PACKAGE_ROOT, 'wiki', 'starlight');
-
-/**
- * Where the template's installs live: a cache outside the repository and
- * the out folder — the system's temporary folder, keyed by the template's
- * content, holding the installed `node_modules` builds share.
- * `MADARCH_WIKI_STARLIGHT_CACHE` moves it for one run: the script tests
- * install with a fake toolchain, and what they install must never sit
- * where a real build looks for a real one.
- */
-export const STARLIGHT_CACHE_ROOT = process.env.MADARCH_WIKI_STARLIGHT_CACHE ?? join(tmpdir(), 'madarch-wiki-starlight');
 
 /**
  * The heading anchor Starlight's Markdown pipeline spells for a heading's
@@ -228,8 +217,10 @@ function templateDigest(templateDir: string): string {
  * symlinked into a project: the template present, a bun on PATH (both
  * checked before anything is written), then the install itself — copied
  * fresh and built by `bun install --frozen-lockfile` when the cache holds
- * no working install yet. Returns the refusal naming the cause, or the
- * installed project's folder.
+ * no working install yet. The install is built in a staging sibling and
+ * renamed into place only when its astro answers: a folder at the
+ * install's address is always a whole install or nothing. Returns the
+ * refusal naming the cause, or the installed project's folder.
  */
 export function ensureStarlightInstall(templateDir: string, cacheRoot: string): { ok: true; project: string } | { ok: false; message: string } {
   if (!existsSync(templateDir)) {
@@ -242,23 +233,34 @@ export function ensureStarlightInstall(templateDir: string, cacheRoot: string): 
   const dir = join(cacheRoot, `template-${templateDigest(templateDir)}`);
   const marker = join(dir, ...INSTALL_MARKER.split('/'));
   if (!astroAnswers(marker)) {
-    rmSync(dir, { recursive: true, force: true });
-    cpSync(templateDir, dir, {
-      recursive: true,
-      filter: (source) => !source.slice(templateDir.length).split(/[\\/]/).includes('node_modules'),
-    });
-    const install = spawnSync('bun', ['install', '--frozen-lockfile'], { cwd: dir, encoding: 'utf8' });
-    const ran = install.error === undefined;
-    const output = ran ? `${install.stdout ?? ''}${install.stderr ?? ''}`.trim() : `bun could not be run: ${install.error?.message}`;
-    if (!ran || install.status !== 0 || !astroAnswers(marker)) {
-      const why = !ran
-        ? 'bun could not be run'
-        : install.status !== 0
-          ? `"bun install --frozen-lockfile" failed (exit ${install.status})`
-          : !existsSync(marker)
-            ? `"bun install --frozen-lockfile" finished without astro at ${marker}`
-            : '"bun install --frozen-lockfile" finished, but the astro it wrote does not answer --version';
-      return { ok: false, message: `the starlight template could not be installed at ${dir}: ${why}${output === '' ? '' : `:\n${output}`}` };
+    const staging = join(cacheRoot, `template-${templateDigest(templateDir)}.staging-${process.pid}-${randomBytes(6).toString('hex')}`);
+    rmSync(staging, { recursive: true, force: true });
+    try {
+      cpSync(templateDir, staging, {
+        recursive: true,
+        filter: (source) => !source.slice(templateDir.length).split(/[\\/]/).includes('node_modules'),
+      });
+      const install = spawnSync('bun', ['install', '--frozen-lockfile'], { cwd: staging, encoding: 'utf8' });
+      const ran = install.error === undefined;
+      const stagingMarker = join(staging, ...INSTALL_MARKER.split('/'));
+      const output = ran ? `${install.stdout ?? ''}${install.stderr ?? ''}`.trim() : `bun could not be run: ${install.error?.message}`;
+      if (!ran || install.status !== 0 || !astroAnswers(stagingMarker)) {
+        const why = !ran
+          ? 'bun could not be run'
+          : install.status !== 0
+            ? `"bun install --frozen-lockfile" failed (exit ${install.status})`
+            : !existsSync(stagingMarker)
+              ? `"bun install --frozen-lockfile" finished without astro at ${marker}`
+              : '"bun install --frozen-lockfile" finished, but the astro it wrote does not answer --version';
+        return { ok: false, message: `the starlight template could not be installed at ${dir}: ${why}${output === '' ? '' : `:\n${output}`}` };
+      }
+      // Only a complete install takes the install's address, and nothing
+      // broken stays at it: the old folder goes first, the rename lands
+      // the whole install in one step.
+      rmSync(dir, { recursive: true, force: true });
+      renameSync(staging, dir);
+    } finally {
+      rmSync(staging, { recursive: true, force: true });
     }
   }
   return { ok: true, project: dir };

@@ -13,6 +13,9 @@ flowchart LR
 ```
 
 Characters that are markup elsewhere stay literal prose here: a map written
-{a, b} and a type written <T> must both survive the wiki's builders.
+{a, b} and a type written <T> must both survive the wiki's builders. So must
+markup a repository has no business running in a reader's browser:
+<script>alert("wiki")</script> and <img src=x onerror="alert(1)"> are shown,
+never run.
 
 Back to [the README](../README.md#documents-fixture), at its own heading.

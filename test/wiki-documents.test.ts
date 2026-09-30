@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { GlobalRegistrator } from '@happy-dom/global-registrator';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { documentHeadings, documentImages, documentPages, DocumentLinkError, scanDocument } from '../src/wiki/documents.js';
 import { documentImageRoute } from '../src/wiki/pages-path.js';
 import { isDocumentPage, type AnyWikiPage, type WikiDocumentPage, type WikiPage } from '../src/wiki/pages.js';
@@ -116,6 +118,17 @@ describe('documentPages', () => {
       'madarch/model.yaml': 'version: 1\n',
     });
     expect(pages.map((page) => page.id)).toEqual(['document/README', 'document/docs/a', 'document/madarch/review']);
+  });
+
+  test('a docs folder that cannot be read is refused, naming it', () => {
+    const root = writeRepo({ 'README.md': '# Read me\n' });
+    mkdirSync(join(root, 'docs'));
+    chmodSync(join(root, 'docs'), 0o000);
+    try {
+      expect(() => documentPages(root)).toThrow(`the documents folder ${join(root, 'docs')} cannot be read`);
+    } finally {
+      chmodSync(join(root, 'docs'), 0o755);
+    }
   });
 
   test('links between documents resolve to their pages, anchors carried along', () => {
@@ -239,6 +252,61 @@ describe('documentPages', () => {
   });
 });
 
+describe('documents and images that leave the repository', () => {
+  const refused = (root: string, file: string, pointsAt: string): void => {
+    expect(() => documentPages(root)).toThrow(`${join(root, file)} is a symlink to ${pointsAt}`);
+  };
+
+  test('a README that is a symlink out of the repository is refused, naming the file and where it points', () => {
+    const root = writeRepo({ 'docs/a.md': '# A\n' });
+    const outside = tempFolder('madarch-wiki-outside-');
+    writeFileSync(join(outside, 'secret.md'), 'stolen\n');
+    symlinkSync(join(outside, 'secret.md'), join(root, 'README.md'));
+    refused(root, 'README.md', join(outside, 'secret.md'));
+  });
+
+  test('a docs document that is a symlink out of the repository is refused, naming the file and where it points', () => {
+    const root = writeRepo({ 'README.md': '# Read me\n' });
+    const outside = tempFolder('madarch-wiki-outside-');
+    writeFileSync(join(outside, 'secret.md'), 'stolen\n');
+    mkdirSync(join(root, 'docs'), { recursive: true });
+    symlinkSync(join(outside, 'secret.md'), join(root, 'docs', 'leak.md'));
+    refused(root, join('docs', 'leak.md'), join(outside, 'secret.md'));
+  });
+
+  test('the review report that is a symlink out of the repository is refused, naming the file and where it points', () => {
+    const root = writeRepo({ 'README.md': '# Read me\n' });
+    const outside = tempFolder('madarch-wiki-outside-');
+    writeFileSync(join(outside, 'secret.md'), 'stolen\n');
+    mkdirSync(join(root, 'madarch'), { recursive: true });
+    symlinkSync(join(outside, 'secret.md'), join(root, 'madarch', 'review.md'));
+    refused(root, join('madarch', 'review.md'), join(outside, 'secret.md'));
+  });
+
+  test('a referenced image that is a symlink out of the repository is refused, naming the file and where it points', () => {
+    const root = writeRepo({ 'docs/a.md': '# A\n\n![Logo](img/logo.png)\n' });
+    const outside = tempFolder('madarch-wiki-outside-');
+    writeFileSync(join(outside, 'stolen.png'), 'png');
+    mkdirSync(join(root, 'docs', 'img'), { recursive: true });
+    symlinkSync(join(outside, 'stolen.png'), join(root, 'docs', 'img', 'logo.png'));
+    expect(() => documentPages(root)).toThrow(`${join(root, 'docs', 'img', 'logo.png')} is a symlink to ${join(outside, 'stolen.png')}`);
+  });
+
+  test('a symlink whose real path is inside the repository is followed', () => {
+    const root = writeRepo({ 'docs/readme-real.md': '# Real read me\n' });
+    symlinkSync(join(root, 'docs', 'readme-real.md'), join(root, 'README.md'));
+    const pages = documentPages(root);
+    expect(pageOf(pages, 'README.md').body).toBe('# Real read me\n');
+  });
+
+  test('a symlinked document under docs/ is found and followed inside the repository', () => {
+    const root = writeRepo({ 'docs/real.md': '# Real document\n' });
+    symlinkSync('real.md', join(root, 'docs', 'alias.md'));
+    const pages = documentPages(root);
+    expect(pageOf(pages, join('docs', 'alias.md')).body).toBe('# Real document\n');
+  });
+});
+
 describe('document titles', () => {
   test('a document without a level-1 heading takes its title from its first heading', () => {
     const pages = documentsOf({ 'docs/a.md': 'Intro.\n\n## Context\n\nBody.\n' });
@@ -305,9 +373,9 @@ describe('scanDocument', () => {
 });
 
 describe('renderDocumentBody', () => {
-  test('the Markdown is copied as it is apart from the rewrites', () => {
+  test('the prose is copied as it is apart from the rewrites, its raw markup escaped', () => {
     const body = ['# Architecture', '', 'A map {a, b} and a type <T> stay literal.', '', '| Table | Header |', '| --- | --- |', '| a | b |', ''].join('\n');
-    expect(rewrite(body)).toBe(body);
+    expect(rewrite(body)).toBe(body.replace('<T>', '&lt;T>'));
   });
 
   test('a document link is rewritten to the writer\'s path, its anchor slugged', () => {
@@ -328,6 +396,31 @@ describe('renderDocumentBody', () => {
     expect(out).toBe('# doc\n\n<div class="mermaid">\nflowchart LR\n  A[One] --&gt; B[Two]\n</div>\n');
   });
 
+  test('raw HTML in a document is shown as text, not markup', () => {
+    const out = rewrite('Before.\n\n<script>alert(1)</script>\n\n<img src=x onerror="alert(2)">\n\n<T>\n');
+    expect(out).toBe('# doc\n\nBefore.\n\n&lt;script>alert(1)&lt;/script>\n\n&lt;img src=x onerror="alert(2)">\n\n&lt;T>\n');
+    expect(out.includes('<script')).toBe(false);
+    expect(out.includes('<img')).toBe(false);
+  });
+
+  test('a code span on a later line is spared by its true position, not by accident', () => {
+    const body = 'First line.\n\nSecond line has `<script>x</script>` inline.\n';
+    expect(rewrite(body)).toBe(`# doc\n\n${body}`);
+  });
+
+  test('a code span spares only its own extent: markup before it on the same line is still escaped', () => {
+    const body = 'A <T> and `<script>x</script>` here.\n';
+    expect(rewrite(body)).toBe('# doc\n\nA &lt;T> and `<script>x</script>` here.\n');
+  });
+  test('HTML inside code spans and fences stays code, for the engine to escape', () => {
+    const body = 'Inline `<script>x</script>` stays code.\n\n```html\n<script>alert(1)</script>\n```\n';
+    expect(rewrite(body)).toBe(`# doc\n\n${body}`);
+  });
+
+  test('a link target keeps its angle brackets', () => {
+    expect(rewrite('[Site](https://example.com/a>b) here.\n')).toBe('# doc\n\n[Site](https://example.com/a>b) here.\n');
+  });
+
   test('a titleless document gets its title line above the body', () => {
     const [page] = documentPages(writeRepo({ 'docs/0001-x.md': 'Decision text.\n' }));
     expect(renderDocumentBody(page!, REWRITER)).toBe('# 0001-x\n\nDecision text.\n');
@@ -339,9 +432,39 @@ describe('renderDocumentBody', () => {
     expect(diagramModuleJs('../assets/mermaid/mermaid.esm.min.mjs').trimEnd().endsWith('drawVisible();')).toBe(true);
   });
 
+  test('the diagram module initialises Mermaid with strict security', () => {
+    expect(diagramModuleJs('../assets/mermaid/mermaid.esm.min.mjs')).toContain("securityLevel: 'strict'");
+  });
+
   test('a titled document is not given a second title', () => {
     const [page] = documentPages(writeRepo({ 'docs/a.md': '# A\n\nText.\n' }));
     expect(renderDocumentBody(page!, REWRITER)).toBe('# A\n\nText.\n');
+  });
+});
+
+describe('the shipped Mermaid draws under strict security', () => {
+  const decodeLabel = (label: string): string =>
+    label
+      .replace(/#(quot|amp|lt|gt);/g, (code) => ({ '#quot;': '"', '#amp;': '&', '#lt;': '<', '#gt;': '>' })[code]!)
+      .replace(/#(\d+);/g, (_, digits) => String.fromCodePoint(Number(digits)));
+
+  test('every label of the view pages survives the sanitizer that strict security runs its labels through', async () => {
+    GlobalRegistrator.register();
+    try {
+      // happy-dom's globals must sit before the first import: DOMPurify
+      // reads the window when it loads, the same way mermaid-check does.
+      const { default: DOMPurify } = await import('dompurify');
+      const folder = fileURLToPath(new URL('../examples/reference-system/views/mermaid', import.meta.url));
+      const labels = new Set<string>();
+      for (const page of readdirSync(folder).filter((name) => name.endsWith('.md'))) {
+        const diagram = readFileSync(join(folder, page), 'utf8').split('```mermaid')[1]!.split('```')[0]!;
+        for (const match of diagram.matchAll(/"([^"\n]+)"/g)) labels.add(decodeLabel(match[1]!));
+      }
+      expect(labels.size).toBeGreaterThan(10);
+      expect([...labels].filter((label) => DOMPurify.sanitize(label) !== label)).toEqual([]);
+    } finally {
+      await GlobalRegistrator.unregister();
+    }
   });
 });
 
