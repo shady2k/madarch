@@ -34,7 +34,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,6 +43,7 @@ import type { MermaidPage } from '../render/mermaid.js';
 import { renderModel, type RenderedVersion } from '../render/prepare.js';
 import { brokenLinks, readSiteFiles } from './links.js';
 import { documentImages, documentPages, DocumentLinkError } from './documents.js';
+import { archifyDocument, archifyPageLinks, componentId, type ArchifyDocument, type ArchifyLayoutedView, type LayoutPoint } from './archify.js';
 import { wikiPages, type AnyWikiPage, type WikiDocumentPage } from './pages.js';
 import type { WikiDiagramAsset } from './render.js';
 import { cleanStarlightSource, ensureStarlightInstall, linkStarlightNodeModules, STARLIGHT_CACHE_ROOT, STARLIGHT_TEMPLATE_DIR, writeStarlightProject } from './starlight.js';
@@ -54,11 +55,8 @@ export const ZENSICAL_SPEC = 'zensical==0.0.66';
 /** How the reader is told to get uv, in the refusal when it is missing. */
 export const UV_INSTALL_HINT = 'install uv first, e.g. "curl -LsSf https://astral.sh/uv/install.sh | sh" (https://docs.astral.sh/uv/)';
 
-/**
- * The diagram formats the tabs offer; `archify` is a legal value of the
- * choice until the archify task builds it, and is refused for now.
- */
-export type DiagramFormat = 'likec4' | 'mermaid';
+/** The diagram formats the tabs offer: LikeC4's own view, madarch's Mermaid, and archify's page laid out from LikeC4. */
+export type DiagramFormat = 'likec4' | 'mermaid' | 'archify';
 
 /**
  * The moment a model outside a git work tree is rendered at:
@@ -102,16 +100,12 @@ function chooseEngine(explicit: string | undefined, env: Readonly<Record<string,
 
 /**
  * The diagram tab shown first: what `MADARCH_WIKI_DIAGRAM` names, else
- * LikeC4. `archify` is accepted by the choice and refused until the
- * archify task builds it; any other value is refused naming the value and
- * the three allowed.
+ * LikeC4. Any unknown value is refused naming the value and the three
+ * allowed.
  */
 function chooseDiagram(env: Readonly<Record<string, string | undefined>>): WikiBuildResult | { format: DiagramFormat } {
   const chosen = env.MADARCH_WIKI_DIAGRAM ?? 'likec4';
-  if (chosen === 'likec4' || chosen === 'mermaid') return { format: chosen };
-  if (chosen === 'archify') {
-    return { code: 2, message: 'the archify wiki diagram is not built yet: only likec4 and mermaid are implemented; leave MADARCH_WIKI_DIAGRAM unset or set it to likec4 or mermaid' };
-  }
+  if (chosen === 'likec4' || chosen === 'mermaid' || chosen === 'archify') return { format: chosen };
   return { code: 2, message: `unknown wiki diagram format "${chosen}": allowed formats are "likec4", "mermaid" and "archify" (MADARCH_WIKI_DIAGRAM)` };
 }
 
@@ -145,7 +139,7 @@ function diagramAssets(mermaidPages: readonly MermaidPage[], workspace: string):
   const assets = new Map<string, WikiDiagramAsset>();
   mermaidPages.forEach((page, index) => {
     const key = page.file === '_landscape.md' ? '' : page.file.replace(/\.md$/, '');
-    assets.set(key, { likec4: viewIds[index]!, ...mermaidOfPage(page.content) });
+    assets.set(key, { likec4: viewIds[index]!, archify: archifyAssetName(key), ...mermaidOfPage(page.content) });
   });
   return assets;
 }
@@ -183,6 +177,76 @@ function mermaidOfPage(content: string): { mermaid: string; table: { columns: st
   };
 }
 
+/** The vendored renderer the archify pages are made with, pinned at 3.0.1 (vendor/archify/README.md). */
+const ARCHIFY_RENDERER = join(PACKAGE_ROOT, 'vendor', 'archify', 'renderers', 'architecture', 'render-architecture.mjs');
+
+/** The file name of a view's archify page under the site's `assets/archify/`. */
+function archifyAssetName(scope: string): string {
+  return scope === '' ? 'landscape.html' : `${scope}.html`;
+}
+
+/**
+ * The element each element view is of, as LikeC4 spells it: the workspace's
+ * own `view <id> of <full name> {` declarations — the same lines the view
+ * pairing above reads, plus the full name. The landscape carries none. A
+ * node's full name in the layouted view is the key this map answers.
+ */
+function viewScopeFullNames(workspace: string): Map<string, string> {
+  const names = new Map<string, string>();
+  for (const match of workspace.matchAll(/^ {2}view (\S+) of (\S+) \{$/gm)) names.set(match[1]!, match[2]!);
+  return names;
+}
+
+/**
+ * The layout LikeC4 computed for every view of the workspace: node
+ * positions, sizes, groups and edges, exactly what the archify document
+ * is built from. A view the layout pass skipped is an error naming it.
+ */
+async function layoutedViews(workspace: string): Promise<Map<string, ArchifyLayoutedView>> {
+  const { LikeC4 } = await import('likec4');
+  const likec4 = await LikeC4.fromSource(workspace, { logger: false, printErrors: false, throwIfInvalid: true });
+  try {
+    const views = new Map<string, ArchifyLayoutedView>();
+    for (const diagram of (await likec4.diagrams()) as unknown as ReadonlyArray<Record<string, unknown>>) {
+      const id = diagram.id as string;
+      const nodes = (diagram.nodes as ReadonlyArray<Record<string, unknown>>).map((node) => ({
+        id: node.id as string,
+        kind: (node.kind as string | undefined) ?? 'external',
+        title: node.title as string,
+        parent: (node.parent as string | null) ?? null,
+        x: node.x as number,
+        y: node.y as number,
+        width: node.width as number,
+        height: node.height as number,
+      }));
+      const edges = (diagram.edges as ReadonlyArray<Record<string, unknown>>).map((edge) => ({
+        source: edge.source as string,
+        target: edge.target as string,
+        ...(edge.label === undefined ? {} : { label: edge.label as string }),
+        ...(edge.labelBBox === undefined
+          ? {}
+          : {
+              labelAt: [
+                (edge.labelBBox as { x: number; y: number; width: number; height: number }).x + (edge.labelBBox as { width: number }).width / 2,
+                (edge.labelBBox as { x: number; y: number; height: number }).y + (edge.labelBBox as { height: number }).height / 2,
+              ] as LayoutPoint,
+            }),
+      }));
+      views.set(id, { id, title: diagram.title as string, nodes, edges });
+    }
+    return views;
+  } finally {
+    await likec4[Symbol.asyncDispose]?.();
+  }
+}
+
+/** Renders one archify document with the vendored renderer: document in, self-contained page out. */
+function renderArchifyPage(document: ArchifyDocument, input: string, output: string): { status: number | null; output: string } {
+  writeFileSync(input, JSON.stringify(document));
+  const run = spawnSync('node', [ARCHIFY_RENDERER, input, output], { encoding: 'utf8' });
+  return { status: run.status, output: `${run.stdout ?? ''}${run.stderr ?? ''}`.trim() };
+}
+
 function runZensicalBuild(source: string): { status: number | null; output: string; ran: boolean } {
   const build = spawnSync('uvx', [ZENSICAL_SPEC, 'build'], { cwd: source, encoding: 'utf8' });
   return finish(build, 'uvx');
@@ -201,7 +265,7 @@ function finish(build: ReturnType<typeof spawnSync>, tool: string): { status: nu
   return { status: ran ? build.status : null, output, ran };
 }
 
-export function buildWiki(repoPath: string, outPath: string, options: WikiBuildOptions = {}): WikiBuildResult {
+export async function buildWiki(repoPath: string, outPath: string, options: WikiBuildOptions = {}): Promise<WikiBuildResult> {
   // A reusable entry point (the server calls it too): an empty output value
   // would resolve to the current directory and be cleared below. The command
   // line refuses it earlier, with the usage; this guard stands behind it.
@@ -249,6 +313,10 @@ export function buildWiki(repoPath: string, outPath: string, options: WikiBuildO
   if (!existsSync(join(mermaidDist, 'mermaid.esm.min.mjs'))) {
     return { code: 2, message: `the mermaid runtime was not found at ${join(mermaidDist, 'mermaid.esm.min.mjs')}: the wiki ships the pinned mermaid's own runtime; run "bun install" in the madarch checkout` };
   }
+  const nodeBin = spawnSync('node', ['--version'], { stdio: 'ignore' });
+  if (nodeBin.error !== undefined || nodeBin.status !== 0) {
+    return { code: 2, message: 'node was not found on PATH: the wiki renders the archify pages with the archify renderer vendored at vendor/archify; install Node.js (https://nodejs.org/)' };
+  }
 
   // The pages, with the views the renderer produced: every page's diagram
   // names one of them, or the landscape.
@@ -285,6 +353,43 @@ export function buildWiki(repoPath: string, outPath: string, options: WikiBuildO
   }
 
   const diagrams = diagramAssets(rendering.pages, rendering.workspace);
+  // The archify page per view: the layout LikeC4 computed for that view,
+  // one architecture document built from it, rendered by the vendored
+  // renderer, then the drill-down links put on the components whose
+  // element has a view of its own. A render failure is an unreadable
+  // input, its output printed.
+  const archifyPages: { name: string; html: string }[] = [];
+  try {
+    const layouted = await layoutedViews(rendering.workspace);
+    const scopeFullNames = viewScopeFullNames(rendering.workspace);
+    const archifyDir = join(scratch, 'archify');
+    mkdirSync(archifyDir, { recursive: true });
+    for (const [scope, asset] of diagrams) {
+      const view = layouted.get(asset.likec4);
+      const named = scope === '' ? 'the landscape' : `the view of "${scope}"`;
+      if (view === undefined) {
+        return { code: 2, message: `LikeC4 did not lay out ${named} (the view "${asset.likec4}"): the archify page needs every view laid out` };
+      }
+      const name = archifyAssetName(scope);
+      const document = archifyDocument(view, { output: `assets/archify/${name}` });
+      const links: Record<string, string> = {};
+      for (const node of view.nodes) {
+        for (const [other, fullName] of scopeFullNames) {
+          if (other !== scope && fullName === node.id) links[componentId(node.id)] = archifyAssetName(other);
+        }
+      }
+      const rendered = renderArchifyPage(document, join(archifyDir, `${name}.json`), join(archifyDir, name));
+      if (rendered.status !== 0 || !existsSync(join(archifyDir, name))) {
+        return { code: 2, message: `the archify page for ${named} could not be rendered:\n${rendered.output}` };
+      }
+      archifyPages.push({ name, html: archifyPageLinks(readFileSync(join(archifyDir, name), 'utf8'), links) });
+    }
+  } catch (error) {
+    // The layout pass, the document builder and the drill-down links are
+    // in-process and throw; the result contract stays intact: exit 2,
+    // the reason printed, nothing written.
+    return { code: 2, message: `the archify pages could not be built:\n${error instanceof Error ? error.message : String(error)}` };
+  }
   const out = resolve(outPath);
   const source = join(out, 'source');
   const site = join(out, 'site');
@@ -299,6 +404,8 @@ export function buildWiki(repoPath: string, outPath: string, options: WikiBuildO
   const assets = join(source, engine === 'zensical' ? join('docs', 'assets') : join('public', 'assets'));
   mkdirSync(join(assets, 'mermaid', 'chunks'), { recursive: true });
   cpSync(join(scratch, 'likec4-view.js'), join(assets, 'likec4-view.js'));
+  mkdirSync(join(assets, 'archify'), { recursive: true });
+  for (const page of archifyPages) writeFileSync(join(assets, 'archify', page.name), page.html);
   cpSync(join(mermaidDist, 'mermaid.esm.min.mjs'), join(assets, 'mermaid', 'mermaid.esm.min.mjs'));
   cpSync(join(mermaidDist, 'chunks', 'mermaid.esm.min'), join(assets, 'mermaid', 'chunks', 'mermaid.esm.min'), { recursive: true });
   // The documents' images, copied where their rewritten links point: the

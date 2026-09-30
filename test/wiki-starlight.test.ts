@@ -17,8 +17,8 @@ import { pageRoute, starlightLinks, starlightSidebar, starlightSlug, writeStarli
  */
 
 const DIAGRAMS = new Map<string, WikiDiagramAsset>([
-  ['', { likec4: 'index', mermaid: 'flowchart LR', table: { columns: [], rows: [] } }],
-  ['ordering', { likec4: 'ordering', mermaid: 'flowchart LR', table: { columns: ['Relations'], rows: [['takes payment']] } }],
+  ['', { likec4: 'index', mermaid: 'flowchart LR', archify: 'landscape.html', table: { columns: [], rows: [] } }],
+  ['ordering', { likec4: 'ordering', mermaid: 'flowchart LR', archify: 'ordering.html', table: { columns: ['Relations'], rows: [['takes payment']] } }],
 ]);
 
 const PAGES: readonly WikiPage[] = [
@@ -127,6 +127,10 @@ describe('starlight page rendering', () => {
     expect(text).toContain('data-first="likec4"');
     expect(text).toContain('<likec4-view view-id="ordering"></likec4-view>');
     expect(text).toContain('class="mermaid"');
+    // The archify tab is the third, its iframe at the page's own depth.
+    expect(text).toContain('data-tab="archify"');
+    expect(text).toContain('data-panel="archify" hidden');
+    expect(text).toContain('src="/assets/archify/ordering.html"');
   });
 });
 

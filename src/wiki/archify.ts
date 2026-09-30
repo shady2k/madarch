@@ -58,11 +58,19 @@ export interface ArchifyLayoutNode {
   readonly height: number;
 }
 
-/** One edge of the layouted view: its ends and the label it carries, if any. */
+/** One point of the layouted view, as LikeC4 and archify both spell coordinates. */
+export type LayoutPoint = readonly [number, number];
+
+/**
+ * One edge of the layouted view: its ends and the label it carries, with
+ * the place LikeC4 put the label at — the one geometry the connection
+ * carries over (see the route note in archifyDocument).
+ */
 export interface ArchifyLayoutEdge {
   readonly source: string;
   readonly target: string;
   readonly label?: string;
+  readonly labelAt?: LayoutPoint;
 }
 
 /** One layouted view: what LikeC4's layout pass produced for one view id. */
@@ -96,6 +104,8 @@ interface ArchifyConnection {
   readonly from: string;
   readonly to: string;
   readonly label?: string;
+  readonly via?: readonly LayoutPoint[];
+  readonly labelAt?: LayoutPoint;
 }
 
 /** The architecture document, exactly the schema's top level. */
@@ -170,10 +180,16 @@ export function archifyDocument(view: ArchifyLayoutedView, options: { output: st
           throw new Error(`an edge of the view "${view.id}" names "${end}", which the view's layout does not hold (from "${edge.source}" to "${edge.target}")`);
         }
       }
+      // The route stays archify's to plan: LikeC4's own splines cross the
+      // canvas the way graphviz drew them, and archify holds an authored
+      // route to a no-crossing standard they do not meet. The label's
+      // place does carry over — that is the one thing the straight-line
+      // default got wrong.
       return {
         from: componentId(edge.source),
         to: componentId(edge.target),
         ...(edge.label === undefined || edge.label === '' ? {} : { label: edge.label }),
+        ...(edge.labelAt === undefined ? {} : { labelAt: edge.labelAt }),
       };
     })
     .sort((a, b) => byCodePoint(a.from, b.from) || byCodePoint(a.to, b.to) || byCodePoint(a.label ?? '', b.label ?? ''));
