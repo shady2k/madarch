@@ -99,6 +99,9 @@ export function sourceNameProblem(source: unknown): string | undefined {
   if (source.length === 0) {
     return `"source" is empty: the source's name is required, like "github.com/shady2k/nocx"`;
   }
+  if (/[\u0000-\u001F\u007F-\u009F]/.test(source)) {
+    return `"source" must not hold a control character, but ${JSON.stringify(source)} does: a control character could split the log line the request is written to; use a name without them, like "github.com/shady2k/nocx"`;
+  }
   const encoded = encodeSourceName(source);
   if (Buffer.byteLength(encoded) > MAX_ENCODED_STEM_BYTES) {
     return `"source" is too long: the name ${JSON.stringify(source.slice(0, 64))}… encodes to a file name past the ${MAX_ENCODED_STEM_BYTES}-byte limit; use a shorter source name`;

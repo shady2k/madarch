@@ -297,7 +297,7 @@ describe('the log', () => {
     await fetch(`${server!.url}/nope`);
 
     expect(lines).toHaveLength(3);
-    expect(lines[0]).toMatch(/^POST \/models 201 source=shop \d+ms$/);
+    expect(lines[0]).toMatch(/^POST \/models 201 source="shop" \d+ms$/);
     expect(lines[1]).toMatch(/^GET \/sources 200 \d+ms$/);
     expect(lines[2]).toMatch(/^GET \/nope 404 \d+ms/);
     expect(lines.join('\n')).not.toContain(SECRET_ELEMENT);
@@ -309,7 +309,21 @@ describe('the log', () => {
     await send('shop', 'c1', 'not a time', [element('a')]);
 
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatch(/^POST \/models 400 source=shop \d+ms: /);
+    expect(lines[0]).toMatch(/^POST \/models 400 source="shop" \d+ms: /);
     expect(lines[0]).toContain('ISO 8601');
+  });
+
+  test('a source name holding a control character is refused, and the log stays one line per request', async () => {
+    start();
+    lines = [];
+    const response = await send('a\nb', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    expect(response.status).toBe(400);
+    const error = await errorOf(response);
+    expect(error.field).toBe('source');
+    expect(error.message).toContain('control character');
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.includes('\n')).toBe(false);
+    expect(lines[0]).toContain('source="a\\nb"');
   });
 });

@@ -447,7 +447,7 @@ function createHandler(dependencies: {
       handled = { response: json(500, { error: { message: 'the request failed inside the server' } }) };
     }
     const ms = Math.max(0, Math.round(performance.now() - started));
-    const named = handled.source === undefined ? '' : ` source=${handled.source}`;
+    const named = handled.source === undefined ? '' : ` source=${JSON.stringify(handled.source)}`;
     const why = handled.refusal === undefined ? '' : `: ${handled.refusal}`;
     log(`${request.method} ${pathname} ${handled.response.status}${named} ${ms}ms${why}`);
     return handled.response;

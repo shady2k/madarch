@@ -113,6 +113,13 @@ describe('source names become file names', () => {
     writeFileSync(join(dir, 'Acme%2FShop.json'), JSON.stringify({ source: 'Acme/Shop', commit: 'c1', committedAt: 1, storedAt: 2 }));
     expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).toThrow(/Acme%2FShop\.json/);
   });
+
+  test('a name holding a control character is refused naming the field', () => {
+    expect(sourceNameProblem('a\nb')).toMatch(/control character/);
+    expect(sourceNameProblem('a\u0000b')).toMatch(/control character/);
+    expect(sourceNameProblem('a\u007Fb')).toMatch(/control character/);
+    expect(sourceNameProblem('a\u009Fb')).toMatch(/control character/);
+  });
 });
 
 describe('sourceNameProblem', () => {
