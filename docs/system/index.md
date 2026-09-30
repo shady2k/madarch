@@ -33,6 +33,12 @@ Changed and added 2026-09-29 with the change agent-model (`docs/changes/agent-mo
 
 Its run's decisions are in `docs/changes/agent-model/change.md`, "Design and decisions".
 
+Added 2026-09-30 with the change wiki (`docs/changes/wiki/`):
+
+- [wiki](capabilities/wiki.md): a static site generated from a repository's model and its own documents, built by Zensical or Starlight, each view offered as LikeC4, Mermaid and archify.
+
+Its run's decisions are in `docs/changes/wiki/change.md`, "Design and decisions".
+
 ## Known unknowns
 
 - The server: the last outcome of the MVP.
