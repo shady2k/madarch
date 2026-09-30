@@ -373,6 +373,13 @@ describe('scripts/wiki.ts', () => {
     expect(readFileSync(join(source, 'elements', 'checkout-cart.md'), 'utf8')).toContain('<likec4-view view-id="checkout-api"></likec4-view>');
     expect(readFileSync(join(source, 'elements', 'customer.md'), 'utf8')).toContain('<likec4-view view-id="index"></likec4-view>');
     expect(readFileSync(join(source, 'index.md'), 'utf8')).toContain('<likec4-view view-id="index"></likec4-view>');
+    // The archify tab is the third: hidden by default, its iframe pointing
+    // at the view's archify page the build ships, from the page's own depth.
+    expect(ordering).toContain('data-tab="archify"');
+    expect(ordering).toContain('data-panel="archify" hidden');
+    expect(ordering).toContain('src="/assets/archify/ordering.html"');
+    expect(readFileSync(join(source, 'index.md'), 'utf8')).toContain('src="/assets/archify/landscape.html"');
+    expect(readFileSync(join(source, 'elements', 'checkout-api.md'), 'utf8')).toContain('src="/assets/archify/checkout-api.html"');
     // The Mermaid tab carries madarch's diagram and its relation table, not the source text.
     expect(ordering).toContain('class="mermaid"');
     expect(ordering).toContain('flowchart LR');
@@ -402,18 +409,32 @@ describe('scripts/wiki.ts', () => {
     const ordering = readFileSync(join(out, 'source', 'docs', 'domains', 'ordering.md'), 'utf8');
     expect(ordering).toContain('data-first="mermaid"');
     expect(ordering).toContain('data-panel="likec4" hidden');
+    expect(ordering).toContain('data-panel="archify" hidden');
     expect(ordering).not.toContain('data-panel="mermaid" hidden');
   }, { timeout: 60_000 });
 
-  test('MADARCH_WIKI_DIAGRAM=archify exits 2 saying it is not built yet, and writes nothing', () => {
+  test('MADARCH_WIKI_DIAGRAM=archify shows the archify tab first, LikeC4 and Mermaid hidden', () => {
     const out = outFolder();
     const run = runWiki([REFERENCE_SYSTEM, '--out', out], undefined, { MADARCH_WIKI_DIAGRAM: 'archify' });
-    expect(run.status).toBe(2);
-    const said = combined(run);
-    expect(said).toContain('archify');
-    expect(said).toContain('not built yet');
-    expect(existsSync(out)).toBe(false);
-  });
+    expect(run.status).toBe(0);
+    const ordering = readFileSync(join(out, 'source', 'docs', 'domains', 'ordering.md'), 'utf8');
+    expect(ordering).toContain('data-first="archify"');
+    expect(ordering).not.toContain('data-panel="archify" hidden');
+    expect(ordering).toContain('data-panel="likec4" hidden');
+    expect(ordering).toContain('data-panel="mermaid" hidden');
+    // The Ordering page embeds the Ordering view's archify page; the
+    // component of the element with a view below links to that page, and
+    // the element's own page does not link to itself.
+    const page = readFileSync(join(out, 'source', 'docs', 'assets', 'archify', 'ordering.html'), 'utf8');
+    expect(page).toContain('data-node-id="ordering__checkout-api"');
+    expect(page).toContain('<a href="checkout-api.html" data-wiki-view="ordering__checkout-api">');
+    // The Checkout page links the elements of its own that carry views
+    // (storefront, catalog, payments, ...), but never the view's own
+    // scope element: that would lead back to the same page.
+    const ownPage = readFileSync(join(out, 'source', 'docs', 'assets', 'archify', 'checkout-api.html'), 'utf8');
+    expect(ownPage).toContain('data-wiki-view="storefront"');
+    expect(ownPage).not.toContain('data-wiki-view="ordering__checkout-api"');
+  }, { timeout: 60_000 });
 
   test('an unknown MADARCH_WIKI_DIAGRAM exits 2 naming the value and the three allowed, and writes nothing', () => {
     const out = outFolder();
@@ -427,6 +448,17 @@ describe('scripts/wiki.ts', () => {
     expect(existsSync(out)).toBe(false);
   });
 
+  test('without node on PATH the build exits 2 naming how to get node, and writes nothing', () => {
+    const out = outFolder();
+    // Only the fake uv/uvx on PATH: no node for the archify renderer.
+    const run = runWiki([REFERENCE_SYSTEM, '--out', out], FAKE_BIN);
+    expect(run.status).toBe(2);
+    const said = combined(run);
+    expect(said).toContain('node was not found on PATH');
+    expect(said).toContain('archify');
+    expect(existsSync(out)).toBe(false);
+  });
+
   test('the LikeC4 web component and the Mermaid runtime ship inside the project', () => {
     const out = outFolder();
     expect(runWiki([REFERENCE_SYSTEM, '--out', out]).status).toBe(0);
@@ -434,6 +466,10 @@ describe('scripts/wiki.ts', () => {
     expect(statSync(join(assets, 'likec4-view.js')).size).toBeGreaterThan(1_000_000);
     expect(existsSync(join(assets, 'mermaid', 'mermaid.esm.min.mjs'))).toBe(true);
     expect(existsSync(join(assets, 'mermaid', 'chunks', 'mermaid.esm.min'))).toBe(true);
+    // One archify page per view: the landscape and one per element view.
+    const archifyPages = readdirSync(join(assets, 'archify')).sort();
+    expect(archifyPages).toEqual(['catalog.html', 'checkout-api.html', 'fulfilment.html', 'landscape.html', 'ordering.html', 'payments.html', 'platform.html', 'storefront.html']);
+    expect(readFileSync(join(assets, 'archify', 'landscape.html'), 'utf8')).toContain('<svg');
     expect(existsSync(join(out, 'source', 'docs', 'stylesheets', 'wiki.css'))).toBe(true);
     expect(existsSync(join(out, 'source', 'docs', 'javascripts', 'wiki-diagram.mjs'))).toBe(true);
     const toml = readFileSync(join(out, 'source', 'zensical.toml'), 'utf8');

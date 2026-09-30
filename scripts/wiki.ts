@@ -12,7 +12,7 @@ import { buildWiki } from '../src/wiki/build.js';
 
 const USAGE = 'usage: bun scripts/wiki.ts <repository path> --out <folder> [--engine zensical|starlight]';
 
-function main(args: readonly string[]): number {
+async function main(args: readonly string[]): Promise<number> {
   let repoPath: string | undefined;
   let out: string | undefined;
   let engine: string | undefined;
@@ -56,10 +56,10 @@ function main(args: readonly string[]): number {
     return 2;
   }
 
-  const result = buildWiki(repoPath, out, { engine });
+  const result = await buildWiki(repoPath, out, { engine });
   if (result.code === 0) console.log(result.message);
   else console.error(result.message);
   return result.code;
 }
 
-process.exitCode = main(process.argv.slice(2));
+process.exitCode = await main(process.argv.slice(2));

@@ -26,6 +26,8 @@ import { documentImageRoute, pagePath } from './pages-path.js';
 export interface WikiDiagramAsset {
   readonly likec4: string;
   readonly mermaid: string;
+  /** The view's archify page, as a file name under the site's `assets/archify/`. */
+  readonly archify: string;
   /** The columns and the cells of madarch's relation table, as its page wrote them. */
   readonly table: { readonly columns: readonly string[]; readonly rows: readonly (readonly string[])[] };
 }
@@ -35,7 +37,7 @@ export interface WikiRenderOptions {
   /** What each view's tabs draw, keyed by the view's scope, `''` for the landscape. */
   readonly diagrams: ReadonlyMap<string, WikiDiagramAsset>;
   /** The diagram tab shown first on every page. */
-  readonly firstTab: 'likec4' | 'mermaid';
+  readonly firstTab: 'likec4' | 'mermaid' | 'archify';
 }
 
 /**
@@ -79,11 +81,15 @@ export function diagramHtml(page: WikiPage, block: WikiDiagramBlock, options: Wi
   }
   const head = `<tr>${asset.table.columns.map((column) => `<th>${tableCell(column)}</th>`).join('')}</tr>`;
   const body = asset.table.rows.map((row) => `<tr>${row.map((value) => `<td>${tableCell(value)}</td>`).join('')}</tr>`).join('');
+  // The iframe's address is root-absolute, like every asset link the
+  // pages carry: the same depth on every page, either engine's routes.
+  const archifySrc = `/assets/archify/${asset.archify}`;
   return [
     `<div class="wiki-diagram" data-first="${options.firstTab}">`,
     '<div class="wiki-tabs" role="tablist">',
     `<button type="button" class="wiki-tab" data-tab="likec4" role="tab" aria-selected="${options.firstTab === 'likec4' ? 'true' : 'false'}">LikeC4</button>`,
     `<button type="button" class="wiki-tab" data-tab="mermaid" role="tab" aria-selected="${options.firstTab === 'mermaid' ? 'true' : 'false'}">Mermaid</button>`,
+    `<button type="button" class="wiki-tab" data-tab="archify" role="tab" aria-selected="${options.firstTab === 'archify' ? 'true' : 'false'}">Archify</button>`,
     '</div>',
     `<div class="wiki-panel" data-panel="likec4"${options.firstTab === 'likec4' ? '' : ' hidden'}>`,
     `<likec4-view view-id="${htmlText(asset.likec4)}"></likec4-view>`,
@@ -96,6 +102,9 @@ export function diagramHtml(page: WikiPage, block: WikiDiagramBlock, options: Wi
     `<thead>${head}</thead>`,
     `<tbody>${body}</tbody>`,
     '</table>',
+    '</div>',
+    `<div class="wiki-panel" data-panel="archify"${options.firstTab === 'archify' ? '' : ' hidden'}>`,
+    `<iframe class="wiki-archify" src="${htmlText(archifySrc)}" title="The view as an archify diagram" loading="lazy"></iframe>`,
     '</div>',
     '</div>',
   ].join('\n');
@@ -114,6 +123,19 @@ export const TABS_CSS: readonly string[] = [
   '  width: 100cqw;',
   '  margin-inline: calc((100% - 100cqw) / 2);',
   '  overflow-x: auto;',
+  '}',
+  '/* The archify page is a document of its own: the panel breaks out the',
+  '   same way and the iframe fills it, tall enough for the fitted view,',
+  '   its own page scrolling the rest. */',
+  '.wiki-panel[data-panel="archify"] {',
+  '  width: 100cqw;',
+  '  margin-inline: calc((100% - 100cqw) / 2);',
+  '}',
+  'iframe.wiki-archify {',
+  '  display: block;',
+  '  width: 100%;',
+  '  height: 760px;',
+  '  border: none;',
   '}',
   '/* The component draws its view at the box width and the aspect ratio of',
   '   the view (its injected style carries aspect-ratio), so an automatic',
@@ -197,7 +219,7 @@ export function diagramModuleJs(mermaidImport: string): string {
     "  for (const button of holder.querySelectorAll('.wiki-tab')) {",
     "    button.addEventListener('click', () => select(holder, button.dataset.tab));",
     '  }',
-    "  select(holder, holder.dataset.first === 'mermaid' ? 'mermaid' : 'likec4');",
+    "  select(holder, holder.dataset.first ?? 'likec4');",
     '}',
     '// A document page carries Mermaid blocks of its own, outside any tabs:',
     '// whatever is visible at load is drawn once here.',
