@@ -353,7 +353,9 @@ export async function buildWiki(repoPath: string, outPath: string, options: Wiki
   // there is a cache like the template installs are, and the rendered
   // model never sits in a folder others can read.
   const scratch = join(cache.root, `likec4-${createHash('sha256').update(rendering.workspace).digest('hex').slice(0, 16)}`);
-  mkdirSync(scratch, { recursive: true });
+  // Private like the root itself: the rendered model never gains a
+  // world-readable folder, whatever umask the build runs under.
+  mkdirSync(scratch, { recursive: true, mode: 0o700 });
   writeFileSync(join(scratch, 'model.c4'), rendering.workspace);
   const gen = spawnSync(likec4Bin, ['gen', 'webcomponent', scratch, '-o', join(scratch, 'likec4-view.js')], { encoding: 'utf8' });
   if (gen.status !== 0 || !existsSync(join(scratch, 'likec4-view.js'))) {

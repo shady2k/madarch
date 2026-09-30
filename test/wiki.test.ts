@@ -506,9 +506,12 @@ describe('scripts/wiki.ts', () => {
     expect(runWiki([REFERENCE_SYSTEM, '--out', out], undefined, cache).status).toBe(0);
     // The scratch — the rendered model and its archify pages — stays in
     // the private cache root the run named, kept there as a cache: the
-    // root is the user's alone, and regenerating it costs a tool run.
-    expect(readdirSync(cache.MADARCH_WIKI_CACHE).some((name) => name.startsWith('likec4-'))).toBe(true);
-    expect(existsSync(join(cache.MADARCH_WIKI_CACHE, readdirSync(cache.MADARCH_WIKI_CACHE).find((name) => name.startsWith('likec4-'))!, 'model.c4'))).toBe(true);
+    // root is the user's alone, and regenerating it costs a tool run. It
+    // is private in its own right, not only behind the root.
+    const scratchName = readdirSync(cache.MADARCH_WIKI_CACHE).find((name) => name.startsWith('likec4-'))!;
+    const scratch = join(cache.MADARCH_WIKI_CACHE, scratchName);
+    expect(existsSync(join(scratch, 'model.c4'))).toBe(true);
+    expect(statSync(scratch).mode & 0o777).toBe(0o700);
     // And no predictable scratch of the old shape is created in /tmp.
     expect(readdirSync(tmpdir()).some((name) => name.startsWith('madarch-wiki-likec4-'))).toBe(false);
   }, { timeout: 60_000 });
