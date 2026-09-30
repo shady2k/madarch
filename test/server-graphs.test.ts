@@ -12,9 +12,14 @@ import {
 const DAY = (day: number) => Date.UTC(2026, 8, day); // September 2026
 
 /** A clock a test moves by hand, never the real one. */
-function fakeClock(initial: number): Clock {
+function fakeClock(initial: number): Clock & { set(t: number): void } {
   let current = initial;
-  return { now: () => current };
+  return {
+    now: () => current,
+    set(t: number) {
+      current = t;
+    },
+  };
 }
 
 function element(id: string, extra: Partial<CompiledElement> = {}): CompiledElement {
@@ -91,6 +96,52 @@ describe('a graph built from two sources', () => {
     graphs.close();
 
     expect(view.relations?.map((r) => [r.from, r.to])).toEqual([['one-api', 'two-api']]);
+  });
+});
+
+describe('a graph is a set of sources', () => {
+  test('a graph listing the same source twice is refused naming it', () => {
+    const clock = fakeClock(DAY(9));
+    const one = createSqliteHistory({ clock });
+    const graphs = createGraphs({ historyOf: () => one, clock });
+    expect(() => graphs.addGraph('union', ['shop', 'shop'])).toThrow(/shop/);
+    graphs.close();
+  });
+
+  test('two sources declaring the same element id are an error naming the id and both sources', () => {
+    const clock = fakeClock(DAY(9));
+    const one = storedHistory('github.com/a/one', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('core')] }]);
+    const two = storedHistory('github.com/b/two', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('core')] }]);
+    const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/a/one' ? one : two), clock });
+    const union = graphs.addGraph('union', ['github.com/a/one', 'github.com/b/two']);
+
+    let thrown: unknown;
+    try {
+      union.engine();
+    } catch (error) {
+      thrown = error;
+    }
+    expect((thrown as Error).message).toContain('"core"');
+    expect((thrown as Error).message).toContain('github.com/a/one');
+    expect((thrown as Error).message).toContain('github.com/b/two');
+    graphs.close();
+  });
+
+  test('an id one source dropped before another declares it is no clash', () => {
+    const clock = fakeClock(DAY(9));
+    const one = createSqliteHistory({ clock });
+    const two = createSqliteHistory({ clock });
+    clock.set(DAY(10));
+    one.store({ source: 'github.com/a/one', commit: 'c1', committedAt: DAY(1), model: model([element('core')]) });
+    clock.set(DAY(12));
+    one.store({ source: 'github.com/a/one', commit: 'c2', committedAt: DAY(3), model: model([]) });
+    clock.set(DAY(14));
+    two.store({ source: 'github.com/b/two', commit: 'c1', committedAt: DAY(3), model: model([element('core')]) });
+
+    const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/a/one' ? one : two), clock });
+    const union = graphs.addGraph('union', ['github.com/a/one', 'github.com/b/two']);
+    expect(union.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['core']);
+    graphs.close();
   });
 });
 
