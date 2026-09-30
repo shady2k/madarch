@@ -735,11 +735,15 @@ describe('scripts/wiki.ts with real builds over the documents fixture', () => {
         const built = readFileSync(join(out, 'site', 'documents', 'docs', 'architecture', 'index.html'), 'utf8');
         expect(built).toContain('alert(');
         // ...and nowhere in the site does it stand as an element: no
-        // document-authored script block or event handler survived.
+        // document-authored script block or event handler survived. Only
+        // the HTML files are parsed as markup — the site's own bundles
+        // carry the characters '<script' inside program strings.
         for (const [file, body] of walkFiles(join(out, 'site'))) {
-          expect(body.replace(/<script[\s\S]*?<\/script>/g, '').includes('<script')).toBe(false);
           expect(/<script[^>]*>[^<]*alert\(/.test(body)).toBe(false);
-          expect(/<(?:img|svg|iframe|body)[^>]*onerror/.test(body)).toBe(false);
+          if (file.endsWith('.html')) {
+            expect(body.replace(/<script[\s\S]*?<\/script>/g, '').includes('<script')).toBe(false);
+            expect(/<(?:img|svg|iframe|body)[^>]*onerror/.test(body)).toBe(false);
+          }
         }
       }
     },
