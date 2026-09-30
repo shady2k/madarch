@@ -134,13 +134,14 @@ function frontmatter(page: AnyWikiPage): string {
 }
 
 /**
- * The body's own first-level title: the engine renders the frontmatter
- * title as the page heading already, and the same text again as the body's
- * first `# heading` would name every page twice. Only a leading level-1
- * heading matches — a body opening `## deeper` keeps its line, and a
- * level-1 heading after content is content.
+ * The body's own title: the engine renders the frontmatter title as the
+ * page heading already, and the same text again as the body's first
+ * heading would name every page twice. The title is the document's first
+ * heading, at the level the document wrote it — level 1 or deeper — so a
+ * leading heading of any level goes, its blank line with it. Only a
+ * leading heading matches: a heading after content is content.
  */
-const LEADING_TITLE = /^#[ \t]+[^\n]*\n(?:[ \t]*\n)?/;
+const LEADING_TITLE = /^ {0,3}#{1,6}(?:[ \t]+[^\n]*)?\n(?:[ \t]*\n)?/;
 
 /** Where the diagram tabs' module finds the Mermaid runtime the build ships: beside it under public/. */
 const MERMAID_IMPORT = './assets/mermaid/mermaid.esm.min.mjs';

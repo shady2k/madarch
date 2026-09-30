@@ -494,6 +494,29 @@ describe('writeStarlightProject', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  test('a document whose first heading is not level one shows its title once and keeps one anchor', () => {
+    const deeper: WikiPage = {
+      id: 'document/docs/context',
+      title: 'Context',
+      nav: ['Documents', 'docs'],
+      body: '## Context\n\nThe context text.\n',
+      blocks: [],
+      insertTitle: false,
+      links: [],
+    } as unknown as WikiPage;
+    const dir = project();
+    writeStarlightProject([deeper], dir, OPTIONS);
+    const written = readFileSync(join(dir, 'src', 'content', 'docs', 'documents', 'docs', 'context.md'), 'utf8');
+    expect(written.startsWith('---\ntitle: "Context"\n---\n')).toBe(true);
+    // The engine renders the frontmatter title as the page's own heading;
+    // the body's `## Context` would name it twice and double the `context`
+    // anchor with the inserted one.
+    expect(written).not.toContain('## Context');
+    expect(written).toContain('The context text.');
+    expect(written.split('id="context"').length - 1).toBe(1);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   test('two runs give byte-identical projects', () => {
     const first = project();
     const second = project();
