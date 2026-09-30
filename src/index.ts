@@ -85,5 +85,6 @@ export { renderMermaidPages, type MermaidError, type MermaidPage, type MermaidRe
 export { renderLikeC4Workspace, type LikeC4Error, type LikeC4Result, type NotDrawn } from './render/likec4.js';
 export { renderOneViewMermaid, renderOneViewLikeC4, type OneViewError, type OneViewLikeC4Result, type OneViewRequest, type OneViewMermaidResult } from './render/one-view.js';
 export { createLadybugEngine, executionThreadsForTests, preparedStatementCacheSizeForTests, type LadybugEngineOptions } from './adapters/ladybug-engine.js';
+export { createSourceStores, sourceNameProblem, type SourceHead, type SourceStores, type SourceStoresOptions, type SourceStoreResult } from './server/sources.js';
 
 export { loadAndCompileModel, type LoadAndCompileResult } from './model/load-and-compile.js';
