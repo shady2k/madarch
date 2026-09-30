@@ -278,12 +278,16 @@ describe('documentPages', () => {
     const pages = documentsOf({
       'README.md': '# Read me\n\n[Guide](/docs/guide.md), ![Logo](/logo.png)\n',
       'docs/guide.md': 'Guide.\n',
+      'docs/a.md': '# A\n\n[Guide](/docs/guide.md)\n',
       'logo.png': 'png bytes',
     });
     expect(pageOf(pages, 'README.md').links).toEqual([
       { written: '/docs/guide.md', kind: 'page', pageId: 'document/docs/guide' },
       { written: '/logo.png', kind: 'image', filePath: 'logo.png' },
     ]);
+    // From a document in a folder, too: `/docs/guide.md` names
+    // `docs/guide.md` from the root, wherever the link's document sits.
+    expect(pageOf(pages, 'docs/a.md').links).toEqual([{ written: '/docs/guide.md', kind: 'page', pageId: 'document/docs/guide' }]);
     expect(documentImages(pages)).toEqual(['logo.png']);
   });
 
@@ -291,6 +295,23 @@ describe('documentPages', () => {
     const pages = documentsOf({ 'README.md': '# Read me\n\n![logo](logo.png)\n', 'logo.png': 'png bytes' });
     expect(pageOf(pages, 'README.md').links).toEqual([{ written: 'logo.png', kind: 'image', filePath: 'logo.png' }]);
     expect(documentImages(pages)).toEqual(['logo.png']);
+  });
+
+  test('an empty destination is kept, for the built-site link check to judge', () => {
+    const pages = documentsOf({ 'docs/a.md': '# A\n\n[Here]()\n' });
+    expect(pageOf(pages, 'docs/a.md').links).toEqual([{ written: '', kind: 'keep' }]);
+  });
+
+  test('broken links of one document are named in line order', () => {
+    try {
+      documentsOf({ 'docs/a.md': '# A\n\n[First](first-gone.md)\n\nText.\n\n[Second](second-gone.md)\n' });
+      throw new Error('expected DocumentLinkError');
+    } catch (error) {
+      expect((error as DocumentLinkError).broken).toEqual([
+        { source: 'docs/a.md', written: 'first-gone.md', target: 'docs/first-gone.md', line: 3 },
+        { source: 'docs/a.md', written: 'second-gone.md', target: 'docs/second-gone.md', line: 7 },
+      ]);
+    }
   });
 
   test('an image link that leaves the repository is broken, never copied', () => {
