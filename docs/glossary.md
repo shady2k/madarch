@@ -196,6 +196,17 @@ report, documents first and confirmed in the code.
 A module element grouping a core's groups of modules when one page would hold
 too many of them; a modelling choice, not a kind of element.
 
+**Wiki** (`scripts/wiki.ts`):
+The static site generated from a repository's compiled model and its own
+documents: a page per domain and element with its diagram, pages for the
+interfaces, zones and data categories, and the repository's README, `docs/`
+and review report. Built by one of two engines, Zensical or Starlight (the
+Starlight template is `wiki/starlight/`).
+
+**Diagram tab**:
+One format of a wiki page's view: LikeC4 (interactive), Mermaid, or archify
+(drawn by the renderer kept in `vendor/archify/`, at LikeC4's positions).
+
 ## Open
 
 - The name of the file that lists the repositories composing the graph and

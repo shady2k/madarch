@@ -2,7 +2,7 @@
 
 Change: wiki
 Base: cf33f8fd80713e81d41d1e05c67629276868acae
-Tasks: madarch-ti6.3
+Tasks: madarch-ti6.3, madarch-7br.1.1, madarch-7br.1.2, madarch-7br.1.3, madarch-7br.1.4, madarch-7br.1.5, madarch-7br.2.1, madarch-7br.2.2, madarch-7br.2.3, madarch-7br.3.1, madarch-7br.3.2, madarch-7br.2.5, madarch-7br.2.6, madarch-7br.2.7, madarch-7br.2.8, madarch-7br.2.9, madarch-7br.2.10, madarch-7br.2.11, madarch-7br.2.12
 Kind: behavior
 
 ## Intent
@@ -49,8 +49,9 @@ engine, were compared; the owner kept both behind an environment variable
   three formats the reader switches between, LikeC4 with details and
   drill-down, Mermaid and archify, the first shown from
   `MADARCH_WIKI_DIAGRAM`, else LikeC4; the engine from `--engine`, then `MADARCH_WIKI_ENGINE`, then Zensical; the
-  repository's README, its `docs/` documents and the review report as pages;
-  no broken link; exit codes 0, 1 and 2, and the same pages from the same
+  repository's README, its `docs/` documents and the review report as pages,
+  their links to anything outside the wiki leading to the repository's host;
+  no broken link within the site; exit codes 0, 1 and 2, and the same pages from the same
   input.
 
 ## Preserved contracts
@@ -99,7 +100,13 @@ Recommended by the agent from the prototypes (the owner may change any):
   each archify page is embedded in its tab; its nesting is simpler than
   LikeC4's (a frame around a group of elements), which is accepted.
 - The repository's own documents are copied as they are, with a title where
-  they have none; their links are checked like every other.
+  they have none. Decided with the owner on 2026-09-30, after nocx's documents
+  held 28 links to files outside the wiki (4 of them broken in nocx itself):
+  links between the wiki's own documents stay internal; every other link from
+  a document uses the full address of that path on the repository's host at
+  the built commit ("Все ссылки используют полный адрес, кроме внутренних
+  документов"); a target the repository does not hold is still linked and
+  named in a warning; without a host the link is text.
 
 Acceptance (the check named in Coverage):
 - `wiki-sites`: the reference system's wiki and nocx's wiki (from the model

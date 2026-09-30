@@ -1,0 +1,10 @@
+#!/bin/sh
+# The wiki tests' fake bun whose install fails: the starlight engine must
+# refuse with exit 2 naming the cause, before anything is written.
+case "$1" in
+  --version) printf '1.4.2-fake\n' ;;
+  install)
+    printf 'bun install exploded\n' >&2
+    exit 1
+    ;;
+esac

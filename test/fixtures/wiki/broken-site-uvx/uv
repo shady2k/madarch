@@ -1,0 +1,4 @@
+#!/bin/sh
+# The wiki tests' fake uv: only its presence on PATH is checked (src/wiki/build.ts
+# runs `uv --version` before it writes anything).
+printf 'fake uv 1.0.0\n'

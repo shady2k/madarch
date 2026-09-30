@@ -1,0 +1,22 @@
+#!/bin/sh
+# The wiki tests' fake bun: stands in for the starlight engine's toolchain.
+# `--version` answers the toolchain check; `install --frozen-lockfile`
+# pretends to install (a marker file that answers `--version`, the shape
+# the install check accepts, plus the fake-installed sentinel, so every
+# run exercises the copy and the install); `run build` writes the site
+# the engine would. It records its arguments so a test can pin the exact
+# invocations; the log is git-ignored.
+printf '%s\n' "$*" >> "$(dirname "$0")/invocations.log"
+case "$1" in
+  --version) printf '1.4.2-fake\n' ;;
+  install)
+    mkdir -p node_modules/.bin
+    printf '#!/bin/sh\ncase "$1" in --version) printf "7.3.5-fake\n" ;; esac\n' > node_modules/.bin/astro
+    chmod +x node_modules/.bin/astro
+    : > node_modules/fake-installed
+    ;;
+  run)
+    mkdir -p site
+    printf '<html><body>fake starlight site</body></html>\n' > site/index.html
+    ;;
+esac
