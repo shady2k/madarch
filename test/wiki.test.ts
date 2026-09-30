@@ -514,7 +514,12 @@ describe('scripts/wiki.ts', () => {
     expect(architecture).toContain('<div class="mermaid">');
     expect(architecture).toContain('flowchart LR');
     expect(architecture).toContain('{a, b}');
-    expect(architecture).toContain('<T>');
+    expect(architecture).toContain('&lt;T>');
+    // A repository's markup is text in the built page, never elements.
+    expect(architecture).toContain('&lt;script>alert("wiki")&lt;/script>');
+    expect(architecture).toContain('&lt;img src=x onerror="alert(1)">');
+    expect(architecture.includes('<script')).toBe(false);
+    expect(architecture.includes('<img')).toBe(false);
     const decision = readFileSync(join(docs, 'documents', 'docs', 'decisions', '0001-use-grpc.md'), 'utf8');
     expect(decision.startsWith('# 0001-use-grpc\n\n')).toBe(true);
     expect(decision).toContain('not a link: [fake](also-missing.md)');
@@ -702,6 +707,27 @@ describe('scripts/wiki.ts with real builds over the documents fixture', () => {
       expect(built).toContain('src="/assets/documents/docs/img/overview.png"');
     },
     { timeout: 300_000 },
+  );
+
+  test.skipIf(!process.env.MADARCH_WIKI_E2E)(
+    'no script or event handler of a document reaches the built site as markup, on either engine',
+    () => {
+      for (const [engine, env] of [['zensical', {}], ['starlight', scriptCache()]] as const) {
+        const out = outFolder();
+        expect(runWiki([DOCUMENTS_FIXTURE, '--out', out, ...(engine === 'zensical' ? [] : ['--engine', 'starlight'])], REAL_PATH, env).status).toBe(0);
+        // The document's markup is on the page, as characters:
+        const built = readFileSync(join(out, 'site', 'documents', 'docs', 'architecture', 'index.html'), 'utf8');
+        expect(built).toContain('alert(');
+        // ...and nowhere in the site does it stand as an element: no
+        // document-authored script block or event handler survived.
+        for (const [file, body] of walkFiles(join(out, 'site'))) {
+          expect(body.replace(/<script[\s\S]*?<\/script>/g, '').includes('<script')).toBe(false);
+          expect(/<script[^>]*>[^<]*alert\(/.test(body)).toBe(false);
+          expect(/<(?:img|svg|iframe|body)[^>]*onerror/.test(body)).toBe(false);
+        }
+      }
+    },
+    { timeout: 600_000 },
   );
 
   test.skipIf(!process.env.MADARCH_WIKI_E2E)(

@@ -192,7 +192,7 @@ export function diagramModuleJs(mermaidImport: string): string {
     '// it is first shown.',
     `import mermaid from '${mermaidImport}';`,
     '',
-    "mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });",
+    "mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });",
     '',
     'async function drawVisible() {',
     "  const nodes = [...document.querySelectorAll('.mermaid')].filter(",
@@ -383,9 +383,10 @@ export function navTree(pages: readonly AnyWikiPage[]): readonly NavSection[] {
  * `links.pathOf`, its anchor slugged by `links.slugOf`, an image at the
  * document asset route — and every Mermaid fence replaced by the raw
  * `div.mermaid` the shipped runtime draws on load. Everything else is the
- * document's own text, byte for byte; a document without a title gets its
- * `# title` line above the body. Writers call this once per document page,
- * with their own `WriterLinks`.
+ * document's own text, its raw markup escaped to text outside code spans,
+ * fences and link targets; a document without a title gets its `# title`
+ * line above the body. Writers call this once per document page, with
+ * their own `WriterLinks`.
  */
 export function renderDocumentBody(page: WikiDocumentPage, links: WriterLinks): string {
   const context: LinkContext = { pageId: page.id, fromPath: pagePath(page.id), knownIds: new Set<string>(), headings: new Map<string, ReadonlySet<string>>() };
@@ -402,13 +403,25 @@ export function renderDocumentBody(page: WikiDocumentPage, links: WriterLinks): 
   // Positions from the same scan the page data classified, so every
   // resolved link has exactly one occurrence to land on. Applied last to
   // first: the edits never overlap, and offsets stay valid.
+  const scan = scanDocument(page.body);
   const edits: { start: number; end: number; text: string }[] = [];
-  for (const occurrence of scanDocument(page.body).links) {
+  for (const occurrence of scan.links) {
     const url = urlOf.get(occurrence.written);
     if (url !== undefined) edits.push({ start: occurrence.start, end: occurrence.end, text: url });
   }
-  for (const block of scanDocument(page.body).mermaid) {
+  for (const block of scan.mermaid) {
     edits.push({ start: block.start, end: block.end, text: `<div class="mermaid">\n${htmlText(block.source)}\n</div>` });
+  }
+  // Raw HTML in a document is text, not markup: every `<` of the body is
+  // escaped outside code spans, fences and link targets — the regions a
+  // reader sees as characters — so what a repository writes as
+  // `<script>` or `<img onerror=…>` reaches the reader as those
+  // characters, never as an element. `>` and `&` stay as written: no
+  // element begins without `<`, and blockquotes and entities keep working.
+  const guarded = [...scan.code, ...scan.links.map((link) => ({ start: link.start, end: link.end }))];
+  const isGuarded = (position: number): boolean => guarded.some((span) => position >= span.start && position < span.end);
+  for (let at = page.body.indexOf('<'); at >= 0; at = page.body.indexOf('<', at + 1)) {
+    if (!isGuarded(at)) edits.push({ start: at, end: at + 1, text: '&lt;' });
   }
   edits.sort((a, b) => b.start - a.start);
   let body = page.body;

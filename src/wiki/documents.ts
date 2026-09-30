@@ -45,11 +45,21 @@ export interface ScannedMermaid {
   readonly end: number;
 }
 
-/** What one document's Markdown holds: its headings, its links, its Mermaid fences. */
+/** What one document's Markdown holds: its headings, its links, its Mermaid fences, and every code region. */
 export interface DocumentScan {
   readonly headings: readonly ScannedHeading[];
   readonly links: readonly ScannedLink[];
   readonly mermaid: readonly ScannedMermaid[];
+  /** Inline code spans and fenced blocks, any language: the regions whose `<` is code, never markup. */
+  readonly code: readonly ScannedCode[];
+}
+
+/** One code region of the body — a code span or a fence — its whole extent. */
+export interface ScannedCode {
+  /** Where the code starts: the first backtick, or the fence's opening line. */
+  readonly start: number;
+  /** Where it ends: past the closing run or the fence's last line. */
+  readonly end: number;
 }
 
 /** One broken link of the documents: who wrote it, as written, and what it names. */
@@ -77,20 +87,11 @@ export class DocumentLinkError extends Error {
   }
 }
 
-/**
- * Walks one document's Markdown and collects its ATX headings, its inline
- * links and images, and its Mermaid fences, in order. A fenced code block's
- * content is program text, not prose: no headings and no links come out of
- * one, and an inline code span's `[x](y)` is text the same way. Links are
- * found per line — a target that crosses a line break is prose, not a link
- * — with the exact positions of the targets, so a writer can rewrite them
- * in place. Mermaid fences are recognised by an info string of exactly
- * `mermaid`; any other fence is code the engine renders as code.
- */
 export function scanDocument(body: string): DocumentScan {
   const headings: ScannedHeading[] = [];
   const links: ScannedLink[] = [];
   const mermaid: ScannedMermaid[] = [];
+  const code: ScannedCode[] = [];
   const lines = body.split('\n');
   let offset = 0;
   let fence: { char: string; length: number; mermaid: boolean; contentStart: number; fenceStart: number } | undefined;
@@ -103,6 +104,7 @@ export function scanDocument(body: string): DocumentScan {
       const close = trimmed.match(/^(`{3,}|~{3,})$/);
       if (close !== null && close[0]![0] === fence.char && close[0]!.length >= fence.length) {
         if (fence.mermaid) mermaid.push({ source: body.slice(fence.contentStart, start > fence.contentStart && body[start - 1] === '\n' ? start - 1 : start), start: fence.fenceStart, end });
+        code.push({ start: fence.fenceStart, end });
         fence = undefined;
       }
       continue;
@@ -118,18 +120,22 @@ export function scanDocument(body: string): DocumentScan {
       if (text !== '') headings.push({ level: heading[1]!.length, text });
       continue;
     }
-    scanLineLinks(line, start, links);
+    scanLineLinks(line, start, links, code);
   }
-  return { headings, links, mermaid };
+  // A fence never closed runs to the end of the body; its content is code
+  // all the way.
+  if (fence !== undefined) code.push({ start: fence.fenceStart, end: body.length });
+  return { headings, links, mermaid, code };
 }
 
 /**
  * Finds one line's inline links and images outside code spans: `[text](target)`
  * and `![alt](target)`, with balanced brackets and parentheses, backslash
  * escapes skipped, and a code span — a backtick run and its matching run —
- * passed over entirely. Each found target's exact span is recorded.
+ * passed over entirely, recorded as a code region. Each found target's exact
+ * span is recorded.
  */
-function scanLineLinks(line: string, lineStart: number, links: ScannedLink[]): void {
+function scanLineLinks(line: string, lineStart: number, links: ScannedLink[], code: ScannedCode[]): void {
   let i = 0;
   while (i < line.length) {
     const ch = line[i]!;
@@ -148,6 +154,9 @@ function scanLineLinks(line: string, lineStart: number, links: ScannedLink[]): v
         j += close;
         if (close === run) break;
       }
+      // The span's whole extent is code: recorded so the writers escape
+      // markup around it, never inside it.
+      code.push({ start: lineStart + i, end: lineStart + j });
       i = j;
       continue;
     }

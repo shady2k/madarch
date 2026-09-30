@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { GlobalRegistrator } from '@happy-dom/global-registrator';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { documentHeadings, documentImages, documentPages, DocumentLinkError, scanDocument } from '../src/wiki/documents.js';
 import { documentImageRoute } from '../src/wiki/pages-path.js';
 import { isDocumentPage, type AnyWikiPage, type WikiDocumentPage, type WikiPage } from '../src/wiki/pages.js';
@@ -360,9 +362,9 @@ describe('scanDocument', () => {
 });
 
 describe('renderDocumentBody', () => {
-  test('the Markdown is copied as it is apart from the rewrites', () => {
+  test('the prose is copied as it is apart from the rewrites, its raw markup escaped', () => {
     const body = ['# Architecture', '', 'A map {a, b} and a type <T> stay literal.', '', '| Table | Header |', '| --- | --- |', '| a | b |', ''].join('\n');
-    expect(rewrite(body)).toBe(body);
+    expect(rewrite(body)).toBe(body.replace('<T>', '&lt;T>'));
   });
 
   test('a document link is rewritten to the writer\'s path, its anchor slugged', () => {
@@ -383,6 +385,22 @@ describe('renderDocumentBody', () => {
     expect(out).toBe('# doc\n\n<div class="mermaid">\nflowchart LR\n  A[One] --&gt; B[Two]\n</div>\n');
   });
 
+  test('raw HTML in a document is shown as text, not markup', () => {
+    const out = rewrite('Before.\n\n<script>alert(1)</script>\n\n<img src=x onerror="alert(2)">\n\n<T>\n');
+    expect(out).toBe('# doc\n\nBefore.\n\n&lt;script>alert(1)&lt;/script>\n\n&lt;img src=x onerror="alert(2)">\n\n&lt;T>\n');
+    expect(out.includes('<script')).toBe(false);
+    expect(out.includes('<img')).toBe(false);
+  });
+
+  test('HTML inside code spans and fences stays code, for the engine to escape', () => {
+    const body = 'Inline `<script>x</script>` stays code.\n\n```html\n<script>alert(1)</script>\n```\n';
+    expect(rewrite(body)).toBe(`# doc\n\n${body}`);
+  });
+
+  test('a link target keeps its angle brackets', () => {
+    expect(rewrite('[Site](https://example.com/a>b) here.\n')).toBe('# doc\n\n[Site](https://example.com/a>b) here.\n');
+  });
+
   test('a titleless document gets its title line above the body', () => {
     const [page] = documentPages(writeRepo({ 'docs/0001-x.md': 'Decision text.\n' }));
     expect(renderDocumentBody(page!, REWRITER)).toBe('# 0001-x\n\nDecision text.\n');
@@ -394,9 +412,39 @@ describe('renderDocumentBody', () => {
     expect(diagramModuleJs('../assets/mermaid/mermaid.esm.min.mjs').trimEnd().endsWith('drawVisible();')).toBe(true);
   });
 
+  test('the diagram module initialises Mermaid with strict security', () => {
+    expect(diagramModuleJs('../assets/mermaid/mermaid.esm.min.mjs')).toContain("securityLevel: 'strict'");
+  });
+
   test('a titled document is not given a second title', () => {
     const [page] = documentPages(writeRepo({ 'docs/a.md': '# A\n\nText.\n' }));
     expect(renderDocumentBody(page!, REWRITER)).toBe('# A\n\nText.\n');
+  });
+});
+
+describe('the shipped Mermaid draws under strict security', () => {
+  const decodeLabel = (label: string): string =>
+    label
+      .replace(/#(quot|amp|lt|gt);/g, (code) => ({ '#quot;': '"', '#amp;': '&', '#lt;': '<', '#gt;': '>' })[code]!)
+      .replace(/#(\d+);/g, (_, digits) => String.fromCodePoint(Number(digits)));
+
+  test('every label of the view pages survives the sanitizer that strict security runs its labels through', async () => {
+    GlobalRegistrator.register();
+    try {
+      // happy-dom's globals must sit before the first import: DOMPurify
+      // reads the window when it loads, the same way mermaid-check does.
+      const { default: DOMPurify } = await import('dompurify');
+      const folder = fileURLToPath(new URL('../examples/reference-system/views/mermaid', import.meta.url));
+      const labels = new Set<string>();
+      for (const page of readdirSync(folder).filter((name) => name.endsWith('.md'))) {
+        const diagram = readFileSync(join(folder, page), 'utf8').split('```mermaid')[1]!.split('```')[0]!;
+        for (const match of diagram.matchAll(/"([^"\n]+)"/g)) labels.add(decodeLabel(match[1]!));
+      }
+      expect(labels.size).toBeGreaterThan(10);
+      expect([...labels].filter((label) => DOMPurify.sanitize(label) !== label)).toEqual([]);
+    } finally {
+      await GlobalRegistrator.unregister();
+    }
   });
 });
 
