@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -140,6 +140,14 @@ describe('sourceNameProblem', () => {
     expect(sourceNameProblem('x'.repeat(201))).toMatch(/200/);
     expect(sourceNameProblem('x'.repeat(200))).toBeUndefined();
     expect(sourceNameProblem('%/'.repeat(70))).toMatch(/200/); // 140 raw bytes, 420 encoded
+  });
+
+  test('a too-long name is echoed cut to 64 code points, never whole', () => {
+    const problem = sourceNameProblem('x'.repeat(300));
+    expect(problem).toMatch(/200/);
+    expect(problem).toContain('x'.repeat(64));
+    expect(problem).toContain('…');
+    expect(problem).not.toContain('x'.repeat(65));
   });
 });
 
@@ -328,6 +336,54 @@ describe('restart on the same data folder', () => {
     second.close();
   });
 
+  test('a sidecar whose storing moment disagrees is repaired, even when the commit and its time agree', () => {
+    const dir = scratchFolder();
+    const first = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+    first.close();
+    writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: DAY(1), storedAt: DAY(9) }));
+
+    const lines: string[] = [];
+    const second = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)), log: (line) => lines.push(line) });
+    const sidecar = JSON.parse(readFileSync(join(dir, 'shop.json'), 'utf8')) as { storedAt: number };
+    expect(sidecar.storedAt).toBe(DAY(10));
+    expect(lines.join('\n')).toContain('repaired');
+    second.close();
+  });
+
+  test('a sidecar naming another commit is repaired, even when the storing moment agrees', () => {
+    const dir = scratchFolder();
+    const first = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+    // c2 asserts what c1 already had, so it opens no row and is recorded
+    // at the same frozen moment: the two commits share their storedAt.
+    first.store(storeInput('shop', 'c2', DAY(2), [element('a')]));
+    first.close();
+    writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: DAY(1), storedAt: DAY(10) }));
+
+    const lines: string[] = [];
+    const second = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)), log: (line) => lines.push(line) });
+    const sidecar = JSON.parse(readFileSync(join(dir, 'shop.json'), 'utf8')) as { commit: string };
+    expect(sidecar.commit).toBe('c2');
+    expect(lines.join('\n')).toContain('repaired');
+    second.close();
+  });
+
+  test('a sidecar whose commit time disagrees is repaired, even when the commit and its storing moment agree', () => {
+    const dir = scratchFolder();
+    const first = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+    first.close();
+    writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: DAY(5), storedAt: DAY(10) }));
+
+    const lines: string[] = [];
+    const second = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)), log: (line) => lines.push(line) });
+    const sidecar = JSON.parse(readFileSync(join(dir, 'shop.json'), 'utf8')) as { committedAt: number };
+    expect(sidecar.committedAt).toBe(DAY(1));
+    expect(lines.join('\n')).toContain('repaired');
+    second.close();
+  });
+
   test('a restart with an agreeing sidecar changes nothing and logs no repair', () => {
     const dir = scratchFolder();
     const first = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
@@ -345,8 +401,18 @@ describe('restart on the same data folder', () => {
 describe('a corrupt data folder refuses to open, naming the file', () => {
   test('a sidecar without its history file', () => {
     const dir = scratchFolder();
+    writeFileSync(join(dir, 'aardvark.json'), JSON.stringify({ source: 'aardvark', commit: 'c1', committedAt: 1, storedAt: 2 }));
     writeFileSync(join(dir, 'lonely.json'), JSON.stringify({ source: 'lonely', commit: 'c1', committedAt: 1, storedAt: 2 }));
-    expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).toThrow(/lonely\.json/);
+    let thrown: unknown;
+    try {
+      createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) });
+    } catch (error) {
+      thrown = error;
+    }
+    const message = (thrown as Error).message;
+    expect(message).toContain('"lonely.json" but no "lonely.sqlite" beside it');
+    expect(message).toContain('"aardvark.json" but no "aardvark.sqlite" beside it');
+    expect(message).toContain('; '); // collected, not stopped at the first
   });
 
   test('a history holding more than one source cannot be named by one file and is refused naming it', () => {
@@ -359,7 +425,7 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
     renameSync(join(elsewhere, 'built.sqlite'), join(dir, 'multi.sqlite'));
     rmSync(elsewhere, { recursive: true, force: true });
 
-    expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).toThrow(/multi\.sqlite/);
+    expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).toThrow(/holds the sources (shop, other|other, shop): a history one sidecar is to name must hold exactly that one source/);
   });
 
   test('a sidecar naming a source its history does not hold is refused naming both files', () => {
@@ -372,7 +438,7 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
     rmSync(elsewhere, { recursive: true, force: true });
     writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: 1, storedAt: 2 }));
 
-    expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).toThrow(/shop\.sqlite/);
+    expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).toThrow(/holds the sources other, but its sidecar ".*shop\.json" names "shop"/);
   });
 
   test('the refusal about an unreadable folder carries the file-system error as its cause', () => {
@@ -402,10 +468,24 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
     expect((thrown as Error & { cause?: unknown }).cause).toBeInstanceOf(SyntaxError);
   });
 
+  test('a history file SQLite cannot open is refused naming the file and carrying the cause', () => {
+    const dir = scratchFolder();
+    writeFileSync(join(dir, 'shop.sqlite'), 'this is not a SQLite database, only bytes with no header');
+    writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: 1, storedAt: 2 }));
+    let thrown: unknown;
+    try {
+      createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) });
+    } catch (error) {
+      thrown = error;
+    }
+    expect((thrown as Error).message).toContain('"shop.sqlite" cannot be opened');
+    expect((thrown as Error & { cause?: unknown }).cause).toBeInstanceOf(Error);
+  });
+
   test('a history file without its sidecar', () => {
     const dir = scratchFolder();
     writeFileSync(join(dir, 'bare.sqlite'), '');
-    expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).toThrow(/bare\.sqlite/);
+    expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).toThrow(/no source it could be named from/);
   });
 
   test('a sidecar that is not valid JSON', () => {
@@ -419,7 +499,7 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
     const dir = scratchFolder();
     writeFileSync(join(dir, 'shop.sqlite'), '');
     writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'other', commit: 'c1', committedAt: 1, storedAt: 2 }));
-    expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).toThrow(/shop\.json/);
+    expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).toThrow(/its file name decodes to "shop"/);
   });
 
   test('a sidecar missing a field', () => {
@@ -430,21 +510,22 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
   });
 
   test('a sidecar holding a field of the wrong shape is refused naming its file and the field', () => {
-    const broken: { name: string; sidecar: Record<string, unknown> }[] = [
-      { name: 'source is not a string', sidecar: { source: 42, commit: 'c1', committedAt: 1, storedAt: 2 } },
-      { name: 'source is empty', sidecar: { source: '', commit: 'c1', committedAt: 1, storedAt: 2 } },
-      { name: 'commit is not a string', sidecar: { source: 'shop', commit: 42, committedAt: 1, storedAt: 2 } },
-      { name: 'committedAt is not a number', sidecar: { source: 'shop', commit: 'c1', committedAt: '1', storedAt: 2 } },
-      { name: 'committedAt is not finite', sidecar: { source: 'shop', commit: 'c1', committedAt: Number.NaN, storedAt: 2 } },
-      { name: 'storedAt is not a number', sidecar: { source: 'shop', commit: 'c1', committedAt: 1, storedAt: '2' } },
-      { name: 'storedAt is not finite', sidecar: { source: 'shop', commit: 'c1', committedAt: 1, storedAt: Number.POSITIVE_INFINITY } },
+    const broken: { name: string; sidecar: Record<string, unknown>; problem: RegExp }[] = [
+      { name: 'source is not a string', sidecar: { source: 42, commit: 'c1', committedAt: 1, storedAt: 2 }, problem: /"source" must be a non-empty string/ },
+      { name: 'source is empty', sidecar: { source: '', commit: 'c1', committedAt: 1, storedAt: 2 }, problem: /"source" must be a non-empty string/ },
+      { name: 'commit is not a string', sidecar: { source: 'shop', commit: 42, committedAt: 1, storedAt: 2 }, problem: /"commit" must be a non-empty string/ },
+      { name: 'commit is empty', sidecar: { source: 'shop', commit: '', committedAt: 1, storedAt: 2 }, problem: /"commit" must be a non-empty string/ },
+      { name: 'committedAt is not a number', sidecar: { source: 'shop', commit: 'c1', committedAt: '1', storedAt: 2 }, problem: /"committedAt" must be a number of epoch milliseconds/ },
+      { name: 'committedAt is not finite', sidecar: { source: 'shop', commit: 'c1', committedAt: Number.NaN, storedAt: 2 }, problem: /"committedAt" must be a number of epoch milliseconds/ },
+      { name: 'storedAt is not a number', sidecar: { source: 'shop', commit: 'c1', committedAt: 1, storedAt: '2' }, problem: /"storedAt" must be a number of epoch milliseconds/ },
+      { name: 'storedAt is not finite', sidecar: { source: 'shop', commit: 'c1', committedAt: 1, storedAt: Number.POSITIVE_INFINITY }, problem: /"storedAt" must be a number of epoch milliseconds/ },
     ];
-    for (const { name, sidecar } of broken) {
+    for (const { name, sidecar, problem } of broken) {
       const dir = mkdtempSync(join(tmpdir(), 'madarch-server-sources-'));
       try {
         writeFileSync(join(dir, 'shop.sqlite'), '');
         writeFileSync(join(dir, 'shop.json'), JSON.stringify(sidecar));
-        expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) }), name).toThrow(/shop\.json/);
+        expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) }), name).toThrow(problem);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
@@ -466,6 +547,53 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
         writeFileSync(join(dir, `${stem}.sqlite`), '');
         writeFileSync(join(dir, `${stem}.json`), JSON.stringify({ source, commit: 'c1', committedAt: 1, storedAt: 2 }));
         expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) }), stem).toThrow(/does not decode to a source name/);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test('a sidecar naming a source its empty history does not hold is refused saying it holds no source', () => {
+    const dir = scratchFolder();
+    writeFileSync(join(dir, 'shop.sqlite'), ''); // a valid, empty history
+    writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: 1, storedAt: 2 }));
+    expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).toThrow(/holds no source, but its sidecar ".*shop\.json" names "shop"/);
+  });
+
+  test('a sidecar naming one source of a two-source history is refused naming both', () => {
+    // Either source can sit first in the history's own source order, so
+    // the sidecar tries each under a stem that decodes to it; whichever
+    // one the history names first must still be refused, naming both.
+    for (const named of ['shop', 'other']) {
+      const dir = mkdtempSync(join(tmpdir(), 'madarch-server-sources-two-'));
+      try {
+        const elsewhere = mkdtempSync(join(tmpdir(), 'madarch-server-sources-two-built-'));
+        const built = createSqliteHistory({ path: join(elsewhere, 'built.sqlite'), clock: fakeClock(DAY(10)) });
+        built.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+        built.store(storeInput('other', 'c1', DAY(1), [element('b')]));
+        built.close();
+        renameSync(join(elsewhere, 'built.sqlite'), join(dir, `${named}.sqlite`));
+        rmSync(elsewhere, { recursive: true, force: true });
+        writeFileSync(join(dir, `${named}.json`), JSON.stringify({ source: named, commit: 'c1', committedAt: 1, storedAt: 2 }));
+
+        expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) }), named).toThrow(/holds the sources (shop, other|other, shop), but its sidecar/);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test('a bare history file whose name was not written by this server, or names another source, is refused', () => {
+    // A stem with a raw upper-case letter decodes to nothing; a stem that
+    // decodes to another source than the history holds is just as alien.
+    // Either way the folder was not written by this server.
+    for (const stem of ['Shop.sqlite', 'other.sqlite']) {
+      const dir = mkdtempSync(join(tmpdir(), 'madarch-server-sources-'));
+      try {
+        const built = createSqliteHistory({ path: join(dir, stem), clock: fakeClock(DAY(10)) });
+        built.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+        built.close();
+        expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) }), stem).toThrow(/does not decode to the history's source "shop"/);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
