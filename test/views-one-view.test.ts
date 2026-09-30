@@ -365,6 +365,15 @@ describe('views/one-view from any query engine', () => {
     return { schemaVersion: 1, elements, relations: [], interfaces: [], categories: [], zones: [], environments: [], states: [] } as unknown as CompiledModel;
   }
 
+  test('the question for the landscape refusing is named, and no element is named where none was asked', () => {
+    const refusing = { message: 'refused' };
+    const engine = handEngine({ landscape: { error: refusing } });
+    const model = modelOf([]);
+
+    expect(renderOneViewMermaid(engine, model, {})).toStrictEqual({ errors: [{ message: 'the landscape: refused', query: refusing }] });
+    expect(renderOneViewLikeC4(engine, model, {})).toStrictEqual({ errors: [{ message: 'the landscape: refused', query: refusing }] });
+  });
+
   test('a view whose arrows name a relation the compiled model does not hold is an error naming it, in both formats', () => {
     const engine = handEngine({
       scoped: () => ({ elements: [element('top', 'domain'), element('low', 'service', 'top')], neighbours: [], relations: [{ from: 'low', to: 'top', relationIds: ['ghost'] }] }),
@@ -378,6 +387,16 @@ describe('views/one-view from any query engine', () => {
     };
     expect(renderOneViewMermaid(engine, model, { element: 'top' })).toStrictEqual({ errors: [expected] });
     expect(renderOneViewLikeC4(engine, model, { element: 'top' })).toStrictEqual({ errors: [expected] });
+  });
+
+  test('a view with no arrows carries no table, and ends with the blank line a page leaves before its links', () => {
+    const engine = handEngine({ landscape: { elements: [element('top', 'domain')], relations: [] } });
+    const model = modelOf([element('top', 'domain')]);
+
+    expect(renderOneViewMermaid(engine, model, {})).toStrictEqual({
+      page: ['# Landscape', '', '```mermaid', '%%{init: {"flowchart": {"curve": "linear"}}}%%', 'flowchart LR', '  top["top"]', '```', ''].join('\n'),
+      errors: [],
+    });
   });
 
   test('a view that does not show its own element as its scope is refused as Mermaid, and no page comes back', () => {
