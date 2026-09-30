@@ -83,6 +83,7 @@ export type {
 export { buildViewSet, type Arrow, type Place, type ShownElement, type View, type ViewSetError, type ViewSetResult } from './render/view-set.js';
 export { renderMermaidPages, type MermaidError, type MermaidPage, type MermaidResult } from './render/mermaid.js';
 export { renderLikeC4Workspace, type LikeC4Error, type LikeC4Result, type NotDrawn } from './render/likec4.js';
+export { renderOneViewMermaid, renderOneViewLikeC4, type OneViewError, type OneViewLikeC4Result, type OneViewRequest, type OneViewMermaidResult } from './render/one-view.js';
 export { createLadybugEngine, executionThreadsForTests, preparedStatementCacheSizeForTests, type LadybugEngineOptions } from './adapters/ladybug-engine.js';
 
 export { loadAndCompileModel, type LoadAndCompileResult } from './model/load-and-compile.js';
