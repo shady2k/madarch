@@ -253,6 +253,33 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
     expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).toThrow(/lonely\.json/);
   });
 
+  test('the refusal about an unreadable folder carries the file-system error as its cause', () => {
+    const dir = join(scratchFolder(), 'missing');
+    let thrown: unknown;
+    try {
+      createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    const cause = (thrown as Error & { cause?: unknown }).cause;
+    expect(cause).toBeInstanceOf(Error);
+    expect((cause as Error).message).toMatch(/ENOENT|no such file|not exist/i);
+  });
+
+  test('the refusal about a sidecar that is not JSON carries the parse error as its cause', () => {
+    const dir = scratchFolder();
+    writeFileSync(join(dir, 'shop.sqlite'), '');
+    writeFileSync(join(dir, 'shop.json'), '{not json');
+    let thrown: unknown;
+    try {
+      createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) });
+    } catch (error) {
+      thrown = error;
+    }
+    expect((thrown as Error & { cause?: unknown }).cause).toBeInstanceOf(SyntaxError);
+  });
+
   test('a history file without its sidecar', () => {
     const dir = scratchFolder();
     writeFileSync(join(dir, 'bare.sqlite'), '');

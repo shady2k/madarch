@@ -158,7 +158,7 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
   try {
     stat = statSync(dataFolder);
   } catch (error) {
-    throw new Error(`the data folder "${dataFolder}" cannot be read: ${(error as Error).message}; the server keeps its sources' history files there`);
+    throw new Error(`the data folder "${dataFolder}" cannot be read: ${(error as Error).message}; the server keeps its sources' history files there`, { cause: error });
   }
   if (!stat.isDirectory()) {
     throw new Error(`the data folder "${dataFolder}" is not a folder; the server keeps its sources' history files there`);
@@ -192,7 +192,7 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
     try {
       file = JSON.parse(readFileSync(path, 'utf8')) as SidecarFile;
     } catch (error) {
-      throw new Error(`the sidecar "${path}" is not valid JSON: ${(error as Error).message}`);
+      throw new Error(`the sidecar "${path}" is not valid JSON: ${(error as Error).message}`, { cause: error });
     }
     const head = headOfSidecar(file, path);
     const decoded = decodeSourceName(stem);
