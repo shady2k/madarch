@@ -1012,6 +1012,7 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
     // `conn.closeSync()`/`db.closeSync()` free the pool they lived in).
     preparedByText.clear();
     cacheSizeByEngine.delete(engine);
+    threadsByEngine.delete(engine);
     conn.closeSync();
     db.closeSync();
   }

@@ -46,6 +46,5 @@ Its run's decisions are in `docs/changes/wiki/change.md`, "Design and decisions"
   change server-views (madarch-ti6.2) — at a fixed 2 execution threads and
   query times reduced to the history's own times, a long run of
   `dependents` and `view` calls at an advancing clock levels off well
-  under the long-run test's 400 MB bound. That evidence stands behind
-  madarch-ti6.1's decision not to give the server a restartable engine
-  process.
+  under the long-run test's 400 MB bound. That is the evidence
+  madarch-ti6.1's decision on a restartable engine process rests on.
