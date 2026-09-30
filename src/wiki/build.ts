@@ -46,7 +46,7 @@ import { archifyDocument, archifyPageLinks, componentId, type ArchifyDocument, t
 import { wikiPages, type AnyWikiPage, type WikiDocumentPage } from './pages.js';
 import type { WikiDiagramAsset } from './render.js';
 import { ensureWikiCacheRoot } from './cache.js';
-import { cleanStarlightSource, ensureStarlightInstall, linkStarlightNodeModules, STARLIGHT_TEMPLATE_DIR, writeStarlightProject } from './starlight.js';
+import { cleanStarlightSource, collidingDocumentRoutes, ensureStarlightInstall, linkStarlightNodeModules, STARLIGHT_TEMPLATE_DIR, writeStarlightProject } from './starlight.js';
 import { writeZensicalProject } from './zensical.js';
 
 /** The pinned Zensical the engine runs, exactly as uvx names it. */
@@ -340,6 +340,22 @@ export async function buildWiki(repoPath: string, outPath: string, options: Wiki
   } catch (error) {
     if (error instanceof DocumentLinkError) return { code: 1, message: error.message };
     return { code: 2, message: error instanceof Error ? error.message : String(error) };
+  }
+
+  // Two documents the Starlight loader would serve at one route cannot
+  // both become pages: refused here, before anything is written. The
+  // other engines keep every document an address of its own.
+  if (engine === 'starlight') {
+    const collisions = collidingDocumentRoutes(documents);
+    if (collisions.length > 0) {
+      return {
+        code: 2,
+        message: [
+          'documents that would share one starlight route:',
+          ...collisions.map((collision) => `${collision.paths.join(' and ')} would share the route ${collision.route}: rename one of the documents`),
+        ].join('\n'),
+      };
+    }
   }
   const allPages: readonly AnyWikiPage[] = [...pages, ...documents];
 

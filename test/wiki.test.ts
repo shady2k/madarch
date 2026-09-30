@@ -578,6 +578,31 @@ describe('scripts/wiki.ts', () => {
     expect(existsSync(join(out, 'source'))).toBe(false);
   }, { timeout: 60_000 });
 
+  test('two documents one starlight route would serve are refused with exit 2, before anything is written', () => {
+    const root = tempFolder('madarch-wiki-routecoll-');
+    cpSync(DOCUMENTS_FIXTURE, root, { recursive: true });
+    writeFileSync(join(root, 'docs', 'A.md'), '# Uppercase\n');
+    writeFileSync(join(root, 'docs', 'a.md'), '# Lowercase\n');
+    const out = outFolder();
+    const run = runWiki([root, '--out', out, '--engine', 'starlight'], `${FAKE_BUN}:${process.env.PATH ?? ''}`, scriptCache());
+    expect(run.status).toBe(2);
+    const said = combined(run);
+    expect(said).toContain('docs/A.md and docs/a.md');
+    expect(said).toContain('/documents/docs/a/');
+    expect(existsSync(join(out, 'source'))).toBe(false);
+  }, { timeout: 60_000 });
+
+  test('the same repository builds under zensical, both documents keeping a page of their own', () => {
+    const root = tempFolder('madarch-wiki-routecoll-');
+    cpSync(DOCUMENTS_FIXTURE, root, { recursive: true });
+    writeFileSync(join(root, 'docs', 'A.md'), '# Uppercase\n');
+    writeFileSync(join(root, 'docs', 'a.md'), '# Lowercase\n');
+    const out = outFolder();
+    expect(runWiki([root, '--out', out]).status).toBe(0);
+    expect(existsSync(join(out, 'source', 'docs', 'documents', 'docs', 'A.md'))).toBe(true);
+    expect(existsSync(join(out, 'source', 'docs', 'documents', 'docs', 'a.md'))).toBe(true);
+  }, { timeout: 60_000 });
+
   test('a document that is a symlink out of the repository is refused with exit 2, naming the file and where it points', () => {
     const root = tempFolder('madarch-wiki-symlink-');
     cpSync(DOCUMENTS_FIXTURE, root, { recursive: true });

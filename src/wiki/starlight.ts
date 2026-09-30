@@ -67,6 +67,36 @@ export function pageRoute(id: string): string {
   return `/${path}/`;
 }
 
+/** One route two or more documents would be served at, with their repository paths. */
+export interface CollidingDocumentRoute {
+  /** The route, root-relative, both documents would share. */
+  readonly route: string;
+  /** The documents' repository paths, sorted by code point. */
+  readonly paths: readonly string[];
+}
+
+/**
+ * The document routes more than one document would be served at: the
+ * engine's loader slugs every path segment (lowercased, punctuation
+ * gone) and drops a trailing `index`, so distinct files — `docs/A.md`
+ * and `docs/a.md`, `docs/a b.md` and `docs/a-b.md`, `docs.md` and
+ * `docs/index.md` — can spell one route. Sorted by route; every group's
+ * paths sorted by code point.
+ */
+export function collidingDocumentRoutes(pages: readonly AnyWikiPage[]): readonly CollidingDocumentRoute[] {
+  const paths = new Map<string, string[]>();
+  for (const page of pages) {
+    if (!isDocumentPage(page)) continue;
+    const repositoryPath = `${page.id.slice('document/'.length)}.md`;
+    const route = pageRoute(page.id);
+    paths.set(route, [...(paths.get(route) ?? []), repositoryPath]);
+  }
+  return [...paths]
+    .filter(([, group]) => group.length > 1)
+    .map(([route, group]) => ({ route, paths: [...group].sort(byCodePoint) }))
+    .sort((a, b) => byCodePoint(a.route, b.route));
+}
+
 /** Where a Starlight link points and how its anchors are spelled. */
 export const starlightLinks: WriterLinks = {
   pathOf: pageRoute,
