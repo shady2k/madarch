@@ -163,6 +163,53 @@ describe('keeping a built graph in step', () => {
     expect(view.elements?.map((e) => e.id).sort()).toEqual(['child', 'root']);
   });
 
+  test('a store report that both closes and opens rows reaches a built engine', () => {
+    // The closed row leaves the assertion-driven view; the opened child
+    // row must arrive in the same update.
+    const clock = fakeClock(DAY(9));
+    const one = createSqliteHistory({ clock });
+    one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a'), element('keep')]) });
+    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graph = graphs.graphForSource('shop');
+    expect(graph.engine().view({ depth: 1 }).elements?.map((each) => each.id).sort()).toEqual(['a', 'keep']);
+
+    const result = one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('keep'), element('child', { parent: 'keep', ancestors: ['keep'] })]) });
+    expect(result.errors).toEqual([]);
+    expect(result.closed.length).toBeGreaterThan(0);
+    expect(result.opened.length).toBeGreaterThan(0);
+    graphs.applyStore('shop', result);
+    // Closing `a` clamped the store's own recorded moment 1 ms past the
+    // frozen clock; move real time past it, as a running server would,
+    // before asking the view.
+    clock.set(DAY(15));
+    const view = graph.engine().view({ depth: 1 });
+    graphs.close();
+    expect(view.elements?.map((each) => each.id).sort()).toEqual(['child', 'keep']);
+  });
+
+  test('a store report that only closes rows reaches a built engine', () => {
+    // A commit at the very instant the dropped row starts, sorting after
+    // it by id, closes the old row and opens no replacement (a zero-width
+    // slice is never written).
+    const clock = fakeClock(DAY(9));
+    const one = createSqliteHistory({ clock });
+    one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
+    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graph = graphs.graphForSource('shop');
+    expect(graph.engine().view({ depth: 1 }).elements?.map((each) => each.id)).toEqual(['a']);
+
+    const result = one.store({ source: 'shop', commit: 'c2', committedAt: DAY(1), model: model([]) });
+    expect(result.errors).toEqual([]);
+    expect(result.closed.length).toBeGreaterThan(0);
+    expect(result.opened).toEqual([]);
+    graphs.applyStore('shop', result);
+    clock.set(DAY(15));
+
+    const view = graph.engine().view({ depth: 1 });
+    graphs.close();
+    expect(view.elements?.map((each) => each.id)).toEqual([]);
+  });
+
   test('a graph built after several stores sees all of them without any update call', () => {
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });
