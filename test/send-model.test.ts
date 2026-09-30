@@ -50,6 +50,9 @@ describe('the source name of a remote', () => {
       ['ssh://git@github.com:2222/shady2k/nocx.git', 'github.com/shady2k/nocx'],
       ['http://token@10.0.0.1:7990/scm/proj/repo.git', '10.0.0.1/scm/proj/repo'],
       ['git@github.com:shady2k/nocx', 'github.com/shady2k/nocx'],
+      ['https://github.com/acme/shop.git?access_token=secret#x', 'github.com/acme/shop'],
+      ['https://github.com/acme/shop?ref=main#readme', 'github.com/acme/shop'],
+      ['https://user:token@github.com/shady2k/nocx.git?private=token', 'github.com/shady2k/nocx'],
     ];
     for (const [remote, name] of remotes) {
       expect(sourceNameFromRemote(remote)).toBe(name);
@@ -148,6 +151,26 @@ describe('the send command', () => {
       const list = await sources();
       expect(list.map((head) => [head.source, head.commit])).toEqual([['github.com/shady2k/nocx', commit]]);
       for (const line of lines) expect(line).not.toContain('token');
+    } finally {
+      rmSync(repo.path, { recursive: true, force: true });
+    }
+  });
+
+  test('an https origin carrying a query and fragment stores the bare host and path, and none of it reaches the output, the request or the server log', async () => {
+    const url = start();
+    const repo = completeRepo();
+    try {
+      expect(repo.run(['remote', 'add', 'origin', 'https://github.com/acme/shop.git?access_token=secret#x']).ok).toBe(true);
+      const commit = repo.run(['rev-parse', 'HEAD']).stdout.trim();
+
+      const run = await runSend(repo.path, '--server', url);
+      expect(run.status).toBe(0);
+      expect(run.stdout).toContain('github.com/acme/shop');
+
+      const list = await sources();
+      expect(list.map((head) => [head.source, head.commit])).toEqual([['github.com/acme/shop', commit]]);
+      expect(lines.join('\n')).not.toContain('secret');
+      expect(run.stdout).not.toContain('secret');
     } finally {
       rmSync(repo.path, { recursive: true, force: true });
     }
