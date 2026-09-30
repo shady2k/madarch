@@ -7,7 +7,7 @@
  */
 import { byCodePoint } from '../model/order.js';
 import { uniqueSafeIds } from './safe-ids.js';
-import type { ShownElement, View } from './view-set.js';
+import { childrenByParent, type ShownElement, type View } from './view-set.js';
 
 /** One page: its file name (the landscape `_landscape.md`, every other `<element id>.md`) and its whole text. */
 export interface MermaidPage {
@@ -121,15 +121,15 @@ function pageFile(elementId: string): string {
  */
 export function renderPageBody(view: View, scope: ShownElement | undefined): string {
   const ids = nodeIds(view.elements.map((element) => element.id));
+  const childrenOf = childrenByParent(view.elements);
 
   const lines: string[] = [];
   lines.push(scope === undefined ? '# Landscape' : `# ${markdownText(title(scope))} (${scope.kind})`, '', '```mermaid', STRAIGHT, 'flowchart LR');
-  const inside = view.elements.filter((element) => element.place === 'inside');
   if (scope === undefined) {
-    for (const element of inside) lines.push(`  ${node(element, ids)}`);
+    emitElements(lines, ids, childrenOf, undefined, '  ');
   } else {
     lines.push(`  subgraph ${ids.get(scope.id)} ["${mermaidText(title(scope))}"]`);
-    for (const element of inside) lines.push(`    ${node(element, ids)}`);
+    emitElements(lines, ids, childrenOf, scope.id, '    ');
     lines.push('  end');
   }
   for (const element of view.elements.filter((element) => element.place === 'neighbour')) lines.push(`  ${node(element, ids)}`);
@@ -141,6 +141,30 @@ export function renderPageBody(view: View, scope: ShownElement | undefined): str
   lines.push('```', '');
   if (view.arrows.length > 0) lines.push(...arrowTable(view), '');
   return lines.join('\n');
+}
+
+/**
+ * The elements under `parent` drawn — the landscape's parent-less ones, or
+ * the asked element's own subtree: an element whose own children are shown
+ * is a frame around them (views/one-view, a depth above 1), the others
+ * keep their own shapes.
+ */
+function emitElements(
+  lines: string[],
+  ids: ReadonlyMap<string, string>,
+  childrenOf: ReadonlyMap<string | undefined, readonly ShownElement[]>,
+  parent: string | undefined,
+  indent: string,
+): void {
+  for (const element of childrenOf.get(parent) ?? []) {
+    if (!childrenOf.has(element.id)) {
+      lines.push(`${indent}${node(element, ids)}`);
+      continue;
+    }
+    lines.push(`${indent}subgraph ${ids.get(element.id)} ["${mermaidText(title(element))}"]`);
+    emitElements(lines, ids, childrenOf, element.id, `${indent}  `);
+    lines.push(`${indent}end`);
+  }
 }
 
 /** `scope` is the view's own element, left out for the landscape. */

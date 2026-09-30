@@ -17,7 +17,7 @@ import { buildView, type View, type ViewSetError } from './view-set.js';
 export interface OneViewRequest {
   /** The element the view is of; left out, the landscape. */
   element?: string;
-  /** How many levels deep from the element to draw; 1 by default. A depth above 1 is refused until nested frames are rendered. */
+  /** How many levels deep from the element to draw; 1 by default. */
   depth?: number;
 }
 
@@ -66,15 +66,17 @@ function asked(
   at: QueryTime | undefined,
 ): { view?: View; errors: OneViewError[] } {
   const depth = request.depth ?? DEFAULT_DEPTH;
-  if (depth < 1 || depth > 1) {
+  if (!Number.isInteger(depth) || depth < 1) {
     const error: OneViewError = {
-      message: depth < 1 ? `the depth ${depth} is below 1: the smallest depth rendered is 1` : `the depth ${depth} is not rendered yet: only depth 1 is`,
+      message: Number.isInteger(depth)
+        ? `the depth ${depth} is below 1: the smallest depth rendered is 1`
+        : `the depth ${depth} is not a whole number: the depth is how many levels to draw`,
       depth,
     };
     if (request.element !== undefined) error.element = request.element;
     return { errors: [error] };
   }
-  const built = buildView(engine, model, request.element, at);
+  const built = buildView(engine, model, request.element, at, depth);
   return { view: built.view, errors: built.errors.map(asOneViewError) };
 }
 
@@ -93,8 +95,8 @@ function asOneViewError(error: ViewSetError | LikeC4Error): OneViewError {
  * it without its links to other pages — the heading, the flowchart and the
  * table of arrows, whose targets are not in the reader's document — so
  * what the renderer already proved readable on GitHub is what the caller
- * gets. Every error is collected, and a page with any error is not
- * returned at all.
+ * gets; at a greater depth, the same page with the deeper frames. Every
+ * error is collected, and a page with any error is not returned at all.
  */
 export function renderOneViewMermaid(engine: QueryEngine, model: CompiledModel, request: OneViewRequest, at?: QueryTime): OneViewMermaidResult {
   const { view, errors } = asked(request, engine, model, at);
