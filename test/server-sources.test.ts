@@ -85,7 +85,33 @@ describe('source names become file names', () => {
     sources.close();
 
     expect(existsSync(join(dir, 'a%2Fb.sqlite'))).toBe(true);
-    expect(existsSync(join(dir, 'a%252Fb.sqlite'))).toBe(true);
+    expect(existsSync(join(dir, 'a%252%46b.sqlite'))).toBe(true);
+  });
+
+  test('two names that differ only in case get file names that differ lower-cased, so one file cannot shadow the other', () => {
+    const dir = scratchFolder();
+    const clock = fakeClock(DAY(2));
+    const sources = createSourceStores({ dataFolder: dir, clock });
+
+    sources.store(storeInput('Acme/Shop', 'c1', DAY(1), [element('a')]));
+    sources.store(storeInput('acme/shop', 'c1', DAY(1), [element('a')]));
+    sources.close();
+
+    // The upper-case letters are percent-encoded, so both stems hold only
+    // lower-case letters, digits and escapes: a case-insensitive file
+    // system still sees two different names.
+    expect(existsSync(join(dir, '%41cme%2F%53hop.sqlite'))).toBe(true);
+    expect(existsSync(join(dir, '%41cme%2F%53hop.json'))).toBe(true);
+    expect(existsSync(join(dir, 'acme%2Fshop.sqlite'))).toBe(true);
+    expect(existsSync(join(dir, 'acme%2Fshop.json'))).toBe(true);
+    expect('%41cme%2F%53hop'.toLowerCase()).not.toBe('acme%2Fshop');
+  });
+
+  test('a file name carrying a raw upper-case letter was not written by this server and is refused', () => {
+    const dir = scratchFolder();
+    writeFileSync(join(dir, 'Acme%2FShop.sqlite'), '');
+    writeFileSync(join(dir, 'Acme%2FShop.json'), JSON.stringify({ source: 'Acme/Shop', commit: 'c1', committedAt: 1, storedAt: 2 }));
+    expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).toThrow(/Acme%2FShop\.json/);
   });
 });
 

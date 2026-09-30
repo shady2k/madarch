@@ -7,9 +7,12 @@
  * file's source and `GET /sources` can answer without opening a history.
  *
  * The file name is derived by percent-encoding every byte the file system
- * should not see; the encoding is injective (two sources never share a
- * file, `a/b` and `a%2Fb` included) and reversible, but the sidecar, not
- * the name, is what a restart reads the source's identity from.
+ * should not see — the upper-case letters included, so a file name never
+ * depends on letter case and two names that differ only in case never
+ * share one file on a case-insensitive volume. The encoding is injective
+ * (two sources never share a file, `a/b` and `a%2Fb` included) and
+ * reversible, but the sidecar, not the name, is what a restart reads the
+ * source's identity from.
  *
  * The folder is the server's own store: at start, every `<stem>.json` must
  * have its `<stem>.sqlite` beside it and the other way round, every
@@ -31,8 +34,8 @@ import { createSqliteHistory } from '../adapters/sqlite-history.js';
 import type { Clock, HistoryStore, StoreInput, StoreResult } from '../history/types.js';
 import { byCodePoint } from '../model/order.js';
 
-/** The bytes that may appear in a file name as they are: unreserved in RFC 3986, minus `~` (kept out on purpose; it encodes fine). */
-const UNRESERVED = /^[A-Za-z0-9._-]$/;
+/** The bytes that may appear in a file name as they are: the lower-case unreserved bytes of RFC 3986 minus `~` (kept out on purpose; it encodes fine). Upper-case letters encode too, so a stem never depends on case; a stem holding a raw upper-case letter, or a lower-case `%xx` escape, was not written by this server. */
+const UNRESERVED = /^[a-z0-9._-]$/;
 
 /**
  * The longest encoded file-name stem the server accepts, in bytes: three
