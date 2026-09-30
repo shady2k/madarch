@@ -448,14 +448,14 @@ describe('scripts/wiki.ts', () => {
     // component of the element with a view below links to that page, and
     // the element's own page does not link to itself.
     const page = readFileSync(join(out, 'source', 'docs', 'assets', 'archify', 'ordering.html'), 'utf8');
-    expect(page).toContain('data-node-id="ordering__checkout-api"');
-    expect(page).toContain('<a href="checkout-api.html" data-wiki-view="ordering__checkout-api">');
+    expect(page).toContain('data-node-id="cordering_dcheckout-api"');
+    expect(page).toContain('<a href="checkout-api.html" data-wiki-view="cordering_dcheckout-api">');
     // The Checkout page links the elements of its own that carry views
     // (storefront, catalog, payments, ...), but never the view's own
     // scope element: that would lead back to the same page.
     const ownPage = readFileSync(join(out, 'source', 'docs', 'assets', 'archify', 'checkout-api.html'), 'utf8');
-    expect(ownPage).toContain('data-wiki-view="storefront"');
-    expect(ownPage).not.toContain('data-wiki-view="ordering__checkout-api"');
+    expect(ownPage).toContain('data-wiki-view="cstorefront"');
+    expect(ownPage).not.toContain('data-wiki-view="cordering_dcheckout-api"');
   }, { timeout: 60_000 });
 
   test('an unknown MADARCH_WIKI_DIAGRAM exits 2 naming the value and the three allowed, and writes nothing', () => {

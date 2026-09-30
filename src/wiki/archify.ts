@@ -38,12 +38,16 @@ const ICON_BY_KIND: Record<string, string> = { person: 'person' };
 /**
  * The id a node carries in the archify document and on its rendered
  * component: LikeC4's dotted full name is not a legal archify id
- * (`^[a-zA-Z][a-zA-Z0-9_-]*$`), so every dot becomes a double
- * underscore — injective, because a madarch identifier never holds a
- * dot or a double underscore inside a segment.
+ * (`^[a-zA-Z][a-zA-Z0-9_-]*$`), so it is respelled injectively — every
+ * `_` doubles and every dot becomes `_d`, two codes neither of which
+ * begins the other, so no two names the model's id schema allows can
+ * collide (`a.b`, `a__b` and `a_b` come out three different ids) — and
+ * the whole id takes the leading `c` the schema's leading letter asks
+ * for: a LikeC4 identifier spells a digit-leading madarch id with a
+ * leading `_`, which may not stand first here.
  */
 export function componentId(fqn: string): string {
-  return fqn.replaceAll('.', '__');
+  return `c${fqn.replaceAll('_', '__').replaceAll('.', '_d')}`;
 }
 
 /** One node of the layouted view, exactly what the builder reads off it. */
