@@ -378,6 +378,15 @@ export function navTree(pages: readonly AnyWikiPage[]): readonly NavSection[] {
 }
 
 /**
+ * A rewritten URL as a Markdown link destination: in angle brackets when
+ * a bare destination could not carry it — a space, a parenthesis, a
+ * bracket — bare where a bare destination carries it.
+ */
+function urlDestination(url: string): string {
+  return /[ \t()<>\u0000-\u001f]/.test(url) ? `<${url}>` : url;
+}
+
+/**
  * One document page's body: the document's Markdown with every resolved
  * link's target rewritten to where the writer serves it — another page by
  * `links.pathOf`, its anchor slugged by `links.slugOf`, an image at the
@@ -407,7 +416,7 @@ export function renderDocumentBody(page: WikiDocumentPage, links: WriterLinks): 
   const edits: { start: number; end: number; text: string }[] = [];
   for (const occurrence of scan.links) {
     const url = urlOf.get(occurrence.written);
-    if (url !== undefined) edits.push({ start: occurrence.start, end: occurrence.end, text: url });
+    if (url !== undefined) edits.push({ start: occurrence.start, end: occurrence.end, text: urlDestination(url) });
   }
   for (const block of scan.mermaid) {
     edits.push({ start: block.start, end: block.end, text: `<div class="mermaid">\n${htmlText(block.source)}\n</div>` });

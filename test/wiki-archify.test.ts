@@ -39,9 +39,9 @@ describe('src/wiki/archify.ts', () => {
   test('a component per leaf node, at LikeC4 position and size, kinds mapped, sorted by id', () => {
     const document = archifyDocument(checkout, { output: 'assets/archify/ordering.html' });
     expect(document.components).toEqual([
-      { id: 'ordering__cart-cache', type: 'database', label: 'Cart cache', sublabel: 'store', pos: [2520, 655], size: [320, 180] },
-      { id: 'ordering__checkout-api', type: 'backend', label: 'Checkout', sublabel: 'service', pos: [2520, 332], size: [320, 180] },
-      { id: 'storefront', type: 'external', label: 'Storefront', sublabel: 'domain', pos: [3626, 0], size: [320, 180] },
+      { id: 'cordering_dcart-cache', type: 'database', label: 'Cart cache', sublabel: 'store', pos: [2520, 655], size: [320, 180] },
+      { id: 'cordering_dcheckout-api', type: 'backend', label: 'Checkout', sublabel: 'service', pos: [2520, 332], size: [320, 180] },
+      { id: 'cstorefront', type: 'external', label: 'Storefront', sublabel: 'domain', pos: [3626, 0], size: [320, 180] },
     ]);
   });
 
@@ -66,15 +66,24 @@ describe('src/wiki/archify.ts', () => {
     }
   });
 
-  test('component ids stay injective when dots become double underscores', () => {
-    expect(componentId('ordering.checkout-api')).toBe('ordering__checkout-api');
-    expect(componentId('ordering_checkout-api')).toBe('ordering_checkout-api');
-    expect(componentId('a.b')).not.toBe(componentId('a_b'));
+  test('component ids stay distinct and legal archify ids for every pair of ids the model allows', () => {
+    expect(componentId('ordering.checkout-api')).toBe('cordering_dcheckout-api');
+    expect(componentId('ordering_checkout-api')).toBe('cordering__checkout-api');
+    expect(componentId('storefront')).toBe('cstorefront');
+    // Every pair the id schema allows stays distinct — `a.b` against
+    // `a__b` (the collision the old dot-to-underscore rule had), `a_b`
+    // against `a-b`, and a leading underscore LikeC4 spells a
+    // digit-leading id with — and every id stays within the archify
+    // schema's `^[a-zA-Z][a-zA-Z0-9_-]*$`.
+    const fqns = ['a.b', 'a__b', 'a_b', 'a-b', 'a.b_c', 'a_b.c', '_3d', '3d', 'a._b', 'ab.c', 'ab__c', 'x'];
+    const ids = fqns.map(componentId);
+    for (const id of ids) expect(id).toMatch(/^[a-zA-Z][a-zA-Z0-9_-]*$/);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   test('a boundary per group node, wrapping every leaf beneath it — the group itself is no component', () => {
     const document = archifyDocument(checkout, { output: 'assets/archify/ordering.html' });
-    expect(document.boundaries).toEqual([{ kind: 'region', label: 'Ordering', wraps: ['ordering__cart-cache', 'ordering__checkout-api'] }]);
+    expect(document.boundaries).toEqual([{ kind: 'region', label: 'Ordering', wraps: ['cordering_dcart-cache', 'cordering_dcheckout-api'] }]);
     expect(document.components.map((component) => component.id)).not.toContain('ordering');
   });
 
@@ -94,17 +103,17 @@ describe('src/wiki/archify.ts', () => {
       { output: 'v.html' },
     );
     expect(document.boundaries).toEqual([
-      { kind: 'region', label: 'Inner', wraps: ['outer__inner__leaf'] },
-      { kind: 'region', label: 'Outer', wraps: ['outer__inner__leaf', 'outer__side'] },
+      { kind: 'region', label: 'Inner', wraps: ['couter_dinner_dleaf'] },
+      { kind: 'region', label: 'Outer', wraps: ['couter_dinner_dleaf', 'couter_dside'] },
     ]);
-    expect(document.components.map((component) => component.id).sort()).toEqual(['outer__inner__leaf', 'outer__side']);
+    expect(document.components.map((component) => component.id).sort()).toEqual(['couter_dinner_dleaf', 'couter_dside']);
   });
 
   test('a connection per edge, endpoints remapped, its label only when the layout carries one', () => {
     const document = archifyDocument(checkout, { output: 'assets/archify/ordering.html' });
     expect(document.connections).toEqual([
-      { from: 'ordering__checkout-api', to: 'ordering__cart-cache' },
-      { from: 'storefront', to: 'ordering__checkout-api', label: 'checks out the cart' },
+      { from: 'cordering_dcheckout-api', to: 'cordering_dcart-cache' },
+      { from: 'cstorefront', to: 'cordering_dcheckout-api', label: 'checks out the cart' },
     ]);
   });
 
@@ -175,7 +184,7 @@ describe('src/wiki/archify.ts', () => {
       expect(run.stderr).toBe('');
       const html = readFileSync(output, 'utf8');
       expect(html).toContain('<svg');
-      expect(html).toContain('data-node-id="ordering__checkout-api"');
+      expect(html).toContain('data-node-id="cordering_dcheckout-api"');
       expect(html).not.toContain('data-node-id="ordering"');
     } finally {
       rmSync(folder, { recursive: true, force: true });
@@ -240,7 +249,7 @@ describe('src/wiki/archify.ts', () => {
       },
       { output: 'v.html' },
     );
-    expect(document.connections).toEqual([{ from: 'a', to: 'b', label: 'syncs', labelAt: [480, 24] }]);
+    expect(document.connections).toEqual([{ from: 'ca', to: 'cb', label: 'syncs', labelAt: [480, 24] }]);
   });
 
   test('connections sharing one endpoint sort by the other, then by label', () => {
@@ -265,9 +274,9 @@ describe('src/wiki/archify.ts', () => {
       { output: 'v.html' },
     );
     expect(document.connections).toEqual([
-      { from: 'hub', to: 'x', label: 'aaa' },
-      { from: 'hub', to: 'x', label: 'same' },
-      { from: 'hub', to: 'y', label: 'same' },
+      { from: 'chub', to: 'cx', label: 'aaa' },
+      { from: 'chub', to: 'cx', label: 'same' },
+      { from: 'chub', to: 'cy', label: 'same' },
     ]);
     // An unlabeled edge ties as the empty label: before any labeled one
     // on the same ends, whatever order the layout listed them in — three
@@ -286,9 +295,9 @@ describe('src/wiki/archify.ts', () => {
       { output: 'v.html' },
     );
     expect(mixed.connections).toEqual([
-      { from: 'hub', to: 'x' },
-      { from: 'hub', to: 'x', label: 'A' },
-      { from: 'hub', to: 'x', label: 'B' },
+      { from: 'chub', to: 'cx' },
+      { from: 'chub', to: 'cx', label: 'A' },
+      { from: 'chub', to: 'cx', label: 'B' },
     ]);
   });
 
@@ -324,7 +333,7 @@ describe('src/wiki/archify.ts', () => {
       },
       { output: 'v.html' },
     );
-    expect(document.connections).toEqual([{ from: 'a', to: 'b' }]);
+    expect(document.connections).toEqual([{ from: 'ca', to: 'cb' }]);
   });
 
   test('a whitespace-only label is refused naming the node', () => {

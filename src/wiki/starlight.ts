@@ -67,6 +67,36 @@ export function pageRoute(id: string): string {
   return `/${path}/`;
 }
 
+/** One route two or more documents would be served at, with their repository paths. */
+export interface CollidingDocumentRoute {
+  /** The route, root-relative, both documents would share. */
+  readonly route: string;
+  /** The documents' repository paths, sorted by code point. */
+  readonly paths: readonly string[];
+}
+
+/**
+ * The document routes more than one document would be served at: the
+ * engine's loader slugs every path segment (lowercased, punctuation
+ * gone) and drops a trailing `index`, so distinct files — `docs/A.md`
+ * and `docs/a.md`, `docs/a b.md` and `docs/a-b.md`, `docs.md` and
+ * `docs/index.md` — can spell one route. Sorted by route; every group's
+ * paths sorted by code point.
+ */
+export function collidingDocumentRoutes(pages: readonly AnyWikiPage[]): readonly CollidingDocumentRoute[] {
+  const paths = new Map<string, string[]>();
+  for (const page of pages) {
+    if (!isDocumentPage(page)) continue;
+    const repositoryPath = `${page.id.slice('document/'.length)}.md`;
+    const route = pageRoute(page.id);
+    paths.set(route, [...(paths.get(route) ?? []), repositoryPath]);
+  }
+  return [...paths]
+    .filter(([, group]) => group.length > 1)
+    .map(([route, group]) => ({ route, paths: [...group].sort(byCodePoint) }))
+    .sort((a, b) => byCodePoint(a.route, b.route));
+}
+
 /** Where a Starlight link points and how its anchors are spelled. */
 export const starlightLinks: WriterLinks = {
   pathOf: pageRoute,
@@ -104,13 +134,14 @@ function frontmatter(page: AnyWikiPage): string {
 }
 
 /**
- * The body's own first-level title: the engine renders the frontmatter
- * title as the page heading already, and the same text again as the body's
- * first `# heading` would name every page twice. Only a leading level-1
- * heading matches — a body opening `## deeper` keeps its line, and a
- * level-1 heading after content is content.
+ * The body's own title: the engine renders the frontmatter title as the
+ * page heading already, and the same text again as the body's first
+ * heading would name every page twice. The title is the document's first
+ * heading, at the level the document wrote it — level 1 or deeper — so a
+ * leading heading of any level goes, its blank line with it. Only a
+ * leading heading matches: a heading after content is content.
  */
-const LEADING_TITLE = /^#[ \t]+[^\n]*\n(?:[ \t]*\n)?/;
+const LEADING_TITLE = /^ {0,3}#{1,6}(?:[ \t]+[^\n]*)?\n(?:[ \t]*\n)?/;
 
 /** Where the diagram tabs' module finds the Mermaid runtime the build ships: beside it under public/. */
 const MERMAID_IMPORT = './assets/mermaid/mermaid.esm.min.mjs';

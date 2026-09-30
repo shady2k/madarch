@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { cleanStarlightSource, ensureStarlightInstall, linkStarlightNodeModules, STARLIGHT_TEMPLATE_DIR } from '../src/wiki/starlight.js';
 import type { WikiPage } from '../src/wiki/pages.js';
 import { preparePages, renderPageBody, type WikiDiagramAsset } from '../src/wiki/render.js';
-import { pageRoute, starlightLinks, starlightSidebar, starlightSlug, writeStarlightProject } from '../src/wiki/starlight.js';
+import { collidingDocumentRoutes, pageRoute, starlightLinks, starlightSidebar, starlightSlug, writeStarlightProject } from '../src/wiki/starlight.js';
 import { wikiCacheRoot } from '../src/wiki/cache.js';
 
 /**
@@ -98,6 +98,30 @@ describe('pageRoute', () => {
     expect(pageRoute('document/README')).toBe('/documents/readme/');
     expect(pageRoute('document/docs/architecture')).toBe('/documents/docs/architecture/');
     expect(pageRoute('document/docs/index')).toBe('/documents/docs/');
+  });
+});
+
+describe('collidingDocumentRoutes', () => {
+  /** A document page standing for a repository file at `path` (with the .md). */
+  const document = (path: string): WikiPage =>
+    ({ id: `document/${path.replace(/\.md$/, '')}`, title: path, nav: ['Documents'], body: '', blocks: [], insertTitle: false, links: [] }) as unknown as WikiPage;
+
+  test('names the route each colliding pair would share, with both repository paths, sorted', () => {
+    // The pairs the slug rule itself collapses: case-folding, punctuation
+    // dropped (a space becomes a dash), and the trailing `index` a
+    // folder's own page is spelled without.
+    const collisions = collidingDocumentRoutes([document('docs/A.md'), document('docs/a.md'), document('docs/kept.md')]);
+    expect(collisions).toEqual([{ route: '/documents/docs/a/', paths: ['docs/A.md', 'docs/a.md'] }]);
+    expect(collidingDocumentRoutes([document('docs/a b.md'), document('docs/a-b.md')])).toEqual([
+      { route: '/documents/docs/a-b/', paths: ['docs/a b.md', 'docs/a-b.md'] },
+    ]);
+    expect(collidingDocumentRoutes([document('docs.md'), document('docs/index.md')])).toEqual([
+      { route: '/documents/docs/', paths: ['docs.md', 'docs/index.md'] },
+    ]);
+  });
+
+  test('distinct routes collide never, and the model pages are not documents', () => {
+    expect(collidingDocumentRoutes([document('docs/a.md'), document('docs/b.md'), ...PAGES])).toEqual([]);
   });
 });
 
@@ -467,6 +491,29 @@ describe('writeStarlightProject', () => {
     // engine still renders the title heading from it.
     const zones = readFileSync(join(dir, 'src', 'content', 'docs', 'zones.md'), 'utf8');
     expect(zones).toBe('---\ntitle: "Zones"\n---\n<span id="zones"></span>\n\n');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('a document whose first heading is not level one shows its title once and keeps one anchor', () => {
+    const deeper: WikiPage = {
+      id: 'document/docs/context',
+      title: 'Context',
+      nav: ['Documents', 'docs'],
+      body: '## Context\n\nThe context text.\n',
+      blocks: [],
+      insertTitle: false,
+      links: [],
+    } as unknown as WikiPage;
+    const dir = project();
+    writeStarlightProject([deeper], dir, OPTIONS);
+    const written = readFileSync(join(dir, 'src', 'content', 'docs', 'documents', 'docs', 'context.md'), 'utf8');
+    expect(written.startsWith('---\ntitle: "Context"\n---\n')).toBe(true);
+    // The engine renders the frontmatter title as the page's own heading;
+    // the body's `## Context` would name it twice and double the `context`
+    // anchor with the inserted one.
+    expect(written).not.toContain('## Context');
+    expect(written).toContain('The context text.');
+    expect(written.split('id="context"').length - 1).toBe(1);
     rmSync(dir, { recursive: true, force: true });
   });
 

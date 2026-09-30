@@ -448,14 +448,14 @@ describe('scripts/wiki.ts', () => {
     // component of the element with a view below links to that page, and
     // the element's own page does not link to itself.
     const page = readFileSync(join(out, 'source', 'docs', 'assets', 'archify', 'ordering.html'), 'utf8');
-    expect(page).toContain('data-node-id="ordering__checkout-api"');
-    expect(page).toContain('<a href="checkout-api.html" data-wiki-view="ordering__checkout-api">');
+    expect(page).toContain('data-node-id="cordering_dcheckout-api"');
+    expect(page).toContain('<a href="checkout-api.html" data-wiki-view="cordering_dcheckout-api">');
     // The Checkout page links the elements of its own that carry views
     // (storefront, catalog, payments, ...), but never the view's own
     // scope element: that would lead back to the same page.
     const ownPage = readFileSync(join(out, 'source', 'docs', 'assets', 'archify', 'checkout-api.html'), 'utf8');
-    expect(ownPage).toContain('data-wiki-view="storefront"');
-    expect(ownPage).not.toContain('data-wiki-view="ordering__checkout-api"');
+    expect(ownPage).toContain('data-wiki-view="cstorefront"');
+    expect(ownPage).not.toContain('data-wiki-view="cordering_dcheckout-api"');
   }, { timeout: 60_000 });
 
   test('an unknown MADARCH_WIKI_DIAGRAM exits 2 naming the value and the three allowed, and writes nothing', () => {
@@ -576,6 +576,31 @@ describe('scripts/wiki.ts', () => {
     expect(said).toContain('docs/guide.md');
     expect(said).toContain('docs/missing.md');
     expect(existsSync(join(out, 'source'))).toBe(false);
+  }, { timeout: 60_000 });
+
+  test('two documents one starlight route would serve are refused with exit 2, before anything is written', () => {
+    const root = tempFolder('madarch-wiki-routecoll-');
+    cpSync(DOCUMENTS_FIXTURE, root, { recursive: true });
+    writeFileSync(join(root, 'docs', 'A.md'), '# Uppercase\n');
+    writeFileSync(join(root, 'docs', 'a.md'), '# Lowercase\n');
+    const out = outFolder();
+    const run = runWiki([root, '--out', out, '--engine', 'starlight'], `${FAKE_BUN}:${process.env.PATH ?? ''}`, scriptCache());
+    expect(run.status).toBe(2);
+    const said = combined(run);
+    expect(said).toContain('docs/A.md and docs/a.md');
+    expect(said).toContain('/documents/docs/a/');
+    expect(existsSync(join(out, 'source'))).toBe(false);
+  }, { timeout: 60_000 });
+
+  test('the same repository builds under zensical, both documents keeping a page of their own', () => {
+    const root = tempFolder('madarch-wiki-routecoll-');
+    cpSync(DOCUMENTS_FIXTURE, root, { recursive: true });
+    writeFileSync(join(root, 'docs', 'A.md'), '# Uppercase\n');
+    writeFileSync(join(root, 'docs', 'a.md'), '# Lowercase\n');
+    const out = outFolder();
+    expect(runWiki([root, '--out', out]).status).toBe(0);
+    expect(existsSync(join(out, 'source', 'docs', 'documents', 'docs', 'A.md'))).toBe(true);
+    expect(existsSync(join(out, 'source', 'docs', 'documents', 'docs', 'a.md'))).toBe(true);
   }, { timeout: 60_000 });
 
   test('a document that is a symlink out of the repository is refused with exit 2, naming the file and where it points', () => {

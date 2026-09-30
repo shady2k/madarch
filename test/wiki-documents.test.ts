@@ -8,6 +8,7 @@ import { documentHeadings, documentImages, documentPages, DocumentLinkError, sca
 import { documentImageRoute } from '../src/wiki/pages-path.js';
 import { isDocumentPage, type AnyWikiPage, type WikiDocumentPage, type WikiPage } from '../src/wiki/pages.js';
 import { navTree, diagramModuleJs, renderDocumentBody, type WriterLinks } from '../src/wiki/render.js';
+import { starlightLinks } from '../src/wiki/starlight.js';
 
 /**
  * The repository's own documents as wiki pages (docs/changes/wiki/capabilities/wiki.md,
@@ -162,16 +163,27 @@ describe('documentPages', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(DocumentLinkError);
       const broken = (error as DocumentLinkError).broken;
-      expect(broken).toEqual([{ source: 'docs/guide.md', written: 'missing.md', target: 'docs/missing.md' }]);
+      expect(broken).toEqual([{ source: 'docs/guide.md', written: 'missing.md', target: 'docs/missing.md', line: 3 }]);
       expect((error as Error).message).toContain('docs/guide.md');
       expect((error as Error).message).toContain('docs/missing.md');
+    }
+  });
+
+  test('a broken link is named with its document, its line, the target as written and what fixes it', () => {
+    try {
+      documentsOf({ 'docs/guide.md': '# Guide\n\nText.\n\n[Missing](missing.md)\n' });
+      throw new Error('expected DocumentLinkError');
+    } catch (error) {
+      expect((error as Error).message).toContain(
+        'docs/guide.md:5: links to "missing.md" — docs/missing.md is not a page of this wiki; fix the link or add the document',
+      );
     }
   });
 
   test('a link outside README.md and docs/ is broken, never silently kept', () => {
     try {
       documentsOf({
-        'README.md': '# Read me\n\n[Licence](LICENSE), ![Badge](badge.png)\n',
+        'README.md': '# Read me\n\n[Licence](LICENSE)\n',
         'docs/a.md': '# A\n\n[App](../src/app.ts), [notes](notes.txt)\n',
         'badge.png': 'png bytes',
         'LICENSE': 'MIT',
@@ -181,13 +193,12 @@ describe('documentPages', () => {
       throw new Error('expected DocumentLinkError');
     } catch (error) {
       const broken = (error as DocumentLinkError).broken;
-      // Every one of them, sorted by code point of source, written, target:
-      // README's licence, then docs/a.md's two.
+      // Every one of them, sorted by document path, then line, then as
+      // written, each by code point: README's licence, then docs/a.md's two.
       expect(broken).toEqual([
-        { source: 'README.md', written: 'LICENSE', target: 'LICENSE' },
-        { source: 'README.md', written: 'badge.png', target: 'badge.png' },
-        { source: 'docs/a.md', written: '../src/app.ts', target: 'src/app.ts' },
-        { source: 'docs/a.md', written: 'notes.txt', target: 'docs/notes.txt' },
+        { source: 'README.md', written: 'LICENSE', target: 'LICENSE', line: 3 },
+        { source: 'docs/a.md', written: '../src/app.ts', target: 'src/app.ts', line: 3 },
+        { source: 'docs/a.md', written: 'notes.txt', target: 'docs/notes.txt', line: 3 },
       ]);
     }
   });
@@ -204,19 +215,122 @@ describe('documentPages', () => {
       documentsOf({ 'docs/a.md': '# A\n\n![gone](img/gone.png)\n' });
       throw new Error('expected DocumentLinkError');
     } catch (error) {
-      expect((error as DocumentLinkError).broken).toEqual([{ source: 'docs/a.md', written: 'img/gone.png', target: 'docs/img/gone.png' }]);
+      expect((error as DocumentLinkError).broken).toEqual([{ source: 'docs/a.md', written: 'img/gone.png', target: 'docs/img/gone.png', line: 3 }]);
     }
   });
 
-  test('external links, anchors and site-rooted links are left as written', () => {
+  test('a link with a title resolves the destination, the title riding along the rewrite', () => {
+    const pages = documentsOf({ 'docs/a.md': 'See [the decision](decisions/d.md "the decision") here.\n', 'docs/decisions/d.md': 'Decision.\n' });
+    expect(pageOf(pages, 'docs/a.md').links).toEqual([{ written: 'decisions/d.md', kind: 'page', pageId: 'document/docs/decisions/d' }]);
+    expect(renderDocumentBody(pageOf(pages, 'docs/a.md'), REWRITER)).toBe(
+      '# a\n\nSee [the decision](/document/docs/decisions/d/ "the decision") here.\n',
+    );
+    expect(renderDocumentBody(pageOf(pages, 'docs/a.md'), starlightLinks)).toBe(
+      '# a\n\nSee [the decision](/documents/docs/decisions/d/ "the decision") here.\n',
+    );
+  });
+
+  test('an angle-bracket destination resolves, its brackets kept or retaken as the URL needs', () => {
+    const pages = documentsOf({ 'docs/a.md': 'See [the page](<b c.md>) and ![Logo](<img/my logo.png>).\n', 'docs/b c.md': 'B.\n', 'docs/img/my logo.png': 'png' });
+    expect(pageOf(pages, 'docs/a.md').links).toEqual([
+      { written: 'b c.md', kind: 'page', pageId: 'document/docs/b c' },
+      { written: 'img/my logo.png', kind: 'image', filePath: 'docs/img/my logo.png' },
+    ]);
+    // A URL a bare destination could not carry — it holds a space — goes
+    // back inside angle brackets, on both writers; one a bare destination
+    // carries stays bare.
+    expect(renderDocumentBody(pageOf(pages, 'docs/a.md'), REWRITER)).toBe(
+      '# a\n\nSee [the page](</document/docs/b c/>) and ![Logo](</assets/documents/docs/img/my logo.png>).\n',
+    );
+    expect(renderDocumentBody(pageOf(pages, 'docs/a.md'), starlightLinks)).toBe(
+      '# a\n\nSee [the page](/documents/docs/b-c/) and ![Logo](</assets/documents/docs/img/my logo.png>).\n',
+    );
+  });
+
+  test('a reference-style link resolves at its definition, the use left to the engine', () => {
+    const body = 'See [the decision][d1] and ![Logo][logo].\n\n[d1]: decisions/d.md\n[logo]: img/overview.png\n';
+    const pages = documentsOf({ 'docs/a.md': body, 'docs/decisions/d.md': 'D.\n', 'docs/img/overview.png': 'png' });
+    expect(pageOf(pages, 'docs/a.md').links).toEqual([
+      { written: 'decisions/d.md', kind: 'page', pageId: 'document/docs/decisions/d' },
+      { written: 'img/overview.png', kind: 'image', filePath: 'docs/img/overview.png' },
+    ]);
+    expect(documentImages(pages)).toEqual(['docs/img/overview.png']);
+    // The definition's destination is what the engines render the use
+    // from: rewritten there, the uses stand as written.
+    expect(renderDocumentBody(pageOf(pages, 'docs/a.md'), REWRITER)).toBe(
+      '# a\n\nSee [the decision][d1] and ![Logo][logo].\n\n[d1]: /document/docs/decisions/d/\n[logo]: /assets/documents/docs/img/overview.png\n',
+    );
+    expect(renderDocumentBody(pageOf(pages, 'docs/a.md'), starlightLinks)).toBe(
+      '# a\n\nSee [the decision][d1] and ![Logo][logo].\n\n[d1]: /documents/docs/decisions/d/\n[logo]: /assets/documents/docs/img/overview.png\n',
+    );
+  });
+
+  test('a reference definition to a missing document is broken at the definition line', () => {
+    try {
+      documentsOf({ 'docs/a.md': 'Text.\n\n[x][ref]\n\n[ref]: missing.md\n' });
+      throw new Error('expected DocumentLinkError');
+    } catch (error) {
+      expect((error as DocumentLinkError).broken).toEqual([{ source: 'docs/a.md', written: 'missing.md', target: 'docs/missing.md', line: 5 }]);
+    }
+  });
+
+  test('a root-relative link names a repository path from the root', () => {
     const pages = documentsOf({
-      'docs/a.md': '# A\n\n[Site](https://example.com), [Mail](mailto:a@b.c), [Here](#a), [Rooted](/x.png), [Other](//host/x)\n',
+      'README.md': '# Read me\n\n[Guide](/docs/guide.md), ![Logo](/logo.png)\n',
+      'docs/guide.md': 'Guide.\n',
+      'docs/a.md': '# A\n\n[Guide](/docs/guide.md)\n',
+      'logo.png': 'png bytes',
+    });
+    expect(pageOf(pages, 'README.md').links).toEqual([
+      { written: '/docs/guide.md', kind: 'page', pageId: 'document/docs/guide' },
+      { written: '/logo.png', kind: 'image', filePath: 'logo.png' },
+    ]);
+    // From a document in a folder, too: `/docs/guide.md` names
+    // `docs/guide.md` from the root, wherever the link's document sits.
+    expect(pageOf(pages, 'docs/a.md').links).toEqual([{ written: '/docs/guide.md', kind: 'page', pageId: 'document/docs/guide' }]);
+    expect(documentImages(pages)).toEqual(['logo.png']);
+  });
+
+  test('an image anywhere inside the repository is copied: the README logo beside the model', () => {
+    const pages = documentsOf({ 'README.md': '# Read me\n\n![logo](logo.png)\n', 'logo.png': 'png bytes' });
+    expect(pageOf(pages, 'README.md').links).toEqual([{ written: 'logo.png', kind: 'image', filePath: 'logo.png' }]);
+    expect(documentImages(pages)).toEqual(['logo.png']);
+  });
+
+  test('an empty destination is kept, for the built-site link check to judge', () => {
+    const pages = documentsOf({ 'docs/a.md': '# A\n\n[Here]()\n' });
+    expect(pageOf(pages, 'docs/a.md').links).toEqual([{ written: '', kind: 'keep' }]);
+  });
+
+  test('broken links of one document are named in line order', () => {
+    try {
+      documentsOf({ 'docs/a.md': '# A\n\n[First](first-gone.md)\n\nText.\n\n[Second](second-gone.md)\n' });
+      throw new Error('expected DocumentLinkError');
+    } catch (error) {
+      expect((error as DocumentLinkError).broken).toEqual([
+        { source: 'docs/a.md', written: 'first-gone.md', target: 'docs/first-gone.md', line: 3 },
+        { source: 'docs/a.md', written: 'second-gone.md', target: 'docs/second-gone.md', line: 7 },
+      ]);
+    }
+  });
+
+  test('an image link that leaves the repository is broken, never copied', () => {
+    try {
+      documentsOf({ 'docs/a.md': '# A\n\n![x](../../evil.png)\n', 'evil.png': 'png' });
+      throw new Error('expected DocumentLinkError');
+    } catch (error) {
+      expect((error as DocumentLinkError).broken).toEqual([{ source: 'docs/a.md', written: '../../evil.png', target: '../evil.png', line: 3 }]);
+    }
+  });
+
+  test('external links, anchors and protocol-relative links are left as written', () => {
+    const pages = documentsOf({
+      'docs/a.md': '# A\n\n[Site](https://example.com), [Mail](mailto:a@b.c), [Here](#a), [Other](//host/x)\n',
     });
     expect(pageOf(pages, 'docs/a.md').links).toEqual([
       { written: 'https://example.com', kind: 'keep' },
       { written: 'mailto:a@b.c', kind: 'keep' },
       { written: '#a', kind: 'keep' },
-      { written: '/x.png', kind: 'keep' },
       { written: '//host/x', kind: 'keep' },
     ]);
   });
@@ -364,6 +478,19 @@ describe('scanDocument', () => {
     expect(body.slice(scan2.links[1]!.start, scan2.links[1]!.end)).toBe('y.png');
   });
 
+  test('a title is no part of the destination, and an angle destination spans its brackets', () => {
+    const body = '[a](b.md "t") ![c](<d e.md>)\n';
+    const scan = scanDocument(body);
+    expect(scan.links.map((link) => link.written)).toEqual(['b.md', 'd e.md']);
+    expect(body.slice(scan.links[0]!.start, scan.links[0]!.end)).toBe('b.md');
+    expect(body.slice(scan.links[1]!.start, scan.links[1]!.end)).toBe('<d e.md>');
+  });
+
+  test('a link reference definition is an occurrence with its line, a use is none', () => {
+    const scan = scanDocument('[text][ref]\n\n[ref]: b.md\n');
+    expect(scan.links.map((link) => [link.written, link.line])).toEqual([['b.md', 3]]);
+  });
+
   test('documentHeadings adds the inserted title line to the body\'s own headings', () => {
     const [page] = documentPages(writeRepo({ 'docs/a.md': 'Body only.\n' }));
     expect(documentHeadings(page!)).toEqual(['a']);
@@ -379,7 +506,7 @@ describe('renderDocumentBody', () => {
   });
 
   test('a document link is rewritten to the writer\'s path, its anchor slugged', () => {
-    expect(rewrite('See [the decision](decisions/0001-x.md#More detail) here.\n', { 'docs/decisions/0001-x.md': 'Decision.\n' })).toBe(
+    expect(rewrite('See [the decision](<decisions/0001-x.md#More detail>) here.\n', { 'docs/decisions/0001-x.md': 'Decision.\n' })).toBe(
       '# doc\n\nSee [the decision](/document/docs/decisions/0001-x/#more-detail) here.\n',
     );
   });
