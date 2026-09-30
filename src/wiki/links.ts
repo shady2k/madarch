@@ -128,23 +128,69 @@ function decodePercent(value: string): string {
 }
 
 /**
- * What `link` on `page` misses, if anything: a file that is not among the
+ * The named character references a link's value can carry and still be
+ * read as itself: the spec's names for ASCII punctuation — the characters
+ * a scheme or a path separator could hide — and the common prose ones.
+ * A name outside the table stands as written, judged literally, as the
+ * checker has always judged it.
+ */
+const NAMED_ENTITY: Record<string, string> = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+  excl: '!', num: '#', dollar: '$', percnt: '%', lpar: '(', rpar: ')', ast: '*', midast: '*', plus: '+', comma: ',',
+  period: '.', sol: '/', colon: ':', semi: ';', equals: '=', quest: '?', commat: '@', lbrack: '[', bsol: '\\',
+  rbrack: ']', Hat: '^', lowbar: '_', UnderBar: '_', grave: '`', DiacriticalGrave: '`', lbrace: '{', lcub: '{',
+  rbrace: '}', rcub: '}', verbar: '|', vert: '|', VerticalLine: '|', NewLine: '\n', Tab: '\t',
+  copy: '©', reg: '®', trade: '™', mdash: '—', ndash: '–', hellip: '…', lsquo: '‘', rsquo: '’', ldquo: '“',
+  rdquo: '”', laquo: '«', raquo: '»', times: '×', divide: '÷', plusmn: '±', deg: '°', middot: '·', sect: '§',
+  para: '¶', bull: '•', dagger: '†', Dagger: '‡', permil: '‰', prime: '′', Prime: '″', euro: '€', pound: '£',
+  yen: '¥', cent: '¢', larr: '←', rarr: '→', uarr: '↑', darr: '↓', harr: '↔',
+};
+
+/**
+ * The value of a `href`/`src` as the reader's browser reads it: every
+ * character reference — named, `&#decimal;` or `&#xhex;` — replaced by
+ * its character, a reference no rule decodes standing as written, and a
+ * reference resolving to a surrogate or beyond Unicode's range standing
+ * as written too. The percent-decoding of paths and anchors happens
+ * after this, the way a browser reads an attribute before its URL.
+ */
+function decodeEntities(value: string): string {
+  if (!value.includes('&')) return value;
+  return value.replace(/&(#[0-9]+|#[xX][0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/g, (whole, body: string) => {
+    if (body.charCodeAt(0) === 35 /* # */) {
+      const code = body[1] === 'x' || body[1] === 'X' ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
+      return code >= 0x110000 || (code >= 0xd800 && code < 0xe000) ? whole : String.fromCodePoint(code);
+    }
+    return NAMED_ENTITY[body] ?? whole;
+  });
+}
+
+/**
+ * What `written` on `page` misses, if anything, judged as the reader's
+ * browser reads the attribute value: character references decoded first,
+ * then the path and anchor percent-decoded. A file that is not among the
  * site's files (a directory link lands on its `index.html`), or an anchor
- * that is not an id of the file it lands on. A link without a path is a
- * self-reference and lands on the page itself.
+ * that is not an id of the file it lands on, is the miss; a link without
+ * a path is a self-reference and lands on the page itself. The report
+ * names the link as written, the way the page's HTML spells it.
  */
 function linkProblem(
   files: ReadonlyMap<string, string>,
   idsOf: (file: string) => ReadonlySet<string>,
   page: string,
-  link: string,
+  written: string,
 ): BrokenLink | undefined {
+  // The attribute value as the browser reads it: character references
+  // decoded, the tabs and line breaks a URL parser strips gone — an
+  // entity-encoded scheme is the scheme it spells, never a relative
+  // path of `&`-prefixed files.
+  const link = decodeEntities(written).replace(/[\t\n\r]/g, '');
   if (link === '' || link.startsWith('//') || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(link)) return undefined;
   const hash = link.indexOf('#');
   const anchor = hash < 0 ? '' : decodePercent(link.slice(hash + 1));
   const raw = (hash < 0 ? link : link.slice(0, hash)).split('?')[0]!;
   if (raw === '') {
-    return anchor !== '' && !idsOf(page).has(anchor) ? { page, link, problem: `no anchor "${anchor}" in "${page}"` } : undefined;
+    return anchor !== '' && !idsOf(page).has(anchor) ? { page, link: written, problem: `no anchor "${anchor}" in "${page}"` } : undefined;
   }
   const hadSlash = raw.endsWith('/');
   const path = decodePercent(raw);
@@ -154,8 +200,8 @@ function linkProblem(
   let target: string | undefined;
   if (files.has(first)) target = first;
   else if (!hadSlash && files.has(`${name}/index.html`)) target = `${name}/index.html`;
-  if (target === undefined) return { page, link, problem: `no file "${first}" in the site` };
-  if (anchor !== '' && !idsOf(target).has(anchor)) return { page, link, problem: `no anchor "${anchor}" in "${target}"` };
+  if (target === undefined) return { page, link: written, problem: `no file "${first}" in the site` };
+  if (anchor !== '' && !idsOf(target).has(anchor)) return { page, link: written, problem: `no anchor "${anchor}" in "${target}"` };
   return undefined;
 }
 
