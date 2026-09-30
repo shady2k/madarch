@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { createLadybugEngine, type AssertionRecord } from '../src/index.js';
+import { createLadybugEngine, executionThreadsForTests, type AssertionRecord } from '../src/index.js';
 
 const DAY = (day: number) => Date.UTC(2026, 8, day);
 
@@ -864,6 +864,46 @@ describe('the LadybugDB query engine', () => {
     // As of now (after the correction): legacy is known to have ended at day 10.
     const after = engine.children('shop', { valid: DAY(20), known: DAY(20), state: 'as-is' });
     expect(after.elements?.map((e) => e.id)).toEqual([]);
+
+    engine.close();
+  });
+
+  test('the connection runs with a small fixed number of execution threads (madarch-ti6.2)', () => {
+    // The Resources quality requirement's own lever, chosen by measurement
+    // (the task's and the long-run test's): a recursive query's native
+    // cost per execution thread dominates a long-lived engine's footprint,
+    // so the connection is built with a small fixed count instead of this
+    // build's default of one thread per core.
+    const engine = createLadybugEngine();
+    expect(executionThreadsForTests(engine)).toBe(2);
+    engine.close();
+  });
+
+  test('as-of: between the history\'s own times an answer is the answer at the latest history time at or before (madarch-ti6.2)', () => {
+    // The engine reduces a query's `valid`/`known` to the latest time in
+    // the model history at or before them — the only moments the answer
+    // can change — so the statement texts it prepares are bounded by the
+    // history's size. This pins the property that makes the reduction
+    // safe: a time between two of the history's own times answers exactly
+    // as the earlier of them does, on both axes.
+    const engine = createLadybugEngine();
+    engine.rebuild([
+      row('element', element('orders-api', 'service', [])),
+      row('element', element('event-bus', 'broker', [])),
+      // the dependency appears on day 3, and the record of it was only stored on day 4
+      row('relation', relation('orders-publishes', 'orders-api', 'event-bus'), { validFrom: DAY(3), recordedFrom: DAY(4) }),
+    ]);
+    const dependents = (valid: number, known: number) =>
+      engine.dependents('event-bus', { transitive: false }, { valid, known, state: 'as-is' }).elements?.map((e) => e.id);
+
+    const HALF_DAY = 12 * 60 * 60 * 1000;
+    expect(dependents(DAY(2), DAY(9))).toEqual([]);
+    expect(dependents(DAY(2) + HALF_DAY, DAY(9))).toEqual([]);
+    expect(dependents(DAY(3), DAY(9))).toEqual(['orders-api']);
+
+    expect(dependents(DAY(9), DAY(3))).toEqual([]);
+    expect(dependents(DAY(9), DAY(3) + HALF_DAY)).toEqual([]);
+    expect(dependents(DAY(9), DAY(4))).toEqual(['orders-api']);
 
     engine.close();
   });
