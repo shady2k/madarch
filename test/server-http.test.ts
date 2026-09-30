@@ -228,6 +228,18 @@ describe('POST /models', () => {
   });
 });
 
+describe('unknown request fields', () => {
+  test('a store request holding a field the server does not take is refused naming it and what is accepted', async () => {
+    start();
+    const response = await post('/models', { source: 'shop', format: 'mermaid', depht: 2, commit: 'c1', committedAt: '2026-09-01T12:00:00Z', model: model([element('a')]) });
+    expect(response.status).toBe(400);
+    const error = await errorOf(response);
+    expect(error.message).toContain('"depht"');
+    expect(error.message).toContain('"format"');
+    expect(error.message).toContain('accepted fields are source, commit, committedAt, model');
+  });
+
+});
 describe('two sources that both declare core', () => {
   test('both are stored, each in its own graph, and both are listed in code point order', async () => {
     start();
@@ -325,5 +337,16 @@ describe('the log', () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]!.includes('\n')).toBe(false);
     expect(lines[0]).toContain('source="a\\nb"');
+  });
+
+  test('a refusal about the model keeps its values out of the log line', async () => {
+    start();
+    lines = [];
+    const sent = model([element('a', { kind: 'secret-kind' })]);
+    const response = await post('/models', { source: 'shop', commit: 'c1', committedAt: '2026-09-01T12:00:00Z', model: sent });
+    expect(response.status).toBe(400);
+    expect((await errorOf(response)).message).toContain('secret-kind');
+    expect(lines.join('\n')).not.toContain('secret-kind');
+    expect(lines[0]).toContain('/elements/0/kind');
   });
 });

@@ -76,6 +76,12 @@ interface Refusal {
   message: string;
   field?: string;
   accepted?: string;
+  /**
+   * The same refusal as the log line may carry it — field paths, never
+   * model values. Left out, the message itself is safe to log: it quotes
+   * only request-field values, and no model content.
+   */
+  logMessage?: string;
 }
 
 /** What one route's handling produced, beside the answer itself: what the log line names. */
@@ -149,9 +155,10 @@ function createHandler(dependencies: {
     return Response.json(body, { status, headers });
   }
 
-  /** A refusal: the error body, the message kept for the log line. */
+  /** A refusal: the error body, the log-safe message kept for the log line — the log form never reaches the client. */
   function refused(status: number, error: Refusal, headers?: Record<string, string>): Handled {
-    return { response: json(status, { error }, headers), refusal: error.message };
+    const { logMessage, ...clientError } = error;
+    return { response: json(status, { error: clientError }, headers), refusal: logMessage ?? error.message };
   }
 
   /** Several collected problems joined into one refusal: the field named when they share one, what is accepted when one answer covers them. */
@@ -161,7 +168,7 @@ function createHandler(dependencies: {
     const accepteds = new Set(problems.map((problem) => problem.accepted).filter((accepted) => accepted !== undefined));
     if (fields.size === 1) error.field = [...fields][0];
     if (accepteds.size === 1) error.accepted = [...accepteds][0];
-    return refused(status, error);
+    return refused(status, { ...error, logMessage: problems.map((problem) => problem.logMessage ?? problem.message).join('; ') });
   }
 
   /** The parsed JSON body, or the refusal that replaces it: past the size limit, or not JSON at all. */
@@ -218,6 +225,11 @@ function createHandler(dependencies: {
       return { problems: [{ message: 'the body must be a JSON object naming source, commit, committedAt and model' }] };
     }
     const problems: Refusal[] = [];
+    for (const key of Object.keys(body).sort(byCodePoint)) {
+      if (key !== 'source' && key !== 'commit' && key !== 'committedAt' && key !== 'model') {
+        problems.push({ field: key, message: `"${key}" is not a field the server takes: accepted fields are source, commit, committedAt, model` });
+      }
+    }
 
     let source: string | undefined;
     if (!('source' in body) || body.source === undefined) {
@@ -265,7 +277,13 @@ function createHandler(dependencies: {
       } else if (!Value.Check(CompiledModelSchema, candidate)) {
         const details = schemaProblems(Value.Errors(CompiledModelSchema, candidate), candidate);
         const detailText = details.map((detail) => (detail.path === '' ? detail.message : `${detail.path}: ${detail.message}`)).join('; ');
-        problems.push({ field: 'model', message: `"model" does not match the compiled model's schema: ${detailText}` });
+        // The log line carries the field paths only: the model's own
+        // values stay in the answer to the client, never in the log.
+        problems.push({
+          field: 'model',
+          message: `"model" does not match the compiled model's schema: ${detailText}`,
+          logMessage: `"model" does not match the compiled model's schema: ${details.map((detail) => (detail.path === '' ? detail.message : detail.path)).join('; ')}`,
+        });
       } else {
         model = candidate;
       }
