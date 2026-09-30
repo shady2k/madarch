@@ -5,12 +5,15 @@ import { createLadybugEngine, preparedStatementCacheSizeForTests, type Assertion
  * B1's own repository test (stage3-fixes.md): 5 000 consecutive queries of
  * each kind on one engine, without failure or unbounded memory growth. An
  * unclosed `QueryResult` and a prepared statement rebuilt from scratch on
- * every call (this LadybugDB build never frees either on its own) exhausted
- * the fixed-size buffer pool within a few hundred calls before B1's fix
- * (tried and confirmed) — `close()`ing every result and caching prepared
- * statements by their exact query text keeps this bounded. Skipped when
- * `MADARCH_SKIP_PERF` is set, since 5 000 `view` calls (the heaviest of the
- * three) take real wall time; the test still reports what it measured.
+ * every call exhausted the fixed-size buffer pool within a few hundred
+ * calls before B1's fix (tried and confirmed) — an unclosed result holds
+ * its own slice of the pool until closed, and a dropped `PreparedStatement`
+ * is released only by the native finalizer, after a GC and an event-loop
+ * turn, so a synchronous loop of repreparations outruns it. `close()`ing
+ * every result and caching prepared statements by their exact query text
+ * keeps this bounded. Skipped when `MADARCH_SKIP_PERF` is set, since
+ * 5 000 `view` calls (the heaviest of the three) take real wall time; the
+ * test still reports what it measured.
  */
 
 const DAY = (day: number) => Date.UTC(2026, 8, day);
@@ -55,12 +58,15 @@ describe('B1: 5 000 consecutive queries of each kind answer without failure or u
 
       // Bounded, not unbounded: the original bug exhausted a 256 MiB pool
       // within a few hundred calls (over 1 MiB/call, every one of them a
-      // hard failure). What remains after B1's fix is a much smaller,
-      // roughly linear RSS creep — some native scratch this LadybugDB
-      // build does not hand back to the OS per call, observed here at
-      // tens of KB/call, not MB/call — bounded well under this margin and
-      // never once throwing across 15 000 calls, which is the bar this
-      // test actually holds it to.
+      // hard failure). What remains after B1's fix — and madarch-ti6.2's
+      // fixed small thread count (`LADYBUG_EXEC_THREADS`: the recursive
+      // query's native scratch costs memory per execution thread, so the
+      // default one-thread-per-core made this creep grow with the host's
+      // core count) — is a much smaller, roughly linear creep of native
+      // scratch this LadybugDB build does not hand back to the OS per
+      // call, measured here at a few KB/call, not MB/call — bounded well
+      // under this margin and never once throwing across 15 000 calls,
+      // which is the bar this test actually holds it to.
       const bytesPerCall = (endRss - startRss) / (iterations * 3);
       // eslint-disable-next-line no-console
       console.log(`B1 stability: ${iterations * 3} queries, RSS grew by ${Math.round((endRss - startRss) / 1e6)}MB (${Math.round(bytesPerCall)} bytes/call)`);
@@ -117,6 +123,53 @@ describe('B2: the prepared-statement cache stays bounded across many dependency 
       engine.close();
     },
     150_000,
+  );
+});
+
+/**
+ * madarch-ti6.2's half of the same story: the engine reduces a query's
+ * `valid`/`known` to the latest time in the model history at or before
+ * them (the only moments the answer can change), so the distinct
+ * `dependencyQuery` texts an advancing "now" can produce are bounded by
+ * the history's own times, not by the clock. Without the reduction, every
+ * call below builds a new text and the cache fills to its LRU limit; with
+ * it, the whole run touches a handful of statements — and this test fails
+ * if the reduction is ever lost.
+ */
+describe('ti6.2: an advancing "now" reuses one statement, bounded by the history\'s own times', () => {
+  test.skipIf(process.env['MADARCH_SKIP_PERF'] !== undefined)(
+    '2 000 dependents() calls at 2 000 distinct times past the last history boundary build at most a handful of statements',
+    () => {
+      let current = DAY(30); // already beyond the model's newest time; "now" then advances with no new history
+      const clock: Clock = { now: () => current };
+      const engine = createLadybugEngine({ clock });
+      engine.rebuild([
+        row('element', element('a', 'service', [])),
+        row('element', element('b', 'service', [])),
+        row('relation', relation('a-to-b', 'a', 'b')),
+      ]);
+
+      const iterations = 2_000;
+      let maxCacheSize = 0;
+      for (let i = 0; i < iterations; i++) {
+        current += 1; // a distinct "now" every call, all reducing to the same latest history time
+        const result = engine.dependents('b', { transitive: true });
+        expect(result.error).toBeUndefined();
+        expect(result.elements?.map((e) => e.id)).toEqual(['a']);
+        maxCacheSize = Math.max(maxCacheSize, preparedStatementCacheSizeForTests(engine));
+      }
+
+      // eslint-disable-next-line no-console
+      console.log(`ti6.2 reduced times: ${iterations} distinct-"now" calls, max cache size ${maxCacheSize}`);
+      // The history holds two times (the rows' day-1 stamps); a handful is
+      // the generous margin above that bound. 2 000 distinct texts would
+      // have filled the cache to its own LRU limit of 200 — bounded by the
+      // history, not by the cache's limit, is the point.
+      expect(maxCacheSize).toBeLessThanOrEqual(5);
+
+      engine.close();
+    },
+    120_000,
   );
 });
 
