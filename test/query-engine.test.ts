@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { createLadybugEngine, executionThreadsForTests, type AssertionRecord } from '../src/index.js';
+import { createLadybugEngine, executionThreadsForTests, preparedStatementCacheSizeForTests, type AssertionRecord } from '../src/index.js';
 
 const DAY = (day: number) => Date.UTC(2026, 8, day);
 
@@ -904,6 +904,40 @@ describe('the LadybugDB query engine', () => {
     expect(dependents(DAY(9), DAY(3))).toEqual([]);
     expect(dependents(DAY(9), DAY(3) + HALF_DAY)).toEqual([]);
     expect(dependents(DAY(9), DAY(4))).toEqual(['orders-api']);
+
+    // A time before the model's first time is below every boundary: the
+    // reduction leaves it alone, nothing exists yet, and the error still
+    // names the asked time (the as-of contract's own edge).
+    expect(engine.dependents('event-bus', { transitive: false }, { valid: DAY(0), known: DAY(0), state: 'as-is' })).toEqual({
+      error: { message: '"event-bus" does not exist at this time', id: 'event-bus', time: DAY(0) },
+    });
+
+    engine.close();
+  });
+
+  test('an advancing "now" reuses one prepared statement (madarch-ti6.2)', () => {
+    // The fast, always-on half of the stability suite's 2 000-call test:
+    // with `valid`/`known` reduced to the history's own times (see
+    // `resolveTime`), distinct "now"s beyond the history reuse one
+    // statement's text; losing the reduction builds a new text per call
+    // and fills the cache. This is the test that fails when the reduction
+    // breaks, without the performance gate.
+    let current = DAY(30);
+    const clock = { now: () => current };
+    const engine = createLadybugEngine({ clock });
+    engine.rebuild([
+      row('element', element('a', 'service', [])),
+      row('element', element('b', 'service', [])),
+      row('relation', relation('a-to-b', 'a', 'b')),
+    ]);
+
+    for (let i = 0; i < 300; i++) {
+      current += 1;
+      const result = engine.dependents('b', { transitive: true });
+      expect(result.error).toBeUndefined();
+      expect(result.elements?.map((e) => e.id)).toEqual(['a']);
+    }
+    expect(preparedStatementCacheSizeForTests(engine)).toBeLessThanOrEqual(5);
 
     engine.close();
   });
