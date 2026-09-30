@@ -144,8 +144,14 @@ batch, "Да"):
 - Workers are omp sessions started through herdr, one at a time, on omp's
   default model; the coordinator (a Claude session) plans, integrates,
   reviews and accepts, and its session stays open for the run.
-- Review of each stage by Codex CLI; fallback an independent same-model
-  reviewer, disclosed in the acceptance record. Jev on piles.
+- Review by Codex CLI; fallback an independent same-model reviewer,
+  disclosed in the acceptance record. Jev on piles. Changed by the owner
+  mid-run, 2026-09-30 20:45 MSK, after stage 1's review ("А зачем ты каждый
+  этап отдельно проверяешь? Сделай одну проверку в конце"): one review of
+  the whole feature's diff before the pull request; each stage is still
+  accepted on its full checks and mutation run, its record naming the final
+  review as its review evidence. Stage 1's review, already done, stands;
+  its three findings are fixed.
 - Forecast: 2 to 4 hours of agent work, the pull request expected about
   00:00 to 02:00 MSK on 2026-10-01; past 06:00 MSK without word the run has
   stopped. The owner named no absence; the due time stands for it.
