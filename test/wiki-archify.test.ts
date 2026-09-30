@@ -244,19 +244,22 @@ describe('src/wiki/archify.ts', () => {
   });
 
   test('connections sharing one endpoint sort by the other, then by label', () => {
+    const nodes = [
+      { id: 'hub', kind: 'service', title: 'Hub', parent: null, x: 0, y: 0, width: 320, height: 180 },
+      { id: 'x', kind: 'store', title: 'X', parent: null, x: 640, y: 0, width: 320, height: 180 },
+      { id: 'y', kind: 'store', title: 'Y', parent: null, x: 640, y: 360, width: 320, height: 180 },
+    ];
+    // The x edges arrive label-reversed: the sort, not the layout's order,
+    // must put the alphabetically first label first.
     const document = archifyDocument(
       {
         id: 'v',
         title: 'V',
-        nodes: [
-          { id: 'hub', kind: 'service', title: 'Hub', parent: null, x: 0, y: 0, width: 320, height: 180 },
-          { id: 'x', kind: 'store', title: 'X', parent: null, x: 640, y: 0, width: 320, height: 180 },
-          { id: 'y', kind: 'store', title: 'Y', parent: null, x: 640, y: 360, width: 320, height: 180 },
-        ],
+        nodes,
         edges: [
           { source: 'hub', target: 'y', label: 'same' },
-          { source: 'hub', target: 'x', label: 'same' },
           { source: 'hub', target: 'x', label: 'aaa' },
+          { source: 'hub', target: 'x', label: 'same' },
         ],
       },
       { output: 'v.html' },
@@ -265,6 +268,27 @@ describe('src/wiki/archify.ts', () => {
       { from: 'hub', to: 'x', label: 'aaa' },
       { from: 'hub', to: 'x', label: 'same' },
       { from: 'hub', to: 'y', label: 'same' },
+    ]);
+    // An unlabeled edge ties as the empty label: before any labeled one
+    // on the same ends, whatever order the layout listed them in — three
+    // of them, so no two-element accident can produce the same order.
+    const mixed = archifyDocument(
+      {
+        id: 'v',
+        title: 'V',
+        nodes,
+        edges: [
+          { source: 'hub', target: 'x', label: 'B' },
+          { source: 'hub', target: 'x' },
+          { source: 'hub', target: 'x', label: 'A' },
+        ],
+      },
+      { output: 'v.html' },
+    );
+    expect(mixed.connections).toEqual([
+      { from: 'hub', to: 'x' },
+      { from: 'hub', to: 'x', label: 'A' },
+      { from: 'hub', to: 'x', label: 'B' },
     ]);
   });
 
