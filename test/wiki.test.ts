@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -23,6 +23,26 @@ import { Repo } from './model-check-repo.js';
  * builds run only under MADARCH_WIKI_E2E=1.
  */
 
+/**
+ * Every temporary folder this file makes, removed after each test and on
+ * exit with whatever is left, pass or fail: a run of the suite leaves the
+ * system temporary folder as it found it.
+ */
+const made: string[] = [];
+
+function tempFolder(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+}
+
+const removeMadeFolders = (): void => {
+  for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
+};
+
+afterEach(removeMadeFolders);
+process.on('exit', removeMadeFolders);
+
 const SCRIPT = fileURLToPath(new URL('../scripts/wiki.ts', import.meta.url));
 const FAKE_BIN = fileURLToPath(new URL('./fixtures/wiki/fake-uvx', import.meta.url));
 const FAILING_BIN = fileURLToPath(new URL('./fixtures/wiki/failing-uvx', import.meta.url));
@@ -37,7 +57,7 @@ const FAKE_BUN_LOG = join(FAKE_BUN, 'invocations.log');
 const FAKE_LOG = join(FAKE_BIN, 'invocations.log');
 
 function outFolder(): string {
-  return join(mkdtempSync(join(tmpdir(), 'madarch-wiki-')), 'out');
+  return join(tempFolder('madarch-wiki-'), 'out');
 }
 
 /**
@@ -46,7 +66,7 @@ function outFolder(): string {
  * where a real build looks for a real one.
  */
 function scriptCache(): { MADARCH_WIKI_STARLIGHT_CACHE: string } {
-  return { MADARCH_WIKI_STARLIGHT_CACHE: join(mkdtempSync(join(tmpdir(), 'madarch-starlight-cache-')), 'cache') };
+  return { MADARCH_WIKI_STARLIGHT_CACHE: join(tempFolder('madarch-starlight-cache-'), 'cache') };
 }
 
 /**
@@ -218,7 +238,7 @@ describe('scripts/wiki.ts', () => {
 
   test('without bun on PATH the starlight engine exits 2 naming how to install bun, and writes nothing', () => {
     const out = outFolder();
-    const empty = mkdtempSync(join(tmpdir(), 'madarch-wiki-nobun-'));
+    const empty = tempFolder('madarch-wiki-nobun-');
     const run = runWiki([REFERENCE_SYSTEM, '--out', out, '--engine', 'starlight'], empty);
     expect(run.status).toBe(2);
     const said = combined(run);
@@ -260,7 +280,7 @@ describe('scripts/wiki.ts', () => {
 
   test('without uv on PATH it exits 2 naming how to install uv, and writes nothing', () => {
     const out = outFolder();
-    const empty = mkdtempSync(join(tmpdir(), 'madarch-wiki-nouvp-'));
+    const empty = tempFolder('madarch-wiki-nouvp-');
     const run = runWiki([REFERENCE_SYSTEM, '--out', out], empty);
     expect(run.status).toBe(2);
     const said = combined(run);
@@ -310,6 +330,7 @@ describe('scripts/wiki.ts', () => {
 
   test('a model naming an unknown parent exits 2 with the error file and line, and builds nothing', () => {
     const repo = new Repo();
+    made.push(repo.path);
     repo.writeModel(
       'model.yaml',
       ['version: 1', '', 'elements:', '  - id: orphan', '    kind: service', '    name: Orphan', '    parent: nobody', ''].join('\n'),
@@ -347,7 +368,7 @@ describe('scripts/wiki.ts', () => {
       [REFERENCE_SYSTEM, '--out', ''],
     ];
     for (const args of cases) {
-      const cwd = mkdtempSync(join(tmpdir(), 'madarch-wiki-emptyout-'));
+      const cwd = tempFolder('madarch-wiki-emptyout-');
       mkdirSync(join(cwd, 'source'));
       writeFileSync(join(cwd, 'source', 'marker.txt'), 'kept');
       const run = spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8', cwd, env: { ...process.env, PATH: `${FAKE_BIN}:${process.env.PATH ?? ''}` } });
@@ -523,7 +544,7 @@ describe('scripts/wiki.ts', () => {
   }, { timeout: 60_000 });
 
   test('a document linking a missing document fails the build naming both, before anything is written', () => {
-    const root = mkdtempSync(join(tmpdir(), 'madarch-wiki-broken-doc-'));
+    const root = tempFolder('madarch-wiki-broken-doc-');
     cpSync(DOCUMENTS_FIXTURE, root, { recursive: true });
     writeFileSync(join(root, 'docs', 'guide.md'), '# Guide\n\n[Missing](missing.md)\n');
     const out = outFolder();
