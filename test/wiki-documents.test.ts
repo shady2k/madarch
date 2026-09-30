@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { documentHeadings, documentImages, documentPages, DocumentLinkError, scanDocument } from '../src/wiki/documents.js';
@@ -236,6 +236,61 @@ describe('documentPages', () => {
   test('the same repository gives the same pages twice', () => {
     const files = { 'README.md': '# Read me\n', 'docs/a.md': '# A\n\n[B](b.md)\n', 'docs/b.md': 'B\n' };
     expect(documentPages(writeRepo(files))).toEqual(documentPages(writeRepo(files)));
+  });
+});
+
+describe('documents and images that leave the repository', () => {
+  const refused = (root: string, file: string, pointsAt: string): void => {
+    expect(() => documentPages(root)).toThrow(`${join(root, file)} is a symlink to ${pointsAt}`);
+  };
+
+  test('a README that is a symlink out of the repository is refused, naming the file and where it points', () => {
+    const root = writeRepo({ 'docs/a.md': '# A\n' });
+    const outside = tempFolder('madarch-wiki-outside-');
+    writeFileSync(join(outside, 'secret.md'), 'stolen\n');
+    symlinkSync(join(outside, 'secret.md'), join(root, 'README.md'));
+    refused(root, 'README.md', join(outside, 'secret.md'));
+  });
+
+  test('a docs document that is a symlink out of the repository is refused, naming the file and where it points', () => {
+    const root = writeRepo({ 'README.md': '# Read me\n' });
+    const outside = tempFolder('madarch-wiki-outside-');
+    writeFileSync(join(outside, 'secret.md'), 'stolen\n');
+    mkdirSync(join(root, 'docs'), { recursive: true });
+    symlinkSync(join(outside, 'secret.md'), join(root, 'docs', 'leak.md'));
+    refused(root, join('docs', 'leak.md'), join(outside, 'secret.md'));
+  });
+
+  test('the review report that is a symlink out of the repository is refused, naming the file and where it points', () => {
+    const root = writeRepo({ 'README.md': '# Read me\n' });
+    const outside = tempFolder('madarch-wiki-outside-');
+    writeFileSync(join(outside, 'secret.md'), 'stolen\n');
+    mkdirSync(join(root, 'madarch'), { recursive: true });
+    symlinkSync(join(outside, 'secret.md'), join(root, 'madarch', 'review.md'));
+    refused(root, join('madarch', 'review.md'), join(outside, 'secret.md'));
+  });
+
+  test('a referenced image that is a symlink out of the repository is refused, naming the file and where it points', () => {
+    const root = writeRepo({ 'docs/a.md': '# A\n\n![Logo](img/logo.png)\n' });
+    const outside = tempFolder('madarch-wiki-outside-');
+    writeFileSync(join(outside, 'stolen.png'), 'png');
+    mkdirSync(join(root, 'docs', 'img'), { recursive: true });
+    symlinkSync(join(outside, 'stolen.png'), join(root, 'docs', 'img', 'logo.png'));
+    expect(() => documentPages(root)).toThrow(`${join(root, 'docs', 'img', 'logo.png')} is a symlink to ${join(outside, 'stolen.png')}`);
+  });
+
+  test('a symlink whose real path is inside the repository is followed', () => {
+    const root = writeRepo({ 'docs/readme-real.md': '# Real read me\n' });
+    symlinkSync(join(root, 'docs', 'readme-real.md'), join(root, 'README.md'));
+    const pages = documentPages(root);
+    expect(pageOf(pages, 'README.md').body).toBe('# Real read me\n');
+  });
+
+  test('a symlinked document under docs/ is found and followed inside the repository', () => {
+    const root = writeRepo({ 'docs/real.md': '# Real document\n' });
+    symlinkSync('real.md', join(root, 'docs', 'alias.md'));
+    const pages = documentPages(root);
+    expect(pageOf(pages, join('docs', 'alias.md')).body).toBe('# Real document\n');
   });
 });
 

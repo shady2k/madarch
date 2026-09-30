@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -554,6 +554,37 @@ describe('scripts/wiki.ts', () => {
     expect(said).toContain('docs/guide.md');
     expect(said).toContain('docs/missing.md');
     expect(existsSync(join(out, 'source'))).toBe(false);
+  }, { timeout: 60_000 });
+
+  test('a document that is a symlink out of the repository is refused with exit 2, naming the file and where it points', () => {
+    const root = tempFolder('madarch-wiki-symlink-');
+    cpSync(DOCUMENTS_FIXTURE, root, { recursive: true });
+    const outside = tempFolder('madarch-wiki-outside-');
+    writeFileSync(join(outside, 'elsewhere.md'), 'stolen\n');
+    rmSync(join(root, 'README.md'));
+    symlinkSync(join(outside, 'elsewhere.md'), join(root, 'README.md'));
+    const out = outFolder();
+    const run = runWiki([root, '--out', out]);
+    expect(run.status).toBe(2);
+    const said = combined(run);
+    expect(said).toContain(join(root, 'README.md'));
+    expect(said).toContain(join(outside, 'elsewhere.md'));
+    expect(existsSync(out)).toBe(false);
+  }, { timeout: 60_000 });
+
+  test('a referenced image is copied as file content, never as a link in the built tree', () => {
+    const root = tempFolder('madarch-wiki-imglink-');
+    cpSync(DOCUMENTS_FIXTURE, root, { recursive: true });
+    writeFileSync(join(root, 'docs', 'img', 'real-extra.png'), readFileSync(join(root, 'docs', 'img', 'overview.png')));
+    symlinkSync('real-extra.png', join(root, 'docs', 'img', 'extra.png'));
+    const doc = join(root, 'docs', 'architecture.md');
+    writeFileSync(doc, readFileSync(doc, 'utf8').replace('![Overview](img/overview.png)', '![Overview](img/overview.png)\n\n![Extra](img/extra.png)\n'));
+    const out = outFolder();
+    expect(runWiki([root, '--out', out]).status).toBe(0);
+    const copied = join(out, 'source', 'docs', 'assets', 'documents', 'docs', 'img', 'extra.png');
+    expect(lstatSync(copied).isSymbolicLink()).toBe(false);
+    expect(statSync(copied).isFile()).toBe(true);
+    expect(readFileSync(copied)).toEqual(readFileSync(join(root, 'docs', 'img', 'real-extra.png')));
   }, { timeout: 60_000 });
 });
 

@@ -410,11 +410,12 @@ export async function buildWiki(repoPath: string, outPath: string, options: Wiki
   cpSync(join(mermaidDist, 'chunks', 'mermaid.esm.min'), join(assets, 'mermaid', 'chunks', 'mermaid.esm.min'), { recursive: true });
   // The documents' images, copied where their rewritten links point: the
   // same documents asset route both writers spell, under this engine's
-  // static folder.
+  // static folder. Copied as file content, dereferenced: a symlinked image
+  // never becomes a link in the built tree.
   for (const image of documentImages(documents)) {
     const file = join(assets, 'documents', image);
     mkdirSync(dirname(file), { recursive: true });
-    cpSync(join(repo, image), file);
+    cpSync(join(repo, image), file, { dereference: true });
   }
 
   if (engine === 'starlight') linkStarlightNodeModules(installedProject!, source);

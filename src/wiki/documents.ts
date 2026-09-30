@@ -16,8 +16,8 @@
  * walk the same links and Mermaid fences when they rewrite the body.
  */
 import { byCodePoint, type WikiDocumentLink, type WikiDocumentPage } from './pages.js';
-import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from 'node:fs';
-import { basename, dirname as dirOf, join as joinPath, normalize } from 'node:path';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync, type Dirent } from 'node:fs';
+import { basename, dirname as dirOf, isAbsolute, join as joinPath, normalize, relative } from 'node:path';
 
 /** Files a document link may point at and be copied into the site: what a reader's browser shows. */
 const IMAGE_EXTENSION = /\.(png|jpe?g|gif|svg|webp|avif|bmp|ico)$/;
@@ -230,6 +230,7 @@ export function documentPages(repo: string): readonly WikiDocumentPage[] {
   const broken: BrokenDocumentLink[] = [];
   const pages: WikiDocumentPage[] = [];
   for (const path of paths) {
+    realPathInRepo(repo, path, 'document');
     let body: string;
     try {
       body = readFileSync(joinPath(repo, path), 'utf8');
@@ -255,6 +256,9 @@ export function documentPages(repo: string): readonly WikiDocumentPage[] {
       links,
     });
   }
+  // The images the pages reference, under the same rule: a symlinked image
+  // out of the repository would be copied into the site.
+  for (const image of documentImages(pages)) realPathInRepo(repo, image, 'image');
   if (broken.length > 0) {
     broken.sort((a, b) => byCodePoint(a.source, b.source) || byCodePoint(a.written, b.written) || byCodePoint(a.target, b.target));
     throw new DocumentLinkError(broken);
@@ -292,7 +296,13 @@ function markdownUnder(folder: string, prefix: string, into: string[]): void {
       markdownUnder(joinPath(folder, entry.name), prefix === '' ? entry.name : `${prefix}/${entry.name}`, into);
       continue;
     }
-    if (entry.isFile() && entry.name.endsWith('.md')) into.push(prefix === '' ? entry.name : `${prefix}/${entry.name}`);
+    // A symlinked document counts too: stat follows the link, so a link
+    // to a real document is found; the containment check refuses the one
+    // whose real path leaves the repository. A link to a folder is not a
+    // document and is not followed.
+    if (entry.name.endsWith('.md') && isFile(joinPath(folder, entry.name))) {
+      into.push(prefix === '' ? entry.name : `${prefix}/${entry.name}`);
+    }
   }
 }
 
@@ -302,6 +312,32 @@ function isFile(path: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * The repository file's real path, refused when it leaves the repository:
+ * a symlink out of the repository would make the wiki read — and the site
+ * publish — a file the repository does not hold. The repository's own path
+ * is resolved the same way, so a repository reached through a symlinked
+ * folder still holds its own files, and a symlink whose real path is
+ * inside the repository is followed.
+ */
+function realPathInRepo(repo: string, path: string, what: 'document' | 'image'): string {
+  const repoReal = realpathSync(repo);
+  let real: string;
+  try {
+    real = realpathSync(joinPath(repo, path));
+  } catch (error) {
+    throw new Error(`the ${what} ${joinPath(repo, path)} cannot be read: ${(error as Error).message}`);
+  }
+  const into = relative(repoReal, real);
+  if (into !== '' && (into.startsWith('..') || isAbsolute(into))) {
+    throw new Error(
+      `the ${what} ${joinPath(repo, path)} is a symlink to ${real}, outside the repository: the wiki refuses a ` +
+        `repository file that leaves the repository; make it a real file of the repository, or point the symlink at a file inside it`,
+    );
+  }
+  return real;
 }
 
 /**
