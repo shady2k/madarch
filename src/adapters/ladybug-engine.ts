@@ -22,8 +22,9 @@ const { Database, Connection } = lbug;
  * `Connection.executeSync` returns one `QueryResult`, or an array when the
  * statement is a batch of several — this module always executes one
  * statement, so the array case never arises in practice; the helper still
- * narrows it defensively rather than asserting it away. The result is
- * always closed once its rows are read: an unclosed `QueryResult` holds its
+ * narrows it defensively rather than asserting it away, and closes every
+ * entry the statement returned, even when reading the rows throws. The
+ * result is always closed once its rows are read: an unclosed `QueryResult` holds its
  * own slice of the buffer pool, and a long-lived engine answering many
  * queries (a repository's whole working life) leaks that pool to
  * exhaustion otherwise (`Buffer manager exception: Unable to allocate
@@ -31,11 +32,27 @@ const { Database, Connection } = lbug;
  * module doc's own account of `Database`'s fixed-size pool).
  */
 function rowsOf(result: QueryResult | QueryResult[]): Record<string, LbugValue>[] {
-  const single = Array.isArray(result) ? result[result.length - 1] : result;
-  if (single === undefined) return [];
-  const rows = single.getAllSync();
-  single.close();
-  return rows;
+  const results = Array.isArray(result) ? result : [result];
+  const last = results[results.length - 1];
+  if (last === undefined) return [];
+  try {
+    return last.getAllSync();
+  } finally {
+    for (const each of results) each.close();
+  }
+}
+
+/**
+ * Runs one statement whose rows no caller reads — the schema's DDL, the
+ * deletes of `reset`, and every write and row closure of `rebuild` and
+ * `update` — and closes its result at once: an unclosed `QueryResult`
+ * holds its own slice of the buffer pool exactly as an unclosed read
+ * result does (see `rowsOf`'s own doc), and a caller replaying a history
+ * into a long-lived engine issues thousands of these statements.
+ */
+function runAndClose(run: () => QueryResult | QueryResult[]): void {
+  const result = run();
+  for (const each of Array.isArray(result) ? result : [result]) each.close();
 }
 
 /**
@@ -403,15 +420,21 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
   const conn = new Connection(db, LADYBUG_EXEC_THREADS);
   conn.initSync();
 
-  conn.querySync(
-    `CREATE NODE TABLE Element(pk STRING, elementId STRING, kind STRING, name STRING, parentId STRING, ancestors STRING[], states STRING[], validFrom INT64, validTo INT64, recordedFrom INT64, recordedTo INT64, source STRING, PRIMARY KEY(pk))`,
+  runAndClose(() =>
+    conn.querySync(
+      `CREATE NODE TABLE Element(pk STRING, elementId STRING, kind STRING, name STRING, parentId STRING, ancestors STRING[], states STRING[], validFrom INT64, validTo INT64, recordedFrom INT64, recordedTo INT64, source STRING, PRIMARY KEY(pk))`,
+    ),
   );
-  conn.querySync(
-    `CREATE NODE TABLE Relation(pk STRING, relationId STRING, fromId STRING, toId STRING, refines STRING, states STRING[], validFrom INT64, validTo INT64, recordedFrom INT64, recordedTo INT64, source STRING, PRIMARY KEY(pk))`,
+  runAndClose(() =>
+    conn.querySync(
+      `CREATE NODE TABLE Relation(pk STRING, relationId STRING, fromId STRING, toId STRING, refines STRING, states STRING[], validFrom INT64, validTo INT64, recordedFrom INT64, recordedTo INT64, source STRING, PRIMARY KEY(pk))`,
+    ),
   );
-  conn.querySync(`CREATE NODE TABLE Anchor(elementId STRING, PRIMARY KEY(elementId))`);
-  conn.querySync(
-    `CREATE REL TABLE RELATES_TO(FROM Anchor TO Anchor, pk STRING, relationId STRING, states STRING[], validFrom INT64, validTo INT64, recordedFrom INT64, recordedTo INT64, source STRING)`,
+  runAndClose(() => conn.querySync(`CREATE NODE TABLE Anchor(elementId STRING, PRIMARY KEY(elementId))`));
+  runAndClose(() =>
+    conn.querySync(
+      `CREATE REL TABLE RELATES_TO(FROM Anchor TO Anchor, pk STRING, relationId STRING, states STRING[], validFrom INT64, validTo INT64, recordedFrom INT64, recordedTo INT64, source STRING)`,
+    ),
   );
 
   const insertElement = conn.prepareSync(
@@ -649,10 +672,10 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
   let states: LiveStateRow[] = [];
 
   function reset(): void {
-    conn.querySync('MATCH (e:Element) DELETE e');
-    conn.querySync('MATCH (r:Relation) DELETE r');
-    conn.querySync('MATCH ()-[r:RELATES_TO]->() DELETE r');
-    conn.querySync('MATCH (a:Anchor) DELETE a');
+    runAndClose(() => conn.querySync('MATCH (e:Element) DELETE e'));
+    runAndClose(() => conn.querySync('MATCH (r:Relation) DELETE r'));
+    runAndClose(() => conn.querySync('MATCH ()-[r:RELATES_TO]->() DELETE r'));
+    runAndClose(() => conn.querySync('MATCH (a:Anchor) DELETE a'));
     states = [];
     validHistoryTimes.length = 0;
     knownHistoryTimes.length = 0;
@@ -660,59 +683,65 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
 
   function writeElement(row: { source: string; content: string; validFrom: number; validTo: number | null; recordedFrom: number; recordedTo: number | null }): void {
     const parsed = JSON.parse(row.content) as ElementContent;
-    conn.executeSync(mergeAnchor, { elementId: parsed.id });
-    conn.executeSync(insertElement, {
-      pk: rowKey(row.source, 'element', parsed.id, row.validFrom, row.recordedFrom),
-      elementId: parsed.id,
-      kind: parsed.kind,
-      name: parsed.name ?? null,
-      parentId: parsed.parent ?? null,
-      ancestors: parsed.ancestors,
-      states: parsed.states,
-      validFrom: row.validFrom,
-      validTo: row.validTo,
-      recordedFrom: row.recordedFrom,
-      recordedTo: row.recordedTo,
-      source: row.source,
-    });
+    runAndClose(() => conn.executeSync(mergeAnchor, { elementId: parsed.id }));
+    runAndClose(() =>
+      conn.executeSync(insertElement, {
+        pk: rowKey(row.source, 'element', parsed.id, row.validFrom, row.recordedFrom),
+        elementId: parsed.id,
+        kind: parsed.kind,
+        name: parsed.name ?? null,
+        parentId: parsed.parent ?? null,
+        ancestors: parsed.ancestors,
+        states: parsed.states,
+        validFrom: row.validFrom,
+        validTo: row.validTo,
+        recordedFrom: row.recordedFrom,
+        recordedTo: row.recordedTo,
+        source: row.source,
+      }),
+    );
     noteRowTimes(row.validFrom, row.validTo, row.recordedFrom, row.recordedTo);
   }
 
   function writeRelation(row: { source: string; content: string; validFrom: number; validTo: number | null; recordedFrom: number; recordedTo: number | null }): void {
     const parsed = JSON.parse(row.content) as RelationContent;
     const pk = rowKey(row.source, 'relation', parsed.id, row.validFrom, row.recordedFrom);
-    conn.executeSync(mergeAnchor, { elementId: parsed.from });
-    conn.executeSync(mergeAnchor, { elementId: parsed.to });
-    conn.executeSync(insertRelation, {
-      pk,
-      relationId: parsed.id,
-      fromId: parsed.from,
-      toId: parsed.to,
-      refines: parsed.refines ?? null,
-      states: parsed.states,
-      validFrom: row.validFrom,
-      validTo: row.validTo,
-      recordedFrom: row.recordedFrom,
-      recordedTo: row.recordedTo,
-      source: row.source,
-    });
+    runAndClose(() => conn.executeSync(mergeAnchor, { elementId: parsed.from }));
+    runAndClose(() => conn.executeSync(mergeAnchor, { elementId: parsed.to }));
+    runAndClose(() =>
+      conn.executeSync(insertRelation, {
+        pk,
+        relationId: parsed.id,
+        fromId: parsed.from,
+        toId: parsed.to,
+        refines: parsed.refines ?? null,
+        states: parsed.states,
+        validFrom: row.validFrom,
+        validTo: row.validTo,
+        recordedFrom: row.recordedFrom,
+        recordedTo: row.recordedTo,
+        source: row.source,
+      }),
+    );
     // No `refines` on the edge: `dependents`/`dependencies` walk every
     // relation, refinements included, and never need to reason about which
     // relation refines which (only `view` does — it reads `refines` off
     // the `Relation` node table instead, in `viewRelationsQuery`), so the
     // edge itself never needs to carry it.
-    conn.executeSync(insertEdge, {
-      pk,
-      fromId: parsed.from,
-      toId: parsed.to,
-      relationId: parsed.id,
-      states: parsed.states,
-      validFrom: row.validFrom,
-      validTo: row.validTo,
-      recordedFrom: row.recordedFrom,
-      recordedTo: row.recordedTo,
-      source: row.source,
-    });
+    runAndClose(() =>
+      conn.executeSync(insertEdge, {
+        pk,
+        fromId: parsed.from,
+        toId: parsed.to,
+        relationId: parsed.id,
+        states: parsed.states,
+        validFrom: row.validFrom,
+        validTo: row.validTo,
+        recordedFrom: row.recordedFrom,
+        recordedTo: row.recordedTo,
+        source: row.source,
+      }),
+    );
     noteRowTimes(row.validFrom, row.validTo, row.recordedFrom, row.recordedTo);
   }
 
@@ -730,12 +759,12 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
   // closed on an earlier pass is left alone rather than closed a second
   // time or matched by mistake.
   function removeElement(source: string, id: string, validFrom: number, recordedTo: number): void {
-    conn.executeSync(closeElement, { source, id, validFrom, recordedTo });
+    runAndClose(() => conn.executeSync(closeElement, { source, id, validFrom, recordedTo }));
   }
 
   function removeRelation(source: string, id: string, validFrom: number, recordedTo: number): void {
-    conn.executeSync(closeEdge, { source, id, validFrom, recordedTo });
-    conn.executeSync(closeRelation, { source, id, validFrom, recordedTo });
+    runAndClose(() => conn.executeSync(closeEdge, { source, id, validFrom, recordedTo }));
+    runAndClose(() => conn.executeSync(closeRelation, { source, id, validFrom, recordedTo }));
   }
 
   function removeState(source: string, id: string, validFrom: number, recordedTo: number): void {
