@@ -87,5 +87,6 @@ export { renderOneViewMermaid, renderOneViewLikeC4, type OneViewError, type OneV
 export { createLadybugEngine, executionThreadsForTests, preparedStatementCacheSizeForTests, type LadybugEngineOptions } from './adapters/ladybug-engine.js';
 export { createSourceStores, sourceNameProblem, type SourceHead, type SourceStores, type SourceStoresOptions, type SourceStoreResult } from './server/sources.js';
 export { createGraphs, type Graph, type Graphs, type GraphsOptions } from './server/graphs.js';
+export { startServer, type ServerOptions, type StartedServer } from './server/http.js';
 
 export { loadAndCompileModel, type LoadAndCompileResult } from './model/load-and-compile.js';

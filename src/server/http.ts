@@ -1,0 +1,396 @@
+/**
+ * The server's HTTP layer: Bun's own server, no framework (decision 0008),
+ * with the ways in held in one route table, so the next one (`POST /views`)
+ * slots in beside them and authentication can later be added as one layer
+ * in front of them, without reshaping either (decision 0012).
+ *
+ * Every refusal is JSON `{"error": {"message", "field"?, "accepted"?}}`
+ * with 400, 404, 405, 409 or 413; a failure of the server itself is 500,
+ * its cause logged at error level, the answer saying it failed without
+ * leaking a stack. The store's own refusals (a commit already stored
+ * under another model or time) are the history's errors mapped onto 409.
+ *
+ * One line per request goes to the logger: method, path, status, the
+ * source when the request names one, and milliseconds; a refusal adds its
+ * message. No model content is ever logged.
+ *
+ * The body limit is checked twice on purpose: the `content-length` header
+ * refuses an over-large body before a byte is read, and the byte count of
+ * the read text catches a lying or absent header. Bodies past Bun's own
+ * default (128 MB) are never reached by honest clients; a client that
+ * lies by omission costs one read, then is refused.
+ */
+import { Value } from 'typebox/value';
+import type { Clock } from '../history/types.js';
+import type { CompiledModel } from '../model/compile.js';
+import { CompiledModel as CompiledModelSchema } from '../model/compiled-schema.js';
+import { byCodePoint } from '../model/order.js';
+import type { Graphs } from './graphs.js';
+import { createGraphs } from './graphs.js';
+import type { SourceStores } from './sources.js';
+import { createSourceStores, sourceNameProblem } from './sources.js';
+
+/** The largest body the server reads: 50 MB, far past any compiled model sent so far. */
+const MAX_BODY_BYTES = 50 * 1024 * 1024;
+
+/** What the server tells a sender whose `committedAt` it refused. */
+const ISO_ACCEPTED = 'an ISO 8601 time with a UTC offset, like 2026-09-30T12:34:56Z or 2026-09-30T12:34:56+02:00';
+
+export interface ServerOptions {
+  /** The folder the histories and their sidecars live in; it must exist (see `createSourceStores`). */
+  dataFolder: string;
+  /** The address to listen on; `127.0.0.1` unless said otherwise (decision 0012). */
+  host?: string;
+  /** The port to listen on; 4180 by default, 0 for a free port. */
+  port?: number;
+  /** Supplies recorded time; tests inject a fake clock. */
+  clock?: Clock;
+  /** Where request lines go; standard output by default. */
+  log?: (line: string) => void;
+  /** Where error-level lines go; standard error by default. */
+  errorLog?: (line: string) => void;
+}
+
+export interface StartedServer {
+  hostname: string;
+  port: number;
+  /** The base URL, no trailing slash. */
+  url: string;
+  /** Stops serving and closes the graphs and the sources' histories. */
+  stop(): void;
+}
+
+/** One refusal's content, the shape the error answers carry. */
+interface Refusal {
+  message: string;
+  field?: string;
+  accepted?: string;
+}
+
+/** What one route's handling produced, beside the answer itself: what the log line names. */
+interface Handled {
+  response: Response;
+  /** The source the request named, when it named one. */
+  source?: string;
+  /** The refusal's message, when the answer is a refusal. */
+  refusal?: string;
+}
+
+/** A sent store request, every field checked and parsed. */
+interface SentStore {
+  source: string;
+  commit: string;
+  /** The commit time, parsed from the request's ISO 8601 text to UTC epoch milliseconds. */
+  committedAtMs: number;
+  model: CompiledModel;
+}
+
+export function startServer(options: ServerOptions): StartedServer {
+  const clock: Clock = options.clock ?? { now: () => Date.now() };
+  const log = options.log ?? ((line: string) => console.log(line));
+  const errorLog = options.errorLog ?? ((line: string) => console.error(line));
+  const sources = createSourceStores({ dataFolder: options.dataFolder, clock });
+  const graphs = createGraphs({ historyOf: (source) => sources.historyOf(source), clock });
+  const handle = createHandler({ sources, graphs, log, errorLog });
+  const server = Bun.serve({ hostname: options.host ?? '127.0.0.1', port: options.port ?? 4180, fetch: handle });
+  return {
+    hostname: server.url.hostname,
+    port: server.url.port === '' ? (options.port ?? 4180) : Number(server.url.port),
+    url: server.url.origin,
+    stop() {
+      server.stop(true);
+      graphs.close();
+      sources.close();
+    },
+  };
+}
+
+function createHandler(dependencies: {
+  sources: SourceStores;
+  graphs: Graphs;
+  log: (line: string) => void;
+  errorLog: (line: string) => void;
+}): (request: Request) => Promise<Response> {
+  const { sources, graphs, log, errorLog } = dependencies;
+
+  /** One way in. A later route (`POST /views`) is one more entry here, nothing else. */
+  interface Route {
+    method: string;
+    path: string;
+    handle: (request: Request) => Handled | Promise<Handled>;
+  }
+
+  const routes: Route[] = [
+    { method: 'POST', path: '/models', handle: storeModel },
+    { method: 'GET', path: '/sources', handle: listSources },
+  ];
+
+  function json(status: number, body: unknown, headers?: Record<string, string>): Response {
+    return Response.json(body, { status, headers });
+  }
+
+  /** A refusal: the error body, the message kept for the log line. */
+  function refused(status: number, error: Refusal, headers?: Record<string, string>): Handled {
+    return { response: json(status, { error }, headers), refusal: error.message };
+  }
+
+  /** Several collected problems joined into one refusal: the field named when they share one, what is accepted when one answer covers them. */
+  function joinedRefusal(status: number, problems: Refusal[]): Handled {
+    const error: Refusal = { message: problems.map((problem) => problem.message).join('; ') };
+    const fields = new Set(problems.map((problem) => problem.field).filter((field) => field !== undefined));
+    const accepteds = new Set(problems.map((problem) => problem.accepted).filter((accepted) => accepted !== undefined));
+    if (fields.size === 1) error.field = [...fields][0];
+    if (accepteds.size === 1) error.accepted = [...accepteds][0];
+    return refused(status, error);
+  }
+
+  async function storeModel(request: Request): Promise<Handled> {
+    const declaredLength = request.headers.get('content-length');
+    if (declaredLength !== null && Number(declaredLength) > MAX_BODY_BYTES) {
+      return refused(413, { message: `the body is ${declaredLength} bytes by its own content-length, past the ${MAX_BODY_BYTES}-byte (50 MB) limit` });
+    }
+    const text = await request.text();
+    if (Buffer.byteLength(text) > MAX_BODY_BYTES) {
+      return refused(413, { message: `the body is ${Buffer.byteLength(text)} bytes, past the ${MAX_BODY_BYTES}-byte (50 MB) limit` });
+    }
+    let body: unknown;
+    try {
+      body = JSON.parse(text);
+    } catch (error) {
+      return refused(400, { message: `the body is not valid JSON: ${(error as Error).message}` });
+    }
+
+    const { sent, problems } = parseStoreRequest(body);
+    if (sent === undefined) {
+      return { ...joinedRefusal(400, problems), source: namedSourceOf(body) };
+    }
+
+    const { result, wasNew } = sources.store({
+      source: sent.source,
+      commit: sent.commit,
+      committedAt: sent.committedAtMs,
+      model: sent.model,
+    });
+    if (result.errors.length > 0) {
+      // The history refused (a commit already stored under another model
+      // or time); its error names the commit and the source already.
+      return { ...refused(409, { message: result.errors[0]!.message }), source: sent.source };
+    }
+    graphs.applyStore(sent.source, result);
+    if (wasNew) {
+      return { response: json(201, { stored: true, source: sent.source, commit: sent.commit }), source: sent.source };
+    }
+    return { response: json(200, { stored: false, reason: 'already stored', source: sent.source, commit: sent.commit }), source: sent.source };
+  }
+
+  /**
+   * Everything wrong with a sent store request, and, when nothing is
+   * wrong, the request as the store takes it. Every field is checked;
+   * none of them stops the rest from being checked too.
+   */
+  function parseStoreRequest(body: unknown): { sent?: SentStore; problems: Refusal[] } {
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      return { problems: [{ message: 'the body must be a JSON object naming source, commit, committedAt and model' }] };
+    }
+    const problems: Refusal[] = [];
+
+    let source: string | undefined;
+    if (!('source' in body) || body.source === undefined) {
+      problems.push({ field: 'source', message: `"source" is required: the name of the source the model belongs to, like "github.com/shady2k/nocx"` });
+    } else {
+      const problem = sourceNameProblem(body.source);
+      if (problem !== undefined) problems.push({ field: 'source', message: problem });
+      if (typeof body.source === 'string') source = body.source;
+    }
+
+    let commit: string | undefined;
+    if (!('commit' in body) || body.commit === undefined) {
+      problems.push({ field: 'commit', message: `"commit" is required: the id of the commit the model was read at` });
+    } else if (typeof body.commit !== 'string' || body.commit.length === 0) {
+      problems.push({ field: 'commit', message: `"commit" must be a non-empty string naming the commit the model was read at, but is ${JSON.stringify(body.commit)}` });
+    } else {
+      commit = body.commit;
+    }
+
+    let committedAtMs: number | undefined;
+    if (!('committedAt' in body) || body.committedAt === undefined) {
+      problems.push({ field: 'committedAt', message: `"committedAt" is required: the time the commit was made`, accepted: ISO_ACCEPTED });
+    } else if (typeof body.committedAt !== 'string') {
+      problems.push({
+        field: 'committedAt',
+        message: `"committedAt" must be a string holding an ISO 8601 time with an offset, but is ${JSON.stringify(body.committedAt)}`,
+        accepted: ISO_ACCEPTED,
+      });
+    } else {
+      const ms = parseIsoWithOffset(body.committedAt);
+      if (ms === undefined) {
+        problems.push({ field: 'committedAt', message: `"committedAt" ${JSON.stringify(body.committedAt)} is not an ISO 8601 time with an offset`, accepted: ISO_ACCEPTED });
+      } else {
+        committedAtMs = ms;
+      }
+    }
+
+    let model: CompiledModel | undefined;
+    if (!('model' in body) || body.model === undefined) {
+      problems.push({ field: 'model', message: `"model" is required: the compiled model to store` });
+    } else {
+      const candidate: unknown = body.model;
+      if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) {
+        problems.push({ field: 'model', message: `"model" must be the compiled model as a JSON object, but is ${JSON.stringify(candidate)}` });
+      } else if (!Value.Check(CompiledModelSchema, candidate)) {
+        const details = schemaProblems(Value.Errors(CompiledModelSchema, candidate), candidate);
+        const detailText = details.map((detail) => (detail.path === '' ? detail.message : `${detail.path}: ${detail.message}`)).join('; ');
+        problems.push({ field: 'model', message: `"model" does not match the compiled model's schema: ${detailText}` });
+      } else {
+        model = candidate;
+      }
+    }
+
+    if (problems.length > 0 || source === undefined || commit === undefined || committedAtMs === undefined || model === undefined) {
+      return { problems };
+    }
+    return { sent: { source, commit, committedAtMs, model }, problems: [] };
+  }
+
+  function listSources(): Handled {
+    const list = sources.heads().map((head) => ({
+      source: head.source,
+      commit: head.commit,
+      committedAt: new Date(head.committedAt).toISOString(),
+      storedAt: new Date(head.storedAt).toISOString(),
+    }));
+    return { response: json(200, list) };
+  }
+
+  return async (request: Request): Promise<Response> => {
+    const started = performance.now();
+    const pathname = new URL(request.url).pathname;
+    let handled: Handled;
+    try {
+      const route = routes.find((each) => each.path === pathname);
+      if (route === undefined) {
+        handled = refused(404, {
+          message: `no such path "${pathname}": the server offers ${routes.map((each) => `${each.method} ${each.path}`).join(', ')}`,
+        });
+      } else if (route.method !== request.method) {
+        handled = refused(405, { message: `"${request.method}" is not offered on "${route.path}": use ${route.method}` }, { allow: route.method });
+      } else {
+        handled = await route.handle(request);
+      }
+    } catch (error) {
+      const cause = error instanceof Error ? (error.stack ?? error.message) : String(error);
+      errorLog(`the server failed to handle ${request.method} ${pathname}: ${cause}`);
+      handled = { response: json(500, { error: { message: 'the request failed inside the server' } }) };
+    }
+    const ms = Math.max(0, Math.round(performance.now() - started));
+    const named = handled.source === undefined ? '' : ` source=${handled.source}`;
+    const why = handled.refusal === undefined ? '' : `: ${handled.refusal}`;
+    log(`${request.method} ${pathname} ${handled.response.status}${named} ${ms}ms${why}`);
+    return handled.response;
+  };
+}
+
+/** The source a request body named, when it named one — even one arriving beside other broken fields. */
+function namedSourceOf(body: unknown): string | undefined {
+  if (typeof body !== 'object' || body === null || Array.isArray(body) || !('source' in body)) return undefined;
+  const candidate: unknown = body.source;
+  return typeof candidate === 'string' ? candidate : undefined;
+}
+
+/**
+ * The ISO 8601 times the server accepts, as UTC epoch milliseconds, or
+ * `undefined` for anything else: a date, a time without its offset, a
+ * month that does not exist. The parts are checked by hand rather than
+ * handed to `Date.parse`, which accepts far more than ISO 8601 (and
+ * rolls out-of-range parts over silently).
+ */
+function parseIsoWithOffset(text: string): number | undefined {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$/.exec(text);
+  if (match === null) return undefined;
+  const year = match[1]!;
+  const month = match[2]!;
+  const day = match[3]!;
+  const hour = match[4]!;
+  const minute = match[5]!;
+  const second = match[6]!;
+  const fraction = match[7];
+  const offset = match[8]!;
+  if (Number(month) < 1 || Number(month) > 12) return undefined;
+  if (Number(day) < 1 || Number(day) > daysInMonth(Number(year), Number(month))) return undefined;
+  if (Number(hour) > 23 || Number(minute) > 59 || Number(second) > 59) return undefined;
+  let offsetMinutes = 0;
+  if (offset !== 'Z') {
+    const hours = Number(offset.slice(1, 3));
+    const minutes = Number(offset.slice(4, 6));
+    if (hours > 23 || minutes > 59) return undefined;
+    offsetMinutes = (hours * 60 + minutes) * (offset[0] === '-' ? -1 : 1);
+  }
+  const fractionMs = fraction === undefined ? 0 : Math.round(Number(`0.${fraction}`) * 1000);
+  return Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second), fractionMs) - offsetMinutes * 60_000;
+}
+
+/** The number of days in a month, leap years included (`Date.UTC(y, m, 0)` lands on the month's last day). */
+function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+/** One path that does not match the compiled model's schema, named the way the refusals name paths. */
+interface SchemaDetail {
+  path: string;
+  message: string;
+}
+
+/**
+ * TypeBox's raw errors turned into one clear detail per actual problem —
+ * the same reading `src/model/load.ts` does for file errors, kept to the
+ * schema's own shapes here: an unknown field named at its own path once
+ * (not twice), a missing field named at the field's own path, a literal
+ * or a union of literals answered with everything it could have been,
+ * and every other complaint kept only where nothing clearer replaces it.
+ */
+function schemaProblems(
+  raw: Iterable<{ keyword: string; instancePath: string; params: Record<string, unknown>; message: string }>,
+  root: unknown,
+): SchemaDetail[] {
+  const byPath = new Map<string, string>();
+  const constGroups = new Map<string, unknown[]>();
+  const deferred: { path: string; message: string }[] = [];
+
+  for (const error of raw) {
+    if (error.keyword === 'const') {
+      const group = constGroups.get(error.instancePath);
+      if (group === undefined) constGroups.set(error.instancePath, [error.params.allowedValue]);
+      else group.push(error.params.allowedValue);
+    } else if (error.keyword === 'boolean') {
+      continue; // the unknown-field error at the same shape is clearer
+    } else if (error.keyword === 'additionalProperties') {
+      const names = Array.isArray(error.params.additionalProperties) ? error.params.additionalProperties : [];
+      for (const name of names) byPath.set(`${error.instancePath}/${String(name)}`, `unknown field "${String(name)}"`);
+    } else if (error.keyword === 'required') {
+      const names = Array.isArray(error.params.requiredProperties) ? error.params.requiredProperties : [];
+      for (const name of names) byPath.set(`${error.instancePath}/${String(name)}`, `missing required field "${String(name)}"`);
+    } else {
+      deferred.push({ path: error.instancePath, message: error.message });
+    }
+  }
+  for (const { path, message } of deferred) {
+    if (!constGroups.has(path) && !byPath.has(path)) byPath.set(path, message);
+  }
+  for (const [path, allowed] of constGroups) {
+    const segments = path.split('/').filter((segment) => segment.length > 0);
+    const field = segments[segments.length - 1] ?? path;
+    byPath.set(path, `${JSON.stringify(valueAtPointer(root, path))} is not a known "${field}": expected one of ${allowed.map((each) => JSON.stringify(each)).join(', ')}`);
+  }
+  return [...byPath].map(([path, message]) => ({ path, message })).sort((a, b) => byCodePoint(a.path, b.path));
+}
+
+/** Reads the value a JSON pointer names, for saying what was actually there. */
+function valueAtPointer(root: unknown, pointer: string): unknown {
+  let current = root;
+  for (const segment of pointer.split('/')) {
+    if (segment.length === 0) continue;
+    if (current === null || typeof current !== 'object') return undefined;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
