@@ -91,9 +91,10 @@ export interface SourceStores {
 
 /**
  * What is wrong with a source name a request carries, for the caller to
- * refuse with; `undefined` when the name is usable. Any string at all is
- * encodable — separators, dots, non-ASCII letters — so only emptiness and
- * the encoded-length limit can be wrong.
+ * refuse with; `undefined` when the name is usable. Most strings are
+ * encodable — separators, dots, non-ASCII letters — so besides
+ * emptiness and the encoded-length limit, only a control character can
+ * be wrong.
  */
 export function sourceNameProblem(source: unknown): string | undefined {
   if (typeof source !== 'string') {
