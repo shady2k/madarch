@@ -71,14 +71,15 @@ export interface WikiPage {
 }
 
 /**
- * One inline link or image of a document, resolved to what it names in the
+ * One link or image of a document, resolved to what it names in the
  * repository: another document's page, an image the build copies into the
  * site, or something left as written — an external scheme, a `#anchor` of
- * the same page, a site-rooted path — that the built-site link check judges
- * like every other link. Everything else is a broken link the build refuses.
+ * the same page, a protocol-relative link — that the built-site link
+ * check judges like every other link. Everything else is a broken link
+ * the build refuses.
  */
 export interface WikiDocumentLink {
-  /** The link target exactly as the document wrote it, parentheses excluded. */
+  /** The link destination exactly as the document wrote it, brackets and title excluded. */
   readonly written: string;
   readonly kind: 'page' | 'image' | 'keep';
   /** For a `page` link: the id of the page the target document is. */

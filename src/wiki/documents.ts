@@ -3,14 +3,15 @@
  * requirement `documents`): `README.md`, every Markdown file under `docs/`,
  * and the review report beside the model when there is one. Each document
  * becomes a `document/…` page whose body is the file's Markdown whole, with
- * a title where the document has none, and its inline links resolved: to
- * another document's page, to an image the build copies into the site, or
- * left as written — an external scheme, a `#anchor` of the same page, a
- * site-rooted path — for the built-site link check to judge like every
- * other link. A link to anything else is broken: the build refuses it,
- * naming the document and the target, all of them at once (requirement
- * `links`). Markdown outside README.md and docs/ is out of scope, so a
- * link into it is broken too, never silently kept.
+ * a title where the document has none, and its links resolved — an inline
+ * one, with its title or in angle brackets, a reference definition, a
+ * root-relative one — to another document's page, to an image the build
+ * copies into the site, or left as written: an external scheme, a
+ * `#anchor` of the same page, a protocol-relative link. A link to
+ * anything else is broken: the build refuses it, naming the document, the
+ * line and the target, all of them at once (requirement `links`).
+ * Markdown outside README.md and docs/ is out of scope, so a link into it
+ * is broken too, never silently kept.
  *
  * The scan a document page is built from is exported for the writers: they
  * walk the same links and Mermaid fences when they rewrite the body.
@@ -132,6 +133,19 @@ export function scanDocument(body: string): DocumentScan {
       if (text !== '') headings.push({ level: heading[1]!.length, text });
       continue;
     }
+    const definition = line.match(/^ {0,3}\[([^\]]+)\]:[ \t]*/);
+    if (definition !== null) {
+      // A link reference definition: its destination is the link the
+      // engines render every `[text][label]` use from, so it is recorded
+      // like an occurrence of its own, resolved and rewritten there.
+      const rest = line.slice(definition[0].length);
+      const destination = parseDestination(rest);
+      if (destination.text.trim() !== '') {
+        const base = start + definition[0].length;
+        links.push({ written: destination.text, start: base + destination.start, end: base + destination.end, line: lineNumber });
+        continue;
+      }
+    }
     scanLineLinks(line, start, links, code, lineNumber);
   }
   // A fence never closed runs to the end of the body; its content is code
@@ -140,12 +154,86 @@ export function scanDocument(body: string): DocumentScan {
   return { headings, links, mermaid, code };
 }
 
+/** One destination parsed off a link's parentheses or a definition's tail: the target as written, and the span its token covers. */
+interface ParsedDestination {
+  /** The destination exactly as written, angle brackets excluded. */
+  readonly text: string;
+  /** Where the whole destination token starts and ends, relative to the text parsed. */
+  readonly start: number;
+  readonly end: number;
+}
+
 /**
- * Finds one line's inline links and images outside code spans: `[text](target)`
- * and `![alt](target)`, with balanced brackets and parentheses, backslash
- * escapes skipped, and a code span — a backtick run and its matching run —
- * passed over entirely, recorded as a code region. Each found target's exact
- * span is recorded, with the 1-based line it sits on.
+ * Parses one link destination off the inside of a link's parentheses or a
+ * definition's tail. The strict shapes first: an angle-bracket
+ * destination (`<…>`, backslash escapes skipped) or a bare one — no
+ * whitespace — then optional whitespace, an optional `"…"`, `'…'` or
+ * `(…)` title, and nothing else. What does not parse that way stands as
+ * the whole text the way the scanner has always read it — a bare target
+ * holding a space, or a malformed title — so the link stays a link:
+ * resolved as written, a broken one named, never silently dropped.
+ */
+function parseDestination(inside: string): ParsedDestination {
+  let at = 0;
+  while (at < inside.length && (inside[at] === ' ' || inside[at] === '\t')) at++;
+  let text: string;
+  let start = at;
+  let end: number;
+  let strict = true;
+  if (inside[at] === '<') {
+    let close = at + 1;
+    while (close < inside.length && inside[close] !== '>') {
+      if (inside[close] === '\\') close++;
+      close++;
+    }
+    if (close >= inside.length) strict = false;
+    else {
+      text = inside.slice(at + 1, close);
+      end = close + 1;
+      at = close + 1;
+    }
+  } else {
+    let bare = at;
+    while (bare < inside.length && inside[bare] !== ' ' && inside[bare] !== '\t') {
+      if (inside[bare] === '\\') bare++;
+      bare++;
+    }
+    text = inside.slice(at, bare);
+    end = bare;
+    at = bare;
+  }
+  if (strict) {
+    while (at < inside.length && (inside[at] === ' ' || inside[at] === '\t')) at++;
+    if (at < inside.length) {
+      const closer = inside[at] === '"' ? '"' : inside[at] === "'" ? "'" : inside[at] === '(' ? ')' : undefined;
+      if (closer === undefined) strict = false;
+      else {
+        let title = at + 1;
+        while (title < inside.length && inside[title] !== closer) {
+          if (inside[title] === '\\') title++;
+          title++;
+        }
+        if (title >= inside.length) strict = false;
+        else {
+          at = title + 1;
+          while (at < inside.length && (inside[at] === ' ' || inside[at] === '\t')) at++;
+          if (at !== inside.length) strict = false;
+        }
+      }
+    }
+  }
+  if (!strict) return { text: inside, start: 0, end: inside.length };
+  return { text: text!, start, end: end! };
+}
+
+/**
+ * Finds one line's inline links and images outside code spans:
+ * `[text](target)`, `![alt](target)`, with a title after the target, an
+ * angle-bracket target, balanced brackets and parentheses, backslash
+ * escapes skipped, and a code span — a backtick run and its matching run
+ * — passed over entirely, recorded as a code region. Each found target's
+ * exact span — the destination token whole, brackets included — is
+ * recorded, with the 1-based line it sits on.
  */
 function scanLineLinks(line: string, lineStart: number, links: ScannedLink[], code: ScannedCode[], lineNumber: number): void {
   let i = 0;
@@ -212,8 +300,15 @@ function scanLineLinks(line: string, lineStart: number, links: ScannedLink[], co
       i++;
       continue;
     }
-    // k stands one past the closing parenthesis.
-    links.push({ written: line.slice(j + 1, k - 1), start: lineStart + j + 1, end: lineStart + k - 1, line: lineNumber });
+    // k stands one past the closing parenthesis; what stands inside is
+    // the destination the link names, spelled as its document wrote it.
+    const destination = parseDestination(line.slice(j + 1, k - 1));
+    links.push({
+      written: destination.text,
+      start: lineStart + j + 1 + destination.start,
+      end: lineStart + j + 1 + destination.end,
+      line: lineNumber,
+    });
     i = k;
   }
 }
@@ -363,22 +458,26 @@ function realPathInRepo(repo: string, path: string, what: 'document' | 'image'):
 
 /**
  * What one written link target names, from the document that carries it.
- * Kept: empty and `#anchor` targets, site-rooted paths, scheme links and
- * protocol-relative ones — the built-site link check judges those in the
- * built site. A `.md` target inside the document set is a page; a missing
- * one is broken, and so is any other file outside `docs/` — only an image
- * under `docs/` is copied and linked. Every broken link is recorded in
- * `broken`, with the 1-based line it sits on, and nothing is returned for it.
+ * Kept: empty and `#anchor` targets, scheme links and protocol-relative
+ * ones — the built-site link check judges those in the built site. A
+ * root-relative target names a repository path from the root
+ * (`/docs/guide.md`), any other target a path from the document's own
+ * folder. A `.md` target inside the document set is a page; a missing one
+ * is broken, and so is any other file a browser could not show — an image
+ * anywhere inside the repository is copied and linked, a target that
+ * walks out of the repository (`../…`) is broken, never followed. Every
+ * broken link is recorded in `broken`, with the 1-based line it sits on,
+ * and nothing is returned for it.
  */
 function resolveLink(repo: string, source: string, written: string, documents: ReadonlySet<string>, broken: BrokenDocumentLink[], line: number): WikiDocumentLink | undefined {
   const trimmed = written.trim();
-  if (trimmed === '' || trimmed.startsWith('#') || trimmed.startsWith('/') || trimmed.startsWith('//') || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {
+  if (trimmed === '' || trimmed.startsWith('#') || trimmed.startsWith('//') || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {
     return { written, kind: 'keep' };
   }
   const hash = trimmed.indexOf('#');
   const anchor = hash < 0 ? undefined : trimmed.slice(hash + 1);
   const raw = (hash < 0 ? trimmed : trimmed.slice(0, hash)).split('?')[0]!;
-  const target = normalize(joinPath(dirOf(source), raw));
+  const target = normalize(trimmed.startsWith('/') ? raw.slice(1) : joinPath(dirOf(source), raw));
   if (target.endsWith('.md')) {
     if (documents.has(target)) {
       const pageId = `document/${target.slice(0, -'.md'.length)}`;
@@ -387,7 +486,7 @@ function resolveLink(repo: string, source: string, written: string, documents: R
     broken.push({ source, written, target, line });
     return undefined;
   }
-  if (IMAGE_EXTENSION.test(target) && target.startsWith('docs/')) {
+  if (IMAGE_EXTENSION.test(target) && !target.startsWith('..') && !isAbsolute(target)) {
     if (existsSync(joinPath(repo, target))) return { written, kind: 'image', filePath: target };
     broken.push({ source, written, target, line });
     return undefined;
