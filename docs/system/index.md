@@ -42,6 +42,10 @@ Its run's decisions are in `docs/changes/wiki/change.md`, "Design and decisions"
 ## Known unknowns
 
 - The server: the last outcome of the MVP.
-- The query engine's memory in a long-lived process: bounded by fewer
-  execution threads and fewer prepared statements (madarch-ti6.2), not yet
-  measured over a long run (madarch-ti6.1).
+- The query engine's memory in a long-lived process: measured with the
+  change server-views (madarch-ti6.2) — at a fixed 2 execution threads and
+  query times reduced to the history's own times, a long run of
+  `dependents` and `view` calls at an advancing clock levels off well
+  under the long-run test's 400 MB bound. That evidence stands behind
+  madarch-ti6.1's decision not to give the server a restartable engine
+  process.
