@@ -19,6 +19,7 @@
  * walk the same links and Mermaid fences when they rewrite the body.
  */
 import { byCodePoint, type WikiDocumentLink, type WikiDocumentPage } from './pages.js';
+import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync, realpathSync, statSync, type Dirent } from 'node:fs';
 import { basename, dirname as dirOf, isAbsolute, join as joinPath, normalize, relative } from 'node:path';
 
@@ -107,12 +108,14 @@ const HOSTS: Record<string, 'github' | 'gitlab'> = { 'github.com': 'github', 'gi
  * The host, owner and repository an origin remote names, when the wiki
  * can link to it: an `https://` or `ssh://` URL or the `git@host:path`
  * form, on github.com or gitlab.com, the `.git` suffix dropped. Any other
- * spelling — another host, a local path — is none.
+ * spelling — another scheme (`http://`, `git://`, `file://`), an scp form
+ * without the `git@` user or with another, another host, a local path —
+ * is none.
  */
 function originHost(origin: string): { kind: 'github' | 'gitlab'; owner: string; repo: string } | undefined {
   let host: string;
   let path: string;
-  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(origin)) {
+  if (/^(?:https|ssh):\/\//i.test(origin)) {
     let url: URL;
     try {
       url = new URL(origin);
@@ -122,7 +125,7 @@ function originHost(origin: string): { kind: 'github' | 'gitlab'; owner: string;
     host = url.hostname.toLowerCase();
     path = url.pathname.replace(/^\/+/, '').replace(/\/+$/, '');
   } else {
-    const scp = /^(?:[^@/]+@)?([^:/]+):(.+)$/.exec(origin);
+    const scp = /^git@([^:/]+):(.+)$/.exec(origin);
     if (scp === null) return undefined;
     host = scp[1]!.toLowerCase();
     path = scp[2]!.replace(/\/+$/, '');
@@ -135,18 +138,68 @@ function originHost(origin: string): { kind: 'github' | 'gitlab'; owner: string;
 }
 
 /**
+ * The path `path` spells as URL path segments: each segment
+ * percent-encoded (`encodeURIComponent`), `/` between the segments. The
+ * characters a repository path or an owner can carry — space, `#`, `?`,
+ * `%`, angle brackets, quotes, anything else — reach the URL as data and
+ * can never leave it, end a Markdown destination or become markup; and a
+ * `%2e%2e` a document wrote stays written, so no browser normalizes the
+ * address out of the repository.
+ */
+function encodedSegments(path: string): string {
+  return path
+    .split('/')
+    .filter((segment) => segment !== '')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+}
+
+/**
  * The address of `path` on the repository's host at `commit`: a `blob`
  * for a file, a `tree` for a folder the repository holds, in the shape
- * the host spells. An origin the wiki does not link to gives none.
+ * the host spells — owner, repository, commit and every path segment
+ * percent-encoded, the anchor joined on separately by the caller. An
+ * origin the wiki does not link to gives none.
  */
 function hostFileUrl(origin: string, commit: string, path: string, folder: boolean): string | undefined {
   const parsed = originHost(origin);
   if (parsed === undefined) return undefined;
   const kind = folder ? 'tree' : 'blob';
-  return parsed.kind === 'github'
-    ? `https://github.com/${parsed.owner}/${parsed.repo}/${kind}/${commit}/${path}`
-    : `https://gitlab.com/${parsed.owner}/${parsed.repo}/-/${kind}/${commit}/${path}`;
+  const prefix =
+    parsed.kind === 'github'
+      ? `https://github.com/${encodedSegments(parsed.owner)}/${encodeURIComponent(parsed.repo)}/${kind}/${encodeURIComponent(commit)}`
+      : `https://gitlab.com/${encodedSegments(parsed.owner)}/${encodeURIComponent(parsed.repo)}/-/${kind}/${encodeURIComponent(commit)}`;
+  return `${prefix}/${encodedSegments(path)}`;
 }
+
+/** The most a `git ls-tree` of one commit may come back as before the read is refused. */
+const MAX_GIT_BUFFER = 64 * 1024 * 1024;
+
+/**
+ * Every path the commit holds, with what it is there — a `blob` (a file)
+ * or a `tree` (a folder) — from one `git ls-tree` of the whole commit.
+ * The URL names the commit, so what the repository holds is judged
+ * there, never in the mutable worktree: a committed folder deleted from
+ * the worktree is still a tree, an untracked file is not in the
+ * repository at all. Undefined when git cannot read the commit, so a
+ * caller with no commit tree to read (no host, a folder that is not a
+ * git repository) knows to judge the worktree instead.
+ */
+function treeAtCommit(repo: string, commit: string): ReadonlyMap<string, 'file' | 'folder'> | undefined {
+  if (commit.trim() === '') return undefined;
+  const run = spawnSync('git', ['-C', repo, 'ls-tree', '-r', '-t', '-z', commit], { encoding: 'utf8', maxBuffer: MAX_GIT_BUFFER });
+  if (run.error !== undefined || run.status !== 0) return undefined;
+  const entries = new Map<string, 'file' | 'folder'>();
+  for (const record of run.stdout.split('\0')) {
+    const tab = record.indexOf('\t');
+    if (tab < 0) continue;
+    const type = record.slice(0, tab).split(' ')[1];
+    if (type === 'blob') entries.set(record.slice(tab + 1), 'file');
+    if (type === 'tree') entries.set(record.slice(tab + 1), 'folder');
+  }
+  return entries;
+}
+
 
 /** One document link the build warns about: who wrote it, where, as written, and why it is not a link. */
 export interface DocumentLinkWarning {
@@ -585,6 +638,9 @@ export function refusedDocumentLinks(documents: readonly WikiDocumentPage[]): re
 export function documentPages(repo: string, host?: DocumentHost): readonly WikiDocumentPage[] {
   const paths = documentPaths(repo);
   const documentSet = new Set(paths);
+  // What the built commit holds, read once: every link's target is judged
+  // against this tree when it can be read, never against the worktree.
+  const committed = host === undefined ? undefined : treeAtCommit(repo, host.commit);
   const pages: WikiDocumentPage[] = [];
   for (const path of paths) {
     realPathInRepo(repo, path, 'document');
@@ -597,7 +653,7 @@ export function documentPages(repo: string, host?: DocumentHost): readonly WikiD
     const scan = scanDocument(body);
     const links: WikiDocumentLink[] = [];
     for (const occurrence of scan.links) {
-      const link = resolveLink(repo, path, occurrence.written, documentSet, host, occurrence.line);
+      const link = resolveLink(repo, path, occurrence.written, documentSet, host, occurrence.line, committed);
       if (link !== undefined) links.push(link);
     }
     const first = scan.headings[0];
@@ -720,15 +776,15 @@ export function isRefusedScheme(written: string): boolean {
  * (`/docs/guide.md`), any other target a path from the document's own
  * folder. A `.md` target inside the document set is a page. Every other
  * target leads to the repository's host at the commit the wiki is built
- * from — an existing file as a `blob`, a folder the repository holds as
- * a `tree`, a target the repository does not hold as a `blob` all the
+ * from — a file the built commit holds as a `blob`, a folder it holds as
+ * a `tree`, a target it does not hold as a `blob` all the
  * same, named in a warning — and an image the repository holds is copied
  * and linked as before. Where there is no host to lead to — no origin,
  * a host the wiki does not link to, a path that climbs out of the
  * repository (`../…` past the root) — the link is shown as text, with
  * the line it sits on and the repository path it names.
  */
-function resolveLink(repo: string, source: string, written: string, documents: ReadonlySet<string>, host: DocumentHost | undefined, line: number): WikiDocumentLink | undefined {
+function resolveLink(repo: string, source: string, written: string, documents: ReadonlySet<string>, host: DocumentHost | undefined, line: number, committed: ReadonlyMap<string, 'file' | 'folder'> | undefined): WikiDocumentLink | undefined {
   const trimmed = written.trim();
   if (trimmed === '' || trimmed.startsWith('#') || trimmed.startsWith('//')) return { written, kind: 'keep' };
   if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {
@@ -740,7 +796,17 @@ function resolveLink(repo: string, source: string, written: string, documents: R
   const hash = trimmed.indexOf('#');
   const anchor = hash < 0 ? undefined : trimmed.slice(hash + 1);
   const raw = (hash < 0 ? trimmed : trimmed.slice(0, hash)).split('?')[0]!;
-  const target = normalize(trimmed.startsWith('/') ? raw.slice(1) : joinPath(dirOf(source), raw));
+  // The path the reader's browser would see: the percent escapes read
+  // (`%2e%2e` is `..` once decoded), so the containment check and the
+  // commit judge the name the URL will carry, not the spelling; an
+  // escape that does not parse stays as written.
+  let path: string;
+  try {
+    path = decodeURIComponent(raw);
+  } catch {
+    path = raw;
+  }
+  const target = normalize(trimmed.startsWith('/') ? path.slice(1) : joinPath(dirOf(source), path));
   if (target.endsWith('.md') && documents.has(target)) {
     const pageId = `document/${target.slice(0, -'.md'.length)}`;
     return anchor === undefined ? { written, kind: 'page', pageId } : { written, kind: 'page', pageId, anchor };
@@ -759,9 +825,22 @@ function resolveLink(repo: string, source: string, written: string, documents: R
   // image it does not hold leads to the host like any other miss.
   if (IMAGE_EXTENSION.test(target) && onDisk === 'file') return { written, kind: 'image', filePath: target };
   if (host?.origin === undefined) return { written, kind: 'text', target, reason: 'no-origin', line };
-  const url = hostFileUrl(host.origin, host.commit, target, onDisk === 'folder');
+  // The commit decides what the URL says is there — a blob or a tree,
+  // held or not: the address names the commit, so the worktree's answer
+  // (a folder deleted after the commit, an untracked file) is not the
+  // repository's. Where the commit's tree cannot be read, the worktree
+  // stands in, as before.
+  const held = committed !== undefined ? (committed.get(target) ?? 'missing') : onDisk;
+  const url = hostFileUrl(host.origin, host.commit, target, held === 'folder');
   if (url === undefined) return { written, kind: 'text', target, reason: 'unlinked-host', line };
-  return { written, kind: 'host', url: anchor === undefined ? url : `${url}#${anchor}`, target, missing: onDisk === 'missing', line };
+  return {
+    written,
+    kind: 'host',
+    url: anchor === undefined ? url : `${url}#${encodeURIComponent(anchor)}`,
+    target,
+    missing: held === 'missing',
+    line,
+  };
 }
 
 
