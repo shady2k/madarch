@@ -8,7 +8,9 @@ names; a word under _Avoid_ is not used for the concept.
 **Graph**:
 The complete state madarch keeps for one organisation's system: the intended
 model, every fact from every source with its times, and the relations derived
-from them. One server holds one graph.
+from them. A graph is built from the sources it lists. One server holds one
+graph; in the MVP each repository sent is a graph of its own, listing that one
+source (decision 0013, amended 2026-09-30).
 _Avoid_: landscape, workspace, model (for the whole)
 
 **Intended model**:
@@ -101,6 +103,8 @@ _Avoid_: diagram (a view rendered)
 
 **Source**:
 Where facts come from: a repository at a ref, read by one plugin at one version.
+In the MVP, a repository whose compiled model is sent to the server, named by
+its `origin` remote as host and path (`github.com/shady2k/nocx`).
 
 **Fact**:
 One atomic statement a plugin makes about what it sees (`provides`, `consumes`,

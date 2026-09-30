@@ -22,3 +22,17 @@ milestone and absent from the API and the model.
 - Isolated organisations (a holding, a hosted service) need their own server
   until several graphs are supported.
 - Revisit when isolation is required; the storage is ready for it.
+
+## Amendment 2026-09-30 (change server-views)
+For the MVP's server the owner kept one repository per graph and asked that
+the architecture provide for a product of several ("Остаемся с одним для
+MVP, но мы должны предусмотреть в архитектуре"). A graph is a named list of
+sources; the server keeps one history per source and builds one query engine
+per graph from the assertions of every source it lists. In this milestone
+each repository sent is a graph listing only itself, named after it, so
+repositories sharing an id (the reference system and nocx both declare
+`platform`) do not refuse each other. Joining a product's repositories
+(`live-graph`, madarch-bwt) adds graphs that list several sources, where a
+clashing id is reported when the graph is built (decision 0003), without
+changing how a source is sent or stored. The graph id column this decision
+planned was never added; the list of sources takes its place.
