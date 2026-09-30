@@ -30,6 +30,8 @@ export interface ScannedLink {
   readonly start: number;
   /** Where the target ends: `body.slice(start, end)` is the target. */
   readonly end: number;
+  /** The 1-based body line the link sits on, named by the broken-link report. */
+  readonly line: number;
 }
 
 /** One ATX heading outside code fences, its level (1–6) and its text. */
@@ -70,6 +72,8 @@ export interface BrokenDocumentLink {
   readonly written: string;
   /** The repository path the link resolves to. */
   readonly target: string;
+  /** The 1-based line of the document the link sits on. */
+  readonly line: number;
 }
 
 /**
@@ -81,7 +85,14 @@ export class DocumentLinkError extends Error {
   readonly broken: readonly BrokenDocumentLink[];
 
   constructor(broken: readonly BrokenDocumentLink[]) {
-    super(['the documents carry broken links:', ...broken.map((link) => `${link.source} links to "${link.written}" — ${link.target} is not a page of this wiki`)].join('\n'));
+    super(
+      [
+        'the documents carry broken links:',
+        ...broken.map(
+          (link) => `${link.source}:${link.line}: links to "${link.written}" — ${link.target} is not a page of this wiki; fix the link or add the document`,
+        ),
+      ].join('\n'),
+    );
     this.name = 'DocumentLinkError';
     this.broken = broken;
   }
@@ -95,7 +106,8 @@ export function scanDocument(body: string): DocumentScan {
   const lines = body.split('\n');
   let offset = 0;
   let fence: { char: string; length: number; mermaid: boolean; contentStart: number; fenceStart: number } | undefined;
-  for (const line of lines) {
+  for (const [index, line] of lines.entries()) {
+    const lineNumber = index + 1;
     const start = offset;
     const end = offset + line.length;
     offset = end + 1;
@@ -120,7 +132,7 @@ export function scanDocument(body: string): DocumentScan {
       if (text !== '') headings.push({ level: heading[1]!.length, text });
       continue;
     }
-    scanLineLinks(line, start, links, code);
+    scanLineLinks(line, start, links, code, lineNumber);
   }
   // A fence never closed runs to the end of the body; its content is code
   // all the way.
@@ -133,9 +145,9 @@ export function scanDocument(body: string): DocumentScan {
  * and `![alt](target)`, with balanced brackets and parentheses, backslash
  * escapes skipped, and a code span — a backtick run and its matching run —
  * passed over entirely, recorded as a code region. Each found target's exact
- * span is recorded.
+ * span is recorded, with the 1-based line it sits on.
  */
-function scanLineLinks(line: string, lineStart: number, links: ScannedLink[], code: ScannedCode[]): void {
+function scanLineLinks(line: string, lineStart: number, links: ScannedLink[], code: ScannedCode[], lineNumber: number): void {
   let i = 0;
   while (i < line.length) {
     const ch = line[i]!;
@@ -201,7 +213,7 @@ function scanLineLinks(line: string, lineStart: number, links: ScannedLink[], co
       continue;
     }
     // k stands one past the closing parenthesis.
-    links.push({ written: line.slice(j + 1, k - 1), start: lineStart + j + 1, end: lineStart + k - 1 });
+    links.push({ written: line.slice(j + 1, k - 1), start: lineStart + j + 1, end: lineStart + k - 1, line: lineNumber });
     i = k;
   }
 }
@@ -249,7 +261,7 @@ export function documentPages(repo: string): readonly WikiDocumentPage[] {
     const scan = scanDocument(body);
     const links: WikiDocumentLink[] = [];
     for (const occurrence of scan.links) {
-      const link = resolveLink(repo, path, occurrence.written, documentSet, broken);
+      const link = resolveLink(repo, path, occurrence.written, documentSet, broken, occurrence.line);
       if (link !== undefined) links.push(link);
     }
     const first = scan.headings[0];
@@ -269,7 +281,7 @@ export function documentPages(repo: string): readonly WikiDocumentPage[] {
   // out of the repository would be copied into the site.
   for (const image of documentImages(pages)) realPathInRepo(repo, image, 'image');
   if (broken.length > 0) {
-    broken.sort((a, b) => byCodePoint(a.source, b.source) || byCodePoint(a.written, b.written) || byCodePoint(a.target, b.target));
+    broken.sort((a, b) => byCodePoint(a.source, b.source) || a.line - b.line || byCodePoint(a.written, b.written) || byCodePoint(a.target, b.target));
     throw new DocumentLinkError(broken);
   }
   return pages;
@@ -356,9 +368,9 @@ function realPathInRepo(repo: string, path: string, what: 'document' | 'image'):
  * built site. A `.md` target inside the document set is a page; a missing
  * one is broken, and so is any other file outside `docs/` — only an image
  * under `docs/` is copied and linked. Every broken link is recorded in
- * `broken`, and nothing is returned for it.
+ * `broken`, with the 1-based line it sits on, and nothing is returned for it.
  */
-function resolveLink(repo: string, source: string, written: string, documents: ReadonlySet<string>, broken: BrokenDocumentLink[]): WikiDocumentLink | undefined {
+function resolveLink(repo: string, source: string, written: string, documents: ReadonlySet<string>, broken: BrokenDocumentLink[], line: number): WikiDocumentLink | undefined {
   const trimmed = written.trim();
   if (trimmed === '' || trimmed.startsWith('#') || trimmed.startsWith('/') || trimmed.startsWith('//') || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {
     return { written, kind: 'keep' };
@@ -372,15 +384,15 @@ function resolveLink(repo: string, source: string, written: string, documents: R
       const pageId = `document/${target.slice(0, -'.md'.length)}`;
       return anchor === undefined ? { written, kind: 'page', pageId } : { written, kind: 'page', pageId, anchor };
     }
-    broken.push({ source, written, target });
+    broken.push({ source, written, target, line });
     return undefined;
   }
   if (IMAGE_EXTENSION.test(target) && target.startsWith('docs/')) {
     if (existsSync(joinPath(repo, target))) return { written, kind: 'image', filePath: target };
-    broken.push({ source, written, target });
+    broken.push({ source, written, target, line });
     return undefined;
   }
-  broken.push({ source, written, target });
+  broken.push({ source, written, target, line });
   return undefined;
 }
 

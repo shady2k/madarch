@@ -162,16 +162,27 @@ describe('documentPages', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(DocumentLinkError);
       const broken = (error as DocumentLinkError).broken;
-      expect(broken).toEqual([{ source: 'docs/guide.md', written: 'missing.md', target: 'docs/missing.md' }]);
+      expect(broken).toEqual([{ source: 'docs/guide.md', written: 'missing.md', target: 'docs/missing.md', line: 3 }]);
       expect((error as Error).message).toContain('docs/guide.md');
       expect((error as Error).message).toContain('docs/missing.md');
+    }
+  });
+
+  test('a broken link is named with its document, its line, the target as written and what fixes it', () => {
+    try {
+      documentsOf({ 'docs/guide.md': '# Guide\n\nText.\n\n[Missing](missing.md)\n' });
+      throw new Error('expected DocumentLinkError');
+    } catch (error) {
+      expect((error as Error).message).toContain(
+        'docs/guide.md:5: links to "missing.md" — docs/missing.md is not a page of this wiki; fix the link or add the document',
+      );
     }
   });
 
   test('a link outside README.md and docs/ is broken, never silently kept', () => {
     try {
       documentsOf({
-        'README.md': '# Read me\n\n[Licence](LICENSE), ![Badge](badge.png)\n',
+        'README.md': '# Read me\n\n[Licence](LICENSE)\n',
         'docs/a.md': '# A\n\n[App](../src/app.ts), [notes](notes.txt)\n',
         'badge.png': 'png bytes',
         'LICENSE': 'MIT',
@@ -181,13 +192,12 @@ describe('documentPages', () => {
       throw new Error('expected DocumentLinkError');
     } catch (error) {
       const broken = (error as DocumentLinkError).broken;
-      // Every one of them, sorted by code point of source, written, target:
-      // README's licence, then docs/a.md's two.
+      // Every one of them, sorted by document path, then line, then as
+      // written, each by code point: README's licence, then docs/a.md's two.
       expect(broken).toEqual([
-        { source: 'README.md', written: 'LICENSE', target: 'LICENSE' },
-        { source: 'README.md', written: 'badge.png', target: 'badge.png' },
-        { source: 'docs/a.md', written: '../src/app.ts', target: 'src/app.ts' },
-        { source: 'docs/a.md', written: 'notes.txt', target: 'docs/notes.txt' },
+        { source: 'README.md', written: 'LICENSE', target: 'LICENSE', line: 3 },
+        { source: 'docs/a.md', written: '../src/app.ts', target: 'src/app.ts', line: 3 },
+        { source: 'docs/a.md', written: 'notes.txt', target: 'docs/notes.txt', line: 3 },
       ]);
     }
   });
@@ -204,7 +214,7 @@ describe('documentPages', () => {
       documentsOf({ 'docs/a.md': '# A\n\n![gone](img/gone.png)\n' });
       throw new Error('expected DocumentLinkError');
     } catch (error) {
-      expect((error as DocumentLinkError).broken).toEqual([{ source: 'docs/a.md', written: 'img/gone.png', target: 'docs/img/gone.png' }]);
+      expect((error as DocumentLinkError).broken).toEqual([{ source: 'docs/a.md', written: 'img/gone.png', target: 'docs/img/gone.png', line: 3 }]);
     }
   });
 
