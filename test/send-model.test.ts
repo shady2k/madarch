@@ -53,6 +53,9 @@ describe('the source name of a remote', () => {
       ['https://github.com/acme/shop.git?access_token=secret#x', 'github.com/acme/shop'],
       ['https://github.com/acme/shop?ref=main#readme', 'github.com/acme/shop'],
       ['https://user:token@github.com/shady2k/nocx.git?private=token', 'github.com/shady2k/nocx'],
+      ['github.com:shady2k/nocx', 'github.com/shady2k/nocx'],
+      ['xy:repo', 'xy/repo'],
+      ['https://github.com/shady2k/nocx//', 'github.com/shady2k/nocx'],
     ];
     for (const [remote, name] of remotes) {
       expect(sourceNameFromRemote(remote)).toBe(name);
@@ -60,7 +63,7 @@ describe('the source name of a remote', () => {
   });
 
   test('a remote with no host and path to name a repository by names nothing', () => {
-    for (const remote of ['/srv/git/nocx.git', 'file:///srv/git/nocx.git', 'C:\\dev\\nocx', 'https://github.com/', 'git@github.com:']) {
+    for (const remote of ['/srv/git/nocx.git', 'file:///srv/git/nocx.git', 'C:\\dev\\nocx', 'https://github.com/', 'git@github.com:', 'https://github.com', 'https:///x', '1https://github.com/shady2k/nocx']) {
       expect(sourceNameFromRemote(remote)).toBeUndefined();
     }
   });
@@ -287,6 +290,74 @@ describe('the send command', () => {
       expect(run.status).toBe(2);
       expect(run.stderr).toContain('error:');
       expect(run.stderr).toContain(commit);
+    } finally {
+      rmSync(repo.path, { recursive: true, force: true });
+    }
+  });
+
+  test('a server answer that is not a send answer exits 2 naming the problem', async () => {
+    start();
+    const repo = completeRepo();
+    const fake = Bun.serve({
+      port: 0,
+      fetch: () => Response.json({ stored: 'yes' }),
+    });
+    try {
+      expect(repo.run(['remote', 'add', 'origin', 'git@github.com:shady2k/nocx.git']).ok).toBe(true);
+      const run = await runSend(repo.path, '--server', `http://127.0.0.1:${fake.port}`);
+      expect(run.status).toBe(2);
+      expect(run.stderr).toContain('no boolean "stored"');
+    } finally {
+      fake.stop(true);
+      rmSync(repo.path, { recursive: true, force: true });
+    }
+  });
+
+  test('a server answer that is no object at all exits 2 naming the problem', async () => {
+    start();
+    const repo = completeRepo();
+    const fake = Bun.serve({
+      port: 0,
+      fetch: () => Response.json(42),
+    });
+    try {
+      expect(repo.run(['remote', 'add', 'origin', 'git@github.com:shady2k/nocx.git']).ok).toBe(true);
+      const run = await runSend(repo.path, '--server', `http://127.0.0.1:${fake.port}`);
+      expect(run.status).toBe(2);
+      expect(run.stderr).toContain('no boolean "stored"');
+    } finally {
+      fake.stop(true);
+      rmSync(repo.path, { recursive: true, force: true });
+    }
+  });
+
+  test('a refusal carries its field into the printed error', async () => {
+    start();
+    const repo = completeRepo();
+    const fake = Bun.serve({
+      port: 0,
+      fetch: () => Response.json({ error: { message: 'the model is not wanted', field: 'source' } }, { status: 400 }),
+    });
+    try {
+      expect(repo.run(['remote', 'add', 'origin', 'git@github.com:shady2k/nocx.git']).ok).toBe(true);
+      const run = await runSend(repo.path, '--server', `http://127.0.0.1:${fake.port}`);
+      expect(run.status).toBe(2);
+      expect(run.stderr).toContain('the model is not wanted');
+      expect(run.stderr).toContain('(field: source)');
+    } finally {
+      fake.stop(true);
+      rmSync(repo.path, { recursive: true, force: true });
+    }
+  });
+
+  test('a server address with trailing slashes is trimmed onto /models', async () => {
+    const url = start();
+    const repo = completeRepo();
+    try {
+      expect(repo.run(['remote', 'add', 'origin', 'git@github.com:shady2k/nocx.git']).ok).toBe(true);
+      const run = await runSend(repo.path, '--server', `${url}//`);
+      expect(run.status).toBe(0);
+      expect(run.stdout).toContain('stored');
     } finally {
       rmSync(repo.path, { recursive: true, force: true });
     }
