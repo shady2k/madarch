@@ -376,6 +376,30 @@ them again.
 The check reads the model from the working folder; you do not need to commit
 it to run the check.
 
+### 12. Send the model to a server, when one is named
+
+When the person's request names a madarch server's address, or
+`MADARCH_SERVER` is set to one, send the checked model to it:
+
+```sh
+(cd "$MADARCH" && bun scripts/send-model.ts "$REPO" --server "$MADARCH_SERVER")
+```
+
+Run it from `$MADARCH`, as step 10 does; an address from the request goes
+in place of `"$MADARCH_SERVER"`. The send runs the model check itself and
+sends only a passing check's model — read from the working folder, so it
+can be sent before anyone commits it.
+
+Report what it printed: the source name and the commit the server holds,
+whether `stored` or `already stored`; or the server's refusal, with its
+message and field; or what exit 2 names as missing. Exit 1 is the check
+failing and nothing was sent — fix and re-check as step 10 says, then run
+the send again. Do not retry a refusal unchanged: the server has refused
+that exact model.
+
+Without an address, send nothing, and say in the report how to send later:
+the command above, with the server's address in `--server`.
+
 ## If a run fails
 
 A failed run leaves the previous model and report as they were in git. Your
