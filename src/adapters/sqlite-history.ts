@@ -6,6 +6,7 @@ import type {
   AssertionRecord,
   AssertionsInput,
   Clock,
+  CommitRecord,
   HistoryError,
   HistoryStore,
   ReadInput,
@@ -51,6 +52,13 @@ interface OtherCurrentRow {
 interface CommitRow {
   committed_at: number;
   content_digest: string;
+}
+
+/** A row of `source_commits`, as read back for `commits`' commit order. */
+interface CommitListRow {
+  commit_id: string;
+  committed_at: number;
+  recorded_at: number;
 }
 
 /** A row naming the commit immediately after a given position in a source's commit order. */
@@ -212,6 +220,9 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
      ORDER BY source, kind, entity_id, valid_from, recorded_from`,
   );
   const selectSources: Statement<{ source: string }, []> = db.query('SELECT DISTINCT source FROM source_commits');
+  const selectCommits: Statement<CommitListRow, [string]> = db.query(
+    'SELECT commit_id, committed_at, recorded_at FROM source_commits WHERE source = ? ORDER BY committed_at ASC, commit_id ASC',
+  );
   const insertAssertion: Statement<unknown, [string, AssertionKind, string, string, number, number | null, string, string | null, number]> = db.query(
     `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
@@ -494,6 +505,11 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
     return selectSources.all().map((row) => row.source).sort(byCodePoint);
   }
 
+  /** Every commit of one source, oldest first in the history's own commit order. */
+  function commits(source: string): CommitRecord[] {
+    return selectCommits.all(source).map((row) => ({ commit: row.commit_id, committedAt: row.committed_at, storedAt: row.recorded_at }));
+  }
+
   function hasCommit(source: string, commit: string): boolean {
     return selectCommit.get(source, commit) !== null;
   }
@@ -502,5 +518,5 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
     db.close();
   }
 
-  return { store, read, assertions, sources, hasCommit, close };
+  return { store, read, assertions, sources, commits, hasCommit, close };
 }
