@@ -35,7 +35,11 @@
   "presentAreas": [
     ""
   ],
-  "presentIgnores": [],
+  "presentIgnores": [
+    "docs/guide.md",
+    "docs/missing.md",
+    "../AGENTS.md"
+  ],
   "presentChurnCommits": 20,
   "execution": {
     "development": "tdd",
