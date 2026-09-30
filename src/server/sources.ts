@@ -302,14 +302,17 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
     const result = history.store(input);
 
     if (result.errors.length === 0) {
+      // The head's storing moment is the history's own record of this
+      // commit — the `recorded_at` its row carries, what the restart
+      // repair reads back — never this call's clock: a retry that
+      // repairs a head the sidecar write lost must carry the original
+      // store's moment, and a repeat opens no row to take one from.
+      const commitRecord = history.commits(input.source).find((each) => each.commit === input.commit)!;
       const candidate: SourceHead = {
         source: input.source,
         commit: input.commit,
         committedAt: input.committedAt,
-        // Every opened row carries the store's own recorded moment; a
-        // store that opens nothing (a model with no assertions at all)
-        // falls back to the clock, the best the sidecar can say.
-        storedAt: result.opened[0]?.recordedFrom ?? clock.now(),
+        storedAt: commitRecord.storedAt,
       };
       const stored = heads.get(input.source);
       if (stored === undefined || isNewerHead(candidate, stored)) {

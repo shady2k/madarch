@@ -224,10 +224,16 @@ describe('heads', () => {
     expect(() => sources.store(storeInput('shop', 'c2', DAY(2), [element('b')]))).toThrow();
     rmdirSync(join(dir, 'shop.json.tmp'));
 
+    clock.set(DAY(20));
+
     const retry = sources.store(storeInput('shop', 'c2', DAY(2), [element('b')]));
     expect(retry.wasNew).toBe(false);
     expect(retry.result.errors).toEqual([]);
-    expect(sources.heads()).toEqual([{ source: 'shop', commit: 'c2', committedAt: DAY(2), storedAt: DAY(10) }]);
+    // The repaired head carries the original c2 store's own moment,
+    // held by the history's commit row — not the retry's later clock.
+    // The first c2 store closed c1's row, so its recorded moment was
+    // clamped 1 ms past the then-frozen clock.
+    expect(sources.heads()).toEqual([{ source: 'shop', commit: 'c2', committedAt: DAY(2), storedAt: DAY(10) + 1 }]);
     sources.close();
   });
 

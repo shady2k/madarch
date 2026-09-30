@@ -324,6 +324,29 @@ describe('restart on the same data folder', () => {
   });
 });
 
+describe('a retry after a failed sidecar write', () => {
+  test('the repaired head carries the original store\'s moment, never the retry\'s clock', async () => {
+    start();
+    expect((await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')])).status).toBe(201);
+
+    // Sabotage at the file-system boundary: the sidecar's own temporary
+    // path is a folder, so the history stores the commit and the sidecar
+    // write then fails.
+    mkdirSync(join(folder!, 'shop.json.tmp'));
+    expect((await send('shop', 'c2', '2026-09-02T12:00:00Z', [element('b')])).status).toBe(500);
+    rmdirSync(join(folder!, 'shop.json.tmp'));
+
+    clockNow.value = DAY(20);
+    const retry = await send('shop', 'c2', '2026-09-02T12:00:00Z', [element('b')]);
+    expect(retry.status).toBe(200);
+
+    const sources = await sourcesOf(await fetch(`${server!.url}/sources`));
+    expect(sources).toEqual([
+      { source: 'shop', commit: 'c2', committedAt: '2026-09-02T12:00:00.000Z', storedAt: '2026-09-10T00:00:00.001Z' },
+    ]);
+  });
+});
+
 describe('the log', () => {
   test('one line per request: method, path, status, source and milliseconds', async () => {
     start();
