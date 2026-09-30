@@ -152,6 +152,14 @@ batch, "Да"):
   accepted on its full checks and mutation run, its record naming the final
   review as its review evidence. Stage 1's review, already done, stands;
   its three findings are fixed.
+- Checks, changed by the owner mid-run, 2026-09-30 20:50 MSK ("Да, все
+  проверки делай в конце"): workers run the type-checker and their own
+  change's tests only; after each merge the coordinator runs the
+  type-checker and the changed code's tests; stages are recorded as
+  integrated, not accepted on their own checks. The full suite with the
+  performance tests, `views:check`, the mutation run over every changed
+  range, the Codex review and the `server-views` check run once, on the
+  final revision, and every stage's acceptance record rests on that run.
 - Forecast: 2 to 4 hours of agent work, the pull request expected about
   00:00 to 02:00 MSK on 2026-10-01; past 06:00 MSK without word the run has
   stopped. The owner named no absence; the due time stands for it.
