@@ -261,6 +261,49 @@ describe('keeping a built graph in step', () => {
     expect(view.elements?.map((each) => each.id)).toEqual(['b']);
   });
 
+  test('a recovery whose engine close fails still drops every listing graph and passes the original error on', () => {
+    const clock = fakeClock(DAY(9));
+    const one = createSqliteHistory({ clock });
+    one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
+    const graphs = createGraphs({ historyOf: () => one, clock });
+    const own = graphs.graphForSource('shop');
+    const union = graphs.addGraph('union', ['shop', 'other']);
+    expect(own.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
+    expect(union.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
+
+    const result = one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('b')]) });
+    expect(result.errors).toEqual([]);
+    // Sabotage the one graph's engine twice over: its update throws (the
+    // failure being recovered from) and so does its close (the destructor
+    // failing on the recovery path).
+    const engine = own.engine();
+    engine.update = () => {
+      throw new Error('the engine update failed');
+    };
+    engine.close = () => {
+      throw new Error('the engine close failed');
+    };
+
+    let thrown: unknown;
+    try {
+      graphs.applyStore('shop', result);
+    } catch (error) {
+      thrown = error;
+    }
+    // The original update error is the one the caller sees — a failing
+    // close never masks it.
+    expect((thrown as Error).message).toBe('the engine update failed');
+
+    // The second store recorded its rows 1 ms past the frozen clock (it
+    // closed c1's row); move real time past that before asking again.
+    clock.set(DAY(15));
+    // Both graphs' engines are gone: each next use rebuilds from the
+    // history and answers at c2, not from the engine the close failed on.
+    expect(own.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['b']);
+    expect(union.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['b']);
+    graphs.close();
+  });
+
   test('a graph built after several stores sees all of them without any update call', () => {
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });
