@@ -42,7 +42,7 @@ export interface Graph {
   readonly sources: readonly string[];
   /** The engine, built on first use from every listed source's assertions. */
   engine(): QueryEngine;
-  /** Releases the engine, if it was ever built. */
+  /** Releases the engine, if it was ever built; a close that fails is swallowed and the engine is dropped either way (see `dropIfBuilt`). */
   close(): void;
 }
 
@@ -83,7 +83,7 @@ interface GraphEntry extends Graph {
   lists(source: string): boolean;
   /** Applies one store's report to a built engine; a graph that was never built changes nothing. */
   applyIfBuilt(result: StoreResult): void;
-  /** Drops the built engine, if there is one; the next use rebuilds it from the histories through the clash check. */
+  /** Drops the built engine, if there is one; the next use rebuilds it from the histories through the clash check. Unconditional: the engine leaves the cache before it is closed, and a close that fails is swallowed. */
   dropIfBuilt(): void;
 }
 
@@ -91,10 +91,26 @@ interface GraphEntry extends Graph {
 function newGraph(name: string, sources: readonly string[], historyOf: (source: string) => HistoryStore, clock: Clock): GraphEntry {
   const listed = [...sources].sort(byCodePoint);
   let engineInstance: QueryEngine | undefined;
-  /** Drops the built engine, if there is one; the next use rebuilds it from the histories through the clash check. */
+  /**
+   * Drops the built engine, if there is one; the next use rebuilds it
+   * from the histories through the clash check. The cache is cleared
+   * before anything can fail, and the close itself is best-effort: a
+   * close that throws is swallowed. A destructor failing on a recovery
+   * path must not keep the dropped engine, mask the error being
+   * recovered, or stop the remaining graphs from being dropped, and
+   * there is no caller left whose own error is worth more than the
+   * original one — the engine's memory goes back to the runtime once
+   * this cache held its last reference anyway.
+   */
   const dropIfBuilt = (): void => {
-    engineInstance?.close();
+    const engine = engineInstance;
+    if (engine === undefined) return;
     engineInstance = undefined;
+    try {
+      engine.close();
+    } catch {
+      // Swallowed on purpose; see above.
+    }
   };
   return {
     name,
@@ -125,10 +141,7 @@ function newGraph(name: string, sources: readonly string[], historyOf: (source: 
       engineInstance?.update(result.opened, result.closed);
     },
     dropIfBuilt,
-    close: () => {
-      engineInstance?.close();
-      engineInstance = undefined;
-    },
+    close: dropIfBuilt,
   };
 }
 
