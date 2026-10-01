@@ -231,6 +231,36 @@ describe('keeping a built graph in step', () => {
     graphs.close();
   });
 
+  test('a store whose report a built engine fails to apply is dropped, not left behind: the throw passes on and the next use rebuilds from the history', () => {
+    const clock = fakeClock(DAY(9));
+    const one = createSqliteHistory({ clock });
+    one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
+    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graph = graphs.graphForSource('shop');
+    expect(graph.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
+
+    const result = one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('b')]) });
+    expect(result.errors).toEqual([]);
+    expect(result.opened.length + result.closed.length).toBeGreaterThan(0);
+    // Sabotage the built engine's own update, as a failing Ladybug write
+    // would: the history has the commit, the engine cannot take it.
+    const engine = graph.engine();
+    engine.update = () => {
+      throw new Error('the engine update failed');
+    };
+    expect(() => graphs.applyStore('shop', result)).toThrow(/the engine update failed/);
+
+    // The retry answers "already stored": an empty report that must
+    // change nothing, yet leave no half-updated engine behind.
+    graphs.applyStore('shop', { errors: [], opened: [], closed: [] });
+    // The second store recorded its rows 1 ms past the frozen clock (it
+    // closed c1's row); move real time past that before asking again.
+    clock.set(DAY(15));
+    const view = graph.engine().view({ depth: 0 });
+    graphs.close();
+    expect(view.elements?.map((each) => each.id)).toEqual(['b']);
+  });
+
   test('a graph built after several stores sees all of them without any update call', () => {
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });
