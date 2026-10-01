@@ -1,9 +1,11 @@
 /**
  * The server's HTTP layer: Bun's own server, no framework (decision 0008),
- * with the ways in (`POST /models`, `POST /views`, `GET /sources`) held in
- * one route table, so the next one slots in beside them and authentication
- * can later be added as one layer in front of them, without reshaping
- * either (decision 0012).
+ * with the ways in (`POST /models`, `POST /views`, `POST /sources`,
+ * `GET /sources`) held in one route table, so the next one slots in beside
+ * them and authentication can later be added as one layer in front of
+ * them, without reshaping either (decision 0012). `POST /sources` is the
+ * rename claim: it binds a new name to the id a source already has, and
+ * the old name — retired — never grows a second source.
  *
  * Every refusal is JSON `{"error": {"message", "field"?, "accepted"?}}`
  * with 400, 404, 405, 409 or 413; a failure of the server itself is 500,
@@ -110,6 +112,14 @@ interface AskedView {
   format: 'mermaid' | 'likec4';
 }
 
+/** A rename claim, every field checked and parsed. */
+interface ClaimedRename {
+  /** The id the server assigned the source on its first send. */
+  id: string;
+  /** The source's new name. */
+  source: string;
+}
+
 export function startServer(options: ServerOptions): StartedServer {
   const clock: Clock = options.clock ?? { now: () => Date.now() };
   // The writer is the safe place: every line is escaped here once, so a
@@ -153,6 +163,7 @@ function createHandler(dependencies: {
   const routes: Route[] = [
     { method: 'POST', path: '/models', handle: storeModel },
     { method: 'POST', path: '/views', handle: answerView },
+    { method: 'POST', path: '/sources', handle: claimRename },
     { method: 'GET', path: '/sources', handle: listSources },
   ];
 
@@ -200,6 +211,19 @@ function createHandler(dependencies: {
     const { sent, problems } = parseStoreRequest(body);
     if (sent === undefined) {
       return { ...joinedRefusal(400, problems), source: namedSourceOf(body) };
+    }
+
+    // The old name of a renamed source never grows a second source: the
+    // refusal explains the rename and names the name to send under.
+    const renamedTo = sources.retiredHead(sent.source);
+    if (renamedTo !== undefined) {
+      return {
+        ...refused(409, {
+          field: 'source',
+          message: `the source ${JSON.stringify(sent.source)} was renamed to ${JSON.stringify(renamedTo.source)} (id ${JSON.stringify(renamedTo.id)}): the old name holds no source of its own; send under the new name`,
+        }),
+        source: sent.source,
+      };
     }
 
     let stored: SourceStoreResult;
@@ -319,6 +343,104 @@ function createHandler(dependencies: {
   }
 
   /**
+   * A rename claim: the new name is bound to the id the source already
+   * has, the history and its sidecar move to the new name, and the old
+   * name is retired — never a source of its own again. A repeat claim of
+   * the name the source already holds answers as already answered, and
+   * one of its own former names renames it back.
+   */
+  async function claimRename(request: Request): Promise<Handled> {
+    const { body, bad } = await jsonBody(request);
+    if (bad !== undefined) return bad;
+
+    const { claim, problems } = parseClaimRequest(body);
+    if (claim === undefined) {
+      return { ...joinedRefusal(400, problems), source: namedSourceOf(body) };
+    }
+
+    const heads = sources.heads();
+    const claimed = heads.find((head) => head.id === claim.id);
+    if (claimed === undefined) {
+      const held = heads.length === 0
+        ? 'the server holds no source yet'
+        : `the server holds ${heads.map((head) => `"${head.source}" with id "${head.id}"`).join(', ')}`;
+      return {
+        ...refused(404, {
+          field: 'id',
+          message: `no source has the id ${JSON.stringify(claim.id)}: ${held}; GET /sources lists every source with its id`,
+        }),
+      };
+    }
+    if (claimed.source === claim.source) {
+      return { response: json(200, { renamed: false, reason: 'already the name', source: claim.source, id: claim.id }), source: claim.source };
+    }
+    const holder = heads.find((head) => head.source === claim.source);
+    if (holder !== undefined) {
+      return {
+        ...refused(409, {
+          field: 'source',
+          message: `the claim renames ${JSON.stringify(claimed.source)} (id ${JSON.stringify(claim.id)}) to ${JSON.stringify(claim.source)}, but that name is already the name of the source with id ${JSON.stringify(holder.id)}: a claim names a name no other source holds`,
+        }),
+        source: claim.source,
+      };
+    }
+    const retiredHolder = sources.retiredHead(claim.source);
+    if (retiredHolder !== undefined && retiredHolder.id !== claim.id) {
+      return {
+        ...refused(409, {
+          field: 'source',
+          message: `the claim renames ${JSON.stringify(claimed.source)} (id ${JSON.stringify(claim.id)}) to ${JSON.stringify(claim.source)}, but that name was renamed away from the source with id ${JSON.stringify(retiredHolder.id)} to ${JSON.stringify(retiredHolder.source)}: a claim names a name no other source holds`,
+        }),
+        source: claim.source,
+      };
+    }
+
+    sources.rename(claim.id, claim.source);
+    graphs.remove(claimed.source);
+    return { response: json(200, { renamed: true, source: claim.source, formerSource: claimed.source, id: claim.id }), source: claim.source };
+  }
+
+  /**
+   * Everything wrong with a rename claim, and, when nothing is wrong,
+   * the claim as the rename takes it. Every field is checked; none of
+   * them stops the rest from being checked too.
+   */
+  function parseClaimRequest(body: unknown): { claim?: ClaimedRename; problems: Refusal[] } {
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      return { problems: [{ message: 'the body must be a JSON object naming id and source' }] };
+    }
+    const problems: Refusal[] = [];
+    for (const key of Object.keys(body).sort(byCodePoint)) {
+      if (key !== 'id' && key !== 'source') {
+        problems.push({ field: key, message: `"${key}" is not a field the server takes: accepted fields are id, source` });
+      }
+    }
+
+    let id: string | undefined;
+    if (!('id' in body) || body.id === undefined) {
+      problems.push({ field: 'id', message: `"id" is required: the id the server assigned the source on its first send` });
+    } else if (typeof body.id !== 'string' || body.id.length === 0) {
+      problems.push({ field: 'id', message: `"id" must be a non-empty string naming the source's id, but is ${JSON.stringify(body.id)}` });
+    } else {
+      id = body.id;
+    }
+
+    let source: string | undefined;
+    if (!('source' in body) || body.source === undefined) {
+      problems.push({ field: 'source', message: `"source" is required: the source's new name, like "github.com/shady2k/nocx"` });
+    } else {
+      const problem = sourceNameProblem(body.source);
+      if (problem !== undefined) problems.push({ field: 'source', message: problem });
+      if (typeof body.source === 'string') source = body.source;
+    }
+
+    if (problems.length > 0 || id === undefined || source === undefined) {
+      return { problems };
+    }
+    return { claim: { id, source }, problems: [] };
+  }
+
+  /**
    * A view request: answered from the source's graph's query engine and
    * the source's compiled model (the history's latest read of it), at the
    * current time and the first state — the engine's own defaults, which
@@ -337,6 +459,16 @@ function createHandler(dependencies: {
 
     const heads = sources.heads();
     if (!heads.some((head) => head.source === asked.source)) {
+      const renamedTo = sources.retiredHead(asked.source);
+      if (renamedTo !== undefined) {
+        return {
+          ...refused(404, {
+            field: 'source',
+            message: `the source ${JSON.stringify(asked.source)} was renamed to ${JSON.stringify(renamedTo.source)} (id ${JSON.stringify(renamedTo.id)}): ask under the new name`,
+          }),
+          source: asked.source,
+        };
+      }
       const held = heads.map((head) => head.source);
       const holds = held.length === 0 ? 'the server holds no source yet' : `the server holds ${held.join(', ')}`;
       return {
@@ -486,15 +618,19 @@ function createHandler(dependencies: {
     const pathname = new URL(request.url).pathname;
     let handled: Handled;
     try {
-      const route = routes.find((each) => each.path === pathname);
-      if (route === undefined) {
+      const onPath = routes.filter((each) => each.path === pathname);
+      if (onPath.length === 0) {
         handled = refused(404, {
           message: `no such path "${pathname}": the server offers ${routes.map((each) => `${each.method} ${each.path}`).join(', ')}`,
         });
-      } else if (route.method !== request.method) {
-        handled = refused(405, { message: `"${request.method}" is not offered on "${route.path}": use ${route.method}` }, { allow: route.method });
       } else {
-        handled = await route.handle(request);
+        const route = onPath.find((each) => each.method === request.method);
+        if (route === undefined) {
+          const offered = onPath.map((each) => each.method).join(', ');
+          handled = refused(405, { message: `"${request.method}" is not offered on "${onPath[0]!.path}": use ${offered}` }, { allow: offered });
+        } else {
+          handled = await route.handle(request);
+        }
       }
     } catch (error) {
       const cause = error instanceof Error ? (error.stack ?? error.message) : String(error);

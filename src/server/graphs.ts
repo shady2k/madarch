@@ -73,6 +73,13 @@ export interface Graphs {
    * model the history has already moved past.
    */
   dropBuilt(source: string): void;
+  /**
+   * Removes every graph listing the source, closing each built engine:
+   * after a rename no graph is asked about the old name again, and a
+   * graph of it left behind would hold the rows of a name no source
+   * holds. A source no graph lists changes nothing.
+   */
+  remove(source: string): void;
   /** Closes every graph's engine. */
   close(): void;
 }
@@ -237,6 +244,15 @@ export function createGraphs(options: GraphsOptions): Graphs {
     }
   }
 
+  function remove(source: string): void {
+    for (const [name, graph] of graphs) {
+      if (!graph.lists(source)) continue;
+      // Out of the cache before anything can fail, as `dropIfBuilt` does.
+      graphs.delete(name);
+      graph.close();
+    }
+  }
+
   function close(): void {
     for (const graph of graphs.values()) graph.close();
   }
@@ -247,6 +263,7 @@ export function createGraphs(options: GraphsOptions): Graphs {
     get: (name) => graphs.get(name),
     applyStore,
     dropBuilt,
+    remove,
     close,
   };
 }

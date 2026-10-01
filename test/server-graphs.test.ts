@@ -231,6 +231,30 @@ describe('keeping a built graph in step', () => {
     graphs.close();
   });
 
+  test('remove takes the graphs listing the source out of the set, and a graph of the name is built fresh', () => {
+    const clock = fakeClock(DAY(9));
+    const one = createSqliteHistory({ clock });
+    one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
+    const graphs = createGraphs({ historyOf: () => one, clock });
+    const own = graphs.graphForSource('shop');
+    const union = graphs.addGraph('union', ['shop', 'other']);
+    expect(own.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
+    expect(union.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
+
+    graphs.remove('shop');
+
+    // Both graphs listed shop, so both are gone: a graph holding the old
+    // name's rows is never asked again, and the next use rebuilds.
+    expect(graphs.get('shop')).toBeUndefined();
+    expect(graphs.get('union')).toBeUndefined();
+    // A graph of the name is built again from the histories, as a view
+    // under a new name would build it: what the old one held is gone.
+    const fresh = graphs.graphForSource('shop');
+    expect(fresh).not.toBe(own);
+    expect(fresh.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
+    graphs.close();
+  });
+
   test('a store whose report a built engine fails to apply is dropped, not left behind: the throw passes on and the next use rebuilds from the history', () => {
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });

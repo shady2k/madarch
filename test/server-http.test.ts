@@ -315,6 +315,210 @@ describe('source ids', () => {
   });
 });
 
+describe('POST /sources — the rename claim', () => {
+  test('a claim binds a new name to the existing id, and the listing keeps the head', async () => {
+    start();
+    await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    const id = (await sourcesOf(await fetch(`${server!.url}/sources`)))[0]!.id;
+
+    const response = await post('/sources', { id, source: 'github.com/shady2k/nocx' });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ renamed: true, source: 'github.com/shady2k/nocx', formerSource: 'shop', id });
+
+    const sources = await sourcesOf(await fetch(`${server!.url}/sources`));
+    expect(sources).toEqual([{ id, source: 'github.com/shady2k/nocx', commit: 'c1', committedAt: '2026-09-01T12:00:00.000Z', storedAt: '2026-09-10T00:00:00.000Z' }]);
+  });
+
+  test('a claim for an unknown id is refused naming it and what the server holds', async () => {
+    start();
+    await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    const id = (await sourcesOf(await fetch(`${server!.url}/sources`)))[0]!.id;
+
+    const response = await post('/sources', { id: 'no-such-id', source: 'moved' });
+    expect(response.status).toBe(404);
+    const error = await errorOf(response);
+    expect(error.field).toBe('id');
+    expect(error.message).toContain('no-such-id');
+    expect(error.message).toContain(id);
+    expect(error.message).toContain('"shop"');
+  });
+
+  test('a claim whose new name is another source\'s name is refused naming both, and nothing moves', async () => {
+    start();
+    await send('github.com/a/first', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    await send('github.com/b/second', 'c1', '2026-09-01T12:00:00Z', [element('b')]);
+    const sources = await sourcesOf(await fetch(`${server!.url}/sources`));
+    const first = sources.find((each) => each.source === 'github.com/a/first')!;
+
+    const response = await post('/sources', { id: first.id, source: 'github.com/b/second' });
+    expect(response.status).toBe(409);
+    const error = await errorOf(response);
+    expect(error.field).toBe('source');
+    expect(error.message).toContain('github.com/a/first');
+    expect(error.message).toContain('github.com/b/second');
+
+    expect((await sourcesOf(await fetch(`${server!.url}/sources`))).map((each) => each.source)).toEqual(['github.com/a/first', 'github.com/b/second']);
+  });
+
+  test('a claim repeating the source\'s own name answers already the name and changes nothing', async () => {
+    start();
+    await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    const { id } = (await sourcesOf(await fetch(`${server!.url}/sources`)))[0]!;
+    const before = await (await fetch(`${server!.url}/sources`)).text();
+
+    const response = await post('/sources', { id, source: 'shop' });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ renamed: false, reason: 'already the name', source: 'shop', id });
+
+    expect(await (await fetch(`${server!.url}/sources`)).text()).toBe(before);
+  });
+
+  test('missing and unknown fields are refused like on every request', async () => {
+    start();
+    const missing = await post('/sources', {});
+    expect(missing.status).toBe(400);
+    const missingError = await errorOf(missing);
+    expect(missingError.message).toContain('"id"');
+    expect(missingError.message).toContain('"source"');
+
+    const unknown = await post('/sources', { id: 'x', source: 'y', rename: true });
+    expect(unknown.status).toBe(400);
+    expect((await errorOf(unknown)).message).toContain('accepted fields are id, source');
+  });
+
+  test('a new name that cannot be a source name is refused naming the field', async () => {
+    start();
+    await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    const { id } = (await sourcesOf(await fetch(`${server!.url}/sources`)))[0]!;
+
+    const response = await post('/sources', { id, source: 'a\nb' });
+    expect(response.status).toBe(400);
+    const error = await errorOf(response);
+    expect(error.field).toBe('source');
+    expect(error.message).toContain('control character');
+  });
+
+  test('after a claim the views answer under the new name, byte-identical to the old name\'s answers', async () => {
+    start();
+    await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a'), element('b'), element('c')]);
+    const viewOf = async (source: string, body: Record<string, unknown>) => await (await post('/views', { source, ...body })).text();
+    const mermaidBefore = await viewOf('shop', { format: 'mermaid' });
+    const likec4Before = await viewOf('shop', { format: 'likec4', element: 'b', depth: 2 });
+    const { id } = (await sourcesOf(await fetch(`${server!.url}/sources`)))[0]!;
+
+    expect((await post('/sources', { id, source: 'moved' })).status).toBe(200);
+
+    expect(await viewOf('moved', { format: 'mermaid' })).toBe(mermaidBefore);
+    expect(await viewOf('moved', { format: 'likec4', element: 'b', depth: 2 })).toBe(likec4Before);
+  });
+
+  test('sending under the old name after the claim is refused explaining the rename, and creates no second source', async () => {
+    start();
+    await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    const { id } = (await sourcesOf(await fetch(`${server!.url}/sources`)))[0]!;
+    expect((await post('/sources', { id, source: 'moved' })).status).toBe(200);
+
+    const response = await send('shop', 'c2', '2026-09-02T12:00:00Z', [element('b')]);
+    expect(response.status).toBe(409);
+    const error = await errorOf(response);
+    expect(error.field).toBe('source');
+    expect(error.message).toContain('"shop"');
+    expect(error.message).toContain('"moved"');
+
+    const sources = await sourcesOf(await fetch(`${server!.url}/sources`));
+    expect(sources).toEqual([{ id, source: 'moved', commit: 'c1', committedAt: '2026-09-01T12:00:00.000Z', storedAt: '2026-09-10T00:00:00.000Z' }]);
+  });
+
+  test('a view under the old name after the claim is refused explaining the rename', async () => {
+    start();
+    await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    const { id } = (await sourcesOf(await fetch(`${server!.url}/sources`)))[0]!;
+    expect((await post('/sources', { id, source: 'moved' })).status).toBe(200);
+
+    const response = await post('/views', { source: 'shop', format: 'mermaid' });
+    expect(response.status).toBe(404);
+    const error = await errorOf(response);
+    expect(error.field).toBe('source');
+    expect(error.message).toContain('"moved"');
+  });
+
+  test('a claim whose new name was renamed away from another source is refused naming both', async () => {
+    start();
+    await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    await send('other', 'c1', '2026-09-01T12:00:00Z', [element('b')]);
+    const sources = await sourcesOf(await fetch(`${server!.url}/sources`));
+    const shop = sources.find((each) => each.source === 'shop')!;
+    const other = sources.find((each) => each.source === 'other')!;
+    expect((await post('/sources', { id: shop.id, source: 'moved' })).status).toBe(200);
+
+    const response = await post('/sources', { id: other.id, source: 'shop' });
+    expect(response.status).toBe(409);
+    const error = await errorOf(response);
+    expect(error.message).toContain('"shop"');
+    expect(error.message).toContain('"moved"');
+    expect(error.message).toContain(shop.id);
+  });
+
+  test('a claim giving a source one of its own former names back renames it again', async () => {
+    start();
+    await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    const { id } = (await sourcesOf(await fetch(`${server!.url}/sources`)))[0]!;
+    expect((await post('/sources', { id, source: 'moved' })).status).toBe(200);
+    expect((await post('/sources', { id, source: 'again' })).status).toBe(200);
+
+    const back = await post('/sources', { id, source: 'shop' });
+    expect(back.status).toBe(200);
+    expect(await back.json()).toEqual({ renamed: true, source: 'shop', formerSource: 'again', id });
+
+    expect((await sourcesOf(await fetch(`${server!.url}/sources`))).map((each) => each.source)).toEqual(['shop']);
+    for (const old of ['moved', 'again']) {
+      const refused = await send(old, 'c9', '2026-09-09T12:00:00Z', [element('z')]);
+      expect(refused.status).toBe(409);
+      expect((await errorOf(refused)).message).toContain('"shop"');
+    }
+  });
+
+  test('one source renamed several times: every former name explains the rename to the newest', async () => {
+    start();
+    await send('a', 'c1', '2026-09-01T12:00:00Z', [element('x')]);
+    const { id } = (await sourcesOf(await fetch(`${server!.url}/sources`)))[0]!;
+    expect((await post('/sources', { id, source: 'b' })).status).toBe(200);
+    expect((await post('/sources', { id, source: 'c' })).status).toBe(200);
+
+    for (const old of ['a', 'b']) {
+      const refused = await send(old, 'c2', '2026-09-02T12:00:00Z', [element('y')]);
+      expect(refused.status).toBe(409);
+      expect((await errorOf(refused)).message).toContain('"c"');
+    }
+    expect((await sourcesOf(await fetch(`${server!.url}/sources`))).map((each) => each.source)).toEqual(['c']);
+  });
+
+  test('the rename survives a restart: the new name and the id stay, the old name stays retired', async () => {
+    start();
+    await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    const { id } = (await sourcesOf(await fetch(`${server!.url}/sources`)))[0]!;
+    expect((await post('/sources', { id, source: 'moved' })).status).toBe(200);
+    const port = server!.port;
+    server?.stop();
+    server = undefined;
+
+    server = startServer({
+      dataFolder: folder!,
+      port,
+      clock: { now: () => clockNow.value },
+      log: (line) => lines.push(line),
+      errorLog: (line) => errors.push(line),
+    });
+
+    expect(await sourcesOf(await fetch(`${server!.url}/sources`))).toEqual([
+      { id, source: 'moved', commit: 'c1', committedAt: '2026-09-01T12:00:00.000Z', storedAt: '2026-09-10T00:00:00.000Z' },
+    ]);
+    const underOld = await send('shop', 'c2', '2026-09-02T12:00:00Z', [element('b')]);
+    expect(underOld.status).toBe(409);
+    expect((await errorOf(underOld)).message).toContain('"moved"');
+  });
+});
+
 describe('unknown paths and methods', () => {
   test('an unknown path is 404 saying what the server offers', async () => {
     start();
@@ -333,9 +537,9 @@ describe('unknown paths and methods', () => {
     expect(get.headers.get('allow')).toBe('POST');
     expect((await errorOf(get)).message).toContain('POST');
 
-    const posted = await post('/sources', {});
+    const posted = await fetch(`${server!.url}/sources`, { method: 'DELETE' });
     expect(posted.status).toBe(405);
-    expect(posted.headers.get('allow')).toBe('GET');
+    expect(posted.headers.get('allow')).toBe('POST, GET');
   });
 });
 
