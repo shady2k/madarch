@@ -306,13 +306,16 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
       // commit — the `recorded_at` its row carries, what the restart
       // repair reads back — never this call's clock: a retry that
       // repairs a head the sidecar write lost must carry the original
-      // store's moment, and a repeat opens no row to take one from.
-      const commitRecord = history.commits(input.source).find((each) => each.commit === input.commit)!;
+      // store's moment, and a repeat opens no row to take one from. It
+      // is read as the commit's own row, never through the source's
+      // whole commit list, so a store does not grow with the history's
+      // length.
+      const record = history.commitRecord(input.source, input.commit)!;
       const candidate: SourceHead = {
         source: input.source,
         commit: input.commit,
         committedAt: input.committedAt,
-        storedAt: commitRecord.storedAt,
+        storedAt: record.storedAt,
       };
       const stored = heads.get(input.source);
       if (stored === undefined || isNewerHead(candidate, stored)) {

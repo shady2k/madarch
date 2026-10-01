@@ -223,6 +223,9 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
   const selectCommits: Statement<CommitListRow, [string]> = db.query(
     'SELECT commit_id, committed_at, recorded_at FROM source_commits WHERE source = ? ORDER BY committed_at ASC, commit_id ASC',
   );
+  const selectCommitRecord: Statement<CommitListRow, [string, string]> = db.query(
+    'SELECT commit_id, committed_at, recorded_at FROM source_commits WHERE source = ? AND commit_id = ?',
+  );
   const insertAssertion: Statement<unknown, [string, AssertionKind, string, string, number, number | null, string, string | null, number]> = db.query(
     `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
@@ -510,6 +513,11 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
     return selectCommits.all(source).map((row) => ({ commit: row.commit_id, committedAt: row.committed_at, storedAt: row.recorded_at }));
   }
 
+  function commitRecord(source: string, commit: string): CommitRecord | undefined {
+    const row = selectCommitRecord.get(source, commit);
+    return row === null ? undefined : { commit: row.commit_id, committedAt: row.committed_at, storedAt: row.recorded_at };
+  }
+
   function hasCommit(source: string, commit: string): boolean {
     return selectCommit.get(source, commit) !== null;
   }
@@ -518,5 +526,5 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
     db.close();
   }
 
-  return { store, read, assertions, sources, commits, hasCommit, close };
+  return { store, read, assertions, sources, commits, commitRecord, hasCommit, close };
 }

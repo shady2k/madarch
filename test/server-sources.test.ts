@@ -245,6 +245,33 @@ describe('heads', () => {
     sources.close();
   });
 
+  test('a store reads the commit\'s own row, never the source\'s whole history', () => {
+    const dir = scratchFolder();
+    const clock = fakeClock(DAY(10));
+    const sources = createSourceStores({ dataFolder: dir, clock });
+    sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+    sources.store(storeInput('shop', 'c2', DAY(2), [element('b')]));
+    const history = sources.historyOf('shop');
+
+    // Counting through the history's public interface, at the storage
+    // boundary: a store must not grow with the history's length, so it
+    // may not load the whole commit list to read one commit's storing
+    // moment.
+    let commitLists = 0;
+    const original = history.commits.bind(history);
+    history.commits = (source: string) => {
+      commitLists += 1;
+      return original(source);
+    };
+
+    clock.set(DAY(11));
+    sources.store(storeInput('shop', 'c3', DAY(3), [element('c')]));
+    sources.close();
+
+    expect(commitLists).toBe(0);
+    expect(sources.heads()).toEqual([{ source: 'shop', commit: 'c3', committedAt: DAY(3), storedAt: DAY(11) }]);
+  });
+
   test('a repeat store changes nothing', () => {
     const dir = scratchFolder();
     const clock = fakeClock(DAY(10));
