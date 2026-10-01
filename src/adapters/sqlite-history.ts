@@ -15,6 +15,7 @@ import type {
   StoreResult,
 } from '../history/types.js';
 import { byCodePoint } from '../model/order.js';
+import { canonicalJsonDigest } from '../model/canonical.js';
 
 export interface SqliteHistoryOptions {
   /** The database file's path; `':memory:'` (the default) for an in-memory database, as tests use. */
@@ -52,6 +53,7 @@ interface OtherCurrentRow {
 interface CommitRow {
   committed_at: number;
   content_digest: string;
+  canonical_digest: string;
 }
 
 /** A row of `source_commits`, as read back for `commits`' commit order. */
@@ -59,6 +61,7 @@ interface CommitListRow {
   commit_id: string;
   committed_at: number;
   recorded_at: number;
+  canonical_digest: string;
 }
 
 /** A row naming the commit immediately after a given position in a source's commit order. */
@@ -169,11 +172,23 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
       committed_at INTEGER NOT NULL,
       content_digest TEXT NOT NULL,
       recorded_at INTEGER NOT NULL,
+      canonical_digest TEXT NOT NULL,
       PRIMARY KEY (source, commit_id)
     )
   `);
+  const commitColumns = db.query<{ name: string }, []>('PRAGMA table_info(source_commits)').all();
+  if (!commitColumns.some((column) => column.name === 'canonical_digest')) {
+    const legacyCommit = db.query<{ source: string; commit_id: string }, []>(
+      'SELECT source, commit_id FROM source_commits ORDER BY source, committed_at, commit_id LIMIT 1',
+    ).get();
+    if (legacyCommit !== null) {
+      db.close();
+      throw new Error(`the history file "${options.path ?? ':memory:'}" holds commit "${legacyCommit.commit_id}" of source "${legacyCommit.source}" without a canonical model digest; the stored assertions cannot faithfully recover the model's original array order, so the history must be migrated by a server that still has the original sent models`);
+    }
+    db.run('ALTER TABLE source_commits ADD COLUMN canonical_digest TEXT');
+  }
   const selectCommit: Statement<CommitRow, [string, string]> = db.query(
-    'SELECT committed_at, content_digest FROM source_commits WHERE source = ? AND commit_id = ?',
+    'SELECT committed_at, content_digest, canonical_digest FROM source_commits WHERE source = ? AND commit_id = ?',
   );
   const selectSuccessorCommit: Statement<SuccessorRow, [string, number, number, string]> = db.query(
     `SELECT commit_id, committed_at FROM source_commits
@@ -221,10 +236,10 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
   );
   const selectSources: Statement<{ source: string }, []> = db.query('SELECT DISTINCT source FROM source_commits');
   const selectCommits: Statement<CommitListRow, [string]> = db.query(
-    'SELECT commit_id, committed_at, recorded_at FROM source_commits WHERE source = ? ORDER BY committed_at ASC, commit_id ASC',
+    'SELECT commit_id, committed_at, recorded_at, canonical_digest FROM source_commits WHERE source = ? ORDER BY committed_at ASC, commit_id ASC',
   );
   const selectCommitRecord: Statement<CommitListRow, [string, string]> = db.query(
-    'SELECT commit_id, committed_at, recorded_at FROM source_commits WHERE source = ? AND commit_id = ?',
+    'SELECT commit_id, committed_at, recorded_at, canonical_digest FROM source_commits WHERE source = ? AND commit_id = ?',
   );
   const insertAssertion: Statement<unknown, [string, AssertionKind, string, string, number, number | null, string, string | null, number]> = db.query(
     `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to)
@@ -234,8 +249,8 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
     `UPDATE assertions SET recorded_to = ?
      WHERE source = ? AND kind = ? AND entity_id = ? AND valid_from = ? AND opened_by = ? AND recorded_to IS NULL`,
   );
-  const insertCommit: Statement<unknown, [string, string, number, string, number]> = db.query(
-    'INSERT INTO source_commits (source, commit_id, committed_at, content_digest, recorded_at) VALUES (?, ?, ?, ?, ?)',
+  const insertCommit: Statement<unknown, [string, string, number, string, number, string]> = db.query(
+    'INSERT INTO source_commits (source, commit_id, committed_at, content_digest, recorded_at, canonical_digest) VALUES (?, ?, ?, ?, ?, ?)',
   );
   const renameCommitSource: Statement<unknown, [string, string]> = db.query('UPDATE source_commits SET source = ? WHERE source = ?');
   const renameAssertionSource: Statement<unknown, [string, string]> = db.query('UPDATE assertions SET source = ? WHERE source = ?');
@@ -299,26 +314,28 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
     const { source, commit, committedAt, model } = input;
 
     let newAssertions: Assertion[];
-    let digest: string;
+    let contentDigest: string;
+    let canonicalDigest: string;
     try {
       newAssertions = assertionsOf(model);
-      digest = digestOf(newAssertions);
+      contentDigest = digestOf(newAssertions);
+      canonicalDigest = canonicalJsonDigest(model);
     } catch (error) {
       return { errors: [{ message: `the model could not be recorded: ${error instanceof Error ? error.message : String(error)}` }], opened: [], closed: [] };
     }
 
     const existing = selectCommit.get(source, commit);
     if (existing !== null) {
-      if (existing.committed_at === committedAt && existing.content_digest === digest) {
-        // Already stored, identical: idempotent, nothing new (the `idempotent` requirement).
+      if (existing.committed_at === committedAt && existing.canonical_digest === canonicalDigest) {
+        // Already stored, identical canonical model: idempotent, nothing new.
         return { errors: [], opened: [], closed: [] };
       }
       return {
         errors: [
           {
-            message: `commit "${commit}" of source "${source}" is already stored with a different ${
-              existing.committed_at !== committedAt ? 'commit time' : 'model'
-            }`,
+            message: existing.committed_at !== committedAt
+              ? `commit "${commit}" of source "${source}" is already stored with a different commit time`
+              : `commit "${commit}" of source "${source}" is already stored with canonical digest ${JSON.stringify(existing.canonical_digest)}, but the incoming model has canonical digest ${JSON.stringify(canonicalDigest)}`,
             id: commit,
             source,
           },
@@ -466,7 +483,7 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
         }
       }
 
-      insertCommit.run(source, commit, committedAt, digest, storingNow);
+      insertCommit.run(source, commit, committedAt, contentDigest, storingNow, canonicalDigest);
       return { errors: [], opened, closed };
     });
 
@@ -527,12 +544,12 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
 
   /** Every commit of one source, oldest first in the history's own commit order. */
   function commits(source: string): CommitRecord[] {
-    return selectCommits.all(source).map((row) => ({ commit: row.commit_id, committedAt: row.committed_at, storedAt: row.recorded_at }));
+    return selectCommits.all(source).map((row) => ({ commit: row.commit_id, committedAt: row.committed_at, storedAt: row.recorded_at, canonicalDigest: row.canonical_digest }));
   }
 
   function commitRecord(source: string, commit: string): CommitRecord | undefined {
     const row = selectCommitRecord.get(source, commit);
-    return row === null ? undefined : { commit: row.commit_id, committedAt: row.committed_at, storedAt: row.recorded_at };
+    return row === null ? undefined : { commit: row.commit_id, committedAt: row.committed_at, storedAt: row.recorded_at, canonicalDigest: row.canonical_digest };
   }
 
   function hasCommit(source: string, commit: string): boolean {
