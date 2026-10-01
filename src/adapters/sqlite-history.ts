@@ -237,6 +237,9 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
   const insertCommit: Statement<unknown, [string, string, number, string, number]> = db.query(
     'INSERT INTO source_commits (source, commit_id, committed_at, content_digest, recorded_at) VALUES (?, ?, ?, ?, ?)',
   );
+  const renameCommitSource: Statement<unknown, [string, string]> = db.query('UPDATE source_commits SET source = ? WHERE source = ?');
+  const renameAssertionSource: Statement<unknown, [string, string]> = db.query('UPDATE assertions SET source = ? WHERE source = ?');
+
   function slotOf(kind: AssertionKind, id: string): string {
     return `${kind}\u0000${id}`;
   }
@@ -508,6 +511,20 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
     return selectSources.all().map((row) => row.source).sort(byCodePoint);
   }
 
+  function renameSource(from: string, to: string): void {
+    const held = sources();
+    if (held.length !== 1 || held[0] !== from) {
+      const holds = held.length === 0 ? 'no source' : `the sources ${held.join(', ')}`;
+      throw new Error(`the history holds ${holds}, but the rename asks to rename ${JSON.stringify(from)} to ${JSON.stringify(to)}: the one source a history holds is renamed whole, nothing beside it`);
+    }
+    // Both tables in one transaction: a refusal in either (a row already
+    // sitting under the new name) leaves the history exactly as it was.
+    db.transaction(() => {
+      renameCommitSource.run(to, from);
+      renameAssertionSource.run(to, from);
+    })();
+  }
+
   /** Every commit of one source, oldest first in the history's own commit order. */
   function commits(source: string): CommitRecord[] {
     return selectCommits.all(source).map((row) => ({ commit: row.commit_id, committedAt: row.committed_at, storedAt: row.recorded_at }));
@@ -526,5 +543,5 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
     db.close();
   }
 
-  return { store, read, assertions, sources, commits, commitRecord, hasCommit, close };
+  return { store, read, assertions, sources, renameSource, commits, commitRecord, hasCommit, close };
 }

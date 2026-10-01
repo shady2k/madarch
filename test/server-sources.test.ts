@@ -558,6 +558,159 @@ describe('source ids', () => {
   });
 });
 
+describe('a rename claim on the stores', () => {
+  test('the id, the head and the history survive the rename; the files move to the new name', () => {
+    const dir = scratchFolder();
+    const sources = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+    sources.store(storeInput('shop', 'c2', DAY(2), [element('b')]));
+    const id = sources.heads()[0]!.id;
+    const commitsBefore = sources.historyOf('shop').commits('shop');
+    const readBefore = sources.historyOf('shop').read({ source: 'shop', valid: DAY(2), known: DAY(20) });
+
+    expect(sources.rename(id, 'github.com/shady2k/nocx')).toEqual({ formerSource: 'shop' });
+
+    // c2 closed c1's rows, so its own recorded moment sits 1 ms past the
+    // frozen clock; the rename leaves it exactly as it was.
+    expect(sources.heads()).toEqual([{ id, source: 'github.com/shady2k/nocx', commit: 'c2', committedAt: DAY(2), storedAt: DAY(10) + 1 }]);
+    expect(existsSync(join(dir, 'github.com%2Fshady2k%2Fnocx.sqlite'))).toBe(true);
+    expect(existsSync(join(dir, 'github.com%2Fshady2k%2Fnocx.json'))).toBe(true);
+    expect(existsSync(join(dir, 'shop.sqlite'))).toBe(false);
+    expect(existsSync(join(dir, 'shop.json'))).toBe(false);
+
+    const history = sources.historyOf('github.com/shady2k/nocx');
+    expect(history.commits('github.com/shady2k/nocx')).toEqual(commitsBefore);
+    expect(history.read({ source: 'github.com/shady2k/nocx', valid: DAY(2), known: DAY(20) })).toEqual(readBefore);
+    sources.close();
+  });
+
+  test('the old name is retired: a store reached with it is a caller defect naming the rename, and retiredHead answers the new head', () => {
+    const dir = scratchFolder();
+    const sources = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+    const id = sources.heads()[0]!.id;
+    sources.rename(id, 'moved');
+
+    expect(sources.retiredHead('shop')?.source).toBe('moved');
+    expect(sources.retiredHead('never-named')).toBeUndefined();
+    expect(() => sources.store(storeInput('shop', 'c2', DAY(2), [element('b')]))).toThrow(/refused first[\s\S]*"shop"[\s\S]*"moved"/);
+    sources.close();
+  });
+
+  test('a rename to a name another source holds is refused naming both, and nothing moves', () => {
+    const dir = scratchFolder();
+    const sources = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+    sources.store(storeInput('other', 'c1', DAY(1), [element('b')]));
+    const shopId = sources.heads().find((head) => head.source === 'shop')!.id;
+    const before = sources.heads();
+
+    expect(() => sources.rename(shopId, 'other')).toThrow(/the name "other" is already the name of the source with id "[^"]*"/);
+    expect(sources.heads()).toEqual(before);
+    expect(existsSync(join(dir, 'shop.sqlite'))).toBe(true);
+    sources.close();
+  });
+
+  test('a rename reached with an id no source holds is a caller defect naming it', () => {
+    const dir = scratchFolder();
+    const sources = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    expect(() => sources.rename('no-such-id', 'x')).toThrow(/no-such-id/);
+    sources.close();
+  });
+
+  test('former names are kept in the sidecar, sorted, and a restart retires them again', () => {
+    const dir = scratchFolder();
+    const sources = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+    const id = sources.heads()[0]!.id;
+    sources.rename(id, 'bbb');
+    sources.rename(id, 'aaa');
+    sources.close();
+
+    const sidecar = JSON.parse(readFileSync(join(dir, 'aaa.json'), 'utf8')) as { formerNames: unknown };
+    expect(sidecar.formerNames).toEqual(['bbb', 'shop']);
+
+    const second = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    expect(second.heads()).toEqual([{ id, source: 'aaa', commit: 'c1', committedAt: DAY(1), storedAt: DAY(10) }]);
+    expect(second.retiredHead('shop')?.source).toBe('aaa');
+    expect(second.retiredHead('bbb')?.source).toBe('aaa');
+    expect(() => second.store(storeInput('bbb', 'c2', DAY(2), [element('b')]))).toThrow(/refused first/);
+    second.close();
+  });
+
+  test('renaming back to a former name retires the middle names and keeps every former name explained', () => {
+    const dir = scratchFolder();
+    const sources = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+    const id = sources.heads()[0]!.id;
+    sources.rename(id, 'bbb');
+    sources.rename(id, 'aaa');
+    sources.rename(id, 'shop');
+
+    expect(sources.heads()).toEqual([{ id, source: 'shop', commit: 'c1', committedAt: DAY(1), storedAt: DAY(10) }]);
+    expect(sources.retiredHead('aaa')?.source).toBe('shop');
+    expect(sources.retiredHead('bbb')?.source).toBe('shop');
+    expect(sources.retiredHead('shop')).toBeUndefined();
+    expect(() => sources.store(storeInput('aaa', 'c2', DAY(2), [element('b')]))).toThrow(/refused first/);
+    sources.close();
+
+    const sidecar = JSON.parse(readFileSync(join(dir, 'shop.json'), 'utf8')) as { formerNames: unknown };
+    expect(sidecar.formerNames).toEqual(['aaa', 'bbb']);
+  });
+
+  test('a sidecar whose former names are not an array of non-empty strings is refused naming the file and the field', () => {
+    for (const formerNames of ['shop', [42], [''], ['shop', 'shop']]) {
+      const dir = mkdtempSync(join(tmpdir(), 'madarch-server-sources-former-'));
+      try {
+        writeFileSync(join(dir, 'shop.sqlite'), '');
+        writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: 1, storedAt: 2, formerNames }));
+        expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) }), JSON.stringify(formerNames)).toThrow(
+          new RegExp(`shop\\.json[\\s\\S]*"formerNames"`),
+        );
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test('a sidecar naming its own current name among its former names is refused naming the file', () => {
+    const dir = scratchFolder();
+    writeFileSync(join(dir, 'shop.sqlite'), '');
+    writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: 1, storedAt: 2, formerNames: ['shop'] }));
+    expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).toThrow(/shop\.json[\s\S]*"formerNames"[\s\S]*"shop"/);
+  });
+
+  /** A real one-source history planted in the folder under a stem, as only this server writes them. */
+  function plantedHistory(dir: string, stem: string, source: string): void {
+    const elsewhere = mkdtempSync(join(tmpdir(), 'madarch-server-sources-plant-'));
+    const built = createSqliteHistory({ path: join(elsewhere, `${stem}.sqlite`), clock: fakeClock(DAY(10)) });
+    built.store(storeInput(source, 'c1', DAY(1), [element('a')]));
+    built.close();
+    renameSync(join(elsewhere, `${stem}.sqlite`), join(dir, `${stem}.sqlite`));
+    rmSync(elsewhere, { recursive: true, force: true });
+  }
+
+  test('a restart refuses a folder where one source\'s former name is another source\'s name, naming both', () => {
+    const dir = scratchFolder();
+    plantedHistory(dir, 'aaa', 'aaa');
+    plantedHistory(dir, 'taken', 'taken');
+    writeFileSync(join(dir, 'aaa.json'), JSON.stringify({ source: 'aaa', commit: 'c1', committedAt: 1, storedAt: 2, formerNames: ['taken'] }));
+    writeFileSync(join(dir, 'taken.json'), JSON.stringify({ source: 'taken', commit: 'c1', committedAt: 1, storedAt: 2 }));
+    expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).toThrow(
+      /"formerNames" naming "taken"[\s\S]*is the current name of the source beside it/,
+    );
+  });
+
+  test('a restart refuses a folder where two sources hold the same former name, naming both', () => {
+    const dir = scratchFolder();
+    plantedHistory(dir, 'aaa', 'aaa');
+    plantedHistory(dir, 'bbb', 'bbb');
+    writeFileSync(join(dir, 'aaa.json'), JSON.stringify({ source: 'aaa', commit: 'c1', committedAt: 1, storedAt: 2, formerNames: ['gone'] }));
+    writeFileSync(join(dir, 'bbb.json'), JSON.stringify({ source: 'bbb', commit: 'c1', committedAt: 1, storedAt: 2, formerNames: ['gone'] }));
+    expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).toThrow(/"aaa"[\s\S]*"bbb"[\s\S]*"gone"[\s\S]*"formerNames"/);
+  });
+});
+
 describe('a corrupt data folder refuses to open, naming the file', () => {
   test('a sidecar without its history file', () => {
     const dir = scratchFolder();
@@ -837,6 +990,35 @@ describe('the history behind a source', () => {
     const second = createSourceStores({ dataFolder: dir, clock });
     expect(second.heads()).toEqual([{ id: expect.any(String), source: 'shop', commit: 'c1', committedAt: DAY(1), storedAt: DAY(10) }]);
     second.close();
+  });
+});
+
+describe('renaming a source inside a history', () => {
+  test('renameSource moves every row to the new name and leaves the times as they are', () => {
+    const history = createSqliteHistory({ clock: fakeClock(DAY(2)) });
+    history.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+    history.store(storeInput('shop', 'c2', DAY(2), [element('b')]));
+    const commitsBefore = history.commits('shop');
+
+    history.renameSource('shop', 'renamed');
+
+    expect(history.sources()).toEqual(['renamed']);
+    expect(history.commits('renamed')).toEqual(commitsBefore);
+    const early = history.read({ source: 'renamed', valid: DAY(1), known: DAY(3) });
+    expect(early.model && 'elements' in early.model ? early.model.elements.map((each) => each.id) : []).toEqual(['a']);
+    const late = history.read({ source: 'renamed', valid: DAY(2), known: DAY(3) });
+    expect(late.model && 'elements' in late.model ? late.model.elements.map((each) => each.id) : []).toEqual(['b']);
+    history.close();
+  });
+
+  test('renameSource refuses a history that holds anything but the one source being renamed, and leaves it as it was', () => {
+    const history = createSqliteHistory({ clock: fakeClock(DAY(2)) });
+    history.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+    history.store(storeInput('other', 'c1', DAY(1), [element('b')]));
+
+    expect(() => history.renameSource('shop', 'renamed')).toThrow(/the sources other, shop[\s\S]*"shop"[\s\S]*"renamed"/);
+    expect(history.sources()).toEqual(['other', 'shop']);
+    history.close();
   });
 });
 

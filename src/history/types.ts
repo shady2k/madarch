@@ -185,6 +185,14 @@ export interface HistoryStore {
   assertions(input?: AssertionsInput): AssertionRecord[];
   /** Every source name that has ever stored a commit. */
   sources(): string[];
+  /**
+   * Renames one source inside the history, moving every assertion and
+   * commit row to the new name — the times, contents and digests are
+   * untouched, so a read under the new name answers exactly what the old
+   * name answered. Refuses, leaving the history untouched, when the
+   * history holds anything but exactly the source being renamed.
+   */
+  renameSource(from: string, to: string): void;
   /** Whether a source's commit is already stored (regardless of what it asserts). */
   hasCommit(source: string, commit: string): boolean;
   /** One commit's own record with its times, read as one row rather than through the source's whole `commits` list; `undefined` when the source never stored that commit. */
