@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { CommitRecord } from '../src/history/types.js';
 import {
   createSqliteHistory,
   createSourceStores,
@@ -179,8 +180,8 @@ describe('heads', () => {
     sources.close();
 
     expect(sources.heads()).toEqual([
-      { source: 'alpha', commit: 'c2', committedAt: DAY(2), storedAt: DAY(12) },
-      { source: 'zeta', commit: 'c1', committedAt: DAY(1), storedAt: DAY(11) },
+      { id: expect.any(String), source: 'alpha', commit: 'c2', committedAt: DAY(2), storedAt: DAY(12) },
+      { id: expect.any(String), source: 'zeta', commit: 'c1', committedAt: DAY(1), storedAt: DAY(11) },
     ]);
   });
 
@@ -193,7 +194,7 @@ describe('heads', () => {
     sources.store(storeInput('shop', 'c1', DAY(1), [element('c1')])); // arrives later, is older
     sources.close();
 
-    expect(sources.heads()).toEqual([{ source: 'shop', commit: 'c3', committedAt: DAY(3), storedAt: DAY(10) }]);
+    expect(sources.heads()).toEqual([{ id: expect.any(String), source: 'shop', commit: 'c3', committedAt: DAY(3), storedAt: DAY(10) }]);
   });
 
   test('commits at the same time are ordered by the commit id in code point order', () => {
@@ -205,7 +206,7 @@ describe('heads', () => {
     sources.store(storeInput('shop', 'aaa', DAY(1), [element('b')]));
     sources.close();
 
-    expect(sources.heads()).toEqual([{ source: 'shop', commit: 'zzz', committedAt: DAY(1), storedAt: DAY(10) }]);
+    expect(sources.heads()).toEqual([{ id: expect.any(String), source: 'shop', commit: 'zzz', committedAt: DAY(1), storedAt: DAY(10) }]);
   });
 
   test('the first-stored commit of a tie is superseded by the bigger id, not kept', () => {
@@ -219,7 +220,7 @@ describe('heads', () => {
 
     // The second store closes the first's rows, so its own recorded
     // moment is clamped strictly past the clock's reading.
-    expect(sources.heads()).toEqual([{ source: 'shop', commit: 'zzz', committedAt: DAY(1), storedAt: DAY(10) + 1 }]);
+    expect(sources.heads()).toEqual([{ id: expect.any(String), source: 'shop', commit: 'zzz', committedAt: DAY(1), storedAt: DAY(10) + 1 }]);
   });
 
   test('a later commit time wins even when the older commit sorts the other way', () => {
@@ -231,7 +232,7 @@ describe('heads', () => {
     sources.store(storeInput('shop', 'z9', DAY(1), [element('b')])); // older, though its id sorts higher
     sources.close();
 
-    expect(sources.heads()).toEqual([{ source: 'shop', commit: 'a9', committedAt: DAY(2), storedAt: DAY(10) }]);
+    expect(sources.heads()).toEqual([{ id: expect.any(String), source: 'shop', commit: 'a9', committedAt: DAY(2), storedAt: DAY(10) }]);
   });
 
   test('a sidecar write that fails after the commit was stored is healed by retrying the same commit', () => {
@@ -256,7 +257,7 @@ describe('heads', () => {
     // held by the history's commit row — not the retry's later clock.
     // The first c2 store closed c1's row, so its recorded moment was
     // clamped 1 ms past the then-frozen clock.
-    expect(sources.heads()).toEqual([{ source: 'shop', commit: 'c2', committedAt: DAY(2), storedAt: DAY(10) + 1 }]);
+    expect(sources.heads()).toEqual([{ id: expect.any(String), source: 'shop', commit: 'c2', committedAt: DAY(2), storedAt: DAY(10) + 1 }]);
     sources.close();
   });
 
@@ -284,7 +285,7 @@ describe('heads', () => {
     sources.close();
 
     expect(commitLists).toBe(0);
-    expect(sources.heads()).toEqual([{ source: 'shop', commit: 'c3', committedAt: DAY(3), storedAt: DAY(11) }]);
+    expect(sources.heads()).toEqual([{ id: expect.any(String), source: 'shop', commit: 'c3', committedAt: DAY(3), storedAt: DAY(11) }]);
   });
 
   test('a repeat store changes nothing', () => {
@@ -338,7 +339,7 @@ describe('restart on the same data folder', () => {
     const second = createSourceStores({ dataFolder: dir, clock });
     const store = second.store(storeInput('shop', 'c2', DAY(2), [element('a'), element('b')]));
     expect(store.wasNew).toBe(true);
-    expect(second.heads()).toEqual([{ source: 'shop', commit: 'c2', committedAt: DAY(2), storedAt: DAY(10) }]);
+    expect(second.heads()).toEqual([{ id: expect.any(String), source: 'shop', commit: 'c2', committedAt: DAY(2), storedAt: DAY(10) }]);
 
     const history: HistoryStore = second.historyOf('shop');
     const read = history.read({ source: 'shop', valid: DAY(2), known: DAY(10) });
@@ -356,7 +357,7 @@ describe('restart on the same data folder', () => {
     rmSync(join(dir, 'shop.json'));
 
     const second = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)), log: (line) => lines.push(line) });
-    expect(second.heads()).toEqual([{ source: 'shop', commit: 'c1', committedAt: DAY(1), storedAt: DAY(10) }]);
+    expect(second.heads()).toEqual([{ id: expect.any(String), source: 'shop', commit: 'c1', committedAt: DAY(1), storedAt: DAY(10) }]);
     expect(existsSync(join(dir, 'shop.json'))).toBe(true);
     expect(lines.join('\n')).toContain('repaired');
     second.close();
@@ -373,7 +374,7 @@ describe('restart on the same data folder', () => {
 
     const lines: string[] = [];
     const second = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)), log: (line) => lines.push(line) });
-    expect(second.heads()).toEqual([{ source: 'shop', commit: 'c2', committedAt: DAY(2), storedAt: DAY(10) + 1 }]);
+    expect(second.heads()).toEqual([{ id: expect.any(String), source: 'shop', commit: 'c2', committedAt: DAY(2), storedAt: DAY(10) + 1 }]);
     expect(lines.join('\n')).toContain('repaired');
     second.close();
   });
@@ -434,9 +435,126 @@ describe('restart on the same data folder', () => {
 
     const lines: string[] = [];
     const second = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)), log: (line) => lines.push(line) });
-    expect(second.heads()).toEqual([{ source: 'shop', commit: 'c1', committedAt: DAY(1), storedAt: DAY(10) }]);
+    expect(second.heads()).toEqual([{ id: expect.any(String), source: 'shop', commit: 'c1', committedAt: DAY(1), storedAt: DAY(10) }]);
     expect(lines.join('\n')).not.toContain('repaired');
     second.close();
+  });
+});
+
+describe('source ids', () => {
+  test('the first send assigns the source an id, and the name plays no part in it', () => {
+    const dir = scratchFolder();
+    const sources = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+
+    sources.store(storeInput('github.com/shady2k/nocx', 'c1', DAY(1), [element('a')]));
+    const head = sources.heads()[0]!;
+    sources.close();
+
+    expect(head.id).toEqual(expect.any(String));
+    expect(head.id.length).toBeGreaterThan(0);
+    expect(head.id).not.toBe(head.source);
+    expect(head.id).not.toContain(head.source);
+  });
+
+  test('further sends of the same source keep its id', () => {
+    const dir = scratchFolder();
+    const sources = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+    const first = sources.heads()[0]!.id;
+
+    sources.store(storeInput('shop', 'c2', DAY(2), [element('a'), element('b')]));
+    sources.close();
+
+    expect(sources.heads()).toHaveLength(1);
+    expect(sources.heads()[0]!.id).toBe(first);
+    expect(sources.heads()[0]!.commit).toBe('c2');
+  });
+
+  test('a restart on the same data folder keeps the id, which the sidecar beside the history holds', () => {
+    const dir = scratchFolder();
+    const first = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+    const id = first.heads()[0]!.id;
+    first.close();
+
+    const sidecar = JSON.parse(readFileSync(join(dir, 'shop.json'), 'utf8')) as { id: unknown };
+    expect(sidecar.id).toBe(id);
+
+    const second = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    expect(second.heads()[0]!.id).toBe(id);
+    second.close();
+  });
+
+  test('two different sources hold different ids', () => {
+    const dir = scratchFolder();
+    const sources = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    sources.store(storeInput('github.com/a/first', 'c1', DAY(1), [element('a')]));
+    sources.store(storeInput('github.com/b/second', 'c1', DAY(1), [element('a')]));
+    const heads = sources.heads();
+    sources.close();
+
+    expect(heads[0]!.id).not.toBe(heads[1]!.id);
+  });
+
+  test('a data folder from before the ids existed: every source gets an id at start, and no stored answer changes', () => {
+    const dir = scratchFolder();
+    const first = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    first.store(storeInput('github.com/shady2k/nocx', 'c2', DAY(2), [element('b')]));
+    first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+    const before = first.heads().map(({ id: _id, ...rest }) => rest);
+    const commitsBefore: Record<string, CommitRecord[]> = {};
+    for (const head of first.heads()) commitsBefore[head.source] = first.historyOf(head.source).commits(head.source);
+    first.close();
+
+    // The folder as an older server left it: sidecars without an id.
+    for (const name of readdirSync(dir)) {
+      if (!name.endsWith('.json') || name.endsWith('.json.tmp')) continue;
+      const sidecar = JSON.parse(readFileSync(join(dir, name), 'utf8')) as Record<string, unknown>;
+      delete sidecar.id;
+      writeFileSync(join(dir, name), JSON.stringify(sidecar));
+    }
+
+    const lines: string[] = [];
+    const second = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)), log: (line) => lines.push(line) });
+    const heads = second.heads();
+    expect(heads.map(({ id: _id, ...rest }) => rest)).toEqual(before);
+    for (const head of heads) {
+      expect(head.id.length).toBeGreaterThan(0);
+      const commitsOf = commitsBefore[head.source];
+      if (commitsOf === undefined) throw new Error(`the test took no snapshot of the commits of "${head.source}"`);
+      expect(second.historyOf(head.source).commits(head.source)).toEqual(commitsOf);
+    }
+    expect(lines.join('\n')).toContain('assigned the source id');
+    second.close();
+  });
+
+  test('a restart that repairs a stale sidecar keeps the id the sidecar held', () => {
+    const dir = scratchFolder();
+    const first = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+    first.store(storeInput('shop', 'c2', DAY(2), [element('a')]));
+    const id = first.heads()[0]!.id;
+    first.close();
+    // The sidecar an interrupted write left behind: the older head, the id included.
+    writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: DAY(1), storedAt: DAY(10), id }));
+
+    const second = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const head = second.heads()[0]!;
+    expect(head.commit).toBe('c2');
+    expect(head.id).toBe(id);
+    second.close();
+  });
+
+  test('a sidecar whose id is not a non-empty string refuses to open, naming the file and the field', () => {
+    for (const bad of [7, '']) {
+      const dir = scratchFolder();
+      const first = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+      first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+      first.close();
+      writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: DAY(1), storedAt: DAY(10), id: bad }));
+
+      expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) })).toThrow(new RegExp(`shop\\.json[\\s\\S]*"id"[\\s\\S]*non-empty string`));
+    }
   });
 });
 
@@ -717,7 +835,7 @@ describe('the history behind a source', () => {
     sources.close();
 
     const second = createSourceStores({ dataFolder: dir, clock });
-    expect(second.heads()).toEqual([{ source: 'shop', commit: 'c1', committedAt: DAY(1), storedAt: DAY(10) }]);
+    expect(second.heads()).toEqual([{ id: expect.any(String), source: 'shop', commit: 'c1', committedAt: DAY(1), storedAt: DAY(10) }]);
     second.close();
   });
 });

@@ -2,9 +2,11 @@
  * The server's data folder: one SQLite history file per source, named
  * after the source safely (no path separator or other unsafe byte ever
  * reaches the file system), with a small JSON sidecar beside each history
- * file recording the source's name and its current head — the newest
- * commit by commit time, code-point tie-break — so a restart knows every
- * file's source and `GET /sources` can answer without opening a history.
+ * file recording the source's name, its id — assigned by the server on the
+ * source's first send, an opaque string the name plays no part in — and
+ * its current head — the newest commit by commit time, code-point
+ * tie-break — so a restart knows every file's source and `GET /sources`
+ * can answer without opening a history.
  *
  * The file name is derived by percent-encoding every byte the file system
  * should not see — the upper-case letters included, so a file name never
@@ -35,6 +37,7 @@
  */
 import { join } from 'node:path';
 import { readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import type { Stats } from 'node:fs';
 import { createSqliteHistory } from '../adapters/sqlite-history.js';
 import type { Clock, HistoryStore, StoreInput, StoreResult } from '../history/types.js';
@@ -64,6 +67,8 @@ export interface SourceStoresOptions {
 /** One source's current head: the newest version stored for it, by commit order. */
 export interface SourceHead {
   source: string;
+  /** The id the server assigned the source on its first send; an opaque string kept across sends and restarts, never derived from the name. */
+  id: string;
   commit: string;
   /** The commit's time, UTC epoch milliseconds. */
   committedAt: number;
@@ -170,6 +175,8 @@ function decodeSourceName(stem: string): string | undefined {
 /** One sidecar's content as the JSON holds it, before the head bookkeeping trusts it. */
 interface SidecarFile {
   source: unknown;
+  /** Absent in a sidecar an older server wrote; present, a non-empty string. */
+  id: unknown;
   commit: unknown;
   committedAt: unknown;
   storedAt: unknown;
@@ -216,14 +223,14 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
   }
 
   /** The head a history itself holds: the newest of its commits by the history's own commit order. */
-  function newestCommit(source: string, history: HistoryStore): SourceHead {
+  function newestCommit(source: string, id: string, history: HistoryStore): SourceHead {
     const commits = history.commits(source);
     const last = commits[commits.length - 1]!;
-    return { source, commit: last.commit, committedAt: last.committedAt, storedAt: last.storedAt };
+    return { source, id, commit: last.commit, committedAt: last.committedAt, storedAt: last.storedAt };
   }
 
-  /** Whether the two heads say the same thing about the same version. */
-  function sameHead(a: SourceHead, b: SourceHead): boolean {
+  /** Whether the two heads say the same thing about the same version: the version fields only, never the id. */
+  function sameHead(a: SourceHead, b: Pick<SourceHead, 'commit' | 'committedAt' | 'storedAt'>): boolean {
     return a.commit === b.commit && a.committedAt === b.committedAt && a.storedAt === b.storedAt;
   }
 
@@ -236,6 +243,8 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
       throw new Error(`the sidecar "${path}" is not valid JSON: ${(error as Error).message}`, { cause: error });
     }
     const head = headOfSidecar(file, path);
+    const sidecarId = idOfSidecar(file, path);
+    const id = sidecarId ?? randomUUID();
     const decoded = decodeSourceName(stem);
     if (decoded === undefined) {
       throw new Error(`the sidecar "${path}" has a file name that does not decode to a source name; the folder was not written by this server`);
@@ -250,10 +259,14 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
       const holds = names.length === 0 ? 'no source' : `the sources ${names.join(', ')}`;
       throw new Error(`the history file "${stem}.sqlite" holds ${holds}, but its sidecar "${stem}.json" names "${head.source}": the sidecar and the history disagree`);
     }
-    const trueHead = newestCommit(head.source, history);
+    const trueHead = newestCommit(head.source, id, history);
     if (!sameHead(trueHead, head)) {
       writeSidecar(stem, trueHead);
       log(`repaired the sidecar "${stem}.json": it named the head ${JSON.stringify(head.commit)} of "${head.source}", but the history's head is ${JSON.stringify(trueHead.commit)} at ${new Date(trueHead.committedAt).toISOString()}`);
+    }
+    if (sidecarId === undefined) {
+      writeSidecar(stem, trueHead);
+      log(`assigned the source id ${JSON.stringify(id)} to "${head.source}": its sidecar "${stem}.json" held none`);
     }
     heads.set(head.source, trueHead);
     histories.set(head.source, history);
@@ -274,7 +287,7 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
       history.close();
       throw new Error(`the data folder holds the history file "${stem}.sqlite" but no "${stem}.json" beside it, and the file name does not decode to the history's source "${source}": the folder was not written by this server`);
     }
-    const head = newestCommit(source, history);
+    const head = newestCommit(source, randomUUID(), history);
     writeSidecar(stem, head);
     log(`repaired the data folder: the history file "${stem}.sqlite" had no sidecar beside it; it holds the source "${source}" at its head ${JSON.stringify(head.commit)} at ${new Date(head.committedAt).toISOString()}`);
     heads.set(source, head);
@@ -323,13 +336,14 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
       // whole commit list, so a store does not grow with the history's
       // length.
       const record = history.commitRecord(input.source, input.commit)!;
+      const stored = heads.get(input.source);
       const candidate: SourceHead = {
         source: input.source,
+        id: stored?.id ?? randomUUID(),
         commit: input.commit,
         committedAt: input.committedAt,
         storedAt: record.storedAt,
       };
-      const stored = heads.get(input.source);
       if (stored === undefined || isNewerHead(candidate, stored)) {
         writeSidecar(encodeSourceName(input.source), candidate);
         heads.set(input.source, candidate);
@@ -350,8 +364,22 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
   return { historyOf, store, heads: headsInOrder, close };
 }
 
-/** One sidecar's content, checked field by field so a corrupt one is refused naming its file and its field. */
-function headOfSidecar(file: SidecarFile, path: string): SourceHead {
+/**
+ * The source id a sidecar holds, or `undefined` when it holds none — a
+ * sidecar an older server wrote gets its id assigned at start. An id that
+ * is there but not a non-empty string is a corrupt sidecar, refused
+ * naming its file and its field.
+ */
+function idOfSidecar(file: SidecarFile, path: string): string | undefined {
+  if (file.id === undefined) return undefined;
+  if (typeof file.id !== 'string' || file.id.length === 0) {
+    throw new Error(`the sidecar "${path}" does not name the source's id: "id" must be a non-empty string`);
+  }
+  return file.id;
+}
+
+/** One sidecar's head fields, checked field by field so a corrupt one is refused naming its file and its field; the id beside them `idOfSidecar` reads. */
+function headOfSidecar(file: SidecarFile, path: string): Omit<SourceHead, 'id'> {
   if (typeof file.source !== 'string' || file.source.length === 0) {
     throw new Error(`the sidecar "${path}" does not name a source: "source" must be a non-empty string`);
   }

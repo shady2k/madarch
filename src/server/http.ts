@@ -473,6 +473,7 @@ function createHandler(dependencies: {
   function listSources(): Handled {
     const list = sources.heads().map((head) => ({
       source: head.source,
+      id: head.id,
       commit: head.commit,
       committedAt: new Date(head.committedAt).toISOString(),
       storedAt: new Date(head.storedAt).toISOString(),

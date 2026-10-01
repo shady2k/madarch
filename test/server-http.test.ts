@@ -41,16 +41,16 @@ async function errorOf(response: Response): Promise<{ message: string; field?: s
 }
 
 /** The sources listing, narrowed the same way. */
-async function sourcesOf(response: Response): Promise<{ source: string; commit: string; committedAt: string; storedAt: string }[]> {
+async function sourcesOf(response: Response): Promise<{ source: string; id: string; commit: string; committedAt: string; storedAt: string }[]> {
   const body: unknown = await response.json();
   if (!Array.isArray(body)) throw new Error(`expected an array of sources, got ${JSON.stringify(body)}`);
-  const out: { source: string; commit: string; committedAt: string; storedAt: string }[] = [];
+  const out: { source: string; id: string; commit: string; committedAt: string; storedAt: string }[] = [];
   for (const each of body) {
     if (typeof each !== 'object' || each === null) throw new Error(`expected a source object, got ${JSON.stringify(each)}`);
-    for (const field of ['source', 'commit', 'committedAt', 'storedAt'] as const) {
+    for (const field of ['source', 'id', 'commit', 'committedAt', 'storedAt'] as const) {
       if (!(field in each) || typeof each[field] !== 'string') throw new Error(`expected a string "${field}", got ${JSON.stringify(each)}`);
     }
-    out.push({ source: each.source, commit: each.commit, committedAt: each.committedAt, storedAt: each.storedAt });
+    out.push({ source: each.source, id: each.id, commit: each.commit, committedAt: each.committedAt, storedAt: each.storedAt });
   }
   return out;
 }
@@ -272,8 +272,46 @@ describe('two sources that both declare core', () => {
 
     const sources = await sourcesOf(await fetch(`${server!.url}/sources`));
     expect(sources.map((s) => s.source)).toEqual(['github.com/a/first', 'github.com/b/second']);
-    expect(sources[0]).toEqual({ source: 'github.com/a/first', commit: 'c1', committedAt: '2026-09-01T12:00:00.000Z', storedAt: '2026-09-10T00:00:00.000Z' });
+    expect(sources[0]).toEqual({ id: expect.any(String), source: 'github.com/a/first', commit: 'c1', committedAt: '2026-09-01T12:00:00.000Z', storedAt: '2026-09-10T00:00:00.000Z' });
     expect(sources[1]!.storedAt).toBe('2026-09-10T00:00:00.000Z');
+  });
+});
+
+describe('source ids', () => {
+  test('GET /sources lists the id beside the name, and two sources hold different ids', async () => {
+    start();
+    await send('github.com/shady2k/nocx', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    await send('github.com/acme/shop', 'c2', '2026-09-02T12:00:00Z', [element('b')]);
+
+    const sources = await sourcesOf(await fetch(`${server!.url}/sources`));
+    for (const each of sources) {
+      expect(each.id.length).toBeGreaterThan(0);
+      expect(each.id).not.toBe(each.source);
+      expect(each.id).not.toContain(each.source);
+    }
+    expect(sources[0]!.id).not.toBe(sources[1]!.id);
+  });
+
+  test('a source keeps its id across sends and a restart', async () => {
+    start();
+    await send('github.com/shady2k/nocx', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    await send('github.com/shady2k/nocx', 'c2', '2026-09-02T12:00:00Z', [element('b')]);
+    const id = (await sourcesOf(await fetch(`${server!.url}/sources`)))[0]!.id;
+    const port = server!.port;
+    server?.stop();
+    server = undefined;
+
+    server = startServer({
+      dataFolder: folder!,
+      port,
+      clock: { now: () => clockNow.value },
+      log: (line) => lines.push(line),
+      errorLog: (line) => errors.push(line),
+    });
+    const sources = await sourcesOf(await fetch(`${server!.url}/sources`));
+    expect(sources).toHaveLength(1);
+    expect(sources[0]!.source).toBe('github.com/shady2k/nocx');
+    expect(sources[0]!.id).toBe(id);
   });
 });
 
@@ -325,9 +363,10 @@ describe('restart on the same data folder', () => {
 });
 
 describe('a retry after a failed sidecar write', () => {
-  test('the repaired head carries the original store\'s moment, never the retry\'s clock', async () => {
+  test('the repaired head carries the original store\'s moment, never the retry\'s clock, and the source keeps its id', async () => {
     start();
     expect((await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')])).status).toBe(201);
+    const idBefore = (await sourcesOf(await fetch(`${server!.url}/sources`)))[0]!.id;
 
     // Sabotage at the file-system boundary: the sidecar's own temporary
     // path is a folder, so the history stores the commit and the sidecar
@@ -342,7 +381,7 @@ describe('a retry after a failed sidecar write', () => {
 
     const sources = await sourcesOf(await fetch(`${server!.url}/sources`));
     expect(sources).toEqual([
-      { source: 'shop', commit: 'c2', committedAt: '2026-09-02T12:00:00.000Z', storedAt: '2026-09-10T00:00:00.001Z' },
+      { id: idBefore, source: 'shop', commit: 'c2', committedAt: '2026-09-02T12:00:00.000Z', storedAt: '2026-09-10T00:00:00.001Z' },
     ]);
   });
 });
