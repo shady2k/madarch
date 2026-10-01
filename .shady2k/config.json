@@ -1,9 +1,9 @@
 {
   "strength": "block",
-  "currentMilestone": "mvp",
+  "currentMilestone": "live-graph",
   "milestoneLabels": [
-    "mvp",
-    "live-graph"
+    "live-graph",
+    "answers"
   ],
   "areaLabels": [
     "model",
