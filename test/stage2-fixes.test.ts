@@ -742,13 +742,16 @@ describe('7. the repeat test compares the stored database rows, not only reads; 
 });
 
 describe('8. mutation hardening: edge cases the fixes above depend on', () => {
-  test('storing the same set of elements in a different array order is still recognized as the identical repeat (the digest does not depend on order)', () => {
+  test('storing the same commit with a differently ordered model is refused as a conflict (registry-integrity: a held commit accepts only identical bytes)', () => {
     const clock = fakeClock(DAY(2));
     const h = history(clock);
     h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('a'), element('b'), element('c')]) });
 
     const result = h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('c'), element('a'), element('b')]) });
-    expect(result.errors).toEqual([]);
+    // The canonical digest addresses the model as sent: array order is part
+    // of the artifact (change registry-integrity, requirement immutability).
+    expect(result.errors.length).toBe(1);
+    expect(result.errors[0]!.message).toMatch(/already stored with canonical digest/);
     expect(result.opened).toEqual([]);
     expect(result.closed).toEqual([]);
   });
