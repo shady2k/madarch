@@ -12,7 +12,10 @@
  * question. While a graph's engine is built, every store's own
  * `opened`/`closed` report keeps it in step (`Graphs.applyStore`); while
  * it is not, there is nothing to keep in step — the later build reads the
- * whole history anyway. Ids that clash across the sources of one graph
+ * whole history anyway. A store that failed after the history took its
+ * commit can leave no report to apply, so its graphs' built engines are
+ * dropped instead (`Graphs.dropBuilt`) and the next use rebuilds them
+ * from the history. Ids that clash across the sources of one graph
  * are a join-time problem for the milestone that adds such graphs
  * (decision 0003's duplicate-id check); sending and storing never refuse
  * on them.
@@ -55,6 +58,16 @@ export interface Graphs {
    * change nothing.
    */
   applyStore(source: string, result: StoreResult): void;
+  /**
+   * Drops the built engines of every graph listing the source, so their
+   * next use rebuilds them from the histories through the clash check; a
+   * graph whose engine was never built, and a source no graph lists, each
+   * change nothing. For a store that failed after the history took its
+   * commit: the retry answers "already stored" and reports no rows to
+   * apply, so a built engine must not be left answering from the older
+   * model the history has already moved past.
+   */
+  dropBuilt(source: string): void;
   /** Closes every graph's engine. */
   close(): void;
 }
@@ -65,12 +78,19 @@ interface GraphEntry extends Graph {
   lists(source: string): boolean;
   /** Applies one store's report to a built engine; a graph that was never built changes nothing. */
   applyIfBuilt(result: StoreResult): void;
+  /** Drops the built engine, if there is one; the next use rebuilds it from the histories through the clash check. */
+  dropIfBuilt(): void;
 }
 
 /** One graph: the engine built lazily from the assertions of every listed source. */
 function newGraph(name: string, sources: readonly string[], historyOf: (source: string) => HistoryStore, clock: Clock): GraphEntry {
   const listed = [...sources].sort(byCodePoint);
   let engineInstance: QueryEngine | undefined;
+  /** Drops the built engine, if there is one; the next use rebuilds it from the histories through the clash check. */
+  const dropIfBuilt = (): void => {
+    engineInstance?.close();
+    engineInstance = undefined;
+  };
   return {
     name,
     sources: listed,
@@ -94,12 +114,12 @@ function newGraph(name: string, sources: readonly string[], historyOf: (source: 
       // is built — so its built engine is dropped and the next use
       // rebuilds it through the check instead of adding the rows blind.
       if (listed.length > 1) {
-        engineInstance?.close();
-        engineInstance = undefined;
+        dropIfBuilt();
         return;
       }
       engineInstance?.update(result.opened, result.closed);
     },
+    dropIfBuilt,
     close: () => {
       engineInstance?.close();
       engineInstance = undefined;
@@ -180,6 +200,12 @@ export function createGraphs(options: GraphsOptions): Graphs {
     }
   }
 
+  function dropBuilt(source: string): void {
+    for (const graph of graphs.values()) {
+      if (graph.lists(source)) graph.dropIfBuilt();
+    }
+  }
+
   function close(): void {
     for (const graph of graphs.values()) graph.close();
   }
@@ -189,6 +215,7 @@ export function createGraphs(options: GraphsOptions): Graphs {
     addGraph,
     get: (name) => graphs.get(name),
     applyStore,
+    dropBuilt,
     close,
   };
 }
