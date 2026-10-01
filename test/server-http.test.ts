@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/index.js';
 import { Database } from 'bun:sqlite';
+import { canonicalJsonDigest } from '../src/model/canonical.js';
 
 const DAY = (day: number) => Date.UTC(2026, 8, day); // September 2026
 
@@ -123,12 +124,32 @@ describe('POST /models', () => {
     expect((await errorOf(response)).message).toContain('c1');
   });
 
-  test('the same commit with another model is refused with 409 naming the commit', async () => {
+  test('the same commit with another model is refused with both canonical digests and leaves the stored model unchanged', async () => {
     start();
-    await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
-    const response = await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a'), element('b')]);
+    const storedModel = model([element('a')]);
+    const incomingModel = model([element('a'), element('b')]);
+    await post('/models', { source: 'shop', commit: 'c1', committedAt: '2026-09-01T12:00:00Z', model: storedModel });
+    const response = await post('/models', { source: 'shop', commit: 'c1', committedAt: '2026-09-01T12:00:00Z', model: incomingModel });
     expect(response.status).toBe(409);
-    expect((await errorOf(response)).message).toContain('c1');
+    const message = (await errorOf(response)).message;
+    expect(message).toContain('shop');
+    expect(message).toContain('c1');
+    expect(message).toContain(canonicalJsonDigest(storedModel));
+    expect(message).toContain(canonicalJsonDigest(incomingModel));
+    expect((await post('/models', { source: 'shop', commit: 'c1', committedAt: '2026-09-01T12:00:00Z', model: storedModel })).status).toBe(200);
+  });
+  test('a resent model with reordered arrays is refused even when its assertions are unchanged', async () => {
+    start();
+    const storedModel = model([element('a'), element('b')]);
+    const incomingModel = model([element('b'), element('a')]);
+    await post('/models', { source: 'shop', commit: 'c1', committedAt: '2026-09-01T12:00:00Z', model: storedModel });
+
+    const response = await post('/models', { source: 'shop', commit: 'c1', committedAt: '2026-09-01T12:00:00Z', model: incomingModel });
+
+    expect(response.status).toBe(409);
+    const message = (await errorOf(response)).message;
+    expect(message).toContain(canonicalJsonDigest(storedModel));
+    expect(message).toContain(canonicalJsonDigest(incomingModel));
   });
 
   test('a model whose element lacks kind is refused naming the element path and kind, and the source is not stored', async () => {

@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { Database } from 'bun:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { canonicalJsonDigest } from '../src/model/canonical.js';
 import {
   createSqliteHistory,
   loadAndCompileModel,
@@ -292,10 +294,10 @@ describe('commits: every commit of one source, in the history\'s own commit orde
     h.store({ source: 'other', commit: 'o1', committedAt: DAY(3), model: model([element('c')]) });
 
     expect(h.commits('shop')).toEqual([
-      { commit: 'c1', committedAt: DAY(1), storedAt: DAY(11) },
-      { commit: 'c9', committedAt: DAY(2), storedAt: DAY(10) },
+      { commit: 'c1', committedAt: DAY(1), storedAt: DAY(11), canonicalDigest: canonicalJsonDigest(model([element('b')])) },
+      { commit: 'c9', committedAt: DAY(2), storedAt: DAY(10), canonicalDigest: canonicalJsonDigest(model([element('a')])) },
     ]);
-    expect(h.commits('other')).toEqual([{ commit: 'o1', committedAt: DAY(3), storedAt: DAY(12) }]);
+    expect(h.commits('other')).toEqual([{ commit: 'o1', committedAt: DAY(3), storedAt: DAY(12), canonicalDigest: canonicalJsonDigest(model([element('c')])) }]);
     expect(h.commits('never-sent')).toEqual([]);
     h.close();
   });
@@ -310,7 +312,40 @@ describe('commits: every commit of one source, in the history\'s own commit orde
     h.close();
   });
 
-  test('commitRecord reads one commit\'s own row, or says the source never stored it', () => {
+  test('commitRecord exposes the canonical digest stored beside each commit', () => {
+    const clock = fakeClock(DAY(10));
+    const h = history(clock);
+    const storedModel = model([element('a')]);
+    h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: storedModel });
+
+    expect(h.commitRecord('shop', 'c1')?.canonicalDigest).toBe(canonicalJsonDigest(storedModel));
+    expect(h.commits('shop')[0]?.canonicalDigest).toBe(canonicalJsonDigest(storedModel));
+    h.close();
+  });
+
+  test('opening a legacy history with commits refuses when its canonical digest cannot be reconstructed faithfully', () => {
+    const folder = mkdtempSync(join(tmpdir(), 'madarch-legacy-history-'));
+    const path = join(folder, 'history.sqlite');
+    try {
+      const db = new Database(path);
+      db.run(`CREATE TABLE source_commits (
+        source TEXT NOT NULL,
+        commit_id TEXT NOT NULL,
+        committed_at INTEGER NOT NULL,
+        content_digest TEXT NOT NULL,
+        recorded_at INTEGER NOT NULL,
+        PRIMARY KEY (source, commit_id)
+      )`);
+      db.query('INSERT INTO source_commits VALUES (?, ?, ?, ?, ?)').run('shop', 'legacy-c1', DAY(1), 'old-content-digest', DAY(2));
+      db.close();
+
+      expect(() => createSqliteHistory({ path, clock: fakeClock(DAY(10)) })).toThrow(/history\.sqlite.*legacy-c1.*shop.*cannot faithfully recover/i);
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  });
+
+  test("commitRecord reads one commit's own row, or says the source never stored it", () => {
     const clock = fakeClock(DAY(10));
     const h = history(clock);
     h.store({ source: 'shop', commit: 'c9', committedAt: DAY(2), model: model([element('a')]) });
@@ -318,7 +353,12 @@ describe('commits: every commit of one source, in the history\'s own commit orde
     clock.set(DAY(11));
     h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('b')]) });
 
-    expect(h.commitRecord('shop', 'c1')).toEqual({ commit: 'c1', committedAt: DAY(1), storedAt: DAY(11) });
+    expect(h.commitRecord('shop', 'c1')).toEqual({
+      commit: 'c1',
+      committedAt: DAY(1),
+      storedAt: DAY(11),
+      canonicalDigest: canonicalJsonDigest(model([element('b')])),
+    });
     expect(h.commitRecord('shop', 'never-stored')).toBeUndefined();
     expect(h.commitRecord('never-sent', 'c1')).toBeUndefined();
     h.close();

@@ -162,13 +162,15 @@ export interface AssertionsInput {
   source?: string;
 }
 
-/** One stored commit of one source, with its own two moments, as the history's commit order holds it. */
+/** One stored commit of one source, with its own times and canonical model digest. */
 export interface CommitRecord {
   commit: string;
   /** The commit's time, UTC epoch milliseconds. */
   committedAt: number;
   /** When the history stored this commit, UTC epoch milliseconds. */
   storedAt: number;
+  /** SHA-256 of the canonical JSON model as sent to the history. */
+  canonicalDigest: string;
 }
 
 /**
