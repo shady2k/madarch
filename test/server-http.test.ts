@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/index.js';
@@ -162,6 +162,20 @@ describe('POST /models', () => {
     expect(error.message).toContain('"service"');
   });
 
+  test('a model that is not an object is refused naming its type, never its value', async () => {
+    start();
+    lines = [];
+    for (const bad of [['secret'], 'secret', 7, true, null]) {
+      const response = await post('/models', { source: 'shop', commit: 'c1', committedAt: '2026-09-01T12:00:00Z', model: bad });
+      expect(response.status).toBe(400);
+      const error = await errorOf(response);
+      expect(error.field).toBe('model');
+      expect(error.message).toMatch(/of type (array|string|number|boolean|null)/);
+      expect(error.message).not.toContain('secret');
+    }
+    expect(lines.join('\n')).not.toContain('secret');
+  });
+
   test('several missing fields are refused together, not stopped at the first', async () => {
     start();
     const response = await post('/models', { model: model([element('a')]) });
@@ -310,6 +324,29 @@ describe('restart on the same data folder', () => {
   });
 });
 
+describe('a retry after a failed sidecar write', () => {
+  test('the repaired head carries the original store\'s moment, never the retry\'s clock', async () => {
+    start();
+    expect((await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')])).status).toBe(201);
+
+    // Sabotage at the file-system boundary: the sidecar's own temporary
+    // path is a folder, so the history stores the commit and the sidecar
+    // write then fails.
+    mkdirSync(join(folder!, 'shop.json.tmp'));
+    expect((await send('shop', 'c2', '2026-09-02T12:00:00Z', [element('b')])).status).toBe(500);
+    rmdirSync(join(folder!, 'shop.json.tmp'));
+
+    clockNow.value = DAY(20);
+    const retry = await send('shop', 'c2', '2026-09-02T12:00:00Z', [element('b')]);
+    expect(retry.status).toBe(200);
+
+    const sources = await sourcesOf(await fetch(`${server!.url}/sources`));
+    expect(sources).toEqual([
+      { source: 'shop', commit: 'c2', committedAt: '2026-09-02T12:00:00.000Z', storedAt: '2026-09-10T00:00:00.001Z' },
+    ]);
+  });
+});
+
 describe('the log', () => {
   test('one line per request: method, path, status, source and milliseconds', async () => {
     start();
@@ -358,6 +395,41 @@ describe('the log', () => {
     expect((await errorOf(response)).message).toContain('secret-kind');
     expect(lines.join('\n')).not.toContain('secret-kind');
     expect(lines[0]).toContain('/elements/0/kind');
+  });
+
+  test('an unknown field name holding a newline leaves exactly one log line', async () => {
+    start();
+    lines = [];
+    const response = await post('/models', { source: 'shop', commit: 'c1', committedAt: '2026-09-01T12:00:00Z', model: model([element('a')]), 'a\nb': 1 });
+    expect(response.status).toBe(400);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('a\\nb');
+    expect(lines[0]!.includes('\n')).toBe(false);
+  });
+
+  test('a commit id holding a newline is named in the 409 and still leaves exactly one log line', async () => {
+    start();
+    await send('shop', 'c\n1', '2026-09-01T12:00:00Z', [element('a')]);
+    lines = [];
+
+    const response = await send('shop', 'c\n1', '2026-09-02T12:00:00Z', [element('a')]);
+    expect(response.status).toBe(409);
+    expect((await errorOf(response)).message).toContain('c\n1');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('c\\n1');
+    expect(lines[0]!.includes('\n')).toBe(false);
+  });
+
+  test('an error-level line is one physical line too, its stack escaped', async () => {
+    start();
+    mkdirSync(join(folder!, 'shop.json.tmp')); // the sidecar write fails; the history stored the commit
+    errors = [];
+    const response = await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    expect(response.status).toBe(500);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.includes('\n')).toBe(false);
+    expect(errors[0]).toContain('\\n');
+    rmdirSync(join(folder!, 'shop.json.tmp'));
   });
 });
 

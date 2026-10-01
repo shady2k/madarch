@@ -112,8 +112,13 @@ interface AskedView {
 
 export function startServer(options: ServerOptions): StartedServer {
   const clock: Clock = options.clock ?? { now: () => Date.now() };
-  const log = options.log ?? ((line: string) => console.log(line));
-  const errorLog = options.errorLog ?? ((line: string) => console.error(line));
+  // The writer is the safe place: every line is escaped here once, so a
+  // control character in a request field, a commit id or a cause can
+  // never split a line again.
+  const sink = options.log ?? ((line: string) => console.log(line));
+  const errorSink = options.errorLog ?? ((line: string) => console.error(line));
+  const log = (line: string) => sink(escapeControlCharacters(line));
+  const errorLog = (line: string) => errorSink(escapeControlCharacters(line));
   const sources = createSourceStores({ dataFolder: options.dataFolder, clock, log });
   const graphs = createGraphs({ historyOf: (source) => sources.historyOf(source), clock });
   const handle = createHandler({ sources, graphs, log, errorLog });
@@ -273,7 +278,10 @@ function createHandler(dependencies: {
     } else {
       const candidate: unknown = body.model;
       if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) {
-        problems.push({ field: 'model', message: `"model" must be the compiled model as a JSON object, but is ${JSON.stringify(candidate)}` });
+        // The value itself is model content: the refusal names the field
+        // and the JSON type the field arrived as, never the value.
+        const type = candidate === null ? 'null' : Array.isArray(candidate) ? 'array' : typeof candidate;
+        problems.push({ field: 'model', message: `"model" must be the compiled model as a JSON object, but is of type ${type}` });
       } else if (!Value.Check(CompiledModelSchema, candidate)) {
         const details = schemaProblems(Value.Errors(CompiledModelSchema, candidate), candidate);
         const detailText = details.map((detail) => (detail.path === '' ? detail.message : `${detail.path}: ${detail.message}`)).join('; ');
@@ -483,6 +491,16 @@ function createHandler(dependencies: {
     log(`${request.method} ${pathname} ${handled.response.status}${named} ${ms}ms${why}`);
     return handled.response;
   };
+}
+
+/** The escape itself: the readable forms for the line breaks and the tab, `\uXXXX` for every other control character. */
+function escapeControlCharacters(line: string): string {
+  return line.replace(/[\u0000-\u001F\u007F-\u009F\u2028\u2029]/g, (ch) => {
+    if (ch === '\n') return '\\n';
+    if (ch === '\r') return '\\r';
+    if (ch === '\t') return '\\t';
+    return `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`;
+  });
 }
 
 /** The source a request body named, when it named one — even one arriving beside other broken fields. */

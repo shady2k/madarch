@@ -88,6 +88,16 @@ function newGraph(name: string, sources: readonly string[], historyOf: (source: 
     },
     lists: (source) => listed.includes(source),
     applyIfBuilt: (result) => {
+      // A graph of one source cannot take a clash: its rows are the only
+      // rows, and the incremental update keeps the engine in step. A
+      // graph of several can — the clash is decided only when the engine
+      // is built — so its built engine is dropped and the next use
+      // rebuilds it through the check instead of adding the rows blind.
+      if (listed.length > 1) {
+        engineInstance?.close();
+        engineInstance = undefined;
+        return;
+      }
       engineInstance?.update(result.opened, result.closed);
     },
     close: () => {

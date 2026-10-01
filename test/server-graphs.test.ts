@@ -252,6 +252,34 @@ describe('keeping a built graph in step', () => {
     graphs.close();
     expect(view.elements?.map((e) => e.id)).toEqual(['shop-root']);
   });
+
+  test('a store that brings a clash into a built two-source graph drops its engine, and the next use refuses instead of answering with duplicate rows', () => {
+    const clock = fakeClock(DAY(9));
+    const one = createSqliteHistory({ clock });
+    const two = createSqliteHistory({ clock });
+    one.store({ source: 'github.com/a/one', commit: 'c1', committedAt: DAY(1), model: model([element('one-root')]) });
+    two.store({ source: 'github.com/b/two', commit: 'c1', committedAt: DAY(1), model: model([element('two-root')]) });
+    const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/a/one' ? one : two), clock });
+    const union = graphs.addGraph('union', ['github.com/a/one', 'github.com/b/two']);
+    expect(union.engine().view({ depth: 0 }).elements?.map((each) => each.id).sort()).toEqual(['one-root', 'two-root']);
+
+    // The store's own report reaches the built engine as rows; only a
+    // rebuild through the clash check can refuse what they declare.
+    const result = one.store({ source: 'github.com/a/one', commit: 'c2', committedAt: DAY(2), model: model([element('one-root'), element('two-root')]) });
+    expect(result.errors).toEqual([]);
+    graphs.applyStore('github.com/a/one', result);
+
+    let thrown: unknown;
+    try {
+      union.engine();
+    } catch (error) {
+      thrown = error;
+    }
+    expect((thrown as Error).message).toContain('"two-root"');
+    expect((thrown as Error).message).toContain('github.com/a/one');
+    expect((thrown as Error).message).toContain('github.com/b/two');
+    graphs.close();
+  });
 });
 
 describe('graph names', () => {
