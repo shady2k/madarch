@@ -85,6 +85,34 @@ workspace shall pass `likec4 validate`.
 - When: its LikeC4 workspace is rendered and validated
 - Then: validation passes, and the workspace has the views `index`, `shop`, `payments` and `checkout-web`
 
+## Requirement: one-view — One view on request, at a depth
+When one view is asked for an element (left out, the landscape) at a depth
+(by default 1), the renderer shall render that view alone, at the asked time
+and state. At depth 1 it is the view of the view set: as Mermaid, the page the
+view set's Mermaid page holds without its links to other pages (the heading,
+the flowchart and the table of arrows); as LikeC4, the workspace with that one
+view, which `likec4 validate` accepts on its own. At a greater depth every
+shown element with children down to that depth is drawn as a frame around its
+own children, relations collapsed to the deepest shown elements, and the
+table and the labels follow the same rules. If the element does not exist at
+that time, or the depth is below 1, the answer is an error naming it. A view
+of an element without children shows the element with its neighbours.
+
+### Scenario: depth-one-equals-page
+- Given: the model of the drill-down scenario
+- When: the view of `shop` is asked at depth 1 as Mermaid
+- Then: the text is the page of `shop` from the view set without its "Up" and "Open" lines
+
+### Scenario: depth-two-frames
+- Given: the model of the drill-down scenario
+- When: the view of `shop` is asked at depth 2 as Mermaid
+- Then: its flowchart parses, frames `checkout-cart` and `checkout-ui` inside `checkout-web` inside `shop`, and draws `payments` outside `shop`
+
+### Scenario: one-view-likec4
+- Given: the model of the drill-down scenario
+- When: the view of `checkout-web` is asked as LikeC4
+- Then: the workspace passes `likec4 validate` and has exactly one view, of `checkout-web`
+
 ## Requirement: deterministic — Same model, same bytes
 When the same model is rendered twice at the same time and state, the renderer
 shall write byte-identical files.
@@ -117,6 +145,9 @@ Views per environment and per architecture state, zones drawn as boundaries,
 flows, and layout beyond what Mermaid and LikeC4 choose are not offered yet.
 Mermaid's parser accepting a flowchart is checked automatically; the label
 size and overlaps are checked by rendering every page at acceptance, not in CI.
+Views asked at a depth above 1 are drawn by the same rules but not held to
+the 12-pixel label size: a deeper view of a large element is as dense as it
+is.
 Element ids that differ only by letter case are not rendered as pages.
 Nesting hundreds of levels deep renders, but slowly: the time grows with the
 square of the depth. LikeC4 cannot draw a relation of an element with itself

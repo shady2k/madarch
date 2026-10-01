@@ -39,11 +39,17 @@ Added 2026-09-30 with the change wiki (`docs/changes/wiki/`):
 
 Its run's decisions are in `docs/changes/wiki/change.md`, "Design and decisions".
 
+Added 2026-10-01 with the change server-views (`docs/changes/server-views/`):
+
+- [server](capabilities/server.md): storing sent models per source and answering view requests as Mermaid or LikeC4 text, across restarts.
+- [graph-queries](capabilities/graph-queries.md): the engine's memory bounded for a server that runs for days.
+- [views](capabilities/views.md): one view of an element at a depth, as Mermaid or LikeC4, beside the view set.
+- [model-authoring](capabilities/model-authoring.md): the skill sends the checked model to a named server.
+
+Its run's decisions are in `docs/changes/server-views/change.md`, "Design and decisions".
+
 ## Known unknowns
 
-- The server (the last outcome of the MVP) is built by the change
-  server-views (`docs/changes/server-views/`) and joins the coverage above
-  when that change is accepted.
 - The query engine's memory in a long-lived process: measured with the
   change server-views (madarch-ti6.2) — at a fixed 2 execution threads and
   query times reduced to the history's own times, a long run of

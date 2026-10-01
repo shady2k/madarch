@@ -97,6 +97,11 @@ answers.
   since decision 0009 left it open.
 - Reliability and recovery: the engine holds no state the history does not;
   losing it loses nothing.
+- Resources: an engine asked 20 000 views and transitive queries with an
+  advancing clock, yielding to the event loop between batches, levels off in
+  memory under the bound its long-run test states; its connection runs with
+  a small fixed number of execution threads, and the times it prepares
+  statements for are bounded by the history's own times.
 - Compatibility and operation: runs under Bun 1.4.2 with LadybugDB 0.20.4 on
   macOS and Linux.
 - Security, data, usability: not applicable beyond model-history.

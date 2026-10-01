@@ -86,6 +86,18 @@ lists as stale or as problems.
 - When: the skill runs the model check
 - Then: it corrects the item and runs the check again, and it finishes only after a run that passes
 
+## Requirement: send — The model is sent to a server when one is named
+When the skill finishes on a clean check and a madarch server's address is
+given (in the request or in `MADARCH_SERVER`), it shall send the model with
+the send command and report the source name and commit the server stored, or
+the server's refusal. Without an address it sends nothing and says how to
+send later.
+
+### Scenario: send-after-check
+- Given: a model the skill has just checked clean, and `MADARCH_SERVER` set to a running server
+- When: the skill finishes
+- Then: it has run the send command, and its report names the source and commit the server stored
+
 ## Requirement: update — The model is updated inside a pull request
 When asked to update a model for a pull request, the skill shall read the
 branch's changes against its base, the pull request's description and the
@@ -120,7 +132,7 @@ request as the code.
   git and Bun.
 
 ## Context
-Decisions 0002 (the intended model in git), 0005 (intended, extracted and
+Capability server (the send command). Decisions 0002 (the intended model in git), 0005 (intended, extracted and
 observed layers), 0014 (format principles). The comparison of documents with
 code follows reflexion models: G. C. Murphy, D. Notkin, K. Sullivan, "Software
 Reflexion Models" (FSE 1995), whose convergences, divergences and absences are
