@@ -144,8 +144,29 @@ batch, "Да"):
 - Workers are omp sessions started through herdr, one at a time, on omp's
   default model; the coordinator (a Claude session) plans, integrates,
   reviews and accepts, and its session stays open for the run.
-- Review of each stage by Codex CLI; fallback an independent same-model
-  reviewer, disclosed in the acceptance record. Jev on piles.
+- Review by Codex CLI; fallback an independent same-model reviewer,
+  disclosed in the acceptance record. Jev on piles. Changed by the owner
+  mid-run, 2026-09-30 20:45 MSK, after stage 1's review ("А зачем ты каждый
+  этап отдельно проверяешь? Сделай одну проверку в конце"): one review of
+  the whole feature's diff before the pull request; each stage is still
+  accepted on its full checks and mutation run, its record naming the final
+  review as its review evidence. Stage 1's review, already done, stands;
+  its three findings are fixed.
+- Checks, changed by the owner mid-run, 2026-09-30 20:50 MSK ("Да, все
+  проверки делай в конце"): workers run the type-checker and their own
+  change's tests only; after each merge the coordinator runs the
+  type-checker and the changed code's tests; stages are recorded as
+  integrated, not accepted on their own checks. The full suite with the
+  performance tests, `views:check`, the mutation run over every changed
+  range, the Codex review and the `server-views` check run once, on the
+  final revision, and every stage's acceptance record rests on that run.
+- Performance tests, skipped for this run by the owner, 2026-09-30 23:40
+  MSK ("Тесты производительности пропусти в этот раз"): the final run is
+  `MADARCH_SKIP_PERF=1 bun test`. The engine's long-run, stability and
+  performance tests last passed on 2026-09-30 after madarch-ti6.2's rework
+  (6 pass: final RSS 162 MB) and on its first merge (all perf files green);
+  the server's view timing (13 ms) was measured by its worker. No
+  performance test ran on the final revision.
 - Forecast: 2 to 4 hours of agent work, the pull request expected about
   00:00 to 02:00 MSK on 2026-10-01; past 06:00 MSK without word the run has
   stopped. The owner named no absence; the due time stands for it.
@@ -160,9 +181,12 @@ batch, "Да"):
   the owner.
 
 Acceptance (the check named in Coverage):
-- `server-views`: a server started on a scratch data folder; the reference
-  system and nocx's model (the accepted skill run on nocx at `3f0e46e`, in
-  its local checkout) sent with the send command; for each, the views at the
+- `server-views`: a server started on a scratch data folder; nocx's model
+  (the accepted skill run on nocx at `3f0e46e`, in its local checkout) sent
+  with the send command, and the reference system's compiled model sent
+  through `POST /models` (decided in the run: the reference system is
+  invented, has no evidence and no review report, and the model check the
+  send command gates on refuses it, correctly); for each, the views at the
   top level, at a domain or service, and at the modules of a core requested
   as Mermaid and as LikeC4: every Mermaid answer parses, and rendered by
   GitHub's Mermaid in a 1150-pixel column its labels are at least 12 pixels

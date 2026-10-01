@@ -162,6 +162,15 @@ export interface AssertionsInput {
   source?: string;
 }
 
+/** One stored commit of one source, with its own two moments, as the history's commit order holds it. */
+export interface CommitRecord {
+  commit: string;
+  /** The commit's time, UTC epoch milliseconds. */
+  committedAt: number;
+  /** When the history stored this commit, UTC epoch milliseconds. */
+  storedAt: number;
+}
+
 /**
  * Keeps every version of every source's compiled model, with both time
  * axes, from the first write: nothing is ever overwritten or deleted (see
@@ -178,6 +187,10 @@ export interface HistoryStore {
   sources(): string[];
   /** Whether a source's commit is already stored (regardless of what it asserts). */
   hasCommit(source: string, commit: string): boolean;
+  /** One commit's own record with its times, read as one row rather than through the source's whole `commits` list; `undefined` when the source never stored that commit. */
+  commitRecord(source: string, commit: string): CommitRecord | undefined;
+  /** Every commit of one source, with its times, oldest first in the history's own commit order: commit time, then commit id in code point order to break a tie. */
+  commits(source: string): CommitRecord[];
   /** Releases the underlying database connection. */
   close(): void;
 }

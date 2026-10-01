@@ -22,8 +22,9 @@ const { Database, Connection } = lbug;
  * `Connection.executeSync` returns one `QueryResult`, or an array when the
  * statement is a batch of several — this module always executes one
  * statement, so the array case never arises in practice; the helper still
- * narrows it defensively rather than asserting it away. The result is
- * always closed once its rows are read: an unclosed `QueryResult` holds its
+ * narrows it defensively rather than asserting it away, and closes every
+ * entry the statement returned, even when reading the rows throws. The
+ * result is always closed once its rows are read: an unclosed `QueryResult` holds its
  * own slice of the buffer pool, and a long-lived engine answering many
  * queries (a repository's whole working life) leaks that pool to
  * exhaustion otherwise (`Buffer manager exception: Unable to allocate
@@ -31,11 +32,27 @@ const { Database, Connection } = lbug;
  * module doc's own account of `Database`'s fixed-size pool).
  */
 function rowsOf(result: QueryResult | QueryResult[]): Record<string, LbugValue>[] {
-  const single = Array.isArray(result) ? result[result.length - 1] : result;
-  if (single === undefined) return [];
-  const rows = single.getAllSync();
-  single.close();
-  return rows;
+  const results = Array.isArray(result) ? result : [result];
+  const last = results[results.length - 1];
+  if (last === undefined) return [];
+  try {
+    return last.getAllSync();
+  } finally {
+    for (const each of results) each.close();
+  }
+}
+
+/**
+ * Runs one statement whose rows no caller reads — the schema's DDL, the
+ * deletes of `reset`, and every write and row closure of `rebuild` and
+ * `update` — and closes its result at once: an unclosed `QueryResult`
+ * holds its own slice of the buffer pool exactly as an unclosed read
+ * result does (see `rowsOf`'s own doc), and a caller replaying a history
+ * into a long-lived engine issues thousands of these statements.
+ */
+function runAndClose(run: () => QueryResult | QueryResult[]): void {
+  const result = run();
+  for (const each of Array.isArray(result) ? result : [result]) each.close();
 }
 
 /**
@@ -51,6 +68,22 @@ function rowsOf(result: QueryResult | QueryResult[]): Record<string, LbugValue>[
  * the caller meant by "transitive".
  */
 const MAX_HOPS_CEILING = 30;
+
+/**
+ * The fixed number of LadybugDB execution threads this engine's connection
+ * runs with, instead of the build's default of one thread per core.
+ * Measured (madarch-ti6.2, LadybugDB 0.20.4): the recursive dependents
+ * query's `rels(p)` materialization costs memory per execution thread — on
+ * a 14-core host the default settled at 0.7-1.2 GB RSS for a 50-element
+ * graph, while 1 or 2 threads settled near 170-250 MB with each query
+ * about twice as fast; on a 6-core host the default measured flat (about
+ * 118-120 MB settled at 1, 2 and the 6-thread default alike), but a fixed
+ * small count keeps the engine's footprint independent of whatever host's
+ * core count it happens to run on. 2 over 1: the same measured memory,
+ * with parallelism left for the performance requirement's 10 000-element
+ * graphs.
+ */
+const LADYBUG_EXEC_THREADS = 2;
 
 /** One element assertion's content, the fields the engine's queries need (see `CompiledElement`). */
 interface ElementContent {
@@ -262,6 +295,42 @@ function chainRoot(states: readonly { id: string; after?: string }[]): string | 
 }
 
 /**
+ * Records one more time an answer can change at, keeping `sorted` ascending
+ * and free of duplicates (binary search, in-place — the engine calls this
+ * per stored row, never per query).
+ */
+function noteHistoryTime(sorted: number[], t: number): void {
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (sorted[mid]! < t) lo = mid + 1;
+    else hi = mid;
+  }
+  if (sorted[lo] !== t) sorted.splice(lo, 0, t);
+}
+
+/**
+ * The latest time in `sorted` at or before `t` — `t` itself when none is.
+ * Every row filter this engine asks LadybugDB (`validFrom <= $valid AND
+ * ... validTo > $valid`, the known axis likewise) flips a row in or out
+ * only at a row's own boundary times, so between two consecutive entries
+ * of the history's times an answer is constant, and asking for `t` is
+ * asking for this entry (madarch-ti6.2: reducing the query's times to
+ * these keeps the statement texts bounded by the history's size).
+ */
+function latestHistoryTimeAtOrBefore(t: number, sorted: readonly number[]): number {
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (sorted[mid]! <= t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo === 0 ? t : sorted[lo - 1]!;
+}
+
+/**
  * LadybugDB behind `QueryEngine` (see design.md, "From files to answers"
  * and the graph-queries capability). Bun-specific in spirit only through
  * `@ladybugdb/core`'s native binding — this is the boundary decision 0008
@@ -323,6 +392,21 @@ export interface LadybugEngineOptions {
 
 export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEngine {
   const clock = options.clock ?? { now: () => Date.now() };
+  // Every time an answer can change at, sorted ascending — the valid axis
+  // flips rows at `validFrom`/`validTo`, the known axis at
+  // `recordedFrom`/`recordedTo` (see `latestHistoryTimeAtOrBefore`). A
+  // query's own times are reduced to the latest of these at or before
+  // them, so the statement texts carrying those times are bounded by the
+  // history's size, not by the clock (madarch-ti6.2).
+  const validHistoryTimes: number[] = [];
+  const knownHistoryTimes: number[] = [];
+  function noteRowTimes(validFrom: number, validTo: number | null, recordedFrom: number, recordedTo: number | null): void {
+    noteHistoryTime(validHistoryTimes, validFrom);
+    noteHistoryTime(knownHistoryTimes, recordedFrom);
+    if (validTo !== null) noteHistoryTime(validHistoryTimes, validTo);
+    if (recordedTo !== null) noteHistoryTime(knownHistoryTimes, recordedTo);
+  }
+
   // `Database`'s own defaults reserve an enormous virtual-memory mapping
   // (observed: an 8 TiB `mmap`) sized for a large on-disk deployment;
   // opening more than a handful of instances in one process — one engine
@@ -333,18 +417,24 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
   // hundred MiB of buffer pool and a few GiB of address space are ample,
   // and keep every instance's footprint small enough that many can coexist.
   const db = new Database(':memory:', 256 * 1024 * 1024, false, false, 4 * 1024 * 1024 * 1024);
-  const conn = new Connection(db);
+  const conn = new Connection(db, LADYBUG_EXEC_THREADS);
   conn.initSync();
 
-  conn.querySync(
-    `CREATE NODE TABLE Element(pk STRING, elementId STRING, kind STRING, name STRING, parentId STRING, ancestors STRING[], states STRING[], validFrom INT64, validTo INT64, recordedFrom INT64, recordedTo INT64, source STRING, PRIMARY KEY(pk))`,
+  runAndClose(() =>
+    conn.querySync(
+      `CREATE NODE TABLE Element(pk STRING, elementId STRING, kind STRING, name STRING, parentId STRING, ancestors STRING[], states STRING[], validFrom INT64, validTo INT64, recordedFrom INT64, recordedTo INT64, source STRING, PRIMARY KEY(pk))`,
+    ),
   );
-  conn.querySync(
-    `CREATE NODE TABLE Relation(pk STRING, relationId STRING, fromId STRING, toId STRING, refines STRING, states STRING[], validFrom INT64, validTo INT64, recordedFrom INT64, recordedTo INT64, source STRING, PRIMARY KEY(pk))`,
+  runAndClose(() =>
+    conn.querySync(
+      `CREATE NODE TABLE Relation(pk STRING, relationId STRING, fromId STRING, toId STRING, refines STRING, states STRING[], validFrom INT64, validTo INT64, recordedFrom INT64, recordedTo INT64, source STRING, PRIMARY KEY(pk))`,
+    ),
   );
-  conn.querySync(`CREATE NODE TABLE Anchor(elementId STRING, PRIMARY KEY(elementId))`);
-  conn.querySync(
-    `CREATE REL TABLE RELATES_TO(FROM Anchor TO Anchor, pk STRING, relationId STRING, states STRING[], validFrom INT64, validTo INT64, recordedFrom INT64, recordedTo INT64, source STRING)`,
+  runAndClose(() => conn.querySync(`CREATE NODE TABLE Anchor(elementId STRING, PRIMARY KEY(elementId))`));
+  runAndClose(() =>
+    conn.querySync(
+      `CREATE REL TABLE RELATES_TO(FROM Anchor TO Anchor, pk STRING, relationId STRING, states STRING[], validFrom INT64, validTo INT64, recordedFrom INT64, recordedTo INT64, source STRING)`,
+    ),
   );
 
   const insertElement = conn.prepareSync(
@@ -402,33 +492,39 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
   // `viewRelationsQuery`'s `list_filter` case — this build's binder refuses
   // it too, cleanly this time: `Binder exception: Cannot evaluate $_..._
   // because it does not depend on n or r`) — `conn.prepareSync` on the very
-  // same text twice reprepares it from scratch, and this LadybugDB build
-  // never frees a prepared statement's own share of the buffer pool on its
-  // own (there is no `PreparedStatement.close`): asking it to reprepare
-  // the same query text again and again, the ordinary case for an engine
-  // answering the same shape of question repeatedly (a view kept open, an
-  // agent polling the same dependents query), exhausted the pool outright
-  // after a few hundred calls (tried and confirmed). Caching by the exact
-  // query text — the same text can only ever mean the same statement —
-  // keeps a repeated call to one bounded amount of memory instead.
+  // same text twice reprepares it from scratch, and a dropped `PreparedStatement`
+  // is released only by the runtime's native finalizer — after a GC and an
+  // event-loop turn — never synchronously (this build exposes no
+  // `PreparedStatement.close`; measured, madarch-ti6.2: a synchronous loop
+  // of distinct statements fills the 256 MiB pool within 10 000 of them,
+  // while yielding every 500 calls plateaus near 340 MB over 40 000).
+  // Asking the build to reprepare the same query text again and again, the
+  // ordinary case for an engine answering the same shape of question
+  // repeatedly (a view kept open, an agent polling the same dependents
+  // query), thus leans on that finalizer or exhausts the pool outright
+  // (tried and confirmed). Caching by the exact query text — the same text
+  // can only ever mean the same statement — keeps a repeated call to one
+  // bounded amount of memory instead.
   //
   // `dependencyQuery`'s own text embeds `valid`/`known` as literals (see
   // its own doc), so a caller that queries "now" through a clock that keeps
   // advancing (the ordinary case for an agent watching the graph, or for
-  // `resolveTime`'s own default when no `at` is given) builds a distinct
-  // query text on every single call, forever — an unbounded cache would
-  // just move the same unbounded-growth problem from "reprepare every
-  // call" to "cache every distinct text forever" instead of actually
-  // bounding it. `preparedByText` is therefore a small LRU (insertion
-  // order in a `Map` already gives this for free: a hit is deleted and
-  // re-set to move it to the newest end, and the oldest entry — the map's
-  // first key — is dropped once the cache grows past `PREPARED_CACHE_LIMIT`).
-  // "Closed" on eviction can only mean dropping this module's own
-  // reference, the same limit `close()`'s own doc already notes: this
-  // build exposes no native release for a `PreparedStatement`, so an
-  // evicted entry's native memory is reclaimed only once nothing else
-  // reaches it, not synchronously — still strictly better than never
-  // dropping the reference at all, which is what an unbounded cache did.
+  // `resolveTime`'s own default when no `at` is given) would build a
+  // distinct query text on every single call. It does not: `resolveTime`
+  // reduces both times to the latest time in the model history at or
+  // before them (see its own doc), so the distinct texts are bounded by
+  // the history's own times and the cache keeps hitting them. The LRU
+  // bound below stands for the caller-supplied-time case (a history grows
+  // as versions are stored, so its times grow too, and `at` may name times
+  // the history never names): insertion order in a `Map` already gives an
+  // LRU for free — a hit is deleted and re-set to move it to the newest
+  // end, and the oldest entry — the map's first key — is dropped once the
+  // cache grows past `PREPARED_CACHE_LIMIT`. "Closed" on eviction can only
+  // mean dropping this module's own reference, the same limit `close()`'s
+  // own doc already notes: the evicted statement's native memory is
+  // reclaimed by the finalizer after GC and an event-loop turn, not
+  // synchronously — still strictly better than never dropping the
+  // reference at all, which is what an unbounded cache did.
   const PREPARED_CACHE_LIMIT = 200;
   const preparedByText = new Map<string, PreparedStatement>();
   function cachedPrepare(text: string): PreparedStatement {
@@ -576,72 +672,83 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
   let states: LiveStateRow[] = [];
 
   function reset(): void {
-    conn.querySync('MATCH (e:Element) DELETE e');
-    conn.querySync('MATCH (r:Relation) DELETE r');
-    conn.querySync('MATCH ()-[r:RELATES_TO]->() DELETE r');
-    conn.querySync('MATCH (a:Anchor) DELETE a');
+    runAndClose(() => conn.querySync('MATCH (e:Element) DELETE e'));
+    runAndClose(() => conn.querySync('MATCH (r:Relation) DELETE r'));
+    runAndClose(() => conn.querySync('MATCH ()-[r:RELATES_TO]->() DELETE r'));
+    runAndClose(() => conn.querySync('MATCH (a:Anchor) DELETE a'));
     states = [];
+    validHistoryTimes.length = 0;
+    knownHistoryTimes.length = 0;
   }
 
   function writeElement(row: { source: string; content: string; validFrom: number; validTo: number | null; recordedFrom: number; recordedTo: number | null }): void {
     const parsed = JSON.parse(row.content) as ElementContent;
-    conn.executeSync(mergeAnchor, { elementId: parsed.id });
-    conn.executeSync(insertElement, {
-      pk: rowKey(row.source, 'element', parsed.id, row.validFrom, row.recordedFrom),
-      elementId: parsed.id,
-      kind: parsed.kind,
-      name: parsed.name ?? null,
-      parentId: parsed.parent ?? null,
-      ancestors: parsed.ancestors,
-      states: parsed.states,
-      validFrom: row.validFrom,
-      validTo: row.validTo,
-      recordedFrom: row.recordedFrom,
-      recordedTo: row.recordedTo,
-      source: row.source,
-    });
+    runAndClose(() => conn.executeSync(mergeAnchor, { elementId: parsed.id }));
+    runAndClose(() =>
+      conn.executeSync(insertElement, {
+        pk: rowKey(row.source, 'element', parsed.id, row.validFrom, row.recordedFrom),
+        elementId: parsed.id,
+        kind: parsed.kind,
+        name: parsed.name ?? null,
+        parentId: parsed.parent ?? null,
+        ancestors: parsed.ancestors,
+        states: parsed.states,
+        validFrom: row.validFrom,
+        validTo: row.validTo,
+        recordedFrom: row.recordedFrom,
+        recordedTo: row.recordedTo,
+        source: row.source,
+      }),
+    );
+    noteRowTimes(row.validFrom, row.validTo, row.recordedFrom, row.recordedTo);
   }
 
   function writeRelation(row: { source: string; content: string; validFrom: number; validTo: number | null; recordedFrom: number; recordedTo: number | null }): void {
     const parsed = JSON.parse(row.content) as RelationContent;
     const pk = rowKey(row.source, 'relation', parsed.id, row.validFrom, row.recordedFrom);
-    conn.executeSync(mergeAnchor, { elementId: parsed.from });
-    conn.executeSync(mergeAnchor, { elementId: parsed.to });
-    conn.executeSync(insertRelation, {
-      pk,
-      relationId: parsed.id,
-      fromId: parsed.from,
-      toId: parsed.to,
-      refines: parsed.refines ?? null,
-      states: parsed.states,
-      validFrom: row.validFrom,
-      validTo: row.validTo,
-      recordedFrom: row.recordedFrom,
-      recordedTo: row.recordedTo,
-      source: row.source,
-    });
+    runAndClose(() => conn.executeSync(mergeAnchor, { elementId: parsed.from }));
+    runAndClose(() => conn.executeSync(mergeAnchor, { elementId: parsed.to }));
+    runAndClose(() =>
+      conn.executeSync(insertRelation, {
+        pk,
+        relationId: parsed.id,
+        fromId: parsed.from,
+        toId: parsed.to,
+        refines: parsed.refines ?? null,
+        states: parsed.states,
+        validFrom: row.validFrom,
+        validTo: row.validTo,
+        recordedFrom: row.recordedFrom,
+        recordedTo: row.recordedTo,
+        source: row.source,
+      }),
+    );
     // No `refines` on the edge: `dependents`/`dependencies` walk every
     // relation, refinements included, and never need to reason about which
     // relation refines which (only `view` does — it reads `refines` off
     // the `Relation` node table instead, in `viewRelationsQuery`), so the
     // edge itself never needs to carry it.
-    conn.executeSync(insertEdge, {
-      pk,
-      fromId: parsed.from,
-      toId: parsed.to,
-      relationId: parsed.id,
-      states: parsed.states,
-      validFrom: row.validFrom,
-      validTo: row.validTo,
-      recordedFrom: row.recordedFrom,
-      recordedTo: row.recordedTo,
-      source: row.source,
-    });
+    runAndClose(() =>
+      conn.executeSync(insertEdge, {
+        pk,
+        fromId: parsed.from,
+        toId: parsed.to,
+        relationId: parsed.id,
+        states: parsed.states,
+        validFrom: row.validFrom,
+        validTo: row.validTo,
+        recordedFrom: row.recordedFrom,
+        recordedTo: row.recordedTo,
+        source: row.source,
+      }),
+    );
+    noteRowTimes(row.validFrom, row.validTo, row.recordedFrom, row.recordedTo);
   }
 
   function writeState(row: { source: string; content: string; validFrom: number; validTo: number | null; recordedFrom: number; recordedTo: number | null }): void {
     const parsed = JSON.parse(row.content) as StateContent;
     states.push({ source: row.source, id: parsed.id, after: parsed.after, validFrom: row.validFrom, validTo: row.validTo, recordedFrom: row.recordedFrom, recordedTo: row.recordedTo });
+    noteRowTimes(row.validFrom, row.validTo, row.recordedFrom, row.recordedTo);
   }
 
   // `update`'s own "remove" is a close, never a delete (see `closeElement`'s
@@ -652,12 +759,12 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
   // closed on an earlier pass is left alone rather than closed a second
   // time or matched by mistake.
   function removeElement(source: string, id: string, validFrom: number, recordedTo: number): void {
-    conn.executeSync(closeElement, { source, id, validFrom, recordedTo });
+    runAndClose(() => conn.executeSync(closeElement, { source, id, validFrom, recordedTo }));
   }
 
   function removeRelation(source: string, id: string, validFrom: number, recordedTo: number): void {
-    conn.executeSync(closeEdge, { source, id, validFrom, recordedTo });
-    conn.executeSync(closeRelation, { source, id, validFrom, recordedTo });
+    runAndClose(() => conn.executeSync(closeEdge, { source, id, validFrom, recordedTo }));
+    runAndClose(() => conn.executeSync(closeRelation, { source, id, validFrom, recordedTo }));
   }
 
   function removeState(source: string, id: string, validFrom: number, recordedTo: number): void {
@@ -693,6 +800,11 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
   function update(opened: readonly AssertionChange[], closed: readonly AssertionChange[]): void {
     for (const change of closed) {
       const recordedTo = change.recordedTo ?? change.recordedFrom;
+      // The closing itself is a moment the answer can change at (the row
+      // stops being visible at later `known` times), so its `recordedTo`
+      // joins the known axis's times; the row's other times were noted
+      // when it was written.
+      noteRowTimes(change.validFrom, change.validTo, change.recordedFrom, recordedTo);
       if (change.kind === 'element') removeElement(change.source, change.id, change.validFrom, recordedTo);
       else if (change.kind === 'relation') removeRelation(change.source, change.id, change.validFrom, recordedTo);
       else if (change.kind === 'state') removeState(change.source, change.id, change.validFrom, recordedTo);
@@ -712,10 +824,20 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
    * itself uses when no clock is injected). A caller passes `at` explicitly
    * to ask about a time other than "now"; the engine's own tests, like the
    * history's, inject a fake clock instead of relying on this fallback.
+   *
+   * Both times are then reduced to the latest time in the model history at
+   * or before them (madarch-ti6.2): a row flips in or out of an answer only
+   * at its own boundary times, so between two of the history's own times
+   * every answer is constant, and the reduced time answers identically
+   * while keeping the statement texts carrying these times bounded by the
+   * history's size. `askedValid` is the caller's own `valid` before that
+   * reduction — what the errors below name, since "does not exist at this
+   * time" answers the question the caller asked.
    */
-  function resolveTime(at: QueryTime | undefined): { time?: ResolvedTime; error?: QueryError } {
-    const valid = at?.valid ?? clock.now();
-    const known = at?.known ?? clock.now();
+  function resolveTime(at: QueryTime | undefined): { time?: ResolvedTime; askedValid: number; error?: QueryError } {
+    const askedValid = at?.valid ?? clock.now();
+    const valid = latestHistoryTimeAtOrBefore(askedValid, validHistoryTimes);
+    const known = latestHistoryTimeAtOrBefore(at?.known ?? clock.now(), knownHistoryTimes);
     if (at?.state !== undefined) {
       // Every state id the compiler ever produces satisfies `SAFE_ID` (the
       // model schema's own `ID_PATTERN`); a caller-given state that does
@@ -723,12 +845,12 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
       // `dependents`/`dependencies` and throwing when `filterOfLiteral`
       // builds its query text — an error value, never an exception
       // escaping the public interface.
-      if (!SAFE_ID.test(at.state)) return { error: { message: `"${at.state}" is not a state id this model could ever declare`, id: at.state } };
-      return { time: { valid, known, state: at.state } };
+      if (!SAFE_ID.test(at.state)) return { askedValid, error: { message: `"${at.state}" is not a state id this model could ever declare`, id: at.state } };
+      return { time: { valid, known, state: at.state }, askedValid };
     }
 
     const visible = states.filter((s) => s.validFrom <= valid && (s.validTo === null || s.validTo > valid) && s.recordedFrom <= known && (s.recordedTo === null || s.recordedTo > known));
-    if (visible.length === 0) return { time: { valid, known, state: 'as-is' } };
+    if (visible.length === 0) return { time: { valid, known, state: 'as-is' }, askedValid };
     const root = chainRoot(visible);
     if (root === undefined) {
       // Names the states the query could pass explicitly instead (`at.state`
@@ -741,14 +863,15 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
         .map((s) => s.id)
         .sort(byCodePoint);
       return {
+        askedValid,
         error: {
           message: `the state chains disagree at this time; a query with no explicit state cannot choose one — pass one of: ${candidates.join(', ')}`,
-          time: valid,
+          time: askedValid,
           states: candidates,
         },
       };
     }
-    return { time: { valid, known, state: root } };
+    return { time: { valid, known, state: root }, askedValid };
   }
 
   // `LbugValue` (a query row's field type) never includes `undefined` —
@@ -785,9 +908,9 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
 
   function children(elementId: string, at?: QueryTime): ChildrenResult {
     return safely(() => {
-      const { time, error } = resolveTime(at);
+      const { time, askedValid, error } = resolveTime(at);
       if (error !== undefined) return { error };
-      if (!elementExists(elementId, time!)) return { error: { message: `"${elementId}" does not exist at this time`, id: elementId, time: time!.valid } };
+      if (!elementExists(elementId, time!)) return { error: { message: `"${elementId}" does not exist at this time`, id: elementId, time: askedValid } };
 
       const rows = rowsOf(conn.executeSync(childrenQuery, { id: elementId, valid: time!.valid, known: time!.known, state: time!.state }));
       return { elements: rows.map((row) => toElementAnswer(row as never)) };
@@ -796,7 +919,7 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
 
   function view(input: ViewInput, at?: QueryTime): ViewResult {
     return safely(() => {
-      const { time, error } = resolveTime(at);
+      const { time, askedValid, error } = resolveTime(at);
       if (error !== undefined) return { error };
       const t = time!;
 
@@ -816,7 +939,7 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
       let scopeDepth = 0;
       let context: ViewContext | undefined;
       if (input.scope !== undefined) {
-        if (!elementExists(input.scope, t)) return { error: { message: `"${input.scope}" does not exist at this time`, id: input.scope, time: t.valid } };
+        if (!elementExists(input.scope, t)) return { error: { message: `"${input.scope}" does not exist at this time`, id: input.scope, time: askedValid } };
         const rows = rowsOf(conn.executeSync(scopeAncestorsQuery, { id: input.scope, valid: t.valid, known: t.known, state: t.state }));
         const scopeAncestors = (rows[0]?.ancestors as string[] | undefined) ?? [];
         scopeDepth = scopeAncestors.length;
@@ -855,7 +978,7 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
       const missing = neighbourIds.find((id) => !found.has(id));
       if (missing !== undefined) {
         const behind = [...relationIdsByNeighbour.get(missing)!].sort(byCodePoint).join(', ');
-        return { error: { message: `"${missing}", the neighbour the relations ${behind} are drawn to or from, does not exist at this time`, id: missing, time: t.valid } };
+        return { error: { message: `"${missing}", the neighbour the relations ${behind} are drawn to or from, does not exist at this time`, id: missing, time: askedValid } };
       }
       return { elements, neighbours, relations };
     });
@@ -873,9 +996,9 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
 
   function dependencyAnswer(elementId: string, options: DependenciesInput, at: QueryTime | undefined, direction: 'dependents' | 'dependencies'): DependenciesResult {
     return safely(() => {
-      const { time, error } = resolveTime(at);
+      const { time, askedValid, error } = resolveTime(at);
       if (error !== undefined) return { error };
-      if (!elementExists(elementId, time!)) return { error: { message: `"${elementId}" does not exist at this time`, id: elementId, time: time!.valid } };
+      if (!elementExists(elementId, time!)) return { error: { message: `"${elementId}" does not exist at this time`, id: elementId, time: askedValid } };
 
       const maxHops = options.transitive === true ? Math.min(MAX_HOPS_CEILING, Math.max(1, options.maxHops ?? MAX_HOPS_CEILING)) : 1;
       const query = dependencyQuery(direction, maxHops, time!.valid, time!.known, time!.state);
@@ -911,19 +1034,21 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
 
   function close(): void {
     // This LadybugDB build exposes no way to release a `PreparedStatement`
-    // on its own; dropping every reference here at least lets them (and
-    // whatever native memory they hold) be collected once nothing outside
-    // this closure can reach them any more, rather than living as long as
-    // the process — the closest this cache can come to "closed in
-    // `close()`" without a native call to make.
+    // with a call of its own (no `PreparedStatement.close`): a dropped one
+    // is reclaimed only by the runtime's native finalizer, after a GC and
+    // an event-loop turn — never synchronously. Dropping every reference
+    // here is therefore the whole of what `close()` can do for them (and
+    // `conn.closeSync()`/`db.closeSync()` free the pool they lived in).
     preparedByText.clear();
     cacheSizeByEngine.delete(engine);
+    threadsByEngine.delete(engine);
     conn.closeSync();
     db.closeSync();
   }
 
   const engine: QueryEngine = { children, view, dependents, dependencies, rebuild, update, close };
   cacheSizeByEngine.set(engine, () => preparedByText.size);
+  threadsByEngine.set(engine, LADYBUG_EXEC_THREADS);
   return engine;
 }
 
@@ -938,4 +1063,16 @@ export function createLadybugEngine(options: LadybugEngineOptions = {}): QueryEn
 const cacheSizeByEngine = new WeakMap<QueryEngine, () => number>();
 export function preparedStatementCacheSizeForTests(engine: QueryEngine): number {
   return cacheSizeByEngine.get(engine)?.() ?? 0;
+}
+
+/**
+ * The execution-thread count this engine's connection was built with (see
+ * `LADYBUG_EXEC_THREADS`), for the one test that holds the engine to the
+ * small fixed count the Resources quality requirement asks for — there is
+ * no getter on `Connection` itself. Not part of `QueryEngine`, and never
+ * something the model, compiler or query logic itself reads.
+ */
+const threadsByEngine = new WeakMap<QueryEngine, number>();
+export function executionThreadsForTests(engine: QueryEngine): number {
+  return threadsByEngine.get(engine) ?? 0;
 }

@@ -123,6 +123,36 @@ export function buildViewSet(engine: QueryEngine, model: CompiledModel, at?: Que
   return errors.length > 0 ? { errors } : { views, errors };
 }
 
+/** One view built on request: the view, or every problem that kept it from being built. */
+export interface BuiltView {
+  /** The asked view; left out when there are errors. */
+  view?: View;
+  errors: ViewSetError[];
+}
+
+/**
+ * Builds one view on request (views/one-view): the landscape when `scope`
+ * is left out, the view of `scope` otherwise — the same question and the
+ * same assembling the view set builds each of its views with, so a
+ * depth-1 answer can be that view's page. At depth 1 the question is the
+ * view set's own (`view({ depth: 0 })` unscoped, `view({ scope, depth: 1,
+ * context: true })` scoped); at a depth above 1 the same questions stand
+ * one level deeper (`depth: n - 1` unscoped — the landscape at depth 1 is
+ * the roots, `depth: 0`), and the engine answers the deeper elements and
+ * the relations collapsed to them. The view carries no `up` and `hasView`
+ * stays false: its writers draw no links. Every error is collected, and a
+ * view with any error is not returned at all.
+ */
+export function buildView(engine: QueryEngine, model: CompiledModel, scope: string | undefined, at?: QueryTime, depth = 1): BuiltView {
+  const errors: ViewSetError[] = [];
+  const names = namer(model);
+
+  const asked = scope === undefined ? engine.view({ depth: depth - 1 }, at) : engine.view({ scope, depth, context: true }, at);
+  if (asked.error !== undefined) return { errors: [queryError(scope, asked.error)] };
+  const view = assemble(scope, asked.elements!, scope === undefined ? [] : asked.neighbours!, asked.relations!, new Set(), names, errors);
+  return errors.length > 0 ? { errors } : { view, errors };
+}
+
 function viewName(scope: string | undefined): string {
   return scope === undefined ? 'the landscape' : `the view of "${scope}"`;
 }
@@ -235,4 +265,15 @@ export function namer(model: CompiledModel): Namer {
   };
 
   return words;
+}
+
+/** Each parent's children (the elements with no parent under `undefined`), by id in code point order. */
+export function childrenByParent<T extends { id: string; parent?: string }>(elements: readonly T[]): Map<string | undefined, T[]> {
+  const children = new Map<string | undefined, T[]>();
+  for (const element of [...elements].sort((a, b) => byCodePoint(a.id, b.id))) {
+    const siblings = children.get(element.parent) ?? [];
+    siblings.push(element);
+    children.set(element.parent, siblings);
+  }
+  return children;
 }

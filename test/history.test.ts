@@ -279,6 +279,52 @@ describe('order-by-commit: commits are ordered by their time, not by arrival', (
   });
 });
 
+describe('commits: every commit of one source, in the history\'s own commit order', () => {
+  test('commits are listed with their times and storing moments, oldest first', () => {
+    const clock = fakeClock(DAY(10));
+    const h = history(clock);
+    h.store({ source: 'shop', commit: 'c9', committedAt: DAY(2), model: model([element('a')]) });
+
+    clock.set(DAY(11));
+    h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('b')]) });
+
+    clock.set(DAY(12));
+    h.store({ source: 'other', commit: 'o1', committedAt: DAY(3), model: model([element('c')]) });
+
+    expect(h.commits('shop')).toEqual([
+      { commit: 'c1', committedAt: DAY(1), storedAt: DAY(11) },
+      { commit: 'c9', committedAt: DAY(2), storedAt: DAY(10) },
+    ]);
+    expect(h.commits('other')).toEqual([{ commit: 'o1', committedAt: DAY(3), storedAt: DAY(12) }]);
+    expect(h.commits('never-sent')).toEqual([]);
+    h.close();
+  });
+
+  test('commits at the same time are ordered by the commit id', () => {
+    const clock = fakeClock(DAY(10));
+    const h = history(clock);
+    h.store({ source: 'shop', commit: 'zzz', committedAt: DAY(1), model: model([element('a')]) });
+    h.store({ source: 'shop', commit: 'aaa', committedAt: DAY(1), model: model([element('b')]) });
+
+    expect(h.commits('shop').map((each) => each.commit)).toEqual(['aaa', 'zzz']);
+    h.close();
+  });
+
+  test('commitRecord reads one commit\'s own row, or says the source never stored it', () => {
+    const clock = fakeClock(DAY(10));
+    const h = history(clock);
+    h.store({ source: 'shop', commit: 'c9', committedAt: DAY(2), model: model([element('a')]) });
+
+    clock.set(DAY(11));
+    h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('b')]) });
+
+    expect(h.commitRecord('shop', 'c1')).toEqual({ commit: 'c1', committedAt: DAY(1), storedAt: DAY(11) });
+    expect(h.commitRecord('shop', 'never-stored')).toBeUndefined();
+    expect(h.commitRecord('never-sent', 'c1')).toBeUndefined();
+    h.close();
+  });
+});
+
 describe('lossless: what is stored reads back as compiled', () => {
   test('round-trip: the reference example, stored and read back at its commit\'s time, equals the compiled model', () => {
     const { model: compiled, errors } = loadAndCompileModel(fixture('reference-example'));

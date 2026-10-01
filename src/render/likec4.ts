@@ -12,7 +12,7 @@ import type { CompiledElement, CompiledModel } from '../model/compile.js';
 import { byCodePoint } from '../model/order.js';
 import type { ElementAnswer, QueryEngine, QueryError, QueryTime } from '../query/types.js';
 import { uniqueSafeIds } from './safe-ids.js';
-import { buildViewSet, EVERY_LEVEL, namer } from './view-set.js';
+import { buildViewSet, childrenByParent, EVERY_LEVEL, namer, type View } from './view-set.js';
 
 /** One problem that kept the workspace from being rendered. */
 export interface LikeC4Error {
@@ -144,24 +144,37 @@ interface WorkspaceRelation {
 }
 
 /**
- * Renders the workspace at one time and state (`at`, the query engine's own
- * defaults when left out). Which views exist is the view set's answer;
- * which elements and relations exist is the query engine's unscoped view
- * holding every element, where every relation is drawn between its own
- * ends (merged per pair, split here into one arrow per relation id, each
- * labelled as the view set labels an arrow of one relation). Kinds, names,
- * technology and labels come from the compiled model by id. A relation
- * LikeC4 cannot draw (of an element to itself, or between an element and
- * its own descendant) is left out and listed in `notDrawn`; the full-depth
- * view never draws one of an element to itself, so those are the compiled
- * model's relations of an element shown at this time, without asking the
- * engine whether the relation itself is present then. Every error is
- * collected, and a workspace with any error is not returned at all.
+ * Renders the workspace of the whole view set at one time and state
+ * (`at`, the query engine's own defaults when left out): the same views
+ * as the view set. The writing itself is `writeLikeC4Workspace`, shared
+ * with the one asked view (views/one-view).
  */
 export function renderLikeC4Workspace(engine: QueryEngine, model: CompiledModel, at?: QueryTime): LikeC4Result {
   const viewSet = buildViewSet(engine, model, at);
   if (viewSet.views === undefined) return { errors: viewSet.errors };
+  return writeLikeC4Workspace(engine, model, at, viewSet.views);
+}
 
+/**
+ * Writes the LikeC4 workspace at one time and state: a `specification`
+ * with one element kind per madarch kind shown, the `model` with every
+ * element nested under its parent and every relation between its own ends
+ * with its label, and a `views` block holding exactly `views` — the view
+ * set's own, or the one asked view (`index` for the landscape;
+ * views/one-view). Which elements and relations exist is the query
+ * engine's unscoped view holding every element, where every relation is
+ * drawn between its own ends (merged per pair, split here into one arrow
+ * per relation id, each labelled as the view set labels an arrow of one
+ * relation). Kinds, names, technology and labels come from the compiled
+ * model by id. A relation LikeC4 cannot draw (of an element to itself, or
+ * between an element and its own descendant) is left out and listed in
+ * `notDrawn`; the full-depth view never draws one of an element to
+ * itself, so those are the compiled model's relations of an element shown
+ * at this time, without asking the engine whether the relation itself is
+ * present then. Every error is collected, and a workspace with any error
+ * is not returned at all.
+ */
+export function writeLikeC4Workspace(engine: QueryEngine, model: CompiledModel, at: QueryTime | undefined, views: readonly View[]): LikeC4Result {
   const every = engine.view({ depth: EVERY_LEVEL }, at);
   if (every.error !== undefined) return { errors: [{ message: `the workspace: every element and relation: ${every.error.message}`, query: every.error }] };
 
@@ -171,6 +184,16 @@ export function renderLikeC4Workspace(engine: QueryEngine, model: CompiledModel,
   for (const element of elements) {
     if (compiled.has(element.id)) continue;
     errors.push({ message: `the workspace: the element "${element.id}" is shown by the query engine but the compiled model does not hold it`, elementId: element.id });
+  }
+
+  // The workspace writes every element nested under its parent, so an
+  // element whose parent the engine does not answer at this time would be
+  // left unwritten: an error, never a smaller workspace.
+  const held = new Set(elements.map((element) => element.id));
+  for (const element of elements) {
+    if (element.parent !== undefined && !held.has(element.parent)) {
+      errors.push({ message: `the workspace: the element "${element.id}" cannot be written under its parent "${element.parent}", which does not exist at this time`, elementId: element.id });
+    }
   }
 
   const notDrawn = new Map<string, NotDrawn>();
@@ -250,10 +273,18 @@ export function renderLikeC4Workspace(engine: QueryEngine, model: CompiledModel,
     else lines.push(line);
   }
   lines.push('}', '', 'views {');
-  for (const view of viewSet.views) {
+  for (const view of views) {
     const scope = view.scope === undefined ? undefined : compiled.get(view.scope)!;
     const head = scope === undefined ? 'view index' : `view ${names.get(scope.id)} of ${fqns.get(scope.id)}`;
-    lines.push(`  ${head} {`, `    title ${text(scope === undefined ? 'Landscape' : (scope.name ?? scope.id))}`, '    include *', '  }');
+    // The children of every frame among the shown elements, one wildcard
+    // each (views/one-view, a depth above 1); a scoped view's own children
+    // come with `*`, the landscape's roots do.
+    const frames = new Set(view.elements.filter((element) => element.parent !== undefined).map((element) => element.parent!));
+    const wildcards = view.elements
+      .filter((element) => frames.has(element.id) && element.id !== view.scope)
+      .map((element) => `${fqns.get(element.id)}.*`)
+      .sort(byCodePoint);
+    lines.push(`  ${head} {`, `    title ${text(scope === undefined ? 'Landscape' : (scope.name ?? scope.id))}`, `    include ${['*', ...wildcards].join(', ')}`, '  }');
   }
   lines.push('}', '');
   return { workspace: lines.join('\n'), notDrawn: [...notDrawn.values()].sort((a, b) => byCodePoint(a.relationId, b.relationId)), errors: [] };
@@ -285,17 +316,6 @@ function fullNames(elements: readonly ElementAnswer[], names: ReadonlyMap<string
   };
   for (const element of elements) fqn(element);
   return fqns;
-}
-
-/** Each parent's children (the elements with no parent under `undefined`), by id in code point order. */
-function childrenByParent(elements: readonly ElementAnswer[]): Map<string | undefined, ElementAnswer[]> {
-  const children = new Map<string | undefined, ElementAnswer[]>();
-  for (const element of [...elements].sort((a, b) => byCodePoint(a.id, b.id))) {
-    const siblings = children.get(element.parent) ?? [];
-    siblings.push(element);
-    children.set(element.parent, siblings);
-  }
-  return children;
 }
 
 function kindLines(kind: CompiledElement['kind']): string[] {
