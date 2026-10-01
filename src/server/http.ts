@@ -29,7 +29,7 @@ import { byCodePoint } from '../model/order.js';
 import { renderOneViewLikeC4, renderOneViewMermaid, type OneViewError, type OneViewRequest } from '../render/one-view.js';
 import type { Graphs } from './graphs.js';
 import { createGraphs } from './graphs.js';
-import type { SourceStores } from './sources.js';
+import type { SourceStoreResult, SourceStores } from './sources.js';
 import { createSourceStores, sourceNameProblem } from './sources.js';
 
 /** The largest body the server reads: 50 MB, far past any compiled model sent so far. */
@@ -202,12 +202,27 @@ function createHandler(dependencies: {
       return { ...joinedRefusal(400, problems), source: namedSourceOf(body) };
     }
 
-    const { result, wasNew } = sources.store({
-      source: sent.source,
-      commit: sent.commit,
-      committedAt: sent.committedAtMs,
-      model: sent.model,
-    });
+    let stored: SourceStoreResult;
+    try {
+      stored = sources.store({
+        source: sent.source,
+        commit: sent.commit,
+        committedAt: sent.committedAtMs,
+        model: sent.model,
+      });
+    } catch (error) {
+      // The store's history may already hold the commit — the sidecar
+      // write is what failed — so a built engine may now sit behind the
+      // history, and the retry this caller will make reports no rows
+      // (already stored) that could bring it back in step. Drop the
+      // built engines of the graphs listing the source: the next use
+      // rebuilds them from the history through the clash check, never
+      // from an older model (the precedent of `Graphs.applyStore` for a
+      // multi-source graph).
+      graphs.dropBuilt(sent.source);
+      throw error;
+    }
+    const { result, wasNew } = stored;
     if (result.errors.length > 0) {
       // The history refused (a commit already stored under another model
       // or time); its error names the commit and the source already.

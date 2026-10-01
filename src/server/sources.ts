@@ -116,7 +116,11 @@ export function sourceNameProblem(source: unknown): string | undefined {
   }
   const encoded = encodeSourceName(source);
   if (Buffer.byteLength(encoded) > MAX_ENCODED_STEM_BYTES) {
-    return `"source" is too long: the name ${JSON.stringify(source.slice(0, 64))}… encodes to a file name past the ${MAX_ENCODED_STEM_BYTES}-byte limit; use a shorter source name`;
+    // Cut at the 64th code point, never inside one: the name is counted
+    // the way the code-point rules count it, so an astral character is
+    // one unit, never a surrogate half.
+    const echoed = [...source].slice(0, 64).join('');
+    return `"source" is too long: the name ${JSON.stringify(echoed)}… encodes to a file name past the ${MAX_ENCODED_STEM_BYTES}-byte limit; use a shorter source name`;
   }
   return undefined;
 }
@@ -306,13 +310,16 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
       // commit — the `recorded_at` its row carries, what the restart
       // repair reads back — never this call's clock: a retry that
       // repairs a head the sidecar write lost must carry the original
-      // store's moment, and a repeat opens no row to take one from.
-      const commitRecord = history.commits(input.source).find((each) => each.commit === input.commit)!;
+      // store's moment, and a repeat opens no row to take one from. It
+      // is read as the commit's own row, never through the source's
+      // whole commit list, so a store does not grow with the history's
+      // length.
+      const record = history.commitRecord(input.source, input.commit)!;
       const candidate: SourceHead = {
         source: input.source,
         commit: input.commit,
         committedAt: input.committedAt,
-        storedAt: commitRecord.storedAt,
+        storedAt: record.storedAt,
       };
       const stored = heads.get(input.source);
       if (stored === undefined || isNewerHead(candidate, stored)) {

@@ -309,6 +309,20 @@ describe('commits: every commit of one source, in the history\'s own commit orde
     expect(h.commits('shop').map((each) => each.commit)).toEqual(['aaa', 'zzz']);
     h.close();
   });
+
+  test('commitRecord reads one commit\'s own row, or says the source never stored it', () => {
+    const clock = fakeClock(DAY(10));
+    const h = history(clock);
+    h.store({ source: 'shop', commit: 'c9', committedAt: DAY(2), model: model([element('a')]) });
+
+    clock.set(DAY(11));
+    h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('b')]) });
+
+    expect(h.commitRecord('shop', 'c1')).toEqual({ commit: 'c1', committedAt: DAY(1), storedAt: DAY(11) });
+    expect(h.commitRecord('shop', 'never-stored')).toBeUndefined();
+    expect(h.commitRecord('never-sent', 'c1')).toBeUndefined();
+    h.close();
+  });
 });
 
 describe('lossless: what is stored reads back as compiled', () => {

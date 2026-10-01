@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +15,7 @@ import {
   renderOneViewLikeC4,
   startServer,
   type LikeC4Result,
+  type CompiledElement,
   type CompiledModel,
   type HistoryStore,
   type QueryEngine,
@@ -35,6 +36,9 @@ const DAY = (day: number) => Date.UTC(2026, 8, day); // September 2026
 
 /** After every commit the tests send, so the server's "current time" reads each history's latest version. */
 const NOW = DAY(30);
+
+/** The server's held clock, at `NOW` unless a test moves it by hand: a second store under a frozen clock records 1 ms later, and a view asked before that ms sees the older version. */
+const clockNow = { value: NOW };
 
 /** The source the reference system is sent as, and the commit and time its version carries. */
 const REFERENCE_SOURCE = 'reference-system';
@@ -76,10 +80,11 @@ function start(): string {
   folder = mkdtempSync(join(tmpdir(), 'madarch-server-views-'));
   lines = [];
   errors = [];
+  clockNow.value = NOW;
   server = startServer({
     dataFolder: folder,
     port: 0,
-    clock: { now: () => NOW },
+    clock: { now: () => clockNow.value },
     log: (line) => lines.push(line),
     errorLog: (line) => errors.push(line),
   });
@@ -97,7 +102,7 @@ function restart(): void {
   server = startServer({
     dataFolder: folder!,
     port,
-    clock: { now: () => NOW },
+    clock: { now: () => clockNow.value },
     log: (line) => lines.push(line),
     errorLog: (line) => errors.push(line),
   });
@@ -256,6 +261,57 @@ describe('POST /views of the reference system', () => {
     expect(lines).toHaveLength(2);
     expect(lines[0]).toMatch(/^POST \/views 200 source="reference-system" \d+ms$/);
     expect(lines[1]).toMatch(/^POST \/views 404 source="github\.com\/acme\/shop" \d+ms: no model has been sent/);
+  });
+});
+
+describe('a view after a store that failed once', () => {
+  /** One compiled model of exactly one element: the smallest two versions can differ by. */
+  function oneElementModel(id: string): CompiledModel {
+    const element: CompiledElement = { id, kind: 'service', ancestors: [], zones: [], zonesByEnvironment: {}, environments: ['*'], states: ['as-is'] };
+    return { schemaVersion: 1, elements: [element], interfaces: [], relations: [], categories: [], zones: [], environments: [], states: [{ id: 'as-is' }] };
+  }
+
+  /** The mermaid landscape the server must answer with for one model, asked of an engine built independently of the server's own. */
+  function expectedLandscape(model: CompiledModel, at: number): string {
+    const independent = independentEngine(model, at);
+    try {
+      const rendered = renderOneViewMermaid(independent.engine, model, {}, { valid: at, known: at });
+      expect(rendered.errors).toEqual([]);
+      return rendered.page!;
+    } finally {
+      independent.close();
+    }
+  }
+
+  test('a store that failed after its commit leaves no engine answering the older model: the retry says already stored, the next view reflects the new commit', async () => {
+    start();
+    const first = oneElementModel('old-only');
+    const second = oneElementModel('new-only');
+    expect((await post('/models', { source: 'shop', commit: 'c1', committedAt: '2026-09-01T12:00:00Z', model: first })).status).toBe(201);
+    // The first view builds the source's engine at c1.
+    const atFirst = await post('/views', { source: 'shop', format: 'mermaid' });
+    expect(atFirst.status).toBe(200);
+    expect(await atFirst.text()).toBe(expectedLandscape(first, NOW));
+
+    // Sabotage at the file-system boundary: the sidecar's own temporary
+    // path is a folder, so the history stores the commit and the sidecar
+    // write then fails — the store answers 500 after the commit landed.
+    mkdirSync(join(folder!, 'shop.json.tmp'));
+    expect((await post('/models', { source: 'shop', commit: 'c2', committedAt: '2026-09-02T12:00:00Z', model: second })).status).toBe(500);
+    rmdirSync(join(folder!, 'shop.json.tmp'));
+
+    const retry = await post('/models', { source: 'shop', commit: 'c2', committedAt: '2026-09-02T12:00:00Z', model: second });
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toEqual({ stored: false, reason: 'already stored', source: 'shop', commit: 'c2' });
+
+    // The failed store recorded its rows 1 ms past the then-frozen clock
+    // (it closed c1's row); move real time past that, as a running
+    // server would, before asking the view — in this same process, with
+    // no restart.
+    clockNow.value = DAY(40);
+    const answer = await post('/views', { source: 'shop', format: 'mermaid' });
+    expect(answer.status).toBe(200);
+    expect(await answer.text()).toBe(expectedLandscape(second, DAY(40)));
   });
 });
 

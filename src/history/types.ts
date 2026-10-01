@@ -187,6 +187,8 @@ export interface HistoryStore {
   sources(): string[];
   /** Whether a source's commit is already stored (regardless of what it asserts). */
   hasCommit(source: string, commit: string): boolean;
+  /** One commit's own record with its times, read as one row rather than through the source's whole `commits` list; `undefined` when the source never stored that commit. */
+  commitRecord(source: string, commit: string): CommitRecord | undefined;
   /** Every commit of one source, with its times, oldest first in the history's own commit order: commit time, then commit id in code point order to break a tie. */
   commits(source: string): CommitRecord[];
   /** Releases the underlying database connection. */

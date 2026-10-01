@@ -149,6 +149,21 @@ describe('sourceNameProblem', () => {
     expect(problem).toContain('…');
     expect(problem).not.toContain('x'.repeat(65));
   });
+
+  test('a too-long name of astral characters is echoed cut at the 64th code point, never inside one', () => {
+    // 63 one-code-point letters, then astral characters of two UTF-16
+    // units each: the 64th code point is an astral character that
+    // `slice`, counting UTF-16 units, would cut in half. Encoded, the
+    // name is 63 + 4 x 35 = 203 bytes, past the 200-byte limit.
+    const name = 'a'.repeat(63) + '𝐀'.repeat(35);
+    const problem = sourceNameProblem(name);
+    expect(problem).toMatch(/200/);
+    expect(problem).toContain('a'.repeat(63) + '𝐀');
+    expect(problem).toContain('…');
+    expect(problem).not.toContain('a'.repeat(63) + '𝐀'.repeat(2));
+    // A surrogate half never appears, not even as an escaped lone one.
+    expect(problem).not.toContain('\\ud835');
+  });
 });
 
 describe('heads', () => {
@@ -243,6 +258,33 @@ describe('heads', () => {
     // clamped 1 ms past the then-frozen clock.
     expect(sources.heads()).toEqual([{ source: 'shop', commit: 'c2', committedAt: DAY(2), storedAt: DAY(10) + 1 }]);
     sources.close();
+  });
+
+  test('a store reads the commit\'s own row, never the source\'s whole history', () => {
+    const dir = scratchFolder();
+    const clock = fakeClock(DAY(10));
+    const sources = createSourceStores({ dataFolder: dir, clock });
+    sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+    sources.store(storeInput('shop', 'c2', DAY(2), [element('b')]));
+    const history = sources.historyOf('shop');
+
+    // Counting through the history's public interface, at the storage
+    // boundary: a store must not grow with the history's length, so it
+    // may not load the whole commit list to read one commit's storing
+    // moment.
+    let commitLists = 0;
+    const original = history.commits.bind(history);
+    history.commits = (source: string) => {
+      commitLists += 1;
+      return original(source);
+    };
+
+    clock.set(DAY(11));
+    sources.store(storeInput('shop', 'c3', DAY(3), [element('c')]));
+    sources.close();
+
+    expect(commitLists).toBe(0);
+    expect(sources.heads()).toEqual([{ source: 'shop', commit: 'c3', committedAt: DAY(3), storedAt: DAY(11) }]);
   });
 
   test('a repeat store changes nothing', () => {

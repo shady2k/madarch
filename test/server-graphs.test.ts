@@ -210,6 +210,27 @@ describe('keeping a built graph in step', () => {
     expect(view.elements?.map((each) => each.id)).toEqual([]);
   });
 
+  test('dropBuilt drops the built engines of every graph listing the source, and the next use rebuilds from the history', () => {
+    const clock = fakeClock(DAY(9));
+    const one = createSqliteHistory({ clock });
+    one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
+    const graphs = createGraphs({ historyOf: () => one, clock });
+    const own = graphs.graphForSource('shop');
+    const union = graphs.addGraph('union', ['shop', 'other']);
+    expect(own.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
+    expect(union.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
+
+    one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('b')]) });
+    // The second store recorded its rows 1 ms past the frozen clock (it
+    // closed c1's row); move real time past that before asking again.
+    clock.set(DAY(15));
+    graphs.dropBuilt('shop');
+
+    expect(own.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['b']);
+    expect(union.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['b']);
+    graphs.close();
+  });
+
   test('a graph built after several stores sees all of them without any update call', () => {
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });
