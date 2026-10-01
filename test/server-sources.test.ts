@@ -149,6 +149,21 @@ describe('sourceNameProblem', () => {
     expect(problem).toContain('…');
     expect(problem).not.toContain('x'.repeat(65));
   });
+
+  test('a too-long name of astral characters is echoed cut at the 64th code point, never inside one', () => {
+    // 63 one-code-point letters, then astral characters of two UTF-16
+    // units each: the 64th code point is an astral character that
+    // `slice`, counting UTF-16 units, would cut in half. Encoded, the
+    // name is 63 + 4 x 35 = 203 bytes, past the 200-byte limit.
+    const name = 'a'.repeat(63) + '𝐀'.repeat(35);
+    const problem = sourceNameProblem(name);
+    expect(problem).toMatch(/200/);
+    expect(problem).toContain('a'.repeat(63) + '𝐀');
+    expect(problem).toContain('…');
+    expect(problem).not.toContain('a'.repeat(63) + '𝐀'.repeat(2));
+    // A surrogate half never appears, not even as an escaped lone one.
+    expect(problem).not.toContain('\\ud835');
+  });
 });
 
 describe('heads', () => {

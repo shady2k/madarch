@@ -116,7 +116,11 @@ export function sourceNameProblem(source: unknown): string | undefined {
   }
   const encoded = encodeSourceName(source);
   if (Buffer.byteLength(encoded) > MAX_ENCODED_STEM_BYTES) {
-    return `"source" is too long: the name ${JSON.stringify(source.slice(0, 64))}… encodes to a file name past the ${MAX_ENCODED_STEM_BYTES}-byte limit; use a shorter source name`;
+    // Cut at the 64th code point, never inside one: the name is counted
+    // the way the code-point rules count it, so an astral character is
+    // one unit, never a surrogate half.
+    const echoed = [...source].slice(0, 64).join('');
+    return `"source" is too long: the name ${JSON.stringify(echoed)}… encodes to a file name past the ${MAX_ENCODED_STEM_BYTES}-byte limit; use a shorter source name`;
   }
   return undefined;
 }
