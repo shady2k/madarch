@@ -13,9 +13,11 @@
  * `opened`/`closed` report keeps it in step (`Graphs.applyStore`); while
  * it is not, there is nothing to keep in step — the later build reads the
  * whole history anyway. A store that failed after the history took its
- * commit can leave no report to apply, so its graphs' built engines are
- * dropped instead (`Graphs.dropBuilt`) and the next use rebuilds them
- * from the history. Ids that clash across the sources of one graph
+ * commit — its sidecar write, or a built engine's own update — leaves no
+ * report a retry could apply, so the built engines of its graphs are
+ * dropped instead (`Graphs.dropBuilt`, and `applyStore`'s own recovery)
+ * and the next use rebuilds them from the history. Ids that clash across
+ * the sources of one graph
  * are a join-time problem for the milestone that adds such graphs
  * (decision 0003's duplicate-id check); sending and storing never refuse
  * on them.
@@ -55,7 +57,10 @@ export interface Graphs {
    * Keeps every built graph that lists the source in step with one
    * store's report; a graph whose engine was never built, a report with
    * nothing opened or closed, and a source the graph does not list each
-   * change nothing.
+   * change nothing. A report whose application into a built engine
+   * throws leaves no engine behind: the built engines of the graphs
+   * listing the source are dropped for the next use to rebuild from the
+   * histories, and the throw is passed on to the caller.
    */
   applyStore(source: string, result: StoreResult): void;
   /**
@@ -195,8 +200,21 @@ export function createGraphs(options: GraphsOptions): Graphs {
 
   function applyStore(source: string, result: StoreResult): void {
     if (result.opened.length === 0 && result.closed.length === 0) return;
-    for (const graph of graphs.values()) {
-      if (graph.lists(source)) graph.applyIfBuilt(result);
+    try {
+      for (const graph of graphs.values()) {
+        if (graph.lists(source)) graph.applyIfBuilt(result);
+      }
+    } catch (error) {
+      // A built engine failed to take the report — after the history
+      // committed it, so the engine may hold half the rows or none, and
+      // the retry this caller will make reports no rows (already
+      // stored) that could bring it back in step. Drop the built
+      // engines of the graphs listing the source: the next use rebuilds
+      // them from the history through the clash check, never from a
+      // half-updated or older model. The throw passes on unchanged, so
+      // the server's own failure answer stays what it was.
+      dropBuilt(source);
+      throw error;
     }
   }
 

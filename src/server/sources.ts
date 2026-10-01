@@ -118,8 +118,16 @@ export function sourceNameProblem(source: unknown): string | undefined {
   if (Buffer.byteLength(encoded) > MAX_ENCODED_STEM_BYTES) {
     // Cut at the 64th code point, never inside one: the name is counted
     // the way the code-point rules count it, so an astral character is
-    // one unit, never a surrogate half.
-    const echoed = [...source].slice(0, 64).join('');
+    // one unit, never a surrogate half. Only the first 64 code points
+    // are read — a name can be as long as the body limit allows, so no
+    // copy of the whole of it is made just to echo a cut of it.
+    let echoed = '';
+    let codePoints = 0;
+    for (const each of source) {
+      if (codePoints === 64) break;
+      echoed += each;
+      codePoints += 1;
+    }
     return `"source" is too long: the name ${JSON.stringify(echoed)}… encodes to a file name past the ${MAX_ENCODED_STEM_BYTES}-byte limit; use a shorter source name`;
   }
   return undefined;
