@@ -8,6 +8,13 @@
  * tie-break — so a restart knows every file's source and `GET /sources`
  * can answer without opening a history.
  *
+ * A renamed source keeps its id: the rename claim moves the history and
+ * its sidecar to the new name and keeps the old name among the sidecar's
+ * former names, in code point order. A former name is retired, never a
+ * source of its own again: a store reached with one is refused naming
+ * the rename, so one repository never grows a second id under its old
+ * name, whatever restarts come between.
+ *
  * The file name is derived by percent-encoding every byte the file system
  * should not see — the upper-case letters included, so a file name never
  * depends on letter case and two names that differ only in case never
@@ -91,11 +98,24 @@ export interface SourceStores {
    * new or already stored, so a sidecar write that failed after the
    * commit was stored is healed by storing that commit again: the
    * history, not the sidecar, is the truth. `input` must first pass
-   * `sourceNameProblem` (the HTTP layer validates every field before
-   * calling); a store reached with a name that fails it is a caller
-   * defect and throws.
+   * `sourceNameProblem`, and must name a source that exists — never one
+   * a rename retired (the HTTP layer refuses both before calling); a
+   * store reached with a name failing either is a caller defect and
+   * throws, naming what must be refused.
    */
   store(input: StoreInput): SourceStoreResult;
+  /**
+   * Records a rename claim: binds the new name to the id, moving the
+   * history and its sidecar to the new name and retiring the old one —
+   * the id, the head and every stored commit stay exactly as they were.
+   * The HTTP layer refuses an unknown id, and a new name another source
+   * holds or retired, before calling; a rename reached with either is a
+   * caller defect and throws, naming what must be refused. Renaming a
+   * source to one of its own former names is a claim like any other.
+   */
+  rename(id: string, to: string): { formerSource: string };
+  /** The head of the source a retired name used to name, or `undefined` when no rename gave the name up. */
+  retiredHead(name: string): SourceHead | undefined;
   /** Every source's head, in code point order of the names. */
   heads(): SourceHead[];
   /** Closes every open history. */
@@ -175,6 +195,8 @@ function decodeSourceName(stem: string): string | undefined {
 /** One sidecar's content as the JSON holds it, before the head bookkeeping trusts it. */
 interface SidecarFile {
   source: unknown;
+  /** Absent in a sidecar an older server wrote; present, an array of non-empty strings — every name the source gave up, its current name never among them. */
+  formerNames: unknown;
   /** Absent in a sidecar an older server wrote; present, a non-empty string. */
   id: unknown;
   commit: unknown;
@@ -212,6 +234,10 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
 
   const heads = new Map<string, SourceHead>();
   const histories = new Map<string, HistoryStore>();
+  /** Every source's former names, its current name left out, in code point order — what the sidecar holds and a restart reads back. */
+  const formerNames = new Map<string, string[]>();
+  /** A retired name — one a rename gave up — and the head of the source it used to name: a store reached with it is refused, so the old name never grows a second id. */
+  const retired = new Map<string, SourceHead>();
 
   /** Opens one history file, refusing with the file named when SQLite cannot. */
   function openHistory(stem: string): HistoryStore {
@@ -245,6 +271,7 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
     const head = headOfSidecar(file, path);
     const sidecarId = idOfSidecar(file, path);
     const id = sidecarId ?? randomUUID();
+    const names = formerNamesOfSidecar(file, path, head.source);
     const decoded = decodeSourceName(stem);
     if (decoded === undefined) {
       throw new Error(`the sidecar "${path}" has a file name that does not decode to a source name; the folder was not written by this server`);
@@ -253,23 +280,24 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
       throw new Error(`the sidecar "${path}" names its source "${head.source}" but its file name decodes to "${decoded}": the sidecar and the file name disagree`);
     }
     const history = openHistory(stem);
-    const names = history.sources();
-    if (names.length !== 1 || names[0] !== head.source) {
+    const held = history.sources();
+    if (held.length !== 1 || held[0] !== head.source) {
       history.close();
-      const holds = names.length === 0 ? 'no source' : `the sources ${names.join(', ')}`;
+      const holds = held.length === 0 ? 'no source' : `the sources ${held.join(', ')}`;
       throw new Error(`the history file "${stem}.sqlite" holds ${holds}, but its sidecar "${stem}.json" names "${head.source}": the sidecar and the history disagree`);
     }
     const trueHead = newestCommit(head.source, id, history);
     if (!sameHead(trueHead, head)) {
-      writeSidecar(stem, trueHead);
+      writeSidecar(stem, trueHead, names);
       log(`repaired the sidecar "${stem}.json": it named the head ${JSON.stringify(head.commit)} of "${head.source}", but the history's head is ${JSON.stringify(trueHead.commit)} at ${new Date(trueHead.committedAt).toISOString()}`);
     }
     if (sidecarId === undefined) {
-      writeSidecar(stem, trueHead);
+      writeSidecar(stem, trueHead, names);
       log(`assigned the source id ${JSON.stringify(id)} to "${head.source}": its sidecar "${stem}.json" held none`);
     }
     heads.set(head.source, trueHead);
     histories.set(head.source, history);
+    formerNames.set(head.source, names);
   }
 
   for (const stem of sqliteStems) {
@@ -288,12 +316,34 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
       throw new Error(`the data folder holds the history file "${stem}.sqlite" but no "${stem}.json" beside it, and the file name does not decode to the history's source "${source}": the folder was not written by this server`);
     }
     const head = newestCommit(source, randomUUID(), history);
-    writeSidecar(stem, head);
+    writeSidecar(stem, head, []);
     log(`repaired the data folder: the history file "${stem}.sqlite" had no sidecar beside it; it holds the source "${source}" at its head ${JSON.stringify(head.commit)} at ${new Date(head.committedAt).toISOString()}`);
     heads.set(source, head);
     histories.set(source, history);
+    formerNames.set(source, []);
   }
 
+  // Every former name a sidecar holds becomes retired: it maps to the
+  // head of the source that gave it up, so a request under it is refused
+  // naming the rename, and one repository never grows a second id under
+  // an old name. A name two sources hold — both current, one current and
+  // one former, or both former — is a folder nothing wrote, refused
+  // naming both sides.
+  for (const [source, names] of formerNames) {
+    const head = heads.get(source)!;
+    for (const name of names) {
+      const holder = heads.get(name);
+      if (holder !== undefined) {
+        throw new Error(`the sidecar "${join(dataFolder, `${encodeSourceName(source)}.json`)}" holds "formerNames" naming "${name}", but "${name}" is the current name of the source beside it (id "${holder.id}"): a name one source gave up is no other source's name`);
+      }
+      const other = retired.get(name);
+      if (other !== undefined) {
+        const [first, second] = [source, other.source].sort(byCodePoint);
+        throw new Error(`the sidecars of "${first}" and "${second}" both hold "${name}" among their "formerNames": a name one source gave up is no other source's name`);
+      }
+      retired.set(name, head);
+    }
+  }
 
   function historyOf(source: string): HistoryStore {
     let history = histories.get(source);
@@ -310,17 +360,21 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
     return byCodePoint(candidate.commit, stored.commit) > 0;
   }
 
-  function writeSidecar(stem: string, head: SourceHead): void {
+  function writeSidecar(stem: string, head: SourceHead, names: string[]): void {
     // Write beside the target and rename: an interrupted write leaves a
     // `.json.tmp` the next start ignores, never a half-written sidecar.
     const tmp = join(dataFolder, `${stem}.json.tmp`);
-    writeFileSync(tmp, JSON.stringify(head));
+    writeFileSync(tmp, JSON.stringify({ ...head, formerNames: names }));
     renameSync(tmp, join(dataFolder, `${stem}.json`));
   }
 
   function store(input: StoreInput): SourceStoreResult {
     const problem = sourceNameProblem(input.source);
     if (problem !== undefined) throw new Error(`the store was called with a source that must be refused first: ${problem}`);
+    const renamedTo = retired.get(input.source);
+    if (renamedTo !== undefined) {
+      throw new Error(`the store was called with a source that must be refused first: the name ${JSON.stringify(input.source)} was renamed to ${JSON.stringify(renamedTo.source)}`);
+    }
 
     const history = historyOf(input.source);
     const wasNew = !history.hasCommit(input.source, input.commit);
@@ -345,7 +399,7 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
         storedAt: record.storedAt,
       };
       if (stored === undefined || isNewerHead(candidate, stored)) {
-        writeSidecar(encodeSourceName(input.source), candidate);
+        writeSidecar(encodeSourceName(input.source), candidate, formerNames.get(input.source) ?? []);
         heads.set(input.source, candidate);
       }
     }
@@ -356,12 +410,62 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
     return [...heads.values()].sort((a, b) => byCodePoint(a.source, b.source));
   }
 
+  /**
+   * The rename's own order — the history's rows first (the history is
+   * the truth), then the files, then the sidecar, then the maps — so an
+   * interruption lands on a step the next start refuses loudly (the
+   * sidecar and the history disagreeing about the name), never on one
+   * that would quietly hold one repository under two names.
+   */
+  function rename(id: string, to: string): { formerSource: string } {
+    const problem = sourceNameProblem(to);
+    if (problem !== undefined) throw new Error(`the rename was called with a name that must be refused first: ${problem}`);
+    const head = [...heads.values()].find((each) => each.id === id);
+    if (head === undefined) {
+      throw new Error(`the rename was called with an id that must be refused first: no source has the id ${JSON.stringify(id)}`);
+    }
+    const from = head.source;
+    if (from === to) return { formerSource: from };
+    const holder = heads.get(to);
+    if (holder !== undefined) {
+      throw new Error(`the rename was called with a name that must be refused first: the name ${JSON.stringify(to)} is already the name of the source with id ${JSON.stringify(holder.id)}`);
+    }
+    const retiredHolder = retired.get(to);
+    if (retiredHolder !== undefined && retiredHolder.id !== id) {
+      throw new Error(`the rename was called with a name that must be refused first: the name ${JSON.stringify(to)} was renamed away from the source with id ${JSON.stringify(retiredHolder.id)} to ${JSON.stringify(retiredHolder.source)}`);
+    }
+
+    const newHead: SourceHead = { ...head, source: to };
+    const history = historyOf(from);
+    history.renameSource(from, to);
+    history.close();
+    histories.delete(from);
+    renameSync(join(dataFolder, `${encodeSourceName(from)}.sqlite`), join(dataFolder, `${encodeSourceName(to)}.sqlite`));
+    renameSync(join(dataFolder, `${encodeSourceName(from)}.json`), join(dataFolder, `${encodeSourceName(to)}.json`));
+    const former = [...new Set([...(formerNames.get(from) ?? []), from])].filter((name) => name !== to).sort(byCodePoint);
+    formerNames.delete(from);
+    formerNames.set(to, former);
+    writeSidecar(encodeSourceName(to), newHead, former);
+    heads.delete(from);
+    heads.set(to, newHead);
+    for (const [name, target] of [...retired]) {
+      if (target.source === from) retired.set(name, newHead);
+    }
+    retired.set(from, newHead);
+    retired.delete(to);
+    return { formerSource: from };
+  }
+
+  function retiredHead(name: string): SourceHead | undefined {
+    return retired.get(name);
+  }
+
   function close(): void {
     for (const history of histories.values()) history.close();
     histories.clear();
   }
 
-  return { historyOf, store, heads: headsInOrder, close };
+  return { historyOf, store, rename, retiredHead, heads: headsInOrder, close };
 }
 
 /**
@@ -376,6 +480,34 @@ function idOfSidecar(file: SidecarFile, path: string): string | undefined {
     throw new Error(`the sidecar "${path}" does not name the source's id: "id" must be a non-empty string`);
   }
   return file.id;
+}
+
+/**
+ * A sidecar's former names, or `[]` when it holds none — a sidecar an
+ * older server wrote. Anything of another shape is a corrupt sidecar,
+ * refused naming its file and its field; so is a list naming a name
+ * twice, or the source's own current name: the current name is never its
+ * own former one.
+ */
+function formerNamesOfSidecar(file: SidecarFile, path: string, source: string): string[] {
+  if (file.formerNames === undefined) return [];
+  if (!Array.isArray(file.formerNames)) {
+    throw new Error(`the sidecar "${path}" does not name the source's former names: "formerNames" must be an array of non-empty strings`);
+  }
+  const names: string[] = [];
+  for (const each of file.formerNames) {
+    if (typeof each !== 'string' || each.length === 0) {
+      throw new Error(`the sidecar "${path}" does not name the source's former names: "formerNames" must be an array of non-empty strings`);
+    }
+    names.push(each);
+  }
+  if (new Set(names).size !== names.length) {
+    throw new Error(`the sidecar "${path}" holds a name twice in "formerNames": a source's former names hold each name once`);
+  }
+  if (names.includes(source)) {
+    throw new Error(`the sidecar "${path}" holds "formerNames" naming the source's own current name "${source}": a source's former names are the names it gave up`);
+  }
+  return names;
 }
 
 /** One sidecar's head fields, checked field by field so a corrupt one is refused naming its file and its field; the id beside them `idOfSidecar` reads. */
