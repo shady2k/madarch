@@ -329,6 +329,15 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
   // an old name. A name two sources hold — both current, one current and
   // one former, or both former — is a folder nothing wrote, refused
   // naming both sides.
+  const ids = new Map<string, string>();
+  for (const head of heads.values()) {
+    const previous = ids.get(head.id);
+    if (previous !== undefined) {
+      const [first, second] = [previous, head.source].sort(byCodePoint);
+      throw new Error(`the sidecars of "${first}" and "${second}" hold the same source id ${JSON.stringify(head.id)}: every source has one distinct id`);
+    }
+    ids.set(head.id, head.source);
+  }
   for (const [source, names] of formerNames) {
     const head = heads.get(source)!;
     for (const name of names) {

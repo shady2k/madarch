@@ -709,6 +709,21 @@ describe('a rename claim on the stores', () => {
     writeFileSync(join(dir, 'bbb.json'), JSON.stringify({ source: 'bbb', commit: 'c1', committedAt: 1, storedAt: 2, formerNames: ['gone'] }));
     expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).toThrow(/"aaa"[\s\S]*"bbb"[\s\S]*"gone"[\s\S]*"formerNames"/);
   });
+  test('two sidecars with the same persisted id refuse the folder and name both sources', () => {
+    const dir = scratchFolder();
+    const first = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    first.store(storeInput('alpha', 'c1', DAY(1), [element('a')]));
+    first.store(storeInput('beta', 'c1', DAY(1), [element('b')]));
+    first.close();
+    const alpha = JSON.parse(readFileSync(join(dir, 'alpha.json'), 'utf8')) as Record<string, unknown>;
+    const beta = JSON.parse(readFileSync(join(dir, 'beta.json'), 'utf8')) as Record<string, unknown>;
+    beta.id = alpha.id;
+    writeFileSync(join(dir, 'beta.json'), JSON.stringify(beta));
+
+    expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) })).toThrow(
+      /alpha[\s\S]*beta[\s\S]*id/,
+    );
+  });
 });
 
 describe('a corrupt data folder refuses to open, naming the file', () => {
