@@ -395,6 +395,8 @@ function createHandler(dependencies: {
       };
     }
     if (claimed.source === claim.source) {
+      sources.rename(claim.id, claim.source);
+      graphs.remove(claim.source);
       return { response: json(200, { renamed: false, reason: 'already the name', source: claim.source, id: claim.id }), source: claim.source };
     }
     const holder = heads.find((head) => head.source === claim.source);
@@ -418,8 +420,12 @@ function createHandler(dependencies: {
       };
     }
 
-    sources.rename(claim.id, claim.source);
-    graphs.remove(claimed.source);
+    try {
+      sources.rename(claim.id, claim.source);
+    } finally {
+      const current = sources.heads().find((head) => head.id === claim.id);
+      if (current?.source === claim.source) graphs.remove(claimed.source);
+    }
     return { response: json(200, { renamed: true, source: claim.source, formerSource: claimed.source, id: claim.id }), source: claim.source };
   }
 

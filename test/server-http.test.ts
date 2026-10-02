@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/index.js';
@@ -430,6 +430,28 @@ describe('POST /sources — the rename claim', () => {
 
     expect(await (await fetch(`${server!.url}/sources`)).text()).toBe(before);
   });
+  test('retrying a rename after its sidecar write failed repairs the sidecar and rebuilds views', async () => {
+    start();
+    await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    const { id } = (await sourcesOf(await fetch(`${server!.url}/sources`)))[0]!;
+    expect((await post('/views', { source: 'shop', format: 'mermaid' })).status).toBe(200);
+    mkdirSync(join(folder!, 'renamed.json.tmp'));
+
+    expect((await post('/sources', { id, source: 'renamed' })).status).toBe(500);
+    rmdirSync(join(folder!, 'renamed.json.tmp'));
+    const retry = await post('/sources', { id, source: 'renamed' });
+
+    expect(retry.status).toBe(200);
+    expect(JSON.parse(readFileSync(join(folder!, 'renamed.json'), 'utf8'))).toEqual({
+      source: 'renamed',
+      id,
+      commit: 'c1',
+      committedAt: Date.parse('2026-09-01T12:00:00Z'),
+      storedAt: DAY(10),
+      formerNames: ['shop'],
+    });
+    expect((await post('/views', { source: 'renamed', format: 'mermaid' })).status).toBe(200);
+  });
 
   test('missing and unknown fields are refused like on every request', async () => {
     start();
@@ -646,7 +668,22 @@ describe('a retry after a failed sidecar write', () => {
       { id: idBefore, source: 'shop', commit: 'c2', committedAt: '2026-09-02T12:00:00.000Z', storedAt: '2026-09-10T00:00:00.001Z' },
     ]);
   });
+
+  test('older send after the first sidecar failure leaves the history head listed', async () => {
+    start();
+    mkdirSync(join(folder!, 'shop.json.tmp'));
+
+    expect((await send('shop', 'c2', '2026-09-02T12:00:00Z', [element('newer')])).status).toBe(500);
+    rmdirSync(join(folder!, 'shop.json.tmp'));
+    expect((await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('older')])).status).toBe(201);
+
+    const sources = await sourcesOf(await fetch(`${server!.url}/sources`));
+    expect(sources).toHaveLength(1);
+    expect(sources[0]?.commit).toBe('c2');
+    expect(sources[0]?.committedAt).toBe('2026-09-02T12:00:00.000Z');
+  });
 });
+
 
 describe('the log', () => {
   test('one line per request: method, path, status, source and milliseconds', async () => {
