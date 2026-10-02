@@ -195,7 +195,7 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
       former_names TEXT NOT NULL
     )
   `);
-  const selectRegistry = db.query<{ id: string; former_names: string }, [string]>(
+  const selectRegistry = db.query<{ id: unknown; former_names: unknown }, [string]>(
     'SELECT id, former_names FROM source_registry WHERE source = ?',
   );
   const upsertRegistry = db.query<unknown, [string, string, string]>(
@@ -255,6 +255,9 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
   );
   const selectCommitRecord: Statement<CommitListRow, [string, string]> = db.query(
     'SELECT commit_id, committed_at, recorded_at, canonical_digest FROM source_commits WHERE source = ? AND commit_id = ?',
+  );
+  const selectLatestCommit: Statement<CommitListRow, [string]> = db.query(
+    'SELECT commit_id, committed_at, recorded_at, canonical_digest FROM source_commits WHERE source = ? ORDER BY committed_at DESC, commit_id DESC LIMIT 1',
   );
   const insertAssertion: Statement<unknown, [string, AssertionKind, string, string, number, number | null, string, string | null, number]> = db.query(
     `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to)
@@ -575,6 +578,10 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
     const row = selectCommitRecord.get(source, commit);
     return row === null ? undefined : { commit: row.commit_id, committedAt: row.committed_at, storedAt: row.recorded_at, canonicalDigest: row.canonical_digest };
   }
+  function latestCommit(source: string): CommitRecord | undefined {
+    const row = selectLatestCommit.get(source);
+    return row === null ? undefined : { commit: row.commit_id, committedAt: row.committed_at, storedAt: row.recorded_at, canonicalDigest: row.canonical_digest };
+  }
 
   function hasCommit(source: string, commit: string): boolean {
     return selectCommit.get(source, commit) !== null;
@@ -582,7 +589,28 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
 
   function registry(source: string): { id: string; formerNames: string[] } | undefined {
     const row = selectRegistry.get(source);
-    return row === null ? undefined : { id: row.id, formerNames: JSON.parse(row.former_names) as string[] };
+    if (row === null) return undefined;
+    const path = options.path ?? ':memory:';
+    if (typeof row.id !== 'string' || row.id.length === 0) {
+      throw new Error(`the history file "${path}" has invalid "source_registry.id" value ${JSON.stringify(row.id)}: it must be a non-empty string`);
+    }
+    if (typeof row.former_names !== 'string') {
+      throw new Error(`the history file "${path}" has invalid "source_registry.former_names" value ${JSON.stringify(row.former_names)}: it must be a JSON array`);
+    }
+    let formerNames: unknown;
+    try {
+      formerNames = JSON.parse(row.former_names);
+    } catch {
+      throw new Error(`the history file "${path}" has invalid "source_registry.former_names" value ${JSON.stringify(row.former_names)}: it must be a JSON array`);
+    }
+    if (!Array.isArray(formerNames) || formerNames.some((name) => typeof name !== 'string' || name.length === 0)) {
+      throw new Error(`the history file "${path}" has invalid "source_registry.former_names" value ${JSON.stringify(row.former_names)}: it must be an array of non-empty strings`);
+    }
+    const names = formerNames as string[];
+    if (new Set(names).size !== names.length || names.includes(source) || names.some((name, index) => index > 0 && byCodePoint(names[index - 1]!, name) > 0)) {
+      throw new Error(`the history file "${path}" has invalid "source_registry.former_names" value ${JSON.stringify(row.former_names)}: names must be unique, code-point sorted, and must not include current source ${JSON.stringify(source)}`);
+    }
+    return { id: row.id, formerNames: names };
   }
 
   function setRegistry(source: string, id: string, formerNames: readonly string[]): void {
@@ -592,5 +620,5 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
     db.close();
   }
 
-  return { store, read, assertions, sources, renameSource, registry, setRegistry, commits, commitRecord, hasCommit, close };
+  return { store, read, assertions, sources, renameSource, registry, setRegistry, commits, commitRecord, latestCommit, hasCommit, close };
 }

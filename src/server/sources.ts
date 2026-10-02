@@ -379,11 +379,6 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
     return history;
   }
 
-  /** Whether the candidate head is newer than the stored one, by commit order: time first, code-point commit id to break a tie. */
-  function isNewerHead(candidate: { commit: string; committedAt: number }, stored: SourceHead): boolean {
-    if (candidate.committedAt !== stored.committedAt) return candidate.committedAt > stored.committedAt;
-    return byCodePoint(candidate.commit, stored.commit) > 0;
-  }
 
   function writeSidecar(stem: string, head: SourceHead, names: string[]): void {
     // Write beside the target and rename: an interrupted write leaves a
@@ -409,27 +404,18 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
     const result = history.store(input, { id, formerNames: former });
 
     if (result.errors.length === 0) {
-      // The head's storing moment is the history's own record of this
-      // commit — the `recorded_at` its row carries, what the restart
-      // repair reads back — never this call's clock: a retry that
-      // repairs a head the sidecar write lost must carry the original
-      // store's moment, and a repeat opens no row to take one from. It
-      // is read as the commit's own row, never through the source's
-      // whole commit list, so a store does not grow with the history's
-      // length.
-      const record = history.commitRecord(input.source, input.commit)!;
-      const stored = heads.get(input.source);
+      // Reconcile from the history's commit order, not the possibly stale
+      // in-memory head: a prior sidecar write may have failed.
+      const latest = history.latestCommit(input.source)!;
       const candidate: SourceHead = {
         source: input.source,
         id,
-        commit: input.commit,
-        committedAt: input.committedAt,
-        storedAt: record.storedAt,
+        commit: latest.commit,
+        committedAt: latest.committedAt,
+        storedAt: latest.storedAt,
       };
-      if (stored === undefined || isNewerHead(candidate, stored)) {
-        writeSidecar(encodeSourceName(input.source), candidate, [...former]);
-        heads.set(input.source, candidate);
-      }
+      heads.set(input.source, candidate);
+      writeSidecar(encodeSourceName(input.source), candidate, [...former]);
     }
     return { result, wasNew };
   }
@@ -439,11 +425,10 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
   }
 
   /**
-   * The rename's own order — the history's rows first (the history is
-   * the truth), then the files, then the sidecar, then the maps — so an
-   * interruption lands on a step the next start refuses loudly (the
-   * sidecar and the history disagreeing about the name), never on one
-   * that would quietly hold one repository under two names.
+   * Move the history and sidecar to the new filename, commit the new name
+   * and registry in the history transaction, then update memory and write
+   * the derived sidecar. A sidecar-write failure after commit is repaired
+   * by retrying the same rename from the authoritative history.
    */
   function rename(id: string, to: string): { formerSource: string } {
     const problem = sourceNameProblem(to);
@@ -453,7 +438,18 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
       throw new Error(`the rename was called with an id that must be refused first: no source has the id ${JSON.stringify(id)}`);
     }
     const from = head.source;
-    if (from === to) return { formerSource: from };
+    if (from === to) {
+      const history = historyOf(from);
+      const registry = history.registry(from);
+      if (registry === undefined || registry.id !== id) {
+        throw new Error(`the history for "${from}" does not hold the source id ${JSON.stringify(id)} needed to repair its sidecar`);
+      }
+      const current = newestCommit(from, id, history);
+      heads.set(from, current);
+      formerNames.set(from, registry.formerNames);
+      writeSidecar(encodeSourceName(from), current, registry.formerNames);
+      return { formerSource: from };
+    }
     const holder = heads.get(to);
     if (holder !== undefined) {
       throw new Error(`the rename was called with a name that must be refused first: the name ${JSON.stringify(to)} is already the name of the source with id ${JSON.stringify(holder.id)}`);

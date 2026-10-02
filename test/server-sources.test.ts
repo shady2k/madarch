@@ -835,6 +835,51 @@ describe('a rename claim on the stores', () => {
 });
 
 describe('a corrupt data folder refuses to open, naming the file', () => {
+  test('a registry id with a non-string SQLite value refuses before rewriting the sidecar', () => {
+    const dir = scratchFolder();
+    const first = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+    first.close();
+    const sidecar = readFileSync(join(dir, 'shop.json'));
+    const database = new Database(join(dir, 'shop.sqlite'));
+    database.run("UPDATE source_registry SET id = X'0102' WHERE source = 'shop'");
+    database.close();
+
+    let thrown: unknown;
+    try {
+      createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    } catch (error) {
+      thrown = error;
+    }
+    const message = (thrown as Error).message;
+    expect(message).toContain(join(dir, 'shop.sqlite'));
+    expect(message).toContain('source_registry.id');
+    expect(message).toContain('value');
+    expect(readFileSync(join(dir, 'shop.json'))).toEqual(sidecar);
+  });
+
+  test('registry formerNames containing its current source refuses before rewriting the sidecar', () => {
+    const dir = scratchFolder();
+    const first = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+    first.close();
+    const sidecar = readFileSync(join(dir, 'shop.json'));
+    const database = new Database(join(dir, 'shop.sqlite'));
+    database.query('UPDATE source_registry SET former_names = ? WHERE source = ?').run(JSON.stringify(['shop']), 'shop');
+    database.close();
+
+    let thrown: unknown;
+    try {
+      createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    } catch (error) {
+      thrown = error;
+    }
+    const message = (thrown as Error).message;
+    expect(message).toContain(join(dir, 'shop.sqlite'));
+    expect(message).toContain('source_registry.former_names');
+    expect(message).toContain('"shop"');
+    expect(readFileSync(join(dir, 'shop.json'))).toEqual(sidecar);
+  });
   test('a sidecar without its history file', () => {
     const dir = scratchFolder();
     writeFileSync(join(dir, 'aardvark.json'), JSON.stringify({ source: 'aardvark', commit: 'c1', committedAt: 1, storedAt: 2 }));
