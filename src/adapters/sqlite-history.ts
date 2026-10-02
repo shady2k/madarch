@@ -333,9 +333,12 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
       return {
         errors: [
           {
-            message: existing.committed_at !== committedAt
-              ? `commit "${commit}" of source "${source}" is already stored with a different commit time`
-              : `commit "${commit}" of source "${source}" is already stored with canonical digest ${JSON.stringify(existing.canonical_digest)}, but the incoming model has canonical digest ${JSON.stringify(canonicalDigest)}`,
+            message: [
+              ...(existing.committed_at !== committedAt ? ['a different commit time'] : []),
+              ...(existing.canonical_digest !== canonicalDigest
+                ? [`stored canonical digest ${JSON.stringify(existing.canonical_digest)} differs from incoming canonical digest ${JSON.stringify(canonicalDigest)}`]
+                : []),
+            ].join('; ').replace(/^/, `commit "${commit}" of source "${source}" is already stored with `),
             id: commit,
             source,
           },

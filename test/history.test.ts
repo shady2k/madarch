@@ -253,6 +253,19 @@ describe('idempotent: storing the same commit twice changes nothing', () => {
     // known time after the repeat still reads the very same thing.
     expect(readModel(h, { source: 'shop', valid: DAY(1), known: DAY(3) })).toEqual(before);
   });
+  test('a repeated commit with another time and model reports both differences', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
+
+    const result = h.store({ source: 'shop', commit: 'c1', committedAt: DAY(3), model: model([element('b')]) });
+
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]?.message).toContain('different commit time');
+    expect(result.errors[0]?.message).toContain(canonicalJsonDigest(model([element('a')])));
+    expect(result.errors[0]?.message).toContain(canonicalJsonDigest(model([element('b')])));
+    h.close();
+  });
 });
 
 describe('order-by-commit: commits are ordered by their time, not by arrival', () => {
