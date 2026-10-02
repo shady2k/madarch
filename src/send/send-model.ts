@@ -80,7 +80,7 @@ export async function sendModel(options: SendOptions): Promise<SendResult> {
     response = await fetch(`${options.server.replace(/\/+$/, '')}/models`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ source, commit, committedAt, model }),
+      body: JSON.stringify({ protocol: 1, source, commit, committedAt, model }),
     });
   } catch (error) {
     return { outcome: 'unreachable', server: options.server, cause: error instanceof Error ? error.message : String(error) };
