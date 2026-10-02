@@ -254,6 +254,25 @@ describe('keeping a built graph in step', () => {
     expect(fresh.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
     graphs.close();
   });
+  test('removes every matching graph even when one graph close throws, then rethrows the failure', () => {
+    const clock = fakeClock(DAY(9));
+    const one = createSqliteHistory({ clock });
+    const graphs = createGraphs({ historyOf: () => one, clock });
+    const first = graphs.addGraph('first', ['shop']);
+    const second = graphs.addGraph('second', ['shop']);
+    first.close = () => { throw new Error('close failed'); };
+    let thrown: unknown;
+    try {
+      graphs.remove('shop');
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe('close failed');
+    expect(graphs.get('first')).toBeUndefined();
+    expect(graphs.get('second')).toBeUndefined();
+    one.close();
+  });
 
   test('a store whose report a built engine fails to apply is dropped, not left behind: the throw passes on and the next use rebuilds from the history', () => {
     const clock = fakeClock(DAY(9));
