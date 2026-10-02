@@ -180,8 +180,13 @@ export interface CommitRecord {
  * only implementation so far; this interface itself touches no Bun-specific
  * API.
  */
+export interface SourceRegistry {
+  id: string;
+  formerNames: readonly string[];
+}
+
 export interface HistoryStore {
-  store(input: StoreInput): StoreResult;
+  store(input: StoreInput, registry?: SourceRegistry): StoreResult;
   read(input?: ReadInput): ReadResult;
   /** The raw assertions behind every read, with their four times, for a source or for all of them. */
   assertions(input?: AssertionsInput): AssertionRecord[];
@@ -194,7 +199,7 @@ export interface HistoryStore {
    * name answered. Refuses, leaving the history untouched, when the
    * history holds anything but exactly the source being renamed.
    */
-  renameSource(from: string, to: string): void;
+  renameSource(from: string, to: string, registry?: SourceRegistry): void;
   /** Stable server-assigned source identity and retired names kept inside this history file. */
   registry(source: string): { id: string; formerNames: string[] } | undefined;
   /** Records stable source identity and retired names in this history file. */

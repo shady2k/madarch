@@ -12,6 +12,7 @@ import type {
   ReadInput,
   ReadResult,
   StoreInput,
+  SourceRegistry,
   StoreResult,
 } from '../history/types.js';
 import { byCodePoint } from '../model/order.js';
@@ -324,7 +325,7 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
     return JSON.stringify(sorted.map((a) => [a.kind, a.id, a.content]));
   }
 
-  function store(input: StoreInput): StoreResult {
+  function store(input: StoreInput, registryInput?: SourceRegistry): StoreResult {
     const { source, commit, committedAt, model } = input;
 
     let newAssertions: Assertion[];
@@ -500,6 +501,9 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
         }
       }
 
+      if (registryInput !== undefined) {
+        upsertRegistry.run(source, registryInput.id, JSON.stringify(registryInput.formerNames));
+      }
       insertCommit.run(source, commit, committedAt, contentDigest, storingNow, canonicalDigest);
       return { errors: [], opened, closed };
     });
@@ -545,7 +549,7 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
     return selectSources.all().map((row) => row.source).sort(byCodePoint);
   }
 
-  function renameSource(from: string, to: string): void {
+  function renameSource(from: string, to: string, registryInput?: SourceRegistry): void {
     const held = sources();
     if (held.length !== 1 || held[0] !== from) {
       const holds = held.length === 0 ? 'no source' : `the sources ${held.join(', ')}`;
@@ -554,6 +558,9 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
     // Keep the registry metadata and history rows under the same source name.
     db.transaction(() => {
       renameRegistry.run(to, from);
+      if (registryInput !== undefined) {
+        upsertRegistry.run(to, registryInput.id, JSON.stringify(registryInput.formerNames));
+      }
       renameCommitSource.run(to, from);
       renameAssertionSource.run(to, from);
     })();
