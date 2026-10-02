@@ -92,7 +92,8 @@ function start(): string {
 }
 
 function post(path: string, body: unknown): Promise<Response> {
-  return fetch(`${server!.url}${path}`, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' } });
+  const withProtocol = typeof body === 'object' && body !== null ? { protocol: 1, ...(body as Record<string, unknown>) } : body;
+  return fetch(`${server!.url}${path}`, { method: 'POST', body: JSON.stringify(withProtocol), headers: { 'content-type': 'application/json' } });
 }
 
 /** Restarts the server on the same data folder and port, as a restart on kept data is. */
