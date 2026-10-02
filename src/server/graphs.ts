@@ -245,12 +245,21 @@ export function createGraphs(options: GraphsOptions): Graphs {
   }
 
   function remove(source: string): void {
+    const removed: Graph[] = [];
     for (const [name, graph] of graphs) {
       if (!graph.lists(source)) continue;
-      // Out of the cache before anything can fail, as `dropIfBuilt` does.
       graphs.delete(name);
-      graph.close();
+      removed.push(graph);
     }
+    let failure: unknown;
+    for (const graph of removed) {
+      try {
+        graph.close();
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+    if (failure !== undefined) throw failure;
   }
 
   function close(): void {

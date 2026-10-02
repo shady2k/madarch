@@ -195,6 +195,10 @@ export interface HistoryStore {
    * history holds anything but exactly the source being renamed.
    */
   renameSource(from: string, to: string): void;
+  /** Stable server-assigned source identity and retired names kept inside this history file. */
+  registry(source: string): { id: string; formerNames: string[] } | undefined;
+  /** Records stable source identity and retired names in this history file. */
+  setRegistry(source: string, id: string, formerNames: readonly string[]): void;
   /** Whether a source's commit is already stored (regardless of what it asserts). */
   hasCommit(source: string, commit: string): boolean;
   /** One commit's own record with its times, read as one row rather than through the source's whole `commits` list; `undefined` when the source never stored that commit. */

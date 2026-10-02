@@ -348,18 +348,34 @@ describe('restart on the same data folder', () => {
     second.close();
   });
 
-  test('a restart repairs a sidecar that went missing, from the history itself, and logs it', () => {
+  test('a missing sidecar is rebuilt from history without changing identity or retired names', () => {
     const dir = scratchFolder();
-    const lines: string[] = [];
-    const first = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)), log: (line) => lines.push(line) });
+    const first = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
     first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+    const id = first.heads()[0]!.id;
+    first.rename(id, 'renamed');
     first.close();
-    rmSync(join(dir, 'shop.json'));
+    rmSync(join(dir, 'renamed.json'));
 
-    const second = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)), log: (line) => lines.push(line) });
-    expect(second.heads()).toEqual([{ id: expect.any(String), source: 'shop', commit: 'c1', committedAt: DAY(1), storedAt: DAY(10) }]);
-    expect(existsSync(join(dir, 'shop.json'))).toBe(true);
-    expect(lines.join('\n')).toContain('repaired');
+    const second = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    expect(second.heads()).toEqual([{ id, source: 'renamed', commit: 'c1', committedAt: DAY(1), storedAt: DAY(10) }]);
+    expect(second.retiredHead('shop')?.id).toBe(id);
+    expect(() => second.store(storeInput('shop', 'c2', DAY(2), [element('b')]))).toThrow(/renamed/);
+    second.close();
+  });
+  test('two missing sidecars rebuild distinct persisted identities at startup', () => {
+    const dir = scratchFolder();
+    const first = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    first.store(storeInput('alpha', 'c1', DAY(1), [element('a')]));
+    first.store(storeInput('beta', 'c1', DAY(1), [element('b')]));
+    const before = first.heads();
+    first.close();
+    rmSync(join(dir, 'alpha.json'));
+    rmSync(join(dir, 'beta.json'));
+
+    const second = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    expect(second.heads()).toEqual(before);
+    expect(second.heads()[0]?.id).not.toBe(second.heads()[1]?.id);
     second.close();
   });
 
@@ -657,6 +673,19 @@ describe('a rename claim on the stores', () => {
     const sidecar = JSON.parse(readFileSync(join(dir, 'shop.json'), 'utf8')) as { formerNames: unknown };
     expect(sidecar.formerNames).toEqual(['aaa', 'bbb']);
   });
+  test('a failed rename sidecar write leaves the source under its old name for retry', () => {
+    const dir = scratchFolder();
+    const sources = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+    const id = sources.heads()[0]!.id;
+    mkdirSync(join(dir, 'renamed.json.tmp'));
+
+    expect(() => sources.rename(id, 'renamed')).toThrow();
+    expect(sources.heads().map((head) => head.source)).toEqual(['shop']);
+    expect(existsSync(join(dir, 'shop.sqlite'))).toBe(true);
+    expect(existsSync(join(dir, 'renamed.sqlite'))).toBe(false);
+    sources.close();
+  });
 
   test('a sidecar whose former names are not an array of non-empty strings is refused naming the file and the field', () => {
     for (const formerNames of ['shop', [42], [''], ['shop', 'shop']]) {
@@ -708,6 +737,21 @@ describe('a rename claim on the stores', () => {
     writeFileSync(join(dir, 'aaa.json'), JSON.stringify({ source: 'aaa', commit: 'c1', committedAt: 1, storedAt: 2, formerNames: ['gone'] }));
     writeFileSync(join(dir, 'bbb.json'), JSON.stringify({ source: 'bbb', commit: 'c1', committedAt: 1, storedAt: 2, formerNames: ['gone'] }));
     expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).toThrow(/"aaa"[\s\S]*"bbb"[\s\S]*"gone"[\s\S]*"formerNames"/);
+  });
+  test('two sidecars with the same persisted id refuse the folder and name both sources', () => {
+    const dir = scratchFolder();
+    const first = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    first.store(storeInput('alpha', 'c1', DAY(1), [element('a')]));
+    first.store(storeInput('beta', 'c1', DAY(1), [element('b')]));
+    first.close();
+    const alpha = JSON.parse(readFileSync(join(dir, 'alpha.json'), 'utf8')) as Record<string, unknown>;
+    const beta = JSON.parse(readFileSync(join(dir, 'beta.json'), 'utf8')) as Record<string, unknown>;
+    beta.id = alpha.id;
+    writeFileSync(join(dir, 'beta.json'), JSON.stringify(beta));
+
+    expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) })).toThrow(
+      /alpha[\s\S]*beta[\s\S]*id/,
+    );
   });
 });
 
