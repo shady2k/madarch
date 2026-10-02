@@ -87,13 +87,50 @@ function start(): string {
 }
 
 function post(path: string, body: unknown): Promise<Response> {
-  return fetch(`${server!.url}${path}`, { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body), headers: { 'content-type': 'application/json' } });
+  return fetch(`${server!.url}${path}`, { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(Array.isArray(body) || body === null ? body : { protocol: 1, ...(body as Record<string, unknown>) }), headers: { 'content-type': 'application/json' } });
 }
 
 function send(source: string, commit: string, committedAt: string, elements: Record<string, unknown>[]): Promise<Response> {
-  return post('/models', { source, commit, committedAt, model: model(elements) });
+  return post('/models', { protocol: 1, source, commit, committedAt, model: model(elements) });
 }
 
+describe('protocol versions', () => {
+  test('version 1 requests are served and every answer names the server version', async () => {
+    start();
+    const stored = await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    expect(stored.status).toBe(201);
+    expect(stored.headers.get('protocol')).toBe('1');
+    const listed = await fetch(`${server!.url}/sources`);
+    expect(listed.headers.get('protocol')).toBe('1');
+    const viewed = await post('/views', { source: 'shop', format: 'mermaid' });
+    expect(viewed.headers.get('protocol')).toBe('1');
+  });
+
+  test('version 0 is refused before other fields are checked or stored', async () => {
+    start();
+    lines = [];
+    const response = await post('/models', { protocol: 0, unknown: true });
+    expect(response.status).toBe(400);
+    expect(response.headers.get('protocol')).toBe('1');
+    const error = await errorOf(response);
+    expect(error.field).toBe('protocol');
+    expect(error.accepted).toBe('[1, 1]');
+    expect(error.message).not.toContain('unknown');
+    expect(await sourcesOf(await fetch(`${server!.url}/sources`))).toEqual([]);
+    expect(lines.filter((line) => line.startsWith('POST /models'))).toHaveLength(1);
+  });
+
+  test('a missing protocol is refused naming the field', async () => {
+    start();
+    const response = await fetch(`${server!.url}/models`, {
+      method: 'POST',
+      body: JSON.stringify({ source: 'shop' }),
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(response.status).toBe(400);
+    expect((await errorOf(response)).field).toBe('protocol');
+  });
+});
 describe('POST /models', () => {
   test('a new model is stored, answering 201 with the source and the commit', async () => {
     start();
@@ -237,7 +274,7 @@ describe('POST /models', () => {
 
     const array = await post('/models', [1, 2]);
     expect(array.status).toBe(400);
-    expect((await errorOf(array)).message).toContain('JSON object');
+    expect((await errorOf(array)).field).toBe('protocol');
   });
 
   test('a body past the size limit is refused with 413 naming the limit', async () => {
@@ -272,7 +309,7 @@ describe('unknown request fields', () => {
     const error = await errorOf(response);
     expect(error.message).toContain('"depht"');
     expect(error.message).toContain('"format"');
-    expect(error.message).toContain('accepted fields are source, commit, committedAt, model');
+    expect(error.message).toContain('accepted fields are protocol, source, commit, committedAt, model');
   });
 
   test('a view request with a misspelled field is refused, not answered as the landscape', async () => {
@@ -282,7 +319,7 @@ describe('unknown request fields', () => {
     expect(response.status).toBe(400);
     const error = await errorOf(response);
     expect(error.message).toContain('"formatt"');
-    expect(error.message).toContain('accepted fields are source, element, depth, format');
+    expect(error.message).toContain('accepted fields are protocol, source, element, depth, format');
   });
 });
 describe('two sources that both declare core', () => {
@@ -404,7 +441,7 @@ describe('POST /sources — the rename claim', () => {
 
     const unknown = await post('/sources', { id: 'x', source: 'y', rename: true });
     expect(unknown.status).toBe(400);
-    expect((await errorOf(unknown)).message).toContain('accepted fields are id, source');
+    expect((await errorOf(unknown)).message).toContain('accepted fields are protocol, id, source');
   });
 
   test('a new name that cannot be a source name is refused naming the field', async () => {

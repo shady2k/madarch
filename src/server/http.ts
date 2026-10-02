@@ -37,6 +37,12 @@ import { createSourceStores, sourceNameProblem } from './sources.js';
 /** The largest body the server reads: 50 MB, far past any compiled model sent so far. */
 const MAX_BODY_BYTES = 50 * 1024 * 1024;
 
+/** The only protocol version this server speaks. */
+const PROTOCOL_VERSION = 1;
+
+/** The supported protocol version range. */
+const PROTOCOL_ACCEPTED = '[1, 1]';
+
 /** What the server tells a sender whose `committedAt` it refused. */
 const ISO_ACCEPTED = 'an ISO 8601 time with a UTC offset, like 2026-09-30T12:34:56Z or 2026-09-30T12:34:56+02:00';
 
@@ -207,7 +213,8 @@ function createHandler(dependencies: {
   async function storeModel(request: Request): Promise<Handled> {
     const { body, bad } = await jsonBody(request);
     if (bad !== undefined) return bad;
-
+    const protocol = protocolProblem(body);
+    if (protocol !== undefined) return protocol;
     const { sent, problems } = parseStoreRequest(body);
     if (sent === undefined) {
       return { ...joinedRefusal(400, problems), source: namedSourceOf(body) };
@@ -264,14 +271,29 @@ function createHandler(dependencies: {
    * wrong, the request as the store takes it. Every field is checked;
    * none of them stops the rest from being checked too.
    */
+  function protocolProblem(body: unknown): Handled | undefined {
+    const value = typeof body === 'object' && body !== null && !Array.isArray(body)
+      ? (body as Record<string, unknown>).protocol
+      : undefined;
+    if (value === 1) return undefined;
+    if (value === undefined) {
+      return refused(400, { field: 'protocol', message: '"protocol" is required: the protocol version the request uses' });
+    }
+    return refused(400, {
+      field: 'protocol',
+      accepted: PROTOCOL_ACCEPTED,
+      message: `"protocol" ${JSON.stringify(value)} is not supported: accepted protocol versions are ${PROTOCOL_ACCEPTED}`,
+    });
+  }
+
   function parseStoreRequest(body: unknown): { sent?: SentStore; problems: Refusal[] } {
     if (typeof body !== 'object' || body === null || Array.isArray(body)) {
       return { problems: [{ message: 'the body must be a JSON object naming source, commit, committedAt and model' }] };
     }
     const problems: Refusal[] = [];
     for (const key of Object.keys(body).sort(byCodePoint)) {
-      if (key !== 'source' && key !== 'commit' && key !== 'committedAt' && key !== 'model') {
-        problems.push({ field: key, message: `"${key}" is not a field the server takes: accepted fields are source, commit, committedAt, model` });
+      if (key !== 'protocol' && key !== 'source' && key !== 'commit' && key !== 'committedAt' && key !== 'model') {
+        problems.push({ field: key, message: `"${key}" is not a field the server takes: accepted fields are protocol, source, commit, committedAt, model` });
       }
     }
 
@@ -352,7 +374,8 @@ function createHandler(dependencies: {
   async function claimRename(request: Request): Promise<Handled> {
     const { body, bad } = await jsonBody(request);
     if (bad !== undefined) return bad;
-
+    const protocol = protocolProblem(body);
+    if (protocol !== undefined) return protocol;
     const { claim, problems } = parseClaimRequest(body);
     if (claim === undefined) {
       return { ...joinedRefusal(400, problems), source: namedSourceOf(body) };
@@ -411,8 +434,8 @@ function createHandler(dependencies: {
     }
     const problems: Refusal[] = [];
     for (const key of Object.keys(body).sort(byCodePoint)) {
-      if (key !== 'id' && key !== 'source') {
-        problems.push({ field: key, message: `"${key}" is not a field the server takes: accepted fields are id, source` });
+      if (key !== 'protocol' && key !== 'id' && key !== 'source') {
+        problems.push({ field: key, message: `"${key}" is not a field the server takes: accepted fields are protocol, id, source` });
       }
     }
 
@@ -451,7 +474,8 @@ function createHandler(dependencies: {
   async function answerView(request: Request): Promise<Handled> {
     const { body, bad } = await jsonBody(request);
     if (bad !== undefined) return bad;
-
+    const protocol = protocolProblem(body);
+    if (protocol !== undefined) return protocol;
     const { asked, problems } = parseViewRequest(body);
     if (asked === undefined) {
       return { ...joinedRefusal(400, problems), source: namedSourceOf(body) };
@@ -548,8 +572,8 @@ function createHandler(dependencies: {
     }
     const problems: Refusal[] = [];
     for (const key of Object.keys(body).sort(byCodePoint)) {
-      if (key !== 'source' && key !== 'element' && key !== 'depth' && key !== 'format') {
-        problems.push({ field: key, message: `"${key}" is not a field the server takes: accepted fields are source, element, depth, format` });
+      if (key !== 'protocol' && key !== 'source' && key !== 'element' && key !== 'depth' && key !== 'format') {
+        problems.push({ field: key, message: `"${key}" is not a field the server takes: accepted fields are protocol, source, element, depth, format` });
       }
     }
 
@@ -641,7 +665,9 @@ function createHandler(dependencies: {
     const named = handled.source === undefined ? '' : ` source=${JSON.stringify(handled.source)}`;
     const why = handled.refusal === undefined ? '' : `: ${handled.refusal}`;
     log(`${request.method} ${pathname} ${handled.response.status}${named} ${ms}ms${why}`);
-    return handled.response;
+    const headers = new Headers(handled.response.headers);
+    headers.set('protocol', String(PROTOCOL_VERSION));
+    return new Response(handled.response.body, { status: handled.response.status, statusText: handled.response.statusText, headers });
   };
 }
 
