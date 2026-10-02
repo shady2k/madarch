@@ -363,6 +363,21 @@ describe('restart on the same data folder', () => {
     expect(() => second.store(storeInput('shop', 'c2', DAY(2), [element('b')]))).toThrow(/renamed/);
     second.close();
   });
+  test('two missing sidecars rebuild distinct persisted identities at startup', () => {
+    const dir = scratchFolder();
+    const first = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    first.store(storeInput('alpha', 'c1', DAY(1), [element('a')]));
+    first.store(storeInput('beta', 'c1', DAY(1), [element('b')]));
+    const before = first.heads();
+    first.close();
+    rmSync(join(dir, 'alpha.json'));
+    rmSync(join(dir, 'beta.json'));
+
+    const second = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    expect(second.heads()).toEqual(before);
+    expect(second.heads()[0]?.id).not.toBe(second.heads()[1]?.id);
+    second.close();
+  });
 
   test('a restart repairs a stale sidecar from the history, and logs it', () => {
     const dir = scratchFolder();
