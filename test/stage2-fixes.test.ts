@@ -589,7 +589,7 @@ describe('5. a commit id already stored under a different time or model is refus
 
     const result = h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('B')]) });
     expect(result.errors).toEqual([{ message: expect.any(String), id: 'c1', source: 's' }]);
-    expect(result.errors[0]?.message).toContain('model');
+    expect(result.errors[0]?.message).toContain('canonical digest');
     expect(result.errors[0]?.message).not.toContain('commit time');
     expect(ids(h, { source: 's', valid: DAY(1), known: DAY(2) })).toBe('A');
   });
@@ -751,7 +751,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
     // The canonical digest addresses the model as sent: array order is part
     // of the artifact (change registry-integrity, requirement immutability).
     expect(result.errors.length).toBe(1);
-    expect(result.errors[0]!.message).toMatch(/already stored with canonical digest/);
+    expect(result.errors[0]!.message).toMatch(/already stored with .* canonical digest/);
     expect(result.opened).toEqual([]);
     expect(result.closed).toEqual([]);
   });
