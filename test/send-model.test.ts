@@ -103,12 +103,12 @@ describe('the send command', () => {
     return server.url;
   }
 
-  async function sources(): Promise<{ source: string; commit: string; committedAt: string; storedAt: string }[]> {
+  async function sources(): Promise<{ id: string; source: string; commit: string; committedAt: string; storedAt: string }[]> {
     const response = await fetch(`${server!.url}/sources`);
     expect(response.status).toBe(200);
     const list: unknown = await response.json();
     expect(Array.isArray(list)).toBe(true);
-    return list as { source: string; commit: string; committedAt: string; storedAt: string }[];
+    return list as { id: string; source: string; commit: string; committedAt: string; storedAt: string }[];
   }
 
   test('sent-after-check: the origin git@github.com:shady2k/nocx.git is stored as github.com/shady2k/nocx at HEAD\'s commit and committer time, twice is already stored', async () => {
