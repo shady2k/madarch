@@ -69,8 +69,9 @@ and product identity: the `live-graph` charter's outcome 2 (madarch-bwt).
   view requests. A rename is recorded as a claim: the new name is bound to
   the existing id, the old name answers as an alias (or redirects), and no
   second id is ever created for one repository.
-- Protocol version: one integer field in every request body and every
-  answer, starting at the current shape as version 1; a request outside the
+- Protocol version: one integer field `protocol` in every request body; every answer
+  names the server's version in a `protocol` response header (bodies keep
+  their pinned contracts), starting at the current shape as version 1; a request outside the
   supported range is refused with the range named. Compatible additions bump
   nothing; incompatible ones raise the minimum.
 - The immutability refusal compares the digest of the stored artifact with
