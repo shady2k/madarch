@@ -127,7 +127,7 @@ describe('the send command', () => {
 
       const list = await sources();
       expect(list).toHaveLength(1);
-      expect(list[0]).toEqual({ source: 'github.com/shady2k/nocx', commit, committedAt: COMMITTED_AT, storedAt: new Date(NOW).toISOString() });
+      expect(list[0]).toEqual({ id: expect.any(String), source: 'github.com/shady2k/nocx', commit, committedAt: COMMITTED_AT, storedAt: new Date(NOW).toISOString() });
 
       const second = await runSend(repo.path, '--server', url);
       expect(second.status).toBe(0);
