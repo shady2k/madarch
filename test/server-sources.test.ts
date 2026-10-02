@@ -1,3 +1,4 @@
+import { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -260,6 +261,36 @@ describe('heads', () => {
     expect(sources.heads()).toEqual([{ id: expect.any(String), source: 'shop', commit: 'c2', committedAt: DAY(2), storedAt: DAY(10) + 1 }]);
     sources.close();
   });
+  test('retrying the first send after a sidecar failure keeps the committed registry id', () => {
+    const dir = scratchFolder();
+    const sources = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    mkdirSync(join(dir, 'shop.json.tmp'));
+    const input = storeInput('shop', 'c1', DAY(1), [element('a')]);
+    expect(() => sources.store(input)).toThrow();
+    const id = sources.historyOf('shop').registry('shop')?.id;
+    expect(id).toEqual(expect.any(String));
+    rmdirSync(join(dir, 'shop.json.tmp'));
+
+    sources.store(input);
+
+    expect(sources.heads()).toEqual([{ id: id!, source: 'shop', commit: 'c1', committedAt: DAY(1), storedAt: DAY(10) }]);
+    sources.close();
+  });
+  test('a registry write failure rolls back the commit that needs that identity', () => {
+    const dir = scratchFolder();
+    const sources = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    const history = sources.historyOf('shop');
+    const database = new Database(join(dir, 'shop.sqlite'));
+    database.run("CREATE TRIGGER fail_registry_insert BEFORE INSERT ON source_registry BEGIN SELECT RAISE(ABORT, 'registry write failed'); END");
+    database.close();
+
+    const result = sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+
+    expect(result.result.errors).toHaveLength(1);
+    expect(history.hasCommit('shop', 'c1')).toBe(false);
+    expect(history.registry('shop')).toBeUndefined();
+    sources.close();
+  });
 
   test('a store reads the commit\'s own row, never the source\'s whole history', () => {
     const dir = scratchFolder();
@@ -425,6 +456,22 @@ describe('restart on the same data folder', () => {
     const sidecar = JSON.parse(readFileSync(join(dir, 'shop.json'), 'utf8')) as { commit: string };
     expect(sidecar.commit).toBe('c2');
     expect(lines.join('\n')).toContain('repaired');
+    second.close();
+  });
+  test('a stale sidecar formerNames list is repaired from the registry', () => {
+    const dir = scratchFolder();
+    const first = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+    first.rename(first.heads()[0]!.id, 'renamed');
+    first.close();
+    const sidecar = JSON.parse(readFileSync(join(dir, 'renamed.json'), 'utf8')) as Record<string, unknown>;
+    sidecar.formerNames = [];
+    writeFileSync(join(dir, 'renamed.json'), JSON.stringify(sidecar));
+
+    const second = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+
+    expect(JSON.parse(readFileSync(join(dir, 'renamed.json'), 'utf8')).formerNames).toEqual(['shop']);
+    expect(second.retiredHead('shop')?.source).toBe('renamed');
     second.close();
   });
 
@@ -673,7 +720,26 @@ describe('a rename claim on the stores', () => {
     const sidecar = JSON.parse(readFileSync(join(dir, 'shop.json'), 'utf8')) as { formerNames: unknown };
     expect(sidecar.formerNames).toEqual(['aaa', 'bbb']);
   });
-  test('a failed rename sidecar write leaves the source under its old name for retry', () => {
+  test('a failed registry row rename restores the original sidecar and old history name', () => {
+    const dir = scratchFolder();
+    const sources = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
+    const id = sources.heads()[0]!.id;
+    const originalSidecar = readFileSync(join(dir, 'shop.json'));
+    const database = new Database(join(dir, 'shop.sqlite'));
+    database.run("CREATE TRIGGER fail_source_rename BEFORE UPDATE OF source ON source_commits BEGIN SELECT RAISE(ABORT, 'rename failed'); END");
+    database.close();
+
+    expect(() => sources.rename(id, 'renamed')).toThrow(/rename failed/);
+
+    expect(sources.heads().map((head) => head.source)).toEqual(['shop']);
+    expect(existsSync(join(dir, 'shop.sqlite'))).toBe(true);
+    expect(existsSync(join(dir, 'renamed.sqlite'))).toBe(false);
+    expect(readFileSync(join(dir, 'shop.json'))).toEqual(originalSidecar);
+    expect(sources.historyOf('shop').sources()).toEqual(['shop']);
+    sources.close();
+  });
+  test('a sidecar failure after rename commits keeps the identity through retry and restart', () => {
     const dir = scratchFolder();
     const sources = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
     sources.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
@@ -681,10 +747,20 @@ describe('a rename claim on the stores', () => {
     mkdirSync(join(dir, 'renamed.json.tmp'));
 
     expect(() => sources.rename(id, 'renamed')).toThrow();
-    expect(sources.heads().map((head) => head.source)).toEqual(['shop']);
-    expect(existsSync(join(dir, 'shop.sqlite'))).toBe(true);
-    expect(existsSync(join(dir, 'renamed.sqlite'))).toBe(false);
+    expect(sources.heads().map((head) => head.source)).toEqual(['renamed']);
+    expect(sources.historyOf('renamed').registry('renamed')?.id).toBe(id);
+    rmdirSync(join(dir, 'renamed.json.tmp'));
+
+    const retry = sources.store(storeInput('renamed', 'c2', DAY(2), [element('b')]));
+    expect(retry.result.errors).toEqual([]);
+    expect(sources.heads()).toEqual([{ id, source: 'renamed', commit: 'c2', committedAt: DAY(2), storedAt: DAY(10) + 1 }]);
     sources.close();
+
+    const restarted = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+    expect(restarted.heads()[0]?.id).toBe(id);
+    expect(restarted.retiredHead('shop')?.source).toBe('renamed');
+    expect(restarted.heads()).toHaveLength(1);
+    restarted.close();
   });
 
   test('a sidecar whose former names are not an array of non-empty strings is refused naming the file and the field', () => {
@@ -738,20 +814,23 @@ describe('a rename claim on the stores', () => {
     writeFileSync(join(dir, 'bbb.json'), JSON.stringify({ source: 'bbb', commit: 'c1', committedAt: 1, storedAt: 2, formerNames: ['gone'] }));
     expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).toThrow(/"aaa"[\s\S]*"bbb"[\s\S]*"gone"[\s\S]*"formerNames"/);
   });
-  test('two sidecars with the same persisted id refuse the folder and name both sources', () => {
+  test('duplicate stale sidecar ids do not override distinct persisted registry ids', () => {
     const dir = scratchFolder();
     const first = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
     first.store(storeInput('alpha', 'c1', DAY(1), [element('a')]));
     first.store(storeInput('beta', 'c1', DAY(1), [element('b')]));
+    const before = first.heads();
     first.close();
     const alpha = JSON.parse(readFileSync(join(dir, 'alpha.json'), 'utf8')) as Record<string, unknown>;
     const beta = JSON.parse(readFileSync(join(dir, 'beta.json'), 'utf8')) as Record<string, unknown>;
     beta.id = alpha.id;
     writeFileSync(join(dir, 'beta.json'), JSON.stringify(beta));
 
-    expect(() => createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) })).toThrow(
-      /alpha[\s\S]*beta[\s\S]*id/,
-    );
+    const second = createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
+
+    expect(second.heads()).toEqual(before);
+    expect(JSON.parse(readFileSync(join(dir, 'beta.json'), 'utf8')).id).toBe(before.find((head) => head.source === 'beta')?.id);
+    second.close();
   });
 });
 
