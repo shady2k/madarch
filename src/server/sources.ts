@@ -43,7 +43,7 @@
  * the history, not the sidecar, is the truth.
  */
 import { join } from 'node:path';
-import { readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { Stats } from 'node:fs';
 import { createSqliteHistory } from '../adapters/sqlite-history.js';
@@ -260,6 +260,7 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
     return a.commit === b.commit && a.committedAt === b.committedAt && a.storedAt === b.storedAt;
   }
 
+  const sidecarIds = new Map<string, string>();
   for (const stem of jsonStems) {
     const path = join(dataFolder, `${stem}.json`);
     let file: SidecarFile;
@@ -268,36 +269,45 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
     } catch (error) {
       throw new Error(`the sidecar "${path}" is not valid JSON: ${(error as Error).message}`, { cause: error });
     }
-    const head = headOfSidecar(file, path);
+    const sidecarHead = headOfSidecar(file, path);
     const sidecarId = idOfSidecar(file, path);
-    const id = sidecarId ?? randomUUID();
-    const names = formerNamesOfSidecar(file, path, head.source);
+    if (sidecarId !== undefined) {
+      const previous = sidecarIds.get(sidecarId);
+      if (previous !== undefined) {
+        const [first, second] = [previous, sidecarHead.source].sort(byCodePoint);
+        throw new Error(`the sidecars of "${first}" and "${second}" hold the same persisted source id ${JSON.stringify(sidecarId)}`);
+      }
+      sidecarIds.set(sidecarId, sidecarHead.source);
+    }
+    const sidecarNames = formerNamesOfSidecar(file, path, sidecarHead.source);
     const decoded = decodeSourceName(stem);
     if (decoded === undefined) {
       throw new Error(`the sidecar "${path}" has a file name that does not decode to a source name; the folder was not written by this server`);
     }
-    if (decoded !== head.source) {
-      throw new Error(`the sidecar "${path}" names its source "${head.source}" but its file name decodes to "${decoded}": the sidecar and the file name disagree`);
+    if (decoded !== sidecarHead.source) {
+      throw new Error(`the sidecar "${path}" names its source "${sidecarHead.source}" but its file name decodes to "${decoded}": the sidecar and the file name disagree`);
     }
     const history = openHistory(stem);
     const held = history.sources();
-    if (held.length !== 1 || held[0] !== head.source) {
+    if (held.length !== 1 || held[0] !== sidecarHead.source) {
       history.close();
       const holds = held.length === 0 ? 'no source' : `the sources ${held.join(', ')}`;
-      throw new Error(`the history file "${stem}.sqlite" holds ${holds}, but its sidecar "${stem}.json" names "${head.source}": the sidecar and the history disagree`);
+      throw new Error(`the history file "${stem}.sqlite" holds ${holds}, but its sidecar "${stem}.json" names "${sidecarHead.source}": the sidecar and the history disagree`);
     }
-    const trueHead = newestCommit(head.source, id, history);
-    if (!sameHead(trueHead, head)) {
+    const persisted = history.registry(sidecarHead.source);
+    const id = persisted?.id ?? sidecarId ?? randomUUID();
+    const names = persisted?.formerNames ?? sidecarNames;
+    const trueHead = newestCommit(sidecarHead.source, id, history);
+    history.setRegistry(sidecarHead.source, id, names);
+    if (!sameHead(trueHead, sidecarHead) || persisted === undefined || sidecarId !== id) {
       writeSidecar(stem, trueHead, names);
-      log(`repaired the sidecar "${stem}.json": it named the head ${JSON.stringify(head.commit)} of "${head.source}", but the history's head is ${JSON.stringify(trueHead.commit)} at ${new Date(trueHead.committedAt).toISOString()}`);
+      log(sidecarId === undefined
+        ? `assigned the source id ${JSON.stringify(id)} to "${sidecarHead.source}" and repaired the sidecar from history`
+        : `repaired the sidecar "${stem}.json" from history for source "${sidecarHead.source}"`);
     }
-    if (sidecarId === undefined) {
-      writeSidecar(stem, trueHead, names);
-      log(`assigned the source id ${JSON.stringify(id)} to "${head.source}": its sidecar "${stem}.json" held none`);
-    }
-    heads.set(head.source, trueHead);
-    histories.set(head.source, history);
-    formerNames.set(head.source, names);
+    heads.set(sidecarHead.source, trueHead);
+    histories.set(sidecarHead.source, history);
+    formerNames.set(sidecarHead.source, names);
   }
 
   for (const stem of sqliteStems) {
@@ -315,12 +325,18 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
       history.close();
       throw new Error(`the data folder holds the history file "${stem}.sqlite" but no "${stem}.json" beside it, and the file name does not decode to the history's source "${source}": the folder was not written by this server`);
     }
-    const head = newestCommit(source, randomUUID(), history);
-    writeSidecar(stem, head, []);
+    const registry = history.registry(source);
+    if (registry === undefined) {
+      history.close();
+      throw new Error(`the data folder holds the history file "${stem}.sqlite" but no "${stem}.json" beside it, and the history has no persisted source id or former names to rebuild identity faithfully`);
+    }
+    const head = newestCommit(source, registry.id, history);
+    writeSidecar(stem, head, registry.formerNames);
     log(`repaired the data folder: the history file "${stem}.sqlite" had no sidecar beside it; it holds the source "${source}" at its head ${JSON.stringify(head.commit)} at ${new Date(head.committedAt).toISOString()}`);
     heads.set(source, head);
     histories.set(source, history);
-    formerNames.set(source, []);
+    formerNames.set(source, registry.formerNames);
+
   }
 
   // Every former name a sidecar holds becomes retired: it maps to the
@@ -407,6 +423,7 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
         committedAt: input.committedAt,
         storedAt: record.storedAt,
       };
+        history.setRegistry(input.source, candidate.id, formerNames.get(input.source) ?? []);
       if (stored === undefined || isNewerHead(candidate, stored)) {
         writeSidecar(encodeSourceName(input.source), candidate, formerNames.get(input.source) ?? []);
         heads.set(input.source, candidate);
@@ -446,15 +463,33 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
 
     const newHead: SourceHead = { ...head, source: to };
     const history = historyOf(from);
-    history.renameSource(from, to);
-    history.close();
-    histories.delete(from);
-    renameSync(join(dataFolder, `${encodeSourceName(from)}.sqlite`), join(dataFolder, `${encodeSourceName(to)}.sqlite`));
-    renameSync(join(dataFolder, `${encodeSourceName(from)}.json`), join(dataFolder, `${encodeSourceName(to)}.json`));
     const former = [...new Set([...(formerNames.get(from) ?? []), from])].filter((name) => name !== to).sort(byCodePoint);
+    writeSidecar(encodeSourceName(to), newHead, former);
+    history.close();
+    let sqliteMoved = false;
+    let sidecarMoved = false;
+    let renamedHistory: HistoryStore | undefined;
+    try {
+      renameSync(join(dataFolder, `${encodeSourceName(from)}.sqlite`), join(dataFolder, `${encodeSourceName(to)}.sqlite`));
+      sqliteMoved = true;
+      renameSync(join(dataFolder, `${encodeSourceName(from)}.json`), join(dataFolder, `${encodeSourceName(to)}.json`));
+      sidecarMoved = true;
+      writeSidecar(encodeSourceName(to), newHead, former);
+      renamedHistory = openHistory(encodeSourceName(to));
+      renamedHistory.renameSource(from, to);
+      renamedHistory.setRegistry(to, newHead.id, former);
+      renamedHistory.close();
+    } catch (error) {
+      renamedHistory?.close();
+      if (sidecarMoved) renameSync(join(dataFolder, `${encodeSourceName(to)}.json`), join(dataFolder, `${encodeSourceName(from)}.json`));
+      else rmSync(join(dataFolder, `${encodeSourceName(to)}.json`), { force: true });
+      if (sqliteMoved) renameSync(join(dataFolder, `${encodeSourceName(to)}.sqlite`), join(dataFolder, `${encodeSourceName(from)}.sqlite`));
+      histories.set(from, openHistory(encodeSourceName(from)));
+      throw error;
+    }
+    histories.delete(from);
     formerNames.delete(from);
     formerNames.set(to, former);
-    writeSidecar(encodeSourceName(to), newHead, former);
     heads.delete(from);
     heads.set(to, newHead);
     for (const [name, target] of [...retired]) {

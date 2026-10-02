@@ -187,6 +187,20 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
     }
     db.run('ALTER TABLE source_commits ADD COLUMN canonical_digest TEXT');
   }
+  db.run(`
+    CREATE TABLE IF NOT EXISTS source_registry (
+      source TEXT PRIMARY KEY,
+      id TEXT NOT NULL UNIQUE,
+      former_names TEXT NOT NULL
+    )
+  `);
+  const selectRegistry = db.query<{ id: string; former_names: string }, [string]>(
+    'SELECT id, former_names FROM source_registry WHERE source = ?',
+  );
+  const upsertRegistry = db.query<unknown, [string, string, string]>(
+    'INSERT INTO source_registry (source, id, former_names) VALUES (?, ?, ?) ON CONFLICT(source) DO UPDATE SET id = excluded.id, former_names = excluded.former_names',
+  );
+  const renameRegistry = db.query<unknown, [string, string]>('UPDATE source_registry SET source = ? WHERE source = ?');
   const selectCommit: Statement<CommitRow, [string, string]> = db.query(
     'SELECT committed_at, content_digest, canonical_digest FROM source_commits WHERE source = ? AND commit_id = ?',
   );
@@ -537,9 +551,9 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
       const holds = held.length === 0 ? 'no source' : `the sources ${held.join(', ')}`;
       throw new Error(`the history holds ${holds}, but the rename asks to rename ${JSON.stringify(from)} to ${JSON.stringify(to)}: the one source a history holds is renamed whole, nothing beside it`);
     }
-    // Both tables in one transaction: a refusal in either (a row already
-    // sitting under the new name) leaves the history exactly as it was.
+    // Keep the registry metadata and history rows under the same source name.
     db.transaction(() => {
+      renameRegistry.run(to, from);
       renameCommitSource.run(to, from);
       renameAssertionSource.run(to, from);
     })();
@@ -559,9 +573,17 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
     return selectCommit.get(source, commit) !== null;
   }
 
+  function registry(source: string): { id: string; formerNames: string[] } | undefined {
+    const row = selectRegistry.get(source);
+    return row === null ? undefined : { id: row.id, formerNames: JSON.parse(row.former_names) as string[] };
+  }
+
+  function setRegistry(source: string, id: string, formerNames: readonly string[]): void {
+    upsertRegistry.run(source, id, JSON.stringify(formerNames));
+  }
   function close(): void {
     db.close();
   }
 
-  return { store, read, assertions, sources, renameSource, commits, commitRecord, hasCommit, close };
+  return { store, read, assertions, sources, renameSource, registry, setRegistry, commits, commitRecord, hasCommit, close };
 }
