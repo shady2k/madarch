@@ -177,6 +177,7 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
       PRIMARY KEY (source, commit_id)
     )
   `);
+  db.run('CREATE INDEX IF NOT EXISTS source_commits_order ON source_commits (source, committed_at, commit_id)');
   const commitColumns = db.query<{ name: string }, []>('PRAGMA table_info(source_commits)').all();
   if (!commitColumns.some((column) => column.name === 'canonical_digest')) {
     const legacyCommit = db.query<{ source: string; commit_id: string }, []>(
