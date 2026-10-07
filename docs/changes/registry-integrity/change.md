@@ -2,7 +2,7 @@
 
 Change: registry-integrity
 Base: 21494c6
-Tasks: madarch-l19.1.1, madarch-l19.1.2, madarch-l19.2.1, madarch-l19.2.2, madarch-8iw
+Tasks: madarch-l19.1.1, madarch-l19.1.2, madarch-l19.2.1, madarch-l19.2.2
 Kind: behavior
 
 ## Intent
@@ -16,8 +16,7 @@ of its canonical serialization (JSON with keys sorted, no insignificant
 whitespace); sending the same source and commit with identical bytes answers
 already stored, and with different bytes is refused naming what differs; and
 every request names its protocol version, answered within a stated supported
-range or refused with it. The update path's memory defect is closed: a stream
-of updates without a rebuild no longer fills the buffer pool.
+range or refused with it.
 
 Stories:
 - As an engineer resending a model after a flaky network, I get "already
@@ -30,8 +29,6 @@ same source id, and the views and histories answer under it as before.
 - As a tool author, I name my protocol version and am told the supported
 range when mine is outside it, instead of parsing an error meant for another
 shape.
-- As the operator of a long-lived server, days of updates do not exhaust
-memory without a rebuild.
 
 ## Out of scope
 - Write authorization and tokens (owner decision 2026-10-01: private network
@@ -39,6 +36,8 @@ only; madarch-toc later).
 - Digest-addressed fetching of artifacts (GET by digest), releases, manifests
 and product identity: the `live-graph` charter's outcome 2 (madarch-bwt).
 - Document bundles and portal building: outcome 3 (madarch-tah).
+- The update path's memory defect (madarch-8iw): owner decision 2026-10-07,
+removed from outcome 1 and deferred.
 
 ## Preserved contracts
 - server/view: one view of an element at a depth, as Mermaid or LikeC4 text, is unchanged.
@@ -56,7 +55,6 @@ and product identity: the `live-graph` charter's outcome 2 (madarch-bwt).
 - server/explains: test, registry-integrity
 - server/survives-restart: test, registry-integrity
 - server/sources: test, registry-integrity
-- graph-queries/bounded-update-memory: test, registry-integrity
 
 ## Design and decisions
 

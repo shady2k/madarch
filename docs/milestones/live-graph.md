@@ -16,15 +16,12 @@ have stable opaque ids independent of repository URLs; published artifacts
 are addressed by canonical digests; uploads are idempotent (the same
 source+commit answers already stored) and immutable (the same source+commit
 with different bytes is refused, naming the difference); the protocol
-carries version compatibility and refuses outside its supported range. The
-update path's known memory defect is closed (madarch-8iw: about 115 KB per
-update, the buffer pool full after about 5000 updates without a rebuild).
+carries version compatibility and refuses outside its supported range.
    *Check:* through a real server on a scratch data folder: resending
 identical bytes answers already stored and changes nothing; the same
 source+commit with different bytes is refused; a client naming an
 unsupported protocol version is refused with the supported range; ids
-survive a source rename; a stream of thousands of updates without a rebuild
-holds memory flat under the existing 400 MB bound.
+survive a source rename.
 2. **Publish a product release over two sources** (madarch-bwt).
 `product.yaml` names the product's member sources and the corpus custody
 (today the single repository's `docs/product/`, movable later without
@@ -64,6 +61,11 @@ full graph merging beyond the contract boundary; serving agents over MCP
 (`[[term:…]]` references, alias linting, local namespaces), a pre-commit
 hook installer, polished skill packaging.
 - Pull-request comments on the git hosts.
+- The update path's memory defect (madarch-8iw: about 115 KB per update,
+the buffer pool full after about 5000 updates without a rebuild). Owner
+decision 2026-10-07: removed from outcome 1 and deferred, since nothing in
+this milestone waits on it; revisit before outcome 3 starts, as a server fed
+by CI reaches the bound within days.
 
 ## Scope decisions
 
@@ -71,8 +73,7 @@ hook installer, polished skill packaging.
 madarch-1xq (bug: temporary folders left behind by test suites),
 madarch-06n, madarch-str (tooling chores).
 - Finding budget 5, the config key `findingBudget` (the MVP absorbed
-exactly 5). The memory defect madarch-8iw is planned work of outcome 1,
-not a finding.
+exactly 5).
 
 ## Next horizon
 
