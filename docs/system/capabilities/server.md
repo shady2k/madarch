@@ -112,25 +112,63 @@ query engines from the stored histories.
 - When: the server is stopped and started again on the same data folder
 - Then: the same request gets byte-identical text
 
+## Requirement: identities — Every source has a stable server-assigned id, surviving a rename
+When a source is first sent, the server shall assign it an opaque id that no
+later send, rename or restart changes. `GET /sources` shall list each source
+with its id beside its name. A repository renamed and sent under its new name
+shall keep the same id once the rename is recorded as a claim, and the server
+shall never hold two ids for one repository.
+
+### Scenario: id-is-stable
+- Given: nocx sent once
+- When: the sources are listed, and nocx is sent again after a restart
+- Then: both listings show the same id for nocx
+
+### Scenario: rename-keeps-identity
+- Given: nocx sent once, with its id recorded
+- When: the same repository is sent under a new name, with the rename claimed
+- Then: the source keeps its id, its histories and its view answers; the old name no longer creates a second source
+
+## Requirement: immutability — The same source and commit can be resent only with identical bytes
+When a send arrives for a source and commit the history already holds, the
+server shall answer already stored when the digest of the incoming model
+equals the digest of the stored one, changing nothing; and shall refuse the
+send otherwise, naming both digests and the source and commit, without
+changing what is stored.
+
+### Scenario: identical-bytes
+- Given: nocx's model stored at commit c1
+- When: the same model bytes are sent again for c1
+- Then: the answer is already stored and every stored answer is byte-identical
+
+### Scenario: different-bytes
+- Given: nocx's model stored at commit c1
+- When: different model bytes are sent for the same source and c1
+- Then: the send is refused, both digests are named, and what is stored is unchanged
+
+## Requirement: protocol — Every request names its protocol version, answered within a stated range
+Every request shall carry a protocol version, and every answer shall name the
+version the server speaks. A request whose version is outside the server's
+supported range shall be refused naming the range, before anything else is
+read from the request.
+
+### Scenario: version-too-old
+- Given: a server supporting versions 1 through 1
+- When: a request names version 0
+- Then: the request is refused naming the supported range, and nothing is stored
+
+### Scenario: version-named
+- Given: any successful request
+- When: the answer arrives
+- Then: the answer names the protocol version the server speaks
+
 ## Quality requirements
-- Performance: a view of the reference system answers in under one second
-  once its source's engine is built; storing a 1 000-element model takes under
-  five seconds.
-- Reliability and recovery: a sent model is stored in one transaction, all of
-  it or none; the query engines are derived and rebuilt from the histories on
-  start; memory levels off over days of requests (see graph-queries).
-- Security and data protection: no authentication in this milestone (decision
-  0012): the server listens on `127.0.0.1` unless told otherwise; it reads no
-  repository and makes no outbound call.
-- Data: every version sent is kept, append-only, in the data folder, one
-  history per source.
-- Usability: every refusal names the field at fault and what is accepted; a
-  source never sent names the command that sends one.
-- Operation: one log line per request on standard output (method, path,
-  status, source, milliseconds); a refusal also logs its message, a failure
-  of the server itself logs at error level with its cause. Runs under Bun
-  1.4.2 on macOS and Linux, started with a data folder, which it refuses to
-  start without.
+- Performance: a view of the reference system answers in under one second once its source's engine is built; storing a 1 000-element model takes under five seconds.
+- Reliability and recovery: a sent model is stored in one transaction, all of it or none; the query engines are derived and rebuilt from the histories on start; memory levels off over days of requests (see graph-queries).
+- Security and data protection: no authentication in this milestone (decision 0012): the server listens on `127.0.0.1` unless told otherwise; it reads no repository and makes no outbound call.
+- Data: every version sent is kept, append-only, in the data folder, one history per source.
+- Usability: every refusal names the field at fault and what is accepted; a source never sent names the command that sends one.
+- Operation: one log line per request on standard output (method, path, status, source, milliseconds); a refusal also logs its message, a failure of the server itself logs at error level with its cause. Runs under Bun 1.4.2 on macOS and Linux, started with a data folder, which it refuses to start without.
 
 ## Context
 Decisions 0007 (the server is the target; ingest is one idempotent operation,
