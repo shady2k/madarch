@@ -57,4 +57,4 @@ Its run's decisions are in `docs/changes/server-views/change.md`, "Design and de
   under the long-run test's 400 MB bound, so the server holds one engine per
   graph without a restartable process (madarch-ti6.1). The update path is
   not bounded yet: about 115 KB per update, the buffer pool full after about
-  5 000 updates without a rebuild (madarch-8iw, `live-graph`).
+  5 000 updates without a rebuild (madarch-8iw, the live-graph charter's exclusions).
