@@ -26,6 +26,11 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   relationship filters, so validated literals go into the query text; bound any
   statement cache. Transitive queries use `SHORTEST` with the per-hop filter
   (`*1..N (r, n | WHERE ...)`), never "match every path, then filter".
+- A check on an outside repository is a one-time walk at acceptance, recorded
+  in the acceptance record. Committed tests use only fixtures the project holds
+  or creates; none needs a checkout, commit or variable naming another
+  repository, and product messages and specs use neutral example names
+  (madarch-l2f: the server e2e test was pinned to the unrelated nocx).
 - Briefing workers: state the quality bar up front (every error with file, line
   and full path; no silently smaller result; code-point sorting; mutation run
   before the report), or review takes three or four rounds.
