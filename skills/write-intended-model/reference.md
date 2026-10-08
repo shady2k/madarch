@@ -271,6 +271,56 @@ entities:
     categories: []
 ```
 
+## Scenario
+
+A scenario is one use case written as an ordered walk over the model's
+relations: the goal and preconditions in prose, the element that initiates
+it, the capability requirements it realises, its main flow as steps, and
+any number of alternative flows. Fields:
+
+- `id` (required) — stable, like every id.
+- `name` — a readable name ("Place an order").
+- `description` — the goal and preconditions, in prose.
+- `actor` — the element that initiates the use case, by id; usually a
+  person or an external system.
+- `requirements` — the capability requirements the scenario realises, as
+  ids of the form `capability/requirement` (the same form change records
+  use), one list entry each. The loader checks only their form; whether a
+  requirement exists is the model check's question.
+- `steps` (required) — the main flow: an ordered list of steps, each with
+  an `id` (unique within the scenario, whatever its flow), the `relation`
+  it runs over (any relation of the model — coarse or a refinement, so a
+  scenario written early over coarse relations stays valid when they are
+  refined) and an optional `name` of what happens. A scenario with no step
+  is refused.
+- `alternatives` — alternative flows, each with an `id` (unique within the
+  scenario), `at` (the main-flow step it starts at), `when` (the condition
+  under which it is taken, in prose) and its own `steps`, shaped like the
+  main flow's. An alternative replaces the main flow from that step on;
+  rejoining it is not expressed. An alternative naming a step the main flow
+  does not have, or with no step, is refused.
+
+Steps and alternatives stay in the order written; scenarios are ordered by
+id in the compiled model.
+
+```yaml
+scenarios:
+  - id: place-order
+    name: Place an order
+    description: A signed-in customer orders the cart's contents.
+    actor: customer
+    requirements: [ordering/place-order]
+    steps:
+      - { id: s1, relation: checkout-places-order }
+      - { id: s2, relation: orders-publishes-placed, name: the order is announced }
+    alternatives:
+      - id: card-declined
+        at: s2
+        when: the payment is declined
+        steps:
+          - { id: d1, relation: checkout-shows-error }
+```
+
 ## The review report `madarch/review.md`
 
 The report stands beside the model. The model check reads its two tables by

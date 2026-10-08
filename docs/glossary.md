@@ -56,7 +56,7 @@ _Avoid_: direction (a data transfer's), publish or subscribe as its values
 
 **Data transfer**:
 Data moving within an interaction in one direction, forward or reverse, with its
-data categories.
+data categories and the data entities it carries.
 
 **Confidentiality**:
 How restricted data is (for example public, internal, confidential). Separate
@@ -66,6 +66,12 @@ from its categories.
 What kind of data it is (for example personal, payment-card). Data can have
 several.
 _Avoid_: classification (ambiguous between the two dimensions)
+
+**Data entity**:
+One named piece of data that crosses a relation (a session id, a user's name),
+classified by the model's data categories. `categories: []` is an answer: the
+entity carries nothing sensitive.
+_Avoid_: data field (a column of one table), attribute
 
 **Zone**:
 A boundary elements belong to other than their parent: a network segment, a
@@ -82,14 +88,23 @@ _Avoid_: stand (use environment)
 One point in a chain of states of the intended model, such as as-is, a
 transition stage or to-be, ordered by `after`. An element or relation may start
 or end at a state; with none given it exists in all of them.
-_Avoid_: version (that is a commit of the model), scenario (reserved)
+_Avoid_: version (that is a commit of the model)
 
 **Binding**:
 How an interaction reaches its interface in one environment: the variable the
 consumer reads and the value it has there (topic name, host, port).
 
 **Flow**:
-An ordered sequence of interactions that tells one scenario end to end.
+An ordered sequence of interactions that tells one scenario end to end. A
+scenario's main flow and each of its alternatives are flows, written as steps
+over the model's relations.
+
+**Scenario**:
+One use case written in the model as an ordered walk over its relations: an
+actor, the capability requirements it realises, a main flow of steps and
+alternative flows that replace it from a step on. Its diagrams, data flows and
+status are computed from it, not written.
+_Avoid_: use case (the words around it, not the model's construct), user story
 
 **Rule**:
 A constraint the graph must satisfy, such as "payment-card data does not leave

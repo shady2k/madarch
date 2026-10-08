@@ -1,4 +1,4 @@
-import type { Binding, Category, DataEntity, Element, Environment, Evidence, Interface, IntendedModel, Relation, Transfer, ValidatedModel, Zone } from './schema.js';
+import type { Binding, Category, DataEntity, Element, Environment, Evidence, Interface, IntendedModel, Relation, Scenario, ScenarioAlternative, ScenarioStep, Transfer, ValidatedModel, Zone } from './schema.js';
 import { DEFAULT_STATE_ID } from './schema.js';
 import { computeAncestors, computeStateOrder, normalizeContract } from './validate.js';
 import { computeElementPresence, computeRelationPresence, formatEnvironments, type Presence } from './presence.js';
@@ -14,6 +14,9 @@ import type {
   CompiledInterface,
   CompiledModel,
   CompiledRelation,
+  CompiledScenario,
+  CompiledScenarioAlternative,
+  CompiledScenarioStep,
   CompiledState,
   CompiledTransfer,
   CompiledZone,
@@ -29,6 +32,9 @@ export type {
   CompiledInterface,
   CompiledModel,
   CompiledRelation,
+  CompiledScenario,
+  CompiledScenarioAlternative,
+  CompiledScenarioStep,
   CompiledState,
   CompiledTransfer,
   CompiledZone,
@@ -71,14 +77,22 @@ export function compileModel(model: ValidatedModel): CompiledModel {
     environments: [...model.environments].sort((a, b) => byCodePoint(a.id, b.id)).map(compileEnvironment),
     states: compileStates(model, stateOrder),
   };
-  // `entities` is written only when the model declares at least one, so a
-  // model written before data entities existed compiles to the very bytes
-  // it did (the change's preserved contract), and a reader never meets an
-  // empty list it must read as "none" — absence says that. The schema
-  // keeps the field optional for exactly this reason; ordered by id like
-  // every other kind.
+  // `entities` is written only when the model declares at least one, and
+  // only until madarch-hnq.1.4 makes it always present like every other
+  // top-level array: the model history does not know the new kinds yet, so
+  // a compiled model holding them would not read back as compiled. Until
+  // it does, absence reads as none. The schema keeps the field optional
+  // for exactly this reason; ordered by id like every other kind.
   if (model.entities.length > 0) {
     compiled.entities = [...model.entities].sort((a, b) => byCodePoint(a.id, b.id)).map(compileEntity);
+  }
+  // The same temporary rule as `entities` above, and for the same reason
+  // (madarch-hnq.1.4 makes both arrays always present): the model history
+  // does not know the new kinds yet, so a compiled model holding them
+  // would not read back as compiled. Until it does, `scenarios` is written
+  // only when the model declares at least one.
+  if (model.scenarios.length > 0) {
+    compiled.scenarios = [...model.scenarios].sort((a, b) => byCodePoint(a.id, b.id)).map(compileScenario);
   }
   return compiled;
 }
@@ -216,6 +230,32 @@ function compileEntity(entity: DataEntity): CompiledEntity {
   if (entity.description !== undefined) compiled.description = entity.description;
   if (entity.evidence !== undefined) compiled.evidence = rebuildEvidence(entity.evidence);
   return compiled;
+}
+
+/**
+ * A compiled scenario. Scenarios are ordered by id; steps and alternatives
+ * stay exactly as written, the order the use case runs in. Requirements are
+ * kept as written — whether each resolves is the model check's question,
+ * recorded there, not here.
+ */
+function compileScenario(scenario: Scenario): CompiledScenario {
+  const compiled: CompiledScenario = { id: scenario.id, steps: (scenario.steps ?? []).map(compileScenarioStep) };
+  if (scenario.requirements !== undefined) compiled.requirements = [...scenario.requirements];
+  if (scenario.name !== undefined) compiled.name = scenario.name;
+  if (scenario.description !== undefined) compiled.description = scenario.description;
+  if (scenario.actor !== undefined) compiled.actor = scenario.actor;
+  if (scenario.alternatives !== undefined) compiled.alternatives = scenario.alternatives.map(compileScenarioAlternative);
+  return compiled;
+}
+
+function compileScenarioStep(step: ScenarioStep): CompiledScenarioStep {
+  const compiled: CompiledScenarioStep = { id: step.id, relation: step.relation };
+  if (step.name !== undefined) compiled.name = step.name;
+  return compiled;
+}
+
+function compileScenarioAlternative(alternative: ScenarioAlternative): CompiledScenarioAlternative {
+  return { id: alternative.id, at: alternative.at, when: alternative.when, steps: (alternative.steps ?? []).map(compileScenarioStep) };
 }
 
 function compileZone(zone: Zone): CompiledZone {

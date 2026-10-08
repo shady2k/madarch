@@ -1,0 +1,19 @@
+version: 1
+
+elements: []
+
+scenarios:
+  - id: place-order
+    name: Place an order
+    description: A signed-in customer orders the cart's contents.
+    actor: customer
+    requirements: [ordering/place-order]
+    steps:
+      - { id: s1, relation: checkout-places-order }
+      - { id: s2, relation: orders-publishes-placed, name: the order is announced }
+    alternatives:
+      - id: card-declined
+        at: s2
+        when: the payment is declined
+        steps:
+          - { id: d1, relation: checkout-shows-error }

@@ -417,6 +417,121 @@
         "additionalProperties": false
       }
     },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "name": {
+            "type": "string",
+            "description": "A readable name of the use case (\"Place an order\"), the label a reader sees."
+          },
+          "description": {
+            "type": "string",
+            "description": "The use case's goal and preconditions, in prose."
+          },
+          "actor": {
+            "type": "string",
+            "description": "The element that initiates the use case, by id; usually a person or an external system."
+          },
+          "requirements": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The capability requirements the scenario realises, as ids of the form `capability/requirement`. The loader checks only their form."
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "relation"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "relation": {
+                  "type": "string",
+                  "description": "The relation the step runs over, by id: any relation of the model, coarse or a refinement."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "What happens at this step, in a few words (\"the order is announced\"); the label a reader sees."
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "The main flow: an ordered list of steps, each over a relation of the model at any level. Optional only so the loader can refuse a scenario with no step naming the scenario; a valid scenario always has at least one."
+          },
+          "alternatives": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "at",
+                "when"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "at": {
+                  "type": "string",
+                  "description": "The main-flow step the alternative starts at, by step id."
+                },
+                "when": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The condition under which the alternative is taken, in prose (\"the payment is declined\")."
+                },
+                "steps": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "relation"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                      },
+                      "relation": {
+                        "type": "string",
+                        "description": "The relation the step runs over, by id: any relation of the model, coarse or a refinement."
+                      },
+                      "name": {
+                        "type": "string",
+                        "description": "What happens at this step, in a few words (\"the order is announced\"); the label a reader sees."
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "description": "The alternative's own steps, in order; never empty in a valid model."
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "Alternative flows, each replacing the main flow from the step its `at` names on."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
     "zones": {
       "type": "array",
       "items": {

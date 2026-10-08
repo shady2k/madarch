@@ -16,6 +16,7 @@ const intended: IntendedModel = {
   relations: [],
   categories: [],
   entities: [],
+  scenarios: [],
   zones: [],
   environments: [],
   states: [],

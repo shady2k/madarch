@@ -1,6 +1,6 @@
 import { messagingOf } from './contracts.js';
 import type { ModelError } from './errors.js';
-import { DEFAULT_STATE_ID, ID_PATTERN, type Category, type DataEntity, type Element, type Environment, type Evidence, type Interface, type Relation, type State, type Zone } from './schema.js';
+import { DEFAULT_STATE_ID, ID_PATTERN, type Category, type DataEntity, type Element, type Environment, type Evidence, type Interface, type Relation, type Scenario, type ScenarioAlternative, type ScenarioStep, type State, type Zone } from './schema.js';
 import { computeElementPresence, computeRelationPresence, type Presence } from './presence.js';
 import { resolveGeneralZones, resolveZonesInEnvironment } from './zones.js';
 import { segmentsToPath, type PathSegment } from './yaml-position.js';
@@ -90,6 +90,56 @@ export interface PositionedEntity {
   evidenceLines: number[];
 }
 
+/**
+ * A step of a scenario's main flow, with the lines its own checks report
+ * by: the step item's line, and its `id`'s and `relation`'s.
+ */
+export interface PositionedScenarioStep {
+  step: ScenarioStep;
+  line: number;
+  idLine: number;
+  relationLine: number;
+}
+
+/**
+ * One alternative of a scenario, with where it was written: the line of
+ * its item, its `id`, its `at`, its `when`, its `steps` key, and each of
+ * its own steps as the main flow's are held.
+ */
+export interface PositionedScenarioAlternative {
+  alternative: ScenarioAlternative;
+  line: number;
+  idLine: number;
+  atLine: number;
+  whenLine: number;
+  /** The line of the alternative's own `steps` key, where a missing-steps refusal reports. */
+  stepsLine: number;
+  stepsLines: PositionedScenarioStep[];
+}
+
+/**
+ * A scenario with where it was written: the line of its item, its `id` and
+ * its `actor`, of each `requirements` entry (in order), of each of its
+ * steps, and of each of its alternatives and their own fields. The next
+ * task (madarch-hnq.1.3), which resolves a scenario's requirements in the
+ * model check, reports by these.
+ */
+export interface PositionedScenario {
+  scenario: Scenario;
+  file: string;
+  /** This scenario's index within its own file's `scenarios` array. */
+  index: number;
+  line: number;
+  idLine: number;
+  actorLine: number;
+  /** One line per requirement, in order. */
+  requirementsLines: number[];
+  /** The line of the scenario's `steps` key, where a missing-steps refusal reports. */
+  stepsLine: number;
+  stepsLines: PositionedScenarioStep[];
+  alternativesLines: PositionedScenarioAlternative[];
+}
+
 export interface PositionedZone {
   zone: Zone;
   file: string;
@@ -163,6 +213,7 @@ export interface PositionedModel {
   relations: PositionedRelation[];
   categories: PositionedCategory[];
   entities: PositionedEntity[];
+  scenarios: PositionedScenario[];
   zones: PositionedZone[];
   environments: PositionedEnvironment[];
   states: PositionedState[];
@@ -206,6 +257,7 @@ export function validateModel(positioned: PositionedModel, extraKnownIds: ExtraK
     ...checkIdSyntax(positioned.relations.map((r) => ({ id: r.relation.id, file: r.file, line: r.idLine, segments: ['relations', r.index, 'id'] })), 'relation'),
     ...checkIdSyntax(positioned.categories.map((c) => ({ id: c.category.id, file: c.file, line: c.idLine, segments: ['categories', c.index, 'id'] })), 'category'),
     ...checkIdSyntax(positioned.entities.map((e) => ({ id: e.entity.id, file: e.file, line: e.idLine, segments: ['entities', e.index, 'id'] })), 'entity'),
+    ...checkIdSyntax(positioned.scenarios.map((s) => ({ id: s.scenario.id, file: s.file, line: s.idLine, segments: ['scenarios', s.index, 'id'] })), 'scenario'),
     ...checkIdSyntax(positioned.zones.map((z) => ({ id: z.zone.id, file: z.file, line: z.idLine, segments: ['zones', z.index, 'id'] })), 'zone'),
     ...checkIdSyntax(positioned.environments.map((e) => ({ id: e.environment.id, file: e.file, line: e.idLine, segments: ['environments', e.index, 'id'] })), 'environment'),
     ...checkIdSyntax(positioned.states.map((s) => ({ id: s.state.id, file: s.file, line: s.idLine, segments: ['states', s.index, 'id'] })), 'state'),
@@ -217,6 +269,8 @@ export function validateModel(positioned: PositionedModel, extraKnownIds: ExtraK
     ...checkDuplicateIds(positioned.relations.map((r) => ({ id: r.relation.id, file: r.file, line: r.idLine, segments: ['relations', r.index, 'id'] })), 'relation'),
     ...checkDuplicateIds(positioned.categories.map((c) => ({ id: c.category.id, file: c.file, line: c.idLine, segments: ['categories', c.index, 'id'] })), 'category'),
     ...checkDuplicateIds(positioned.entities.map((e) => ({ id: e.entity.id, file: e.file, line: e.idLine, segments: ['entities', e.index, 'id'] })), 'entity'),
+    ...checkDuplicateIds(positioned.scenarios.map((s) => ({ id: s.scenario.id, file: s.file, line: s.idLine, segments: ['scenarios', s.index, 'id'] })), 'scenario'),
+    ...checkScenarios(positioned.scenarios),
     ...checkDuplicateIds(positioned.zones.map((z) => ({ id: z.zone.id, file: z.file, line: z.idLine, segments: ['zones', z.index, 'id'] })), 'zone'),
     ...checkDuplicateIds(positioned.environments.map((e) => ({ id: e.environment.id, file: e.file, line: e.idLine, segments: ['environments', e.index, 'id'] })), 'environment'),
     ...checkDuplicateIds(positioned.states.map((s) => ({ id: s.state.id, file: s.file, line: s.idLine, segments: ['states', s.index, 'id'] })), 'state'),
@@ -460,6 +514,158 @@ function checkDuplicateIds(items: IdLike[], kind: string): ModelError[] {
   return errors;
 }
 
+/**
+ * The form a requirement id takes: `capability/requirement`, each part a
+ * non-empty id of letters, digits, dots, dashes and underscores (the form
+ * change records already use). Only the form is checked here; whether the
+ * requirement exists is the model check's question (madarch-hnq.1.3), which
+ * reads the repository's capability specs — the loader reads only the
+ * model's folder.
+ */
+const REQUIREMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/**
+ * Checks a scenario's own rules (intended-model/scenarios): step ids and
+ * alternative ids are unique within their scenario, an alternative starts
+ * at a step of the main flow, a requirement id is of the form
+ * `capability/requirement`, and a scenario and an alternative each have at
+ * least one step. Every error names the scenario, its file and line.
+ */
+function checkScenarios(positioned: PositionedScenario[]): ModelError[] {
+  const errors: ModelError[] = [];
+
+  for (const entry of positioned) {
+    const { scenario } = entry;
+    const base: PathSegment[] = ['scenarios', entry.index];
+    const by = (what: string): string => `scenario "${scenario.id}"'s ${what}`;
+
+    errors.push(
+      ...checkDuplicateWithin(
+        (scenario.steps ?? []).map((step) => step.id),
+        (stepIndex) => ({
+          file: entry.file,
+          line: entry.stepsLines[stepIndex]!.idLine,
+          segments: [...base, 'steps', stepIndex, 'id'] as PathSegment[],
+        }),
+        scenario.id,
+        'step',
+      ),
+    );
+
+    (scenario.requirements ?? []).forEach((requirementId, requirementIndex) => {
+      if (REQUIREMENT_ID_PATTERN.test(requirementId)) return;
+      errors.push(
+        errorAt(
+          entry.file,
+          entry.requirementsLines[requirementIndex] ?? entry.line,
+          [...base, 'requirements', requirementIndex],
+          `${by(`requirement "${requirementId}"`)} is not named as "capability/requirement": the capability, a slash, then the requirement id`,
+        ),
+      );
+    });
+
+    if ((scenario.steps ?? []).length === 0) {
+      errors.push(
+        errorAt(
+          entry.file,
+          entry.stepsLine,
+          [...base, 'steps'],
+          `${by('main flow')} has no step: a scenario runs somewhere, so give it at least one step`,
+        ),
+      );
+    }
+
+    errors.push(
+      ...checkDuplicateWithin(
+        entry.alternativesLines.map((alternative) => alternative.alternative.id),
+        (alternativeIndex) => ({
+          file: entry.file,
+          line: entry.alternativesLines[alternativeIndex]!.idLine,
+          segments: [...base, 'alternatives', alternativeIndex, 'id'] as PathSegment[],
+        }),
+        scenario.id,
+        'alternative',
+      ),
+    );
+
+    const mainStepIds = new Set((scenario.steps ?? []).map((step) => step.id));
+    entry.alternativesLines.forEach((alternative, alternativeIndex) => {
+      const alt = alternative.alternative;
+      const altBase: PathSegment[] = [...base, 'alternatives', alternativeIndex];
+      const naming = (what: string): string => `scenario "${scenario.id}"'s alternative "${alt.id}" ${what}`;
+
+      if (!mainStepIds.has(alt.at)) {
+        errors.push(
+          errorAt(
+            entry.file,
+            alternative.atLine,
+            [...altBase, 'at'],
+            `${naming(`names "at" as "${alt.at}"`)}: not a step of the main flow`,
+          ),
+        );
+      }
+
+      errors.push(
+        ...checkDuplicateWithin(
+          (alt.steps ?? []).map((step) => step.id),
+          (stepIndex) => ({
+            file: entry.file,
+            line: alternative.stepsLines[stepIndex]!.idLine,
+            segments: [...altBase, 'steps', stepIndex, 'id'] as PathSegment[],
+          }),
+          scenario.id,
+          'step',
+        ),
+      );
+
+      if ((alt.steps ?? []).length === 0) {
+        errors.push(
+          errorAt(
+            entry.file,
+            alternative.stepsLine,
+            [...altBase, 'steps'],
+            `${naming('has no step')}: an alternative runs somewhere, so give it at least one step`,
+          ),
+        );
+      }
+    });
+  }
+
+  return errors;
+}
+
+/** The line and path of one item of one list, for the duplicate check inside a scenario. */
+interface Placed {
+  file: string;
+  line: number;
+  segments: PathSegment[];
+}
+
+/**
+ * `checkDuplicateIds` for the ids inside one scenario (a scenario's own
+ * steps, or one alternative's own steps): unique within that list, and the
+ * error names the scenario the list belongs to.
+ */
+function checkDuplicateWithin(ids: readonly string[], placedAt: (index: number) => Placed, scenarioId: string, kind: string): ModelError[] {
+  const byId = new Map<string, number[]>();
+  ids.forEach((id, index) => {
+    const group = byId.get(id);
+    if (group) group.push(index);
+    else byId.set(id, [index]);
+  });
+
+  const errors: ModelError[] = [];
+  for (const [id, indexes] of byId) {
+    if (indexes.length < 2) continue;
+    for (const index of indexes) {
+      const at = placedAt(index);
+      const others = indexes.filter((other) => other !== index).map((other) => placedAt(other)).map((other) => `${other.file}:${other.line}`).join(', ');
+      errors.push(errorAt(at.file, at.line, at.segments, `${kind} id "${id}" is used more than once in scenario "${scenarioId}"; also written at ${others}`));
+    }
+  }
+  return errors;
+}
+
 function checkReferences(positioned: PositionedModel, extraKnownIds: ExtraKnownIds): ModelError[] {
   const errors: ModelError[] = [];
   const elementIds = new Set([...positioned.elements.map((e) => e.element.id), ...extraKnownIds.elements]);
@@ -642,6 +848,36 @@ function checkReferences(positioned: PositionedModel, extraKnownIds: ExtraKnownI
     if (relation.until !== undefined && !stateIds.has(relation.until)) {
       errors.push(errorAt(entry.file, entry.untilLine, [...base, 'until'], `relation "${relation.id}" names state "${relation.until}", which does not exist`));
     }
+  }
+
+  for (const entry of positioned.scenarios) {
+    const { scenario } = entry;
+    const base: PathSegment[] = ['scenarios', entry.index];
+    if (scenario.actor !== undefined && !elementIds.has(scenario.actor)) {
+      errors.push(
+        errorAt(entry.file, entry.actorLine, [...base, 'actor'], `scenario "${scenario.id}" names actor "${scenario.actor}", which does not exist`),
+      );
+    }
+    const stepError = (step: { id: string; relation: string }, stepBase: PathSegment[], stepLine: number, flow: string): void => {
+      if (!relationIds.has(step.relation)) {
+        errors.push(
+          errorAt(
+            entry.file,
+            stepLine,
+            [...stepBase, 'relation'],
+            `scenario "${scenario.id}"'s ${flow} "${step.id}" names relation "${step.relation}", which does not exist`,
+          ),
+        );
+      }
+    };
+    entry.stepsLines.forEach((step, stepIndex) => {
+      stepError(step.step, [...base, 'steps', stepIndex], step.relationLine, 'step');
+    });
+    entry.alternativesLines.forEach((alternative, alternativeIndex) => {
+      alternative.stepsLines.forEach((step, stepIndex) => {
+        stepError(step.step, [...base, 'alternatives', alternativeIndex, 'steps', stepIndex], step.relationLine, `alternative "${alternative.alternative.id}"'s step`);
+      });
+    });
   }
 
   return errors;
