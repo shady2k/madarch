@@ -1,13 +1,16 @@
-# Review: the madarch repository at commit f556d016491ce8f8abcda8afdc12ed4cb20d4329
+# Review: the madarch repository at commit 14f9156817d95351b49401af893d8c96b1138dec
 
 This model was written the way `write-intended-model` prescribes: the
 documents first, each claim checked in the code at f556d016491ce8f8abcda8afdc12ed4cb20d4329 (the base of the
 branch this model was written on), every element, interface and relation
 evidenced at that commit. The run's contract is
-`docs/changes/use-cases-data-entities/change.md`: this model carries
-elements, interfaces and relations only; the scenarios and data entities
-of that change arrive with its later tasks and are not written here,
-because the loader at this commit does not read them.
+`docs/changes/use-cases-data-entities/change.md`: its scenarios arrived
+with its later tasks — the reference system's data entities with
+madarch-hnq.2.1, this repository's own scenarios with madarch-hnq.2.3 in
+`madarch/scenarios.yaml`. Evidence and claims whose files changed by that
+work were re-read at 14f9156817d95351b49401af893d8c96b1138dec, the tip this task wrote on,
+and re-pinned there; the rest stand as they were read at
+f556d016491ce8f8abcda8afdc12ed4cb20d4329.
 
 ## Claims
 
@@ -33,16 +36,16 @@ because the loader at this commit does not read them.
 | Two modes exist: local (one repository, an embedded graph, a wiki built in place, a local MCP for agents) and a server | docs/vision.md | 145-147 | f556d016491ce8f8abcda8afdc12ed4cb20d4329 | 2f0c1d1cb8c1e05c7e22b7f75e3b04c13d9c3aa9 | local: scripts/wiki.ts and src/wiki/build.ts build a site in place; server: scripts/serve.ts; a local MCP exists nowhere in the code | planned | wiki |
 | Answers are served to people and agents over HTTP and MCP; diagrams come through frontend plugins (Mermaid, LikeC4, graph databases) | docs/vision.md | 148-150 | f556d016491ce8f8abcda8afdc12ed4cb20d4329 | 2f0c1d1cb8c1e05c7e22b7f75e3b04c13d9c3aa9 | HTTP: src/server/http.ts:169-174; Mermaid and LikeC4: src/render/; MCP: none; graph databases: none | planned | server-views |
 | madarch is deployed as one Docker image with no outbound calls at runtime | docs/vision.md | 176-177 | f556d016491ce8f8abcda8afdc12ed4cb20d4329 | 2f0c1d1cb8c1e05c7e22b7f75e3b04c13d9c3aa9 | no Dockerfile or image build anywhere in the repository | planned | — |
-| The model check is `scripts/check-model.ts`, the local command that checks a repository's intended model against the repository | docs/glossary.md | 182-186 | f556d016491ce8f8abcda8afdc12ed4cb20d4329 | d2016e46cc8eb8ad2bb2afe26bfacd8af0281813 | scripts/check-model.ts:1-13, src/check/model-check.ts:621 | confirmed | model-check |
-| The wiki is `scripts/wiki.ts`, the static site generated from a repository's compiled model and its own documents, built by Zensical or Starlight from the template in `wiki/starlight/` | docs/glossary.md | 204-209 | f556d016491ce8f8abcda8afdc12ed4cb20d4329 | d2016e46cc8eb8ad2bb2afe26bfacd8af0281813 | scripts/wiki.ts:11, src/wiki/build.ts:274, wiki/starlight/package.json:1-13 | confirmed | wiki |
-| An extraction plugin is a separate process that reads a source and emits facts over the plugin protocol | docs/glossary.md | 159-160 | f556d016491ce8f8abcda8afdc12ed4cb20d4329 | d2016e46cc8eb8ad2bb2afe26bfacd8af0281813 | no plugin host or protocol anywhere in the code; decision 0004 defers plugins | planned | — |
-| An output plugin is a separate process that renders the compiled model; it is not built yet and the renderer does this in process | docs/glossary.md | 167-168 | f556d016491ce8f8abcda8afdc12ed4cb20d4329 | d2016e46cc8eb8ad2bb2afe26bfacd8af0281813 | src/render/ holds the in-process renderer; no output plugin exists, as the glossary itself says | confirmed | renderer |
-| The renderer is the in-process code that turns views into text a frontend reads (Mermaid pages, a LikeC4 workspace), and the server calls the same renderer for a view on request | docs/glossary.md | 162-165 | f556d016491ce8f8abcda8afdc12ed4cb20d4329 | d2016e46cc8eb8ad2bb2afe26bfacd8af0281813 | src/render/view-set.ts:90, src/render/one-view.ts:101, src/server/http.ts:231-260 | confirmed | renderer |
-| A source is named by its origin remote as host and path | docs/glossary.md | 107-108 | f556d016491ce8f8abcda8afdc12ed4cb20d4329 | d2016e46cc8eb8ad2bb2afe26bfacd8af0281813 | src/send/send-model.ts:114-135 (sourceNameFromRemote) | confirmed | send-command |
-| A diagram tab is one format of a wiki page's view — LikeC4, Mermaid, or archify drawn by the renderer kept in `vendor/archify/` | docs/glossary.md | 211-212 | f556d016491ce8f8abcda8afdc12ed4cb20d4329 | d2016e46cc8eb8ad2bb2afe26bfacd8af0281813 | src/wiki/build.ts:186-187,250-253, src/wiki/archify.ts:1-24 | confirmed | wiki |
+| The model check is `scripts/check-model.ts`, the local command that checks a repository's intended model against the repository | docs/glossary.md | 199-202 | 14f9156817d95351b49401af893d8c96b1138dec | fb34e03bee2f9bff2a089d048c8a53ad09670538 | scripts/check-model.ts:1-13, src/check/model-check.ts:621 | confirmed | model-check |
+| The wiki is `scripts/wiki.ts`, the static site generated from a repository's compiled model and its own documents, built by Zensical or Starlight from the template in `wiki/starlight/` | docs/glossary.md | 221-226 | 14f9156817d95351b49401af893d8c96b1138dec | fb34e03bee2f9bff2a089d048c8a53ad09670538 | scripts/wiki.ts:11, src/wiki/build.ts:274, wiki/starlight/package.json:1-13 | confirmed | wiki |
+| An extraction plugin is a separate process that reads a source and emits facts over the plugin protocol | docs/glossary.md | 176-177 | 14f9156817d95351b49401af893d8c96b1138dec | fb34e03bee2f9bff2a089d048c8a53ad09670538 | no plugin host or protocol anywhere in the code; decision 0004 defers plugins | planned | — |
+| An output plugin is a separate process that renders the compiled model; it is not built yet and the renderer does this in process | docs/glossary.md | 184-186 | 14f9156817d95351b49401af893d8c96b1138dec | fb34e03bee2f9bff2a089d048c8a53ad09670538 | src/render/ holds the in-process renderer; no output plugin exists, as the glossary itself says | confirmed | renderer |
+| The renderer is the in-process code that turns views into text a frontend reads (Mermaid pages, a LikeC4 workspace), and the server calls the same renderer for a view on request | docs/glossary.md | 179-182 | 14f9156817d95351b49401af893d8c96b1138dec | fb34e03bee2f9bff2a089d048c8a53ad09670538 | src/render/view-set.ts:90, src/render/one-view.ts:101, src/server/http.ts:231-260 | confirmed | renderer |
+| A source is named by its origin remote as host and path | docs/glossary.md | 123-124 | 14f9156817d95351b49401af893d8c96b1138dec | fb34e03bee2f9bff2a089d048c8a53ad09670538 | src/send/send-model.ts:114-135 (sourceNameFromRemote) | confirmed | send-command |
+| A diagram tab is one format of a wiki page's view — LikeC4, Mermaid, or archify drawn by the renderer kept in `vendor/archify/` | docs/glossary.md | 228-230 | 14f9156817d95351b49401af893d8c96b1138dec | fb34e03bee2f9bff2a089d048c8a53ad09670538 | src/wiki/build.ts:186-187,250-253, src/wiki/archify.ts:1-24 | confirmed | wiki |
 | The knowledge-base milestone proves the product wiki on one repository in the local mode, with no server; the real repository is madarch itself | docs/milestones/knowledge-base.md | 6-13 | f556d016491ce8f8abcda8afdc12ed4cb20d4329 | e8ead09fe45561122825cc482bc9c8a6b43c39f4 | this model and its review are that proof's beginning; the wiki builds from a repository in place (src/wiki/build.ts:274) | confirmed | madarch |
 | Outcome 1 builds the document contract into one dependency-free file with a version, part of the model check, installed by the skill set | docs/milestones/knowledge-base.md | 16-24 | f556d016491ce8f8abcda8afdc12ed4cb20d4329 | e8ead09fe45561122825cc482bc9c8a6b43c39f4 | nothing in the code builds a contract file; the skill still lives at skills/write-intended-model | planned | — |
-| Outcome 2 declares data entities and use cases as scenarios in the model, traced to requirements, and the check refuses a broken scenario | docs/milestones/knowledge-base.md | 28-35 | f556d016491ce8f8abcda8afdc12ed4cb20d4329 | e8ead09fe45561122825cc482bc9c8a6b43c39f4 | the loader at this commit has no entities or scenarios (src/model/schema.ts:198-213) | planned | — |
+| Outcome 2 declares data entities and use cases as scenarios in the model, traced to requirements, and the check refuses a broken scenario | docs/milestones/knowledge-base.md | 28-35 | f556d016491ce8f8abcda8afdc12ed4cb20d4329 | e8ead09fe45561122825cc482bc9c8a6b43c39f4 | src/model/schema.ts:316-324 (ModelFile holds data entities and scenarios), src/model/validate.ts:581-622 (the loader checks a scenario's steps and alternatives), src/check/model-check.ts:268 (requirementFindings); this model's five scenarios exercise it | confirmed | — |
 | Outcome 3 reads the whole product in its wiki with backlinks, sequence diagrams, a data catalogue and open questions | docs/milestones/knowledge-base.md | 37-46 | f556d016491ce8f8abcda8afdc12ed4cb20d4329 | e8ead09fe45561122825cc482bc9c8a6b43c39f4 | src/wiki/pages.ts:514 holds element, interface, zone and category pages; no product section, use-case pages or backlinks | planned | — |
 | Outcome 4 indexes a repository's code into files, imports and symbols as madarch's own extraction plugin | docs/milestones/knowledge-base.md | 48-55 | f556d016491ce8f8abcda8afdc12ed4cb20d4329 | e8ead09fe45561122825cc482bc9c8a6b43c39f4 | no code index anywhere in the code | planned | — |
 | madarch owns the graph and its semantics; Mermaid, LikeC4 and graph databases are frontends that read the compiled model | docs/decisions/0001-graph-as-backend-with-replaceable-frontends.md | 22-26 | f556d016491ce8f8abcda8afdc12ed4cb20d4329 | 92578fed355f443d33891d7dd8e9840d7715f793 | src/model/compile.ts:33 (the compiled model), src/render/mermaid.ts:82, src/render/likec4.ts:152 | confirmed | renderer |
@@ -66,9 +69,9 @@ because the loader at this commit does not read them.
 | One set of wiki pages is built by either of two engines, Zensical or Starlight, chosen by --engine or MADARCH_WIKI_ENGINE, Zensical by default | docs/system/capabilities/wiki.md | 65-73 | f556d016491ce8f8abcda8afdc12ed4cb20d4329 | f6ad813153e83ebf34605df71392ab9d51248619 | src/wiki/build.ts:53,257,264, src/wiki/starlight.ts:226-274, src/wiki/zensical.ts:1-11 | confirmed | wiki |
 | Every source has a stable server-assigned id surviving a rename; POST /sources records a rename claim and the old name never grows a second source | docs/system/capabilities/server.md | 115-133 | f556d016491ce8f8abcda8afdc12ed4cb20d4329 | 346f252818e1b0d2f299ba040751e5d5a49aa9c8 | src/server/http.ts:169-174, src/server/sources.ts:1-44 | confirmed | server-rename |
 | The product's checks are `bun run check` and `bun test`; `MADARCH_SKIP_PERF=1 bun test` skips the performance tests | AGENTS.md | 12-14 | f556d016491ce8f8abcda8afdc12ed4cb20d4329 | cf1c644d127dc8f74116c6c06fc5b83288a3d6f2 | package.json:7-13 (scripts check, test); test/model-check-performance.test.ts honours MADARCH_SKIP_PERF | confirmed | test-suite |
-| A model declares data entities and use cases as scenarios whose steps follow the model's relations and name requirements; the check refuses a scenario whose relation or requirement is gone | docs/changes/use-cases-data-entities/change.md | 12-16 | f556d016491ce8f8abcda8afdc12ed4cb20d4329 | 793a04608867a54d8684470b6b11818381601fab | the loader at this commit accepts no entities or scenarios (src/model/schema.ts:198-213) | planned | — |
-| madarch gets its own model in `madarch/` at the repository root, written by the write-intended-model skill, with three to five main scenarios | docs/changes/use-cases-data-entities/change.md | 151-153 | f556d016491ce8f8abcda8afdc12ed4cb20d4329 | 793a04608867a54d8684470b6b11818381601fab | this model and its review; the scenarios arrive with the next task of this change | planned | madarch |
-| The reference system's model gains data entities | docs/changes/use-cases-data-entities/change.md | 151-153 | f556d016491ce8f8abcda8afdc12ed4cb20d4329 | 793a04608867a54d8684470b6b11818381601fab | examples/reference-system/madarch/*.yaml carry categories only at this commit | planned | reference-system |
+| A model declares data entities and use cases as scenarios whose steps follow the model's relations and name requirements; the check refuses a scenario whose relation or requirement is gone | docs/changes/use-cases-data-entities/change.md | 12-16 | 14f9156817d95351b49401af893d8c96b1138dec | 6b9d85af546c90ea72a4be44fc017b95b1e307d2 | the loader at 14f9156 reads them (src/model/schema.ts:316-324 (ModelFile holds data entities and scenarios), src/model/validate.ts:581-622 (the loader checks a scenario's steps and alternatives), src/check/model-check.ts:268 (requirementFindings)) | confirmed | the five scenarios of this model |
+| madarch gets its own model in `madarch/` at the repository root, written by the write-intended-model skill, with three to five main scenarios | docs/changes/use-cases-data-entities/change.md | 163-165 | 14f9156817d95351b49401af893d8c96b1138dec | 6b9d85af546c90ea72a4be44fc017b95b1e307d2 | madarch/scenarios.yaml holds the five scenarios; `bun scripts/check-model.ts .` passes on this checkout | confirmed | madarch |
+| The reference system's model gains data entities | docs/changes/use-cases-data-entities/change.md | 165 | 14f9156817d95351b49401af893d8c96b1138dec | 6b9d85af546c90ea72a4be44fc017b95b1e307d2 | examples/reference-system/madarch/*.yaml carry nine data entities (madarch-hnq.2.1); test/reference-system.test.ts exercises them | confirmed | reference-system |
 
 ## Undocumented
 
@@ -81,7 +84,7 @@ because the loader at this commit does not read them.
   archify renderer with `node`
   (`src/wiki/build.ts:250-253`, probed at `src/wiki/build.ts:328-330`).
   The glossary's diagram tab names the vendored renderer
-  (`docs/glossary.md:211-212`) but no document names Node as a
+  (`docs/glossary.md:228-230`) but no document names Node as a
   requirement of the wiki build (the vendored `vendor/archify/README.md`
   does, and it is upstream's own text). Modelled as the external `node`.
 - **The shady2k workflow tooling** (`.shady2k/`, `.githooks/`,
@@ -185,6 +188,7 @@ Questions a reader of the pages raises:
   the wiki is built on, given the build runs `bun install` and `node`
   inside it?
 - This model's own folder is excluded from the assignment and its pages
-  are not rendered into the repository: when the scenarios of this
-  change's later tasks land, should madarch's model become an input to
-  its own wiki build in CI, and where would that build's views live?
+  are not rendered into the repository: the scenarios of
+  `madarch/scenarios.yaml` now describe madarch's own use cases — should
+  madarch's model become an input to its own wiki build in CI, and where
+  would that build's views live?

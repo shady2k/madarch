@@ -1,0 +1,205 @@
+# madarch's own use cases, written as scenarios over the model's relations
+# (madarch-hnq.2.3). Each step runs over a relation landscape.yaml,
+# parts.yaml and relations.yaml already hold; each requirement named is a
+# heading `## Requirement: <id>` of docs/system/capabilities/<capability>.md,
+# checked by the model check (requirements-resolve). A scenario carries no
+# evidence of its own: its steps stand on relations that have theirs.
+version: 1
+
+elements: []
+
+scenarios:
+  - id: build-the-wiki
+    name: Build a repository's wiki
+    description: >-
+      A maintainer builds a repository's static wiki from its compiled model
+      and its own documents. Preconditions: the repository's model compiles,
+      and the tools the build runs are installed (Bun, uv and uvx, Node).
+    actor: maintainer
+    requirements:
+      - views/view-set
+      - wiki/diagrams
+      - wiki/documents
+      - wiki/engine
+      - wiki/links
+      - wiki/pages
+      - wiki/result
+    steps:
+      - id: s1
+        relation: maintainer-builds-wiki
+        name: "the wiki build is run on the repository"
+      - id: s2
+        relation: wiki-reads-format
+        name: "the repository's model is loaded and compiled"
+      - id: s3
+        relation: wiki-renders
+        name: "every view the pages show is rendered"
+      - id: s4
+        relation: wiki-generates-likec4
+        name: "the LikeC4 web component is generated"
+      - id: s5
+        relation: wiki-runs-archify-on-node
+        name: "the archify pages are rendered through Node"
+      - id: s6
+        relation: wiki-runs-zensical
+        name: "the site is built with the pinned Zensical"
+      - id: s7
+        relation: wiki-via-uvx
+        name: "Zensical runs through uvx"
+    alternatives:
+      - id: build-refused
+        at: s2
+        when: the model cannot be read
+        steps:
+          - id: d1
+            relation: wiki-reads-format
+            name: "the build stops, refused or failed, and says why"
+
+  - id: check-a-model
+    name: Check a repository's model
+    description: >-
+      A maintainer checks a repository's intended model against the
+      repository itself and reads the report. Preconditions: the repository
+      holds a madarch/ folder and its review report.
+    actor: maintainer
+    requirements:
+      - model-check/compiles
+      - model-check/evidence-resolves
+      - model-check/problems
+      - model-check/result
+      - model-check/staleness
+      - model-check/views
+    steps:
+      - id: s1
+        relation: maintainer-runs-check
+        name: "the model check runs on the repository"
+      - id: s2
+        relation: check-reads-format
+        name: "the model is loaded and compiled the way the server would"
+      - id: s3
+        relation: check-renders-views
+        name: "every view is rendered for reading"
+    alternatives:
+      - id: refused-model
+        at: s2
+        when: the model cannot be loaded or compiled
+        steps:
+          - id: d1
+            relation: check-reads-format
+            name: "the loader refuses it, naming its file and line"
+      - id: stale-evidence
+        at: s2
+        when: a piece of evidence names text that changed since it was read
+        steps:
+          - id: d2
+            relation: check-reads-format
+            name: "the report lists each stale item, its file and line, and still passes"
+
+  - id: send-a-model
+    name: Send a passing model to the server
+    description: >-
+      A maintainer sends a repository's compiled model to a running madarch
+      server. Preconditions: the model's check passes, and the server is
+      started with a data folder.
+    actor: maintainer
+    requirements:
+      - model-authoring/send
+      - model-history/lossless
+      - model-history/store-version
+      - server/send
+      - server/store
+    steps:
+      - id: s1
+        relation: send-runs-check
+        name: "the send command runs the model check first"
+      - id: s2
+        relation: send-reads-model
+        name: "the compiled model the check read is read again"
+      - id: s3
+        relation: send-checks-then-posts
+        name: "the passing model is posted with its source's name, commit and commit time"
+      - id: s4
+        relation: server-stores-sent
+        name: "the server stores it in the source's history"
+    alternatives:
+      - id: refused-model
+        at: s1
+        when: the check does not pass
+        steps:
+          - id: d1
+            relation: send-runs-check
+            name: "the command stops with the check's report and sends nothing"
+      - id: missing-server
+        at: s3
+        when: the server does not answer
+        steps:
+          - id: d2
+            relation: send-checks-then-posts
+            name: "the command stops with an error and nothing is sent"
+
+  - id: serve-a-view
+    name: Serve a view of a sent model
+    description: >-
+      A maintainer starts the model server, and whoever asks it — a person or
+      an agent — gets a view of a source the server holds, at a time and a
+      state. Preconditions: a model was sent to the server and stored.
+    actor: maintainer
+    requirements:
+      - graph-queries/as-of
+      - graph-queries/view
+      - server/protocol
+      - server/view
+      - views/likec4
+      - views/mermaid
+      - views/one-view
+    steps:
+      - id: s1
+        relation: maintainer-serves
+        name: "the server is started with the data folder it needs"
+      - id: s2
+        relation: server-answers-from-engine
+        name: "a view request is answered from the graph's engine"
+      - id: s3
+        relation: server-renders-answers
+        name: "one view per request, rendered as Mermaid or LikeC4 text"
+    alternatives:
+      - id: engine-rebuilt
+        at: s2
+        when: the graph's engine is missing or not current
+        steps:
+          - id: d1
+            relation: engine-builds-from-history
+            name: "the engine rebuilds from the history's assertions before the view is answered"
+
+  - id: write-a-model
+    name: Write a repository's model
+    description: >-
+      A coding agent describes a repository's architecture in its madarch/
+      folder with the write-intended-model skill. Preconditions: the
+      repository holds product documents and code the model's evidence can
+      name.
+    actor: coding-agent
+    requirements:
+      - model-authoring/checked
+      - model-authoring/documents-first
+      - model-authoring/evidence-rules
+      - model-authoring/review
+      - model-authoring/skill
+    steps:
+      - id: s1
+        relation: agent-writes-model
+        name: "the skill reads the repository's documents and code, and writes the model with evidence"
+      - id: s2
+        relation: skill-runs-check
+        name: "the skill finishes on the model check's report"
+    alternatives:
+      - id: check-failed
+        at: s2
+        when: the check reports an error or a problem
+        steps:
+          - id: d1
+            relation: agent-writes-model
+            name: "the skill amends what the check named"
+          - id: d2
+            relation: skill-runs-check
+            name: "the check runs again, until it is clean"

@@ -1,9 +1,11 @@
 # madarch's own intended model, written by the write-intended-model
 # skill (madarch-hnq.2.2). Every element, interface and relation carries
-# evidence at commit f556d016491c…, the branch's base; the review report beside
-# these files tells each document claim's verdict. This file holds the
-# landscape: the people, the outside tools the build reaches, and the
-# system itself; the other files hold the system's parts.
+# evidence at commit f556d016491c…, the branch's base; items whose file the
+# change's own work moved were re-read at 14f9156817d95351b49401af893d8c96b1138dec
+# (madarch-hnq.2.3). The review report beside these files tells each document
+# claim's verdict. This file holds the landscape: the people, the outside
+# tools the build reaches, and the system itself; the other files hold the
+# system's parts.
 version: 1
 
 zones:
@@ -66,8 +68,8 @@ elements:
         blob: e2f4ef44febdc394eac305b95f310828fd6a9988
       - file: src/adapters/sqlite-history.ts
         line: 1
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 799491573d00320518e5f9e7c4390ba0bc3fbb16
+        commit: 14f9156817d95351b49401af893d8c96b1138dec
+        blob: 9f325ee97e19a19a20f61553c601514a1430c31a
   - id: ladybugdb
     kind: external
     name: LadybugDB

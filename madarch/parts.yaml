@@ -48,8 +48,8 @@ elements:
       - file: docs/glossary.md
         line: 1
         endLine: 4
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: d2016e46cc8eb8ad2bb2afe26bfacd8af0281813
+        commit: 14f9156817d95351b49401af893d8c96b1138dec
+        blob: fb34e03bee2f9bff2a089d048c8a53ad09670538
 
   # ---- layer: the core ----
   - id: core
@@ -70,14 +70,14 @@ elements:
     technology: TypeScript, TypeBox, YAML
     evidence:
       - file: src/model/load.ts
-        line: 333
-        endLine: 342
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: f66164c5da1b6b293cffc3ea50cadfe2661f3fbe
+        line: 404
+        endLine: 412
+        commit: 14f9156817d95351b49401af893d8c96b1138dec
+        blob: 3316a69459a5e014733c40426475d95ed38a1cb6
       - file: src/model/compile.ts
-        line: 33
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: f22c6be36c7a9fceb428a89ca8743ba420020f10
+        line: 43
+        commit: 14f9156817d95351b49401af893d8c96b1138dec
+        blob: ddfc1098737943102e829ccf34e7865cf7ab35f7
 
   - id: history-store
     kind: store
@@ -86,13 +86,13 @@ elements:
     technology: TypeScript, bun:sqlite
     evidence:
       - file: src/adapters/sqlite-history.ts
-        line: 144
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 799491573d00320518e5f9e7c4390ba0bc3fbb16
+        line: 148
+        commit: 14f9156817d95351b49401af893d8c96b1138dec
+        blob: 9f325ee97e19a19a20f61553c601514a1430c31a
       - file: src/history/types.ts
-        line: 188
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 2a6644fe1f6ec11d80b4cb7f7d5328def4283f9d
+        line: 189
+        commit: 14f9156817d95351b49401af893d8c96b1138dec
+        blob: ac06eb0a9f71005ebb3a44dd7ce68be0a0f61170
 
   - id: query-engine
     kind: module
@@ -127,9 +127,9 @@ elements:
     parent: delivery
     evidence:
       - file: src/check/model-check.ts
-        line: 621
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: c7184c4d02377ea03f2a6b66b93a67e759f85fb0
+        line: 756
+        commit: 14f9156817d95351b49401af893d8c96b1138dec
+        blob: e12e513727a0b5ca8016184faa7e558d20afc425
       - file: scripts/check-model.ts
         line: 13
         commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
@@ -216,8 +216,8 @@ elements:
       - file: test/model-check.test.ts
         line: 1
         endLine: 6
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 9cfec8d2352ec304b3ba4ee491f70de1d5399d4d
+        commit: 14f9156817d95351b49401af893d8c96b1138dec
+        blob: e1a87806788dc3d09e6d1053db2bf0b0426b919a
       - file: test/git-env.ts
         line: 1
         endLine: 10
@@ -248,8 +248,8 @@ elements:
       - file: examples/reference-system/madarch/landscape.yaml
         line: 1
         endLine: 4
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 571f62a9f353144e9ad99e2b9ebd8973c6c1d758
+        commit: 14f9156817d95351b49401af893d8c96b1138dec
+        blob: fec16a0422556a3f0687e992d51c65bd5d9a1c15
       - file: scripts/render-views.ts
         line: 25
         endLine: 34
