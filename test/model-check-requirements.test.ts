@@ -337,6 +337,21 @@ describe('requirements-resolve', () => {
     });
   });
 
+  test('a heading inside an indented fenced code block is an example too', () => {
+    withRepo((repo) => {
+      const { commit, blob } = sourcesCommit(repo);
+      repo.write('docs/system/capabilities/server.md', ['# Server', '', '  ```markdown', '## Requirement: archive — An example heading', '  ```', ''].join('\n'));
+      repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/archive']));
+      repo.writeReview([], requirementsReview());
+      repo.commit('the model');
+
+      const report = checkModel(repo.path);
+
+      expect(report.outcome).toBe('failed');
+      expect(report.errors).toContainEqual(expect.objectContaining({ message: expect.stringContaining('has no requirement "archive"') }));
+    });
+  });
+
   test('a heading whose line ends with a carriage return satisfies the id', () => {
     withRepo((repo) => {
       const { commit, blob } = sourcesCommit(repo);

@@ -83,6 +83,56 @@ describe('the model check', () => {
       });
     });
 
+    test('an interface finding and a data entity finding each name their own path', () => {
+      withRepo((repo) => {
+        repo.write('src/web.ts', 'export const web = 1;\n');
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: web',
+          '    kind: service',
+          '    name: Web',
+          '',
+          'interfaces:',
+          '  - id: web-api',
+          '    provider: web',
+          '    contract: http::GET::/api',
+          '',
+          'entities:',
+          '  - id: session-id',
+          '    name: Session id',
+          '    categories: []',
+          '    evidence:',
+          '      - file: src/web.ts',
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/web.ts', 'web', '']]));
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.errors).toContainEqual(expect.objectContaining({ id: 'web-api', path: 'interfaces[0]' }));
+        expect(report.errors).toContainEqual(expect.objectContaining({ id: 'session-id', path: 'entities[0].evidence[0]' }));
+      });
+    });
+
+    test('a loader error about a whole file carries no path at all', () => {
+      withRepo((repo) => {
+        repo.writeModel('other.yml', 'version: 1\n');
+        repo.writeModel('model.yaml', ['version: 1', '', 'elements:', '  - id: web', '    kind: service', '    name: Web', ''].join('\n'));
+        repo.writeReview([], assigned([]));
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        const yml = report.errors.find((finding) => finding.file.endsWith('other.yml'));
+        expect(yml).toBeDefined();
+        expect(yml).not.toHaveProperty('path');
+      });
+    });
+
     test('a warning the loader reports keeps its full path in the report', () => {
       withRepo((repo) => {
         const yaml = ['version: 1', '', 'elements:', '  - id: web', '    kind: service', '    name: Web', '', 'relations:', '  - id: web-calls-core', '    from: web', '    to: web', ''].join('\n');
