@@ -160,6 +160,10 @@ describe('compiled shape, exhaustively (kills sort and optional-field mutants)',
 
     const catB = model?.categories.find((c) => c.id === 'cat-b')!;
     expect(Object.hasOwn(catB, 'name')).toBe(false);
+
+    const entityB = model?.entities!.find((e) => e.id === 'entity-b')!;
+    for (const key of ['name', 'description', 'evidence']) expect(Object.hasOwn(entityB, key)).toBe(false);
+    expect(entityB.categories).toEqual([]);
     const zoneB = model?.zones.find((z) => z.id === 'zone-b')!;
     expect(Object.hasOwn(zoneB, 'name')).toBe(false);
     const envB = model?.environments.find((e) => e.id === 'env-b')!;
@@ -240,6 +244,10 @@ describe('compiled shape, exhaustively (kills sort and optional-field mutants)',
       categories: [
         { id: 'cat-a', name: 'Category A' },
         { id: 'cat-b' },
+      ],
+      entities: [
+        { id: 'entity-a', name: 'Entity A', description: 'What entity A is', categories: ['cat-a'], evidence: [{ file: 'a.ts' }] },
+        { id: 'entity-b', categories: [] },
       ],
       zones: [
         { id: 'zone-a', kind: 'regulatory', name: 'Zone A' },

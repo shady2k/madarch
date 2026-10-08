@@ -1,0 +1,22 @@
+version: 1
+
+elements: []
+
+entities:
+  - id: order-number
+    name: Order number
+    categories: []
+  - id: login-attempt
+    description: One attempt to sign in, successful or not
+    categories: []
+
+relations:
+  - id: auth-publishes-login
+    name: publishes login events
+    from: auth-api
+    to: event-bus
+    transfers:
+      - direction: forward
+        confidentiality: confidential
+        categories: [personal]
+        entities: [user-name, session-id]

@@ -103,6 +103,32 @@ export const Category = Type.Object(
 );
 export type Category = Static<typeof Category>;
 
+/**
+ * A data entity: one named piece of data that crosses a relation (a
+ * session id, a user's name), classified by the model's own data
+ * categories — there is no second vocabulary (decision 0016).
+ */
+export const DataEntity = Type.Object(
+  {
+    id: Id,
+    name: Type.Optional(
+      Type.String({ description: 'A readable name of the piece of data ("Session id"), the label a reader sees.' }),
+    ),
+    description: Type.Optional(
+      Type.String({ description: 'What the piece of data is, in prose, when its name does not say it alone.' }),
+    ),
+    categories: Type.Optional(
+      Type.Array(Type.String(), {
+        description:
+          "The classification: ids of the model's data categories. An empty list is an answer (checked, of no category); the field left out entirely is warned about, so a legacy model still loads.",
+      }),
+    ),
+    evidence: Type.Optional(Type.Array(Evidence)),
+  },
+  { additionalProperties: false },
+);
+export type DataEntity = Static<typeof DataEntity>;
+
 export const Interface = Type.Object(
   {
     id: Id,
@@ -117,11 +143,27 @@ export type Interface = Static<typeof Interface>;
 export const TransferDirection = Type.Union([Type.Literal('forward'), Type.Literal('reverse')]);
 export type TransferDirection = Static<typeof TransferDirection>;
 
+/**
+ * One data transfer of an interaction. `categories` names data category ids,
+ * `entities` data entity ids; a transfer names categories, entities or both —
+ * naming neither is refused when the model is loaded (the compiled transfer
+ * then carries the union of the categories it names and those of its
+ * entities, each once, sorted by code point).
+ */
 export const Transfer = Type.Object(
   {
     direction: TransferDirection,
     confidentiality: Type.String({ minLength: 1 }),
-    categories: Type.Array(Type.String()),
+    categories: Type.Optional(
+      Type.Array(Type.String(), {
+        description: 'The data categories the transfer carries, by id. An empty list is an answer: nothing categorised crosses.',
+      }),
+    ),
+    entities: Type.Optional(
+      Type.Array(Type.String(), {
+        description: 'The data entities the transfer carries, by id; their categories join the transfer\'s own in the compiled model.',
+      }),
+    ),
   },
   { additionalProperties: false },
 );
@@ -202,6 +244,7 @@ export const ModelFile = Type.Object(
     interfaces: Type.Optional(Type.Array(Interface)),
     relations: Type.Optional(Type.Array(Relation)),
     categories: Type.Optional(Type.Array(Category)),
+    entities: Type.Optional(Type.Array(DataEntity)),
     zones: Type.Optional(Type.Array(Zone)),
     environments: Type.Optional(Type.Array(Environment)),
     states: Type.Optional(Type.Array(State)),
@@ -224,6 +267,7 @@ export interface IntendedModel {
   interfaces: Interface[];
   relations: Relation[];
   categories: Category[];
+  entities: DataEntity[];
   zones: Zone[];
   environments: Environment[];
   states: State[];

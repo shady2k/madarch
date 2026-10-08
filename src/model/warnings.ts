@@ -1,7 +1,7 @@
 import type { ModelWarning } from './errors.js';
 import type { Relation } from './schema.js';
 import { messagingOf } from './contracts.js';
-import type { PositionedRelation } from './validate.js';
+import type { PositionedEntity, PositionedRelation } from './validate.js';
 import { segmentsToPath, type PathSegment } from './yaml-position.js';
 
 /**
@@ -56,5 +56,23 @@ export function unmarkedMessagingWarning(entry: PositionedRelation, contracts: R
     line: entry.line,
     path: segmentsToPath(['relations', entry.index]),
     message: `relation "${relation.id}" goes through the ${messaging.kind} "${messaging.name}" without saying how: add "action: send" if it publishes or sends to it, "action: receive" if it subscribes to it or receives from it`,
+  };
+}
+
+/**
+ * The warning for a data entity whose `categories` field is not there at
+ * all (intended-model/entities), or none. `categories: []` is an answer —
+ * checked, of no category — and never warned about: only the field's
+ * absence leaves the classification unstated. Reported at the entity
+ * itself (`entities[i]`, the line its item starts on), so a legacy
+ * repository's model still loads while its gaps stay open.
+ */
+export function entityClassificationWarning(entry: PositionedEntity): ModelWarning | undefined {
+  if (entry.entity.categories !== undefined) return undefined;
+  return {
+    file: entry.file,
+    line: entry.line,
+    path: segmentsToPath(['entities', entry.index]),
+    message: `entity "${entry.entity.id}" states no classification: its classification is not stated; give the categories it belongs to, or an empty list once checked and found of no category`,
   };
 }

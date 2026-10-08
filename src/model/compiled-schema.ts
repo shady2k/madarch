@@ -1,5 +1,5 @@
 import { Type, type Static } from 'typebox';
-import { Binding, ElementKind, Evidence, ID_PATTERN_SOURCE, RelationAction, Transfer } from './schema.js';
+import { Binding, ElementKind, Evidence, ID_PATTERN_SOURCE, RelationAction } from './schema.js';
 
 /**
  * The TypeBox schemas of the compiled model, `model.json`: the one source
@@ -31,6 +31,45 @@ export const CompiledCategory = Type.Object(
   { additionalProperties: false },
 );
 export type CompiledCategory = Static<typeof CompiledCategory>;
+
+/**
+ * A compiled data entity: its classification always stated, as the category
+ * ids it names, sorted by code point — `[]` both for an entity checked and
+ * found of no category and for one whose `categories` the source left out
+ * (which loading warned about).
+ */
+export const CompiledEntity = Type.Object(
+  {
+    id: CompiledId,
+    name: Type.Optional(Type.String()),
+    description: Type.Optional(Type.String()),
+    categories: Type.Array(Type.String(), {
+      description: "The entity's classification: the category ids it names, sorted by code point; empty when it is of no category.",
+    }),
+    evidence: Type.Optional(Type.Array(Evidence)),
+  },
+  { additionalProperties: false },
+);
+export type CompiledEntity = Static<typeof CompiledEntity>;
+
+/**
+ * A compiled data transfer. Its categories are always the union of those it
+ * names and those of the entities it carries, each once, sorted by code
+ * point; `entities` is left out for a transfer that names none, so a model
+ * written before entities existed compiles to the same transfer it did.
+ */
+export const CompiledTransfer = Type.Object(
+  {
+    direction: Type.Union([Type.Literal('forward'), Type.Literal('reverse')]),
+    confidentiality: Type.String(),
+    categories: Type.Array(Type.String(), {
+      description: 'The categories the transfer carries: those it names and those of its entities, each once, sorted by code point.',
+    }),
+    entities: Type.Optional(Type.Array(Type.String(), { description: 'The data entities the transfer carries, by id.' })),
+  },
+  { additionalProperties: false },
+);
+export type CompiledTransfer = Static<typeof CompiledTransfer>;
 
 export const CompiledEnvironment = Type.Object(
   {
@@ -114,7 +153,7 @@ export const CompiledRelation = Type.Object(
           "The binding variable's value in each environment the relation exists in. An environment that does not define the variable has no key here: a binding variable an environment leaves unset is recorded as absent, never as an error.",
       }),
     ),
-    transfers: Type.Optional(Type.Array(Transfer)),
+    transfers: Type.Optional(Type.Array(CompiledTransfer)),
     evidence: Type.Optional(Type.Array(Evidence)),
     environments: Type.Array(Type.String(), { description: `${ENVIRONMENTS_DESCRIPTION} A relation exists where both its ends do.` }),
     states: Type.Array(Type.String(), { description: 'The states the relation exists in: its own since/until, intersected with both its ends.' }),
@@ -130,6 +169,12 @@ export const CompiledModel = Type.Object(
     interfaces: Type.Array(CompiledInterface),
     relations: Type.Array(CompiledRelation),
     categories: Type.Array(CompiledCategory),
+    entities: Type.Optional(
+      Type.Array(CompiledEntity, {
+        description:
+          "The model's data entities, ordered by id. Written only when the model declares at least one, so a model written before data entities existed compiles to the same bytes it did; absence reads as none.",
+      }),
+    ),
     zones: Type.Array(CompiledZone),
     environments: Type.Array(CompiledEnvironment),
     states: Type.Array(CompiledState),

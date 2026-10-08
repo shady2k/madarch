@@ -1,4 +1,4 @@
-import type { Binding, Category, Element, Environment, Evidence, Interface, IntendedModel, Relation, Transfer, ValidatedModel, Zone } from './schema.js';
+import type { Binding, Category, DataEntity, Element, Environment, Evidence, Interface, IntendedModel, Relation, Transfer, ValidatedModel, Zone } from './schema.js';
 import { DEFAULT_STATE_ID } from './schema.js';
 import { computeAncestors, computeStateOrder, normalizeContract } from './validate.js';
 import { computeElementPresence, computeRelationPresence, formatEnvironments, type Presence } from './presence.js';
@@ -9,11 +9,13 @@ import { isUnnamed } from './warnings.js';
 import type {
   CompiledCategory,
   CompiledElement,
+  CompiledEntity,
   CompiledEnvironment,
   CompiledInterface,
   CompiledModel,
   CompiledRelation,
   CompiledState,
+  CompiledTransfer,
   CompiledZone,
 } from './compiled-schema.js';
 
@@ -22,11 +24,13 @@ export const SCHEMA_VERSION = COMPILED_SCHEMA_VERSION;
 export type {
   CompiledCategory,
   CompiledElement,
+  CompiledEntity,
   CompiledEnvironment,
   CompiledInterface,
   CompiledModel,
   CompiledRelation,
   CompiledState,
+  CompiledTransfer,
   CompiledZone,
 };
 
@@ -53,7 +57,7 @@ export function compileModel(model: ValidatedModel): CompiledModel {
     }),
   );
 
-  return {
+  const compiled: CompiledModel = {
     schemaVersion: SCHEMA_VERSION,
     elements: sortedElements.map((element) =>
       compileElement(element, ancestors.get(element.id) ?? [], general.zonesById.get(element.id) ?? [], zonesByEnvironment, elementPresence, environmentIds),
@@ -61,12 +65,22 @@ export function compileModel(model: ValidatedModel): CompiledModel {
     interfaces: [...model.interfaces].sort((a, b) => byCodePoint(a.id, b.id)).map(compileInterface),
     relations: [...model.relations]
       .sort((a, b) => byCodePoint(a.id, b.id))
-      .map((relation) => compileRelation(relation, relationPresence, environmentIds, model.environments)),
+      .map((relation) => compileRelation(relation, relationPresence, environmentIds, model.environments, entityCategoriesOf(model.entities))),
     categories: [...model.categories].sort((a, b) => byCodePoint(a.id, b.id)).map(compileCategory),
     zones: [...model.zones].sort((a, b) => byCodePoint(a.id, b.id)).map(compileZone),
     environments: [...model.environments].sort((a, b) => byCodePoint(a.id, b.id)).map(compileEnvironment),
     states: compileStates(model, stateOrder),
   };
+  // `entities` is written only when the model declares at least one, so a
+  // model written before data entities existed compiles to the very bytes
+  // it did (the change's preserved contract), and a reader never meets an
+  // empty list it must read as "none" — absence says that. The schema
+  // keeps the field optional for exactly this reason; ordered by id like
+  // every other kind.
+  if (model.entities.length > 0) {
+    compiled.entities = [...model.entities].sort((a, b) => byCodePoint(a.id, b.id)).map(compileEntity);
+  }
+  return compiled;
 }
 
 /**
@@ -126,11 +140,18 @@ function compileInterface(iface: Interface): CompiledInterface {
   return compiled;
 }
 
+/** Each entity's own categories, by entity id, for the transfers that carry it. */
+function entityCategoriesOf(entities: readonly DataEntity[]): (entityId: string) => readonly string[] {
+  const byId = new Map(entities.map((entity) => [entity.id, entity.categories ?? []]));
+  return (entityId) => byId.get(entityId) ?? [];
+}
+
 function compileRelation(
   relation: Relation,
   relationPresence: ReadonlyMap<string, Presence>,
   environmentIds: readonly string[],
   environments: readonly Environment[],
+  categoriesOfEntity: (entityId: string) => readonly string[],
 ): CompiledRelation {
   const presence = relationPresence.get(relation.id) ?? { environmentIds: [], stateIds: [] };
 
@@ -152,7 +173,7 @@ function compileRelation(
     compiled.binding = rebuildBinding(relation.binding);
     compiled.bindingByEnvironment = compileBindingByEnvironment(relation.binding, presence.environmentIds, environments);
   }
-  if (relation.transfers !== undefined) compiled.transfers = rebuildTransfers(relation.transfers);
+  if (relation.transfers !== undefined) compiled.transfers = rebuildTransfers(relation.transfers, categoriesOfEntity);
   if (relation.evidence !== undefined) compiled.evidence = rebuildEvidence(relation.evidence);
   return compiled;
 }
@@ -179,6 +200,21 @@ function compileBindingByEnvironment(binding: Binding, presenceEnvironmentIds: r
 function compileCategory(category: Category): CompiledCategory {
   const compiled: CompiledCategory = { id: category.id };
   if (category.name !== undefined) compiled.name = category.name;
+  return compiled;
+}
+
+/**
+ * A compiled data entity. Its classification is always stated, sorted by
+ * code point: `[]` both for an entity checked and found of no category and
+ * for one whose `categories` the source left out (which loading warned
+ * about — the compiled model records the state of the model, and an
+ * unstated classification is no classification).
+ */
+function compileEntity(entity: DataEntity): CompiledEntity {
+  const compiled: CompiledEntity = { id: entity.id, categories: sortedByCodePoint(entity.categories ?? []) };
+  if (entity.name !== undefined) compiled.name = entity.name;
+  if (entity.description !== undefined) compiled.description = entity.description;
+  if (entity.evidence !== undefined) compiled.evidence = rebuildEvidence(entity.evidence);
   return compiled;
 }
 
@@ -231,12 +267,23 @@ function rebuildEvidence(evidence: readonly Evidence[]): Evidence[] {
   });
 }
 
-function rebuildTransfers(transfers: readonly Transfer[]): Transfer[] {
-  return transfers.map((transfer) => ({
-    direction: transfer.direction,
-    confidentiality: transfer.confidentiality,
-    categories: [...transfer.categories],
-  }));
+/**
+ * The compiled transfers of one relation. Each carries the entities it names
+ * and the union of the categories it names and those of its entities, each
+ * once, sorted by code point (intended-model/transfers). A transfer that
+ * names no entities has no `entities` key, so a model written before
+ * entities existed compiles to the transfer it did.
+ */
+function rebuildTransfers(transfers: readonly Transfer[], categoriesOfEntity: (entityId: string) => readonly string[]): CompiledTransfer[] {
+  return transfers.map((transfer) => {
+    const compiled: CompiledTransfer = {
+      direction: transfer.direction,
+      confidentiality: transfer.confidentiality,
+      categories: sortedByCodePoint([...new Set([...(transfer.categories ?? []), ...(transfer.entities ?? []).flatMap(categoriesOfEntity)])]),
+    };
+    if (transfer.entities !== undefined) compiled.entities = sortedByCodePoint([...new Set(transfer.entities)]);
+    return compiled;
+  });
 }
 
 function rebuildBinding(binding: Binding): Binding {

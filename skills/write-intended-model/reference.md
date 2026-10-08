@@ -108,8 +108,11 @@ initiator to what it depends on. Fields:
   interface through (`env`); values live in environments, never secrets.
 - `transfers` — the data transfers, each with its `direction` (`forward`,
   from the initiator, or `reverse`), its `confidentiality` (a word such as
-  `public`, `internal`, `confidential`) and its `categories` (data category
-  ids). Write them where the code shows the data crossing.
+  `public`, `internal`, `confidential`), its `categories` (data category
+  ids) and its `entities` (data entity ids, see Data entity). A transfer
+  names categories, entities or both — never neither; the compiled
+  transfer carries the union of the categories it names and those of its
+  entities, each once. Write them where the code shows the data crossing.
 - `evidence` — where the dependency is found: the import line for a
   dependency in imports; for an interaction at run time, both the call or
   send site and the handler registration when both sides are in the
@@ -233,6 +236,40 @@ categories:
 Environments (deployment-specific bindings and zones) and architecture
 states (`since`/`until` chains) exist in the format; see the spec in the
 madarch checkout before using them — a first model rarely needs either.
+
+## Data entity
+
+A data entity is one named piece of data that crosses a relation: a session
+id, a user's name, an order number. Its classification reuses the model's
+data categories — there is no second vocabulary. Fields:
+
+- `id` (required) — stable, like every id.
+- `name` — a readable name ("Session id"), the label a reader sees.
+- `description` — what the piece of data is, in prose, when the name does
+  not say it alone.
+- `categories` — the data category ids it belongs to. An empty list
+  (`categories: []`) is an answer: checked, and of no category. The field
+  left out entirely is warned about — the classification is not stated — so
+  a legacy model still loads while the gap is open.
+- `evidence` — where the entity was read from, as on an element.
+
+A transfer's `entities` names the entities it carries; the compiled
+transfer then carries the union of the categories it names and those of
+its entities, each once.
+
+```yaml
+categories:
+  - { id: personal, name: Personal data }
+  - { id: communications-secrecy, name: Communications secrecy }
+
+entities:
+  - id: session-id
+    name: Session id
+    categories: [communications-secrecy]
+  - id: order-number
+    name: Order number
+    categories: []
+```
 
 ## The review report `madarch/review.md`
 

@@ -1,0 +1,42 @@
+version: 1
+
+categories:
+  - id: communications-secrecy
+    name: Communications secrecy
+  - id: personal
+    name: Personal data
+
+elements:
+  - id: auth-api
+    kind: service
+    name: Auth API
+  - id: event-bus
+    kind: broker
+
+entities:
+  - id: session-id
+    name: Session id
+    categories: [communications-secrecy]
+    evidence:
+      - file: services/auth/session.ts
+        line: 3
+  - id: user-name
+    name: User name
+    categories: [personal]
+  - id: order-number
+    name: Order number
+    categories: []
+  - id: login-attempt
+    description: One attempt to sign in, successful or not
+    categories: []
+
+relations:
+  - id: auth-publishes-login
+    name: publishes login events
+    from: auth-api
+    to: event-bus
+    transfers:
+      - direction: forward
+        confidentiality: confidential
+        categories: [personal]
+        entities: [user-name, session-id]
