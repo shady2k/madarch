@@ -1,5 +1,5 @@
 import { Type, type Static } from 'typebox';
-import { Binding, ElementKind, Evidence, ID_PATTERN_SOURCE, RelationAction, Transfer } from './schema.js';
+import { Binding, ElementKind, Evidence, ID_PATTERN_SOURCE, RelationAction } from './schema.js';
 
 /**
  * The TypeBox schemas of the compiled model, `model.json`: the one source
@@ -31,6 +31,104 @@ export const CompiledCategory = Type.Object(
   { additionalProperties: false },
 );
 export type CompiledCategory = Static<typeof CompiledCategory>;
+
+/**
+ * A compiled data entity: its classification stated as the category ids it
+ * names, sorted by code point — an explicit `categories: []` becomes an
+ * empty list (the entity is of no category), while a `categories` the source
+ * left out is left out too (an unstated classification is not an empty one;
+ * loading warned about it).
+ */
+export const CompiledEntity = Type.Object(
+  {
+    id: CompiledId,
+    name: Type.Optional(Type.String()),
+    description: Type.Optional(Type.String()),
+    categories: Type.Optional(
+      Type.Array(Type.String(), {
+        description: "The entity's classification: the category ids it names, sorted by code point. Written as an empty list when the entity is of no category; left out when the source left `categories` out — an unstated classification is not an empty one.",
+      }),
+    ),
+    evidence: Type.Optional(Type.Array(Evidence)),
+  },
+  { additionalProperties: false },
+);
+export type CompiledEntity = Static<typeof CompiledEntity>;
+
+/**
+ * A compiled data transfer. Its categories are always the union of those it
+ * names and those of the entities it carries, each once, sorted by code
+ * point; its `entities` are always stated beside them, `[]` when the
+ * transfer names none, like the `categories` beside it (the owner's
+ * decision of 2026-10-08: the compiled form of a model written before
+ * entities existed may differ; no stored model exists).
+ */
+export const CompiledTransfer = Type.Object(
+  {
+    direction: Type.Union([Type.Literal('forward'), Type.Literal('reverse')]),
+    confidentiality: Type.String({ minLength: 1 }),
+    categories: Type.Array(Type.String(), {
+      description: 'The categories the transfer carries: those it names and those of its entities, each once, sorted by code point.',
+    }),
+    entities: Type.Array(Type.String(), {
+      description: 'The data entities the transfer carries, by id: those it names, sorted by code point; empty when it names none.',
+    }),
+  },
+  { additionalProperties: false },
+);
+export type CompiledTransfer = Static<typeof CompiledTransfer>;
+
+/**
+ * A compiled scenario step: the relation it runs over, by id, exactly as
+ * the model names it, with its optional label. Steps stay in written order.
+ */
+export const CompiledScenarioStep = Type.Object(
+  {
+    id: CompiledId,
+    relation: Type.String({ description: 'The relation the step runs over, by id, as the model names it — at any level, a refinement or not.' }),
+    name: Type.Optional(Type.String({ description: 'What happens at this step, in a few words, when the model names it.' })),
+  },
+  { additionalProperties: false },
+);
+export type CompiledScenarioStep = Static<typeof CompiledScenarioStep>;
+
+/**
+ * A compiled scenario alternative: the main-flow step it starts at, the
+ * condition under which it is taken, and its own steps. Alternatives stay
+ * in written order.
+ */
+export const CompiledScenarioAlternative = Type.Object(
+  {
+    id: CompiledId,
+    at: Type.String({ description: 'The main-flow step the alternative starts at, by step id.' }),
+    when: Type.String({ description: 'The condition under which the alternative is taken, in prose, as the model states it.' }),
+    steps: Type.Array(CompiledScenarioStep),
+  },
+  { additionalProperties: false },
+);
+export type CompiledScenarioAlternative = Static<typeof CompiledScenarioAlternative>;
+
+/**
+ * A compiled scenario: one use case, its requirements exactly as written
+ * (the compiled model records the model, not what a requirement resolved
+ * to), its main flow and its alternatives, each in written order.
+ */
+export const CompiledScenario = Type.Object(
+  {
+    id: CompiledId,
+    name: Type.Optional(Type.String({ description: 'A readable name of the use case, when the model names it.' })),
+    description: Type.Optional(Type.String({ description: "The use case's goal and preconditions, in prose, when the model states them." })),
+    actor: Type.Optional(Type.String({ description: 'The element that initiates the use case, by id, when the model names one.' })),
+    requirements: Type.Array(Type.String(), {
+      description:
+        'The capability requirements the scenario realises, as ids of the form `capability/requirement`, exactly as written; empty when the scenario names none, like the `steps` beside it.',
+    }),
+    steps: Type.Array(CompiledScenarioStep, { description: 'The main flow, in written order.' }),
+    alternatives: Type.Optional(Type.Array(CompiledScenarioAlternative, { description: 'Alternative flows, in written order.' })),
+  },
+  { additionalProperties: false },
+);
+export type CompiledScenario = Static<typeof CompiledScenario>;
 
 export const CompiledEnvironment = Type.Object(
   {
@@ -114,7 +212,7 @@ export const CompiledRelation = Type.Object(
           "The binding variable's value in each environment the relation exists in. An environment that does not define the variable has no key here: a binding variable an environment leaves unset is recorded as absent, never as an error.",
       }),
     ),
-    transfers: Type.Optional(Type.Array(Transfer)),
+    transfers: Type.Optional(Type.Array(CompiledTransfer)),
     evidence: Type.Optional(Type.Array(Evidence)),
     environments: Type.Array(Type.String(), { description: `${ENVIRONMENTS_DESCRIPTION} A relation exists where both its ends do.` }),
     states: Type.Array(Type.String(), { description: 'The states the relation exists in: its own since/until, intersected with both its ends.' }),
@@ -130,6 +228,12 @@ export const CompiledModel = Type.Object(
     interfaces: Type.Array(CompiledInterface),
     relations: Type.Array(CompiledRelation),
     categories: Type.Array(CompiledCategory),
+    entities: Type.Array(CompiledEntity, {
+      description: "The model's data entities, ordered by id; empty when the model declares none, like every other top-level array.",
+    }),
+    scenarios: Type.Array(CompiledScenario, {
+      description: "The model's scenarios, ordered by id; empty when the model declares none, like every other top-level array.",
+    }),
     zones: Type.Array(CompiledZone),
     environments: Type.Array(CompiledEnvironment),
     states: Type.Array(CompiledState),

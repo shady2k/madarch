@@ -18,6 +18,15 @@ categories:
   - id: cat-a
     name: Category A
 
+entities:
+  - id: entity-b
+  - id: entity-a
+    name: Entity A
+    description: What entity A is
+    categories: [cat-a]
+    evidence:
+      - file: a.ts
+
 environments:
   - id: env-b
   - id: env-a

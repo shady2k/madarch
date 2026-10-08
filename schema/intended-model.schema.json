@@ -256,8 +256,7 @@
               "type": "object",
               "required": [
                 "direction",
-                "confidentiality",
-                "categories"
+                "confidentiality"
               ],
               "properties": {
                 "direction": {
@@ -280,7 +279,15 @@
                   "type": "array",
                   "items": {
                     "type": "string"
-                  }
+                  },
+                  "description": "The data categories the transfer carries, by id. An empty list is an answer: nothing categorised crosses."
+                },
+                "entities": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "The data entities the transfer carries, by id; their categories join the transfer's own in the compiled model."
                 }
               },
               "additionalProperties": false
@@ -342,6 +349,184 @@
           },
           "name": {
             "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "name": {
+            "type": "string",
+            "description": "A readable name of the piece of data (\"Session id\"), the label a reader sees."
+          },
+          "description": {
+            "type": "string",
+            "description": "What the piece of data is, in prose, when its name does not say it alone."
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The classification: ids of the model's data categories. An empty list is an answer (checked, of no category); the field left out entirely is warned about, so a legacy model still loads."
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "file"
+              ],
+              "properties": {
+                "file": {
+                  "type": "string"
+                },
+                "line": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "endLine": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "The last line of the range the item names; needs `line` and may not come before it (checked when the model is loaded)."
+                },
+                "commit": {
+                  "type": "string",
+                  "description": "The commit the file was read at: 40 hexadecimal digits, lower case. Given together with `blob` or with neither (checked when the model is loaded)."
+                },
+                "blob": {
+                  "type": "string",
+                  "description": "The file's git blob id at `commit`: 40 hexadecimal digits, lower case. Given together with `commit` or with neither (checked when the model is loaded)."
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "name": {
+            "type": "string",
+            "description": "A readable name of the use case (\"Place an order\"), the label a reader sees."
+          },
+          "description": {
+            "type": "string",
+            "description": "The use case's goal and preconditions, in prose."
+          },
+          "actor": {
+            "type": "string",
+            "description": "The element that initiates the use case, by id; usually a person or an external system."
+          },
+          "requirements": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The capability requirements the scenario realises, as ids of the form `capability/requirement`. The loader checks only their form."
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "relation"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "relation": {
+                  "type": "string",
+                  "description": "The relation the step runs over, by id: any relation of the model, coarse or a refinement."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "What happens at this step, in a few words (\"the order is announced\"); the label a reader sees."
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "The main flow: an ordered list of steps, each over a relation of the model at any level. Optional only so the loader can refuse a scenario with no step naming the scenario; a valid scenario always has at least one."
+          },
+          "alternatives": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "at",
+                "when"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "at": {
+                  "type": "string",
+                  "description": "The main-flow step the alternative starts at, by step id."
+                },
+                "when": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The condition under which the alternative is taken, in prose (\"the payment is declined\")."
+                },
+                "steps": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "relation"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                      },
+                      "relation": {
+                        "type": "string",
+                        "description": "The relation the step runs over, by id: any relation of the model, coarse or a refinement."
+                      },
+                      "name": {
+                        "type": "string",
+                        "description": "What happens at this step, in a few words (\"the order is announced\"); the label a reader sees."
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "description": "The alternative's own steps, in order; never empty in a valid model."
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "Alternative flows, each replacing the main flow from the step its `at` names on."
           }
         },
         "additionalProperties": false

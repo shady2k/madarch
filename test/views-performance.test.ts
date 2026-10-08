@@ -51,7 +51,7 @@ function wideModel(): CompiledModel {
       relations.push(relation(`${service}-m-calls`, `${service}-m`, `${target}-m`, `${service}-calls`));
     }
   }
-  return { schemaVersion: 1, elements, interfaces: [], relations, categories: [], zones: [], environments: [], states: [{ id: 'as-is' }] };
+  return { schemaVersion: 1, elements, interfaces: [], relations, categories: [], entities: [], scenarios: [], zones: [], environments: [], states: [{ id: 'as-is' }] };
 }
 
 describe('performance: every view of a 990-element model', () => {

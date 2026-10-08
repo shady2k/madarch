@@ -16,8 +16,9 @@ _Avoid_: landscape, workspace, model (for the whole)
 
 **Intended model**:
 What people and agents declare the architecture to be: elements, interfaces,
-relations, zones, data categories, environments and architecture states (rules
-and flows later), written as YAML in a repository's `madarch/` folder.
+relations, zones, data categories, data entities, scenarios, environments and
+architecture states (rules later), written as YAML in a repository's `madarch/`
+folder.
 _Avoid_: authored model, design model
 
 **Element**:
@@ -56,7 +57,7 @@ _Avoid_: direction (a data transfer's), publish or subscribe as its values
 
 **Data transfer**:
 Data moving within an interaction in one direction, forward or reverse, with its
-data categories.
+data categories and the data entities it carries.
 
 **Confidentiality**:
 How restricted data is (for example public, internal, confidential). Separate
@@ -66,6 +67,12 @@ from its categories.
 What kind of data it is (for example personal, payment-card). Data can have
 several.
 _Avoid_: classification (ambiguous between the two dimensions)
+
+**Data entity**:
+One named piece of data that crosses a relation (a session id, a user's name),
+classified by the model's data categories. `categories: []` is an answer: the
+entity carries nothing sensitive.
+_Avoid_: data field (a column of one table), attribute
 
 **Zone**:
 A boundary elements belong to other than their parent: a network segment, a
@@ -82,14 +89,24 @@ _Avoid_: stand (use environment)
 One point in a chain of states of the intended model, such as as-is, a
 transition stage or to-be, ordered by `after`. An element or relation may start
 or end at a state; with none given it exists in all of them.
-_Avoid_: version (that is a commit of the model), scenario (reserved)
+_Avoid_: version (that is a commit of the model)
 
 **Binding**:
 How an interaction reaches its interface in one environment: the variable the
 consumer reads and the value it has there (topic name, host, port).
 
 **Flow**:
-An ordered sequence of interactions that tells one scenario end to end.
+An ordered sequence of steps over the model's relations that tells one scenario
+end to end. A scenario's main flow and each of its alternatives are flows; a
+step runs over any relation, a bare dependency or an interaction.
+
+**Scenario**:
+One use case written in the model as an ordered walk over its relations: an
+actor, the capability requirements it realises, a main flow of steps and
+alternative flows that replace it from a step on. The model check resolves the
+requirements it names; its diagrams, data flows and status are to be computed
+from it rather than written, which the wiki's use-case pages bring.
+_Avoid_: use case (the words around it, not the model's construct), user story
 
 **Rule**:
 A constraint the graph must satisfy, such as "payment-card data does not leave
@@ -115,8 +132,9 @@ derived relation)
 
 **Evidence**:
 The facts, with their files and lines, from which a derived relation was joined;
-in the intended model, the text an agent read to write an element, interface or
-relation: a file, its lines, and the commit and blob it was read at.
+in the intended model, the text an agent read to write an element, an
+interface, a relation or a data entity: a file, its lines, and the commit and
+blob it was read at.
 
 **Stale**:
 Said of evidence or a claim whose file has changed since the blob it names; the

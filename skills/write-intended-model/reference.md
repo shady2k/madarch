@@ -108,8 +108,11 @@ initiator to what it depends on. Fields:
   interface through (`env`); values live in environments, never secrets.
 - `transfers` — the data transfers, each with its `direction` (`forward`,
   from the initiator, or `reverse`), its `confidentiality` (a word such as
-  `public`, `internal`, `confidential`) and its `categories` (data category
-  ids). Write them where the code shows the data crossing.
+  `public`, `internal`, `confidential`), its `categories` (data category
+  ids) and its `entities` (data entity ids, see Data entity). A transfer
+  names categories, entities or both — never neither; the compiled
+  transfer carries the union of the categories it names and those of its
+  entities, each once. Write them where the code shows the data crossing.
 - `evidence` — where the dependency is found: the import line for a
   dependency in imports; for an interaction at run time, both the call or
   send site and the handler registration when both sides are in the
@@ -233,6 +236,90 @@ categories:
 Environments (deployment-specific bindings and zones) and architecture
 states (`since`/`until` chains) exist in the format; see the spec in the
 madarch checkout before using them — a first model rarely needs either.
+
+## Data entity
+
+A data entity is one named piece of data that crosses a relation: a session
+id, a user's name, an order number. Its classification reuses the model's
+data categories — there is no second vocabulary. Fields:
+
+- `id` (required) — stable, like every id.
+- `name` — a readable name ("Session id"), the label a reader sees.
+- `description` — what the piece of data is, in prose, when the name does
+  not say it alone.
+- `categories` — the data category ids it belongs to. An empty list
+  (`categories: []`) is an answer: checked, and of no category. The field
+  left out entirely is warned about — the classification is not stated — so
+  a legacy model still loads while the gap is open.
+- `evidence` — where the entity was read from, as on an element.
+
+A transfer's `entities` names the entities it carries; the compiled
+transfer then carries the union of the categories it names and those of
+its entities, each once.
+
+```yaml
+categories:
+  - { id: personal, name: Personal data }
+  - { id: communications-secrecy, name: Communications secrecy }
+
+entities:
+  - id: session-id
+    name: Session id
+    categories: [communications-secrecy]
+  - id: order-number
+    name: Order number
+    categories: []
+```
+
+## Scenario
+
+A scenario is one use case written as an ordered walk over the model's
+relations: the goal and preconditions in prose, the element that initiates
+it, the capability requirements it realises, its main flow as steps, and
+any number of alternative flows. Fields:
+
+- `id` (required) — stable, like every id.
+- `name` — a readable name ("Place an order").
+- `description` — the goal and preconditions, in prose.
+- `actor` — the element that initiates the use case, by id; usually a
+  person or an external system.
+- `requirements` — the capability requirements the scenario realises, as
+  ids of the form `capability/requirement` (the same form change records
+  use), one list entry each. The loader checks only their form; whether a
+  requirement exists is the model check's question.
+- `steps` (required) — the main flow: an ordered list of steps, each with
+  an `id` (unique within the scenario, whatever its flow), the `relation`
+  it runs over (any relation of the model — coarse or a refinement, so a
+  scenario written early over coarse relations stays valid when they are
+  refined) and an optional `name` of what happens. A scenario with no step
+  is refused.
+- `alternatives` — alternative flows, each with an `id` (unique within the
+  scenario), `at` (the main-flow step it starts at), `when` (the condition
+  under which it is taken, in prose) and its own `steps`, shaped like the
+  main flow's. An alternative replaces the main flow from that step on;
+  rejoining it is not expressed. An alternative naming a step the main flow
+  does not have, or with no step, is refused.
+
+Steps and alternatives stay in the order written; scenarios are ordered by
+id in the compiled model.
+
+```yaml
+scenarios:
+  - id: place-order
+    name: Place an order
+    description: A signed-in customer orders the cart's contents.
+    actor: customer
+    requirements: [ordering/place-order]
+    steps:
+      - { id: s1, relation: checkout-places-order }
+      - { id: s2, relation: orders-publishes-placed, name: the order is announced }
+    alternatives:
+      - id: card-declined
+        at: s2
+        when: the payment is declined
+        steps:
+          - { id: d1, relation: checkout-shows-error }
+```
 
 ## The review report `madarch/review.md`
 

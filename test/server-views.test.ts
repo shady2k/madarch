@@ -269,7 +269,7 @@ describe('a view after a store that failed once', () => {
   /** One compiled model of exactly one element: the smallest two versions can differ by. */
   function oneElementModel(id: string): CompiledModel {
     const element: CompiledElement = { id, kind: 'service', ancestors: [], zones: [], zonesByEnvironment: {}, environments: ['*'], states: ['as-is'] };
-    return { schemaVersion: 1, elements: [element], interfaces: [], relations: [], categories: [], zones: [], environments: [], states: [{ id: 'as-is' }] };
+    return { schemaVersion: 1, elements: [element], interfaces: [], relations: [], categories: [], entities: [], scenarios: [], zones: [], environments: [], states: [{ id: 'as-is' }] };
   }
 
   /** The mermaid landscape the server must answer with for one model, asked of an engine built independently of the server's own. */

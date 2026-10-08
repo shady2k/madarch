@@ -155,7 +155,7 @@ describe('scripts/wiki.ts', () => {
     // Zones), which the stage 1 review flagged.
     const nav = readFileSync(join(out, 'source', 'zensical.toml'), 'utf8');
     expect(nav).toContain('{ "Zones" = [{ "Zones" = "zones.md" }, { "Demilitarised zone" = "zones/dmz.md" }');
-    expect(nav).toContain('{ "Data categories" = [{ "Data categories" = "data-categories.md" }, { "Order data" = "data-categories/order.md" }');
+    expect(nav).toContain('{ "Data categories" = [{ "Data categories" = "data-categories.md" }, { "Commercial secret" = "data-categories/commercial-secret.md" }, { "Communications secrecy" = "data-categories/communications-secrecy.md" }, { "Order data" = "data-categories/order.md" }');
     expect(nav).not.toContain('= [{ "Zones" = [{');
     expect(readFileSync(FAKE_LOG, 'utf8')).toContain('zensical==0.0.66 build');
   }, { timeout: 60_000 });

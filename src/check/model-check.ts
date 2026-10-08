@@ -27,7 +27,7 @@ import type { CompiledModel } from '../model/compile.js';
 import { loadAndCompileModel } from '../model/load-and-compile.js';
 import { byCodePoint, sortedByCodePoint } from '../model/order.js';
 import type { Evidence } from '../model/schema.js';
-import type { PositionedModel } from '../model/validate.js';
+import type { PositionedModel, PositionedScenario } from '../model/validate.js';
 import { prepareModel, renderModel } from '../render/prepare.js';
 import { buildViewSet } from '../render/view-set.js';
 import { writeViews, type WrittenViews } from '../render/write.js';
@@ -47,12 +47,21 @@ import {
 } from './model-problems.js';
 
 export interface ModelCheckFinding {
-  /** The model id (element, interface or relation) the finding names, when it has one. */
+  /** The model id (element, interface, relation, data entity or scenario) the finding names, when it has one. */
   id?: string;
   /** The model file that declares the item, or the repository path for a finding about the inputs themselves. */
   file: string;
   /** The 1-based line the item is declared on; 0 for a whole-path finding. */
   line: number;
+  /**
+   * The item's full path from the model's top (`elements[3].parent`,
+   * `scenarios[0].requirements[1]`), for every finding whose source is the
+   * model — the loader's own errors and warnings carry one, and so does
+   * every finding about an evidence item or a scenario's requirement. Left
+   * out for a finding about the review report, the repository's files or
+   * the history, which have no place in the model.
+   */
+  path?: string;
   message: string;
 }
 
@@ -82,14 +91,16 @@ export interface ModelCheckOptions {
   views?: string;
 }
 
-/** An element, interface or relation of the model, named as the loader positions it. */
+/** An element, interface, relation or data entity of the model, named as the loader positions it. */
 interface Declared {
-  kind: 'element' | 'interface' | 'relation';
+  kind: 'element' | 'interface' | 'relation' | 'entity';
   id: string;
   /** What the finding names it by: `element "core"`, `relation "ui-calls-core"`. */
   label: string;
   file: string;
   line: number;
+  /** The item's own path from the model's top: `elements[3]`, `entities[0]`. */
+  path: string;
   /** The line each of the entity's evidence items is declared on, parallel to `evidence`. */
   evidenceLines: readonly number[];
   evidence: readonly Evidence[] | undefined;
@@ -111,6 +122,8 @@ const MAX_GIT_BUFFER = 64 * 1024 * 1024;
  * the model; the check reads its two tables by their level-2 headings.
  */
 const REVIEW = 'madarch/review.md';
+/** The folder a repository's capability specs live in (model-check, requirements-resolve). */
+const CAPABILITIES = 'docs/system/capabilities/';
 export const CLAIMS_COLUMNS = ['Claim', 'Document', 'Line', 'Commit', 'Blob', 'Checked in code', 'Verdict', 'In the model'];
 export const ASSIGNMENT_COLUMNS = ['Path', 'Element', 'Reason'];
 const VERDICTS = ['confirmed', 'contradicted', 'stale', 'planned', 'unconfirmed'];
@@ -190,6 +203,106 @@ function blobLineCount(repo: string, blob: string): number | undefined {
   return text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
 }
 
+/**
+ * The text of one file of the checked revision, read from git only: the
+ * requirement check reads the capability specs the way the rest of the
+ * check reads the repository — at the revision, never the working tree.
+ * Undefined when the revision holds no file at that path (a path that
+ * names a folder is no file either: its object is a tree, not a blob).
+ */
+function fileTextAt(repo: string, revCommit: string, file: string): string | undefined {
+  const run = git(repo, ['cat-file', 'blob', `${revCommit}:${file}`]);
+  return run.ok ? run.stdout : undefined;
+}
+
+/**
+ * Whether a capability spec holds a heading for one requirement id: a line
+ * `## Requirement: <id>` followed by the end of the line, a space or
+ * ` — ` (the specs write `## Requirement: shape — The compiled model…`).
+ * A heading for an id that merely starts the same way (`store-version`
+ * for `store`) does not match: what follows the id is neither.
+ */
+function hasRequirementHeading(spec: string, requirementId: string): boolean {
+  const heading = `## Requirement: ${requirementId}`;
+  // A fenced code block is skipped: its marker is a run of at least three
+  // backticks or tildes, indented by at most three spaces (four spaces make
+  // an indented code block, which is no fence), and it ends at a run of the
+  // same character, at least as long, with nothing after it. So a heading
+  // written inside an example never resolves a requirement, and a stray
+  // fence-looking line never hides a real one. A trailing carriage return
+  // is part of the line ending, not of what follows the id.
+  let fence: { character: string; length: number } | undefined;
+  for (const raw of spec.split('\n')) {
+    const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+    const marker = line.trimStart();
+    const indent = line.length - marker.length;
+    const run = /^(`{3,}|~{3,})/.exec(marker);
+    if (fence === undefined) {
+      if (run !== null && indent <= 3) {
+        fence = { character: run[1]![0]!, length: run[1]!.length };
+        continue;
+      }
+    } else {
+      const open = fence;
+      if (run !== null && run[1]![0] === open.character && run[1]!.length >= open.length && marker.slice(run[1]!.length).trim() === '') {
+        fence = undefined;
+      }
+      continue;
+    }
+    if (!line.startsWith(heading)) continue;
+    const rest = line.slice(heading.length);
+    if (rest === '' || rest.startsWith(' ')) return true;
+  }
+  return false;
+}
+
+/**
+ * The requirements-resolve section: every requirement every scenario
+ * names, `capability/requirement`, must resolve against the checked
+ * revision's capability specs — the file named after the capability under
+ * `docs/system/capabilities/`, and in it a heading `## Requirement: <id>`.
+ * Each that does not resolve fails the check, naming the scenario, the
+ * requirement, the model file and line it is named on, and which of the
+ * two is missing. Nothing is read for a scenario that names none.
+ */
+function requirementFindings(repo: string, revCommit: string, scenarios: readonly PositionedScenario[]): ModelCheckFinding[] {
+  const errors: ModelCheckFinding[] = [];
+  for (const entry of scenarios) {
+    (entry.scenario.requirements ?? []).forEach((requirementId, index) => {
+      // The loader has already refused anything not of the form
+      // `capability/requirement`, so a model that compiled gives both
+      // parts; the split below reads them out.
+      const slash = requirementId.indexOf('/');
+      const capability = requirementId.slice(0, slash);
+      const requirementPart = requirementId.slice(slash + 1);
+      const specFile = `${CAPABILITIES}${capability}.md`;
+      const spec = fileTextAt(repo, revCommit, specFile);
+      const at = entry.requirementsLines[index] ?? entry.line;
+      const path = `scenarios[${entry.index}].requirements[${index}]`;
+      if (spec === undefined) {
+        errors.push({
+          id: requirementId,
+          file: entry.file,
+          line: at,
+          path,
+          message: `scenario "${entry.scenario.id}" names requirement "${requirementId}", but there is no capability spec "${capability}": ${specFile} is not a file at the checked revision`,
+        });
+        return;
+      }
+      if (!hasRequirementHeading(spec, requirementPart)) {
+        errors.push({
+          id: requirementId,
+          file: entry.file,
+          line: at,
+          path,
+          message: `scenario "${entry.scenario.id}" names requirement "${requirementId}", but ${specFile} has no requirement "${requirementPart}"`,
+        });
+      }
+    });
+  }
+  return errors;
+}
+
 /** Every element, interface and relation of the model, with where each was written. */
 function declaredItems(positions: PositionedModel): Declared[] {
   return [
@@ -199,6 +312,7 @@ function declaredItems(positions: PositionedModel): Declared[] {
       label: `element "${p.element.id}"`,
       file: p.file,
       line: p.line,
+      path: `elements[${p.index}]`,
       evidenceLines: p.evidenceLines,
       evidence: p.element.evidence,
     })),
@@ -208,6 +322,7 @@ function declaredItems(positions: PositionedModel): Declared[] {
       label: `interface "${p.iface.id}"`,
       file: p.file,
       line: p.line,
+      path: `interfaces[${p.index}]`,
       evidenceLines: p.evidenceLines,
       evidence: p.iface.evidence,
     })),
@@ -217,15 +332,35 @@ function declaredItems(positions: PositionedModel): Declared[] {
       label: `relation "${p.relation.id}"`,
       file: p.file,
       line: p.line,
+      path: `relations[${p.index}]`,
       evidenceLines: p.evidenceLines,
       evidence: p.relation.evidence,
+    })),
+    // A data entity needs no evidence of its own (evidence-complete asks it
+    // of elements, interfaces and relations only), but every item it does
+    // give is resolved and reported stale like any other (evidence-resolves,
+    // staleness).
+    ...positions.entities.map((p) => ({
+      kind: 'entity' as const,
+      id: p.entity.id,
+      label: `data entity "${p.entity.id}"`,
+      file: p.file,
+      line: p.line,
+      path: `entities[${p.index}]`,
+      evidenceLines: p.evidenceLines,
+      evidence: p.entity.evidence,
     })),
   ];
 }
 
-/** The finding for one item of one declared entity: named by the entity, at the item's own line. */
-function findingOf(declared: Declared, itemLine: number, message: string): ModelCheckFinding {
-  return { id: declared.id, file: declared.file, line: itemLine, message };
+/**
+ * The finding for one item of one declared entity: named by the entity, at
+ * the item's own line, and carrying its full path from the model's top —
+ * the item's own (`elements[3]`) or, for a finding about one of its
+ * evidence items, that item's (`elements[3].evidence[0]`).
+ */
+function findingOf(declared: Declared, itemLine: number, message: string, path: string = declared.path): ModelCheckFinding {
+  return { id: declared.id, file: declared.file, line: itemLine, path, message };
 }
 
 /**
@@ -234,16 +369,16 @@ function findingOf(declared: Declared, itemLine: number, message: string): Model
  * many lines the file has. An item without `line` names the whole file and
  * has no lines to bound (the loader refuses an `endLine` without a `line`).
  */
-function linesFinding(repo: string, declared: Declared, item: Evidence, itemLine: number): ModelCheckFinding | undefined {
+function linesFinding(repo: string, declared: Declared, item: Evidence, itemLine: number, itemPath: string): ModelCheckFinding | undefined {
   if (item.line === undefined) return undefined;
   const count = blobLineCount(repo, item.blob!);
   if (count === undefined) {
-    return findingOf(declared, itemLine, `${declared.label} names blob ${item.blob}, which git could not read`);
+    return findingOf(declared, itemLine, `${declared.label} names blob ${item.blob}, which git could not read`, itemPath);
   }
   const last = item.endLine ?? item.line;
   if (item.line <= count && last <= count) return undefined;
   const named = item.endLine === undefined ? `line ${item.line}` : `lines ${item.line} to ${last}`;
-  return findingOf(declared, itemLine, `${declared.label} names ${named}, but ${item.file} has ${count} lines`);
+  return findingOf(declared, itemLine, `${declared.label} names ${named}, but ${item.file} has ${count} lines`, itemPath);
 }
 
 /**
@@ -252,17 +387,17 @@ function linesFinding(repo: string, declared: Declared, item: Evidence, itemLine
  * commit is not in the repository, the blob must appear at the path in the
  * checked revision's history, and the acceptance is reported as a note.
  */
-function resolveItem(repo: string, revCommit: string, declared: Declared, item: Evidence, itemLine: number): { errors: ModelCheckFinding[]; notes: ModelCheckFinding[] } {
-  const failed = (message: string): { errors: ModelCheckFinding[]; notes: ModelCheckFinding[] } => ({ errors: [findingOf(declared, itemLine, message)], notes: [] });
+function resolveItem(repo: string, revCommit: string, declared: Declared, item: Evidence, itemLine: number, itemPath: string): { errors: ModelCheckFinding[]; notes: ModelCheckFinding[] } {
+  const failed = (message: string): { errors: ModelCheckFinding[]; notes: ModelCheckFinding[] } => ({ errors: [findingOf(declared, itemLine, message, itemPath)], notes: [] });
 
   if (!git(repo, ['cat-file', '-e', `${item.commit}^{commit}`]).ok) {
     const found = findBlobInHistory(repo, revCommit, item.file, item.blob!);
     if (found === undefined) {
       return failed(`${declared.label} names commit ${item.commit}, which is not in the repository, and its blob ${item.blob} is nowhere in the history for ${item.file}`);
     }
-    const lines = linesFinding(repo, declared, item, itemLine);
+    const lines = linesFinding(repo, declared, item, itemLine, itemPath);
     if (lines !== undefined) return { errors: [lines], notes: [] };
-    return { errors: [], notes: [findingOf(declared, itemLine, `commit missing, blob found at ${found}`)] };
+    return { errors: [], notes: [findingOf(declared, itemLine, `commit missing, blob found at ${found}`, itemPath)] };
   }
 
   const atCommit = git(repo, ['rev-parse', '--verify', `${item.commit}:${item.file}`]);
@@ -276,7 +411,7 @@ function resolveItem(repo: string, revCommit: string, declared: Declared, item: 
   if (actual !== item.blob) {
     return failed(`${declared.label} names blob ${item.blob}, but ${item.file} has ${actual} at ${item.commit}`);
   }
-  const lines = linesFinding(repo, declared, item, itemLine);
+  const lines = linesFinding(repo, declared, item, itemLine, itemPath);
   return lines === undefined ? { errors: [], notes: [] } : { errors: [lines], notes: [] };
 }
 
@@ -657,10 +792,14 @@ export function checkModel(repoPath: string, options: ModelCheckOptions = {}): M
   const { model, errors, warnings, positions } = loadAndCompileModel(repo);
   const report: ModelCheckReport = {
     outcome: 'failed',
-    errors: errors.map((e) => ({ file: e.file, line: e.line, message: e.message })),
+    // The loader's own errors and warnings carry the item's full path from
+    // the model's top (`elements[2].owner`); the report keeps it, so the
+    // JSON carries the same fields the loader reports, and leaves it out
+    // only where the loader has none (a whole-file problem).
+    errors: errors.map((e) => ({ file: e.file, line: e.line, ...(e.path === '' ? {} : { path: e.path }), message: e.message })),
     stale: [],
     problems: [],
-    warnings: warnings.map((w) => ({ file: w.file, line: w.line, message: w.message })),
+    warnings: warnings.map((w) => ({ file: w.file, line: w.line, ...(w.path === '' ? {} : { path: w.path }), message: w.message })),
     notes: [],
   };
   // A model that does not compile is reported on its own: everything else
@@ -673,16 +812,21 @@ export function checkModel(repoPath: string, options: ModelCheckOptions = {}): M
   // `loadAndCompileModel` returns the positions exactly when it returns a model.
   for (const declared of declaredItems(positions!)) {
     if (declared.evidence === undefined || declared.evidence.length === 0) {
-      report.errors.push(findingOf(declared, declared.line, `${declared.label} has no evidence`));
+      // Naming no evidence is no failure on a data entity: only elements,
+      // interfaces and relations are asked for evidence (evidence-complete).
+      if (declared.kind !== 'entity') {
+        report.errors.push(findingOf(declared, declared.line, `${declared.label} has no evidence`));
+      }
       continue;
     }
     for (const [index, item] of declared.evidence.entries()) {
       const itemLine = declared.evidenceLines[index] ?? declared.line;
+      const itemPath = `${declared.path}.evidence[${index}]`;
       if (item.commit === undefined || item.blob === undefined) {
-        report.errors.push(findingOf(declared, itemLine, `${declared.label} has an evidence item without a commit and a blob`));
+        report.errors.push(findingOf(declared, itemLine, `${declared.label} has an evidence item without a commit and a blob`, itemPath));
         continue;
       }
-      const resolved = resolveItem(repo, revCommit, declared, item, itemLine);
+      const resolved = resolveItem(repo, revCommit, declared, item, itemLine, itemPath);
       report.errors.push(...resolved.errors);
       report.notes.push(...resolved.notes);
       // Staleness never fails the check: the file at the checked revision
@@ -692,12 +836,18 @@ export function checkModel(repoPath: string, options: ModelCheckOptions = {}): M
         const gone = objectTypeAt(repo, revCommit, item.file) === 'tree'
           ? `${declared.label} is stale: ${item.file} is a folder at the checked revision, not a file; the item names blob ${item.blob}`
           : `${declared.label} is stale, file gone: ${item.file} does not exist at the checked revision; the item names blob ${item.blob}`;
-        report.stale.push(findingOf(declared, itemLine, gone));
+        report.stale.push(findingOf(declared, itemLine, gone, itemPath));
       } else if (atRev !== item.blob) {
-        report.stale.push(findingOf(declared, itemLine, `${declared.label} is stale: ${item.file} has ${atRev} at the checked revision, not the item's blob ${item.blob}`));
+        report.stale.push(findingOf(declared, itemLine, `${declared.label} is stale: ${item.file} has ${atRev} at the checked revision, not the item's blob ${item.blob}`, itemPath));
       }
     }
   }
+
+  // Every requirement a scenario names must resolve against the checked
+  // revision's capability specs (requirements-resolve): a missing spec or
+  // heading fails the check naming the scenario, the requirement, where it
+  // is named and which of the two is missing.
+  report.errors.push(...requirementFindings(repo, revCommit, positions!.scenarios));
 
   // The review report: its claims are compared with the checked revision
   // like evidence; its assignment table must cover every tracked file.

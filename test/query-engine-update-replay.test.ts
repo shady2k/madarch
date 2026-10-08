@@ -46,7 +46,7 @@ function relation(id: string, from: string, to: string): CompiledRelation {
 }
 
 function model(elements: CompiledElement[], relations: CompiledRelation[]): CompiledModel {
-  return { schemaVersion: 1, elements, interfaces: [], relations, categories: [], zones: [], environments: [], states: [{ id: 'as-is' }] };
+  return { schemaVersion: 1, elements, interfaces: [], relations, categories: [], entities: [], scenarios: [], zones: [], environments: [], states: [{ id: 'as-is' }] };
 }
 
 describe('M1: an engine kept in step through update() answers exactly like a rebuilt one, at every known time the history could report', () => {

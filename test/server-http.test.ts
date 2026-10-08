@@ -18,8 +18,8 @@ interface SentModel {
   [field: string]: unknown;
 }
 
-function model(elements: Record<string, unknown>[]): SentModel {
-  return { schemaVersion: 1, elements, interfaces: [], relations: [], categories: [], zones: [], environments: [], states: [{ id: 'as-is' }] };
+function model(elements: Record<string, unknown>[], extra: Partial<Pick<SentModel, 'entities' | 'scenarios'>> = {}): SentModel {
+  return { schemaVersion: 1, elements, interfaces: [], relations: [], categories: [], entities: [], scenarios: [], zones: [], environments: [], states: [{ id: 'as-is' }], ...extra };
 }
 
 /** A compiled model whose content must never appear in the logs. */

@@ -45,6 +45,17 @@ elements:
     parent: payments
     technology: PostgreSQL
 
+entities:
+  - id: card-number
+    name: Payment card number
+    categories: [payment-card]
+  - id: card-token
+    name: Payment card token
+    categories: [payment-card]
+  - id: settlement-report
+    name: Settlement report
+    categories: [commercial-secret]
+
 interfaces:
   - id: payments-authorize
     provider: payments-api
@@ -72,6 +83,7 @@ relations:
       - direction: forward
         confidentiality: restricted
         categories: [payment-card]
+        entities: [card-number]
       - direction: reverse
         confidentiality: internal
         categories: []
@@ -84,6 +96,7 @@ relations:
       - direction: forward
         confidentiality: restricted
         categories: [payment-card]
+        entities: [card-number]
       - direction: reverse
         confidentiality: internal
         categories: []
@@ -105,6 +118,7 @@ relations:
       - direction: forward
         confidentiality: confidential
         categories: [personal, order]
+        entities: [order-contents, user-name]
   - id: fraud-reads-features
     name: reads and updates risk features
     from: fraud-api
@@ -118,6 +132,7 @@ relations:
       - direction: reverse
         confidentiality: restricted
         categories: [payment-card]
+        entities: [card-number]
   - id: payments-charges-card
     name: charges the card
     from: payments-api
@@ -127,6 +142,7 @@ relations:
       - direction: forward
         confidentiality: restricted
         categories: [payment-card, personal]
+        entities: [card-token, user-name]
       - direction: reverse
         confidentiality: internal
         categories: []
@@ -164,6 +180,11 @@ relations:
     from: reconciliation-job
     to: payment-provider
     interface: provider-settlements
+    transfers:
+      - direction: reverse
+        confidentiality: restricted
+        categories: [commercial-secret]
+        entities: [settlement-report]
   - id: reconciliation-reads-payments
     name: matches settlements against payments
     from: reconciliation-job

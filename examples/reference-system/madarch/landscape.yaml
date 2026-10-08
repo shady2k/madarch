@@ -25,6 +25,10 @@ categories:
     name: Payment card data
   - id: order
     name: Order data
+  - id: commercial-secret
+    name: Commercial secret
+  - id: communications-secrecy
+    name: Communications secrecy
 
 elements:
   - id: customer

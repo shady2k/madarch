@@ -98,4 +98,56 @@ describe('the reference system', () => {
     expect(categories.has('personal')).toBe(true);
     expect(categories.has('payment-card')).toBe(true);
   });
+
+  test('it declares the data entities its transfers carry, each with its classification stated', () => {
+    const model = compiled();
+
+    const categoriesById = new Map(model.entities.map((entity) => [entity.id, entity.categories]));
+    expect([...categoriesById.keys()].sort()).toEqual([
+      'card-number',
+      'card-token',
+      'contact-details',
+      'order-contents',
+      'order-number',
+      'session-id',
+      'settlement-report',
+      'shipping-address',
+      'user-name',
+    ]);
+    // Each entity states its classification: a list of the model's categories,
+    // or an empty list where the author checked and found nothing sensitive.
+    expect(categoriesById.get('session-id')).toEqual(['communications-secrecy']);
+    expect(categoriesById.get('user-name')).toEqual(['personal']);
+    expect(categoriesById.get('settlement-report')).toEqual(['commercial-secret']);
+    expect(categoriesById.get('order-number')).toEqual([]);
+    for (const entity of model.entities) {
+      expect({ entity: entity.id, categories: entity.categories }).toEqual({ entity: entity.id, categories: expect.any(Array) });
+    }
+  });
+
+  test('every entity is named by at least one transfer', () => {
+    const model = compiled();
+    const named = new Set(model.relations.flatMap((relation) => (relation.transfers ?? []).flatMap((transfer) => transfer.entities)));
+
+    expect(model.entities.length).toBeGreaterThan(0);
+    for (const entity of model.entities) {
+      expect({ entity: entity.id, namedByATransfer: named.has(entity.id) }).toEqual({ entity: entity.id, namedByATransfer: true });
+    }
+  });
+
+  test("a transfer's compiled categories are the union of its own and its entities', each once, sorted by code point", () => {
+    const model = compiled();
+
+    const signIn = model.relations.find((relation) => relation.id === 'web-shop-signs-in')!.transfers![0]!
+    expect(signIn.entities).toEqual(['session-id', 'user-name']);
+    expect(signIn.categories).toEqual(['communications-secrecy', 'personal']);
+
+    const placed = model.relations.find((relation) => relation.id === 'orders-publishes-placed')!.transfers![0]!
+    expect(placed.entities).toEqual(['order-contents', 'order-number', 'shipping-address', 'user-name']);
+    expect(placed.categories).toEqual(['order', 'personal']);
+
+    const settlements = model.relations.find((relation) => relation.id === 'reconciliation-fetches-settlements')!.transfers![0]!
+    expect(settlements.entities).toEqual(['settlement-report']);
+    expect(settlements.categories).toEqual(['commercial-secret']);
+  });
 });

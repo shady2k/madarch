@@ -3,7 +3,7 @@ import { join, relative } from 'node:path';
 import { LineCounter, parseDocument } from 'yaml';
 import { Value } from 'typebox/value';
 import type { ModelError, ModelWarning } from './errors.js';
-import { ModelFile, type Category, type Element, type Environment, type Interface, type Relation, type State, type ValidatedModel, type Zone } from './schema.js';
+import { ModelFile, type Category, type DataEntity, type Element, type Environment, type Interface, type Relation, type Scenario, type ScenarioStep, type State, type ValidatedModel, type Zone } from './schema.js';
 import { checkStrictYaml } from './strict-yaml.js';
 import {
   validateModel,
@@ -12,14 +12,17 @@ import {
   type PositionedCategory,
   type PositionedElement,
   type PositionedEnvironment,
+  type PositionedEntity,
   type PositionedInterface,
   type PositionedModel,
   type PositionedRelation,
+  type PositionedScenario,
   type PositionedState,
   type PositionedZone,
   type TransferLines,
 } from './validate.js';
-import { unmarkedMessagingWarning, unnamedRelationWarning } from './warnings.js';
+import { entityClassificationWarning, unmarkedMessagingWarning, unnamedRelationWarning } from './warnings.js';
+import { byCodePoint } from './order.js';
 import { jsonPointerToSegments, lineForPath, segmentsToPath, type PathSegment } from './yaml-position.js';
 
 export interface LoadResult {
@@ -98,6 +101,8 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
     interfaces: [],
     relations: [],
     categories: [],
+    entities: [],
+    scenarios: [],
     zones: [],
     environments: [],
     states: [],
@@ -113,6 +118,7 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
     interfaces: new Set(),
     relations: new Set(),
     categories: new Set(),
+    entities: new Set(),
     zones: new Set(),
     environments: new Set(),
     states: new Set(),
@@ -156,6 +162,8 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
       interfaces?: Interface[];
       relations?: Relation[];
       categories?: Category[];
+      entities?: DataEntity[];
+      scenarios?: Scenario[];
       zones?: Zone[];
       environments?: Environment[];
       states?: State[];
@@ -209,8 +217,12 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
 
     (parsed.relations ?? []).forEach((relation, index) => {
       const transferLines: TransferLines[] = (relation.transfers ?? []).map((transfer, transferIndex) => ({
-        categoryLines: transfer.categories.map((_category, categoryIndex) =>
+        line: line(['relations', index, 'transfers', transferIndex]),
+        categoryLines: (transfer.categories ?? []).map((_category, categoryIndex) =>
           line(['relations', index, 'transfers', transferIndex, 'categories', categoryIndex]),
+        ),
+        entityLines: (transfer.entities ?? []).map((_entityId, entityIndex) =>
+          line(['relations', index, 'transfers', transferIndex, 'entities', entityIndex]),
         ),
       }));
       positioned.relations.push({
@@ -242,6 +254,55 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
         index,
         line: line(['categories', index]),
         idLine: line(['categories', index, 'id']),
+      });
+    });
+
+    (parsed.entities ?? []).forEach((entity, index) => {
+      positioned.entities.push({
+        entity,
+        file: relativeFile,
+        index,
+        line: line(['entities', index]),
+        idLine: line(['entities', index, 'id']),
+        nameLine: line(['entities', index, 'name']),
+        categoriesLines: (entity.categories ?? []).map((_categoryId, categoryIndex) =>
+          line(['entities', index, 'categories', categoryIndex]),
+        ),
+        evidenceLines: (entity.evidence ?? []).map((_item, evidenceIndex) =>
+          line(['entities', index, 'evidence', evidenceIndex]),
+        ),
+      });
+    });
+
+    (parsed.scenarios ?? []).forEach((scenario, index) => {
+      const stepLines = (parent: (string | number)[], steps: readonly ScenarioStep[]) =>
+        steps.map((step, stepIndex) => ({
+          step,
+          line: line([...parent, stepIndex]),
+          idLine: line([...parent, stepIndex, 'id']),
+          relationLine: line([...parent, stepIndex, 'relation']),
+        }));
+      positioned.scenarios.push({
+        scenario,
+        file: relativeFile,
+        index,
+        line: line(['scenarios', index]),
+        idLine: line(['scenarios', index, 'id']),
+        actorLine: scenario.actor === undefined ? line(['scenarios', index]) : line(['scenarios', index, 'actor']),
+        requirementsLines: (scenario.requirements ?? []).map((_requirementId, requirementIndex) =>
+          line(['scenarios', index, 'requirements', requirementIndex]),
+        ),
+        stepsLine: line(['scenarios', index, 'steps']),
+        stepsLines: stepLines(['scenarios', index, 'steps'], scenario.steps ?? []),
+        alternativesLines: (scenario.alternatives ?? []).map((alternative, alternativeIndex) => ({
+          alternative,
+          line: line(['scenarios', index, 'alternatives', alternativeIndex]),
+          idLine: line(['scenarios', index, 'alternatives', alternativeIndex, 'id']),
+          atLine: line(['scenarios', index, 'alternatives', alternativeIndex, 'at']),
+          whenLine: line(['scenarios', index, 'alternatives', alternativeIndex, 'when']),
+          stepsLine: line(['scenarios', index, 'alternatives', alternativeIndex, 'steps']),
+          stepsLines: stepLines(['scenarios', index, 'alternatives', alternativeIndex, 'steps'], alternative.steps ?? []),
+        })),
       });
     });
 
@@ -296,15 +357,22 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
   // above, even when `errors` is already non-empty.
   // Warnings come once every file is read: whether a relation goes through a
   // topic or queue depends on an interface any file may declare. In file
-  // order, then in the order written, a relation's own warnings together.
+  // order, then in the order written (their lines', when one file holds
+  // several kinds), a relation's own warnings together.
   const contracts = new Map(positioned.interfaces.map((entry) => [entry.iface.id, entry.iface.contract]));
-  const warnings: ModelWarning[] = [];
+  const relationWarnings: ModelWarning[] = [];
   for (const entry of positioned.relations) {
     const noName = unnamed.get(entry);
-    if (noName !== undefined) warnings.push(noName);
+    if (noName !== undefined) relationWarnings.push(noName);
     const noAction = unmarkedMessagingWarning(entry, contracts);
-    if (noAction !== undefined) warnings.push(noAction);
+    if (noAction !== undefined) relationWarnings.push(noAction);
   }
+  const entityWarnings = positioned.entities
+    .map((entry) => entityClassificationWarning(entry))
+    .filter((warning): warning is ModelWarning => warning !== undefined);
+  const warnings: ModelWarning[] = [...relationWarnings, ...entityWarnings].sort(
+    (a, b) => byCodePoint(a.file, b.file) || a.line - b.line,
+  );
 
   const validationErrors = validateModel(positioned, extraKnownIds);
   const allErrors = [...errors, ...validationErrors];
@@ -318,6 +386,8 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
     interfaces: positioned.interfaces.map((entry) => entry.iface),
     relations: positioned.relations.map((entry) => entry.relation),
     categories: positioned.categories.map((entry) => entry.category),
+    entities: positioned.entities.map((entry) => entry.entity),
+    scenarios: positioned.scenarios.map((entry) => entry.scenario),
     zones: positioned.zones.map((entry) => entry.zone),
     environments: positioned.environments.map((entry) => entry.environment),
     states: positioned.states.map((entry) => entry.state),
@@ -475,7 +545,7 @@ function normalizeErrors(
   return out;
 }
 
-const ID_SECTIONS = ['elements', 'interfaces', 'relations', 'categories', 'zones', 'environments', 'states'] as const;
+const ID_SECTIONS = ['elements', 'interfaces', 'relations', 'categories', 'entities', 'zones', 'environments', 'states'] as const;
 
 /**
  * Reads whatever string `id`s a file's raw parsed value holds, tolerant of

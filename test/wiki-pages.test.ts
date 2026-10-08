@@ -267,6 +267,8 @@ function emptyModel(): CompiledModel {
     interfaces: [],
     relations: [],
     categories: [],
+    entities: [],
+    scenarios: [],
     zones: [],
     environments: [],
     states: [],
@@ -763,6 +765,8 @@ describe('wiki page data', () => {
       { page: 'zone/internet', text: 'Public internet' },
     ]);
     expect(tableOf(pageOf(pages, 'data-categories'), ['Data category', 'Relations']).rows.map((row) => row[0])).toEqual([
+      { page: 'data-category/commercial-secret', text: 'Commercial secret' },
+      { page: 'data-category/communications-secrecy', text: 'Communications secrecy' },
       { page: 'data-category/order', text: 'Order data' },
       { page: 'data-category/payment-card', text: 'Payment card data' },
       { page: 'data-category/personal', text: 'Personal data' },
@@ -774,6 +778,8 @@ describe('wiki page data', () => {
       'zone/pci',
     ]);
     expect(pages.filter((page) => page.id.startsWith('data-category/')).map((page) => page.id).sort()).toEqual([
+      'data-category/commercial-secret',
+      'data-category/communications-secrecy',
       'data-category/order',
       'data-category/payment-card',
       'data-category/personal',

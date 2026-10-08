@@ -1,0 +1,14 @@
+version: 1
+
+categories:
+  - id: personal
+    name: Personal data
+
+elements:
+  - id: event-bus
+    kind: broker
+
+entities:
+  - id: user-name
+    name: User name
+    categories: [personal]

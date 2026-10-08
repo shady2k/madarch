@@ -6,6 +6,8 @@
     "interfaces",
     "relations",
     "categories",
+    "entities",
+    "scenarios",
     "zones",
     "environments",
     "states"
@@ -288,7 +290,8 @@
               "required": [
                 "direction",
                 "confidentiality",
-                "categories"
+                "categories",
+                "entities"
               ],
               "properties": {
                 "direction": {
@@ -311,7 +314,15 @@
                   "type": "array",
                   "items": {
                     "type": "string"
-                  }
+                  },
+                  "description": "The categories the transfer carries: those it names and those of its entities, each once, sorted by code point."
+                },
+                "entities": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "The data entities the transfer carries, by id: those it names, sorted by code point; empty when it names none."
                 }
               },
               "additionalProperties": false
@@ -385,6 +396,185 @@
         },
         "additionalProperties": false
       }
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The entity's classification: the category ids it names, sorted by code point. Written as an empty list when the entity is of no category; left out when the source left `categories` out — an unstated classification is not an empty one."
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "file"
+              ],
+              "properties": {
+                "file": {
+                  "type": "string"
+                },
+                "line": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "endLine": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "The last line of the range the item names; needs `line` and may not come before it (checked when the model is loaded)."
+                },
+                "commit": {
+                  "type": "string",
+                  "description": "The commit the file was read at: 40 hexadecimal digits, lower case. Given together with `blob` or with neither (checked when the model is loaded)."
+                },
+                "blob": {
+                  "type": "string",
+                  "description": "The file's git blob id at `commit`: 40 hexadecimal digits, lower case. Given together with `commit` or with neither (checked when the model is loaded)."
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "The model's data entities, ordered by id; empty when the model declares none, like every other top-level array."
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "requirements",
+          "steps"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "name": {
+            "type": "string",
+            "description": "A readable name of the use case, when the model names it."
+          },
+          "description": {
+            "type": "string",
+            "description": "The use case's goal and preconditions, in prose, when the model states them."
+          },
+          "actor": {
+            "type": "string",
+            "description": "The element that initiates the use case, by id, when the model names one."
+          },
+          "requirements": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The capability requirements the scenario realises, as ids of the form `capability/requirement`, exactly as written; empty when the scenario names none, like the `steps` beside it."
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "relation"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "relation": {
+                  "type": "string",
+                  "description": "The relation the step runs over, by id, as the model names it — at any level, a refinement or not."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "What happens at this step, in a few words, when the model names it."
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "The main flow, in written order."
+          },
+          "alternatives": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "at",
+                "when",
+                "steps"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "at": {
+                  "type": "string",
+                  "description": "The main-flow step the alternative starts at, by step id."
+                },
+                "when": {
+                  "type": "string",
+                  "description": "The condition under which the alternative is taken, in prose, as the model states it."
+                },
+                "steps": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "relation"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                      },
+                      "relation": {
+                        "type": "string",
+                        "description": "The relation the step runs over, by id, as the model names it — at any level, a refinement or not."
+                      },
+                      "name": {
+                        "type": "string",
+                        "description": "What happens at this step, in a few words, when the model names it."
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "Alternative flows, in written order."
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "The model's scenarios, ordered by id; empty when the model declares none, like every other top-level array."
     },
     "zones": {
       "type": "array",

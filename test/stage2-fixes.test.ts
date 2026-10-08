@@ -72,6 +72,8 @@ function model(elements: CompiledElement[], extra: Partial<CompiledModel> = {}):
     interfaces: [],
     relations: [],
     categories: [],
+    entities: [],
+    scenarios: [],
     zones: [],
     environments: [],
     states: [{ id: 'as-is' }],
@@ -471,9 +473,16 @@ describe('3. the id-clash check compares valid spans, not just "now"', () => {
 });
 
 describe('4. HistoryStore\'s public interface for stage 3 and the server', () => {
-  test('ASSERTION_KINDS, CLASHABLE_KINDS and SHARED_KINDS name exactly the seven, three and four kinds the design describes', () => {
-    expect(ASSERTION_KINDS).toEqual(['element', 'interface', 'relation', 'category', 'zone', 'environment', 'state']);
-    expect(CLASHABLE_KINDS).toEqual(['element', 'interface', 'relation']);
+  test('ASSERTION_KINDS, CLASHABLE_KINDS and SHARED_KINDS name exactly the nine, five and four kinds the design describes', () => {
+    // Nine kinds since madarch-hnq.1.4: a data entity and a scenario are
+    // each one assertion of their source, one per array `compileModel`
+    // builds. Both are each one source's exclusive claim, like elements,
+    // interfaces and relations (`CLASHABLE_KINDS`), not shared vocabulary
+    // like zones, categories, environments and states: a second source
+    // redeclaring an entity or scenario id another source's current model
+    // already declares is refused, naming the id and the other source.
+    expect(ASSERTION_KINDS).toEqual(['element', 'interface', 'relation', 'entity', 'scenario', 'category', 'zone', 'environment', 'state']);
+    expect(CLASHABLE_KINDS).toEqual(['element', 'interface', 'relation', 'entity', 'scenario']);
     expect(SHARED_KINDS).toEqual(['category', 'zone', 'environment', 'state']);
   });
 

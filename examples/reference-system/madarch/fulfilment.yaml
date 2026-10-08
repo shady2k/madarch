@@ -145,6 +145,7 @@ relations:
       - direction: forward
         confidentiality: confidential
         categories: [personal]
+        entities: [order-contents, shipping-address]
   - id: carrier-reports-tracking
     name: reports tracking events
     from: delivery-carrier

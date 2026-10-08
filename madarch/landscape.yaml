@@ -1,0 +1,143 @@
+# madarch's own intended model, written by the write-intended-model
+# skill (madarch-hnq.2.2). Every element, interface and relation carries
+# evidence at commit f556d016491c…, the branch's base; items whose file the
+# change's own work moved were re-read at 14f9156817d95351b49401af893d8c96b1138dec
+# (madarch-hnq.2.3). The review report beside these files tells each document
+# claim's verdict. This file holds the landscape: the people, the outside
+# tools the build reaches, and the system itself; the other files hold the
+# system's parts.
+version: 1
+
+zones:
+  - id: local
+    kind: network
+    name: The machine madarch runs on
+
+categories:
+  - id: model-content
+    name: A repository's intended and compiled model
+  - id: repository-content
+    name: A repository's files and git history
+  - id: site-content
+    name: A generated wiki site
+
+elements:
+  - id: maintainer
+    kind: person
+    name: Product maintainer
+    zones:
+      add: [local]
+    evidence:
+      - file: docs/vision.md
+        line: 16
+        endLine: 17
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 2f0c1d1cb8c1e05c7e22b7f75e3b04c13d9c3aa9
+  - id: coding-agent
+    kind: person
+    name: Coding agent
+    zones:
+      add: [local]
+    evidence:
+      - file: docs/vision.md
+        line: 33
+        endLine: 34
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 2f0c1d1cb8c1e05c7e22b7f75e3b04c13d9c3aa9
+  - id: reader
+    kind: person
+    name: Wiki reader
+    zones:
+      add: [local]
+    evidence:
+      - file: docs/vision.md
+        line: 31
+        endLine: 32
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 2f0c1d1cb8c1e05c7e22b7f75e3b04c13d9c3aa9
+  - id: bun
+    kind: external
+    name: Bun runtime
+    zones:
+      add: [local]
+    technology: Bun 1.4.2
+    evidence:
+      - file: package.json
+        line: 5
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: e2f4ef44febdc394eac305b95f310828fd6a9988
+      - file: src/adapters/sqlite-history.ts
+        line: 1
+        commit: 14f9156817d95351b49401af893d8c96b1138dec
+        blob: 9f325ee97e19a19a20f61553c601514a1430c31a
+  - id: ladybugdb
+    kind: external
+    name: LadybugDB
+    zones:
+      add: [local]
+    technology: '@ladybugdb/core 0.20.4'
+    evidence:
+      - file: src/adapters/ladybug-engine.ts
+        line: 1
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: cadf34005a6f71b28048db2e32053064bafdec45
+  - id: node
+    kind: external
+    name: Node.js
+    zones:
+      add: [local]
+    evidence:
+      - file: src/wiki/build.ts
+        line: 252
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 5751ad7a1ccb193f84722bf245513b25ec00ef3a
+  - id: uv-uvx
+    kind: external
+    name: uv and uvx
+    zones:
+      add: [local]
+    evidence:
+      - file: src/wiki/build.ts
+        line: 311
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 5751ad7a1ccb193f84722bf245513b25ec00ef3a
+  - id: zensical
+    kind: external
+    name: Zensical
+    zones:
+      add: [local]
+    technology: zensical 0.0.66
+    evidence:
+      - file: src/wiki/build.ts
+        line: 53
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 5751ad7a1ccb193f84722bf245513b25ec00ef3a
+  - id: likec4
+    kind: external
+    name: LikeC4
+    zones:
+      add: [local]
+    technology: likec4 1.59.4
+    evidence:
+      - file: src/wiki/build.ts
+        line: 320
+        endLine: 322
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 5751ad7a1ccb193f84722bf245513b25ec00ef3a
+  - id: madarch
+    kind: system
+    name: madarch
+    zones:
+      add: [local]
+    technology: TypeScript, Bun
+    evidence:
+      - file: package.json
+        line: 2
+        endLine: 7
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: e2f4ef44febdc394eac305b95f310828fd6a9988
+      - file: docs/system/architecture.md
+        line: 1
+        endLine: 4
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 82a16d4439d31c0f4e920f84795b7666589817fd

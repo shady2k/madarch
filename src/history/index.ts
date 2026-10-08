@@ -4,6 +4,11 @@
  * module and `assertions.ts` touch no Bun-specific API; the only
  * implementation so far, `src/adapters/sqlite-history.ts`, sits behind
  * `HistoryStore`.
+ *
+ * The kinds the history keeps are `ASSERTION_KINDS` (see `assertions.ts`):
+ * the compiled model's every top-level array — elements, interfaces,
+ * relations, data entities, scenarios, categories, zones, environments and
+ * states.
  */
 export type {
   AssertionChange,

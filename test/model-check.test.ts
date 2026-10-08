@@ -75,8 +75,75 @@ describe('the model check', () => {
         expect(report.errors[0]!.line).toBe(repo.lineOf('model.yaml', 'parent: billing'));
         expect(report.errors[0]!.message).toContain('billing-web');
         expect(report.errors[0]!.message).toContain('billing');
+        // The loader's own path survives into the report, so the JSON
+        // carries the same fields the loader reports.
+        expect(report.errors[0]!.path).toBe('elements[0].parent');
         expect(report.warnings).toEqual([]);
         expect(report.notes).toEqual([]);
+      });
+    });
+
+    test('an interface finding and a data entity finding each name their own path', () => {
+      withRepo((repo) => {
+        repo.write('src/web.ts', 'export const web = 1;\n');
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: web',
+          '    kind: service',
+          '    name: Web',
+          '',
+          'interfaces:',
+          '  - id: web-api',
+          '    provider: web',
+          '    contract: http::GET::/api',
+          '',
+          'entities:',
+          '  - id: session-id',
+          '    name: Session id',
+          '    categories: []',
+          '    evidence:',
+          '      - file: src/web.ts',
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/web.ts', 'web', '']]));
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.errors).toContainEqual(expect.objectContaining({ id: 'web-api', path: 'interfaces[0]' }));
+        expect(report.errors).toContainEqual(expect.objectContaining({ id: 'session-id', path: 'entities[0].evidence[0]' }));
+      });
+    });
+
+    test('a loader error about a whole file carries no path at all', () => {
+      withRepo((repo) => {
+        repo.writeModel('other.yml', 'version: 1\n');
+        repo.writeModel('model.yaml', ['version: 1', '', 'elements:', '  - id: web', '    kind: service', '    name: Web', ''].join('\n'));
+        repo.writeReview([], assigned([]));
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        const yml = report.errors.find((finding) => finding.file.endsWith('other.yml'));
+        expect(yml).toBeDefined();
+        expect(yml).not.toHaveProperty('path');
+      });
+    });
+
+    test('a warning the loader reports keeps its full path in the report', () => {
+      withRepo((repo) => {
+        const yaml = ['version: 1', '', 'elements:', '  - id: web', '    kind: service', '    name: Web', '', 'relations:', '  - id: web-calls-core', '    from: web', '    to: web', ''].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.warnings).toEqual([
+          expect.objectContaining({ file: 'madarch/model.yaml', path: 'relations[0]', message: expect.stringContaining('has no name') }),
+        ]);
       });
     });
   });
@@ -458,7 +525,58 @@ describe('the model check', () => {
         expect(report.errors[0]!.message).toContain(lostBlob);
       });
     });
+
+    test("entity-line-past-end: a data entity's item naming lines past the blob's end fails, naming the entity and saying how many lines the file has", () => {
+      withRepo((repo) => {
+        repo.write('src/web.ts', 'export const web = 1;\n');
+        repo.write('src/core.ts', numberedLines(30));
+        const commit = repo.commit('the sources');
+        const webBlob = repo.blob('src/web.ts', commit);
+        const coreBlob = repo.blob('src/core.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: web',
+          '    kind: service',
+          '    name: Web',
+          '    evidence:',
+          '      - file: src/web.ts',
+          `        commit: ${commit}`,
+          `        blob: ${webBlob}`,
+          '',
+          'entities:',
+          '  - id: session-id',
+          '    name: Session id',
+          '    categories: []',
+          '    evidence:',
+          '      - file: src/core.ts',
+          '        line: 40',
+          '        endLine: 45',
+          `        commit: ${commit}`,
+          `        blob: ${coreBlob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/web.ts', 'web', ''], ['src/core.ts', 'web', '']]));
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('failed');
+        expect(report.errors).toHaveLength(1);
+        expect(report.errors[0]!.id).toBe('session-id');
+        expect(report.errors[0]!.file).toBe('madarch/model.yaml');
+        expect(report.errors[0]!.line).toBe(repo.lineOf('model.yaml', '- file: src/core.ts'));
+        expect(report.errors[0]!.message).toContain('data entity "session-id"');
+        expect(report.errors[0]!.message).toContain('30 lines');
+        expect(report.errors[0]!.message).toContain('40');
+        expect(report.errors[0]!.message).toContain('45');
+        expect(report.notes).toEqual([]);
+      });
+    });
   });
+
   describe('evidence-complete', () => {
     test('missing-evidence: a relation with no evidence and an item with no commit and blob are both reported, each with its file and line', () => {
       withRepo((repo) => {
@@ -512,10 +630,89 @@ describe('the model check', () => {
         expect(report.errors[0]!.file).toBe('madarch/model.yaml');
         expect(report.errors[0]!.line).toBe(repo.lineOf('model.yaml', '- file: src/core.ts'));
         expect(report.errors[0]!.message).toContain('without a commit and a blob');
+        // Every finding whose source is the model carries its full path from
+        // the model's top: the item's own, or the evidence item's.
+        expect(report.errors[0]!.path).toBe('elements[1].evidence[0]');
         expect(report.errors[1]!.id).toBe('ui-calls-core');
         expect(report.errors[1]!.line).toBe(repo.lineOf('model.yaml', '- id: ui-calls-core'));
+        expect(report.errors[1]!.path).toBe('relations[0]');
         expect(report.errors[1]!.message).toContain('relation "ui-calls-core"');
         expect(report.errors[1]!.message).toContain('has no evidence');
+      });
+    });
+
+    test('an entity with no evidence is not refused: only elements, interfaces and relations are asked for evidence', () => {
+      withRepo((repo) => {
+        repo.write('src/web.ts', 'export const web = 1;\n');
+        const commit = repo.commit('the sources');
+        const webBlob = repo.blob('src/web.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: web',
+          '    kind: service',
+          '    name: Web',
+          '    evidence:',
+          '      - file: src/web.ts',
+          `        commit: ${commit}`,
+          `        blob: ${webBlob}`,
+          '',
+          'entities:',
+          '  - id: session-id',
+          '    name: Session id',
+          '    categories: []',
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/web.ts', 'web', '']]));
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('passed');
+        expect(report.errors).toEqual([]);
+      });
+    });
+
+    test('an entity\'s item without a commit and a blob is refused like any other item, naming the entity and its item line', () => {
+      withRepo((repo) => {
+        repo.write('src/web.ts', 'export const web = 1;\n');
+        const commit = repo.commit('the sources');
+        const webBlob = repo.blob('src/web.ts', commit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: web',
+          '    kind: service',
+          '    name: Web',
+          '    evidence:',
+          '      - file: src/web.ts',
+          `        commit: ${commit}`,
+          `        blob: ${webBlob}`,
+          '',
+          'entities:',
+          '  - id: session-id',
+          '    name: Session id',
+          '    categories: []',
+          '    evidence:',
+          '      - file: src/core.ts',
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/web.ts', 'web', '']]));
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('failed');
+        expect(report.errors).toHaveLength(1);
+        expect(report.errors[0]!.id).toBe('session-id');
+        expect(report.errors[0]!.file).toBe('madarch/model.yaml');
+        expect(report.errors[0]!.line).toBe(repo.lineOf('model.yaml', '- file: src/core.ts'));
+        expect(report.errors[0]!.message).toContain('data entity "session-id"');
+        expect(report.errors[0]!.message).toContain('without a commit and a blob');
       });
     });
 
@@ -1024,6 +1221,57 @@ describe('the model check', () => {
       } finally {
         rmSync(repo.path, { recursive: true, force: true });
       }
+    });
+
+    test("entity-file-changed-since: an item on the data entity session-id whose file changed after the item's commit is reported stale with both blobs, and the check passes", () => {
+      withRepo((repo) => {
+        repo.write('src/web.ts', 'export const web = 1;\n');
+        repo.write('src/core.ts', numberedLines(10));
+        const sourceCommit = repo.commit('the sources');
+        const webBlob = repo.blob('src/web.ts', sourceCommit);
+        const oldBlob = repo.blob('src/core.ts', sourceCommit);
+        const yaml = [
+          'version: 1',
+          '',
+          'elements:',
+          '  - id: web',
+          '    kind: service',
+          '    name: Web',
+          '    evidence:',
+          '      - file: src/web.ts',
+          `        commit: ${sourceCommit}`,
+          `        blob: ${webBlob}`,
+          '',
+          'entities:',
+          '  - id: session-id',
+          '    name: Session id',
+          '    categories: []',
+          '    evidence:',
+          '      - file: src/core.ts',
+          `        commit: ${sourceCommit}`,
+          `        blob: ${oldBlob}`,
+          '',
+        ].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.writeReview([], assigned([['src/web.ts', 'web', ''], ['src/core.ts', 'web', '']]));
+        repo.commit('the model');
+        repo.write('src/core.ts', numberedLines(11));
+        repo.commit('the file changes');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome).toBe('passed');
+        expect(report.errors).toEqual([]);
+        expect(report.stale).toHaveLength(1);
+        expect(report.stale[0]!.id).toBe('session-id');
+        expect(report.stale[0]!.file).toBe('madarch/model.yaml');
+        expect(report.stale[0]!.line).toBe(repo.lineOf('model.yaml', '- file: src/core.ts'));
+        expect(report.stale[0]!.message).toContain('data entity "session-id"');
+        expect(report.stale[0]!.message).toContain('src/core.ts');
+        expect(report.stale[0]!.message).toContain(oldBlob);
+        expect(report.stale[0]!.message).toContain(repo.blob('src/core.ts'));
+        expect(report.notes).toEqual([]);
+      });
     });
 
     test("a claim whose document changed after the report was written is reported stale, with the claim's text and the report's line", () => {
