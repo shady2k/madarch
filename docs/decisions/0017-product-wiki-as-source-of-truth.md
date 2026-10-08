@@ -35,6 +35,11 @@ Option 3, decided by the owner in conversation on 2026-10-09.
   product's code repositories and the team's skills and agent instructions.
   Cloning it and running its bootstrap prepares the whole workspace: the code
   repositories checked out by the manifest, the skills, and a local madarch.
+  Kept apart for access, by the owner on 2026-10-09: nearly everyone may write
+  to the product repository, while write access to code stays narrow; a
+  combined repository would also put wiki edits behind the code's protected
+  branch and CI, and a product that grows a second repository would have to
+  move its knowledge out.
 - **Markdown and YAML in git are the truth.** Nothing madarch keeps is more
   authoritative than git.
 - **One write path.** People edit in the wiki, agents through madarch's MCP;
