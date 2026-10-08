@@ -267,6 +267,8 @@ function emptyModel(): CompiledModel {
     interfaces: [],
     relations: [],
     categories: [],
+    entities: [],
+    scenarios: [],
     zones: [],
     environments: [],
     states: [],

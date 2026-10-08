@@ -11,8 +11,10 @@ import {
   serializeCompiledModel,
   type Clock,
   type CompiledElement,
+  type CompiledEntity,
   type CompiledModel,
   type CompiledRelation,
+  type CompiledScenario,
   type HistoryStore,
 } from '../src/index.js';
 
@@ -51,16 +53,31 @@ function relation(id: string, from: string, to: string): CompiledRelation {
   return { id, from, to, interaction: false, environments: ['*'], states: ['as-is'] };
 }
 
-function model(elements: CompiledElement[], relations: CompiledRelation[] = []): CompiledModel {
+function entity(id: string, extra: Partial<CompiledEntity> = {}): CompiledEntity {
+  return { id, categories: [], ...extra };
+}
+
+function scenario(id: string, extra: Partial<CompiledScenario> = {}): CompiledScenario {
+  return { id, steps: [], requirements: [], ...extra };
+}
+
+function model(
+  elements: CompiledElement[],
+  relations: CompiledRelation[] = [],
+  extra: Partial<Pick<CompiledModel, 'entities' | 'scenarios'>> = {},
+): CompiledModel {
   return {
     schemaVersion: 1,
     elements,
     interfaces: [],
     relations,
     categories: [],
+    entities: [],
+    scenarios: [],
     zones: [],
     environments: [],
     states: [{ id: 'as-is' }],
+    ...extra,
   };
 }
 
@@ -391,6 +408,151 @@ describe('lossless: what is stored reads back as compiled', () => {
 
     const readBack = readModel(h, { source: 'reference', valid: DAY(1), known: DAY(2) });
     expect(serializeCompiledModel(readBack)).toEqual(serializeCompiledModel(compiled!));
+  });
+
+  test('round-trip: data entities and scenarios, stored and read back at their commit\'s time, equal the compiled model (madarch-hnq.1.4)', () => {
+    const { model: compiled, errors } = loadAndCompileModel(fixture('entities-and-scenarios'));
+    expect(errors).toEqual([]);
+    expect(compiled?.entities.map((e) => e.id)).toEqual(['order-number', 'user-name']);
+    expect(compiled?.scenarios.map((s) => s.id)).toEqual(['order-fails', 'place-order']);
+
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    const result = h.store({ source: 'reference', commit: 'c1', committedAt: DAY(1), model: compiled! });
+    expect(result.errors).toEqual([]);
+
+    // Stored assertions exist for every kind, not only the seven the
+    // history knew before: an entity and a scenario are each one assertion
+    // of their source, closed and reopened like any other.
+    const kinds = new Set(h.assertions({ source: 'reference' }).map((row) => row.kind));
+    expect(kinds.has('entity')).toBe(true);
+    expect(kinds.has('scenario')).toBe(true);
+
+    const readBack = readModel(h, { source: 'reference', valid: DAY(1), known: DAY(2) });
+    expect(serializeCompiledModel(readBack)).toEqual(serializeCompiledModel(compiled!));
+  });
+
+  test('the union read carries entities and scenarios beside the seven kinds, sorted by id', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    h.store({
+      source: 'shop',
+      commit: 'c1',
+      committedAt: DAY(1),
+      model: model(
+        [element('a')],
+        [relation('r1', 'a', 'a')],
+        { entities: [entity('z-entity'), entity('a-entity')], scenarios: [scenario('z-scenario', { steps: [{ id: 's1', relation: 'r1' }] }), scenario('a-scenario')] },
+      ),
+    });
+
+    const union = readModel(h, { valid: DAY(1), known: DAY(2) });
+    expect(union.entities.map((e) => e.id)).toEqual(['a-entity', 'z-entity']);
+    expect(union.scenarios.map((s) => s.id)).toEqual(['a-scenario', 'z-scenario']);
+    expect(serializeCompiledModel(union)).toBe(serializeCompiledModel(readModel(h, { source: 'shop', valid: DAY(1), known: DAY(2) })));
+  });
+
+  test('a newer commit replaces the entities and scenarios the source asserted, like every other kind', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    const relations = [relation('r1', 'a', 'a')];
+    h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')], relations, { entities: [entity('gone')], scenarios: [scenario('gone-too')] }) });
+    clock.set(DAY(11));
+    h.store({ source: 'shop', commit: 'c2', committedAt: DAY(10), model: model([element('a')], relations, { entities: [entity('kept', { name: 'Kept' })] }) });
+
+    // As of c1's time: everything it asserted.
+    const before = readModel(h, { source: 'shop', valid: DAY(5), known: DAY(11) });
+    expect(before.entities.map((e) => e.id)).toEqual(['gone']);
+    expect(before.scenarios.map((s) => s.id)).toEqual(['gone-too']);
+
+    // As of c2's time: the removed entity and scenario are gone, the kept
+    // one is there, and nothing lingers from c1.
+    const after = readModel(h, { source: 'shop', valid: DAY(12), known: DAY(11) });
+    expect(after.entities).toEqual([{ id: 'kept', categories: [], name: 'Kept' }]);
+    expect(after.scenarios).toEqual([]);
+    // The kept entity lost its scenario: an empty array, always present,
+    // never a missing key.
+    expect(Object.hasOwn(after, 'scenarios')).toBe(true);
+
+    // As of c2's time but known before c2 was recorded: c1's view stands.
+    const asKnownEarly = readModel(h, { source: 'shop', valid: DAY(12), known: DAY(3) });
+    expect(asKnownEarly.entities.map((e) => e.id)).toEqual(['gone']);
+    expect(asKnownEarly.scenarios.map((s) => s.id)).toEqual(['gone-too']);
+  });
+
+  test('entities and scenarios are each one source\'s exclusive claim: a second source redeclaring an id is refused, naming the id and the other source', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    h.store({ source: 'payments', commit: 'p1', committedAt: DAY(1), model: model([element('x')], [], { entities: [entity('session-id')], scenarios: [scenario('place-order')] }) });
+
+    const refusedEntity = h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([element('y')], [], { entities: [entity('session-id')] }) });
+    expect(refusedEntity.errors).toEqual([{ message: expect.any(String), id: 'session-id', source: 'payments' }]);
+    expect(refusedEntity.errors[0]?.message).toContain('already declared by source "payments"');
+
+    const refusedScenario = h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([element('y')], [], { scenarios: [scenario('place-order')] }) });
+    expect(refusedScenario.errors).toEqual([{ message: expect.any(String), id: 'place-order', source: 'payments' }]);
+    expect(refusedScenario.errors[0]?.message).toContain('already declared by source "payments"');
+
+    // A source declaring its own entity and scenario ids stores fine, and
+    // a store of an id the other source no longer declares succeeds too.
+    const accepted = h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([element('y')], [], { entities: [entity('cart-id')], scenarios: [scenario('checkout')] }) });
+    expect(accepted.errors).toEqual([]);
+
+    clock.set(DAY(11));
+    h.store({ source: 'payments', commit: 'p2', committedAt: DAY(10), model: model([element('x')]) });
+    const nowFree = h.store({ source: 'shop', commit: 's2', committedAt: DAY(10), model: model([element('y')], [], { entities: [entity('session-id')] }) });
+    expect(nowFree.errors).toEqual([]);
+  });
+
+  test('the exclusive-kind safety net reports an entity or scenario id two sources claim, like the other clashable kinds (data written outside store())', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'madarch-hnq14-'));
+    const path = join(dir, 'history.sqlite');
+    try {
+      createSqliteHistory({ clock: fakeClock(DAY(2)), path }).close();
+      const raw = new Database(path);
+      const insert = raw.query(
+        `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to)
+         VALUES (?, ?, ?, ?, ?, NULL, 'c1', NULL, ?, NULL)`,
+      );
+      for (const kind of ['entity', 'scenario'] as const) {
+        insert.run('a', kind, 'x', JSON.stringify({ id: 'x', v: 'A' }), DAY(1), DAY(1));
+        insert.run('b', kind, 'x', JSON.stringify({ id: 'x', v: 'B' }), DAY(1), DAY(1));
+      }
+      raw.close();
+
+      const h = createSqliteHistory({ clock: fakeClock(DAY(2)), path });
+      const result = h.read({ valid: DAY(2), known: DAY(2) });
+      expect(result.model).toBeUndefined();
+      expect(result.errors).toEqual([
+        { message: expect.any(String), id: 'x', field: 'entity', source: expect.any(String) },
+        { message: expect.any(String), id: 'x', field: 'scenario', source: expect.any(String) },
+      ]);
+      for (const error of result.errors) expect(error.message).toContain('declared differently across sources');
+      h.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('idempotent: storing the same model with entities and scenarios twice changes nothing, and its rows match assertions()', () => {
+    const clock = fakeClock(DAY(2));
+    const h = history(clock);
+    const withBoth = model([element('a')], [relation('r1', 'a', 'a')], {
+      entities: [entity('session-id', { name: 'Session id' })],
+      scenarios: [scenario('place-order', { steps: [{ id: 's1', relation: 'r1' }], requirements: ['ordering/place-order'] })],
+    });
+    h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: withBoth });
+
+    const before = h.assertions();
+    const readBefore = readModel(h, { source: 'shop', valid: DAY(1), known: DAY(2) });
+
+    clock.set(DAY(3));
+    const repeat = h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: withBoth });
+    expect(repeat.errors).toEqual([]);
+    expect(repeat.opened).toEqual([]);
+    expect(repeat.closed).toEqual([]);
+    expect(h.assertions()).toEqual(before);
+    expect(readModel(h, { source: 'shop', valid: DAY(1), known: DAY(3) })).toEqual(readBefore);
   });
 });
 

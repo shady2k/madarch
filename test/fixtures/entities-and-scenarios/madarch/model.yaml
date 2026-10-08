@@ -1,0 +1,58 @@
+version: 1
+
+categories:
+  - id: personal
+    name: Personal data
+
+elements:
+  - id: checkout-api
+    kind: service
+    name: Checkout
+  - id: orders-api
+    kind: service
+    name: Orders
+  - id: event-bus
+    kind: broker
+    name: Event bus
+
+entities:
+  - id: order-number
+    name: Order number
+    categories: []
+  - id: user-name
+    name: User name
+    categories: [personal]
+
+relations:
+  - id: checkout-places-order
+    name: places the order
+    from: checkout-api
+    to: orders-api
+    transfers:
+      - direction: forward
+        confidentiality: internal
+        entities: [order-number]
+  - id: orders-publishes-placed
+    name: publishes order-placed
+    from: orders-api
+    to: event-bus
+    transfers:
+      - direction: forward
+        confidentiality: confidential
+        entities: [user-name]
+      - direction: reverse
+        confidentiality: internal
+        categories: []
+
+scenarios:
+  - id: place-order
+    name: Place an order
+    actor: checkout-api
+    requirements: [ordering/place-order]
+    steps:
+      - { id: s1, relation: checkout-places-order }
+      - { id: s2, relation: orders-publishes-placed }
+  - id: order-fails
+    name: The order fails
+    steps:
+      - { id: s1, relation: checkout-places-order }

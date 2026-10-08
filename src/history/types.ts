@@ -24,14 +24,15 @@ export interface StoreInput {
 
 /**
  * One problem that kept a store, or a read, from succeeding. For an id
- * clash (an element, interface or relation id a second source declares over
- * an overlapping valid span — `CLASHABLE_KINDS`, still exclusive to one
- * source), `id` and `source` name the clashing id and the other source that
- * already declares it. For a commit already stored under a different time
- * or model, `id` carries the commit id. Shared vocabulary (a zone, category,
- * environment or state, or an environment's bindings) is never refused any
- * more — two sources declaring the same id differently is reported as a
- * `Discrepancy` on a successful read instead (see `ReadResult`).
+ * clash (an element, interface, relation, data entity or scenario id a
+ * second source declares over an overlapping valid span —
+ * `CLASHABLE_KINDS`, still exclusive to one source), `id` and `source` name
+ * the clashing id and the other source that already declares it. For a
+ * commit already stored under a different time or model, `id` carries the
+ * commit id. Shared vocabulary (a zone, category, environment or state, or
+ * an environment's bindings) is never refused any more — two sources
+ * declaring the same id differently is reported as a `Discrepancy` on a
+ * successful read instead (see `ReadResult`).
  */
 export interface HistoryError {
   message: string;

@@ -6,6 +6,8 @@
     "interfaces",
     "relations",
     "categories",
+    "entities",
+    "scenarios",
     "zones",
     "environments",
     "states"
@@ -288,7 +290,8 @@
               "required": [
                 "direction",
                 "confidentiality",
-                "categories"
+                "categories",
+                "entities"
               ],
               "properties": {
                 "direction": {
@@ -318,7 +321,7 @@
                   "items": {
                     "type": "string"
                   },
-                  "description": "The data entities the transfer carries, by id."
+                  "description": "The data entities the transfer carries, by id: those it names, sorted by code point; empty when it names none."
                 }
               },
               "additionalProperties": false
@@ -454,7 +457,7 @@
         },
         "additionalProperties": false
       },
-      "description": "The model's data entities, ordered by id. Written only when the model declares at least one, until madarch-hnq.1.4 makes it always present like every other top-level array; absence reads as none."
+      "description": "The model's data entities, ordered by id; empty when the model declares none, like every other top-level array."
     },
     "scenarios": {
       "type": "array",
@@ -462,6 +465,7 @@
         "type": "object",
         "required": [
           "id",
+          "requirements",
           "steps"
         ],
         "properties": {
@@ -486,7 +490,7 @@
             "items": {
               "type": "string"
             },
-            "description": "The capability requirements the scenario realises, as ids of the form `capability/requirement`, exactly as written. Left out when the scenario names none."
+            "description": "The capability requirements the scenario realises, as ids of the form `capability/requirement`, exactly as written; empty when the scenario names none, like the `steps` beside it."
           },
           "steps": {
             "type": "array",
@@ -570,7 +574,7 @@
         },
         "additionalProperties": false
       },
-      "description": "The model's scenarios, ordered by id. Written only when the model declares at least one, until madarch-hnq.1.4 makes it always present like every other top-level array; absence reads as none."
+      "description": "The model's scenarios, ordered by id; empty when the model declares none, like every other top-level array."
     },
     "zones": {
       "type": "array",
