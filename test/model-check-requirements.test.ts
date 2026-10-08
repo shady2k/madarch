@@ -389,6 +389,21 @@ describe('requirements-resolve', () => {
     });
   });
 
+  test('a closing fence may carry trailing spaces', () => {
+    withRepo((repo) => {
+      const { commit, blob } = sourcesCommit(repo);
+      repo.write('docs/system/capabilities/server.md', ['# Server', '', '```markdown', '## Requirement: archive — An example', '```   ', '', '## Requirement: store — Sent models are kept', ''].join('\n'));
+      repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/store']));
+      repo.writeReview([], requirementsReview());
+      repo.commit('the model');
+
+      const report = checkModel(repo.path);
+
+      expect(report.outcome).toBe('passed');
+      expect(report.errors).toEqual([]);
+    });
+  });
+
   test('a fence marker is read only at the start of a line, and only a run of three', () => {
     const cases: { name: string; prose: string }[] = [
       { name: 'a marker inside a line of prose', prose: 'The format writes ```yaml and ~~~ for a fence.' },
