@@ -33,19 +33,22 @@ export const CompiledCategory = Type.Object(
 export type CompiledCategory = Static<typeof CompiledCategory>;
 
 /**
- * A compiled data entity: its classification always stated, as the category
- * ids it names, sorted by code point — `[]` both for an entity checked and
- * found of no category and for one whose `categories` the source left out
- * (which loading warned about).
+ * A compiled data entity: its classification stated as the category ids it
+ * names, sorted by code point — an explicit `categories: []` becomes an
+ * empty list (the entity is of no category), while a `categories` the source
+ * left out is left out too (an unstated classification is not an empty one;
+ * loading warned about it).
  */
 export const CompiledEntity = Type.Object(
   {
     id: CompiledId,
     name: Type.Optional(Type.String()),
     description: Type.Optional(Type.String()),
-    categories: Type.Array(Type.String(), {
-      description: "The entity's classification: the category ids it names, sorted by code point; empty when it is of no category.",
-    }),
+    categories: Type.Optional(
+      Type.Array(Type.String(), {
+        description: "The entity's classification: the category ids it names, sorted by code point. Written as an empty list when the entity is of no category; left out when the source left `categories` out — an unstated classification is not an empty one.",
+      }),
+    ),
     evidence: Type.Optional(Type.Array(Evidence)),
   },
   { additionalProperties: false },
@@ -63,7 +66,7 @@ export type CompiledEntity = Static<typeof CompiledEntity>;
 export const CompiledTransfer = Type.Object(
   {
     direction: Type.Union([Type.Literal('forward'), Type.Literal('reverse')]),
-    confidentiality: Type.String(),
+    confidentiality: Type.String({ minLength: 1 }),
     categories: Type.Array(Type.String(), {
       description: 'The categories the transfer carries: those it names and those of its entities, each once, sorted by code point.',
     }),

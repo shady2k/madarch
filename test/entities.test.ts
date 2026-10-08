@@ -92,8 +92,8 @@ describe('intended-model/entities: data entities name what crosses, with its cla
 
     const compiled = compileModel(loaded!);
     const entity = compiled.entities!.find((e) => e.id === 'user-name');
-    expect(entity?.categories).toEqual([]);
-    expect(Object.hasOwn(entity!, 'categories')).toBe(true);
+    expect(entity?.categories).toBeUndefined();
+    expect(Object.hasOwn(entity!, 'categories')).toBe(false);
   });
 
   test('a description and evidence are kept, and an entity with neither name nor description still compiles', () => {
@@ -212,6 +212,14 @@ relations:
     const withRogueTransfer = structuredClone(model!) as { relations: { transfers: Record<string, unknown>[] }[] };
     withRogueTransfer.relations[0]!.transfers[0]!.rogue = true;
     expect(Value.Check(CompiledModelSchema, withRogueTransfer)).toBe(false);
+  });
+
+  test('the compiled-model schema refuses a transfer whose confidentiality is empty (the server gate reads this schema)', () => {
+    const { model } = loadAndCompileModel(fixture('entities-example'));
+
+    const withEmptyConfidentiality = structuredClone(model!) as { relations: { transfers: Record<string, unknown>[] }[] };
+    withEmptyConfidentiality.relations[0]!.transfers[0]!.confidentiality = '';
+    expect(Value.Check(CompiledModelSchema, withEmptyConfidentiality)).toBe(false);
   });
 });
 

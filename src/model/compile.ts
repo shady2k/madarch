@@ -54,6 +54,9 @@ export function compileModel(model: ValidatedModel): CompiledModel {
   const relationPresence = computeRelationPresence(model.relations, elementPresence, stateOrder);
 
   const general = resolveGeneralZones(model.elements);
+  // The entity-categories index is built once, before the relation map:
+  // building it per relation would make compilation O(relations × entities).
+  const entityCategoriesLookup = entityCategoriesOf(model.entities);
   const zonesByEnvironment = new Map(
     model.environments.map((environment) => {
       const presentElementIds = new Set(
@@ -71,7 +74,7 @@ export function compileModel(model: ValidatedModel): CompiledModel {
     interfaces: [...model.interfaces].sort((a, b) => byCodePoint(a.id, b.id)).map(compileInterface),
     relations: [...model.relations]
       .sort((a, b) => byCodePoint(a.id, b.id))
-      .map((relation) => compileRelation(relation, relationPresence, environmentIds, model.environments, entityCategoriesOf(model.entities))),
+      .map((relation) => compileRelation(relation, relationPresence, environmentIds, model.environments, entityCategoriesLookup)),
     categories: [...model.categories].sort((a, b) => byCodePoint(a.id, b.id)).map(compileCategory),
     entities: [...model.entities].sort((a, b) => byCodePoint(a.id, b.id)).map(compileEntity),
     scenarios: [...model.scenarios].sort((a, b) => byCodePoint(a.id, b.id)).map(compileScenario),
@@ -203,14 +206,15 @@ function compileCategory(category: Category): CompiledCategory {
 }
 
 /**
- * A compiled data entity. Its classification is always stated, sorted by
- * code point: `[]` both for an entity checked and found of no category and
- * for one whose `categories` the source left out (which loading warned
- * about — the compiled model records the state of the model, and an
- * unstated classification is no classification).
+ * A compiled data entity. Its classification is stated as an empty list
+ * when the source says `categories: []` (the entity is of no category) and
+ * is left out when the source left `categories` out (loading warned about
+ * it): an unstated classification is not an empty one, so a reader can tell
+ * the two apart in the compiled model too.
  */
 function compileEntity(entity: DataEntity): CompiledEntity {
-  const compiled: CompiledEntity = { id: entity.id, categories: sortedByCodePoint(entity.categories ?? []) };
+  const compiled: CompiledEntity = { id: entity.id };
+  if (entity.categories !== undefined) compiled.categories = sortedByCodePoint(entity.categories);
   if (entity.name !== undefined) compiled.name = entity.name;
   if (entity.description !== undefined) compiled.description = entity.description;
   if (entity.evidence !== undefined) compiled.evidence = rebuildEvidence(entity.evidence);

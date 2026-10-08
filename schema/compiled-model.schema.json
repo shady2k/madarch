@@ -307,7 +307,8 @@
                   ]
                 },
                 "confidentiality": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 1
                 },
                 "categories": {
                   "type": "array",
@@ -401,8 +402,7 @@
       "items": {
         "type": "object",
         "required": [
-          "id",
-          "categories"
+          "id"
         ],
         "properties": {
           "id": {
@@ -420,7 +420,7 @@
             "items": {
               "type": "string"
             },
-            "description": "The entity's classification: the category ids it names, sorted by code point; empty when it is of no category."
+            "description": "The entity's classification: the category ids it names, sorted by code point. Written as an empty list when the entity is of no category; left out when the source left `categories` out — an unstated classification is not an empty one."
           },
           "evidence": {
             "type": "array",
