@@ -1,6 +1,6 @@
 import { messagingOf } from './contracts.js';
 import type { ModelError } from './errors.js';
-import { DEFAULT_STATE_ID, ID_PATTERN, type Category, type Element, type Environment, type Evidence, type Interface, type Relation, type State, type Zone } from './schema.js';
+import { DEFAULT_STATE_ID, ID_PATTERN, type Category, type DataEntity, type Element, type Environment, type Evidence, type Interface, type Relation, type State, type Zone } from './schema.js';
 import { computeElementPresence, computeRelationPresence, type Presence } from './presence.js';
 import { resolveGeneralZones, resolveZonesInEnvironment } from './zones.js';
 import { segmentsToPath, type PathSegment } from './yaml-position.js';
@@ -42,9 +42,11 @@ export interface PositionedInterface {
   contractLine: number;
 }
 
-/** The line of each transfer's `categories` entries, parallel to `relation.transfers`. */
+/** Where one transfer was written: its own item's line, and the line of each of its `categories` and `entities` entries, parallel to `relation.transfers`. */
 export interface TransferLines {
+  line: number;
   categoryLines: number[];
+  entityLines: number[];
 }
 
 export interface PositionedRelation {
@@ -70,6 +72,22 @@ export interface PositionedCategory {
   index: number;
   line: number;
   idLine: number;
+}
+
+/**
+ * A data entity with where it was written: the line of its item, its `id`,
+ * each `categories` entry and each evidence item, as the other kinds carry
+ * theirs.
+ */
+export interface PositionedEntity {
+  entity: DataEntity;
+  file: string;
+  index: number;
+  line: number;
+  idLine: number;
+  nameLine: number;
+  categoriesLines: number[];
+  evidenceLines: number[];
 }
 
 export interface PositionedZone {
@@ -117,6 +135,7 @@ export interface ExtraKnownIds {
   interfaces: Set<string>;
   relations: Set<string>;
   categories: Set<string>;
+  entities: Set<string>;
   zones: Set<string>;
   environments: Set<string>;
   states: Set<string>;
@@ -127,6 +146,7 @@ const EMPTY_EXTRA_KNOWN_IDS: ExtraKnownIds = {
   interfaces: new Set(),
   relations: new Set(),
   categories: new Set(),
+  entities: new Set(),
   zones: new Set(),
   environments: new Set(),
   states: new Set(),
@@ -142,6 +162,7 @@ export interface PositionedModel {
   interfaces: PositionedInterface[];
   relations: PositionedRelation[];
   categories: PositionedCategory[];
+  entities: PositionedEntity[];
   zones: PositionedZone[];
   environments: PositionedEnvironment[];
   states: PositionedState[];
@@ -184,6 +205,7 @@ export function validateModel(positioned: PositionedModel, extraKnownIds: ExtraK
     ...checkIdSyntax(positioned.interfaces.map((i) => ({ id: i.iface.id, file: i.file, line: i.idLine, segments: ['interfaces', i.index, 'id'] })), 'interface'),
     ...checkIdSyntax(positioned.relations.map((r) => ({ id: r.relation.id, file: r.file, line: r.idLine, segments: ['relations', r.index, 'id'] })), 'relation'),
     ...checkIdSyntax(positioned.categories.map((c) => ({ id: c.category.id, file: c.file, line: c.idLine, segments: ['categories', c.index, 'id'] })), 'category'),
+    ...checkIdSyntax(positioned.entities.map((e) => ({ id: e.entity.id, file: e.file, line: e.idLine, segments: ['entities', e.index, 'id'] })), 'entity'),
     ...checkIdSyntax(positioned.zones.map((z) => ({ id: z.zone.id, file: z.file, line: z.idLine, segments: ['zones', z.index, 'id'] })), 'zone'),
     ...checkIdSyntax(positioned.environments.map((e) => ({ id: e.environment.id, file: e.file, line: e.idLine, segments: ['environments', e.index, 'id'] })), 'environment'),
     ...checkIdSyntax(positioned.states.map((s) => ({ id: s.state.id, file: s.file, line: s.idLine, segments: ['states', s.index, 'id'] })), 'state'),
@@ -194,6 +216,7 @@ export function validateModel(positioned: PositionedModel, extraKnownIds: ExtraK
     ...checkDuplicateIds(positioned.interfaces.map((i) => ({ id: i.iface.id, file: i.file, line: i.idLine, segments: ['interfaces', i.index, 'id'] })), 'interface'),
     ...checkDuplicateIds(positioned.relations.map((r) => ({ id: r.relation.id, file: r.file, line: r.idLine, segments: ['relations', r.index, 'id'] })), 'relation'),
     ...checkDuplicateIds(positioned.categories.map((c) => ({ id: c.category.id, file: c.file, line: c.idLine, segments: ['categories', c.index, 'id'] })), 'category'),
+    ...checkDuplicateIds(positioned.entities.map((e) => ({ id: e.entity.id, file: e.file, line: e.idLine, segments: ['entities', e.index, 'id'] })), 'entity'),
     ...checkDuplicateIds(positioned.zones.map((z) => ({ id: z.zone.id, file: z.file, line: z.idLine, segments: ['zones', z.index, 'id'] })), 'zone'),
     ...checkDuplicateIds(positioned.environments.map((e) => ({ id: e.environment.id, file: e.file, line: e.idLine, segments: ['environments', e.index, 'id'] })), 'environment'),
     ...checkDuplicateIds(positioned.states.map((s) => ({ id: s.state.id, file: s.file, line: s.idLine, segments: ['states', s.index, 'id'] })), 'state'),
@@ -216,7 +239,12 @@ export function validateModel(positioned: PositionedModel, extraKnownIds: ExtraK
       positioned.relations.map((r) => ({ id: r.relation.id, evidence: r.relation.evidence, file: r.file, line: r.line, evidenceLines: r.evidenceLines, segments: ['relations', r.index] })),
       'relation',
     ),
+    ...checkEvidence(
+      positioned.entities.map((e) => ({ id: e.entity.id, evidence: e.entity.evidence, file: e.file, line: e.line, evidenceLines: e.evidenceLines, segments: ['entities', e.index] })),
+      'entity',
+    ),
   );
+  errors.push(...checkTransfersCarryData(positioned.relations));
 
   const stateChainErrors = checkStateChain(positioned.states);
   errors.push(...stateChainErrors);
@@ -438,9 +466,25 @@ function checkReferences(positioned: PositionedModel, extraKnownIds: ExtraKnownI
   const interfaceIds = new Set([...positioned.interfaces.map((i) => i.iface.id), ...extraKnownIds.interfaces]);
   const relationIds = new Set([...positioned.relations.map((r) => r.relation.id), ...extraKnownIds.relations]);
   const categoryIds = new Set([...positioned.categories.map((c) => c.category.id), ...extraKnownIds.categories]);
+  const entityIds = new Set([...positioned.entities.map((e) => e.entity.id), ...extraKnownIds.entities]);
   const zoneIds = new Set([...positioned.zones.map((z) => z.zone.id), ...extraKnownIds.zones]);
   const environmentIds = new Set([...positioned.environments.map((e) => e.environment.id), ...extraKnownIds.environments]);
   const stateIds = new Set([...positioned.states.map((s) => s.state.id), ...extraKnownIds.states]);
+
+  for (const entry of positioned.entities) {
+    const base: PathSegment[] = ['entities', entry.index];
+    (entry.entity.categories ?? []).forEach((categoryId, categoryIndex) => {
+      if (categoryIds.has(categoryId)) return;
+      errors.push(
+        errorAt(
+          entry.file,
+          entry.categoriesLines[categoryIndex] ?? entry.line,
+          [...base, 'categories', categoryIndex],
+          `entity "${entry.entity.id}" names category "${categoryId}", which does not exist`,
+        ),
+      );
+    });
+  }
 
   for (const entry of positioned.elements) {
     const base: PathSegment[] = ['elements', entry.index];
@@ -568,7 +612,7 @@ function checkReferences(positioned: PositionedModel, extraKnownIds: ExtraKnownI
     }
     (relation.transfers ?? []).forEach((transfer, transferIndex) => {
       const lines = entry.transferLines[transferIndex];
-      transfer.categories.forEach((categoryId, categoryIndex) => {
+      (transfer.categories ?? []).forEach((categoryId, categoryIndex) => {
         if (categoryIds.has(categoryId)) return;
         errors.push(
           errorAt(
@@ -576,6 +620,17 @@ function checkReferences(positioned: PositionedModel, extraKnownIds: ExtraKnownI
             lines?.categoryLines[categoryIndex] ?? entry.line,
             [...base, 'transfers', transferIndex, 'categories', categoryIndex],
             `relation "${relation.id}" names category "${categoryId}", which does not exist`,
+          ),
+        );
+      });
+      (transfer.entities ?? []).forEach((entityId, entityIndex) => {
+        if (entityIds.has(entityId)) return;
+        errors.push(
+          errorAt(
+            entry.file,
+            lines?.entityLines[entityIndex] ?? entry.line,
+            [...base, 'transfers', transferIndex, 'entities', entityIndex],
+            `relation "${relation.id}" names entity "${entityId}", which does not exist`,
           ),
         );
       });
@@ -784,6 +839,31 @@ function checkActions(positioned: PositionedModel): ModelError[] {
   return errors;
 }
 
+/**
+ * Refuses a transfer that names neither categories nor entities
+ * (intended-model/transfers): a transfer says what crosses, and an empty
+ * `categories` list is that answer as much as a full one is, so only the
+ * two fields left out together is a problem. Reported at the transfer
+ * itself, the way a whole-item problem is, naming the relation.
+ */
+function checkTransfersCarryData(positioned: PositionedRelation[]): ModelError[] {
+  const errors: ModelError[] = [];
+  for (const entry of positioned) {
+    (entry.relation.transfers ?? []).forEach((transfer, transferIndex) => {
+      if (transfer.categories !== undefined || transfer.entities !== undefined) return;
+      errors.push(
+        errorAt(
+          entry.file,
+          entry.transferLines[transferIndex]?.line ?? entry.line,
+          ['relations', entry.index, 'transfers', transferIndex],
+          `relation "${entry.relation.id}" has a transfer that names neither categories nor entities: a transfer names categories, entities or both`,
+        ),
+      );
+    });
+  }
+  return errors;
+}
+
 function checkContracts(positioned: PositionedInterface[]): ModelError[] {
   const errors: ModelError[] = [];
   for (const entry of positioned) {
@@ -801,7 +881,7 @@ function checkContracts(positioned: PositionedInterface[]): ModelError[] {
   return errors;
 }
 
-/** One owner of evidence — an element, an interface or a relation — with where each item was written. */
+/** One owner of evidence — an element, an interface, a relation or a data entity — with where each item was written. */
 interface EvidenceOwner {
   id: string;
   evidence?: Evidence[];

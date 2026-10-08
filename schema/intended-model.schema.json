@@ -256,8 +256,7 @@
               "type": "object",
               "required": [
                 "direction",
-                "confidentiality",
-                "categories"
+                "confidentiality"
               ],
               "properties": {
                 "direction": {
@@ -280,7 +279,15 @@
                   "type": "array",
                   "items": {
                     "type": "string"
-                  }
+                  },
+                  "description": "The data categories the transfer carries, by id. An empty list is an answer: nothing categorised crosses."
+                },
+                "entities": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "The data entities the transfer carries, by id; their categories join the transfer's own in the compiled model."
                 }
               },
               "additionalProperties": false
@@ -342,6 +349,69 @@
           },
           "name": {
             "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "name": {
+            "type": "string",
+            "description": "A readable name of the piece of data (\"Session id\"), the label a reader sees."
+          },
+          "description": {
+            "type": "string",
+            "description": "What the piece of data is, in prose, when its name does not say it alone."
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The classification: ids of the model's data categories. An empty list is an answer (checked, of no category); the field left out entirely is warned about, so a legacy model still loads."
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "file"
+              ],
+              "properties": {
+                "file": {
+                  "type": "string"
+                },
+                "line": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "endLine": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "The last line of the range the item names; needs `line` and may not come before it (checked when the model is loaded)."
+                },
+                "commit": {
+                  "type": "string",
+                  "description": "The commit the file was read at: 40 hexadecimal digits, lower case. Given together with `blob` or with neither (checked when the model is loaded)."
+                },
+                "blob": {
+                  "type": "string",
+                  "description": "The file's git blob id at `commit`: 40 hexadecimal digits, lower case. Given together with `commit` or with neither (checked when the model is loaded)."
+                }
+              },
+              "additionalProperties": false
+            }
           }
         },
         "additionalProperties": false

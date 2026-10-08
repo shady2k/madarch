@@ -1,0 +1,18 @@
+version: 1
+
+categories:
+  - id: communications-secrecy
+    name: Communications secrecy
+
+elements:
+  - id: auth-api
+    kind: service
+    name: Auth API
+
+entities:
+  - id: session-id
+    name: Session id
+    categories: [communications-secrecy]
+    evidence:
+      - file: services/auth/session.ts
+        line: 3
