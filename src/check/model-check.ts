@@ -82,9 +82,9 @@ export interface ModelCheckOptions {
   views?: string;
 }
 
-/** An element, interface or relation of the model, named as the loader positions it. */
+/** An element, interface, relation or data entity of the model, named as the loader positions it. */
 interface Declared {
-  kind: 'element' | 'interface' | 'relation';
+  kind: 'element' | 'interface' | 'relation' | 'entity';
   id: string;
   /** What the finding names it by: `element "core"`, `relation "ui-calls-core"`. */
   label: string;
@@ -294,6 +294,19 @@ function declaredItems(positions: PositionedModel): Declared[] {
       line: p.line,
       evidenceLines: p.evidenceLines,
       evidence: p.relation.evidence,
+    })),
+    // A data entity needs no evidence of its own (evidence-complete asks it
+    // of elements, interfaces and relations only), but every item it does
+    // give is resolved and reported stale like any other (evidence-resolves,
+    // staleness).
+    ...positions.entities.map((p) => ({
+      kind: 'entity' as const,
+      id: p.entity.id,
+      label: `data entity "${p.entity.id}"`,
+      file: p.file,
+      line: p.line,
+      evidenceLines: p.evidenceLines,
+      evidence: p.entity.evidence,
     })),
   ];
 }
@@ -748,7 +761,11 @@ export function checkModel(repoPath: string, options: ModelCheckOptions = {}): M
   // `loadAndCompileModel` returns the positions exactly when it returns a model.
   for (const declared of declaredItems(positions!)) {
     if (declared.evidence === undefined || declared.evidence.length === 0) {
-      report.errors.push(findingOf(declared, declared.line, `${declared.label} has no evidence`));
+      // Naming no evidence is no failure on a data entity: only elements,
+      // interfaces and relations are asked for evidence (evidence-complete).
+      if (declared.kind !== 'entity') {
+        report.errors.push(findingOf(declared, declared.line, `${declared.label} has no evidence`));
+      }
       continue;
     }
     for (const [index, item] of declared.evidence.entries()) {
