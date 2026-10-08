@@ -76,6 +76,14 @@ elements:
     parent: ordering
     technology: Amazon S3
 
+entities:
+  - id: order-number
+    name: Order number
+    categories: []          # checked: an order number alone is of no category
+  - id: order-contents
+    name: Order contents
+    categories: [order]
+
 interfaces:
   - id: cart-items
     provider: checkout-cart
@@ -123,6 +131,7 @@ relations:
       - direction: forward
         confidentiality: confidential
         categories: [personal, order]
+        entities: [order-contents, order-number, shipping-address, user-name]
   - id: mobile-bff-checks-out
     name: checks out the cart
     from: mobile-bff
@@ -132,6 +141,7 @@ relations:
       - direction: forward
         confidentiality: confidential
         categories: [personal, order]
+        entities: [order-contents, order-number, shipping-address, user-name]
 
   # Inside checkout, and out of it.
   - id: cart-keeps-carts
@@ -185,6 +195,7 @@ relations:
       - direction: forward
         confidentiality: restricted
         categories: [payment-card, personal, order]
+        entities: [card-token, order-number]
       - direction: reverse
         confidentiality: internal
         categories: []
@@ -197,6 +208,7 @@ relations:
       - direction: forward
         confidentiality: confidential
         categories: [personal, order]
+        entities: [order-contents, order-number, shipping-address, user-name]
 
   # Orders.
   - id: orders-stores-orders
@@ -213,6 +225,7 @@ relations:
       - direction: forward
         confidentiality: confidential
         categories: [personal, order]
+        entities: [order-contents, order-number, shipping-address, user-name]
   - id: orders-confirms-paid
     name: confirms paid orders
     from: orders-api
@@ -252,6 +265,7 @@ relations:
       - direction: reverse
         confidentiality: confidential
         categories: [personal, order]
+        entities: [order-contents, order-number, user-name]
 
   # Promotions, returns and invoices.
   - id: promotions-stores-rules
