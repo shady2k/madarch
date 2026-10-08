@@ -96,9 +96,9 @@ How an interaction reaches its interface in one environment: the variable the
 consumer reads and the value it has there (topic name, host, port).
 
 **Flow**:
-An ordered sequence of interactions that tells one scenario end to end. A
-scenario's main flow and each of its alternatives are flows, written as steps
-over the model's relations.
+An ordered sequence of steps over the model's relations that tells one scenario
+end to end. A scenario's main flow and each of its alternatives are flows; a
+step runs over any relation, a bare dependency or an interaction.
 
 **Scenario**:
 One use case written in the model as an ordered walk over its relations: an
@@ -131,8 +131,9 @@ derived relation)
 
 **Evidence**:
 The facts, with their files and lines, from which a derived relation was joined;
-in the intended model, the text an agent read to write an element, interface or
-relation: a file, its lines, and the commit and blob it was read at.
+in the intended model, the text an agent read to write an element, an
+interface, a relation or a data entity: a file, its lines, and the commit and
+blob it was read at.
 
 **Stale**:
 Said of evidence or a claim whose file has changed since the blob it names; the
