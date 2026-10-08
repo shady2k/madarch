@@ -27,7 +27,7 @@ import type { CompiledModel } from '../model/compile.js';
 import { loadAndCompileModel } from '../model/load-and-compile.js';
 import { byCodePoint, sortedByCodePoint } from '../model/order.js';
 import type { Evidence } from '../model/schema.js';
-import type { PositionedModel } from '../model/validate.js';
+import type { PositionedModel, PositionedScenario } from '../model/validate.js';
 import { prepareModel, renderModel } from '../render/prepare.js';
 import { buildViewSet } from '../render/view-set.js';
 import { writeViews, type WrittenViews } from '../render/write.js';
@@ -111,6 +111,8 @@ const MAX_GIT_BUFFER = 64 * 1024 * 1024;
  * the model; the check reads its two tables by their level-2 headings.
  */
 const REVIEW = 'madarch/review.md';
+/** The folder a repository's capability specs live in (model-check, requirements-resolve). */
+const CAPABILITIES = 'docs/system/capabilities/';
 export const CLAIMS_COLUMNS = ['Claim', 'Document', 'Line', 'Commit', 'Blob', 'Checked in code', 'Verdict', 'In the model'];
 export const ASSIGNMENT_COLUMNS = ['Path', 'Element', 'Reason'];
 const VERDICTS = ['confirmed', 'contradicted', 'stale', 'planned', 'unconfirmed'];
@@ -188,6 +190,82 @@ function blobLineCount(repo: string, blob: string): number | undefined {
   const text = run.stdout;
   if (text.length === 0) return 0;
   return text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
+}
+
+/**
+ * The text of one file of the checked revision, read from git only: the
+ * requirement check reads the capability specs the way the rest of the
+ * check reads the repository — at the revision, never the working tree.
+ * Undefined when the revision holds no file at that path (a path that
+ * names a folder is no file either: its object is a tree, not a blob).
+ */
+function fileTextAt(repo: string, revCommit: string, file: string): string | undefined {
+  const run = git(repo, ['cat-file', 'blob', `${revCommit}:${file}`]);
+  return run.ok ? run.stdout : undefined;
+}
+
+/**
+ * Whether a capability spec holds a heading for one requirement id: a line
+ * `## Requirement: <id>` followed by the end of the line, a space or
+ * ` — ` (the specs write `## Requirement: shape — The compiled model…`).
+ * A heading for an id that merely starts the same way (`store-version`
+ * for `store`) does not match: what follows the id is neither.
+ */
+function hasRequirementHeading(spec: string, requirementId: string): boolean {
+  const heading = `## Requirement: ${requirementId}`;
+  for (const line of spec.split('\n')) {
+    if (!line.startsWith(heading)) continue;
+    const rest = line.slice(heading.length);
+    if (rest === '' || rest.startsWith(' ')) return true;
+  }
+  return false;
+}
+
+/**
+ * The requirements-resolve section: every requirement every scenario
+ * names, `capability/requirement`, must resolve against the checked
+ * revision's capability specs — the file named after the capability under
+ * `docs/system/capabilities/`, and in it a heading `## Requirement: <id>`.
+ * Each that does not resolve fails the check, naming the scenario, the
+ * requirement, the model file and line it is named on, and which of the
+ * two is missing. Nothing is read for a scenario that names none, and one
+ * spec file is read once however many requirements name it.
+ */
+function requirementFindings(repo: string, revCommit: string, scenarios: readonly PositionedScenario[]): ModelCheckFinding[] {
+  const errors: ModelCheckFinding[] = [];
+  const specs = new Map<string, string | undefined>();
+  for (const entry of scenarios) {
+    (entry.scenario.requirements ?? []).forEach((requirementId, index) => {
+      const slash = requirementId.indexOf('/');
+      // The loader has already refused anything not of the form
+      // `capability/requirement`, so a model that compiled gives both
+      // parts; the guard only keeps the section honest.
+      if (slash <= 0 || slash === requirementId.length - 1) return;
+      const capability = requirementId.slice(0, slash);
+      const specFile = `${CAPABILITIES}${capability}.md`;
+      if (!specs.has(specFile)) specs.set(specFile, fileTextAt(repo, revCommit, specFile));
+      const spec = specs.get(specFile);
+      const at = entry.requirementsLines[index] ?? entry.line;
+      if (spec === undefined) {
+        errors.push({
+          id: requirementId,
+          file: entry.file,
+          line: at,
+          message: `scenario "${entry.scenario.id}" names requirement "${requirementId}", but there is no capability spec "${capability}": ${specFile} is not a file at the checked revision`,
+        });
+        return;
+      }
+      if (!hasRequirementHeading(spec, requirementId.slice(slash + 1))) {
+        errors.push({
+          id: requirementId,
+          file: entry.file,
+          line: at,
+          message: `scenario "${entry.scenario.id}" names requirement "${requirementId}", but ${specFile} has no requirement "${requirementId.slice(slash + 1)}"`,
+        });
+      }
+    });
+  }
+  return errors;
 }
 
 /** Every element, interface and relation of the model, with where each was written. */
@@ -698,6 +776,12 @@ export function checkModel(repoPath: string, options: ModelCheckOptions = {}): M
       }
     }
   }
+
+  // Every requirement a scenario names must resolve against the checked
+  // revision's capability specs (requirements-resolve): a missing spec or
+  // heading fails the check naming the scenario, the requirement, where it
+  // is named and which of the two is missing.
+  report.errors.push(...requirementFindings(repo, revCommit, positions!.scenarios));
 
   // The review report: its claims are compared with the checked revision
   // like evidence; its assignment table must cover every tracked file.
