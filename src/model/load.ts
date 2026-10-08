@@ -3,7 +3,7 @@ import { join, relative } from 'node:path';
 import { LineCounter, parseDocument } from 'yaml';
 import { Value } from 'typebox/value';
 import type { ModelError, ModelWarning } from './errors.js';
-import { ModelFile, type Category, type DataEntity, type Element, type Environment, type Interface, type Relation, type State, type ValidatedModel, type Zone } from './schema.js';
+import { ModelFile, type Category, type DataEntity, type Element, type Environment, type Interface, type Relation, type Scenario, type ScenarioStep, type State, type ValidatedModel, type Zone } from './schema.js';
 import { checkStrictYaml } from './strict-yaml.js';
 import {
   validateModel,
@@ -16,6 +16,7 @@ import {
   type PositionedInterface,
   type PositionedModel,
   type PositionedRelation,
+  type PositionedScenario,
   type PositionedState,
   type PositionedZone,
   type TransferLines,
@@ -101,6 +102,7 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
     relations: [],
     categories: [],
     entities: [],
+    scenarios: [],
     zones: [],
     environments: [],
     states: [],
@@ -161,6 +163,7 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
       relations?: Relation[];
       categories?: Category[];
       entities?: DataEntity[];
+      scenarios?: Scenario[];
       zones?: Zone[];
       environments?: Environment[];
       states?: State[];
@@ -271,6 +274,38 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
       });
     });
 
+    (parsed.scenarios ?? []).forEach((scenario, index) => {
+      const stepLines = (parent: (string | number)[], steps: readonly ScenarioStep[]) =>
+        steps.map((step, stepIndex) => ({
+          step,
+          line: line([...parent, stepIndex]),
+          idLine: line([...parent, stepIndex, 'id']),
+          relationLine: line([...parent, stepIndex, 'relation']),
+        }));
+      positioned.scenarios.push({
+        scenario,
+        file: relativeFile,
+        index,
+        line: line(['scenarios', index]),
+        idLine: line(['scenarios', index, 'id']),
+        actorLine: scenario.actor === undefined ? line(['scenarios', index]) : line(['scenarios', index, 'actor']),
+        requirementsLines: (scenario.requirements ?? []).map((_requirementId, requirementIndex) =>
+          line(['scenarios', index, 'requirements', requirementIndex]),
+        ),
+        stepsLine: line(['scenarios', index, 'steps']),
+        stepsLines: stepLines(['scenarios', index, 'steps'], scenario.steps ?? []),
+        alternativesLines: (scenario.alternatives ?? []).map((alternative, alternativeIndex) => ({
+          alternative,
+          line: line(['scenarios', index, 'alternatives', alternativeIndex]),
+          idLine: line(['scenarios', index, 'alternatives', alternativeIndex, 'id']),
+          atLine: line(['scenarios', index, 'alternatives', alternativeIndex, 'at']),
+          whenLine: line(['scenarios', index, 'alternatives', alternativeIndex, 'when']),
+          stepsLine: line(['scenarios', index, 'alternatives', alternativeIndex, 'steps']),
+          stepsLines: stepLines(['scenarios', index, 'alternatives', alternativeIndex, 'steps'], alternative.steps ?? []),
+        })),
+      });
+    });
+
     (parsed.zones ?? []).forEach((zone, index) => {
       positioned.zones.push({
         zone,
@@ -352,6 +387,7 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
     relations: positioned.relations.map((entry) => entry.relation),
     categories: positioned.categories.map((entry) => entry.category),
     entities: positioned.entities.map((entry) => entry.entity),
+    scenarios: positioned.scenarios.map((entry) => entry.scenario),
     zones: positioned.zones.map((entry) => entry.zone),
     environments: positioned.environments.map((entry) => entry.environment),
     states: positioned.states.map((entry) => entry.state),

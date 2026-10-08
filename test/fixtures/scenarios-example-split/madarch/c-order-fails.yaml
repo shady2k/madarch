@@ -1,0 +1,9 @@
+version: 1
+
+elements: []
+
+scenarios:
+  - id: order-fails
+    name: The order fails
+    steps:
+      - { id: s1, relation: checkout-shows-error }

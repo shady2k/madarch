@@ -1,0 +1,56 @@
+version: 1
+
+elements:
+  - id: customer
+    kind: person
+    name: Customer
+  - id: checkout-api
+    kind: service
+    name: Checkout
+  - id: orders-api
+    kind: service
+    name: Orders
+  - id: event-bus
+    kind: broker
+    name: Event bus
+
+interfaces:
+  - id: topic-order-placed
+    provider: event-bus
+    contract: topic::order-placed
+
+relations:
+  - id: checkout-places-order
+    name: places the order
+    from: checkout-api
+    to: orders-api
+  - id: orders-publishes-placed
+    name: publishes order-placed
+    from: orders-api
+    to: event-bus
+    interface: topic-order-placed
+    action: send
+  - id: checkout-shows-error
+    name: shows the payment error
+    from: checkout-api
+    to: customer
+
+scenarios:
+  - id: place-order
+    name: Place an order
+    description: A signed-in customer orders the cart's contents.
+    actor: customer
+    requirements: [ordering/place-order]
+    steps:
+      - { id: s1, relation: checkout-places-order }
+      - { id: s2, relation: orders-publishes-placed, name: the order is announced }
+    alternatives:
+      - id: card-declined
+        at: s2
+        when: the payment is declined
+        steps:
+          - { id: d1, relation: checkout-shows-error }
+  - id: order-fails
+    name: The order fails
+    steps:
+      - { id: s1, relation: checkout-shows-error }

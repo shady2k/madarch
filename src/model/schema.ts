@@ -177,6 +177,82 @@ export const Binding = Type.Object(
 );
 export type Binding = Static<typeof Binding>;
 
+/**
+ * One step of a scenario's main flow or of one of its alternatives: the
+ * relation it runs over — at any level, a refinement or not, so a scenario
+ * written early over coarse relations stays valid when they are refined —
+ * and an optional name of what happens ("the order is announced").
+ */
+export const ScenarioStep = Type.Object(
+  {
+    id: Id,
+    relation: Type.String({ description: 'The relation the step runs over, by id: any relation of the model, coarse or a refinement.' }),
+    name: Type.Optional(
+      Type.String({ description: 'What happens at this step, in a few words ("the order is announced"); the label a reader sees.' }),
+    ),
+  },
+  { additionalProperties: false },
+);
+export type ScenarioStep = Static<typeof ScenarioStep>;
+
+/**
+ * One alternative flow of a scenario: it replaces the main flow from the
+ * step `at` names on. `when` states the condition under which it is taken,
+ * in prose; rejoining the main flow is not expressed (the alternative runs
+ * to its own last step).
+ */
+export const ScenarioAlternative = Type.Object(
+  {
+    id: Id,
+    at: Type.String({ description: 'The main-flow step the alternative starts at, by step id.' }),
+    when: Type.String({ minLength: 1, description: 'The condition under which the alternative is taken, in prose ("the payment is declined").' }),
+    steps: Type.Optional(Type.Array(ScenarioStep, { description: "The alternative's own steps, in order; never empty in a valid model." })),
+  },
+  { additionalProperties: false },
+);
+export type ScenarioAlternative = Static<typeof ScenarioAlternative>;
+
+/**
+ * A scenario: one use case as an ordered walk over the model's relations
+ * (decision 0016). `requirements` names the capability requirements it
+ * realises, as ids of the form `capability/requirement` — the loader checks
+ * only their form; whether a requirement exists is the model check's
+ * question, which reads the repository's capability specs.
+ */
+export const Scenario = Type.Object(
+  {
+    id: Id,
+    name: Type.Optional(
+      Type.String({ description: 'A readable name of the use case ("Place an order"), the label a reader sees.' }),
+    ),
+    description: Type.Optional(
+      Type.String({ description: "The use case's goal and preconditions, in prose." }),
+    ),
+    actor: Type.Optional(
+      Type.String({ description: 'The element that initiates the use case, by id; usually a person or an external system.' }),
+    ),
+    requirements: Type.Optional(
+      Type.Array(Type.String(), {
+        description:
+          'The capability requirements the scenario realises, as ids of the form `capability/requirement`. The loader checks only their form.',
+      }),
+    ),
+    steps: Type.Optional(
+      Type.Array(ScenarioStep, {
+        description:
+          'The main flow: an ordered list of steps, each over a relation of the model at any level. Optional only so the loader can refuse a scenario with no step naming the scenario; a valid scenario always has at least one.',
+      }),
+    ),
+    alternatives: Type.Optional(
+      Type.Array(ScenarioAlternative, {
+        description: 'Alternative flows, each replacing the main flow from the step its `at` names on.',
+      }),
+    ),
+  },
+  { additionalProperties: false },
+);
+export type Scenario = Static<typeof Scenario>;
+
 export const RelationAction = Type.Union([Type.Literal('send'), Type.Literal('receive')], {
   description:
     'How the initiator uses the topic or queue the relation goes through: "send" publishes or sends to it, "receive" subscribes to it or receives from it. Only on a relation through an interface of kind topic or queue; the relation still goes from its initiator to what it depends on, usually the broker.',
@@ -245,6 +321,7 @@ export const ModelFile = Type.Object(
     relations: Type.Optional(Type.Array(Relation)),
     categories: Type.Optional(Type.Array(Category)),
     entities: Type.Optional(Type.Array(DataEntity)),
+    scenarios: Type.Optional(Type.Array(Scenario)),
     zones: Type.Optional(Type.Array(Zone)),
     environments: Type.Optional(Type.Array(Environment)),
     states: Type.Optional(Type.Array(State)),
@@ -268,6 +345,7 @@ export interface IntendedModel {
   relations: Relation[];
   categories: Category[];
   entities: DataEntity[];
+  scenarios: Scenario[];
   zones: Zone[];
   environments: Environment[];
   states: State[];

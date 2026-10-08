@@ -71,6 +71,60 @@ export const CompiledTransfer = Type.Object(
 );
 export type CompiledTransfer = Static<typeof CompiledTransfer>;
 
+/**
+ * A compiled scenario step: the relation it runs over, by id, exactly as
+ * the model names it, with its optional label. Steps stay in written order.
+ */
+export const CompiledScenarioStep = Type.Object(
+  {
+    id: CompiledId,
+    relation: Type.String({ description: 'The relation the step runs over, by id, as the model names it — at any level, a refinement or not.' }),
+    name: Type.Optional(Type.String({ description: 'What happens at this step, in a few words, when the model names it.' })),
+  },
+  { additionalProperties: false },
+);
+export type CompiledScenarioStep = Static<typeof CompiledScenarioStep>;
+
+/**
+ * A compiled scenario alternative: the main-flow step it starts at, the
+ * condition under which it is taken, and its own steps. Alternatives stay
+ * in written order.
+ */
+export const CompiledScenarioAlternative = Type.Object(
+  {
+    id: CompiledId,
+    at: Type.String({ description: 'The main-flow step the alternative starts at, by step id.' }),
+    when: Type.String({ description: 'The condition under which the alternative is taken, in prose, as the model states it.' }),
+    steps: Type.Array(CompiledScenarioStep),
+  },
+  { additionalProperties: false },
+);
+export type CompiledScenarioAlternative = Static<typeof CompiledScenarioAlternative>;
+
+/**
+ * A compiled scenario: one use case, its requirements exactly as written
+ * (the compiled model records the model, not what a requirement resolved
+ * to), its main flow and its alternatives, each in written order.
+ */
+export const CompiledScenario = Type.Object(
+  {
+    id: CompiledId,
+    name: Type.Optional(Type.String({ description: 'A readable name of the use case, when the model names it.' })),
+    description: Type.Optional(Type.String({ description: "The use case's goal and preconditions, in prose, when the model states them." })),
+    actor: Type.Optional(Type.String({ description: 'The element that initiates the use case, by id, when the model names one.' })),
+    requirements: Type.Optional(
+      Type.Array(Type.String(), {
+        description:
+          'The capability requirements the scenario realises, as ids of the form `capability/requirement`, exactly as written. Left out when the scenario names none.',
+      }),
+    ),
+    steps: Type.Array(CompiledScenarioStep, { description: 'The main flow, in written order.' }),
+    alternatives: Type.Optional(Type.Array(CompiledScenarioAlternative, { description: 'Alternative flows, in written order.' })),
+  },
+  { additionalProperties: false },
+);
+export type CompiledScenario = Static<typeof CompiledScenario>;
+
 export const CompiledEnvironment = Type.Object(
   {
     id: CompiledId,
@@ -172,7 +226,13 @@ export const CompiledModel = Type.Object(
     entities: Type.Optional(
       Type.Array(CompiledEntity, {
         description:
-          "The model's data entities, ordered by id. Written only when the model declares at least one, so a model written before data entities existed compiles to the same bytes it did; absence reads as none.",
+          "The model's data entities, ordered by id. Written only when the model declares at least one, until madarch-hnq.1.4 makes it always present like every other top-level array; absence reads as none.",
+      }),
+    ),
+    scenarios: Type.Optional(
+      Type.Array(CompiledScenario, {
+        description:
+          "The model's scenarios, ordered by id. Written only when the model declares at least one, until madarch-hnq.1.4 makes it always present like every other top-level array; absence reads as none.",
       }),
     ),
     zones: Type.Array(CompiledZone),
