@@ -47,6 +47,14 @@ Option 3, decided by the owner in conversation on 2026-10-09.
   invalid one, then commits it as its author. The contract is that write path,
   not a file copied into repositories. Comments and discussions are kept in git
   beside their page.
+- **A chat beside every page** (owner, 2026-10-09). The person writes what
+  they want and an agent applies it at once, knowing the page and the graph
+  around it, through the same write path; each change is its own commit, so
+  undoing it is one action, and nothing waits for a confirmation. The agent
+  runs on the madarch server, locally and centrally alike, with the skill
+  set's behaviour (brainstorming, writing a use case, answering comments) and
+  a model key of the organisation's; a person who prefers their own agent
+  connects it through MCP or a REST API, by the same write path.
 - **The work is launched from the wiki.** A run knows from the start which task,
   use case and requirement it implements, so the link from a requirement to its
   code is written while the work is done; the code index then checks for drift
@@ -75,6 +83,7 @@ Option 3, decided by the owner in conversation on 2026-10-09.
 - madarch's own documents move to a product repository of madarch's.
 - The wiki needs an engine that writes; which one is open (research of
   2026-10-09). Also open: permissions, concurrent edits of one page, and how
-  the skill set's tracker adapter speaks to madarch.
+  the skill set's tracker adapter speaks to madarch; what the server's agent
+  may do on a person's behalf, and how its model spending is counted.
 - Revisit if editing through git commits proves too slow or too coarse for
   people working together on one page at once.
