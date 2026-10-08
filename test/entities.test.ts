@@ -138,6 +138,47 @@ elements:
     expect(warnings.every((w) => w.message.includes('classification is not stated'))).toBe(true);
   });
 
+  test('entity and relation warnings come in file order, then line order, however the kinds mix', () => {
+    const first = {
+      path: 'madarch/a-shop.yaml',
+      text: `version: 1
+elements:
+  - id: auth-api
+    kind: service
+  - id: event-bus
+    kind: broker
+relations:
+  - id: auth-publishes-login
+    name: publishes login events
+    from: auth-api
+    to: event-bus
+entities:
+  - id: session-id
+`,
+    };
+    const second = {
+      path: 'madarch/b-more.yaml',
+      text: `version: 1
+elements: []
+entities:
+  - id: earlier
+relations:
+  - id: unnamed
+    from: auth-api
+    to: auth-api
+`,
+    };
+    const { errors, warnings } = parseModel([first, second]);
+
+    expect(errors).toEqual([]);
+    expect(warnings.map(({ file, line }) => ({ file, line }))).toEqual([
+      { file: 'madarch/a-shop.yaml', line: lineIn(first, '- id: session-id') },
+      { file: 'madarch/b-more.yaml', line: lineIn(second, '- id: earlier') },
+      { file: 'madarch/b-more.yaml', line: lineIn(second, '- id: unnamed') },
+    ]);
+    expect(warnings[2]!.message).toContain('no name');
+  });
+
   test('entities are ordered by id in the compiled model, whatever order the files write them in', () => {
     const { model: compiled, errors } = loadAndCompileModel(fixture('entities-example-split'));
 
@@ -159,6 +200,18 @@ elements:
 
     expect(errors).toEqual([]);
     expect(Value.Check(CompiledModelSchema, model)).toBe(true);
+  });
+
+  test('the published compiled-model schema refuses an unknown field on a compiled entity and on a compiled transfer', () => {
+    const { model } = loadAndCompileModel(fixture('entities-example'));
+
+    const withRogueEntity = structuredClone(model!) as { entities: Record<string, unknown>[] };
+    withRogueEntity.entities[0]!.rogue = true;
+    expect(Value.Check(CompiledModelSchema, withRogueEntity)).toBe(false);
+
+    const withRogueTransfer = structuredClone(model!) as { relations: { transfers: Record<string, unknown>[] }[] };
+    withRogueTransfer.relations[0]!.transfers[0]!.rogue = true;
+    expect(Value.Check(CompiledModelSchema, withRogueTransfer)).toBe(false);
   });
 });
 
@@ -216,6 +269,8 @@ relations:
     expect(inSecond).toBeDefined();
     expect(inFirst.message).toContain('madarch/b.yaml');
     expect(inSecond.message).toContain('madarch/model.yaml');
+    expect(inFirst.message).toContain('entity id "session-id"');
+    expect(inFirst.message).toContain(`madarch/b.yaml:${lineIn(second, '- id: session-id')}`);
   });
 
   test('refuses an entity naming a category that does not exist, at the category own line', () => {
@@ -232,6 +287,26 @@ relations:
         line: lineIn(file, 'categories: [communications-secrecy, nowhere]'),
         path: 'entities[0].categories[1]',
         message: expect.stringContaining('nowhere'),
+      }),
+    );
+  });
+
+  test('refuses an unknown category of an entity listed one to a line, at that entry own line', () => {
+    const file = model(`${CATEGORIES}${ELEMENTS}entities:
+  - id: session-id
+    name: Session id
+    categories:
+      - personal
+      - nowhere
+`);
+    const { model: loaded, errors } = parseModel([file]);
+
+    expect(loaded).toBeUndefined();
+    expect(errors).toContainEqual(
+      expect.objectContaining({
+        file: 'madarch/model.yaml',
+        line: lineIn(file, '- nowhere'),
+        path: 'entities[0].categories[1]',
       }),
     );
   });
@@ -261,6 +336,56 @@ relations:
       }),
     );
     expect(errors[0]!.message).toContain('"auth-publishes-login"');
+  });
+
+  test('refuses an unknown category of a transfer listed one to a line, at that entry own line', () => {
+    const file = model(`${ELEMENTS}categories:
+  - id: personal
+relations:
+  - id: auth-publishes-login
+    name: publishes login events
+    from: auth-api
+    to: event-bus
+    transfers:
+      - direction: forward
+        confidentiality: confidential
+        categories:
+          - personal
+          - nowhere
+`);
+    const { model: loaded, errors } = parseModel([file]);
+
+    expect(loaded).toBeUndefined();
+    expect(errors).toContainEqual(
+      expect.objectContaining({
+        file: 'madarch/model.yaml',
+        line: lineIn(file, '- nowhere'),
+        path: 'relations[0].transfers[0].categories[1]',
+      }),
+    );
+  });
+
+  test('refuses an unknown entity of a transfer listed one to a line, at that entry own line', () => {
+    const file = model(`${ELEMENTS}relations:
+  - id: auth-publishes-login
+    from: auth-api
+    to: event-bus
+    transfers:
+      - direction: forward
+        confidentiality: confidential
+        entities:
+          - nowhere
+`);
+    const { model: loaded, errors } = parseModel([file]);
+
+    expect(loaded).toBeUndefined();
+    expect(errors).toContainEqual(
+      expect.objectContaining({
+        file: 'madarch/model.yaml',
+        line: lineIn(file, '- nowhere'),
+        path: 'relations[0].transfers[0].entities[0]',
+      }),
+    );
   });
 
   test('an entity declared by a file that failed its own schema check still resolves from another file', () => {
@@ -355,6 +480,30 @@ describe('intended-model/transfers: the entities a transfer carries', () => {
         categories: ['communications-secrecy', 'personal'],
         entities: ['session-id', 'user-name'],
       },
+    ]);
+  });
+
+  test('a transfer may carry an entity whose classification is not stated: no categories come from it, and the warning still fires', () => {
+    const file = model(`${ELEMENTS}entities:
+  - id: session-id
+    name: Session id
+relations:
+  - id: auth-publishes-login
+    name: publishes login events
+    from: auth-api
+    to: event-bus
+    transfers:
+      - direction: forward
+        confidentiality: confidential
+        categories: []
+        entities: [session-id]
+`);
+    const { model: loaded, errors, warnings } = parseModel([file]);
+
+    expect(errors).toEqual([]);
+    expect(warnings.map((w) => w.path)).toEqual(['entities[0]']);
+    expect(compileModel(loaded!).relations[0]?.transfers).toEqual([
+      { direction: 'forward', confidentiality: 'confidential', categories: [], entities: ['session-id'] },
     ]);
   });
 
