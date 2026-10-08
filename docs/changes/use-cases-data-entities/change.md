@@ -66,12 +66,12 @@ scenarios, and each transfer its entities and combined categories.
 exists as a heading in the repository's capability specs.
 
 ## Preserved contracts
-- intended-model/schema: unchanged; the new fields are part of the published schema and refused when misspelt like any other, and models written before this change load and compile unchanged.
+- intended-model/schema: unchanged; the new fields are part of the published schema and refused when misspelt like any other, and models written before this change still load; their compiled form may differ (transfer categories sorted by code point, entities and scenarios always present), accepted by the owner on 2026-10-08 since no stored model exists (greenfield).
 - intended-model/files: unchanged; entities and scenarios may be split across the folder's files like everything else.
 - intended-model/strict-yaml: unchanged for the new constructs.
 - compiled-model/deterministic: entities and scenarios are ordered by id, steps and alternatives as written; the same model compiles to the same bytes.
 - model-check/evidence-complete: still asks evidence of elements, interfaces and relations only; a scenario's steps stand on relations that have it.
-- views/view-set: the pages a model without entities or scenarios renders are byte-identical; a transfer's categories, its entities' included, show as categories do today.
+- views/view-set: the pages are those the compiled model gives; a transfer's categories, its entities' included and sorted by code point, show as categories do today, and the committed reference-system views are regenerated.
 - wiki/pages: unchanged; the wiki shows neither entities nor scenarios until outcome 3.
 - model-history/lossless: a compiled model holding data entities and scenarios reads back as compiled (madarch-hnq.1.4).
 
