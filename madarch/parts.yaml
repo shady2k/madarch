@@ -48,8 +48,8 @@ elements:
       - file: docs/glossary.md
         line: 1
         endLine: 4
-        commit: 14f9156817d95351b49401af893d8c96b1138dec
-        blob: fb34e03bee2f9bff2a089d048c8a53ad09670538
+        commit: a6e119a003800c7c60637407ba12340018d67275
+        blob: 18ceb2ec3fd892d384093d8a719989f9f33089c4
 
   # ---- layer: the core ----
   - id: core

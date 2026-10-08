@@ -86,7 +86,6 @@ relations:
     name: runs the model check on a repository
     from: maintainer
     to: model-check
-    interface: intended-model-contract
     evidence:
       - file: scripts/check-model.ts
         line: 1
@@ -230,10 +229,16 @@ relations:
         confidentiality: internal
         categories: [model-content]
     evidence:
-      - file: src/query/types.ts
-        line: 10
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: db687951a26787bcf01985bf7e17463516c8af72
+      - file: src/render/prepare.ts
+        line: 66
+        endLine: 69
+        commit: 67c492b94fc04acdfa2b7cf7d44f6924d891b35e
+        blob: bd82461278e4933118647477c1ae30ccf5ab5185
+      - file: src/server/graphs.ts
+        line: 128
+        endLine: 132
+        commit: 67c492b94fc04acdfa2b7cf7d44f6924d891b35e
+        blob: 88e8a6f9342268c71479aed65697afcb68b7c92b
   - id: engine-embeds-ladybugdb
     name: embeds the LadybugDB database
     from: query-engine
@@ -261,9 +266,14 @@ relations:
         confidentiality: internal
         categories: [model-content]
     evidence:
+      - file: src/server/http.ts
+        line: 238
+        endLine: 243
+        commit: 67c492b94fc04acdfa2b7cf7d44f6924d891b35e
+        blob: 251cbd59fa60b3a6683f8f029b4ff212d6175adf
       - file: src/server/sources.ts
-        line: 49
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        line: 404
+        commit: 67c492b94fc04acdfa2b7cf7d44f6924d891b35e
         blob: 35d63424fd402fc7511c1a2764dfa82aea219a70
   - id: server-answers-from-engine
     name: answers views from the graph's engine
@@ -294,9 +304,9 @@ relations:
         categories: [model-content]
     evidence:
       - file: src/send/send-model.ts
-        line: 10
-        endLine: 12
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        line: 80
+        endLine: 84
+        commit: 67c492b94fc04acdfa2b7cf7d44f6924d891b35e
         blob: efcbc13717dfc88d14cf2ee18ab309b7c65a820e
       - file: src/server/http.ts
         line: 169

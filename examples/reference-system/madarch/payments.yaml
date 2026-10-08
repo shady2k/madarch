@@ -132,7 +132,7 @@ relations:
       - direction: reverse
         confidentiality: restricted
         categories: [payment-card]
-        entities: [card-token]
+        entities: [card-number]
   - id: payments-charges-card
     name: charges the card
     from: payments-api
@@ -181,8 +181,9 @@ relations:
     to: payment-provider
     interface: provider-settlements
     transfers:
-      - direction: forward
+      - direction: reverse
         confidentiality: restricted
+        categories: [commercial-secret]
         entities: [settlement-report]
   - id: reconciliation-reads-payments
     name: matches settlements against payments
