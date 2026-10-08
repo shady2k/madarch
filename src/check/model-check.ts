@@ -228,23 +228,20 @@ function hasRequirementHeading(spec: string, requirementId: string): boolean {
  * `docs/system/capabilities/`, and in it a heading `## Requirement: <id>`.
  * Each that does not resolve fails the check, naming the scenario, the
  * requirement, the model file and line it is named on, and which of the
- * two is missing. Nothing is read for a scenario that names none, and one
- * spec file is read once however many requirements name it.
+ * two is missing. Nothing is read for a scenario that names none.
  */
 function requirementFindings(repo: string, revCommit: string, scenarios: readonly PositionedScenario[]): ModelCheckFinding[] {
   const errors: ModelCheckFinding[] = [];
-  const specs = new Map<string, string | undefined>();
   for (const entry of scenarios) {
     (entry.scenario.requirements ?? []).forEach((requirementId, index) => {
-      const slash = requirementId.indexOf('/');
       // The loader has already refused anything not of the form
       // `capability/requirement`, so a model that compiled gives both
-      // parts; the guard only keeps the section honest.
-      if (slash <= 0 || slash === requirementId.length - 1) return;
+      // parts; the split below reads them out.
+      const slash = requirementId.indexOf('/');
       const capability = requirementId.slice(0, slash);
+      const requirementPart = requirementId.slice(slash + 1);
       const specFile = `${CAPABILITIES}${capability}.md`;
-      if (!specs.has(specFile)) specs.set(specFile, fileTextAt(repo, revCommit, specFile));
-      const spec = specs.get(specFile);
+      const spec = fileTextAt(repo, revCommit, specFile);
       const at = entry.requirementsLines[index] ?? entry.line;
       if (spec === undefined) {
         errors.push({
@@ -255,12 +252,12 @@ function requirementFindings(repo: string, revCommit: string, scenarios: readonl
         });
         return;
       }
-      if (!hasRequirementHeading(spec, requirementId.slice(slash + 1))) {
+      if (!hasRequirementHeading(spec, requirementPart)) {
         errors.push({
           id: requirementId,
           file: entry.file,
           line: at,
-          message: `scenario "${entry.scenario.id}" names requirement "${requirementId}", but ${specFile} has no requirement "${requirementId.slice(slash + 1)}"`,
+          message: `scenario "${entry.scenario.id}" names requirement "${requirementId}", but ${specFile} has no requirement "${requirementPart}"`,
         });
       }
     });

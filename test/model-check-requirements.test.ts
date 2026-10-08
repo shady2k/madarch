@@ -145,9 +145,10 @@ describe('requirements-resolve', () => {
       expect(report.errors[0]!.file).toBe('madarch/model.yaml');
       expect(report.errors[0]!.line).toBe(repo.lineOf('model.yaml', '- server/archive'));
       expect(report.errors[0]!.message).toContain('send-model');
-      expect(report.errors[0]!.message).toContain('server/archive');
-      expect(report.errors[0]!.message).toContain('server.md');
-      expect(report.errors[0]!.message).toContain('archive');
+      // The finding says server.md has no requirement "archive": the
+      // requirement's own id, neither the whole `server/archive` nor a
+      // fragment of it.
+      expect(report.errors[0]!.message).toContain('server.md has no requirement "archive"');
     });
   });
 
@@ -168,7 +169,9 @@ describe('requirements-resolve', () => {
       expect(report.errors[0]!.line).toBe(repo.lineOf('model.yaml', '- billing/refund'));
       expect(report.errors[0]!.message).toContain('send-model');
       expect(report.errors[0]!.message).toContain('billing/refund');
-      expect(report.errors[0]!.message).toContain('billing');
+      // The finding says there is no capability spec "billing" and names
+      // the file it looked for.
+      expect(report.errors[0]!.message).toContain('there is no capability spec "billing"');
       expect(report.errors[0]!.message).toContain('docs/system/capabilities/billing.md');
     });
   });
@@ -245,10 +248,19 @@ describe('requirements-resolve', () => {
     });
   });
 
-  test('a scenario that names no requirement resolves nothing: the check passes with no findings about it', () => {
+  test('a scenario that names no requirement resolves nothing, with the key left out entirely too: the check passes with no findings about it', () => {
     withRepo((repo) => {
       const { commit, blob } = sourcesCommit(repo);
-      repo.writeModel('model.yaml', scenarioModel(commit, blob, []));
+      // One scenario states `requirements` as an empty list; the other
+      // leaves the key out: neither resolves anything, and neither may
+      // become a finding about a requirement it never named.
+      repo.writeModel('model.yaml', scenarioModel(commit, blob, [], 'send-model', [
+        '',
+        '  - id: bare-model',
+        '    name: Sends bare',
+        '    steps:',
+        '      - { id: s1, relation: core-sends-to-store }',
+      ]));
       repo.writeReview([], requirementsReview());
       repo.commit('the model');
 
