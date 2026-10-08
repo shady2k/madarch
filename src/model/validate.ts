@@ -539,14 +539,33 @@ function checkScenarios(positioned: PositionedScenario[]): ModelError[] {
     const base: PathSegment[] = ['scenarios', entry.index];
     const by = (what: string): string => `scenario "${scenario.id}"'s ${what}`;
 
-    errors.push(
-      ...checkDuplicateWithin(
-        (scenario.steps ?? []).map((step) => step.id),
-        (stepIndex) => ({
+    // Steps are unique within the scenario, whatever their flow: the main
+    // flow's steps and every alternative's form one set (intended-model/ids),
+    // so they are checked together here, not one list at a time.
+    const stepPlacements: { id: string; placed: Placed }[] = [
+      ...(scenario.steps ?? []).map((step, stepIndex) => ({
+        id: step.id,
+        placed: {
           file: entry.file,
           line: entry.stepsLines[stepIndex]!.idLine,
           segments: [...base, 'steps', stepIndex, 'id'] as PathSegment[],
-        }),
+        },
+      })),
+      ...entry.alternativesLines.flatMap((alternative, alternativeIndex) =>
+        (alternative.alternative.steps ?? []).map((step, stepIndex) => ({
+          id: step.id,
+          placed: {
+            file: entry.file,
+            line: alternative.stepsLines[stepIndex]!.idLine,
+            segments: [...base, 'alternatives', alternativeIndex, 'steps', stepIndex, 'id'] as PathSegment[],
+          },
+        })),
+      ),
+    ];
+    errors.push(
+      ...checkDuplicateWithin(
+        stepPlacements.map((step) => step.id),
+        (stepIndex) => stepPlacements[stepIndex]!.placed,
         scenario.id,
         'step',
       ),
@@ -605,19 +624,8 @@ function checkScenarios(positioned: PositionedScenario[]): ModelError[] {
         );
       }
 
-      errors.push(
-        ...checkDuplicateWithin(
-          (alt.steps ?? []).map((step) => step.id),
-          (stepIndex) => ({
-            file: entry.file,
-            line: alternative.stepsLines[stepIndex]!.idLine,
-            segments: [...altBase, 'steps', stepIndex, 'id'] as PathSegment[],
-          }),
-          scenario.id,
-          'step',
-        ),
-      );
-
+      // Alternative steps were checked together with the main flow's
+      // above; an alternative with no step is still refused here.
       if ((alt.steps ?? []).length === 0) {
         errors.push(
           errorAt(

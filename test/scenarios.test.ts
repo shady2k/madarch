@@ -459,7 +459,7 @@ describe('intended-model/ids, for scenarios', () => {
     expect(loaded?.scenarios).toHaveLength(2);
   });
 
-  test('a step id shared by a scenario\'s main flow and one of its alternatives is an answer', () => {
+  test('a step id shared by a scenario\'s main flow and one of its alternatives is refused, whatever the flows', () => {
     const file = model(`${ELEMENTS}${RELATIONS}scenarios:
   - id: place-order
     steps:
@@ -473,8 +473,38 @@ describe('intended-model/ids, for scenarios', () => {
 `);
     const { model: loaded, errors } = parseModel([file]);
 
-    expect(errors).toEqual([]);
-    expect(loaded?.scenarios[0]?.alternatives?.[0]?.steps?.map((step) => step.id)).toEqual(['s1']);
+    expect(loaded).toBeUndefined();
+    const atBoth = errors.filter((e) => e.message.includes('step id "s1"'));
+    expect(atBoth).toHaveLength(2);
+    expect(atBoth.map((e) => e.path).sort()).toEqual(['scenarios[0].alternatives[0].steps[0].id', 'scenarios[0].steps[0].id']);
+    expect(atBoth[0]!.message).toContain('"place-order"');
+    expect(atBoth[0]!.message).toContain('madarch/model.yaml:');
+  });
+
+  test('a step id shared by two alternatives of one scenario is refused, as their flows are one compare', () => {
+    const file = model(`${ELEMENTS}${RELATIONS}scenarios:
+  - id: place-order
+    steps:
+      - { id: s1, relation: checkout-places-order }
+    alternatives:
+      - id: card-declined
+        at: s1
+        when: the payment is declined
+        steps:
+          - { id: s2, relation: orders-publishes-placed }
+      - id: card-cancelled
+        at: s1
+        when: the payment is cancelled
+        steps:
+          - { id: s2, relation: checkout-shows-error }
+`);
+    const { model: loaded, errors } = parseModel([file]);
+
+    expect(loaded).toBeUndefined();
+    const atBoth = errors.filter((e) => e.message.includes('step id "s2"'));
+    expect(atBoth).toHaveLength(2);
+    expect(atBoth.map((e) => e.path).sort()).toEqual(['scenarios[0].alternatives[0].steps[0].id', 'scenarios[0].alternatives[1].steps[0].id']);
+    expect(atBoth[0]!.message).toContain('"place-order"');
   });
 
   test('two steps of one alternative with the same id are refused, naming the scenario and the alternative', () => {
