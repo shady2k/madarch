@@ -94,6 +94,9 @@ scenarios:
           - id: d2
             relation: check-reads-format
             name: "the report lists each stale item, its file and line, and still passes"
+          - id: d3
+            relation: check-renders-views
+            name: "the views are still rendered for reading"
 
   - id: send-a-model
     name: Send a passing model to the server
@@ -170,6 +173,9 @@ scenarios:
           - id: d1
             relation: engine-builds-from-history
             name: "the engine rebuilds from the history's assertions before the view is answered"
+          - id: d2
+            relation: server-renders-answers
+            name: "the requested view is rendered as Mermaid or LikeC4 text"
 
   - id: write-a-model
     name: Write a repository's model
@@ -195,7 +201,7 @@ scenarios:
     alternatives:
       - id: check-failed
         at: s2
-        when: the check reports an error or a problem
+        when: the check reports an error
         steps:
           - id: d1
             relation: agent-writes-model
