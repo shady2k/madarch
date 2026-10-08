@@ -49,6 +49,21 @@ function recorded(issue, kind) {
   try { return JSON.parse(hit.text.slice(kind.length + 1).split('\n')[0]); } catch { return { revision: '', evidence: '' }; }
 }
 
+// A stage's acceptance record is a comment whose first line is "accepted:".
+// New records carry {"base", "final"} as JSON on that line; older ones name
+// the final revision in prose ("Final: <sha>", "Final revision: <sha>").
+// The latest record wins; one that names no final revision gives none.
+function accepted(issue) {
+  const hit = [...(issue.comments ?? [])].reverse().find((c) => (c.text ?? '').startsWith('accepted:'));
+  if (!hit) return undefined;
+  try {
+    const final = JSON.parse(hit.text.slice('accepted:'.length).split('\n')[0]).final;
+    if (typeof final === 'string' && final) return { revision: final };
+  } catch { /* prose record */ }
+  const m = /\bfinal(?: revision)?:\s*([0-9a-f]{7,40})\b/i.exec(hit.text);
+  return m ? { revision: m[1] } : undefined;
+}
+
 export function normalize(text, source) {
   const rows = text.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l)).filter((r) => r.status !== 'tombstone');
   const issues = rows.map((r) => {
@@ -79,6 +94,10 @@ export function normalize(text, source) {
     };
     if (status === 'implemented') out.integration = recorded(r, 'implemented');
     if (status === 'submitted') out.delivery = recorded(r, 'submitted');
+    if (out.type === 'epic') {
+      const acceptance = accepted(r);
+      if (acceptance) out.acceptance = acceptance;
+    }
     return out;
   });
   return { generatedAt: new Date().toISOString(), source, issues };
@@ -116,9 +135,12 @@ function commits(args) {
 
 // The claim operation. br refuses to claim an issue with an open blocker, but the
 // protocol treats an implemented prerequisite in the same stage as satisfied once
-// its revision is in this checkout. So every open blocker is judged here: closed
-// passes; implemented passes only with the same parent stage and its recorded
-// revision an ancestor of HEAD; anything else refuses, naming why. Only then is
+// its revision is in this checkout, and one in an earlier stage of the same
+// feature once that stage is accepted and its accepted revision is here. So every
+// open blocker is judged here: closed passes; implemented passes with the same
+// parent stage and its recorded revision an ancestor of HEAD, or in another stage
+// of the same feature whose acceptance record's final revision is an ancestor of
+// HEAD; anything else refuses, naming why. Only then is
 // br asked to claim, forced past its blocker check when a blocker is still open;
 // br's claim stays atomic and exclusive either way, and the edge is kept.
 // `heldBy` rechecks a claim just made: the issue must then be active and held by
@@ -142,7 +164,18 @@ export function claimPlan(issues, id, isMerged, heldBy = null) {
     if (!pre) { reasons.push(`prerequisite ${b} is not in the tracker export`); continue; }
     if (pre.status === 'closed') continue;
     if (pre.status !== 'implemented') { reasons.push(`prerequisite ${b} is ${pre.status}; it must be closed, or implemented in the same stage`); continue; }
-    if (!pre.parent || pre.parent !== issue.parent || stage?.type !== 'epic') { reasons.push(`prerequisite ${b} is implemented in another stage (${pre.parent ?? 'none'}); across stages it must be accepted and closed`); continue; }
+    const preStage = pre.parent ? byId.get(pre.parent) : undefined;
+    if (pre.parent && pre.parent !== issue.parent && preStage?.type === 'epic' && stage?.type === 'epic') {
+      // A later stage of the same feature: the prerequisite's stage must be
+      // accepted, and its accepted revision in this checkout.
+      if (!preStage.parent || preStage.parent !== stage.parent) { reasons.push(`prerequisite ${b} is implemented in stage ${pre.parent} of another feature; across features it must be closed`); continue; }
+      const accRev = preStage.acceptance?.revision;
+      if (!accRev) { reasons.push(`prerequisite ${b}'s stage ${pre.parent} is not accepted yet; accept it first`); continue; }
+      if (!isMerged(accRev)) { reasons.push(`prerequisite ${b}'s stage ${pre.parent} is accepted at ${accRev}, which this checkout does not contain; merge it first`); continue; }
+      force = true;
+      continue;
+    }
+    if (!pre.parent || pre.parent !== issue.parent || stage?.type !== 'epic') { reasons.push(`prerequisite ${b} is implemented in another stage (${pre.parent ?? 'none'}); across stages of one feature its stage must be accepted, across features it must be closed`); continue; }
     const rev = pre.integration?.revision;
     if (!rev || !isMerged(rev)) { reasons.push(`prerequisite ${b} is implemented at ${rev || 'no recorded revision'}, which this checkout does not contain; merge it first`); continue; }
     force = true;

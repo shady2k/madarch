@@ -24,7 +24,8 @@ are the repository's installation, and each person's plugin and hooks are theirs
 - **Architecture and explorations:** `docs/system/architecture.md` (not written yet; listed as a present document so it is checked once it is); `docs/explorations/` only when retention is requested.
 - **Glossary and decisions:** `docs/glossary.md`, `docs/decisions/NNNN-<slug>.md` (MADR).
 - **Acceptance records:** a comment on the stage (epic) whose first line is
-  `accepted:` with base and final revisions, included tasks, criteria, test,
+  `accepted: {"base": "<sha>", "final": "<sha>"}` (older records name
+  `Final: <sha>` in prose, which the adapter also reads), followed by included tasks, criteria, test,
   mutation and review evidence, and pending limitations.
 - **Features and stages:** br type `epic` (a feature, or a stage under it);
   br type `feature` is read as epic too. The coordinator holds the stage.
@@ -47,7 +48,7 @@ are the repository's installation, and each person's plugin and hooks are theirs
 - **Rules:** `.shady2k/checks/{check,check-commits,check-docs,check-present}.mjs`,
   `document-format.mjs` (which `check-docs.mjs` and `check-present.mjs` read
   documents by) and `time-format.mjs` (which `check.mjs` reads records by),
-  verbatim copies of shady2k-skills plugin 0.73.0 (setup and rules 0.37.0).
+  verbatim copies of shady2k-skills plugin 0.85.0 (setup and rules 0.38.0).
   Their self-tests run from the plugin's setup skill directory, where their
   fixtures are.
 - **Present documents:** the config's `presentDocuments` (`AGENTS.md`, the
@@ -289,7 +290,7 @@ Its own reference: `br robot-docs guide`, `br <command> --help`. Pass
 | --- | --- |
 | create | `br create --type <task\|bug\|chore\|epic> --title … --labels mvp,<area> [--parent <epic>] --description …`; an epic states `## Done when` |
 | link / unlink | `br dep add <issue> <prerequisite>` (type `blocks`, gating only), `br dep remove`; provenance uses `--type related` or `discovered-from`, which the adapter ignores |
-| claim | `node .shady2k/adapter.mjs claim <id> --actor <agent full name>`, then the run script's claim record posted on the item (see Work records). It claims only an open, unheld leaf, and judges each open blocker: an `implemented` prerequisite in the same stage passes once its recorded revision is an ancestor of `HEAD`; any other open one refuses with its reason. br's `--claim` stays atomic and exclusive (forced past br's own blocker check only in that case, and only when the shared parent is a stage), the blockers are judged again right after the claim, which is released if one no longer passes and it is still this actor's, and the edge is kept. Known limit: br has no release-if-mine, so a release racing another actor's claim in the moment between the check and the release could clear it; with one worker this does not arise |
+| claim | `node .shady2k/adapter.mjs claim <id> --actor <agent full name>`, then the run script's claim record posted on the item (see Work records). It claims only an open, unheld leaf, and judges each open blocker: an `implemented` prerequisite in the same stage passes once its recorded revision is an ancestor of `HEAD`; one in an earlier stage of the same feature passes once that stage is accepted (the adapter exports the final revision of its latest `accepted:` record as `acceptance`) and that revision is an ancestor of `HEAD`, though the stage stays open until the feature lands; one in another feature must be closed; any other open one refuses with its reason. br's `--claim` stays atomic and exclusive (forced past br's own blocker check only in those cases), the blockers are judged again right after the claim, which is released if one no longer passes and it is still this actor's, and the edge is kept. Known limit: br has no release-if-mine, so a release racing another actor's claim in the moment between the check and the release could clear it; with one worker this does not arise |
 | release | `br update <id> --status open --assignee ""` for unfinished holds only; implemented work keeps its label and record |
 | implemented | coordinator: `br update <id> --add-label implemented` and `br comments add <id> 'implemented: {"revision":…,"evidence":…}'` |
 | submitted | worker: `br update <id> --add-label submitted --assignee ""` and `br comments add <id> 'submitted: {"revision":…,"evidence":…}'` |
@@ -298,7 +299,7 @@ Its own reference: `br robot-docs guide`, `br <command> --help`. Pass
 | comment / edit | `br comments add`, `br update` (title, description, parent, labels); a work record posted exactly as the run script printed it (`--file`), never reflowed or edited |
 | defer / undefer | `br defer <id> --until <date>`, `br undefer <id>` |
 | milestone / label | labels from the config's `milestoneLabels` and `areaLabels` |
-| ready | `br ready --label mvp [--parent <stage>]`, excluding `submitted`/`implemented` labels. br treats only closed prerequisites as satisfied; inside one stage the coordinator also treats an integrated `implemented` prerequisite as satisfied, by reading its record |
+| ready | `br ready --label <current milestone> [--parent <stage>]`, excluding `submitted`/`implemented` labels. br treats only closed prerequisites as satisfied; the coordinator also treats as satisfied an integrated `implemented` prerequisite inside one stage, and one in an accepted earlier stage of the same feature whose accepted revision is in the checkout, by the rules of the claim operation, which judges them |
 | holds | `br list --status in_progress --json` (assignee is the holder) |
 | pending integration / acceptance | `br list --label submitted` / `br list --label implemented` |
 | children | `br list --all --json` filtered by parent (all statuses) |

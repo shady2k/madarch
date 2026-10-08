@@ -63,6 +63,35 @@ test('claim: a same-stage prerequisite needs a real stage as the shared parent',
   assert.match(claimPlan([done('p'), leaf('a', { blockedBy: ['p'] })], 'a', merged).refuse, /another stage/);
 });
 
+test('claim: a prerequisite in an accepted, still open stage of the same feature counts once the accepted revision is here', () => {
+  const feature = { id: 'feat', type: 'epic', status: 'open', parent: null, blockedBy: [], holder: null };
+  const s1 = { id: 's1', type: 'epic', status: 'open', parent: 'feat', blockedBy: [], holder: null, acceptance: { revision: 'r1' } };
+  const s2 = { id: 's2', type: 'epic', status: 'open', parent: 'feat', blockedBy: [], holder: null };
+  const pre = done('p', { parent: 's1', integration: { revision: 'r0' } });
+  const a = leaf('a', { parent: 's2', blockedBy: ['p'] });
+  assert.deepEqual(claimPlan([feature, s1, s2, pre, a], 'a', merged), { force: true });
+  // Not accepted yet, or accepted at a revision this checkout lacks: refused.
+  assert.match(claimPlan([feature, { ...s1, acceptance: undefined }, s2, pre, a], 'a', merged).refuse, /stage s1 is not accepted/);
+  assert.match(claimPlan([feature, { ...s1, acceptance: { revision: 'r2' } }, s2, pre, a], 'a', merged).refuse, /accepted at r2, which this checkout does not contain/);
+  // Another feature's stage: it must close first, accepted or not.
+  const other = { ...s1, parent: 'other-feature' };
+  assert.match(claimPlan([feature, other, s2, pre, a], 'a', merged).refuse, /another feature/);
+  // A prerequisite that is not implemented is still refused, whatever its stage.
+  assert.match(claimPlan([feature, s1, s2, leaf('p', { parent: 's1' }), a], 'a', merged).refuse, /prerequisite p is open/);
+});
+
+test('acceptance: a stage carries the final revision of its latest accepted: record', () => {
+  const row = (comments) => ({ id: 's', title: 't', issue_type: 'epic', status: 'open', labels: [], comments });
+  const c = (id, text) => ({ id, text, author: 'x', created_at: `2026-10-0${id}T00:00:00Z` });
+  const one = (comments) => normalize(JSON.stringify(row(comments)) + '\n', 'test').issues[0].acceptance;
+  assert.deepEqual(one([c(1, 'accepted: {"base": "b1", "final": "f1"}\nmore')]), { revision: 'f1' });
+  assert.deepEqual(one([c(1, 'accepted: stage s — title\n\nBase: aaa1111\nFinal: bbb2222cc')]), { revision: 'bbb2222cc' });
+  assert.deepEqual(one([c(1, 'accepted: x\nBase revision: aaa1111. Final revision: ccc3333 (documents).')]), { revision: 'ccc3333' });
+  assert.deepEqual(one([c(1, 'accepted: {"final": "f1"}'), c(2, 'accepted: {"final": "f2"}')]), { revision: 'f2' });
+  assert.equal(one([c(1, 'accepted: owner said yes')]), undefined);
+  assert.equal(one([c(1, 'note: accepted: {"final": "f1"}')]), undefined);
+});
+
 test('claim: the recheck after claiming wants the claim held by this actor and the blockers still good', () => {
   const held = leaf('a', { status: 'active', holder: 'w1', blockedBy: ['p'] });
   assert.deepEqual(claimPlan([stage, done('p'), held], 'a', merged, 'w1'), { force: true });
@@ -132,6 +161,25 @@ test('claim: through br, atomic and exclusive, keeping the edge', { skip: !hasBr
     assert.equal(issue.status, 'in_progress');
     assert.equal(issue.assignee, 'w1');
     assert.ok((issue.dependencies ?? []).some((d) => (d.depends_on_id ?? d.id) === p && (d.type ?? d.dependency_type) === 'blocks'), 'the blocking edge is kept');
+
+    // A later stage of the same feature: claimed once the earlier stage is
+    // accepted at a revision this checkout holds, while that stage stays open.
+    const f = idOf(make(['--type', 'epic', '--title', 'Feature', '--description', '## Done when\nx']));
+    const s1 = idOf(make(['--type', 'epic', '--title', 'Stage 1', '--parent', f, '--description', '## Done when\nx']));
+    const s2 = idOf(make(['--type', 'epic', '--title', 'Stage 2', '--parent', f, '--description', '## Done when\nx']));
+    const p1 = idOf(make(['--type', 'task', '--title', 'Pre 1', '--parent', s1]));
+    const a2 = idOf(make(['--type', 'task', '--title', 'Dep 2', '--parent', s2]));
+    run('br', ['dep', 'add', a2, p1, '--actor', 'test']);
+    run('br', ['update', p1, '--add-label', 'implemented', '--actor', 'test']);
+    run('br', ['comments', 'add', p1, `implemented: {"revision":"${head}","evidence":"test"}`, '--actor', 'test']);
+    const before = claim(a2, 'w3');
+    assert.equal(before.ok, false);
+    assert.match(before.out, /is not accepted yet/);
+    run('br', ['comments', 'add', s1, `accepted: {"base":"${head}","final":"${head}"}`, '--actor', 'test']);
+    const after = claim(a2, 'w3');
+    assert.equal(after.ok, true, after.out);
+    const stage1 = JSON.parse(run('br', ['show', s1, '--json']));
+    assert.equal((Array.isArray(stage1) ? stage1[0] : stage1).status, 'open', 'the accepted stage stays open');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
