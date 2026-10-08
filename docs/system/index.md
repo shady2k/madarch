@@ -48,6 +48,15 @@ Added 2026-10-01 with the change server-views (`docs/changes/server-views/`):
 
 Its run's decisions are in `docs/changes/server-views/change.md`, "Design and decisions".
 
+Changed 2026-10-08 with the change use-cases-data-entities (`docs/changes/use-cases-data-entities/`):
+
+- intended-model: data entities with their classification, transfers naming the entities they carry, and scenarios whose steps follow the model's relations and name the requirements they realise.
+- compiled-model: the compiled model carries data entities and scenarios.
+- model-history: data entities and scenarios are kept through the history, each a source's own claim.
+- model-check: a scenario's requirements resolve against the capability specs, and a data entity's evidence is resolved and checked for staleness.
+
+Its run's decisions are in `docs/changes/use-cases-data-entities/change.md`, "Design and decisions".
+
 ## Known unknowns
 
 - The query engine's memory in a long-lived process: measured with the

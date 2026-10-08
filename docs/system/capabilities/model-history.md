@@ -10,7 +10,8 @@ back, and nothing is ever overwritten.
 ## Requirement: store-version — Storing a source's model at a commit
 When a compiled model is stored for a source at a commit with the commit's
 time, the history shall record each of the source's assertions (elements,
-interfaces, relations, zone memberships, bindings, environments, states) with
+interfaces, relations, data entities, scenarios, zone memberships, bindings,
+environments, states) with
 the commit's time as the start of its valid time and the storing moment as the
 start of its recorded time.
 

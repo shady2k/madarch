@@ -5,7 +5,8 @@ Capability: intended-model
 ## Purpose
 Reading what people and agents declare the architecture to be from the YAML
 files of a repository, refusing anything that cannot be read exactly, and
-saying where each problem is.
+saying where each problem is: its parts and how they relate, the data entities
+that cross between them, and the use cases that run through them as scenarios.
 
 ## Requirement: strict-yaml — Strict YAML only
 When the model's files are loaded, the loader shall refuse anchors, aliases,
@@ -50,22 +51,34 @@ model across files changes nothing but where each part is written.
 
 ## Requirement: ids — Ids are unique and stable
 While a model is valid, every element, interface, relation, zone, category,
-environment and state shall have an id unique within its kind across the
-model, of letters, digits, dots, dashes and underscores, which does not change
-when the thing moves or is renamed. If an id repeats, then the loader shall
-refuse the model naming both places.
+data entity, scenario, environment and state shall have an id unique within
+its kind across the model, and every step and alternative an id unique within
+its scenario, of letters, digits, dots, dashes and underscores, which does not
+change when the thing moves or is renamed. If an id repeats, then the loader
+shall refuse the model naming both places.
 
 ### Scenario: duplicate-element-id
 - Given: two elements with the id `orders-api` in different files
 - When: the model is loaded
 - Then: loading fails with an error naming both files and lines
 
+### Scenario: duplicate-step-id
+- Given: a scenario `place-order` with two steps of id `s2`
+- When: the model is loaded
+- Then: loading fails naming `place-order`, both steps' lines and the id `s2`
+
 ## Requirement: references — Every reference resolves
 When the model is loaded, the loader shall resolve every reference (an
 element's parent, a relation's ends, a refined relation, an interface's
-provider, a relation's interface, zones, categories, environments and states)
-and refuse any that names nothing, naming the referring place and the missing
-id.
+provider, a relation's interface, zones, categories, environments and states,
+the entities a transfer carries, a scenario's actor, the relation of each step
+and the step an alternative starts at) and refuse any that names nothing,
+naming the referring place and the missing id.
+
+### Scenario: step-over-missing-relation
+- Given: scenario `place-order` whose step `s4` names the relation `inventory-reserves-stock`, and no relation of that id
+- When: the model is loaded
+- Then: loading fails naming `place-order`, step `s4`, its file and line, and `inventory-reserves-stock` as not found
 
 ### Scenario: unknown-parent
 - Given: an element whose `parent` is `billing`, and no element `billing`
@@ -148,13 +161,80 @@ warning naming the relation, its file and line.
 
 ## Requirement: transfers — Data transfers have a direction each
 An interaction shall carry any number of data transfers, each with a direction
-(forward, from the initiator, or reverse), a confidentiality and a list of data
-categories, the two kept separate.
+(forward, from the initiator, or reverse), a confidentiality, and a list of
+data categories, a list of the data entities it carries, or both, kept
+separate from the confidentiality. A transfer's categories are those it names
+and those of the entities it carries, each once. If a transfer names neither
+categories nor entities, then the model is refused naming the relation, the
+transfer, its file and line.
 
 ### Scenario: two-directions
 - Given: the interaction `checkout-charges-card` sends payment-card and personal data forward and nothing categorised back
 - When: the model is compiled
 - Then: the compiled interaction has a forward transfer with categories payment-card and personal, confidentiality confidential, and a reverse transfer with no categories, confidentiality internal
+
+### Scenario: categories-from-entities
+- Given: the interaction `auth-publishes-login` whose forward transfer names the category `personal` and the entities `session-id` (category communications-secrecy) and `user-name` (category personal)
+- When: the model is compiled
+- Then: the compiled transfer names the entities `session-id` and `user-name` and the categories communications-secrecy and personal, each once
+
+### Scenario: transfer-names-nothing
+- Given: a transfer of `checkout-calls-orders` with a direction and a confidentiality and neither categories nor entities
+- When: the model is loaded
+- Then: loading fails naming `checkout-calls-orders`, the transfer, its file and line, saying a transfer names categories, entities or both
+
+## Requirement: entities — Data entities name what crosses, with its classification
+The model shall let data entities be declared, each with an id, a name, an
+optional description and evidence, and its classification as a list of the
+model's data categories (such as personal data, commercial secret,
+communications secrecy). An empty list is an answer: the entity is of no
+category. If an entity has no `categories` at all, then loading shall still
+succeed and return a warning naming the entity, its file and line, saying its
+classification is not stated.
+
+### Scenario: entity-classified
+- Given: the entity `session-id` named "Session id" with categories communications-secrecy
+- When: the model is compiled
+- Then: the compiled model holds `session-id` with its name and the category communications-secrecy, and no warning names it
+
+### Scenario: entity-of-no-category
+- Given: the entity `order-number` with `categories: []`
+- When: the model is loaded
+- Then: it loads with no warning naming `order-number`, and the compiled entity has an empty list of categories
+
+### Scenario: classification-not-stated
+- Given: the entity `user-name` with no `categories` field
+- When: the model is loaded
+- Then: it loads, and one warning names `user-name`, its file and line, saying its classification is not stated; the compiled entity has no list of categories
+
+## Requirement: scenarios — Use cases are scenarios over the model's relations
+The model shall let scenarios be declared, each describing one use case: an
+id, a name, an optional description (its goal and preconditions in prose), an
+optional actor (an element), the requirements it realises as a list of ids of
+the form `capability/requirement`, and its main flow as an ordered list of
+steps. Each step has an id, the relation it runs over (at any level, a
+refinement or not) and an optional name of what happens. A scenario may list
+alternative flows, each with an id, the main-flow step it starts at, the
+condition under which it is taken (`when`, in prose) and its own ordered steps;
+an alternative replaces the main flow from that step on. If a requirement id
+is not of the form `capability/requirement`, an alternative starts at a step
+the main flow does not have, or a scenario or an alternative has no step, then
+the model is refused naming the scenario, its file and line.
+
+### Scenario: scenario-compiled
+- Given: the scenario `place-order` with actor `customer`, requirement `ordering/place-order`, steps `s1` over `checkout-places-order` and `s2` over `orders-publishes-placed`, and the alternative `card-declined` at `s2` when "the payment is declined" with one step over `checkout-shows-error`
+- When: the model is compiled
+- Then: the compiled scenario holds its actor, its requirement, its two steps in order with their relations, and the alternative with its start, its condition and its step
+
+### Scenario: alternative-at-unknown-step
+- Given: the alternative `card-declined` of `place-order` starting at `s9`, which the main flow does not have
+- When: the model is loaded
+- Then: loading fails naming `place-order`, `card-declined`, its file and line, and `s9` as not a step of the main flow
+
+### Scenario: malformed-requirement-id
+- Given: the scenario `place-order` naming the requirement `place-order` with no capability
+- When: the model is loaded
+- Then: loading fails naming `place-order`, its file and line, and saying a requirement is named as `capability/requirement`
 
 ## Requirement: contracts — Interfaces carry normalized contract ids
 Every interface shall have a provider element and a contract id
@@ -215,7 +295,7 @@ the states branch, cycle or have no first state, then the model is refused.
 - Then: loading fails naming the two states that follow the same one
 
 ## Requirement: evidence — Evidence names a file at a revision
-An element, an interface and a relation may list its evidence: each item names
+An element, an interface, a relation and a data entity may list its evidence: each item names
 a file by its path from the repository's root, optionally a line or a range of
 lines (`line`, and `endLine` not before it), and optionally the commit it was
 read at together with the file's git blob id there (`commit` and `blob`, each
@@ -254,8 +334,10 @@ item, its file and line.
 
 ## Context
 Decisions 0002 (YAML in git), 0005 (layers), 0006 (bindings by variable
-names), 0014 (format principles), 0015 (states). Rules and flows are not part
-of the format yet.
+names), 0014 (format principles), 0015 (states), 0016 (the product's
+knowledge base). Flows are written as scenarios; rules are not part of the
+format yet. Whether a requirement a scenario names exists is the model check's
+question, since the loader reads only the model's folder.
 
 ## Coverage limits
 Only models written in this format; there is no import from other formats.

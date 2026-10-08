@@ -5,8 +5,11 @@ Capability: model-check
 ## Purpose
 Checking a repository's intended model against the repository it describes,
 without a server: that the model compiles, that every element, interface and
-relation names evidence that still exists and still reads as it did, that
-every file of the repository is accounted for, which problems recognised
+relation names evidence that still exists and still reads as it did, that a
+data entity's evidence, when it gives one, is resolved and reported stale like
+any other item, that
+every requirement a scenario names exists in the repository's capability
+specs, that every file of the repository is accounted for, which problems recognised
 methods find in it, and what its views look like. Run by a person or an agent
 from a checkout of madarch, on a checkout of the repository, before the model
 lands; it reads and never writes the repository.
@@ -42,6 +45,9 @@ it is declared.
 ## Requirement: evidence-resolves — Every item names text that exists
 When an evidence item is checked, the check shall confirm that its file has
 the item's blob at the item's commit and that its lines are within that blob.
+This covers every evidence item the model declares, a data entity's included:
+an entity's item is resolved like any other, while naming none is still no
+failure (evidence-complete asks it of elements, interfaces and relations only).
 If the commit is not in the repository (a squash or a rebase removed it), then
 the check shall accept the item when the blob appears at the item's path in the
 history of the checked revision, and report that its commit is missing. If the
@@ -63,9 +69,15 @@ fail, naming the item.
 - When: the repository is checked
 - Then: the check fails, naming the item, the blob it names and the blob the file has at that commit
 
+### Scenario: entity-line-past-end
+- Given: the data entity `session-id`, whose evidence item names lines 40 to 45 of a file that has 30 lines in its blob
+- When: the repository is checked
+- Then: the check fails, naming `session-id`'s item and saying the file has 30 lines
+
 ## Requirement: staleness — What changed since it was read is reported
 When a repository is checked at a revision, the check shall report as stale
-every evidence item, and every document claim in the review report, whose file
+every evidence item the model declares, a data entity's included, and every
+document claim in the review report, whose file
 at that revision differs from its blob, naming the model id or the claim and
 the file; stale evidence alone does not fail the check.
 
@@ -73,6 +85,35 @@ the file; stale evidence alone does not fail the check.
 - Given: an item on `core` naming a file whose content changed in a commit after the item's commit
 - When: the repository is checked at the newer commit
 - Then: the check passes and reports `core`'s item as stale, with the file and both blobs
+
+### Scenario: entity-file-changed-since
+- Given: an evidence item on the data entity `session-id` naming a file whose content changed in a commit after the item's commit
+- When: the repository is checked at the newer commit
+- Then: the check passes and reports `session-id`'s item as stale, with the file and both blobs
+
+## Requirement: requirements-resolve — Every requirement a scenario names exists
+When a repository's model compiles, the check shall resolve each requirement a
+scenario names, `capability/requirement`, against the capability specs of the
+checked revision: the file named after the capability, with the extension
+`.md`, under `docs/system/capabilities/`, and in it a heading
+`## Requirement:` followed by the requirement's id. If the file or the heading is not
+there, then the check shall fail naming the scenario, the requirement, the
+model file and line where it is named, and which of the two is missing.
+
+### Scenario: requirement-found
+- Given: a repository whose scenario `send-model` names `server/store`, and whose `docs/system/capabilities/server.md` has the heading `## Requirement: store — Sent models are kept`
+- When: the repository is checked
+- Then: the check reports nothing about `send-model`'s requirements
+
+### Scenario: unknown-requirement
+- Given: a repository whose scenario `send-model` names `server/archive`, and whose `server.md` has no requirement `archive`
+- When: the repository is checked
+- Then: the check fails naming `send-model`, `server/archive`, the model file and line, and saying `server.md` has no requirement `archive`
+
+### Scenario: unknown-capability
+- Given: a repository with no `docs/system/capabilities/billing.md`, whose scenario names `billing/refund`
+- When: the repository is checked
+- Then: the check fails naming the scenario, `billing/refund`, the model file and line, and saying there is no capability spec `billing`
 
 ## Requirement: assignment — Every file is accounted for
 When a repository is checked, the check shall read the review report's
@@ -167,7 +208,8 @@ problems, and on request the same as JSON; it shall exit 0 when nothing fails,
   repository git can read.
 
 ## Context
-Decisions 0002 (the intended model in git), 0014 (format principles). The
+Decisions 0002 (the intended model in git), 0014 (format principles), 0016
+(the product's knowledge base). The
 methods behind the problems: R. C. Martin, "Design Principles and Design
 Patterns" (2000); F. Arcelli Fontana et al., Arcan (ICSA 2017); S. Hernan, S.
 Lambert, T. Ostwald, A. Shostack, "Uncover Security Design Flaws Using the
@@ -178,3 +220,5 @@ Patterns" (WICSA 2015).
 The problems are computed from the model and the history, not from the code:
 a relation the model lacks is not seen by the dependency problems. Thresholds
 for hubs and hidden coupling are the check's own, not a standard's.
+Requirements are found only at the capability specs' default path; a mapping of
+documents kept elsewhere comes with the document contract (madarch-o3b).

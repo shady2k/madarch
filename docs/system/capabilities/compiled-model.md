@@ -11,13 +11,15 @@ and its contract ids normalized.
 When a valid model is compiled, the compiler shall produce `model.json` with a
 schema version, the model's elements with their ancestors, interfaces,
 relations and interactions with their names, actions, refinements and
-transfers, zones, categories, environments and states, validated against a
-published JSON Schema.
+transfers (each with its entities and its categories, those named and those of
+its entities), zones, categories, data entities with their classification,
+scenarios with their steps and alternatives, environments and states,
+validated against a published JSON Schema.
 
 ### Scenario: compiled-validates
 - Given: the reference example of the format
 - When: it is compiled
-- Then: the result validates against the published compiled-model schema and holds every element, interface, relation, zone, category, environment and state of the example
+- Then: the result validates against the published compiled-model schema and holds every element, interface, relation, zone, category, data entity, scenario, environment and state of the example
 
 ### Scenario: action-kept
 - Given: the relation `inventory-reserves-stock` with `action: receive`, and `checkout-calls-orders` with none
@@ -66,4 +68,4 @@ environment and one state without the model's rules.
 Glossary: compiled model. Decisions 0001 (the graph as backend), 0014.
 
 ## Coverage limits
-Rules and flows are not compiled yet.
+Rules are not compiled yet. A scenario's status (built or not, by evidence) is not computed by the compiler.
