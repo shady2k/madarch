@@ -138,7 +138,7 @@ scenarios:
         steps:
           - id: d2
             relation: send-checks-then-posts
-            name: "the command stops with an error and nothing is sent"
+            name: "the command stops with an error; whether the model reached the server is not confirmed"
 
   - id: serve-a-view
     name: Serve a view of a sent model
