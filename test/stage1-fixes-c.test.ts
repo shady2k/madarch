@@ -471,6 +471,32 @@ describe('performance: a 10 000-element model loads and compiles in reasonable t
       expect(elapsed).toBeLessThan(5000);
     }
   });
+
+  test.skipIf(process.env['MADARCH_SKIP_PERF'] !== undefined)('a flat model with as many relations and entities compiles quickly', () => {
+    let text = 'version: 1\nelements:\n';
+    for (let i = 0; i < 10000; i++) text += `  - id: e${i}\n    kind: service\n`;
+    text += 'relations:\n';
+    for (let i = 1; i < 10000; i++) text += `  - id: r${i}\n    from: e${i}\n    to: e${(i * 7) % 10000}\n`;
+    text += 'entities:\n';
+    for (let i = 0; i < 10000; i++) text += `  - id: d${i}\n    categories: []\n`;
+
+    const started = performance.now();
+    const { model, errors } = parseModel([{ path: 'm.yaml', text }]);
+    const compiled = compileModel(model!);
+    const elapsed = performance.now() - started;
+
+    expect(errors).toEqual([]);
+    expect(compiled.entities).toHaveLength(10000);
+    expect(compiled.relations).toHaveLength(9999);
+    if (process.env['CI']) {
+      // eslint-disable-next-line no-console
+      console.log(`10 000 elements, relations and entities: ${Math.round(elapsed)}ms`);
+    } else {
+      // A lookup rebuilt once per relation made this O(relations × entities):
+      // about 5 s before, about 60 ms after.
+      expect(elapsed).toBeLessThan(5000);
+    }
+  });
 });
 
 describe('state chain and since/until errors: exact path and line', () => {

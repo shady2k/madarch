@@ -224,20 +224,32 @@ function fileTextAt(repo: string, revCommit: string, file: string): string | und
  */
 function hasRequirementHeading(spec: string, requirementId: string): boolean {
   const heading = `## Requirement: ${requirementId}`;
-  // A heading inside a fenced code block is an example, not a requirement,
-  // so the fence's own lines and everything between them are skipped; a
-  // trailing carriage return is part of the line ending, not of what
-  // follows the id, so a spec with CRLF endings resolves its requirements
-  // the same as one with LF.
-  let fenced = false;
+  // A fenced code block is skipped: its marker is a run of at least three
+  // backticks or tildes, indented by at most three spaces (four spaces make
+  // an indented code block, which is no fence), and it ends at a run of the
+  // same character, at least as long, with nothing after it. So a heading
+  // written inside an example never resolves a requirement, and a stray
+  // fence-looking line never hides a real one. A trailing carriage return
+  // is part of the line ending, not of what follows the id.
+  let fence: { character: string; length: number } | undefined;
   for (const raw of spec.split('\n')) {
     const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
     const marker = line.trimStart();
-    if (marker.startsWith('```') || marker.startsWith('~~~')) {
-      fenced = !fenced;
+    const indent = line.length - marker.length;
+    const run = /^(`{3,}|~{3,})/.exec(marker);
+    if (fence === undefined) {
+      if (run !== null && indent <= 3) {
+        fence = { character: run[1]![0]!, length: run[1]!.length };
+        continue;
+      }
+    } else {
+      const open = fence;
+      if (run !== null && run[1]![0] === open.character && run[1]!.length >= open.length && marker.slice(run[1]!.length).trim() === '') {
+        fence = undefined;
+      }
       continue;
     }
-    if (fenced || !line.startsWith(heading)) continue;
+    if (!line.startsWith(heading)) continue;
     const rest = line.slice(heading.length);
     if (rest === '' || rest.startsWith(' ')) return true;
   }

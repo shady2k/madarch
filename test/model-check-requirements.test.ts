@@ -352,6 +352,43 @@ describe('requirements-resolve', () => {
     });
   });
 
+  test('a fence is closed only by the same character, at least as long, with nothing after it', () => {
+    const cases: { name: string; spec: string[] }[] = [
+      { name: 'a shorter closing run', spec: ['# Server', '', '````markdown', '## Requirement: archive — An example', '```', ''] },
+      { name: 'a closing run of the other character', spec: ['# Server', '', '```', '## Requirement: archive — An example', '~~~', ''] },
+      { name: 'a closing line with a suffix', spec: ['# Server', '', '```', '## Requirement: archive — An example', '``` extra', ''] },
+    ];
+    for (const { name, spec: lines } of cases) {
+      withRepo((repo) => {
+        const { commit, blob } = sourcesCommit(repo);
+        repo.write('docs/system/capabilities/server.md', [...lines, '## Requirement: store — Sent models are kept', ''].join('\n'));
+        repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/store']));
+        repo.writeReview([], requirementsReview());
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome, name).toBe('failed');
+        expect(report.errors, name).toContainEqual(expect.objectContaining({ message: expect.stringContaining('has no requirement "store"') }));
+      });
+    }
+  });
+
+  test('a line indented by four spaces is an indented code block, not a fence, so it hides nothing', () => {
+    withRepo((repo) => {
+      const { commit, blob } = sourcesCommit(repo);
+      repo.write('docs/system/capabilities/server.md', ['# Server', '', '    ```', '', '## Requirement: store — Sent models are kept', ''].join('\n'));
+      repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/store']));
+      repo.writeReview([], requirementsReview());
+      repo.commit('the model');
+
+      const report = checkModel(repo.path);
+
+      expect(report.outcome).toBe('passed');
+      expect(report.errors).toEqual([]);
+    });
+  });
+
   test('a heading whose line ends with a carriage return satisfies the id', () => {
     withRepo((repo) => {
       const { commit, blob } = sourcesCommit(repo);
