@@ -64,6 +64,9 @@ entity may carry evidence.
 scenarios, and each transfer its entities and combined categories.
 - model-check/requirements-resolve (new): every requirement a scenario names
 exists as a heading in the repository's capability specs.
+- model-history/store-version (replaced): the history records a source's data
+entities and scenarios like every other assertion; the enumeration of what it
+records names them.
 
 ## Preserved contracts
 - intended-model/schema: unchanged; the new fields are part of the published schema and refused when misspelt like any other, and models written before this change still load; their compiled form may differ (transfer categories sorted by code point, entities and scenarios always present), accepted by the owner on 2026-10-08 since no stored model exists (greenfield).
@@ -88,6 +91,7 @@ exists as a heading in the repository's capability specs.
 - compiled-model/shape: test, use-cases-data-entities
 - compiled-model/deterministic: test
 - model-check/requirements-resolve: test, use-cases-data-entities
+- model-history/store-version: test
 - model-check/evidence-complete: test
 - views/view-set: test
 - wiki/pages: test
