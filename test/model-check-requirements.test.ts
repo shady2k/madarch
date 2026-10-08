@@ -374,6 +374,58 @@ describe('requirements-resolve', () => {
     }
   });
 
+  test('a fence that opens and closes leaves the headings after it readable', () => {
+    withRepo((repo) => {
+      const { commit, blob } = sourcesCommit(repo);
+      repo.write('docs/system/capabilities/server.md', ['# Server', '', '```markdown', '## Requirement: archive — An example', '```', '', '## Requirement: store — Sent models are kept', ''].join('\n'));
+      repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/store']));
+      repo.writeReview([], requirementsReview());
+      repo.commit('the model');
+
+      const report = checkModel(repo.path);
+
+      expect(report.outcome).toBe('passed');
+      expect(report.errors).toEqual([]);
+    });
+  });
+
+  test('a fence marker is read only at the start of a line, and only a run of three', () => {
+    const cases: { name: string; prose: string }[] = [
+      { name: 'a marker inside a line of prose', prose: 'The format writes ```yaml and ~~~ for a fence.' },
+      { name: 'a single backtick', prose: '`store` is the id of the requirement.' },
+      { name: 'a single tilde', prose: '~10 items are enough.' },
+    ];
+    for (const { name, prose } of cases) {
+      withRepo((repo) => {
+        const { commit, blob } = sourcesCommit(repo);
+        repo.write('docs/system/capabilities/server.md', ['# Server', '', prose, '', '## Requirement: store — Sent models are kept', ''].join('\n'));
+        repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/store']));
+        repo.writeReview([], requirementsReview());
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.outcome, name).toBe('passed');
+        expect(report.errors, name).toEqual([]);
+      });
+    }
+  });
+
+  test('a marker indented by three spaces is a fence, and hides the headings in it', () => {
+    withRepo((repo) => {
+      const { commit, blob } = sourcesCommit(repo);
+      repo.write('docs/system/capabilities/server.md', ['# Server', '', '   ```markdown', '## Requirement: store — Sent models are kept', '   ```', ''].join('\n'));
+      repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/store']));
+      repo.writeReview([], requirementsReview());
+      repo.commit('the model');
+
+      const report = checkModel(repo.path);
+
+      expect(report.outcome).toBe('failed');
+      expect(report.errors).toContainEqual(expect.objectContaining({ message: expect.stringContaining('has no requirement "store"') }));
+    });
+  });
+
   test('a line indented by four spaces is an indented code block, not a fence, so it hides nothing', () => {
     withRepo((repo) => {
       const { commit, blob } = sourcesCommit(repo);
