@@ -232,7 +232,8 @@ function hasRequirementHeading(spec: string, requirementId: string): boolean {
   let fenced = false;
   for (const raw of spec.split('\n')) {
     const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
-    if (/^\s*(?:```|~~~)/.test(line)) {
+    const marker = line.trimStart();
+    if (marker.startsWith('```') || marker.startsWith('~~~')) {
       fenced = !fenced;
       continue;
     }
