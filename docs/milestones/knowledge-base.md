@@ -15,14 +15,20 @@ invented reference system in `examples/`, since madarch has neither.
 
 1. **Check a repository's product corpus with one versioned contract file**
 (madarch-o3b). The document contract (vision, requirements, decisions,
-glossary, the intended model with its scenarios and data entities, a path
-mapping for documents kept elsewhere) has its source in madarch and is built
+glossary, the intended model with its scenarios and data entities, sources
+such as transcripts of conversations with product owners and the business, a
+path mapping for documents kept elsewhere) has its source in madarch and is built
 into one dependency-free file with a version; the model check is part of it.
-The model skill lives in shady2k-skills and calls the installed file.
+A requirement, a use case or a decision cites the source it came from by a
+quote and a place in it (a time or a line range); a source is kept in the
+repository or outside it, where the corpus keeps the quote and a reference. The
+model skill lives in shady2k-skills and calls the installed file.
    *Check:* the built file, copied into a clean checkout of madarch, accepts
 its corpus and prints its version; a broken corpus fixture is refused naming
 the file, the line and what is wrong; a fixture whose documents live at other
-paths passes through its mapping; `skills/write-intended-model` is gone from
+paths passes through its mapping; a citation whose quote is not at the place
+it names in a source kept in the repository is refused naming both, and one to
+a source kept outside is reported as not verified; `skills/write-intended-model` is gone from
 madarch and madarch's model is checked by the contract file installed from the
 skill set.
 2. **Describe use cases and data entities in the model, traced to
@@ -36,12 +42,15 @@ the check name the broken scenario and step; an unclassified entity or an
 unknown requirement id is reported with its file and line.
 3. **Read the whole product in its wiki, from vision to code, with backlinks
 and open questions** (madarch-1ui). A product section linked to the
-architecture with backlinks; use-case pages with sequence diagrams and status
-computed from evidence; a data catalogue; deployments per environment; open
+architecture with backlinks; where each requirement, use case and decision
+came from, with its quote, and on each source what grew from it; use-case
+pages with sequence diagrams and status computed from evidence; a data catalogue; deployments per environment; open
 questions with completeness per role.
    *Check:* madarch's wiki builds; every requirement page shows its scenarios
 and elements, every element page its use cases, requirements and decisions; a
-use-case page shows its sequence diagram and status; the reference system's
+use-case page shows its sequence diagram and status; a requirement citing a
+fixture transcript shows the quote and links to the place in it, whose page
+lists the requirement; the reference system's
 data catalogue shows each entity's creators, stores, consumers, topics and
 zones; the open questions list the corpus's gaps, an explicit "not applicable"
 closes one and an empty answer does not; no link leads nowhere.
@@ -77,6 +86,13 @@ repository the server-views run pinned; the new outcomes' tests build their own
 fixtures) and madarch-1xq (temporary folders left by test suites, on a shared
 machine). Deferred: madarch-06n and madarch-str (tooling chores carried twice
 and not needed since).
+- Added 2026-10-08 by the owner ("Да, в текущую"): sources such as
+transcripts of conversations, cited by requirements, use cases and decisions,
+so the wiki grows before there is any code (outcomes 1 and 3). Where sources
+are kept and how they are redacted is asked at setup, in the skill set; a
+product of several repositories keeps its product-wide corpus, transcripts
+included, in its own product repository (the corpus custody of madarch-bwt,
+`registry`). Rough cost: one to two more feature runs.
 - Finding budget 5, the config key `findingBudget`: live-graph took in one new
 finding, the MVP five.
 - Rough size, an estimate: eight to ten feature runs, 20 to 30 hours of agent
