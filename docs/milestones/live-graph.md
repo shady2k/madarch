@@ -83,3 +83,11 @@ exactly 5).
 - Serve the product's past and vocabulary: `--at T` portal builds and the
 glossary term registry.
 
+
+## Ended
+
+Ended 2026-10-08, by the owner's direction recorded in decision 0016, with
+outcome 1 accepted (madarch-l19, closed 2026-10-08). Outcomes 2 and 3
+(madarch-bwt, madarch-tah) moved deferred to the `registry` milestone, to be
+replanned against that decision; madarch-l2f and madarch-1xq carried over to
+`knowledge-base`; madarch-06n and madarch-str deferred.

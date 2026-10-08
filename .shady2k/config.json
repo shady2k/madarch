@@ -1,7 +1,9 @@
 {
   "strength": "block",
-  "currentMilestone": "live-graph",
+  "currentMilestone": "knowledge-base",
   "milestoneLabels": [
+    "knowledge-base",
+    "registry",
     "live-graph",
     "answers"
   ],
