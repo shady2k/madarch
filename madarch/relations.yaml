@@ -1,0 +1,427 @@
+# The interfaces the parts offer and the relations between them. The
+# server's HTTP API is one interface per route capability; the two data
+# contracts (the intended model's file format and the compiled model) are
+# what every other part reads. Relations are named from what the initiator
+# uses the other part for; evidence names the import line for a dependency
+# found in imports, and the call and handler sides for a run-time
+# interaction.
+version: 1
+
+elements: []
+
+interfaces:
+  - id: server-store
+    provider: server
+    contract: http::POST::/models
+    evidence:
+      - file: src/server/http.ts
+        line: 169
+        endLine: 174
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 251cbd59fa60b3a6683f8f029b4ff212d6175adf
+      - file: src/send/send-model.ts
+        line: 44
+        endLine: 60
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: efcbc13717dfc88d14cf2ee18ab309b7c65a820e
+  - id: server-views
+    provider: server
+    contract: http::POST::/views
+    evidence:
+      - file: src/server/http.ts
+        line: 169
+        endLine: 174
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 251cbd59fa60b3a6683f8f029b4ff212d6175adf
+  - id: server-sources
+    provider: server
+    contract: http::GET::/sources
+    evidence:
+      - file: src/server/http.ts
+        line: 169
+        endLine: 174
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 251cbd59fa60b3a6683f8f029b4ff212d6175adf
+  - id: server-rename
+    provider: server
+    contract: http::POST::/sources
+    evidence:
+      - file: src/server/http.ts
+        line: 169
+        endLine: 174
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 251cbd59fa60b3a6683f8f029b4ff212d6175adf
+  - id: intended-model-contract
+    provider: model-format
+    contract: data::madarch/intended-model
+    evidence:
+      - file: schema/intended-model.schema.json
+        line: 1
+        endLine: 8
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: a90b5079ee83fddb2697a837be7df63340e4f5da
+      - file: src/model/schema.ts
+        line: 198
+        endLine: 213
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 991bd1031b40f99ddadbd03c07923cb2caf83fba
+  - id: compiled-model-contract
+    provider: model-format
+    contract: data::madarch/model.json
+    evidence:
+      - file: src/model/compiled-schema.ts
+        line: 4
+        endLine: 12
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: c4c93ea6a6e2a16a5d1a923c96c6b60a2848c1c9
+      - file: src/model/compile.ts
+        line: 72
+        endLine: 78
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: f22c6be36c7a9fceb428a89ca8743ba420020f10
+
+relations:
+  # People and the parts they reach.
+  - id: maintainer-runs-check
+    name: runs the model check on a repository
+    from: maintainer
+    to: model-check
+    interface: intended-model-contract
+    evidence:
+      - file: scripts/check-model.ts
+        line: 1
+        endLine: 12
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 1d956856b0779878f3d5fb6e0dfe6e9307419125
+  - id: maintainer-builds-wiki
+    name: builds a repository's wiki
+    from: maintainer
+    to: wiki
+    evidence:
+      - file: scripts/wiki.ts
+        line: 1
+        endLine: 11
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: ced1ce759986dbc6e3b886df8df1a023ef373853
+  - id: maintainer-serves
+    name: starts the model server
+    from: maintainer
+    to: server
+    evidence:
+      - file: scripts/serve.ts
+        line: 1
+        endLine: 12
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: c6b1c369977aa30a85f564758f18ce03e6815d12
+  - id: agent-writes-model
+    name: writes a repository's model with the skill
+    from: coding-agent
+    to: authoring-skill
+    evidence:
+      - file: skills/write-intended-model/SKILL.md
+        line: 9
+        endLine: 16
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: c9edfc903b96fc44fa514ed047d03f4ae53a0f0a
+  - id: reader-reads-wiki
+    name: reads the built site
+    from: reader
+    to: wiki
+    evidence:
+      - file: docs/system/capabilities/wiki.md
+        line: 3
+        endLine: 6
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: f6ad813153e83ebf34605df71392ab9d51248619
+
+  # Authoring.
+  - id: skill-runs-check
+    name: finishes on the model check's report
+    from: authoring-skill
+    to: model-check
+    evidence:
+      - file: skills/write-intended-model/SKILL.md
+        line: 329
+        endLine: 344
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: c9edfc903b96fc44fa514ed047d03f4ae53a0f0a
+  - id: docs-describe-parts
+    name: states what each part is and does
+    from: product-docs
+    to: madarch
+    evidence:
+      - file: docs/system/architecture.md
+        line: 6
+        endLine: 8
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 82a16d4439d31c0f4e920f84795b7666589817fd
+
+  # The pipeline, from the import graph.
+  - id: check-reads-format
+    name: loads and compiles with the shared loader
+    from: model-check
+    to: model-format
+    evidence:
+      - file: src/check/model-check.ts
+        line: 27
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: c7184c4d02377ea03f2a6b66b93a67e759f85fb0
+  - id: check-renders-views
+    name: renders the checked model's views
+    from: model-check
+    to: renderer
+    evidence:
+      - file: src/check/model-check.ts
+        line: 31
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: c7184c4d02377ea03f2a6b66b93a67e759f85fb0
+  - id: renderer-reads-format
+    name: reads the compiled model's names and kinds
+    from: renderer
+    to: model-format
+    evidence:
+      - file: src/render/view-set.ts
+        line: 9
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 1107841843d1c0064ff65792b385aa61f36df652
+  - id: renderer-asks-queries
+    name: asks the engine for views and dependencies
+    from: renderer
+    to: query-engine
+    evidence:
+      - file: src/render/view-set.ts
+        line: 12
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 1107841843d1c0064ff65792b385aa61f36df652
+  - id: wiki-reads-format
+    name: loads and compiles the repository's model
+    from: wiki
+    to: model-format
+    evidence:
+      - file: src/wiki/build.ts
+        line: 40
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 5751ad7a1ccb193f84722bf245513b25ec00ef3a
+  - id: wiki-renders
+    name: renders the model's views for its pages
+    from: wiki
+    to: renderer
+    evidence:
+      - file: src/wiki/build.ts
+        line: 42
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 5751ad7a1ccb193f84722bf245513b25ec00ef3a
+  # Storage and serving.
+  - id: history-keeps-models
+    name: stores each source's compiled model
+    from: history-store
+    to: model-format
+    evidence:
+      - file: src/history/types.ts
+        line: 1
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 2a6644fe1f6ec11d80b4cb7f7d5328def4283f9d
+  - id: engine-builds-from-history
+    name: rebuilds from the history's assertions
+    from: query-engine
+    to: history-store
+    transfers:
+      - direction: reverse
+        confidentiality: internal
+        categories: [model-content]
+    evidence:
+      - file: src/query/types.ts
+        line: 10
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: db687951a26787bcf01985bf7e17463516c8af72
+  - id: engine-embeds-ladybugdb
+    name: embeds the LadybugDB database
+    from: query-engine
+    to: ladybugdb
+    evidence:
+      - file: src/adapters/ladybug-engine.ts
+        line: 1
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: cadf34005a6f71b28048db2e32053064bafdec45
+  - id: history-runs-on-bun-sqlite
+    name: keeps its tables through bun:sqlite
+    from: history-store
+    to: bun
+    evidence:
+      - file: src/adapters/sqlite-history.ts
+        line: 1
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 799491573d00320518e5f9e7c4390ba0bc3fbb16
+  - id: server-stores-sent
+    name: stores sent models in the source's history
+    from: server
+    to: history-store
+    transfers:
+      - direction: forward
+        confidentiality: internal
+        categories: [model-content]
+    evidence:
+      - file: src/server/sources.ts
+        line: 49
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 35d63424fd402fc7511c1a2764dfa82aea219a70
+  - id: server-answers-from-engine
+    name: answers views from the graph's engine
+    from: server
+    to: query-engine
+    evidence:
+      - file: src/server/graphs.ts
+        line: 26
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 88e8a6f9342268c71479aed65697afcb68b7c92b
+  - id: server-renders-answers
+    name: renders one view per request
+    from: server
+    to: renderer
+    evidence:
+      - file: src/server/http.ts
+        line: 31
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 251cbd59fa60b3a6683f8f029b4ff212d6175adf
+  - id: send-checks-then-posts
+    name: sends a passing check's model
+    from: send-command
+    to: server
+    interface: server-store
+    transfers:
+      - direction: forward
+        confidentiality: internal
+        categories: [model-content]
+    evidence:
+      - file: src/send/send-model.ts
+        line: 10
+        endLine: 12
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: efcbc13717dfc88d14cf2ee18ab309b7c65a820e
+      - file: src/server/http.ts
+        line: 169
+        endLine: 174
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 251cbd59fa60b3a6683f8f029b4ff212d6175adf
+  - id: send-runs-check
+    name: runs the model check first
+    from: send-command
+    to: model-check
+    evidence:
+      - file: src/send/send-model.ts
+        line: 10
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: efcbc13717dfc88d14cf2ee18ab309b7c65a820e
+  - id: send-reads-model
+    name: reads the model the check read
+    from: send-command
+    to: model-format
+    evidence:
+      - file: src/send/send-model.ts
+        line: 11
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: efcbc13717dfc88d14cf2ee18ab309b7c65a820e
+
+  # Toolchain.
+  - id: tests-cover-format
+    name: test the loader, compiler and check
+    from: test-suite
+    to: model-format
+    evidence:
+      - file: test/model.test.ts
+        line: 1
+        endLine: 8
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: c60193f32b96d887c2fa568024c4453487aca24c
+  - id: tests-cover-pipeline
+    name: test the check, views, wiki and server
+    from: test-suite
+    to: model-check
+    evidence:
+      - file: test/model-check.test.ts
+        line: 1
+        endLine: 6
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 9cfec8d2352ec304b3ba4ee491f70de1d5399d4d
+  - id: tooling-generates-schemas
+    name: publishes the format's JSON Schemas
+    from: build-tooling
+    to: model-format
+    evidence:
+      - file: scripts/generate-schemas.ts
+        line: 10
+        endLine: 20
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: c08f28271b6c1732625415b8a40152b64d9911a3
+  - id: reference-feeds-views
+    name: holds the views the renderer is checked on
+    from: reference-system
+    to: renderer
+    evidence:
+      - file: scripts/render-views.ts
+        line: 25
+        endLine: 34
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 046784d9894eb624c378c8d7b307897a26329a2b
+  - id: reference-models-format
+    name: exercises the format end to end
+    from: reference-system
+    to: model-format
+    evidence:
+      - file: test/reference-system.test.ts
+        line: 1
+        endLine: 8
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 0dc13759cefd2b2df117811af85581d94111910c
+
+  # The wiki's outside tools.
+  - id: wiki-runs-zensical
+    name: builds the site with pinned Zensical
+    from: wiki
+    to: zensical
+    evidence:
+      - file: src/wiki/build.ts
+        line: 256
+        endLine: 258
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 5751ad7a1ccb193f84722bf245513b25ec00ef3a
+  - id: wiki-via-uvx
+    name: runs Zensical through uvx
+    from: wiki
+    to: uv-uvx
+    evidence:
+      - file: src/wiki/build.ts
+        line: 311
+        endLine: 314
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 5751ad7a1ccb193f84722bf245513b25ec00ef3a
+  - id: wiki-generates-likec4
+    name: generates the LikeC4 web component
+    from: wiki
+    to: likec4
+    evidence:
+      - file: src/wiki/build.ts
+        line: 320
+        endLine: 322
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 5751ad7a1ccb193f84722bf245513b25ec00ef3a
+  - id: wiki-runs-archify-on-node
+    name: renders archify pages through Node
+    from: wiki
+    to: node
+    evidence:
+      - file: src/wiki/build.ts
+        line: 250
+        endLine: 253
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 5751ad7a1ccb193f84722bf245513b25ec00ef3a
+  - id: everything-runs-on-bun
+    name: runs on the Bun runtime
+    from: madarch
+    to: bun
+    evidence:
+      - file: docs/decisions/0008-typescript-on-bun.md
+        line: 18
+        endLine: 21
+        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        blob: 2afba184449514c1bb0684497d199910bb4e81e1
