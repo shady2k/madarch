@@ -5,7 +5,9 @@ Capability: model-check
 ## Purpose
 Checking a repository's intended model against the repository it describes,
 without a server: that the model compiles, that every element, interface and
-relation names evidence that still exists and still reads as it did, that
+relation names evidence that still exists and still reads as it did, that a
+data entity's evidence, when it gives one, is resolved and reported stale like
+any other item, that
 every requirement a scenario names exists in the repository's capability
 specs, that every file of the repository is accounted for, which problems recognised
 methods find in it, and what its views look like. Run by a person or an agent
@@ -43,6 +45,9 @@ it is declared.
 ## Requirement: evidence-resolves — Every item names text that exists
 When an evidence item is checked, the check shall confirm that its file has
 the item's blob at the item's commit and that its lines are within that blob.
+This covers every evidence item the model declares, a data entity's included:
+an entity's item is resolved like any other, while naming none is still no
+failure (evidence-complete asks it of elements, interfaces and relations only).
 If the commit is not in the repository (a squash or a rebase removed it), then
 the check shall accept the item when the blob appears at the item's path in the
 history of the checked revision, and report that its commit is missing. If the
@@ -64,9 +69,15 @@ fail, naming the item.
 - When: the repository is checked
 - Then: the check fails, naming the item, the blob it names and the blob the file has at that commit
 
+### Scenario: entity-line-past-end
+- Given: the data entity `session-id`, whose evidence item names lines 40 to 45 of a file that has 30 lines in its blob
+- When: the repository is checked
+- Then: the check fails, naming `session-id`'s item and saying the file has 30 lines
+
 ## Requirement: staleness — What changed since it was read is reported
 When a repository is checked at a revision, the check shall report as stale
-every evidence item, and every document claim in the review report, whose file
+every evidence item the model declares, a data entity's included, and every
+document claim in the review report, whose file
 at that revision differs from its blob, naming the model id or the claim and
 the file; stale evidence alone does not fail the check.
 
@@ -74,6 +85,11 @@ the file; stale evidence alone does not fail the check.
 - Given: an item on `core` naming a file whose content changed in a commit after the item's commit
 - When: the repository is checked at the newer commit
 - Then: the check passes and reports `core`'s item as stale, with the file and both blobs
+
+### Scenario: entity-file-changed-since
+- Given: an evidence item on the data entity `session-id` naming a file whose content changed in a commit after the item's commit
+- When: the repository is checked at the newer commit
+- Then: the check passes and reports `session-id`'s item as stale, with the file and both blobs
 
 ## Requirement: requirements-resolve — Every requirement a scenario names exists
 When a repository's model compiles, the check shall resolve each requirement a

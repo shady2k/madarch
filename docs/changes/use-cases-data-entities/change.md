@@ -2,7 +2,7 @@
 
 Change: use-cases-data-entities
 Base: 123b2e8d580bacd326da55da5f51afcc48d99416
-Tasks: madarch-hnq.1.1, madarch-hnq.1.2, madarch-hnq.1.3, madarch-hnq.1.4, madarch-hnq.2.1, madarch-hnq.2.2, madarch-hnq.2.3
+Tasks: madarch-hnq.1.1, madarch-hnq.1.2, madarch-hnq.1.3, madarch-hnq.1.4, madarch-hnq.1.5, madarch-hnq.2.1, madarch-hnq.2.2, madarch-hnq.2.3
 Kind: behavior
 
 ## Intent
@@ -64,6 +64,10 @@ entity may carry evidence.
 scenarios, and each transfer its entities and combined categories.
 - model-check/requirements-resolve (new): every requirement a scenario names
 exists as a heading in the repository's capability specs.
+- model-check/evidence-resolves (replaced): a data entity's evidence, when
+given, is resolved like any other item.
+- model-check/staleness (replaced): a data entity's evidence item is
+reported stale like any other.
 - model-history/store-version (replaced): the history records a source's data
 entities and scenarios like every other assertion; the enumeration of what it
 records names them.
@@ -93,6 +97,8 @@ records names them.
 - model-check/requirements-resolve: test, use-cases-data-entities
 - model-history/store-version: test
 - model-check/evidence-complete: test
+- model-check/evidence-resolves: test
+- model-check/staleness: test
 - views/view-set: test
 - wiki/pages: test
 - model-history/lossless: test
