@@ -325,7 +325,7 @@ function element(id: string, kind: CompiledElement['kind'], parent?: string, nam
 }
 
 function modelOf(elements: CompiledElement[], relations: CompiledRelation[] = []): CompiledModel {
-  return { schemaVersion: 1, elements, relations, interfaces: [], categories: [], zones: [], environments: [], states: [] };
+  return { schemaVersion: 1, elements, relations, interfaces: [], categories: [], entities: [], scenarios: [], zones: [], environments: [], states: [] };
 }
 
 type Answer = { elements?: object[]; neighbours?: object[]; relations?: object[]; error?: object };

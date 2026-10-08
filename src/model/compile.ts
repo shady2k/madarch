@@ -73,27 +73,12 @@ export function compileModel(model: ValidatedModel): CompiledModel {
       .sort((a, b) => byCodePoint(a.id, b.id))
       .map((relation) => compileRelation(relation, relationPresence, environmentIds, model.environments, entityCategoriesOf(model.entities))),
     categories: [...model.categories].sort((a, b) => byCodePoint(a.id, b.id)).map(compileCategory),
+    entities: [...model.entities].sort((a, b) => byCodePoint(a.id, b.id)).map(compileEntity),
+    scenarios: [...model.scenarios].sort((a, b) => byCodePoint(a.id, b.id)).map(compileScenario),
     zones: [...model.zones].sort((a, b) => byCodePoint(a.id, b.id)).map(compileZone),
     environments: [...model.environments].sort((a, b) => byCodePoint(a.id, b.id)).map(compileEnvironment),
     states: compileStates(model, stateOrder),
   };
-  // `entities` is written only when the model declares at least one, and
-  // only until madarch-hnq.1.4 makes it always present like every other
-  // top-level array: the model history does not know the new kinds yet, so
-  // a compiled model holding them would not read back as compiled. Until
-  // it does, absence reads as none. The schema keeps the field optional
-  // for exactly this reason; ordered by id like every other kind.
-  if (model.entities.length > 0) {
-    compiled.entities = [...model.entities].sort((a, b) => byCodePoint(a.id, b.id)).map(compileEntity);
-  }
-  // The same temporary rule as `entities` above, and for the same reason
-  // (madarch-hnq.1.4 makes both arrays always present): the model history
-  // does not know the new kinds yet, so a compiled model holding them
-  // would not read back as compiled. Until it does, `scenarios` is written
-  // only when the model declares at least one.
-  if (model.scenarios.length > 0) {
-    compiled.scenarios = [...model.scenarios].sort((a, b) => byCodePoint(a.id, b.id)).map(compileScenario);
-  }
   return compiled;
 }
 
@@ -235,12 +220,12 @@ function compileEntity(entity: DataEntity): CompiledEntity {
 /**
  * A compiled scenario. Scenarios are ordered by id; steps and alternatives
  * stay exactly as written, the order the use case runs in. Requirements are
- * kept as written — whether each resolves is the model check's question,
- * recorded there, not here.
+ * always stated (`[]` when the scenario names none, like the `steps` beside
+ * it) and kept as written — whether each resolves is the model check's
+ * question, recorded there, not here.
  */
 function compileScenario(scenario: Scenario): CompiledScenario {
-  const compiled: CompiledScenario = { id: scenario.id, steps: (scenario.steps ?? []).map(compileScenarioStep) };
-  if (scenario.requirements !== undefined) compiled.requirements = [...scenario.requirements];
+  const compiled: CompiledScenario = { id: scenario.id, steps: (scenario.steps ?? []).map(compileScenarioStep), requirements: [...(scenario.requirements ?? [])] };
   if (scenario.name !== undefined) compiled.name = scenario.name;
   if (scenario.description !== undefined) compiled.description = scenario.description;
   if (scenario.actor !== undefined) compiled.actor = scenario.actor;
@@ -308,11 +293,10 @@ function rebuildEvidence(evidence: readonly Evidence[]): Evidence[] {
 }
 
 /**
- * The compiled transfers of one relation. Each carries the entities it names
- * and the union of the categories it names and those of its entities, each
- * once, sorted by code point (intended-model/transfers). A transfer that
- * names no entities has no `entities` key, so a model written before
- * entities existed compiles to the transfer it did.
+ * The compiled transfers of one relation. Each always states the entities it
+ * names (`[]` when it names none, like the `categories` beside it) and the
+ * union of the categories it names and those of its entities, each once,
+ * sorted by code point (intended-model/transfers).
  */
 function rebuildTransfers(transfers: readonly Transfer[], categoriesOfEntity: (entityId: string) => readonly string[]): CompiledTransfer[] {
   return transfers.map((transfer) => {
@@ -320,8 +304,8 @@ function rebuildTransfers(transfers: readonly Transfer[], categoriesOfEntity: (e
       direction: transfer.direction,
       confidentiality: transfer.confidentiality,
       categories: sortedByCodePoint([...new Set([...(transfer.categories ?? []), ...(transfer.entities ?? []).flatMap(categoriesOfEntity)])]),
+      entities: sortedByCodePoint([...new Set(transfer.entities ?? [])]),
     };
-    if (transfer.entities !== undefined) compiled.entities = sortedByCodePoint([...new Set(transfer.entities)]);
     return compiled;
   });
 }

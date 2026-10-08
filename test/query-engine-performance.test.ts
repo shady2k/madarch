@@ -28,7 +28,7 @@ function relation(id: string, from: string, to: string): CompiledRelation {
 }
 
 function model(elements: CompiledElement[], relations: CompiledRelation[]): CompiledModel {
-  return { schemaVersion: 1, elements, interfaces: [], relations, categories: [], zones: [], environments: [], states: [{ id: 'as-is' }] };
+  return { schemaVersion: 1, elements, interfaces: [], relations, categories: [], entities: [], scenarios: [], zones: [], environments: [], states: [{ id: 'as-is' }] };
 }
 
 /** 100 services, each with 99 modules: exactly 10 000 elements. */

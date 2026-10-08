@@ -28,7 +28,7 @@ function element(id: string, extra: Partial<CompiledElement> = {}): CompiledElem
 }
 
 function model(elements: CompiledElement[], zones: { id: string; kind: string }[] = []): CompiledModel {
-  return { schemaVersion: 1, elements, interfaces: [], relations: [], categories: [], zones, environments: [], states: [{ id: 'as-is' }] };
+  return { schemaVersion: 1, elements, interfaces: [], relations: [], categories: [], entities: [], scenarios: [], zones, environments: [], states: [{ id: 'as-is' }] };
 }
 
 /** A tiny seeded PRNG (LCG): deterministic across runs, no external dependency. */

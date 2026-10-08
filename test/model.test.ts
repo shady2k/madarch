@@ -405,8 +405,8 @@ describe('transfers', () => {
     expect(errors).toEqual([]);
     const relation = model?.relations.find((r) => r.id === 'checkout-charges-card');
     expect(relation?.transfers).toEqual([
-      { direction: 'forward', confidentiality: 'confidential', categories: ['payment-card', 'personal'] },
-      { direction: 'reverse', confidentiality: 'internal', categories: [] },
+      { direction: 'forward', confidentiality: 'confidential', categories: ['payment-card', 'personal'], entities: [] },
+      { direction: 'reverse', confidentiality: 'internal', categories: [], entities: [] },
     ]);
   });
 });
@@ -469,8 +469,8 @@ describe('compiled-model shape', () => {
       binding: { env: 'PAYMENTS_URL' },
     });
     expect(refined?.transfers).toEqual([
-      { direction: 'forward', confidentiality: 'confidential', categories: ['payment-card', 'personal'] },
-      { direction: 'reverse', confidentiality: 'internal', categories: [] },
+      { direction: 'forward', confidentiality: 'confidential', categories: ['payment-card', 'personal'], entities: [] },
+      { direction: 'reverse', confidentiality: 'internal', categories: [], entities: [] },
     ]);
   });
 

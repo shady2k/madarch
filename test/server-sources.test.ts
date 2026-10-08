@@ -40,6 +40,8 @@ function model(elements: CompiledElement[], relations: CompiledRelation[] = []):
     interfaces: [],
     relations,
     categories: [],
+    entities: [],
+    scenarios: [],
     zones: [],
     environments: [],
     states: [{ id: 'as-is' }],

@@ -67,13 +67,18 @@ describe('intended-model/scenarios: use cases are scenarios over the model\'s re
     });
   });
 
-  test('a scenario with no actor, no requirements and no alternatives compiles with those keys left out', () => {
+  test('a scenario with no actor, no requirements and no alternatives compiles with those keys left out, its requirements stated empty', () => {
     const { model: compiled, errors } = loadAndCompileModel(fixture('scenarios-example'));
 
     expect(errors).toEqual([]);
+    // Since madarch-hnq.1.4 `requirements` is always stated, `[]` when the
+    // scenario names none, like the `steps` beside it; everything that
+    // records an optional construct (`actor`, `alternatives`, ...) stays
+    // left out when unset.
     expect(compiled?.scenarios!.find((s) => s.id === 'order-fails')).toEqual({
       id: 'order-fails',
       name: 'The order fails',
+      requirements: [],
       steps: [{ id: 's1', relation: 'checkout-shows-error' }],
     });
   });
@@ -116,7 +121,7 @@ describe('intended-model/scenarios: use cases are scenarios over the model\'s re
     expect(serializeCompiledModel(threeFiles.model!)).toBe(serializeCompiledModel(oneFile.model!));
   });
 
-  test('a compiled scenario with none of its optional fields set carries none of their keys at all', () => {
+  test('a compiled scenario with none of its optional fields set carries none of their keys at all, its requirements empty but present', () => {
     const file = model(`${ELEMENTS}${RELATIONS}scenarios:
   - id: bare
     steps:
@@ -126,9 +131,10 @@ describe('intended-model/scenarios: use cases are scenarios over the model\'s re
     expect(errors).toEqual([]);
 
     const scenario = compileModel(loaded!).scenarios![0]!;
-    for (const key of ['name', 'description', 'actor', 'requirements', 'alternatives']) {
+    for (const key of ['name', 'description', 'actor', 'alternatives']) {
       expect(Object.hasOwn(scenario, key), `compiled scenario must not carry "${key}"`).toBe(false);
     }
+    expect(scenario.requirements).toEqual([]);
     expect(Object.hasOwn(scenario.steps[0]!, 'name')).toBe(false);
   });
 
@@ -800,7 +806,7 @@ scenarios:
 });
 
 describe('compatibility: a model written before this change', () => {
-  test('a model with no scenarios loads and compiles, and its compiled form carries no scenarios array', () => {
+  test('a model with no scenarios loads and compiles, its scenarios array present and empty', () => {
     const { model: compiled, errors, warnings } = loadAndCompileModel(fixture('valid-relation-full'));
 
     expect(errors).toEqual([]);
@@ -808,7 +814,9 @@ describe('compatibility: a model written before this change', () => {
       expect.stringContaining('"checkout-uses-payments"'),
       expect.stringContaining('"checkout-charges-card"'),
     ]);
-    expect(compiled).not.toHaveProperty('scenarios');
+    // Since madarch-hnq.1.4 the array is always present, empty when the
+    // model declares none, like every other top-level array.
+    expect(compiled?.scenarios).toEqual([]);
     expect(Value.Check(CompiledModelSchema, compiled)).toBe(true);
   });
 });

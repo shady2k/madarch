@@ -653,7 +653,7 @@ relations:
 });
 
 describe('compatibility: a model written before this change', () => {
-  test('loads and compiles exactly as it did: no entities, transfers with categories only', () => {
+  test('loads and compiles with its entities and scenarios always present, empty, and each transfer stating its (empty) entities', () => {
     const { model: compiled, errors, warnings } = loadAndCompileModel(fixture('valid-relation-full'));
 
     expect(errors).toEqual([]);
@@ -661,16 +661,21 @@ describe('compatibility: a model written before this change', () => {
       expect.stringContaining('"checkout-uses-payments"'),
       expect.stringContaining('"checkout-charges-card"'),
     ]);
-    expect(compiled).not.toHaveProperty('entities');
+    // Since madarch-hnq.1.4 both arrays are always present, empty when the
+    // model declares none, like every other top-level array; a model
+    // written before this change still loads, its compiled form differing
+    // exactly this way (the owner's decision of 2026-10-08).
+    expect(compiled?.entities).toEqual([]);
+    expect(compiled?.scenarios).toEqual([]);
     const relation = compiled?.relations.find((r) => r.id === 'checkout-charges-card');
     expect(relation?.transfers).toEqual([
-      { direction: 'forward', confidentiality: 'confidential', categories: ['payment-card', 'personal'] },
-      { direction: 'reverse', confidentiality: 'internal', categories: [] },
+      { direction: 'forward', confidentiality: 'confidential', categories: ['payment-card', 'personal'], entities: [] },
+      { direction: 'reverse', confidentiality: 'internal', categories: [], entities: [] },
     ]);
     expect(Value.Check(CompiledModelSchema, compiled)).toBe(true);
   });
 
-  test('the compiled categories of a categories-only transfer are sorted by code point, each once', () => {
+  test('the compiled categories of a categories-only transfer are sorted by code point, each once, and its entities stated empty', () => {
     const file = model(`${ELEMENTS}categories:
   - id: personal
   - id: order
@@ -688,7 +693,7 @@ relations:
 
     expect(errors).toEqual([]);
     expect(compileModel(loaded!).relations[0]?.transfers).toEqual([
-      { direction: 'forward', confidentiality: 'confidential', categories: ['order', 'payment-card', 'personal'] },
+      { direction: 'forward', confidentiality: 'confidential', categories: ['order', 'payment-card', 'personal'], entities: [] },
     ]);
   });
 });
