@@ -40,7 +40,10 @@
   "presentIgnores": [
     "docs/guide.md",
     "docs/missing.md",
-    "../AGENTS.md"
+    "../AGENTS.md",
+    "server/store",
+    "server/archive",
+    "docs/system/capabilities/billing.md"
   ],
   "presentChurnCommits": 20,
   "execution": {
