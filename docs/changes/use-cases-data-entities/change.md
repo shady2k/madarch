@@ -73,6 +73,7 @@ exists as a heading in the repository's capability specs.
 - model-check/evidence-complete: still asks evidence of elements, interfaces and relations only; a scenario's steps stand on relations that have it.
 - views/view-set: the pages a model without entities or scenarios renders are byte-identical; a transfer's categories, its entities' included, show as categories do today.
 - wiki/pages: unchanged; the wiki shows neither entities nor scenarios until outcome 3.
+- model-history/lossless: a compiled model holding data entities and scenarios reads back as compiled (madarch-hnq.1.4).
 
 ## Coverage
 - intended-model/entities: test, use-cases-data-entities
@@ -90,6 +91,7 @@ exists as a heading in the repository's capability specs.
 - model-check/evidence-complete: test
 - views/view-set: test
 - wiki/pages: test
+- model-history/lossless: test
 
 ## Blocking questions
 None.
