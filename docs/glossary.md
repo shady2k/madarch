@@ -103,8 +103,9 @@ step runs over any relation, a bare dependency or an interaction.
 **Scenario**:
 One use case written in the model as an ordered walk over its relations: an
 actor, the capability requirements it realises, a main flow of steps and
-alternative flows that replace it from a step on. Its diagrams, data flows and
-status are computed from it, not written.
+alternative flows that replace it from a step on. The model check resolves the
+requirements it names; its diagrams, data flows and status are to be computed
+from it rather than written, which the wiki's use-case pages bring.
 _Avoid_: use case (the words around it, not the model's construct), user story
 
 **Rule**:
