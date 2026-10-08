@@ -1,6 +1,6 @@
 # 0016. madarch becomes the product's knowledge base; authoring moves to the skill set
 
-Status: accepted
+Status: accepted; partly superseded by 0017
 Date: 2026-10-08
 
 ## Context and problem
