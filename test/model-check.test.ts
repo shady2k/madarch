@@ -75,8 +75,25 @@ describe('the model check', () => {
         expect(report.errors[0]!.line).toBe(repo.lineOf('model.yaml', 'parent: billing'));
         expect(report.errors[0]!.message).toContain('billing-web');
         expect(report.errors[0]!.message).toContain('billing');
+        // The loader's own path survives into the report, so the JSON
+        // carries the same fields the loader reports.
+        expect(report.errors[0]!.path).toBe('elements[0].parent');
         expect(report.warnings).toEqual([]);
         expect(report.notes).toEqual([]);
+      });
+    });
+
+    test('a warning the loader reports keeps its full path in the report', () => {
+      withRepo((repo) => {
+        const yaml = ['version: 1', '', 'elements:', '  - id: web', '    kind: service', '    name: Web', '', 'relations:', '  - id: web-calls-core', '    from: web', '    to: web', ''].join('\n');
+        repo.writeModel('model.yaml', yaml);
+        repo.commit('the model');
+
+        const report = checkModel(repo.path);
+
+        expect(report.warnings).toEqual([
+          expect.objectContaining({ file: 'madarch/model.yaml', path: 'relations[0]', message: expect.stringContaining('has no name') }),
+        ]);
       });
     });
   });
@@ -563,8 +580,12 @@ describe('the model check', () => {
         expect(report.errors[0]!.file).toBe('madarch/model.yaml');
         expect(report.errors[0]!.line).toBe(repo.lineOf('model.yaml', '- file: src/core.ts'));
         expect(report.errors[0]!.message).toContain('without a commit and a blob');
+        // Every finding whose source is the model carries its full path from
+        // the model's top: the item's own, or the evidence item's.
+        expect(report.errors[0]!.path).toBe('elements[1].evidence[0]');
         expect(report.errors[1]!.id).toBe('ui-calls-core');
         expect(report.errors[1]!.line).toBe(repo.lineOf('model.yaml', '- id: ui-calls-core'));
+        expect(report.errors[1]!.path).toBe('relations[0]');
         expect(report.errors[1]!.message).toContain('relation "ui-calls-core"');
         expect(report.errors[1]!.message).toContain('has no evidence');
       });

@@ -319,4 +319,52 @@ describe('requirements-resolve', () => {
       expect(run.stdout).not.toContain('send-model');
     });
   });
+
+  test('a heading inside a fenced code block is an example, not a requirement', () => {
+    withRepo((repo) => {
+      const { commit, blob } = sourcesCommit(repo);
+      repo.write('docs/system/capabilities/server.md', ['# Server', '', 'An example of the form:', '', '```markdown', '## Requirement: archive — An example heading', '```', ''].join('\n'));
+      repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/archive']));
+      repo.writeReview([], requirementsReview());
+      repo.commit('the model');
+
+      const report = checkModel(repo.path);
+
+      expect(report.outcome).toBe('failed');
+      expect(report.errors).toContainEqual(
+        expect.objectContaining({ path: 'scenarios[0].requirements[0]', message: expect.stringContaining('has no requirement "archive"') }),
+      );
+    });
+  });
+
+  test('a heading whose line ends with a carriage return satisfies the id', () => {
+    withRepo((repo) => {
+      const { commit, blob } = sourcesCommit(repo);
+      repo.write('docs/system/capabilities/server.md', '# Server\r\n\r\n## Requirement: store\r\n');
+      repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/store']));
+      repo.writeReview([], requirementsReview());
+      repo.commit('the model');
+
+      const report = checkModel(repo.path);
+
+      expect(report.errors).toEqual([]);
+      expect(report.outcome).toBe('passed');
+    });
+  });
+
+  test('an unresolved requirement names the full path it is written at', () => {
+    withRepo((repo) => {
+      const { commit, blob } = sourcesCommit(repo);
+      repo.write('docs/system/capabilities/server.md', spec('Server', ['store — Sent models are kept']));
+      repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/archive', 'server/store']));
+      repo.writeReview([], requirementsReview());
+      repo.commit('the model');
+
+      const report = checkModel(repo.path);
+
+      expect(report.errors).toEqual([
+        expect.objectContaining({ id: 'server/archive', file: 'madarch/model.yaml', path: 'scenarios[0].requirements[0]' }),
+      ]);
+    });
+  });
 });
