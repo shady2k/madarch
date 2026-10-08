@@ -61,6 +61,17 @@ elements:
     parent: storefront
     technology: PostgreSQL
 
+entities:
+  - id: user-name
+    name: Customer name
+    categories: [personal]
+  - id: contact-details
+    name: Contact details
+    categories: [personal]
+  - id: shipping-address
+    name: Delivery address
+    categories: [personal]
+
 interfaces:
   - id: mobile-screens
     provider: mobile-bff
@@ -105,9 +116,11 @@ relations:
       - direction: forward
         confidentiality: confidential
         categories: [personal]
+        entities: [contact-details, shipping-address, user-name]
       - direction: reverse
         confidentiality: confidential
         categories: [personal]
+        entities: [contact-details, shipping-address, user-name]
   - id: mobile-bff-shows-account
     name: shows and edits the account
     from: mobile-bff
@@ -117,9 +130,11 @@ relations:
       - direction: forward
         confidentiality: confidential
         categories: [personal]
+        entities: [contact-details, shipping-address, user-name]
       - direction: reverse
         confidentiality: confidential
         categories: [personal]
+        entities: [contact-details, shipping-address, user-name]
   - id: accounts-stores-accounts
     name: stores accounts and addresses
     from: accounts-api
