@@ -2,7 +2,7 @@
 
 Change: use-cases-data-entities
 Base: 123b2e8d580bacd326da55da5f51afcc48d99416
-Tasks: madarch-hnq.1.1, madarch-hnq.1.2, madarch-hnq.1.3, madarch-hnq.1.4, madarch-hnq.1.5, madarch-hnq.1.6, madarch-hnq.1.7, madarch-hnq.2.1, madarch-hnq.2.2, madarch-hnq.2.3
+Tasks: madarch-hnq.1.1, madarch-hnq.1.2, madarch-hnq.1.3, madarch-hnq.1.4, madarch-hnq.1.5, madarch-hnq.1.6, madarch-hnq.1.7, madarch-hnq.2.1, madarch-hnq.2.2, madarch-hnq.2.3, madarch-hnq.2.4
 Kind: behavior
 
 ## Intent
