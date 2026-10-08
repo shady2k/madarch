@@ -16,8 +16,9 @@ _Avoid_: landscape, workspace, model (for the whole)
 
 **Intended model**:
 What people and agents declare the architecture to be: elements, interfaces,
-relations, zones, data categories, environments and architecture states (rules
-and flows later), written as YAML in a repository's `madarch/` folder.
+relations, zones, data categories, data entities, scenarios, environments and
+architecture states (rules later), written as YAML in a repository's `madarch/`
+folder.
 _Avoid_: authored model, design model
 
 **Element**:
