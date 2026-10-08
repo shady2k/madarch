@@ -85,7 +85,8 @@ class StoreRefused extends Error {
  * place in this module the rest of the library ever needs to cross.
  *
  * One table, `assertions`, holds one row per element, interface, relation,
- * category, zone, environment or state a source has ever asserted:
+ * data entity, scenario, category, zone, environment or state a source has
+ * ever asserted:
  * `valid_from`/`valid_to` bound when it was true of the world (a commit's
  * time onward, closed when a later commit stops asserting it);
  * `recorded_from`/`recorded_to` bound when the history held that belief.
@@ -131,15 +132,18 @@ class StoreRefused extends Error {
  * the new version's valid span — from its commit's time to its own
  * successor, or open-ended — overlaps another source's current assertion
  * (on either time axis: a commit dated after the clock's current "now" is
- * still seen) of an element, interface or relation id it also declares
- * (`CLASHABLE_KINDS`, still exclusive to one source). A category, zone,
- * environment or state id (`SHARED_KINDS`, shared vocabulary) is never
- * refused for disagreeing with another source, nor is the union of every
- * source's states ever refused for branching or cycling: the owner's rule
- * (2026-09-24) is that a shared id is always recorded, kept as every
- * source's own definition, never picked between or rejected — see
- * `assembleCompiledModel` and `ReadModel` for how `read` reports the
- * disagreement instead, as a `Discrepancy`, not an error.
+ * still seen) of an element, interface, relation, data entity or scenario
+ * id it also declares (`CLASHABLE_KINDS`, still exclusive to one source; a
+ * data entity and a scenario are the model's own vocabulary of things and
+ * use cases, each source's exclusive claim the same way the graph's own
+ * nodes and edges are). A category, zone, environment or state id
+ * (`SHARED_KINDS`, shared vocabulary) is never refused for disagreeing
+ * with another source, nor is the union of every source's states ever
+ * refused for branching or cycling: the owner's rule (2026-09-24) is that
+ * a shared id is always recorded, kept as every source's own definition,
+ * never picked between or rejected — see `assembleCompiledModel` and
+ * `ReadModel` for how `read` reports the disagreement instead, as a
+ * `Discrepancy`, not an error.
  */
 export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore {
   // `':memory:'` here is a documented convention, not load-bearing: an

@@ -2,10 +2,12 @@ import {
   SCHEMA_VERSION,
   type CompiledCategory,
   type CompiledElement,
+  type CompiledEntity,
   type CompiledEnvironment,
   type CompiledInterface,
   type CompiledModel,
   type CompiledRelation,
+  type CompiledScenario,
   type CompiledState,
   type CompiledZone,
 } from '../model/compile.js';
@@ -13,25 +15,29 @@ import { byCodePoint } from '../model/order.js';
 import type { Discrepancy, HistoryError } from './types.js';
 
 /**
- * The seven kinds of assertion the history keeps, one per array
+ * The nine kinds of assertion the history keeps, one per array
  * `compileModel` builds (see design.md, "From files to answers": each
- * element, relation, interface, zone membership, binding, environment and
- * state is one assertion of its source). Zone membership and bindings are
- * carried inside the element and relation they belong to
- * (`zonesByEnvironment`, `binding`/`bindingByEnvironment`), so they are
- * closed and opened together with that element or relation, never as
- * assertions of their own.
+ * element, relation, interface, data entity, scenario, zone membership,
+ * binding, environment and state is one assertion of its source). Zone
+ * membership and bindings are carried inside the element and relation they
+ * belong to (`zonesByEnvironment`, `binding`/`bindingByEnvironment`), so
+ * they are closed and opened together with that element or relation, never
+ * as assertions of their own.
  */
-export const ASSERTION_KINDS = ['element', 'interface', 'relation', 'category', 'zone', 'environment', 'state'] as const;
+export const ASSERTION_KINDS = ['element', 'interface', 'relation', 'entity', 'scenario', 'category', 'zone', 'environment', 'state'] as const;
 export type AssertionKind = (typeof ASSERTION_KINDS)[number];
 
 /**
  * The kinds one source claims exclusively (the `sources` requirement): a
  * second source declaring an already-declared id of one of these kinds is
  * refused outright. Elements, interfaces and relations are the graph's own
- * nodes and edges, each source's exclusive claim.
+ * nodes and edges, each source's exclusive claim; data entities and
+ * scenarios are the model's own vocabulary of things and use cases, each
+ * source's exclusive claim the same way (the coordinator's decision on
+ * madarch-hnq, 2026-10-08: like `element`, `interface` and relation, not
+ * shared vocabulary).
  */
-export const CLASHABLE_KINDS: readonly AssertionKind[] = ['element', 'interface', 'relation'];
+export const CLASHABLE_KINDS: readonly AssertionKind[] = ['element', 'interface', 'relation', 'entity', 'scenario'];
 
 /**
  * The kinds that are shared vocabulary rather than one source's exclusive
@@ -51,6 +57,8 @@ const KIND_TO_FIELD: Record<AssertionKind, keyof CompiledModel> = {
   element: 'elements',
   interface: 'interfaces',
   relation: 'relations',
+  entity: 'entities',
+  scenario: 'scenarios',
   category: 'categories',
   zone: 'zones',
   environment: 'environments',
@@ -67,9 +75,9 @@ export interface Assertion {
 
 /**
  * Decomposes a compiled model into one assertion per element, interface,
- * relation, category, zone, environment and state. `compileModel` already
- * builds every one of these objects with a fixed key order (see
- * `compile.ts`'s module doc and `serializeCompiledModel`), so
+ * relation, data entity, scenario, category, zone, environment and state.
+ * `compileModel` already builds every one of these objects with a fixed key
+ * order (see `compile.ts`'s module doc and `serializeCompiledModel`), so
  * `JSON.stringify` of one entity alone already gives it canonical,
  * deterministic bytes — nothing here re-derives that order.
  */
@@ -143,20 +151,22 @@ export interface ReadEnvironment extends SharedEntity<EnvironmentDefinition> {
 }
 
 /**
- * The model a union (or single-source) read returns. Elements, interfaces
- * and relations stay each one source's exclusive claim, unchanged from
- * `CompiledModel` (item 5 of the owner's rule: a second source declaring
- * one over an overlapping valid span is still refused before a read could
- * ever see two of them). Categories, zones, environments and states are
- * shared vocabulary: identical definitions merge into one, as before, but a
- * disagreement is now kept (see `SharedEntity`, `ReadEnvironment`) rather
- * than refusing the whole read.
+ * The model a union (or single-source) read returns. Elements, interfaces,
+ * relations, data entities and scenarios stay each one source's exclusive
+ * claim, unchanged from `CompiledModel` (item 5 of the owner's rule: a
+ * second source declaring one over an overlapping valid span is still
+ * refused before a read could ever see two of them). Categories, zones,
+ * environments and states are shared vocabulary: identical definitions
+ * merge into one, as before, but a disagreement is now kept (see
+ * `SharedEntity`, `ReadEnvironment`) rather than refusing the whole read.
  */
 export interface ReadModel {
   schemaVersion: typeof SCHEMA_VERSION;
   elements: CompiledElement[];
   interfaces: CompiledInterface[];
   relations: CompiledRelation[];
+  entities: CompiledEntity[];
+  scenarios: CompiledScenario[];
   categories: SharedEntity<CompiledCategory>[];
   zones: SharedEntity<CompiledZone>[];
   environments: ReadEnvironment[];
@@ -167,17 +177,18 @@ export interface ReadModel {
  * Rebuilds a flat list of assertions — one source's own, or several
  * sources' rows already known to satisfy the `sources` requirement's
  * exclusivity for `CLASHABLE_KINDS` — into a `ReadModel`. Each clashable
- * kind (`element`, `interface`, `relation`) has at most one source's row
- * per id by construction (a second source's store is refused before it
- * ever reaches this function); meeting two here regardless (data written
- * outside `store()`) is a real failure, reported in `errors`, since there
- * is no reading — no owner's rule — under which the union read could pick
- * one of two claimed owners for the same node or edge. Every shared kind
- * (`category`, `zone`, `environment`, `state`) is assembled instead: one
- * definition when every source sharing the id agrees, the primary
- * definition plus every other one in `alsoDefinedAs` when they do not — and
- * a `Discrepancy` recorording who disagrees, never an error (`errors` is for
- * `CLASHABLE_KINDS` violations only).
+ * kind (`element`, `interface`, `relation`, `entity`, `scenario`) has at
+ * most one source's row per id by construction (a second source's store is
+ * refused before it ever reaches this function); meeting two here
+ * regardless (data written outside `store()`) is a real failure, reported
+ * in `errors`, since there is no reading — no owner's rule — under which
+ * the union read could pick one of two claimed owners for the same node,
+ * edge, entity or use case. Every shared kind (`category`, `zone`,
+ * `environment`, `state`) is assembled instead: one definition when every
+ * source sharing the id agrees, the primary definition plus every other
+ * one in `alsoDefinedAs` when they do not — and a `Discrepancy` recorording
+ * who disagrees, never an error (`errors` is for `CLASHABLE_KINDS`
+ * violations only).
  */
 export function assembleCompiledModel(rows: readonly Assertion[]): { model?: ReadModel; discrepancies: Discrepancy[]; errors: HistoryError[] } {
   const byKind = new Map<AssertionKind, Assertion[]>(ASSERTION_KINDS.map((kind) => [kind, []]));
@@ -189,6 +200,8 @@ export function assembleCompiledModel(rows: readonly Assertion[]): { model?: Rea
   const elements = exclusiveKind<CompiledElement>('element', byKind.get('element')!, errors);
   const interfaces = exclusiveKind<CompiledInterface>('interface', byKind.get('interface')!, errors);
   const relations = exclusiveKind<CompiledRelation>('relation', byKind.get('relation')!, errors);
+  const entities = exclusiveKind<CompiledEntity>('entity', byKind.get('entity')!, errors);
+  const scenarios = exclusiveKind<CompiledScenario>('scenario', byKind.get('scenario')!, errors);
 
   if (errors.length > 0) return { errors, discrepancies };
 
@@ -207,6 +220,8 @@ export function assembleCompiledModel(rows: readonly Assertion[]): { model?: Rea
       interfaces,
       relations,
       categories,
+      entities,
+      scenarios,
       zones,
       environments,
       states,
@@ -233,17 +248,20 @@ export function assembleSourceModel(rows: readonly Assertion[]): { model?: Compi
   const elements = exclusiveKind<CompiledElement>('element', byKind.get('element')!, errors);
   const interfaces = exclusiveKind<CompiledInterface>('interface', byKind.get('interface')!, errors);
   const relations = exclusiveKind<CompiledRelation>('relation', byKind.get('relation')!, errors);
+  const entities = exclusiveKind<CompiledEntity>('entity', byKind.get('entity')!, errors);
+  const scenarios = exclusiveKind<CompiledScenario>('scenario', byKind.get('scenario')!, errors);
   const categories = exclusiveKind<CompiledCategory>('category', byKind.get('category')!, errors);
   const zones = exclusiveKind<CompiledZone>('zone', byKind.get('zone')!, errors);
   const environments = exclusiveKind<CompiledEnvironment>('environment', byKind.get('environment')!, errors);
   const states = exclusiveKind<CompiledState>('state', byKind.get('state')!, errors);
 
   if (errors.length > 0) return { errors };
-  return { errors: [], model: { schemaVersion: SCHEMA_VERSION, elements, interfaces, relations, categories, zones, environments, states } };
+  return { errors: [], model: { schemaVersion: SCHEMA_VERSION, elements, interfaces, relations, categories, entities, scenarios, zones, environments, states } };
 }
 
 /**
- * Assembles one clashable kind (`element`, `interface`, `relation`): a real
+ * Assembles one clashable kind (`element`, `interface`, `relation`,
+ * `entity`, `scenario`): a real
  * disagreement here is a safety net's finding, not the ordinary case — a
  * clash for these kinds is always refused before it reaches storage (see
  * `sqlite-history.ts`'s `store`) — so it is reported in `errors`, exactly
