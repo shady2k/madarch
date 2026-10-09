@@ -66,8 +66,15 @@ are the repository's installation, and each person's plugin and hooks are theirs
   introduces commits, against the revision just before the first of them (see
   "What a push introduces"); with personal scope and pushes straight to `main`
   there is no pull-request step, so the push stands in for a pull request's
-  opening. At adoption (2026-09-29) it reported no dead references and two
-  areas no present document mentions (`examples/`, `scripts/`), filed as debt.
+  opening. It refuses a change that leaves one of them naming a path the tree no
+  longer has; the list itself is not a reference, so moving or dropping a listed
+  document with no other document naming its path is not what it refuses
+  (checked 2026-10-09: moving `docs/glossary.md` passed, moving
+  `.shady2k/integration.md`, named by `AGENTS.md`, was refused). At adoption
+  (2026-09-29) it reported no dead references and two areas no present document
+  mentions (`examples/`, `scripts/`), filed as debt; read again 2026-10-09 over
+  the last twenty commits of `main`, no new dead reference and `examples/` still
+  uncovered (that debt is madarch-p1y).
 - **Product documents:** `.shady2k/checks/check-product.mjs`, the set's check of
   the product's own documents (sources, hypotheses, user stories, use cases,
   product requirements, open questions, prototypes, results). The commit-msg
@@ -176,7 +183,9 @@ are the repository's installation, and each person's plugin and hooks are theirs
     (`mutationFallback: escalate`), whose decision to accept is recorded as
     `passed` with their words as the reference. A skipped check is never
     recorded as passed.
-  - **Evidence revision:** `documents.mjs revision` hashes the whole tree
+  - **Evidence revision:** `documents.mjs revision` (default `--candidate
+    HEAD`; `--candidate worktree` hashes the working tree, so an uncommitted
+    edit moves only that) hashes the whole tree
     except what the gate reads and verifies itself on every run: `.beads/`
     (the tracker export), `docs/changes/` (the change records),
     `docs/system/capabilities/` (the current specs) and `docs/system/index.md`
