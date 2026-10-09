@@ -291,9 +291,13 @@ are the repository's installation, and each person's plugin and hooks are theirs
   minutes for the model code. Message-text and always-populated-fallback
   survivors are equivalent; others are investigated.
 - **Jev:** consent given 2026-09-29 (owner, madarch-u2g), route OpenRouter;
-  tracker ids (`madarch-…`) are masked by the config's `jev.idPattern`. The
-  key's place is this machine's, in `~/.config/shady2k-skills/jev.json`, never
-  the config; a machine without it works without Jev.
+  tracker ids (`madarch-…`) are masked by the config's `jev.idPattern`; answers
+  are taken at `jev.sure` (0.9) on `jev.model` (jev-1.13), both moved with
+  `jev.mjs replay` on this project's own history. Nothing is copied into this
+  repository: `node <skills>/setup-shady2k-skills/jev.mjs status|ask|mask`, or
+  the harness's own `jev` tool where it has one. The key's place is this
+  machine's, in `~/.config/shady2k-skills/jev.json`, never the config; a
+  machine without it works without Jev.
 - **Reviewer:** another model where available (Codex through its MCP server or
   CLI; available when the server is connected in the session). Fallback: an
   independent same-model reviewer, disclosed in the acceptance record.
@@ -310,7 +314,7 @@ Its own reference: `br robot-docs guide`, `br <command> --help`. Pass
 | operation | project implementation |
 | --- | --- |
 | create | `br create --type <task\|bug\|chore\|epic> --title … --labels mvp,<area> [--parent <epic>] --description …`; an epic states `## Done when` |
-| link / unlink | `br dep add <issue> <prerequisite>` (type `blocks`, gating only), `br dep remove`; provenance uses `--type related` or `discovered-from`, which the adapter ignores |
+| link / unlink | `br dep add <issue> <prerequisite>` (type `blocks`, gating only), `br dep remove`; provenance uses `--type related` or `discovered-from`, which the adapter ignores. br refuses an edge that would close a cycle (`Cycle detected in dependencies`), so the `dependency-cycle` rule guards an export that already holds one |
 | claim | `node .shady2k/adapter.mjs claim <id> --actor <agent full name>`, then the run script's claim record posted on the item (see Work records). It claims only an open, unheld leaf, and judges each open blocker: an `implemented` prerequisite in the same stage passes once its recorded revision is an ancestor of `HEAD`; one in an earlier stage of the same feature passes once that stage is accepted (the adapter exports the final revision of its latest `accepted:` record as `acceptance`) and that revision is an ancestor of `HEAD`, though the stage stays open until the feature lands; one in another feature must be closed; any other open one refuses with its reason. br's `--claim` stays atomic and exclusive (forced past br's own blocker check only in those cases), the blockers are judged again right after the claim, which is released if one no longer passes and it is still this actor's, and the edge is kept. Known limit: br has no release-if-mine, so a release racing another actor's claim in the moment between the check and the release could clear it; with one worker this does not arise |
 | release | `br update <id> --status open --assignee ""` for unfinished holds only; implemented work keeps its label and record |
 | implemented | coordinator: `br update <id> --add-label implemented` and `br comments add <id> 'implemented: {"revision":…,"evidence":…}'` |
@@ -320,7 +324,7 @@ Its own reference: `br robot-docs guide`, `br <command> --help`. Pass
 | comment / edit | `br comments add`, `br update` (title, description, parent, labels); a work record posted exactly as the run script printed it (`--file`), never reflowed, edited or deleted, and a wrong one retired by the run script's `void`, posted the same way |
 | defer / undefer | `br defer <id> --until <date>`, `br undefer <id>` |
 | milestone / label | labels from the config's `milestoneLabels` and `areaLabels` |
-| ready | `br ready --label <current milestone> [--parent <stage>]`, excluding `submitted`/`implemented` labels. br treats only closed prerequisites as satisfied; the coordinator also treats as satisfied an integrated `implemented` prerequisite inside one stage, and one in an accepted earlier stage of the same feature whose accepted revision is in the checkout, by the rules of the claim operation, which judges them |
+| ready | `br ready --label <current milestone> [--parent <stage>]`, then drop the items labelled `submitted` or `implemented` and the containers: br's own ready lists both (checked 2026-10-09, br 0.7.0). br treats only closed prerequisites as satisfied; the coordinator also treats as satisfied an integrated `implemented` prerequisite inside one stage, and one in an accepted earlier stage of the same feature whose accepted revision is in the checkout, by the rules of the claim operation, which judges them |
 | holds | `br list --status in_progress --json` (assignee is the holder) |
 | pending integration / acceptance | `br list --label submitted` / `br list --label implemented` |
 | children | `br list --all --json` filtered by parent (all statuses) |
