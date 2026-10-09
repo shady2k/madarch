@@ -208,9 +208,12 @@ are the repository's installation, and each person's plugin and hooks are theirs
     `checkRevision` over the tree with the same exclusions plus the paths that
     check cannot read), exported as `checkRevisions`; `review`, coverage-named
     checks and the checks without `ignores` use the whole revision (`content:…`).
-    An edit under `docs/` stales `static`'s receipt and no longer leaves the
-    others standing; any other edit stales all. The list only grows where a
-    command is shown not to read a path; changing it stales every receipt.
+    An edit under `docs/`, outside the shared exclusions above, therefore
+    leaves `static`'s receipt standing and stales the others; an edit under
+    `.beads/`, `docs/changes/`, `docs/system/capabilities/` or
+    `docs/system/index.md` leaves every check revision unchanged; any other edit
+    stales all. The list only grows where a command is shown not to read a path;
+    changing it stales every receipt.
   - **What a commit owes:** the wrapper judges each commit as it is made, not a
     range: a change is asked for only when the commit stages product code or a
     current spec. A commit that touches only the tracker (filing, commenting,
