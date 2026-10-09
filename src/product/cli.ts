@@ -70,18 +70,25 @@ export function main(args: readonly string[]): number {
       // next option, or that never comes is not a home anyone named. The
       // command refuses before the library is called — a folder named
       // `--no-open`, or a fall-through to MADARCH_HOME and the machine
-      // default, is a draft written where nobody asked.
-      home = args[i + 1];
+      // default, is a draft written where nobody asked. The library trims
+      // the value (`productsHome`), so the same normalization is applied
+      // before the value is judged: a home of only spaces, or one whose
+      // trimmed text is another option, is refused, never silently moved.
+      const given = args[i + 1];
+      home = given;
       i++;
-      if (home === undefined || home === '' || home.startsWith('--')) {
-        console.error(`the --home flag needs a folder${home === undefined ? '' : `, not "${home}"`}: it names the products home of this one command`);
+      const trimmed = given?.trim();
+      if (trimmed === undefined || trimmed === '' || trimmed.startsWith('--')) {
+        console.error(`the --home flag needs a folder${given === undefined ? '' : `, not "${trimmed}"`}: it names the products home of this one command`);
         console.error(USAGE);
         return 2;
       }
     } else if (arg.startsWith('--home=')) {
-      home = arg.slice('--home='.length);
-      if (home === '' || home.startsWith('--')) {
-        console.error(`the --home flag needs a folder${home === '' ? '' : `, not "${home}"`}: it names the products home of this one command`);
+      const given = arg.slice('--home='.length);
+      home = given;
+      const trimmed = given.trim();
+      if (trimmed === '' || trimmed.startsWith('--')) {
+        console.error(`the --home flag needs a folder${given === '' ? '' : `, not "${trimmed}"`}: it names the products home of this one command`);
         console.error(USAGE);
         return 2;
       }

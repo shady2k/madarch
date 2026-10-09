@@ -12,7 +12,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { LineCounter, parseDocument, isAlias, isMap } from 'yaml';
+import { LineCounter, parseDocument, isAlias, isMap, isPair, isSeq } from 'yaml';
 import { lineForPath } from '../model/yaml-position.js';
 import { PRODUCT_SCHEMA_VERSION } from './draft.js';
 
@@ -77,16 +77,34 @@ export function readProduct(productFolder: string): ProductRead {
 
   // Some documents parse without an error but cannot be converted — an
   // alias whose anchor never appeared, as one. `toJS` throws; the refusal
-  // names the alias's own line, as a parser error would.
+  // names the line of the alias that failed: the one whose source the
+  // reason names, or the first unresolved one — never an earlier alias
+  // that reads fine.
   let value: unknown;
   try {
     value = doc.toJS();
   } catch (error) {
+    const reason = (error as Error).message;
+    const line = aliasLine(doc, lineCounter, reason);
     return {
       ok: false,
       file: manifestFile,
-      line: aliasLine(doc, lineCounter) ?? 1,
-      message: `the manifest ${manifestFile} cannot be read as YAML: ${(error as Error).message}`,
+      line: line ?? 1,
+      message: `the manifest ${manifestFile} cannot be read as YAML: ${reason}`,
+    };
+  }
+
+  // An alias standing in a mapping key's place is refused before the
+  // duplicate walk: resolved, it can name a field a second time —
+  // `extra: &key id` then `*key : replacement` overwrites `id` — and the
+  // reader would open the product under the wrong identity.
+  const aliasKey = firstAliasKey(doc, lineCounter);
+  if (aliasKey !== undefined) {
+    return {
+      ok: false,
+      file: manifestFile,
+      line: aliasKey.line,
+      message: `the manifest ${manifestFile} stands the alias "${aliasKey.alias}" in a mapping key's place on line ${aliasKey.line}: a field is named by its own word, never by an alias`,
     };
   }
   if (value === null || typeof value !== 'object' || Array.isArray(value) || !isMap(doc.contents)) {
@@ -138,14 +156,58 @@ export function readProduct(productFolder: string): ProductRead {
 }
 
 /**
- * The line of the first alias node the document holds, from the value's
- * own range: the one conversion fails on when an anchor never appeared.
+ * The line of the alias the conversion fails on, chosen from the reason
+ * `toJS` gave: the alias whose source the reason names when there is
+ * one, else the first unresolved alias — one whose anchor never appeared
+ * in the document — else, when every alias resolves and the failure lies
+ * elsewhere, the document's first alias as an honest last resort.
  */
-function aliasLine(doc: { contents: unknown }, lineCounter: LineCounter): number | undefined {
+function aliasLine(doc: { contents: unknown }, lineCounter: LineCounter, reason: string): number | undefined {
+  if (!isMap(doc.contents)) return undefined;
+  const aliases: { alias: string; line: number }[] = [];
+  const anchors = new Set<string>();
+  walkDocuments(doc.contents, (node) => {
+    if (isAlias(node)) {
+      aliases.push({ alias: node.source, line: node.range ? lineCounter.linePos(node.range[0]).line : 0 });
+    } else if (node && typeof node === 'object' && (node as { anchor?: unknown }).anchor !== undefined) {
+      anchors.add(String((node as { anchor: unknown }).anchor));
+    }
+  });
+  if (aliases.length === 0) return undefined;
+  const unresolved = aliases.filter((alias) => !anchors.has(alias.alias));
+  const named = unresolved.find((alias) => reason.includes(`*${alias.alias}`));
+  if (named !== undefined) return named.line;
+  const firstUnresolved = unresolved[0];
+  if (firstUnresolved !== undefined) return firstUnresolved.line;
+  return aliases[0]!.line;
+}
+
+/** Walks a document's nodes — mappings, sequences, pairs and aliases alike — and calls the visitor on each one. */
+function walkDocuments(node: unknown, visit: (node: unknown) => void): void {
+  if (node === null || typeof node !== 'object') return;
+  visit(node);
+  if (isMap(node) || isSeq(node)) {
+    for (const item of node.items) walkDocuments(item, visit);
+  } else if (isPair(node)) {
+    walkDocuments(node.key, visit);
+    walkDocuments(node.value, visit);
+  }
+}
+
+/**
+ * The first mapping key that stands as an alias. With the alias resolved
+ * its key is an ordinary field name, so the pairing can duplicate one the
+ * document already named, and the duplicate walk — reading string keys
+ * only — would never see it.
+ */
+function firstAliasKey(doc: { contents: unknown }, lineCounter: LineCounter): { alias: string; line: number } | undefined {
   if (!isMap(doc.contents)) return undefined;
   for (const pair of doc.contents.items) {
-    const valueNode = pair.value as unknown;
-    if (isAlias(valueNode) && valueNode.range) return lineCounter.linePos(valueNode.range[0]).line;
+    const keyNode = pair.key;
+    if (isAlias(keyNode)) {
+      const line = keyNode.range ? lineCounter.linePos(keyNode.range[0]).line : lineForPath(doc, lineCounter, [String(keyNode.source)]);
+      return { alias: keyNode.source, line };
+    }
   }
   return undefined;
 }

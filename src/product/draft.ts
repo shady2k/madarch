@@ -124,9 +124,11 @@ function manifestText(id: string, name: string): string {
 /**
  * Creates a draft product repository under the products home. Nothing is
  * refused half-done: a refusal (the products home cannot be used) happens
- * before any product folder exists, and every failure after the folder was
- * created removes the folder again, so a failed `madarch new` leaves no
- * folder behind.
+ * before any product folder exists. After the folder was created, every
+ * failure removes the folder again when the removal succeeds; when even
+ * the removal fails, the failure is reported and its message names the
+ * folder that was left behind. So a failed `madarch new` normally leaves
+ * no folder behind — and it never leaves one without saying where.
  */
 export function createDraft(options: DraftOptions = {}): DraftResult {
   const home = resolve(productsHome(process.env as DraftEnv, options.home));
@@ -155,9 +157,16 @@ export function createDraft(options: DraftOptions = {}): DraftResult {
   // until a name this run alone reserved.
   const today = options.today ?? new Date();
   const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  // The draft's name is the reserved candidate's own name — the folder's
+  // basename the reservation chose — read once here for the manifest and
+  // the result, never again from a slice of the path: a home of `/`
+  // would cut a basename's first letter that way.
   let folder: string;
+  let name: string;
   try {
-    folder = reserveDraftFolder(home, day);
+    const reserved = reserveDraftFolder(home, day);
+    folder = reserved.folder;
+    name = reserved.name;
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'EACCES' || code === 'EPERM' || code === 'EROFS') {
@@ -171,7 +180,7 @@ export function createDraft(options: DraftOptions = {}): DraftResult {
     for (const folderName of FOLDERS) mkdirSync(join(folder, folderName));
     writeFileSync(join(folder, 'AGENTS.md'), AGENTS_MD);
     writeFileSync(join(folder, 'CLAUDE.md'), '@AGENTS.md\n');
-    writeFileSync(join(folder, 'workspace.yaml'), manifestText(id, folder.slice(home.length + 1)));
+    writeFileSync(join(folder, 'workspace.yaml'), manifestText(id, name));
     writeFileSync(join(folder, '.gitignore'), 'repos/\n');
     for (const folderName of TRACKED_FOLDERS) writeFileSync(join(folder, folderName, '.gitkeep'), '');
 
@@ -188,7 +197,7 @@ export function createDraft(options: DraftOptions = {}): DraftResult {
     const cleanup = removeDraftFolder(folder);
     return { outcome: 'failed', message: cleanup === undefined ? failure : `${failure}; ${cleanup}` };
   }
-  return { outcome: 'created', folder, id, name: folder.slice(home.length + 1) };
+  return { outcome: 'created', folder, id, name };
 }
 
 /** One git invocation in the product folder, with the caller's environment sealed off the loader variables. */
@@ -209,7 +218,14 @@ function runGit(folder: string, args: string[], extra?: Record<string, string>):
   return { ok: true, output: '' };
 }
 
-function reserveDraftFolder(home: string, day: string): string {
+/**
+ * Reserves the day's folder name in the products home: one non-recursive
+ * `mkdirSync` of the candidate, growing the suffix until a name this call
+ * alone reserved. Exported because the reservation is itself the seam the
+ * race is tested at: it must take the next suffix on EEXIST and never
+ * touch a folder it did not create.
+ */
+export function reserveDraftFolder(home: string, day: string): { folder: string; name: string } {
   for (let attempt = 1; ; attempt++) {
     const name = attempt === 1 ? `idea-${day}` : `idea-${day}-${attempt}`;
     const candidate = join(home, name);
@@ -217,7 +233,7 @@ function reserveDraftFolder(home: string, day: string): string {
       // Non-recursive: the home exists, so this is the reservation, and
       // it is the only thing that answers what the folder belongs to.
       mkdirSync(candidate);
-      return candidate;
+      return { folder: candidate, name };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue; // another run's name; the next suffix.
       throw error;

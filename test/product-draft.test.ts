@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, w
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
-import { createDraft, productsHome } from '../src/product/draft.js';
+import { createDraft, productsHome, reserveDraftFolder } from '../src/product/draft.js';
 
 /**
  * The machine's real git, resolved once: a stub placed on PATH in a test
@@ -15,6 +15,9 @@ function realGit(): string {
   if (!path) throw new Error('git is not on PATH; these tests need it');
   return path;
 }
+
+/** A word quoted shell-safely: even a path holding a dollar, a backtick or a quote stands as itself. */
+const shQuote = (word: string): string => "'" + word.split("'").join("'\\''") + "'";
 import { readProduct } from '../src/product/manifest.js';
 import { gitEnv } from './git-env.js';
 import { GIT_IDENTITY, GIT_ENV } from './model-check-repo.js';
@@ -258,9 +261,19 @@ describe('createDraft', () => {
     expect(readdirSync(base)).toEqual(['home']);
   });
 
+  test.skipIf(process.getuid?.() !== 0)("a draft under the root products home is named by its own name, not one letter short", () => {
+    // With a writable `--home /`, the old code took the name from
+    // `folder.slice(home.length + 1)`, which for `/idea-2026-10-09` cuts
+    // the first two characters and reads `dea-2026-10-09`.
+    const draft = draftIn('/');
+    if (draft.outcome !== 'created') throw new Error(`the draft was not created: ${JSON.stringify(draft)}`);
+    expect(draft.name).toBe('idea-2026-10-09');
+    const read = readProduct(draft.folder);
+    expect(read).toMatchObject({ ok: true, product: { name: 'idea-2026-10-09' } });
+  });
   test("a git that refuses to commit fails with git's own words and leaves no folder behind", () => {
     const stubs = tempFolder('madarch-products-gitstub-');
-    const script = ['#!/bin/sh', 'if [ "$1" = "commit" ]; then', "  echo 'stub: refusing to commit' >&2; exit 1; fi", `exec ${JSON.stringify(realGit())} "$@"`, ''].join('\n');
+    const script = ['#!/bin/sh', 'if [ "$1" = "commit" ]; then', "  echo 'stub: refusing to commit' >&2; exit 1; fi", `exec ${shQuote(realGit())} "$@"`, ''].join('\n');
     writeFileSync(join(stubs, 'git'), script);
     chmodSync(join(stubs, 'git'), 0o700);
     const home = tempFolder('madarch-products-');
@@ -273,7 +286,7 @@ describe('createDraft', () => {
 
   test('a git that refuses to stage fails with git\'s own words and leaves no folder behind', () => {
     const stubs = tempFolder('madarch-products-gitstub-add-');
-    const script = ['#!/bin/sh', 'if [ "$1" = "add" ]; then', "  echo 'stub: refusing to add' >&2; exit 1; fi", `exec ${JSON.stringify(realGit())} "$@"`, ''].join('\n');
+    const script = ['#!/bin/sh', 'if [ "$1" = "add" ]; then', "  echo 'stub: refusing to add' >&2; exit 1; fi", `exec ${shQuote(realGit())} "$@"`, ''].join('\n');
     writeFileSync(join(stubs, 'git'), script);
     chmodSync(join(stubs, 'git'), 0o700);
     const home = tempFolder('madarch-products-');
@@ -491,6 +504,24 @@ describe('createDraft: reservations and homes that cannot be used', () => {
     expect(readFileSync(join(other, 'docs'), 'utf8')).toContain('another run');
   });
 
+  test("the reservation itself takes the next suffix on EEXIST and never touches a folder it did not create", () => {
+    // The first-round race test pre-created the competitor before the run
+    // ever chose a name; the old list-then-mkdir implementation survived
+    // that too. The honest seam is the reservation step itself: one
+    // non-recursive mkdir of the candidate, which must take the next
+    // suffix when the name is taken and leave the other run's folder
+    // exactly as it found it.
+    const home = tempFolder('madarch-products-reserve-');
+    const other = join(home, 'idea-2026-10-09');
+    mkdirSync(other);
+    writeFileSync(join(other, 'docs'), "another run's draft\n");
+    const reserved = reserveDraftFolder(home, '2026-10-09');
+    expect(reserved).toEqual({ folder: join(home, 'idea-2026-10-09-2'), name: 'idea-2026-10-09-2' });
+    expect(readFileSync(join(other, 'docs'), 'utf8')).toContain('another run');
+    // A first name still free is taken as it is.
+    const fresh = reserveDraftFolder(home, '2026-10-10');
+    expect(fresh).toEqual({ folder: join(home, 'idea-2026-10-10'), name: 'idea-2026-10-10' });
+  });
   test('a products home the process cannot write into is refused, not failed', () => {
     if (process.getuid?.() === 0) return; // root writes anywhere; the case is meaningless there.
     const base = tempFolder('madarch-products-nowrap-');
@@ -546,10 +577,10 @@ describe('createDraft: a cleanup that fails is reported', () => {
     const script = [
       '#!/bin/sh',
       'if [ "$1" = "add" ]; then',
-      `  ${JSON.stringify(Bun.which('chmod') ?? 'chmod')} u-w . docs model skills prototypes repos`,
+      `  ${shQuote(Bun.which('chmod') ?? 'chmod')} u-w . docs model skills prototypes repos`,
       "  echo 'stub: refusing to add' >&2; exit 1;",
       'fi',
-      `exec ${JSON.stringify(realGit())} "$@"`,
+      `exec ${shQuote(realGit())} "$@"`,
       '',
     ].join('\n');
     writeFileSync(join(stubs, 'git'), script);
@@ -583,6 +614,31 @@ describe('readProduct: manifests the reader cannot take', () => {
     expect(read.message).toContain('cannot be read as YAML');
   });
 
+  test('a manifest using an alias as a mapping key is refused, naming the line the alias stands on', () => {
+    // The review's shape: `extra: &key id` then `*key : replacement`. With
+    // the alias resolved the key is `id`, so the later pairing overwrites
+    // the product's id and the reader would succeed with the wrong id.
+    const folder = tempFolder('madarch-products-aliaskey-');
+    writeFileSync(join(folder, 'workspace.yaml'), ['schemaVersion: 1', 'id: 3f6d2dc8-b16e-4bf0-9d3a-2c9c00b5287d', 'extra: &key id', '*key : replacement-id', ''].join('\n'));
+    const read = readProduct(folder);
+    expect(read.ok).toBe(false);
+    if (read.ok) return;
+    expect(read.file).toBe(join(folder, 'workspace.yaml'));
+    expect(read.message).toContain('alias');
+    expect(read.line).toBe(4);
+  });
+
+  test("a valid alias cannot pin a later alias's failure on the earlier line", () => {
+    // Line 3 holds an alias that resolves; line 4 holds one that never
+    // appeared. The conversion refusal must name line 4.
+    const folder = tempFolder('madarch-products-aliasline-');
+    writeFileSync(join(folder, 'workspace.yaml'), ['schemaVersion: &ref 1', 'id: *ref', 'extra: *missing', ''].join('\n'));
+    const read = readProduct(folder);
+    expect(read.ok).toBe(false);
+    if (read.ok) return;
+    expect(read.file).toBe(join(folder, 'workspace.yaml'));
+    expect(read.line).toBe(3);
+  });
   test('a manifest naming a field twice is refused, naming the line the duplicate stands on', () => {
     const folder = tempFolder('madarch-products-dup-');
     writeFileSync(join(folder, 'workspace.yaml'), ['schemaVersion: 1', 'id: 3f6d2dc8-b16e-4bf0-9d3a-2c9c00b5287d', 'name: idea-2026-10-09', 'schemaVersion: 2', ''].join('\n'));
