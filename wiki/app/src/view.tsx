@@ -1,9 +1,9 @@
 /**
  * The Markdown of a page, rendered as formatted text. Links follow the rule of
  * requirement `pages`: a link to a page the wiki holds opens that page on the
- * client side; a link whose target the wiki does not hold is shown as its
- * text, so no reader lands on a page that cannot be shown; an external link
- * opens as it is written.
+ * client side; a link to anything that is not a page of the wiki — an outside
+ * address included — is shown as its text, so no reader lands on a page that
+ * cannot be shown.
  */
 import ReactMarkdown, { type Components } from 'react-markdown';
 import { useContext, type ReactElement, type MouseEvent, type ReactNode } from 'react';
@@ -41,13 +41,6 @@ function WikiLink(props: {
   const route = useContext(routeContext);
   const resolved = resolveLink(route.path ?? '', props.href, route.heldPaths);
   if (resolved.kind === 'plain') return <span className="plain-link">{props.children}</span>;
-  if (resolved.kind === 'external') {
-    return (
-      <a href={resolved.href} target="_blank" rel="noreferrer">
-        {props.children}
-      </a>
-    );
-  }
   const address = addressOfPage(resolved.path);
   const follow = (event: MouseEvent<HTMLAnchorElement>): void => {
     if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;

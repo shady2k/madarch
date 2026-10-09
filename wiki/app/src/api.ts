@@ -37,10 +37,10 @@ export class RequestError extends Error {
 }
 
 /** Reads one JSON answer from the API, naming `what a reader was waiting for` on failure. */
-export async function readJson<T>(what: string, url: string): Promise<T> {
+export async function readJson<T>(what: string, url: string, signal?: AbortSignal): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(url);
+    response = await fetch(url, { signal });
   } catch (error: unknown) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new RequestError(what, `the request to ${url} failed (${reason})`);
@@ -65,16 +65,17 @@ export async function readJson<T>(what: string, url: string): Promise<T> {
   try {
     return (await response.json()) as T;
   } catch (error: unknown) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;
     const reason = error instanceof Error ? error.message : String(error);
     throw new RequestError(what, `the answer from ${url} was not JSON (${reason})`);
   }
 }
 
-export const getProduct = (): Promise<Product> =>
-  readJson<Product>('read the product', '/api/product');
+export const getProduct = (signal?: AbortSignal): Promise<Product> =>
+  readJson<Product>('read the product', '/api/product', signal);
 
-export const getPages = (): Promise<PageList> =>
-  readJson<PageList>('read the page list', '/api/pages');
+export const getPages = (signal?: AbortSignal): Promise<PageList> =>
+  readJson<PageList>('read the page list', '/api/pages', signal);
 
-export const getPage = (path: string): Promise<Page> =>
-  readJson<Page>(`read the page ${path}`, `/api/page?path=${encodeURIComponent(path)}`);
+export const getPage = (path: string, signal?: AbortSignal): Promise<Page> =>
+  readJson<Page>(`read the page ${path}`, `/api/page?path=${encodeURIComponent(path)}`, signal);

@@ -22,8 +22,9 @@ describe('a Markdown link target', () => {
     expect(resolveLink('docs/index.md', '../AGENTS.md', held)).toEqual({ kind: 'plain' });
   });
 
-  test('an external link opens as it is written', () => {
-    expect(classifyTarget('docs/index.md', 'https://example.com/a?b=1')).toEqual({ kind: 'external', href: 'https://example.com/a?b=1' });
+  test('a link to an outside address is shown as its text', () => {
+    expect(classifyTarget('docs/index.md', 'https://example.com/a?b=1')).toEqual({ kind: 'plain' });
+    expect(classifyTarget('docs/index.md', '//example.com/a')).toEqual({ kind: 'plain' });
     expect(classifyTarget('docs/index.md', 'mailto:a@b.c')).toEqual({ kind: 'plain' });
   });
 

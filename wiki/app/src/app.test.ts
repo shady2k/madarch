@@ -5,8 +5,9 @@
  * it names breaks.
  *
  * Requirements checked: `pages` (the home page, a page and its links, no
- * pages yet), `live` (a changed revision refetches the open page and stops
- * while the reader is away), and a failed request shown to the reader.
+ * pages yet), `live` (a changed revision refetches the open page, one poll in
+ * flight, asking also while the tab is hidden), and a failed request shown to
+ * the reader.
  */
 import { afterEach, afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
@@ -174,15 +175,15 @@ describe('a page', () => {
     expect(document.querySelector('main#page')).not.toBeNull();
   });
 
-  test('shows a link to an outside address as written and a link to an unheld target as its text', async () => {
+  test('shows a link to an outside address and a link to an unheld target as their text', async () => {
     install(answerFor(product, listWithPages, pagesAtR1));
     goto('/p/docs/vision.md');
     await intoApp(createElement(App));
-    await until(() => html().includes('https://example.com/x'), 'the rendered page');
-    const outside = document.querySelector('a[href="https://example.com/x"]');
-    expect(outside).not.toBeNull();
-    const missing = document.querySelector('span.plain-link');
-    expect(missing?.textContent).toBe('a missing target');
+    await until(() => text().includes('an outside link'), 'the rendered page');
+    const plain = [...document.querySelectorAll('span.plain-link')].map((node) => node.textContent);
+    expect(plain).toContain('an outside link');
+    expect(plain).toContain('a missing target');
+    expect(document.querySelector('a[href="https://example.com/x"]')).toBeNull();
     expect(document.querySelector('a[href="/p/AGENTS.md"]')).toBeNull();
   });
 });
@@ -227,23 +228,173 @@ describe('live update', () => {
     expect(fetchesAgain).toBe(1);
   });
 
-  test('stops asking while the reader is away from the page', async () => {
+  test('keeps asking while the tab is hidden, and asks at once when it becomes visible', async () => {
     const api = install(answerFor(product, listWithPages, pagesAtR1));
     goto('/');
     await intoApp(createElement(App, { tickMs: 10 }));
     await until(() => text().includes('Draft Idea'), 'the home page');
-    let hidden = false;
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
-      get: () => (hidden ? 'hidden' : 'visible'),
+      get: () => 'hidden',
     });
     await new Promise((step) => setTimeout(step, 60));
-    const beforeHidden = api.calls.filter((call) => call === '/api/pages').length;
-    hidden = true;
-    await new Promise((step) => setTimeout(step, 60));
-    const afterHidden = api.calls.filter((call) => call === '/api/pages').length;
-    expect(afterHidden).toBe(beforeHidden);
+    const whileHidden = api.calls.filter((call) => call === '/api/pages').length;
+    expect(whileHidden).toBeGreaterThan(1);
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => 'visible',
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+    await new Promise((step) => setTimeout(step, 5));
+    const afterVisible = api.calls.filter((call) => call === '/api/pages').length;
+    expect(afterVisible).toBeGreaterThan(whileHidden);
     delete (Object.getOwnPropertyDescriptor(document, 'visibilityState') ?? {}).get as never;
+  });
+});
+
+describe('the page-list poll', () => {
+  test('keeps one request in flight while an earlier one is pending', async () => {
+    let release: (() => void) | undefined;
+    let asks = 0;
+    let stalled = 0;
+    (globalThis as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL): Promise<Response> => {
+      const target = input instanceof URL ? input.pathname + input.search : String(input);
+      if (target !== '/api/pages') {
+        return new Response(JSON.stringify(product), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      asks++;
+      stalled++;
+      if (stalled === 1) await new Promise<void>((rest) => { release = rest; });
+      return new Response(JSON.stringify(listWithPages), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as unknown as typeof fetch;
+    goto('/');
+    await intoApp(createElement(App, { tickMs: 5 }));
+    await new Promise((step) => setTimeout(step, 40));
+    expect(asks).toBe(1);
+    release?.();
+    await until(() => text().includes('Draft Idea'), 'the first answer');
+  });
+
+  test('a stalled answer shows once it arrives, and the next poll supersedes it', async () => {
+    let servedR9 = false;
+    const superseded = (): boolean => servedR9;
+    let releases: ((value: Response) => void)[] = [];
+    let turn = 0;
+    (globalThis as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL): Promise<Response> => {
+      const target = input instanceof URL ? input.pathname + input.search : String(input);
+      if (target !== '/api/pages') {
+        return new Response(JSON.stringify(product), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      turn++;
+      const which = turn;
+      if (which === 1) {
+        return await new Promise<Response>((rest) => { releases.push(rest); });
+      }
+      servedR9 = true;
+      return new Response(JSON.stringify({ ...listWithPages, revision: 'r9' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as unknown as typeof fetch;
+    goto('/');
+    await intoApp(createElement(App, { tickMs: 5 }));
+    await new Promise((step) => setTimeout(step, 30));
+    expect(text()).not.toContain('Draft Idea');
+    releases[0]?.(new Response(JSON.stringify(listWithPages), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    releases = [];
+    await until(() => text().includes('Draft Idea'), 'the stalled answer');
+    await until(() => superseded(), 'the superseding answer');
+  });
+
+  test('aborts the request still in flight when the app is unmounted', async () => {
+    let aborted = false;
+    (globalThis as { fetch: typeof fetch }).fetch = (async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      return await new Promise<Response>((_rest, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          aborted = true;
+          reject(new DOMException('aborted', 'AbortError'));
+        });
+      });
+    }) as unknown as typeof fetch;
+    goto('/');
+    await intoApp(createElement(App, { tickMs: 5 }));
+    await new Promise((step) => setTimeout(step, 20));
+    expect(aborted).toBe(false);
+    unmount();
+    await new Promise((step) => setTimeout(step, 20));
+    expect(aborted).toBe(true);
+  });
+});
+
+describe('a failed page read that is retried', () => {
+  test('shows the failure while it retries, and recovers when the read succeeds', async () => {
+    let tries = 0;
+    (globalThis as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL): Promise<Response> => {
+      const target = input instanceof URL ? input.pathname + input.search : String(input);
+      if (target === '/api/pages') {
+        return new Response(JSON.stringify(listWithPages), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (target === '/api/product') {
+        return new Response(JSON.stringify(product), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      tries++;
+      if (tries < 3) return new Response(JSON.stringify({ message: 'the wiki does not hold it' }), { status: 500 });
+      return new Response(JSON.stringify(pagesAtR1['docs/vision.md']), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as unknown as typeof fetch;
+    goto('/p/docs/vision.md');
+    await intoApp(createElement(App, { tickMs: 10, pageRetryMs: 5 }));
+    await until(() => text().includes('Could not read the page docs/vision.md'), 'the shown failure');
+    await until(() => document.querySelector('main#page h1')?.textContent === 'Vision', 'the recovered page');
+    expect(tries).toBe(3);
+  });
+
+  test('stops after a bounded number of tries', async () => {
+    const pageTriesLimit = 3;
+    const pageCalls: string[] = [];
+    (globalThis as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL): Promise<Response> => {
+      const target = input instanceof URL ? input.pathname + input.search : String(input);
+      if (target === '/api/pages') {
+        return new Response(JSON.stringify(listWithPages), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (target === '/api/product') {
+        return new Response(JSON.stringify(product), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      pageCalls.push(target);
+      return new Response(JSON.stringify({ message: 'the wiki does not hold it' }), { status: 500 });
+    }) as unknown as typeof fetch;
+    goto('/p/docs/vision.md');
+    await intoApp(createElement(App, { tickMs: 10, pageRetryMs: 5 }));
+    const tries = (): number => pageCalls.filter((call) => call === '/api/page?path=docs%2Fvision.md').length;
+    await until(() => tries() === pageTriesLimit, 'the bounded tries');
+    await new Promise((step) => setTimeout(step, 40));
+    expect(tries()).toBe(pageTriesLimit);
   });
 });
 

@@ -1,13 +1,10 @@
 /**
  * How a link inside a page's Markdown behaves (requirement `pages`): a link to
- * another page of the wiki opens that page; a link whose target the wiki does
- * not hold is shown as its text; an external link opens as it is written.
+ * another page of the wiki opens that page; a link to anything that is not a
+ * page of the wiki — an outside address included — is shown as its text.
  */
 
-export type ResolvedLink =
-  | { kind: 'wiki'; path: string }
-  | { kind: 'external'; href: string }
-  | { kind: 'plain' };
+export type ResolvedLink = { kind: 'wiki'; path: string } | { kind: 'plain' };
 
 /** Joins a relative target against the page it was written on, without a URL object. */
 function resolveRelative(pagePath: string, target: string): string {
@@ -28,17 +25,15 @@ function resolveRelative(pagePath: string, target: string): string {
 
 /**
  * Classifies one Markdown link target by its shape alone. `plain` marks a
- * target that resolves into the product but names no page the wiki holds and
- * no outside address; the reader sees the link's text instead.
+ * target that is not a page of the wiki: it resolves into the product but
+ * names no page the wiki holds, or it points outside the wiki altogether.
+ * The reader sees the link's text instead.
  */
 export function classifyTarget(pagePath: string, href: string): ResolvedLink {
   const target = href.replace(/[#?].*$/, '');
   if (target === '') return { kind: 'plain' };
-  if (/^[a-z][a-z0-9+.-]*:/i.test(target)) {
-    if (/^https?:/i.test(target)) return { kind: 'external', href };
-    return { kind: 'plain' };
-  }
-  if (target.startsWith('//')) return { kind: 'external', href };
+  if (/^[a-z][a-z0-9+.-]*:/i.test(target)) return { kind: 'plain' };
+  if (target.startsWith('//')) return { kind: 'plain' };
   const resolved = target.startsWith('/') ? target.slice(1) : resolveRelative(pagePath, target);
   if (resolved === '') return { kind: 'plain' };
   return { kind: 'wiki', path: resolved };
