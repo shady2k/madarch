@@ -88,6 +88,10 @@ new finding.
 - Rough size, an estimate: six to nine feature runs, about one and a half to
 two weeks of calendar, from the pace so far. The wiki app and the live
 update are new kinds of work for madarch and carry the most uncertainty.
+- Added 2026-10-09 by the owner: the wiki's reading typography and the
+design tokens the editor will share (madarch-iuc), one feature run after
+madarch-rtr lands, displacing no planned work. The editor in the same
+style stays with madarch-j0a in `agent-access`.
 
 ## Next horizon
 
