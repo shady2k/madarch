@@ -3,3 +3,6 @@ dist/
 build/
 *.tsbuildinfo
 .repowise/
+
+# The wiki app build output, rebuilt on first use by madarch serve
+/wiki/app/dist/
