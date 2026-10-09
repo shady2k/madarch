@@ -24,5 +24,8 @@
   },
   "trustedDependencies": [
     "@ladybugdb/core"
-  ]
+  ],
+  "bin": {
+    "madarch": "./scripts/madarch.ts"
+  }
 }
