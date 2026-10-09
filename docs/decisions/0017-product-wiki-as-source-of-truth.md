@@ -1,6 +1,6 @@
 # 0017. The product wiki is the source of truth and the place of work, kept in git
 
-Status: accepted
+Status: accepted; refined by 0019
 Date: 2026-10-09
 
 Partly supersedes 0016: its per-repository contract file installed by the skill
@@ -43,9 +43,9 @@ Option 3, decided by the owner in conversation on 2026-10-09.
 - **Markdown and YAML in git are the truth.** Nothing madarch keeps is more
   authoritative than git.
 - **One write path.** People edit in the wiki, agents through madarch's MCP;
-  both go through madarch, which checks the document's form and refuses an
-  invalid one, then commits it as its author. The contract is that write path,
-  not a file copied into repositories. Comments and discussions are kept in git
+  both go through madarch, which runs the form check the skill set installed
+  and refuses an invalid document, then commits it as its author (0019: the
+  forms, templates and their check are the set's). Comments and discussions are kept in git
   beside their page.
 - **A chat beside every page** (owner, 2026-10-09). The person writes what
   they want and an agent applies it at once, knowing the page and the graph

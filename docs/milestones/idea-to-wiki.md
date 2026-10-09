@@ -26,8 +26,10 @@ the agent saves under `docs/` changes its page without a restart.
 2. **Write the product's intent by the contract, checked and linked.**
 Vision, hypotheses, sources (the record of a brainstorm), user stories, use
 cases and functional requirements, each linked to what it grew from, with
-backlinks. `madarch check` and a commit hook refuse a document out of form
-naming the file, the line and what is wrong; the wiki shows the same error on
+backlinks. The forms, templates and the form check are the skill set's
+(decision 0019): its check, installed in the product repository, refuses a
+document out of form at commit naming the file, the line and what is wrong,
+and madarch reads the documents, links them and shows that check's error on
 the page.
    *Check:* in an example product, a requirement's page shows its use case,
 user story, hypothesis and the quote it came from, and each of those pages
