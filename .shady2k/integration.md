@@ -24,7 +24,7 @@ are the repository's installation, and each person's plugin and hooks are theirs
   `- <capability>/<requirement>: <reason | check ids>`. Optional `design.md`.
 - **Document resources:** the skills' `documents.md` contract and its templates, the product's own document templates included; no local overrides.
 - **Workflow ownership:** shady2k-skills owns the workflow; br is the only task list.
-- **Architecture and explorations:** `docs/system/architecture.md` (not written yet; listed as a present document so it is checked once it is); `docs/explorations/` only when retention is requested.
+- **Architecture and explorations:** `docs/system/architecture.md` (written 2026-09-30; a present document like the others); `docs/explorations/` only when retention is requested.
 - **Glossary and decisions:** `docs/glossary.md`, `docs/decisions/NNNN-<slug>.md` (MADR).
 - **Acceptance records:** a comment on the stage (epic) whose first line is
   `accepted: {"base": "<sha>", "final": "<sha>"}` (older records name
@@ -53,14 +53,14 @@ are the repository's installation, and each person's plugin and hooks are theirs
   with and `check-present.mjs` takes its path matcher from; `check-docs.mjs`
   reads the exported model, not files) and `time-format.mjs`
   (which `check.mjs` reads records by),
-  verbatim copies of shady2k-skills plugin 0.89.0 (setup and rules 0.40.0),
+  verbatim copies of shady2k-skills plugin 0.91.0 (setup and rules 0.41.0),
   compared byte for byte at each setup. Their self-tests run from the plugin's
-  setup skill directory, where their fixtures are. `check.mjs` carries 0.40.0's
+  setup skill directory, where their fixtures are. `check.mjs` carries 0.41.0's
   record rules: a record is retired by a `void` record naming its comment, never
   edited or deleted, and a void that retires nothing only warns
   (`time-void-idle`).
 - **Present documents:** the config's `presentDocuments` (`AGENTS.md`, the
-  glossary, the architecture once written, the current capability specs).
+  glossary, `docs/system/architecture.md`, the current capability specs).
   `node .shady2k/checks/check-present.mjs --config .shady2k/config.json --base
   <rev> [--head <rev>]` runs in the pre-push hook for every pushed ref that
   introduces commits, against the revision just before the first of them (see
@@ -101,9 +101,8 @@ are the repository's installation, and each person's plugin and hooks are theirs
   only, so a record that is damaged, wrong or not to count is never edited or
   deleted either: the run script's `void --comment <comment id>` prints the void
   record, posted the same way, and every reader then acts as if the voided
-  record were not there. `timeRecordsExempt` is empty.
-  `timeRecordsExempt` is empty: at adoption (2026-09-27) no work was active,
-  submitted or implemented.
+  record were not there. `timeRecordsExempt` is empty: at adoption (2026-09-27)
+  no work was active, submitted or implemented.
 - **Tracker layout:** the export `.beads/issues.jsonl` is committed on each
   branch, and each checkout (a git worktree included) has its own br database
   beside its own export, created by the connect command. A branch therefore
@@ -175,8 +174,11 @@ are the repository's installation, and each person's plugin and hooks are theirs
     the exact `br comments add` line for each missing record. Editing
     anything outside the paths the revision leaves out (the tracker export, the
     change records, the current specs and their catalogue) after recording
-    evidence makes a new revision and stales it; editing a change record instead
-    stales the approval receipt whose digest covers what that change decides. Until
+    evidence makes a new revision and stales it. An approval's digest covers what
+    the change decides — its kind, intent, out of scope, deltas and preserved
+    contracts (`documents.mjs` builds it from exactly those) — so editing one of
+    those stales the approval, while an edit elsewhere in the change record (its
+    title, its task list, its rationale, its coverage) does not. Until
     mutation tooling exists (see Mutation checks below), a `mutation` receipt
     is a bounded manual mutation sample, recorded as `passed` with its
     results as the reference; without one, acceptance escalates to the owner
@@ -193,15 +195,25 @@ are the repository's installation, and each person's plugin and hooks are theirs
     change record or syncing specs at closure does not stale evidence, while
     any other edit does.
   - **A receipt stands for what its check reads:** a policy entry's `ignores`
-    names paths its command cannot read; `static`, `test` and `mutation` ignore
-    `docs/` (`tsc` reads `src` and `test`, `bun test` and Stryker read no
-    document under `docs/`; checked 2026-09-27). Their receipts are recorded
-    against `documents.mjs revision --check <id>` (`check:…`, `checkRevision`
-    over the tree with the same exclusions plus `docs/`), exported as
-    `checkRevisions`; `review` and coverage-named checks use the whole
-    revision (`content:…`). An edit under `docs/` stales only those; any other
-    edit stales all. The list only grows where a command is shown not to read a
-    path; changing it stales every receipt.
+    names paths its command cannot read. Only `static` has one, `docs/`, and it
+    is true: `tsc` reads `src` and `test` (`tsconfig.json`'s `include`) and no
+    document. `test` and `mutation` ignore nothing, because the suite reads a
+    document: `test/scenarios.test.ts:872` reads `docs/glossary.md` and asserts
+    its content, so `bun test`, and a Stryker run whose test file is that one,
+    can change verdict with it. This corrects the earlier claim that `bun test`
+    and Stryker read no document under `docs/` (the independent review of the
+    0.41.0 run, 2026-10-09, checked the pin: editing `docs/glossary.md` left the
+    recorded `test` receipt standing). Receipts of a check with an `ignores`
+    entry are recorded against `documents.mjs revision --check <id>` (`check:…`,
+    `checkRevision` over the tree with the same exclusions plus the paths that
+    check cannot read), exported as `checkRevisions`; `review`, coverage-named
+    checks and the checks without `ignores` use the whole revision (`content:…`).
+    An edit under `docs/`, outside the shared exclusions above, therefore
+    leaves `static`'s receipt standing and stales the others; an edit under
+    `.beads/`, `docs/changes/`, `docs/system/capabilities/` or
+    `docs/system/index.md` leaves every check revision unchanged; any other edit
+    stales all. The list only grows where a command is shown not to read a path;
+    changing it stales every receipt.
   - **What a commit owes:** the wrapper judges each commit as it is made, not a
     range: a change is asked for only when the commit stages product code or a
     current spec. A commit that touches only the tracker (filing, commenting,
@@ -233,6 +245,17 @@ are the repository's installation, and each person's plugin and hooks are theirs
 - **Commit-link input and check:** `node .shady2k/adapter.mjs commits --message <file>`
   (pending message) or `--range <a>..<b>` (every commit in a range), piped to
   `node .shady2k/checks/check-commits.mjs -`.
+- **Product repository:** none. This repository is neither a product repository
+  nor a code repository under a product's `repos/`. The program is run from this
+  repository, `node <setup skill directory>/product.mjs where`, and prints
+  `where: none` (checked 2026-10-09 in the 0.41.0 run); started anywhere else,
+  or given a folder, it answers about that folder instead. The set's
+  product-repository layout (`workspace.yaml`, `repos/`) is therefore not
+  installed here, and `docs/` is this repository's own.
+- **Task ids of this repository's commits resolve against:** this repository's
+  own tracker, `.beads/issues.jsonl` (the adapter's `commits` operation reads
+  the working tree, `push.mjs` the export at the pushed tip). There is no
+  product repository above it to resolve them against.
 - **Local entry points:** `.githooks/post-checkout` (connects a new
   worktree's tracker), `.githooks/pre-commit` (privacy guard, tracker home
   guard, the tooling's tests when tooling is staged, then backlog gate), `.githooks/commit-msg`
@@ -339,7 +362,7 @@ Its own reference: `br robot-docs guide`, `br <command> --help`. Pass
 
 | operation | project implementation |
 | --- | --- |
-| create | `br create --type <task\|bug\|chore\|epic> --title … --labels mvp,<area> [--parent <epic>] --description …`; an epic states `## Done when` |
+| create | `br create --type <task\|bug\|chore\|epic> --title … --labels <current milestone>,<area> [--parent <epic>] --description …`, both labels taken from the config (`currentMilestone` and one of `areaLabels`); an epic states `## Done when` |
 | link / unlink | `br dep add <issue> <prerequisite>` (type `blocks`, gating only), `br dep remove`; provenance uses `--type related` or `discovered-from`, which the adapter ignores. br refuses an edge that would close a cycle (`Cycle detected in dependencies`), so the `dependency-cycle` rule guards an export that already holds one |
 | claim | `node .shady2k/adapter.mjs claim <id> --actor <agent full name>`, then the run script's claim record posted on the item (see Work records). It claims only an open, unheld leaf, and judges each open blocker: an `implemented` prerequisite in the same stage passes once its recorded revision is an ancestor of `HEAD`; one in an earlier stage of the same feature passes once that stage is accepted (the adapter exports the final revision of its latest `accepted:` record as `acceptance`) and that revision is an ancestor of `HEAD`, though the stage stays open until the feature lands; one in another feature must be closed; any other open one refuses with its reason. br's `--claim` stays atomic and exclusive (forced past br's own blocker check only in those cases), the blockers are judged again right after the claim, which is released if one no longer passes and it is still this actor's, and the edge is kept. Known limit: br has no release-if-mine, so a release racing another actor's claim in the moment between the check and the release could clear it; with one worker this does not arise |
 | release | `br update <id> --status open --assignee ""` for unfinished holds only; implemented work keeps its label and record |
