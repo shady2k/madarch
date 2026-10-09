@@ -33,6 +33,8 @@ import type { Graphs } from './graphs.js';
 import { createGraphs } from './graphs.js';
 import type { SourceStoreResult, SourceStores } from './sources.js';
 import { createSourceStores, sourceNameProblem } from './sources.js';
+import { createWikiPart, type WikiPart } from './wiki-app.js';
+import { openProductWiki } from '../product-wiki/pages.js';
 
 /** The largest body the server reads: 50 MB, far past any compiled model sent so far. */
 const MAX_BODY_BYTES = 50 * 1024 * 1024;
@@ -56,8 +58,12 @@ const DEPTH_ACCEPTED = 'a whole number from 1';
 const SEND_COMMAND = "bun scripts/send-model.ts <repository> --server <this server's address>";
 
 export interface ServerOptions {
-  /** The folder the histories and their sidecars live in; it must exist (see `createSourceStores`). */
-  dataFolder: string;
+  /** The folder the histories and their sidecars live in; required with the model's routes, left out when only a product's wiki is served. */
+  dataFolder?: string;
+  /** The product folder served as its wiki: read once, then read fresh at every ask — never written, never asked a git question. */
+  productFolder?: string;
+  /** The folder the app's built files served from (stage 2's build); without it only the API answers. */
+  appFolder?: string;
   /** The address to listen on; `127.0.0.1` unless said otherwise (decision 0012). */
   host?: string;
   /** The port to listen on; 4180 by default, 0 for a free port. */
@@ -80,7 +86,7 @@ export interface StartedServer {
 }
 
 /** One refusal's content, the shape the error answers carry. */
-interface Refusal {
+export interface Refusal {
   message: string;
   field?: string;
   accepted?: string;
@@ -92,8 +98,34 @@ interface Refusal {
   logMessage?: string;
 }
 
+/**
+ * The answer-making the wiki part is given: the same shapes the handler
+ * itself replies with, handed over so the wiki's refusals are built in one
+ * place beside the model routes'. The wiki's refusal body is held flat as
+ * `{"message"}` — held **beside** this project's own {"error": {...}}
+ * envelope, both in one body — because the app's reader
+ * (wiki/app/src/api.ts) reads the message from the body's top level, and
+ * a reader of this server's refusals still finds the usual envelope even
+ * in a wiki answer.
+ */
+export interface ReplyMaker {
+  json: (status: number, body: unknown) => Response;
+  refused: (status: number, error: Refusal) => Handled;
+}
+
+/** A plain JSON answer. */
+function makeJson(status: number, body: unknown): Response {
+  return Response.json(body, { status });
+}
+
+/** A wiki refusal: the flat message the app reads, beside the usual error envelope; the log-safe message kept for the log line. */
+function wikiRefused(status: number, error: Refusal): Handled {
+  const { logMessage, ...clientError } = error;
+  return { response: Response.json({ message: error.message, error: clientError }, { status }), refusal: logMessage ?? error.message };
+}
+
 /** What one route's handling produced, beside the answer itself: what the log line names. */
-interface Handled {
+export interface Handled {
   response: Response;
   /** The source the request named, when it named one. */
   source?: string;
@@ -127,6 +159,14 @@ interface ClaimedRename {
 }
 
 export function startServer(options: ServerOptions): StartedServer {
+  if (options.dataFolder === undefined && options.productFolder === undefined) {
+    throw new Error("the server is started with neither a data folder nor a product folder: give --data <folder> for the sources' histories, --product <folder> for a product's wiki, or both");
+  }
+  const wiki = options.productFolder === undefined ? undefined : openProductWiki(options.productFolder);
+  if (wiki !== undefined && !wiki.ok) {
+    throw new Error(`the product ${JSON.stringify(options.productFolder!)} cannot be served as a wiki: ${wiki.message}`);
+  }
+  const productWiki = wiki !== undefined && wiki.ok ? wiki.wiki : undefined;
   const clock: Clock = options.clock ?? { now: () => Date.now() };
   // The writer is the safe place: every line is escaped here once, so a
   // control character in a request field, a commit id or a cause can
@@ -135,9 +175,18 @@ export function startServer(options: ServerOptions): StartedServer {
   const errorSink = options.errorLog ?? ((line: string) => console.error(line));
   const log = (line: string) => sink(escapeControlCharacters(line));
   const errorLog = (line: string) => errorSink(escapeControlCharacters(line));
-  const sources = createSourceStores({ dataFolder: options.dataFolder, clock, log });
-  const graphs = createGraphs({ historyOf: (source) => sources.historyOf(source), clock });
-  const handle = createHandler({ sources, graphs, log, errorLog });
+  const sources = options.dataFolder === undefined ? undefined : createSourceStores({ dataFolder: options.dataFolder, clock, log });
+  const graphs = sources === undefined
+    ? undefined
+    : createGraphs({ historyOf: (source) => sources.historyOf(source), clock });
+  const handle = createHandler({
+    sources,
+    graphs,
+    log,
+    errorLog,
+    wiki: productWiki === undefined ? undefined : createWikiPart(makeJson, wikiRefused, productWiki, options.appFolder),
+    appFolder: options.appFolder,
+  });
   const server = Bun.serve({ hostname: options.host ?? '127.0.0.1', port: options.port ?? 4180, fetch: handle });
   return {
     hostname: server.url.hostname,
@@ -145,19 +194,28 @@ export function startServer(options: ServerOptions): StartedServer {
     url: server.url.origin,
     stop() {
       server.stop(true);
-      graphs.close();
-      sources.close();
+      graphs?.close();
+      sources?.close();
     },
   };
 }
 
 function createHandler(dependencies: {
-  sources: SourceStores;
-  graphs: Graphs;
+  sources?: SourceStores;
+  graphs?: Graphs;
   log: (line: string) => void;
   errorLog: (line: string) => void;
+  /** The product's wiki routes and app files, when a product folder was given. */
+  wiki?: WikiPart;
+  appFolder?: string;
 }): (request: Request) => Promise<Response> {
-  const { sources, graphs, log, errorLog } = dependencies;
+  const { log, errorLog, wiki } = dependencies;
+  // The model routes are put in the table only when a data folder was
+  // given, so their handlers below can never be entered without the
+  // sources and the graphs: the types stay asserted, the guard is the
+  // route table above, and a product-only server holds neither.
+  const sources = dependencies.sources as SourceStores;
+  const graphs = dependencies.graphs as Graphs;
 
   /** One way in. A new route is one more entry here, nothing else. */
   interface Route {
@@ -166,11 +224,22 @@ function createHandler(dependencies: {
     handle: (request: Request) => Handled | Promise<Handled>;
   }
 
+  // The model routes are the server's own; the wiki's answer beside them,
+  // both kept apart by what the server was given.
   const routes: Route[] = [
-    { method: 'POST', path: '/models', handle: storeModel },
-    { method: 'POST', path: '/views', handle: answerView },
-    { method: 'POST', path: '/sources', handle: claimRename },
-    { method: 'GET', path: '/sources', handle: listSources },
+    ...(sources !== undefined
+      ? ([
+          { method: 'POST', path: '/models', handle: storeModel },
+          { method: 'POST', path: '/views', handle: answerView },
+          { method: 'POST', path: '/sources', handle: claimRename },
+          { method: 'GET', path: '/sources', handle: listSources },
+        ] as Route[])
+      : []),
+    ...(wiki !== undefined ? ([
+      { method: 'GET', path: '/api/product', handle: () => wiki.product() },
+      { method: 'GET', path: '/api/pages', handle: () => wiki.pages() },
+      { method: 'GET', path: '/api/page', handle: wiki.page },
+    ] as Route[]) : []),
   ];
 
   function json(status: number, body: unknown, headers?: Record<string, string>): Response {
@@ -650,9 +719,21 @@ function createHandler(dependencies: {
     try {
       const onPath = routes.filter((each) => each.path === pathname);
       if (onPath.length === 0) {
-        handled = refused(404, {
-          message: `no such path "${pathname}": the server offers ${routes.map((each) => `${each.method} ${each.path}`).join(', ')}`,
-        });
+        const served = wiki === undefined || !pathname.startsWith('/api/') ? wiki?.app(pathname) : undefined;
+        if (served !== undefined) {
+          handled = served;
+        } else {
+          const offered = routes.map((each) => `${each.method} ${each.path}`).join(', ');
+          // The wiki's reader reads the refusal's message from the body's
+          // top level (see `wikiRefused`), so the wiki mode's refusals are
+          // built with it too; the model mode's refusals keep their own
+          // shape, exactly as they were.
+          handled = wiki !== undefined
+            ? wikiRefused(404, { message: `no such path "${pathname}": the server offers ${offered}` })
+            : refused(404, {
+                message: `no such path "${pathname}": the server offers ${offered}`,
+              });
+        }
       } else {
         const route = onPath.find((each) => each.method === request.method);
         if (route === undefined) {

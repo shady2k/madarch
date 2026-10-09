@@ -97,5 +97,20 @@ export { createLadybugEngine, executionThreadsForTests, preparedStatementCacheSi
 export { createSourceStores, sourceNameProblem, type SourceHead, type SourceStores, type SourceStoresOptions, type SourceStoreResult } from './server/sources.js';
 export { createGraphs, type Graph, type Graphs, type GraphsOptions } from './server/graphs.js';
 export { startServer, type ServerOptions, type StartedServer } from './server/http.js';
+export {
+  createWikiPart,
+  type WikiPart,
+} from './server/wiki-app.js';
+export {
+  DOCS_FOLDER,
+  PAGE_ADDRESS_PREFIX,
+  openProductWiki,
+  type OpenedProductWiki,
+  type ProductWiki,
+  type ProductWikiPage,
+  type ProductWikiPages,
+  type WikiPage,
+  type WikiPageEntry,
+} from './product-wiki/pages.js';
 
 export { loadAndCompileModel, type LoadAndCompileResult } from './model/load-and-compile.js';
