@@ -18,6 +18,16 @@ const cleanEnv = (extra) => ({
 const made = [];
 process.on('exit', () => { for (const dir of made) rmSync(dir, { recursive: true, force: true }); });
 
+// The files connect.sh refuses a checkout without: read from the command itself,
+// so a file added to one is added to the other.
+function connectList() {
+  const text = readFileSync(join(HERE, 'connect.sh'), 'utf8');
+  const from = text.indexOf('# Every local file a hook reads');
+  const block = text.slice(from, text.indexOf('; do', from));
+  return block.split('\n').flatMap((line) => line.replace(/\\$/, '').trim().split(/\s+/))
+    .filter((word) => /^\.(shady2k|githooks|beads)\//.test(word));
+}
+
 function clone() {
   const top = mkdtempSync(join(tmpdir(), 'madarch-hooks-'));
   made.push(top);
@@ -34,22 +44,15 @@ function clone() {
   run('git', ['config', 'user.email', 'test@example.com']);
   run('git', ['config', 'user.name', 'test']);
   run('git', ['config', 'commit.gpgsign', 'false']);
-  // Every local file a hook reads: connect.sh refuses a clone missing one.
-  for (const [from, to] of [
-    ['../.githooks/privacy-guard.sh', '.githooks/privacy-guard.sh'], ['connect.sh', '.shady2k/connect.sh'],
-    ['adapter.mjs', '.shady2k/adapter.mjs'], ['../.githooks/tracker-home.sh', '.githooks/tracker-home.sh'],
-    ['../.githooks/post-checkout', '.githooks/post-checkout'], ['config.json', '.shady2k/config.json'],
-    ['push.mjs', '.shady2k/push.mjs'], ['jsonl-clean.mjs', '.shady2k/jsonl-clean.mjs'],
-    ['documents.mjs', '.shady2k/documents.mjs'], ['documents.json', '.shady2k/documents.json'],
-    ['document-policy.json', '.shady2k/document-policy.json'],
-    ['checks/check.mjs', '.shady2k/checks/check.mjs'], ['checks/time-format.mjs', '.shady2k/checks/time-format.mjs'],
-    ['checks/check-commits.mjs', '.shady2k/checks/check-commits.mjs'], ['checks/check-present.mjs', '.shady2k/checks/check-present.mjs'],
-    ['checks/document-format.mjs', '.shady2k/checks/document-format.mjs'], ['checks/check-product.mjs', '.shady2k/checks/check-product.mjs'],
-    ['../.githooks/pre-commit', '.githooks/pre-commit'], ['../.githooks/commit-msg', '.githooks/commit-msg'],
-    ['../.githooks/pre-push', '.githooks/pre-push'],
-  ]) {
-    mkdirSync(dirname(join(root, to)), { recursive: true });
-    copyFileSync(join(HERE, from), join(root, to));
+  // Every local file a hook reads, taken from the connect command's own list so
+  // the two cannot drift: connect.sh refuses a clone missing one of them. The
+  // tracker export is not on that list here; the test writes its own below.
+  const listed = connectList();
+  if (listed.length < 15) throw new Error(`the connect command's file list could not be read (${listed.length} entries)`);
+  for (const path of listed) {
+    if (!path.startsWith('.shady2k/') && !path.startsWith('.githooks/')) continue;
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    copyFileSync(join(HERE, path.startsWith('.githooks/') ? `../${path}` : path.slice('.shady2k/'.length)), join(root, path));
   }
   mkdirSync(join(root, '.beads'));
   writeFileSync(join(root, '.beads/issues.jsonl'), '');

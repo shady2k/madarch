@@ -54,9 +54,13 @@ for f in \
   .shady2k/documents.mjs .shady2k/documents.json .shady2k/document-policy.json \
   .shady2k/checks/check.mjs .shady2k/checks/time-format.mjs \
   .shady2k/checks/check-commits.mjs .shady2k/checks/check-present.mjs \
-  .shady2k/checks/document-format.mjs .shady2k/checks/check-product.mjs \
+  .shady2k/checks/check-docs.mjs .shady2k/checks/document-format.mjs \
+  .shady2k/checks/check-product.mjs \
+  .shady2k/adapter.test.mjs .shady2k/documents.test.mjs .shady2k/hooks.test.mjs \
+  .shady2k/push.test.mjs \
   .githooks/privacy-guard.sh .githooks/tracker-home.sh .githooks/pre-commit \
-  .githooks/commit-msg .githooks/pre-push .beads/issues.jsonl; do
+  .githooks/commit-msg .githooks/pre-push .githooks/post-checkout \
+  .shady2k/connect.sh .beads/issues.jsonl; do
   [ -f "$f" ] || need "the files the hooks read: $f is missing from this checkout"
 done
 

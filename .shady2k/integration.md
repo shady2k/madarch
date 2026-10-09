@@ -6,7 +6,10 @@ the config. No installation state is recorded: the installed checks' versions
 are the repository's installation, and each person's plugin and hooks are theirs.
 
 - **Config:** `.shady2k/config.json`; read current values there.
-- **Scope:** personal. Hooks run only in the owner's clone; nothing is enforced in CI.
+- **Scope:** personal. Hooks run only in the owner's clone. The backlog,
+  commit-link and document gates are enforced nowhere else; the set requires
+  the product-documents check in CI whatever the scope, so
+  `.github/workflows/documents.yml` runs it on every push.
 - **Vision, roadmap and charters:** `docs/vision.md` (roadmap as its section),
   `docs/milestones/<milestone>.md`; status comes from the tracker. Vision and the MVP charter (`docs/milestones/mvp.md`) written.
 - **Current specifications:** `docs/system/capabilities/<name>.md`, catalogued in
@@ -46,8 +49,10 @@ are the repository's installation, and each person's plugin and hooks are theirs
 - **Backlog adapter:** `node .shady2k/adapter.mjs backlog [--at <git-rev>]`;
   reads `.beads/issues.jsonl` (br rewrites it on every write), or that file at a revision.
 - **Rules:** `.shady2k/checks/{check,check-commits,check-docs,check-present,check-product}.mjs`,
-  `document-format.mjs` (which `check-docs.mjs` and `check-present.mjs` read
-  documents by) and `time-format.mjs` (which `check.mjs` reads records by),
+  `document-format.mjs` (which `documents.mjs` parses the project's documents
+  with and `check-present.mjs` takes its path matcher from; `check-docs.mjs`
+  reads the exported model, not files) and `time-format.mjs`
+  (which `check.mjs` reads records by),
   verbatim copies of shady2k-skills plugin 0.89.0 (setup and rules 0.40.0),
   compared byte for byte at each setup. Their self-tests run from the plugin's
   setup skill directory, where their fixtures are. `check.mjs` carries 0.40.0's
@@ -71,8 +76,11 @@ are the repository's installation, and each person's plugin and hooks are theirs
   `node .shady2k/checks/check-product.mjs --rev "${{ github.sha }}"` on every
   push. It needs no config: the forms are the skill set's product documents, and
   the ids under `docs/` are resolved against each other. This repository keeps
-  no product document today, so it passes untouched; a refusal names the file
-  and the line.
+  no product document today, so it passes untouched, and until the first one
+  exists it returns before it resolves any id: a capability or a change record
+  naming a product requirement that does not exist passes, so its green says
+  nothing about product documents this repository does not keep. A refusal names
+  the file and the line.
 - **Work records:** the adapter's `backlog` export carries, on each issue,
   every br comment whose text starts with `[shady2k-time`, raw, as `{id, at,
   author, body}` (br's comment id as a string, its `created_at` and author);
@@ -114,8 +122,11 @@ are the repository's installation, and each person's plugin and hooks are theirs
     need it. `export` prints the checker's inputs; `revision [--candidate
     <rev>]` prints the revision evidence is recorded against. Exit 0 clean, 1
     refused, 2 unreadable input (never a pass). Settings, policy and
-    exemptions are read from the candidate itself, so an uncommitted edit to
-    them changes nothing.
+    exemptions are read from the same tree as the thing being judged: the index
+    in the commit hook, the working tree for `check` with no `--candidate` (a
+    revision otherwise, `HEAD` for `acceptance`). A working-tree edit therefore
+    cannot weaken the verdict on what a commit or a revision holds, and it does
+    take effect when the working tree is the candidate.
   - **Phases:** the commit-msg hook runs `product` on every commit; `feature`
     for each change owning a task of a commit that stages product code
     (anything outside `docs/`, `.shady2k/`, `.beads/`, `.githooks/`,
@@ -154,9 +165,11 @@ are the repository's installation, and each person's plugin and hooks are theirs
     below). An approval's reference is
     the owner's words from the preflight; its digest covers what the change
     decides (kind, intent, out of scope, deltas, preserves). A refusal prints
-    the exact `br comments add` line for each missing record. Editing the
-    change record, or anything else outside the tracker and current specs,
-    after recording evidence makes a new revision and stales it. Until
+    the exact `br comments add` line for each missing record. Editing
+    anything outside the paths the revision leaves out (the tracker export, the
+    change records, the current specs and their catalogue) after recording
+    evidence makes a new revision and stales it; editing a change record instead
+    stales the approval receipt whose digest covers what that change decides. Until
     mutation tooling exists (see Mutation checks below), a `mutation` receipt
     is a bounded manual mutation sample, recorded as `passed` with its
     results as the reference; without one, acceptance escalates to the owner
