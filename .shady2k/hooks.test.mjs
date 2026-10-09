@@ -34,7 +34,20 @@ function clone() {
   run('git', ['config', 'user.email', 'test@example.com']);
   run('git', ['config', 'user.name', 'test']);
   run('git', ['config', 'commit.gpgsign', 'false']);
-  for (const [from, to] of [['../.githooks/privacy-guard.sh', '.githooks/privacy-guard.sh'], ['connect.sh', '.shady2k/connect.sh'], ['adapter.mjs', '.shady2k/adapter.mjs'], ['../.githooks/tracker-home.sh', '.githooks/tracker-home.sh'], ['../.githooks/post-checkout', '.githooks/post-checkout']]) {
+  // Every local file a hook reads: connect.sh refuses a clone missing one.
+  for (const [from, to] of [
+    ['../.githooks/privacy-guard.sh', '.githooks/privacy-guard.sh'], ['connect.sh', '.shady2k/connect.sh'],
+    ['adapter.mjs', '.shady2k/adapter.mjs'], ['../.githooks/tracker-home.sh', '.githooks/tracker-home.sh'],
+    ['../.githooks/post-checkout', '.githooks/post-checkout'], ['config.json', '.shady2k/config.json'],
+    ['push.mjs', '.shady2k/push.mjs'], ['jsonl-clean.mjs', '.shady2k/jsonl-clean.mjs'],
+    ['documents.mjs', '.shady2k/documents.mjs'], ['documents.json', '.shady2k/documents.json'],
+    ['document-policy.json', '.shady2k/document-policy.json'],
+    ['checks/check.mjs', '.shady2k/checks/check.mjs'], ['checks/time-format.mjs', '.shady2k/checks/time-format.mjs'],
+    ['checks/check-commits.mjs', '.shady2k/checks/check-commits.mjs'], ['checks/check-present.mjs', '.shady2k/checks/check-present.mjs'],
+    ['checks/document-format.mjs', '.shady2k/checks/document-format.mjs'], ['checks/check-product.mjs', '.shady2k/checks/check-product.mjs'],
+    ['../.githooks/pre-commit', '.githooks/pre-commit'], ['../.githooks/commit-msg', '.githooks/commit-msg'],
+    ['../.githooks/pre-push', '.githooks/pre-push'],
+  ]) {
     mkdirSync(dirname(join(root, to)), { recursive: true });
     copyFileSync(join(HERE, from), join(root, to));
   }
@@ -136,6 +149,16 @@ test('connect: names what is missing and changes nothing', () => {
   assert.match(r.out, /readable tracker export/);
   assert.equal(c.run('git', ['config', '--get', 'core.hooksPath']).code, 1, 'core.hooksPath must stay unset');
   assert.equal(c.run('git', ['config', '--get', 'filter.br-portable-path.clean']).code, 1, 'the filter must stay unset');
+});
+
+test('connect: a file a hook reads is missing, so it names it and changes nothing', () => {
+  const c = clone();
+  c.userList('secret-xyz\n');
+  rmSync(join(c.root, '.shady2k/checks/check-product.mjs'));
+  const r = c.run('sh', ['.shady2k/connect.sh']);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /check-product\.mjs is missing/);
+  assert.equal(c.run('git', ['config', '--get', 'core.hooksPath']).code, 1, 'core.hooksPath must stay unset');
 });
 
 test('connect: connects, and a rerun is harmless', { skip: !hasBr && 'br is not installed' }, () => {

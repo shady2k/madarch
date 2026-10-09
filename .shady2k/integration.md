@@ -19,7 +19,7 @@ are the repository's installation, and each person's plugin and hooks are theirs
   by hand: the document adapter compares each proposal with the capability at
   `Base:`. `## Preserved contracts` and `## Coverage` are `None.` or bullets
   `- <capability>/<requirement>: <reason | check ids>`. Optional `design.md`.
-- **Document resources:** the skills' `documents.md` contract and templates; no local overrides.
+- **Document resources:** the skills' `documents.md` contract and its templates, the product's own document templates included; no local overrides.
 - **Workflow ownership:** shady2k-skills owns the workflow; br is the only task list.
 - **Architecture and explorations:** `docs/system/architecture.md` (not written yet; listed as a present document so it is checked once it is); `docs/explorations/` only when retention is requested.
 - **Glossary and decisions:** `docs/glossary.md`, `docs/decisions/NNNN-<slug>.md` (MADR).
@@ -45,12 +45,15 @@ are the repository's installation, and each person's plugin and hooks are theirs
 
 - **Backlog adapter:** `node .shady2k/adapter.mjs backlog [--at <git-rev>]`;
   reads `.beads/issues.jsonl` (br rewrites it on every write), or that file at a revision.
-- **Rules:** `.shady2k/checks/{check,check-commits,check-docs,check-present}.mjs`,
+- **Rules:** `.shady2k/checks/{check,check-commits,check-docs,check-present,check-product}.mjs`,
   `document-format.mjs` (which `check-docs.mjs` and `check-present.mjs` read
   documents by) and `time-format.mjs` (which `check.mjs` reads records by),
-  verbatim copies of shady2k-skills plugin 0.85.0 (setup and rules 0.38.0).
-  Their self-tests run from the plugin's setup skill directory, where their
-  fixtures are.
+  verbatim copies of shady2k-skills plugin 0.89.0 (setup and rules 0.40.0),
+  compared byte for byte at each setup. Their self-tests run from the plugin's
+  setup skill directory, where their fixtures are. `check.mjs` carries 0.40.0's
+  record rules: a record is retired by a `void` record naming its comment, never
+  edited or deleted, and a void that retires nothing only warns
+  (`time-void-idle`).
 - **Present documents:** the config's `presentDocuments` (`AGENTS.md`, the
   glossary, the architecture once written, the current capability specs).
   `node .shady2k/checks/check-present.mjs --config .shady2k/config.json --base
@@ -60,6 +63,16 @@ are the repository's installation, and each person's plugin and hooks are theirs
   there is no pull-request step, so the push stands in for a pull request's
   opening. At adoption (2026-09-29) it reported no dead references and two
   areas no present document mentions (`examples/`, `scripts/`), filed as debt.
+- **Product documents:** `.shady2k/checks/check-product.mjs`, the set's check of
+  the product's own documents (sources, hypotheses, user stories, use cases,
+  product requirements, open questions, prototypes, results). The commit-msg
+  hook runs `node .shady2k/checks/check-product.mjs --staged` on what the commit
+  stages, and `.github/workflows/documents.yml` runs
+  `node .shady2k/checks/check-product.mjs --rev "${{ github.sha }}"` on every
+  push. It needs no config: the forms are the skill set's product documents, and
+  the ids under `docs/` are resolved against each other. This repository keeps
+  no product document today, so it passes untouched; a refusal names the file
+  and the line.
 - **Work records:** the adapter's `backlog` export carries, on each issue,
   every br comment whose text starts with `[shady2k-time`, raw, as `{id, at,
   author, body}` (br's comment id as a string, its `created_at` and author);
@@ -69,7 +82,11 @@ are the repository's installation, and each person's plugin and hooks are theirs
   machine's real host name, which this public repository must not carry).
   A record is posted exactly as printed: write the `body` of the script's
   `--json` output to a file and `br comments add <id> --file <file> --actor
-  <agent> --author <agent>`; never retype, reflow or edit it.
+  <agent> --author <agent>`; never retype, reflow or edit it. A tracker appends
+  only, so a record that is damaged, wrong or not to count is never edited or
+  deleted either: the run script's `void --comment <comment id>` prints the void
+  record, posted the same way, and every reader then acts as if the voided
+  record were not there. `timeRecordsExempt` is empty.
   `timeRecordsExempt` is empty: at adoption (2026-09-27) no work was active,
   submitted or implemented.
 - **Tracker layout:** the export `.beads/issues.jsonl` is committed on each
@@ -197,7 +214,8 @@ are the repository's installation, and each person's plugin and hooks are theirs
 - **Local entry points:** `.githooks/post-checkout` (connects a new
   worktree's tracker), `.githooks/pre-commit` (privacy guard, tracker home
   guard, the tooling's tests when tooling is staged, then backlog gate), `.githooks/commit-msg`
-  (commit links, then the document gate) and `.githooks/pre-push`
+  (commit links, then the product-documents check on the staged tree, then the
+  document gate) and `.githooks/pre-push`
   (`.shady2k/push.mjs`: commit links of every introduced commit, then the
   present-documents check).
 - **What a push introduces:** for each pushed ref, the commits of its tip (a
@@ -243,15 +261,18 @@ are the repository's installation, and each person's plugin and hooks are theirs
   email (the one on the GitHub profile; owner decision 2026-09-24, madarch-xh6).
 - **Fresh clone:** create the private pattern list, set `user.email` to the
   owner's public email, then run `sh .shady2k/connect.sh`.
-- **CI:** GitHub Actions (`.github/workflows/ci.yml`) on every push of any
-  branch, once (a pull request from this repository shows its branch's push
-  run; `[skip ci]` in the pushed commit's message skips unfinished work):
-  `bun install --frozen-lockfile`, `bun run check`, `bun test`,
-  `bun run views:check` on Linux, about 7 minutes. A change touching only
-  `docs/`, `.beads/`, `.shady2k/`, `.githooks/` or root `*.md` files runs
-  nothing (`paths-ignore`): it cannot touch the product. It runs the product's
-  checks only; the backlog, commit-link and document gates stay in the local
-  hooks (personal scope).
+- **CI:** GitHub Actions on every push of any branch, once (a pull request from
+  this repository shows its branch's push run; `[skip ci]` in the pushed
+  commit's message skips unfinished work). `.github/workflows/ci.yml` runs
+  `bun install --frozen-lockfile`, `bun run check`, `bun test` and
+  `bun run views:check` on Linux, about 7 minutes; a change touching only
+  `docs/`, `.beads/`, `.shady2k/`, `.githooks/`, `.github/workflows/` or root
+  `*.md` files runs nothing there (`paths-ignore`): it cannot touch the product.
+  `.github/workflows/documents.yml` runs the product-documents check on every
+  push whatever the paths, about 15 seconds, as the set requires it in CI
+  whatever the project's scope. In personal scope the backlog, commit-link and
+  document gates stay in the local hooks only; the product-documents check is
+  the one that runs both.
 - **Bulk-edit age correction:** `check.mjs --ages-from <before.json> --ages-through <after.json>`
   with adapter snapshots taken before and after the edit.
 - **Runtime:** Bun 1.4.2 (`packageManager` in `package.json`), TypeScript 7
@@ -296,7 +317,7 @@ Its own reference: `br robot-docs guide`, `br <command> --help`. Pass
 | submitted | worker: `br update <id> --add-label submitted --assignee ""` and `br comments add <id> 'submitted: {"revision":…,"evidence":…}'` |
 | reopen | `br reopen <id>`, remove `implemented`/`submitted` labels, comment why; reassess dependants |
 | close | `br close <id> --reason …` after stage acceptance, or with a cancellation/duplicate reason |
-| comment / edit | `br comments add`, `br update` (title, description, parent, labels); a work record posted exactly as the run script printed it (`--file`), never reflowed or edited |
+| comment / edit | `br comments add`, `br update` (title, description, parent, labels); a work record posted exactly as the run script printed it (`--file`), never reflowed, edited or deleted, and a wrong one retired by the run script's `void`, posted the same way |
 | defer / undefer | `br defer <id> --until <date>`, `br undefer <id>` |
 | milestone / label | labels from the config's `milestoneLabels` and `areaLabels` |
 | ready | `br ready --label <current milestone> [--parent <stage>]`, excluding `submitted`/`implemented` labels. br treats only closed prerequisites as satisfied; the coordinator also treats as satisfied an integrated `implemented` prerequisite inside one stage, and one in an accepted earlier stage of the same feature whose accepted revision is in the checkout, by the rules of the claim operation, which judges them |

@@ -1,0 +1,22 @@
+name: Product documents
+
+# The product-documents check of shady2k-skills (.shady2k/checks/check-product.mjs):
+# a product document under docs/ must be in the set's form and every id it names
+# must exist. It runs on every push, whatever the change touches, because a
+# document is written in the same push that adds it while the product's own
+# checks below skip document-only changes (see .shady2k/integration.md,
+# "Product documents"). This repository keeps no product document today, so it
+# passes untouched; it refuses as soon as one is written out of form.
+# Unfinished work skips the run with [skip ci] in the pushed commit's message,
+# as in ci.yml.
+on: push
+
+jobs:
+  product-documents:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node .shady2k/checks/check-product.mjs --rev "${{ github.sha }}"

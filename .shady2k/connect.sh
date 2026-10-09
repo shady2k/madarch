@@ -47,6 +47,19 @@ if command -v node >/dev/null 2>&1 && ! node .shady2k/adapter.mjs backlog >/dev/
   need "a readable tracker export: node .shady2k/adapter.mjs backlog fails on .beads/issues.jsonl (run it to see why)"
 fi
 
+# Every local file a hook reads. A hook that cannot find one refuses the commit
+# and names this command; connect says what is missing before it writes anything.
+for f in \
+  .shady2k/adapter.mjs .shady2k/config.json .shady2k/push.mjs .shady2k/jsonl-clean.mjs \
+  .shady2k/documents.mjs .shady2k/documents.json .shady2k/document-policy.json \
+  .shady2k/checks/check.mjs .shady2k/checks/time-format.mjs \
+  .shady2k/checks/check-commits.mjs .shady2k/checks/check-present.mjs \
+  .shady2k/checks/document-format.mjs .shady2k/checks/check-product.mjs \
+  .githooks/privacy-guard.sh .githooks/tracker-home.sh .githooks/pre-commit \
+  .githooks/commit-msg .githooks/pre-push .beads/issues.jsonl; do
+  [ -f "$f" ] || need "the files the hooks read: $f is missing from this checkout"
+done
+
 if [ -n "$missing" ]; then
   echo "connect: this clone is not connected; nothing was changed. Missing:$missing"
   exit 1
