@@ -85,7 +85,15 @@ export function readProduct(productFolder: string): ProductRead {
     value = doc.toJS();
   } catch (error) {
     const reason = (error as Error).message;
-    const line = aliasLine(doc, lineCounter);
+    // The ordered walk answers only when the caught failure is itself an
+    // unresolved alias: yaml's own message names it — "Unresolved alias
+    // (the anchor must be set before the alias): <name>" — and that text
+    // decides it. Every other conversion failure — the alias limit
+    // ("Excessive alias count indicates a resource exhaustion attack"),
+    // anything else — ended conversion at a place no alias stands on; the
+    // walk would blame an alias conversion never reached, so those report
+    // line 1, honestly unknown.
+    const line = reason.includes('Unresolved alias') ? aliasLine(doc, lineCounter) : undefined;
     return {
       ok: false,
       file: manifestFile,
@@ -160,9 +168,10 @@ export function readProduct(productFolder: string): ProductRead {
  * order: walking the document as a reader reads it, an anchor counts
  * from where it was defined, and the first alias whose anchor was not
  * defined before it — a forward reference or a name that never appears —
- * is the one the reader hits and the one to name. When every alias
- * resolves — the failure is not about aliases, an alias limit reached —
- * no line is blamed: the refusal falls back to line 1, honestly unknown.
+ * is the one the reader hits and the one to name. The reader consults
+ * it only when the caught conversion failure is itself an unresolved
+ * alias (see the `toJS` catch); any other failure — an alias limit
+ * reached, anything else — names no alias and blames no line.
  */
 function aliasLine(doc: { contents: unknown }, lineCounter: LineCounter): number | undefined {
   if (!isMap(doc.contents)) return undefined;

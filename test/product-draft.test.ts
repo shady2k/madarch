@@ -265,26 +265,32 @@ describe('createDraft', () => {
     // With a writable `--home /`, the old code took the name from
     // `folder.slice(home.length + 1)`, which for `/idea-2026-10-09` cuts
     // the first two characters and reads `dea-2026-10-09`. The test
-    // touches the real root as a products home must, and leaves it as it
-    // found it: every folder the run creates there is removed in
-    // `finally`, and the name asserted is the one the reservation
-    // reported — a leftover from an earlier run only moves the suffix,
-    // never breaks the assertion.
-    const before = new Set(readdirSync('/'));
-    const created: string[] = [];
+    // touches the real root as a products home must, and cleans up after
+    // itself by removing exactly the folder the creation call reported
+    // — `draft.folder` — and nothing else: listing `/` before and after
+    // and deleting the difference would delete an entry another process
+    // made in the window, fail on one made after the snapshot, and leak
+    // the draft if the second listing throws. What the test proves: the
+    // draft's name and folder are the ones the reservation reported, the
+    // folder sits directly under the products home `/`, and the manifest
+    // reads back under that name. What it does not prove: that `/` is
+    // unchanged outside the draft — creating and removing a folder
+    // changes `/`'s own timestamps, so "leaves `/` as found" is not
+    // something a folder-listing test can honestly say.
+    let draft: ReturnType<typeof draftIn> | undefined;
     try {
-      const draft = draftIn('/');
+      draft = draftIn('/');
       if (draft.outcome !== 'created') throw new Error(`the draft was not created: ${JSON.stringify(draft)}`);
-      const made = readdirSync('/').filter((entry) => !before.has(entry));
-      created.push(...made);
-      expect(made.sort()).toEqual([draft.name]);
+      expect(draft.folder).toBe(join('/', draft.name));
       // The name is the folder's own name — read never by a slice of the path.
       expect(draft.name.startsWith('idea-')).toBe(true);
       const read = readProduct(draft.folder);
       expect(read).toMatchObject({ ok: true, product: { name: draft.name } });
     } finally {
-      for (const entry of created) rmSync(join('/', entry), { recursive: true, force: true });
-      expect(readdirSync('/').filter((entry) => !before.has(entry))).toEqual([]);
+      if (draft?.outcome === 'created') {
+        rmSync(draft.folder, { recursive: true, force: true });
+        expect(readdirSync('/').includes(draft.name)).toBe(false);
+      }
     }
   });
   test("a git that refuses to commit fails with git's own words and leaves no folder behind", () => {
@@ -692,6 +698,47 @@ describe('readProduct: manifests the reader cannot take', () => {
     if (read.ok) return;
     expect(read.line).toBe(4);
   });
+  test("an alias-limit refusal cannot blame a later unresolved alias's line", () => {
+    // The review's mixed shape: well over the alias count limit, and an
+    // alias behind them that never appeared. The refusal is the limit —
+    // conversion stops there and never reaches the later alias — so the
+    // ordered walk must not be consulted, and line 1 says unknown.
+    const folder = tempFolder('madarch-products-limitalias-');
+    const manifest = [
+      'schemaVersion: 1',
+      'id: &i product-identity',
+      ...Array.from({ length: 120 }, (_, n) => `f${n}: *i`),
+      'unrelated: *missing',
+      '',
+    ].join('\n');
+    writeFileSync(join(folder, 'workspace.yaml'), manifest);
+    const read = readProduct(folder);
+    expect(read.ok).toBe(false);
+    if (read.ok) return;
+    expect(read.message).toContain('cannot be read as YAML');
+    expect(read.line).toBe(1);
+  });
+  test("an alias-limit refusal cannot blame a later forward reference's line either", () => {
+    // The same mixed shape with a forward reference instead: the anchor
+    // stands after the alias, but the limit ends conversion first.
+    const folder = tempFolder('madarch-products-limforward-');
+    const manifest = [
+      'schemaVersion: 1',
+      'id: &i product-identity',
+      ...Array.from({ length: 120 }, (_, n) => `f${n}: *i`),
+      'extra: *later',
+      'future: &later defined-later',
+      '',
+    ].join('\n');
+    writeFileSync(join(folder, 'workspace.yaml'), manifest);
+    const read = readProduct(folder);
+    expect(read.ok).toBe(false);
+    if (read.ok) return;
+    expect(read.line).toBeGreaterThanOrEqual(1);
+    expect(read.message).toContain('cannot be read as YAML');
+    expect(read.line).toBe(1);
+  });
+
   test('a conversion failure no unresolved alias explains — an alias limit reached — reports line 1 as unknown', () => {
     // Well over the reader's alias count limit: the document is refused
     // by the parser's guard, not at any one alias. Naming the first
