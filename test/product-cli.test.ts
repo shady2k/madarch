@@ -29,6 +29,9 @@ function realGit(): string {
   return path;
 }
 
+/** A word quoted shell-safely: even a path holding a dollar, a backtick or a quote stands as itself. */
+const shQuote = (word: string): string => "'" + word.split("'").join("'\\''") + "'";
+
 /** Git's own identity for the command's child process, so a test never depends on the machine's git config. */
 const SEALED_GIT = {
   GIT_CONFIG_GLOBAL: '/dev/null',
@@ -185,7 +188,7 @@ describe('madarch new', () => {
 
   test('a git that refuses to commit exits 1 with git\'s own words and leaves no folder behind', () => {
     const stubs = scratchFolder('madarch-cli-gitstub-');
-    const script = ['#!/bin/sh', 'if [ "$1" = "commit" ]; then', "  echo 'stub: refusing to commit' >&2; exit 1; fi", `exec ${JSON.stringify(realGit())} "$@"`, ''].join('\n');
+    const script = ['#!/bin/sh', 'if [ "$1" = "commit" ]; then', "  echo 'stub: refusing to commit' >&2; exit 1; fi", `exec ${shQuote(realGit())} "$@"`, ''].join('\n');
     writeFileSync(join(stubs, 'git'), script);
     chmodSync(join(stubs, 'git'), 0o700);
     const home = scratchFolder();
@@ -217,6 +220,41 @@ describe('madarch new: --home values a person cannot mean', () => {
     expect(readdirSync(home)).toEqual([]);
   });
 
+  test("`--home` of only spaces is refused, not silently using a fallback home, and nothing is created", () => {
+    const home = scratchFolder();
+    const { status, stdout, stderr } = runCommand(['new', '--home', '   '], { MADARCH_HOME: home });
+    expect(stdout).toBe('');
+    expect(status).toBe(2);
+    expect(stderr).toContain('--home');
+    // No fallback draft anywhere: neither under the madarch home's products nor beside it.
+    expect(readdirSync(home)).toEqual([]);
+  });
+
+  test("`--home ' --no-open '` is refused once the value is trimmed: the spaces must not hide another option", () => {
+    const home = scratchFolder();
+    const { status, stdout, stderr } = runCommand(['new', '--home', ' --no-open '], { MADARCH_HOME: home });
+    expect(stdout).toBe('');
+    expect(status).toBe(2);
+    expect(stderr).toContain('--home');
+    expect(stderr).toContain('--no-open');
+    expect(readdirSync(home)).toEqual([]);
+  });
+
+  test("`--home` whose trimmed value is another option, by the = form, is refused the same way", () => {
+    const home = scratchFolder();
+    const { status, stderr } = runCommand(['new', '--home= --no-open '], { MADARCH_HOME: home });
+    expect(status).toBe(2);
+    expect(stderr).toContain('--no-open');
+    expect(readdirSync(home)).toEqual([]);
+  });
+
+  test("`--home` with spaces around a real folder still creates the draft in that folder", () => {
+    const home = scratchFolder();
+    const { status, stdout } = runCommand(['new', '--home', ` ${home} `], { MADARCH_HOME: scratchFolder() });
+    expect(status).toBe(0);
+    const { folder } = printedFacts(stdout);
+    expect(folder).toBe(join(home, `idea-${todayName()}`));
+  });
   test('`--home=--no-open` refuses the same way', () => {
     const home = scratchFolder();
     const { status, stderr } = runCommand(['new', '--home=--no-open'], { MADARCH_HOME: home });
