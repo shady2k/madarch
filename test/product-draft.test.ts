@@ -292,7 +292,7 @@ describe('readProduct', () => {
     const draft = draftIn(home);
     if (draft.outcome !== 'created') throw new Error('the draft was not created');
     const manifest = readFileSync(join(draft.folder, 'workspace.yaml'), 'utf8');
-    writeFileSync(join(draft.folder, 'workspace.yaml'), `${manifest}skillSet: "9.0.0"\n`);
+    writeFileSync(join(draft.folder, 'workspace.yaml'), `${manifest}wikiRevision: 7\n`);
     const read = readProduct(draft.folder);
     expect(read).toMatchObject({ ok: true, product: { schemaVersion: 1, id: draft.id, name: 'idea-2026-10-09' } });
   });
