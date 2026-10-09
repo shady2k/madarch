@@ -85,7 +85,7 @@ export function readProduct(productFolder: string): ProductRead {
     value = doc.toJS();
   } catch (error) {
     const reason = (error as Error).message;
-    const line = aliasLine(doc, lineCounter, reason);
+    const line = aliasLine(doc, lineCounter);
     return {
       ok: false,
       file: manifestFile,
@@ -156,30 +156,28 @@ export function readProduct(productFolder: string): ProductRead {
 }
 
 /**
- * The line of the alias the conversion fails on, chosen from the reason
- * `toJS` gave: the alias whose source the reason names when there is
- * one, else the first unresolved alias — one whose anchor never appeared
- * in the document — else, when every alias resolves and the failure lies
- * elsewhere, the document's first alias as an honest last resort.
+ * The line of the alias the conversion fails on, resolved in document
+ * order: walking the document as a reader reads it, an anchor counts
+ * from where it was defined, and the first alias whose anchor was not
+ * defined before it — a forward reference or a name that never appears —
+ * is the one the reader hits and the one to name. When every alias
+ * resolves — the failure is not about aliases, an alias limit reached —
+ * no line is blamed: the refusal falls back to line 1, honestly unknown.
  */
-function aliasLine(doc: { contents: unknown }, lineCounter: LineCounter, reason: string): number | undefined {
+function aliasLine(doc: { contents: unknown }, lineCounter: LineCounter): number | undefined {
   if (!isMap(doc.contents)) return undefined;
-  const aliases: { alias: string; line: number }[] = [];
-  const anchors = new Set<string>();
+  const defined = new Set<string>();
+  let firstUnresolved: number | undefined;
   walkDocuments(doc.contents, (node) => {
+    if (firstUnresolved !== undefined) return; // The blame is settled; later nodes change nothing.
     if (isAlias(node)) {
-      aliases.push({ alias: node.source, line: node.range ? lineCounter.linePos(node.range[0]).line : 0 });
+      const isUnresolved = !defined.has(String(node.source));
+      if (isUnresolved && node.range) firstUnresolved = lineCounter.linePos(node.range[0]).line;
     } else if (node && typeof node === 'object' && (node as { anchor?: unknown }).anchor !== undefined) {
-      anchors.add(String((node as { anchor: unknown }).anchor));
+      defined.add(String((node as { anchor: unknown }).anchor));
     }
   });
-  if (aliases.length === 0) return undefined;
-  const unresolved = aliases.filter((alias) => !anchors.has(alias.alias));
-  const named = unresolved.find((alias) => reason.includes(`*${alias.alias}`));
-  if (named !== undefined) return named.line;
-  const firstUnresolved = unresolved[0];
-  if (firstUnresolved !== undefined) return firstUnresolved.line;
-  return aliases[0]!.line;
+  return firstUnresolved;
 }
 
 /** Walks a document's nodes — mappings, sequences, pairs and aliases alike — and calls the visitor on each one. */

@@ -264,12 +264,28 @@ describe('createDraft', () => {
   test.skipIf(process.getuid?.() !== 0)("a draft under the root products home is named by its own name, not one letter short", () => {
     // With a writable `--home /`, the old code took the name from
     // `folder.slice(home.length + 1)`, which for `/idea-2026-10-09` cuts
-    // the first two characters and reads `dea-2026-10-09`.
-    const draft = draftIn('/');
-    if (draft.outcome !== 'created') throw new Error(`the draft was not created: ${JSON.stringify(draft)}`);
-    expect(draft.name).toBe('idea-2026-10-09');
-    const read = readProduct(draft.folder);
-    expect(read).toMatchObject({ ok: true, product: { name: 'idea-2026-10-09' } });
+    // the first two characters and reads `dea-2026-10-09`. The test
+    // touches the real root as a products home must, and leaves it as it
+    // found it: every folder the run creates there is removed in
+    // `finally`, and the name asserted is the one the reservation
+    // reported — a leftover from an earlier run only moves the suffix,
+    // never breaks the assertion.
+    const before = new Set(readdirSync('/'));
+    const created: string[] = [];
+    try {
+      const draft = draftIn('/');
+      if (draft.outcome !== 'created') throw new Error(`the draft was not created: ${JSON.stringify(draft)}`);
+      const made = readdirSync('/').filter((entry) => !before.has(entry));
+      created.push(...made);
+      expect(made.sort()).toEqual([draft.name]);
+      // The name is the folder's own name — read never by a slice of the path.
+      expect(draft.name.startsWith('idea-')).toBe(true);
+      const read = readProduct(draft.folder);
+      expect(read).toMatchObject({ ok: true, product: { name: draft.name } });
+    } finally {
+      for (const entry of created) rmSync(join('/', entry), { recursive: true, force: true });
+      expect(readdirSync('/').filter((entry) => !before.has(entry))).toEqual([]);
+    }
   });
   test("a git that refuses to commit fails with git's own words and leaves no folder behind", () => {
     const stubs = tempFolder('madarch-products-gitstub-');
@@ -638,6 +654,56 @@ describe('readProduct: manifests the reader cannot take', () => {
     if (read.ok) return;
     expect(read.file).toBe(join(folder, 'workspace.yaml'));
     expect(read.line).toBe(3);
+  });
+  test("a valid alias cannot pin a later alias's failure on the earlier line", () => {
+    // Line 3 holds an alias that resolves; line 4 holds one that never
+    // appeared. The conversion refusal must name line 4.
+    const folder = tempFolder('madarch-products-aliasline-');
+    writeFileSync(join(folder, 'workspace.yaml'), ['schemaVersion: &ref 1', 'id: *ref', 'extra: *missing', ''].join('\n'));
+    const read = readProduct(folder);
+    expect(read.ok).toBe(false);
+    if (read.ok) return;
+    expect(read.file).toBe(join(folder, 'workspace.yaml'));
+    expect(read.line).toBe(3);
+  });
+  test("an alias with a forward reference is refused, naming the alias stand-in's line in document order", () => {
+    // `*later` stands on line 4 while its anchor is defined on line 5: an
+    // alias resolves only when its anchor was defined before it, and the
+    // refusal names line 4 — where the reader knows the problem — never
+    // the resolved alias `*id` on line 3.
+    const folder = tempFolder('madarch-products-aliasforward-');
+    writeFileSync(join(folder, 'workspace.yaml'), ['schemaVersion: 1', 'id: &id original', 'name: *id', 'extra: *later', 'future: &later present', ''].join('\n'));
+    const read = readProduct(folder);
+    expect(read.ok).toBe(false);
+    if (read.ok) return;
+    expect(read.file).toBe(join(folder, 'workspace.yaml'));
+    expect(read.line).toBe(4);
+    expect(read.message).toContain('cannot be read as YAML');
+  });
+  test("an unresolved alias that stands later keeps the earlier one's line as the blame", () => {
+    // The failure is the forward reference on line 4; another alias the
+    // document never resolves at line 6 does not move where the reader
+    // looks. Resolution goes in document order and reports the first
+    // alias whose anchor was not defined before it.
+    const folder = tempFolder('madarch-products-aliaslater-');
+    writeFileSync(join(folder, 'workspace.yaml'), ['schemaVersion: 1', 'id: &id original', 'name: *id', 'extra: *later', 'future: &later present', 'unknown: *missing', ''].join('\n'));
+    const read = readProduct(folder);
+    expect(read.ok).toBe(false);
+    if (read.ok) return;
+    expect(read.line).toBe(4);
+  });
+  test('a conversion failure no unresolved alias explains — an alias limit reached — reports line 1 as unknown', () => {
+    // Well over the reader's alias count limit: the document is refused
+    // by the parser's guard, not at any one alias. Naming the first
+    // alias would blame a field that reads fine; line 1 says unknown.
+    const folder = tempFolder('madarch-products-aliaslimit-');
+    const manifest = ['schemaVersion: 1', 'id: &i product-identity', ...Array.from({ length: 120 }, (_, n) => `f${n}: *i`), ''].join('\n');
+    writeFileSync(join(folder, 'workspace.yaml'), manifest);
+    const read = readProduct(folder);
+    expect(read.ok).toBe(false);
+    if (read.ok) return;
+    expect(read.message).toContain('cannot be read as YAML');
+    expect(read.line).toBe(1);
   });
   test('a manifest naming a field twice is refused, naming the line the duplicate stands on', () => {
     const folder = tempFolder('madarch-products-dup-');
