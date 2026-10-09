@@ -24,13 +24,23 @@
  * manifest cannot be read is refused by `readProduct`, never re-read here.
  */
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { basename as nameOf, isAbsolute, join as joinPath, relative, resolve } from 'node:path';
+import { lstatSync, readFileSync, readdirSync, realpathSync, statSync, type Dirent } from 'node:fs';
+import { basename as nameOf, isAbsolute, join as joinPath, relative } from 'node:path';
+import { scanDocument } from '../wiki/documents.js';
 import { readProduct, type ProductIdentity } from '../product/manifest.js';
 import { byCodePoint } from '../model/order.js';
 
 /** The address prefix of a page's route within the app. */
 export const PAGE_ADDRESS_PREFIX = '/p/';
+
+/**
+ * A page's address: the prefix plus its path, each segment percent-escaped,
+ * so a `#`, a space or a `?` in a file name reaches the route whole instead
+ * of being cut off as a fragment or a query.
+ */
+export function addressOf(path: string): string {
+  return PAGE_ADDRESS_PREFIX + path.split('/').map(encodeURIComponent).join('/');
+}
 
 /** The folder the wiki reads its pages from, inside the product. */
 export const DOCS_FOLDER = 'docs';
@@ -103,14 +113,32 @@ class FreshProductWiki implements ProductWiki {
       const markdown = this.fileText(path);
       if (!markdown.ok) return markdown;
       hash.update(`${path}\u0000${markdown.markdown}\u0000`);
-      pages.push({ path, title: titleOf(path, markdown.markdown), address: `${PAGE_ADDRESS_PREFIX}${path}` });
+      pages.push({ path, title: titleOf(path, markdown.markdown), address: addressOf(path) });
     }
     return { ok: true, revision: hash.digest('hex'), pages };
   }
 
-  page(path: string): ProductWikiPage {
+  page(asked: string): ProductWikiPage {
+    // An address the wiki itself advertises — `/p/` plus the path, percent
+    // escapes included — names the page it was made from, so a reader who
+    // copies an address into a document reaches it (finding 12).
+    let path = asked;
+    if (asked.startsWith(`${PAGE_ADDRESS_PREFIX}/`) || asked === PAGE_ADDRESS_PREFIX.slice(0, -1)) {
+      path = asked.slice(PAGE_ADDRESS_PREFIX.length);
+    } else if (asked.startsWith(PAGE_ADDRESS_PREFIX)) {
+      try {
+        path = decodeURIComponent(asked.slice(PAGE_ADDRESS_PREFIX.length));
+      } catch {
+        return { ok: false, message: `the address ${JSON.stringify(asked)} holds a percent escape the wiki cannot read: ask for the page by its path within the product` };
+      }
+    }
     const pagePath = pagePathProblem(path);
-    if (pagePath !== undefined) return pagePath;
+    if (pagePath !== undefined) {
+      return {
+        ok: false,
+        message: path === asked ? pagePath.message : `the address ${JSON.stringify(asked)} does not name a page of the wiki: ${pagePath.message}`,
+      };
+    }
     if (!markdownPaths(this.product.folder).includes(path)) {
       return {
         ok: false,
@@ -132,36 +160,105 @@ class FreshProductWiki implements ProductWiki {
   }
 }
 
-/** Every Markdown path within the product, `docs/` depth first and `README.md`, nothing else touched. */
+/**
+ * Every Markdown path within the product, `docs/` depth first and `README.md`,
+ * nothing else touched. A path that cannot be walked is an error, never a
+ * smaller set: absence of `docs/` is the empty wiki, any other read failure
+ * (a permission, a wrong type, an I/O error) is thrown naming the full path.
+ * A symlink standing in the set's places is followed only when its real path
+ * stays inside the product; one that leaves it is refused, naming the path
+ * and where it points.
+ */
 function markdownPaths(productFolder: string): string[] {
   const paths: string[] = [];
   const readme = joinPath(productFolder, 'README.md');
-  if (isFile(readme)) paths.push('README.md');
+  if (lstatSyncQuiet(readme) !== undefined && inProductOrThrow(productFolder, readme, 'README.md')) {
+    paths.push('README.md');
+  }
   const docs = joinPath(productFolder, DOCS_FOLDER);
-  const walk = (folder: string): void => {
-    let entries: import('node:fs').Dirent[];
+  const docsKind = lstatSyncQuiet(docs);
+  if (docsKind === undefined) return paths; // No docs folder at all: no pages of its own.
+  if (docsKind.isSymbolicLink()) {
+    // A symlink standing where docs/ stands is judged like any page entry:
+    // followed only when it lands inside the product's docs/ itself.
+    inProductOrThrow(productFolder, docs, DOCS_FOLDER);
+    walk(docs);
+    return paths;
+  }
+  if (!docsKind.isDirectory()) {
+    throw new Error(`the page folder ${docs} is not a folder: the wiki reads its pages under ${DOCS_FOLDER}/`);
+  }
+  walk(docs);
+  return paths;
+
+  function walk(folder: string): void {
+    let entries: Dirent[];
     try {
       entries = readdirSync(folder, { withFileTypes: true });
-    } catch {
-      return; // No docs folder (or one this ask cannot walk): no pages of its own.
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw new Error(`the folder ${folder} cannot be read: ${(error as Error).message}`);
     }
     for (const entry of entries.sort((a, b) => byCodePoint(a.name, b.name))) {
       if (entry.name.startsWith('.')) continue;
       const full = joinPath(folder, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else if (entry.isFile() && entry.name.endsWith('.md')) paths.push(relative(productFolder, full).split('\\').join('/'));
+      if (entry.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!entry.name.endsWith('.md')) continue;
+      inProductOrThrow(productFolder, full, relative(productFolder, full).split('\\').join('/'));
+      paths.push(relative(productFolder, full).split('\\').join('/'));
     }
-  };
-  walk(docs);
-  return paths;
+  }
 }
 
-function isFile(path: string): boolean {
+/** The entry's `lstat`, or `undefined` when nothing stands there. */
+function lstatSyncQuiet(path: string): import('node:fs').Stats | undefined {
   try {
-    return statSync(path).isFile();
-  } catch {
-    return false;
+    return lstatSync(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw new Error(`the path ${path} cannot be read: ${(error as Error).message}`);
   }
+}
+
+/**
+ * Whether the page set may read `path` for the page `within`: a real file is
+ * read as it stands, and a symlink only when its real target stays in the
+ * two permitted places — the `docs/` folder, or the root `README.md` itself.
+ * A symlink whose target leaves those places is refused naming the held path
+ * and the target it points at: nothing madarch reads may leave `docs/` and
+ * `README.md`, even when it stays inside the product's folder.
+ */
+function inProductOrThrow(productFolder: string, path: string, within: string): boolean {
+  const stat = lstatSyncQuiet(path);
+  if (stat === undefined) return false;
+  if (!stat.isSymbolicLink()) {
+    // A plain entry: readable or not, the walk or the read refuses with the cause.
+    try {
+      return statSync(path).isFile();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw new Error(`the page ${JSON.stringify(within)} at ${path} cannot be read: ${(error as Error).message}`);
+    }
+  }
+  let real: string;
+  try {
+    real = realpathSync(path);
+  } catch (error) {
+    throw new Error(`the page ${JSON.stringify(within)} at ${path} is a symlink that cannot be followed: ${(error as Error).message}`);
+  }
+  const productReal = realpathSync(productFolder);
+  const withinReal = joinPath(productReal, DOCS_FOLDER);
+  const allowed = real === joinPath(productReal, 'README.md') || real === withinReal || withinReal + '/' === real.slice(0, withinReal.length + 1);
+  if (!allowed) {
+    throw new Error(
+      `the page ${JSON.stringify(within)} at ${path} is a symlink to ${real}, which the page set does not hold: the wiki reads ` +
+        `only ${DOCS_FOLDER}/ and README.md; make it a real file, or point the symlink at a Markdown file under ${DOCS_FOLDER}/`,
+    );
+  }
+  return statSync(real).isFile();
 }
 
 /** A page path the wiki refuses before it looks anything up: absolute, empty, or climbing out of the product. */
@@ -175,16 +272,15 @@ function pagePathProblem(path: string): { ok: false; message: string } | undefin
   return undefined;
 }
 
-/** A page's title: its first level-one heading outside a code fence, else its file's name without its extension. */
+/**
+ * A page's title: its first level-one heading outside a code fence, else its
+ * file's name without its extension. The heading rules are the static wiki's
+ * `scanDocument` (fences of either tick, indented headings, closing hashes,
+ * `#` with no space is no heading): one scanner, one behaviour.
+ */
 function titleOf(path: string, markdown: string): string {
-  let inFence = false;
-  for (const line of markdown.split('\n')) {
-    if (/^\s*```/.test(line)) inFence = !inFence;
-    else if (!inFence) {
-      const heading = /^#(?!#)\s*(\S.*?)\s*$/.exec(line);
-      if (heading !== null) return heading[1]!;
-    }
-  }
+  const heading = scanDocument(markdown).headings.find((each) => each.level === 1);
+  if (heading !== undefined) return heading.text;
   return nameOf(path).replace(/\.md$/, '');
 }
 

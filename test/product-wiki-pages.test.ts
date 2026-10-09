@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -157,6 +157,111 @@ describe('the pages a product holds', () => {
     const pages = product.pages();
     if (!pages.ok) throw new Error(pages.message);
     expect(pages.pages.map((page) => page.path)).toEqual(['docs/B.md', 'docs/_a.md', 'docs/vision.md']);
+  });
+
+  test('a symlink at the root or under docs that leaves the product is refused, naming both paths', () => {
+    draft();
+    write('docs/vision.md', '# Vision\n');
+    write('.beads/issues.jsonl', '{"secret":true}\n');
+    symlinkSync(join(folder!, '.beads', 'issues.jsonl'), join(folder!, 'README.md'));
+    const product = requireProduct(openProductWiki(folder!));
+    const pages = product.pages();
+    expect(pages.ok).toBe(false);
+    if (!pages.ok) {
+      expect(pages.message).toContain('README.md');
+      expect(pages.message).toContain(join(folder!, '.beads', 'issues.jsonl'));
+    }
+    rmSync(join(folder!, 'README.md'));
+    const outside = mkdtempSync(join(tmpdir(), 'madarch-wiki-outside-'));
+    try {
+      writeFileSync(join(outside, 'leaked.md'), '# leaked\n');
+      symlinkSync(join(outside, 'leaked.md'), join(folder!, 'docs', 'leaked.md'));
+      const refused = product.pages();
+      expect(refused.ok).toBe(false);
+      if (!refused.ok) {
+        expect(refused.message).toContain('docs/leaked.md');
+        expect(refused.message).toContain(join(outside, 'leaked.md'));
+      }
+      let refusedPage: unknown;
+      try {
+        refusedPage = product.page('docs/leaked.md');
+      } catch (error) {
+        refusedPage = { ok: false, message: (error as Error).message };
+      }
+      expect((refusedPage as { ok: boolean }).ok).toBe(false);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('a symlink that stays inside the product is followed', () => {
+    draft();
+    write('docs/real.md', '# Real\n');
+    symlinkSync('real.md', join(folder!, 'docs', 'alias.md'));
+    const product = requireProduct(openProductWiki(folder!));
+    const pages = product.pages();
+    if (!pages.ok) throw new Error(pages.message);
+    expect(pages.pages.map((page) => page.path)).toContain('docs/alias.md');
+  });
+
+  test('a failed read is a refusal, never a smaller wiki', () => {
+    draft();
+    write('docs/vision.md', '# Vision\n');
+    write('docs/private/hidden.md', '# hidden\n');
+    const privateDir = join(folder!, 'docs', 'private');
+    const docsDir = join(folder!, 'docs');
+    try {
+      chmodSync(privateDir, 0o000);
+      const product = requireProduct(openProductWiki(folder!));
+      const pages = product.pages();
+      expect(pages.ok).toBe(false);
+      if (!pages.ok) expect(pages.message).toContain(privateDir);
+      // An unreadable docs/ itself is refused too, not an empty wiki.
+      chmodSync(privateDir, 0o755);
+      chmodSync(docsDir, 0o000);
+      const refused = product.pages();
+      expect(refused.ok).toBe(false);
+      if (!refused.ok) expect(refused.message).toContain(docsDir);
+    } finally {
+      chmodSync(docsDir, 0o755);
+    }
+  });
+
+  test('titles follow the Markdown heading rules: fences, indented, closing hashes, no-space', () => {
+    draft();
+    write('docs/fenced.md', `~~~\n# not a heading\n~~~\n\n# Real one.\n`);
+    write('docs/nospace.md', '#Title line\n\n## Real heading\n');
+    write('docs/indented.md', '    # not a heading (code)\n\n# Indented ok\n');
+    write('docs/closing.md', '# Closed # \n');
+    const product = requireProduct(openProductWiki(folder!));
+    const pages = product.pages();
+    if (!pages.ok) throw new Error(pages.message);
+    const title = (path: string): string => pages.pages.find((page) => page.path === path)!.title;
+    expect(title('docs/fenced.md')).toBe('Real one.');
+    expect(title('docs/nospace.md')).toBe('nospace');
+    expect(title('docs/indented.md')).toBe('Indented ok');
+    expect(title('docs/closing.md')).toBe('Closed');
+  });
+
+  test('addresses are round-trip: encoded out, decoded in', () => {
+    draft();
+    write('docs/a b.md', '# Spaced\n');
+    write('docs/c#sharp.md', '# Hash\n');
+    write('docs/vision.md', '# Vision\n');
+    const product = requireProduct(openProductWiki(folder!));
+    const pages = product.pages();
+    if (!pages.ok) throw new Error(pages.message);
+    const byPath = new Map(pages.pages.map((page) => [page.path, page]));
+    expect(byPath.get('docs/a b.md')!.address).toBe('/p/docs/a%20b.md');
+    expect(byPath.get('docs/c#sharp.md')!.address).toBe('/p/docs/c%23sharp.md');
+    expect(byPath.get('docs/vision.md')!.address).toBe('/p/docs/vision.md');
+    // An address written into a document names the page it advertises.
+    const written = product.page('/p/docs/vision.md');
+    if (!written.ok) throw new Error(written.message);
+    expect(written.page.path).toBe('docs/vision.md');
+    const escaped = product.page('/p/docs/a%20b.md');
+    if (!escaped.ok) throw new Error(escaped.message);
+    expect(escaped.page.path).toBe('docs/a b.md');
   });
 
   test('asking reads the product without changing it', () => {
