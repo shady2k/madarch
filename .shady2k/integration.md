@@ -53,9 +53,9 @@ are the repository's installation, and each person's plugin and hooks are theirs
   with and `check-present.mjs` takes its path matcher from; `check-docs.mjs`
   reads the exported model, not files) and `time-format.mjs`
   (which `check.mjs` reads records by),
-  verbatim copies of shady2k-skills plugin 0.89.0 (setup and rules 0.40.0),
+  verbatim copies of shady2k-skills plugin 0.91.0 (setup and rules 0.41.0),
   compared byte for byte at each setup. Their self-tests run from the plugin's
-  setup skill directory, where their fixtures are. `check.mjs` carries 0.40.0's
+  setup skill directory, where their fixtures are. `check.mjs` carries 0.41.0's
   record rules: a record is retired by a `void` record naming its comment, never
   edited or deleted, and a void that retires nothing only warns
   (`time-void-idle`).
@@ -101,9 +101,8 @@ are the repository's installation, and each person's plugin and hooks are theirs
   only, so a record that is damaged, wrong or not to count is never edited or
   deleted either: the run script's `void --comment <comment id>` prints the void
   record, posted the same way, and every reader then acts as if the voided
-  record were not there. `timeRecordsExempt` is empty.
-  `timeRecordsExempt` is empty: at adoption (2026-09-27) no work was active,
-  submitted or implemented.
+  record were not there. `timeRecordsExempt` is empty: at adoption (2026-09-27)
+  no work was active, submitted or implemented.
 - **Tracker layout:** the export `.beads/issues.jsonl` is committed on each
   branch, and each checkout (a git worktree included) has its own br database
   beside its own export, created by the connect command. A branch therefore
@@ -233,6 +232,15 @@ are the repository's installation, and each person's plugin and hooks are theirs
 - **Commit-link input and check:** `node .shady2k/adapter.mjs commits --message <file>`
   (pending message) or `--range <a>..<b>` (every commit in a range), piped to
   `node .shady2k/checks/check-commits.mjs -`.
+- **Product repository:** none. This repository is neither a product repository
+  nor a code repository under a product's `repos/`: `node product.mjs where`
+  from the setup skill directory prints `where: none` (checked 2026-10-09 in the
+  0.41.0 run). The set's product-repository layout (`workspace.yaml`, `repos/`)
+  is therefore not installed here, and `docs/` is this repository's own.
+- **Task ids of this repository's commits resolve against:** this repository's
+  own tracker, `.beads/issues.jsonl` (the adapter's `commits` operation reads
+  the working tree, `push.mjs` the export at the pushed tip). There is no
+  product repository above it to resolve them against.
 - **Local entry points:** `.githooks/post-checkout` (connects a new
   worktree's tracker), `.githooks/pre-commit` (privacy guard, tracker home
   guard, the tooling's tests when tooling is staged, then backlog gate), `.githooks/commit-msg`
