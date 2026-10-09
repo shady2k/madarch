@@ -18,6 +18,16 @@ const cleanEnv = (extra) => ({
 const made = [];
 process.on('exit', () => { for (const dir of made) rmSync(dir, { recursive: true, force: true }); });
 
+// The files connect.sh refuses a checkout without: read from the command itself,
+// so a file added to one is added to the other.
+function connectList() {
+  const text = readFileSync(join(HERE, 'connect.sh'), 'utf8');
+  const from = text.indexOf('# Every local file a hook reads');
+  const block = text.slice(from, text.indexOf('; do', from));
+  return block.split('\n').flatMap((line) => line.replace(/\\$/, '').trim().split(/\s+/))
+    .filter((word) => /^\.(shady2k|githooks|beads)\//.test(word));
+}
+
 function clone() {
   const top = mkdtempSync(join(tmpdir(), 'madarch-hooks-'));
   made.push(top);
@@ -34,9 +44,15 @@ function clone() {
   run('git', ['config', 'user.email', 'test@example.com']);
   run('git', ['config', 'user.name', 'test']);
   run('git', ['config', 'commit.gpgsign', 'false']);
-  for (const [from, to] of [['../.githooks/privacy-guard.sh', '.githooks/privacy-guard.sh'], ['connect.sh', '.shady2k/connect.sh'], ['adapter.mjs', '.shady2k/adapter.mjs'], ['../.githooks/tracker-home.sh', '.githooks/tracker-home.sh'], ['../.githooks/post-checkout', '.githooks/post-checkout']]) {
-    mkdirSync(dirname(join(root, to)), { recursive: true });
-    copyFileSync(join(HERE, from), join(root, to));
+  // Every local file a hook reads, taken from the connect command's own list so
+  // the two cannot drift: connect.sh refuses a clone missing one of them. The
+  // tracker export is not on that list here; the test writes its own below.
+  const listed = connectList();
+  if (listed.length < 15) throw new Error(`the connect command's file list could not be read (${listed.length} entries)`);
+  for (const path of listed) {
+    if (!path.startsWith('.shady2k/') && !path.startsWith('.githooks/')) continue;
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    copyFileSync(join(HERE, path.startsWith('.githooks/') ? `../${path}` : path.slice('.shady2k/'.length)), join(root, path));
   }
   mkdirSync(join(root, '.beads'));
   writeFileSync(join(root, '.beads/issues.jsonl'), '');
@@ -136,6 +152,16 @@ test('connect: names what is missing and changes nothing', () => {
   assert.match(r.out, /readable tracker export/);
   assert.equal(c.run('git', ['config', '--get', 'core.hooksPath']).code, 1, 'core.hooksPath must stay unset');
   assert.equal(c.run('git', ['config', '--get', 'filter.br-portable-path.clean']).code, 1, 'the filter must stay unset');
+});
+
+test('connect: a file a hook reads is missing, so it names it and changes nothing', () => {
+  const c = clone();
+  c.userList('secret-xyz\n');
+  rmSync(join(c.root, '.shady2k/checks/check-product.mjs'));
+  const r = c.run('sh', ['.shady2k/connect.sh']);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /check-product\.mjs is missing/);
+  assert.equal(c.run('git', ['config', '--get', 'core.hooksPath']).code, 1, 'core.hooksPath must stay unset');
 });
 
 test('connect: connects, and a rerun is harmless', { skip: !hasBr && 'br is not installed' }, () => {

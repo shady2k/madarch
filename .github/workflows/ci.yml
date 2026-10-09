@@ -4,7 +4,8 @@ name: CI
 # repository shows its branch's push run, so it is not run twice. A change that
 # touches only documents, the tracker or the workflow's own tooling cannot
 # touch the product and runs nothing; that tooling is checked by the local hooks
-# (see .shady2k/integration.md, "CI"). Unfinished work skips a run with
+# (see .shady2k/integration.md, "CI"). The product-documents check is separate
+# and runs on every push (documents.yml). Unfinished work skips a run with
 # [skip ci] in the pushed commit's message.
 on:
   push:
@@ -13,6 +14,7 @@ on:
       - '.beads/**'
       - '.shady2k/**'
       - '.githooks/**'
+      - '.github/workflows/**'
       - '*.md'
 
 jobs:

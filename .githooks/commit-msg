@@ -1,7 +1,8 @@
 #!/bin/sh
 # Commit-link check (shady2k-skills): every commit names the task it belongs to
-# with a line "Task: <id>" (several ids may be comma-separated), then the document
-# gate checks what the commit changes. See .shady2k/integration.md.
+# with a line "Task: <id>" (several ids may be comma-separated), then the
+# product-documents check and the document gate judge what the commit changes.
+# See .shady2k/integration.md.
 cd "$(git rev-parse --show-toplevel)" || exit 2
 node .shady2k/adapter.mjs commits --message "$1" > "${TMPDIR:-/tmp}/madarch-commits.$$.json" || { echo "commit-msg: cannot read the tracker export (.beads/issues.jsonl)"; exit 2; }
 node .shady2k/checks/check-commits.mjs "${TMPDIR:-/tmp}/madarch-commits.$$.json"
@@ -13,6 +14,28 @@ if [ $status -ne 0 ]; then
   echo "for example:  Task: madarch-ge3"
   echo "Find the task with \`br list\` or \`br search <words>\`; file a new one through the to-backlog skill."
   exit $status
+fi
+
+# Product documents (shady2k-skills): a repository that keeps the product's own
+# documents (sources, hypotheses, user stories, use cases, product requirements,
+# open questions, prototypes, results) must keep them in the set's form, and
+# every id a document names must exist. A repository with none passes untouched.
+if [ ! -f .shady2k/checks/check-product.mjs ]; then
+  echo "Commit refused: .shady2k/checks/check-product.mjs is missing; run \`sh .shady2k/connect.sh\` in this clone."
+  exit 2
+fi
+node .shady2k/checks/check-product.mjs --staged
+status=$?
+if [ $status -eq 1 ]; then
+  echo
+  echo "Commit refused by the product-documents check: each line above names the file, the line and what"
+  echo "green looks like. Fix the document, or leave it out of this commit with \`git restore --staged <file>\`."
+  exit 1
+elif [ $status -ne 0 ]; then
+  echo
+  echo "Commit refused: the product-documents check could not read what is staged (the line above names why)."
+  echo "Fix that input; the check never passes what it cannot read."
+  exit 2
 fi
 
 # Document gate: the vision and charter on every commit; an admitted change for
