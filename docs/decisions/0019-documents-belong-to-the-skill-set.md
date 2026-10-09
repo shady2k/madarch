@@ -39,8 +39,24 @@ graph, accepting changes and so on".
   page, rather than a check of its own.
 - madarch's tests read the examples the set publishes for each kind, so a form
   changed in the set reaches madarch's CI rather than a reader.
+- **The product repository's lifecycle is the set's too** (owner, 2026-10-09,
+  after a consultation): its layout, the schema of `workspace.yaml`, creating
+  a draft, renaming it into a product and bootstrapping a workspace from the
+  manifest are a program the set ships (no agent needed to run it). madarch
+  bundles a pinned release of that program, so `madarch new` stays a front
+  door for a person without an agent, and it serves and lists any folder with
+  a valid `workspace.yaml`, whoever made it. One owner of the structure, more
+  than one way in, like a project creator and its runtime.
+- **madarch installs locally and centrally** as the same program. A local
+  product reaches the central server through git: the product repository gets
+  a remote, `madarch connect` tells the central madarch its address once, and
+  the central one reads it after every push (the central-server milestone).
 
 ## Consequences
+- madarch-rtr's stage 1 (the draft-creation code and `madarch new`) moves
+  to the set as that program, and madarch keeps a thin wrapper over a pinned
+  release; outcome 5 of idea-to-wiki (rename, remote, first code repository)
+  is the set's, `madarch list` stays madarch's.
 - madarch-fe1 becomes reading the product documents, linking them in the graph
   and showing the set's findings; the forms, templates and their check move to
   the set (skills-k8c and its siblings).

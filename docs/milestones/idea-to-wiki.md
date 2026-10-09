@@ -15,7 +15,8 @@ archify) stay.
 
 ## Outcomes and acceptance
 
-1. **Start a product from an idea.** `madarch new`, with no name, creates a
+1. **Start a product from an idea.** `madarch new`, with no name, creates (through
+the skill set's product-repository program it bundles, decision 0019) a
 draft product repository under madarch's home folder
 (`~/madarch/products/`): `AGENTS.md` (the constitution), `CLAUDE.md`
 (`@AGENTS.md`), `workspace.yaml` (the manifest), `docs/`, `model/`,
@@ -43,7 +44,8 @@ them closes both.
 a folder of its own under
 `prototypes/`, linked to the hypothesis it tests and to its result.
    *Check:* a hypothesis's page shows its prototype and its result.
-5. **Turn a draft into a product.** The agent helps choose a name; the draft's
+5. **Turn a draft into a product** (the skill set's program, decision 0019;
+madarch keeps `madarch list` and serves the renamed product). The agent helps choose a name; the draft's
 folder is renamed in place and its internal id is kept; the agent offers to
 add a git remote and push; the prototype stays or becomes the first code
 repository in `repos/`, entered in the manifest; `madarch list` shows every
