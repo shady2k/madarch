@@ -52,6 +52,14 @@ export function ensureBuilt(options: AppBuildOptions = {}, say: (line: string) =
   const buildCommand = options.buildCommand?.trim() || env.MADARCH_APP_BUILD?.trim() || DEFAULT_BUILD_COMMAND;
   say(`building the wiki app in ${appFolder}: the dist ${JSON.stringify(dist)} does not hold index.html yet`);
   const build = spawnSync('sh', ['-c', buildCommand], { cwd: appFolder, encoding: 'utf8' });
+  if (build.error !== undefined) {
+    // The step could not be run at all — a missing shell, a folder that is
+    // not there: the cause is named, never folded into `exit null`.
+    return {
+      ok: false,
+      message: `the wiki app could not be built with ${buildCommand}, run in ${appFolder}: the build could not be launched (${build.error.message})`,
+    };
+  }
   if (build.status !== 0) {
     const said = `${build.stdout ?? ''}${build.stderr ?? ''}`.trim();
     return {

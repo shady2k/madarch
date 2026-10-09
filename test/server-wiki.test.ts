@@ -6,6 +6,16 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { startServer, type StartedServer } from '../src/index.js';
 
+/** A compiled-model element shaped like the server's tests use, so the sent model is a real one. */
+function element(id: string): Record<string, unknown> {
+  return { id, kind: 'service', ancestors: [], zones: [], zonesByEnvironment: {}, environments: ['*'], states: ['as-is'] };
+}
+
+/** A compiled model holding the given elements: the shape `POST /models` takes. */
+function model(elements: Record<string, unknown>[]): Record<string, unknown> {
+  return { schemaVersion: 1, elements, interfaces: [], relations: [], categories: [], entities: [], scenarios: [], zones: [], environments: [], states: [{ id: 'as-is' }] };
+}
+
 /**
  * The server's product mode (docs/changes/draft-product/capabilities/server.md,
  * requirement `serves-wiki`): a server given a product folder serves that
@@ -137,6 +147,26 @@ describe('the server\'s product mode', () => {
     expect(deep.headers.get('content-type')).toContain('html');
   });
 
+  test('static serving and the fallback answer GET and HEAD only; other methods are refused with 405', async () => {
+    draft();
+    builtApp();
+    const url = startProduct();
+    const postRoot = await fetch(`${url}/`, { method: 'POST' });
+    expect(postRoot.status).toBe(405);
+    const postRoute = await fetch(`${url}/p/docs/vision.md`, { method: 'POST' });
+    expect(postRoute.status).toBe(405);
+    const postAsset = await fetch(`${url}/assets/app.js`, { method: 'POST' });
+    expect(postAsset.status).toBe(405);
+    const put = await fetch(`${url}/`, { method: 'PUT' });
+    expect(put.status).toBe(405);
+    const still = await fetch(`${url}/`);
+    expect(still.status).toBe(200);
+    expect(await still.text()).toContain('demo wiki');
+    const headed = await fetch(`${url}/`, { method: 'HEAD' });
+    expect(headed.status).toBe(200);
+    void headed;
+  });
+
   test('a path under /api that nothing answers is refused with JSON naming it', async () => {
     draft();
     builtApp();
@@ -166,7 +196,9 @@ describe('the server\'s product mode', () => {
 
   test('serving changes nothing in the product: its files and git status are untouched', async () => {
     draft();
-    benchOrGit();
+    initGit();
+    const commit = commitAll();
+    expect(commit.status).toBe(0); // the command succeeded: an empty git status is a real clean tree
     builtApp();
     const url = startProduct();
     await fetch(`${url}/api/product`);
@@ -176,7 +208,10 @@ describe('the server\'s product mode', () => {
     const manifest = readFileSync(join(folder!, 'workspace.yaml'), 'utf8');
     expect(manifest).toContain('id: demo');
     const status = gitStatus();
-    expect(status.trim()).not.toContain('docs/vision.md');
+    expect(status).toBe('');
+    const files = committedFiles();
+    expect(files).toContain('docs/vision.md');
+    expect(files).toContain('workspace.yaml');
   });
 
   test('a server with a product folder but no manifest refuses to start', () => {
@@ -192,21 +227,40 @@ describe('the server\'s product mode', () => {
     expect(() => startServer({ port: 0 })).toThrow(/neither a data folder nor a product folder/);
   });
 
-  test('the model routes stay as they are: sent models and the product stay apart', async () => {
+  test('the model routes stay as they are: a sent model and the product stay apart', async () => {
     let dataFolder: string | undefined;
     draft();
+    builtApp();
     server = startServer({
       dataFolder: (dataFolder = mkdtempSync(join(tmpdir(), 'madarch-wiki-data-'))),
       productFolder: folder!,
+      appFolder,
       port: 0,
       log: (line) => lines.push(line),
       errorLog: (line) => errors.push(line),
     });
     const url = server.url;
-    keepData = url;
-    const sources = await fetch(`${url}/sources`);
-    expect(sources.status).toBe(200);
-    expect(await sources.json()).toEqual([]);
+    // A real model is sent, and both halves are answered: the view from what was sent, the pages from the product.
+    const sent = await fetch(`${url}/models`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        protocol: 1,
+        source: 'example.org/demo-model',
+        commit: 'c1',
+        committedAt: '2026-10-09T12:00:00Z',
+        model: model([element('svc')]),
+      }),
+    });
+    expect(sent.status).toBe(201);
+    const view = await fetch(`${url}/views`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ protocol: 1, source: 'example.org/demo-model', format: 'mermaid', depth: 1 }),
+    });
+    expect(view.status).toBe(200);
+    const viewText = await view.text();
+    expect(viewText).toContain('svc');
     const pages = await fetch(`${url}/api/pages`);
     expect(pages.status).toBe(200);
     const body = (await pages.json()) as { pages: unknown[] };
@@ -230,12 +284,43 @@ describe('the server\'s product mode', () => {
   });
 });
 
-let keepData: string | undefined;
-function benchOrGit(): void {
-  if (Bun.which('git') === undefined) throw new Error('git is not on PATH');
-}
 function gitStatus(): string {
   const run = spawnSync('git', ['status', '--porcelain'], { cwd: folder! });
   return run.stdout.toString();
 }
-void statSync;
+
+/** The committed file list, so a real clean tree can be compared against a real fixture. */
+function committedFiles(): string[] {
+  const run = spawnSync('git', ['ls-files'], { cwd: folder! });
+  return run.stdout.toString().split('\n').filter((line) => line !== '');
+}
+
+/** A real git repository in the scratch product, so its status means something. */
+function initGit(): void {
+  const env = {
+    ...process.env,
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_AUTHOR_NAME: 'Wiki Test',
+    GIT_AUTHOR_EMAIL: 'wiki-test@example.com',
+    GIT_COMMITTER_NAME: 'Wiki Test',
+    GIT_COMMITTER_EMAIL: 'wiki-test@example.com',
+  };
+  for (const args of [['init'], ['add', '.']]) {
+    const run = spawnSync('git', args, { cwd: folder!, env });
+    if (run.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${run.stderr.toString()}`);
+  }
+}
+
+/** Commits everything; the test asserts the command succeeded before trusting an empty status. */
+function commitAll(): { status: number | null } {
+  return spawnSync('git', ['commit', '-m', 'fixture'], { cwd: folder!, env: {
+    ...process.env,
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_AUTHOR_NAME: 'Wiki Test',
+    GIT_AUTHOR_EMAIL: 'wiki-test@example.com',
+    GIT_COMMITTER_NAME: 'Wiki Test',
+    GIT_COMMITTER_EMAIL: 'wiki-test@example.com',
+  } });
+}

@@ -44,10 +44,13 @@ repository's compiled model and its own documents, each view offered as
 LikeC4, Mermaid and archify.
 
 **Server** (`src/server/`, `scripts/serve.ts`): keeps the models repositories
-send and answers requests about them. The send command
-(`scripts/send-model.ts`, `src/send/`) runs the check and sends a passing
-model. It never reads a repository (decision
-0007); what it shows is what was sent, at the commit it was sent for.
+send and answers requests about them; started with a product folder instead
+of a data folder, it serves that product's wiki instead (see Served wiki).
+The send command (`scripts/send-model.ts`, `src/send/`) runs the check and
+sends a passing model. To build a graph it never reads a repository
+(decision 0007); what it shows is what was sent, at the commit it was sent
+for. The one repository it reads at all is the product folder it is given,
+read-only, as the wiki's working tree.
 
 **Product repository** (`src/product/`, `scripts/madarch.ts`): one product's
 knowledge as Markdown and YAML in a git repository of its own. `madarch new`
@@ -59,9 +62,13 @@ read from its manifest, `workspace.yaml` (`src/product/manifest.ts`).
 fresh from the working tree at every ask (`src/product-wiki/pages.ts`) — every
 Markdown file under `docs/` and `README.md` — shown by madarch's own app
 (`wiki/app/`, React built by Vite) and served by the server's product mode:
-started with a product folder instead of a data folder, it answers the app's
-files, the page addresses `/p/<path>` and the wiki's API (`/api/product`,
-`/api/pages`, `/api/page?path=…`), beside its model mode.
+started with a product folder it answers the app's built files, the page
+addresses `/p/<path>` and the wiki's API (`/api/product`, `/api/pages`,
+`/api/page?path=…`). Without an app folder named, the built app of the
+checkout (`wiki/app/dist`) is served; a checkout whose app was never built
+refuses to start, saying what to build. The server runs in three modes: with
+a data folder only it answers the model routes alone; with a product folder
+only it serves the wiki alone; with both, each is answered beside the other.
 
 ## From a document to a reader
 
@@ -83,9 +90,11 @@ renderer renders the answer as Mermaid or LikeC4 text.
 
 ## The server
 
-The server is started with a data folder, which it refuses to start without
-(`bun scripts/serve.ts --data <folder>`), and listens on `127.0.0.1` unless
-told otherwise; there is no authentication in this milestone (decision 0012),
+The server is started with a data folder for the model routes
+(`bun scripts/serve.ts --data <folder>`) or with a product folder for the
+wiki (`bun scripts/madarch.ts serve`, which builds the wiki app on first
+use and opens the address in the browser); with neither it refuses to
+start. It listens on `127.0.0.1` unless told otherwise; there is no authentication in this milestone (decision 0012),
 and the HTTP layer is one route table so authentication can be added as one
 layer in front of the handlers.
 

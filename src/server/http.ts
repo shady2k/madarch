@@ -23,6 +23,9 @@
  * default (128 MB) are never reached by honest clients; a client that
  * lies by omission costs one read, then is refused.
  */
+import { existsSync } from 'node:fs';
+import { dirname, join as joinPath } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Value } from 'typebox/value';
 import type { Clock } from '../history/types.js';
 import type { CompiledModel } from '../model/compile.js';
@@ -167,6 +170,19 @@ export function startServer(options: ServerOptions): StartedServer {
     throw new Error(`the product ${JSON.stringify(options.productFolder!)} cannot be served as a wiki: ${wiki.message}`);
   }
   const productWiki = wiki !== undefined && wiki.ok ? wiki.wiki : undefined;
+  // A product folder means the product's wiki, its app included (requirement
+  // serves-wiki): the app folder defaults to the checkout's built app. A
+  // checkout whose app was never built refuses here with what to do, rather
+  // than start a server that answers 404 at `/`.
+  let appFolder = options.appFolder;
+  if (options.productFolder !== undefined && appFolder === undefined) {
+    const candidate = joinPath(dirname(fileURLToPath(import.meta.url)), '..', '..', 'wiki', 'app', 'dist');
+    if (existsSync(joinPath(candidate, 'index.html'))) {
+      appFolder = candidate;
+    } else {
+      throw new Error(`the product ${JSON.stringify(options.productFolder)} cannot be served as a wiki: the app's built files are not at ${JSON.stringify(candidate)} — build the app first (bun install --frozen-lockfile && bun run build in wiki/app of the madarch checkout), or name the built folder with the app folder option`);
+    }
+  }
   const clock: Clock = options.clock ?? { now: () => Date.now() };
   // The writer is the safe place: every line is escaped here once, so a
   // control character in a request field, a commit id or a cause can
@@ -719,9 +735,15 @@ function createHandler(dependencies: {
     try {
       const onPath = routes.filter((each) => each.path === pathname);
       if (onPath.length === 0) {
-        const served = wiki === undefined || !pathname.startsWith('/api/') ? wiki?.app(pathname) : undefined;
+        // Static serving and the SPA fallback answer GET and HEAD only:
+        // any other method is a named 405, never an index.html answer.
+        const readable = request.method === 'GET' || request.method === 'HEAD';
+        const served = readable && (wiki === undefined || !pathname.startsWith('/api/')) ? wiki?.app(pathname) : undefined;
         if (served !== undefined) {
           handled = served;
+        } else if (!readable && wiki !== undefined && !pathname.startsWith('/api/')) {
+          const message = `"${request.method}" is not answered outside the API paths: static serving and the app's pages take GET and HEAD only`;
+          handled = { response: json(405, { error: { message } }, { allow: 'GET, HEAD' }), refusal: message };
         } else {
           const offered = routes.map((each) => `${each.method} ${each.path}`).join(', ');
           // The wiki's reader reads the refusal's message from the body's

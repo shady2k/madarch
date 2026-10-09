@@ -21,7 +21,7 @@
  * stopped; the exit codes are 2 for a refusal, 1 only for a step that
  * failed.
  */
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { startServer, type StartedServer } from '../server/http.js';
 import { readProduct } from '../product/manifest.js';
@@ -33,8 +33,14 @@ const DEFAULT_PORT = 4180;
 /** The environment the opener's choice is read from, or the process's. */
 export type ServeEnv = Readonly<Record<string, string | undefined>>;
 
-/** An address opener: the whole machine's way, or whatever a test holds instead. */
-export type Opener = (url: string) => { ok: true } | { ok: false; message: string };
+/**
+ * An address opener: the whole machine's way, or whatever a test holds
+ * instead. It answers without waiting for the browser to close: a
+ * foreground browser must never hold the server back, so the opener is
+ * launched and its failure — a command that cannot run, or one that exits
+ * with an error — is learned later, as a warning.
+ */
+export type Opener = (url: string) => Promise<{ ok: true } | { ok: false; message: string }>;
 
 /** How serving one product ended; the command maps `refused` to exit 2, `failed` to 1. */
 export type ServeResult =
@@ -76,19 +82,39 @@ export function browserCommand(env: ServeEnv = process.env): string | { message:
 
 /** The machine's opener: a command pointer from the environment, or the platform's own. */
 export function machineOpener(env: ServeEnv = process.env): Opener {
-  return (url) => {
-    const chosen = browserCommand(env);
-    if (typeof chosen !== 'string') return { ok: false, message: chosen.message };
-    // A `BROWSER` in the wild often carries a `%s` where the address goes;
-    // the plain form takes the address as the last argument.
-    const argv = chosen.includes('%s') ? chosen.split('%s').map((part, index) => (index === 0 ? [part] : [url])).flat() : [chosen, url];
-    const run = spawnSync(argv[0]!, argv.slice(1), { encoding: 'utf8' });
-    if (run.status !== 0) {
-      const said = run.status === null ? 'nothing was run' : `exit ${String(run.status)}${run.stderr?.trim() ? ': ' + run.stderr.trim() : ''}`;
-      return { ok: false, message: `the opener ${JSON.stringify(chosen)} failed for ${url} (${said})` };
-    }
-    return { ok: true };
-  };
+  return (url) =>
+    new Promise((resolveOutcome) => {
+      const chosen = browserCommand(env);
+      if (typeof chosen !== 'string') {
+        resolveOutcome({ ok: false, message: chosen.message });
+        return;
+      }
+      // A `BROWSER` in the wild often carries a `%s` where the address goes;
+      // the plain form takes the address as the last argument.
+      const argv = chosen.includes('%s') ? chosen.split('%s').map((part, index) => (index === 0 ? [part] : [url])).flat() : [chosen, url];
+      let child;
+      try {
+        // Detached from this process's lifetime and never waited on here:
+        // a foreground browser runs as long as it likes and the server
+        // keeps serving. The exit and error handlers are attached at once,
+        // so the child is reaped and cannot become a zombie.
+        child = spawn(argv[0]!, argv.slice(1), { stdio: 'ignore', detached: true });
+      } catch (error) {
+        resolveOutcome({ ok: false, message: `the opener ${JSON.stringify(chosen)} could not be launched for ${url}: ${(error as Error).message}` });
+        return;
+      }
+      child.on('error', (error) => {
+        resolveOutcome({ ok: false, message: `the opener ${JSON.stringify(chosen)} failed for ${url}: ${error.message}` });
+      });
+      child.on('exit', (code, signal) => {
+        if (code === 0) {
+          resolveOutcome({ ok: true });
+          return;
+        }
+        const said = signal !== null ? `killed by ${signal}` : `exit ${String(code)}`;
+        resolveOutcome({ ok: false, message: `the opener ${JSON.stringify(chosen)} failed for ${url} (${said})` });
+      });
+    });
 }
 
 /** Serves one product's wiki; the command's own serving, to be stopped by the one who ran it. */
@@ -100,7 +126,7 @@ export function serveWiki(options: ServeOptions = {}): ServeResult {
 
   const read = readProduct(folder);
   if (!read.ok) {
-    return { outcome: 'refused', message: `the folder ${folder} cannot be served as a product's wiki: ${read.message}` };
+    return { outcome: 'refused', message: `the folder ${folder} cannot be served as a product's wiki: ${read.message} (${read.file}, line ${read.line})` };
   }
   const built = ensureBuilt({ appFolder: options.appFolder, buildCommand: options.buildCommand, env: options.env }, print);
   if (!built.ok) return { outcome: 'refused', message: built.message };
@@ -120,8 +146,12 @@ export function serveWiki(options: ServeOptions = {}): ServeResult {
   // The address first; the opener's outcome is never the address's.
   print(`address: ${server.url}`);
   if (options.open !== false) {
-    const opened = (options.opener ?? machineOpener(options.env ?? process.env))(server.url);
-    if (!opened.ok) printError(`could not open the browser: ${opened.message} — the wiki is at ${server.url}`);
+    // Opened without waiting: an opener that stays alive (a foreground
+    // browser) must never block the server; its failure, learned later,
+    // is a warning holding the address.
+    void (options.opener ?? machineOpener(options.env ?? process.env))(server.url).then((opened) => {
+      if (!opened.ok) printError(`could not open the browser: ${opened.message} — the wiki is at ${server.url}`);
+    });
   }
   return { outcome: 'serving', server, url: server.url };
 }

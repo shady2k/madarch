@@ -361,6 +361,46 @@ describe('madarch serve: an existing product served', () => {
     expect(finished.stderr).toContain(address);
   }, 30_000);
 
+  test('a slow opener does not block the server: the address answers while the opener runs', async () => {
+    const base = scratchFolder();
+    const built = builtApp(base);
+    const folder = product(base);
+    const opener = scratchFolder('madarch-serve-opener-');
+    const openerCommand = join(opener, 'march-open');
+    writeFileSync(openerCommand, '#!/bin/sh\nsleep 15\n');
+    chmodSync(openerCommand, 0o755);
+    const serve = serveLive(['serve', '--product', folder, '--port', '0'],
+      { MADARCH_HOME: base, MADARCH_APP: built, MADARCH_BROWSER: openerCommand });
+    // The whole wait is the point: the server must answer while the opener is alive.
+    const address = await whenServing(serve);
+    const answer = await fetch(`${address}/api/product`);
+    expect(answer.ok).toBeTrue();
+    await serve.finish();
+  }, 30_000);
+
+  test('a manifest refusal names the manifest file and its line', () => {
+    const base = scratchFolder();
+    const folder = join(base, 'bad');
+    mkdirSync(join(folder, 'docs'), { recursive: true });
+    writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: [unclosed\n');
+    const built = builtApp(base);
+    const run = runCommand(['serve', '--product', folder, '--no-open'],
+      { MADARCH_HOME: base, MADARCH_APP: built }, base);
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain(join(folder, 'workspace.yaml'));
+    expect(run.stderr).toMatch(/line \d/);
+  });
+
+  test('a builder that cannot be launched names the cause, not just exit null', () => {
+    const base = scratchFolder();
+    const app = join(base, 'app-folder-never-created');
+    const run = runCommand(['serve', '--product', product(base), '--port', '0', '--no-open'],
+      { MADARCH_HOME: base, MADARCH_APP: app, MADARCH_APP_BUILD: 'true' }, base);
+    expect(run.status).toBe(2);
+    expect(run.stderr).not.toContain('exit null');
+    expect(run.stderr).toMatch(/no such file|ENOENT/i);
+  });
+
   test('serve --no-open opens nothing, not even through MADARCH_BROWSER', async () => {
     const base = scratchFolder();
     const built = builtApp(base);
