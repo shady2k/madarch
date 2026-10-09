@@ -1,6 +1,6 @@
 # 0017. The product wiki is the source of truth and the place of work, kept in git
 
-Status: accepted
+Status: accepted; refined by 0019
 Date: 2026-10-09
 
 Partly supersedes 0016: its per-repository contract file installed by the skill
@@ -43,9 +43,9 @@ Option 3, decided by the owner in conversation on 2026-10-09.
 - **Markdown and YAML in git are the truth.** Nothing madarch keeps is more
   authoritative than git.
 - **One write path.** People edit in the wiki, agents through madarch's MCP;
-  both go through madarch, which checks the document's form and refuses an
-  invalid one, then commits it as its author. The contract is that write path,
-  not a file copied into repositories. Comments and discussions are kept in git
+  both go through madarch, which runs the form check the skill set installed
+  and refuses an invalid document, then commits it as its author (0019: the
+  forms, templates and their check are the set's). Comments and discussions are kept in git
   beside their page.
 - **A chat beside every page** (owner, 2026-10-09). The person writes what
   they want and an agent applies it at once, knowing the page and the graph
@@ -55,6 +55,16 @@ Option 3, decided by the owner in conversation on 2026-10-09.
   set's behaviour (brainstorming, writing a use case, answering comments) and
   a model key of the organisation's; a person who prefers their own agent
   connects it through MCP or a REST API, by the same write path.
+- **One tracker per product, in the product repository** (owner,
+  2026-10-09). Until madarch serves work itself, it is beads_rust at the
+  product root, which the skill set already drives; code repositories keep no
+  tracker of their own, and their commits name the product's tasks
+  (`Task: <id>`), resolved against the product repository's tracker. Whether
+  tasks later stay in beads behind an adapter or become wiki pages is decided
+  with the work launched from the wiki. An external tracker such as Jira is
+  another adapter: first a link and its status shown on the page, then a
+  two-way sync for teams that work there, with one system of record for each
+  item and each field.
 - **The work is launched from the wiki.** A run knows from the start which task,
   use case and requirement it implements, so the link from a requirement to its
   code is written while the work is done; the code index then checks for drift
