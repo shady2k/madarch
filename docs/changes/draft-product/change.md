@@ -2,7 +2,7 @@
 
 Change: draft-product
 Base: 1f7f1825c4ba85dc42c5f309d6c35cd308daf1a1
-Tasks: madarch-rtr.1.1, madarch-rtr.1.2, madarch-rtr.2.1, madarch-rtr.2.2, madarch-rtr.2.3, madarch-rtr.2.4
+Tasks: madarch-rtr.1.1, madarch-rtr.1.2, madarch-rtr.1.3, madarch-rtr.2.1, madarch-rtr.2.2, madarch-rtr.2.3, madarch-rtr.2.4
 Kind: behavior
 
 ## Intent
