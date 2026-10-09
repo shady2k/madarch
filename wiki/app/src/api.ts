@@ -60,7 +60,11 @@ export async function readJson<T>(what: string, url: string, signal?: AbortSigna
       ) {
         reason = String((body as Record<string, unknown>).message);
       }
-    } catch {
+    } catch (error: unknown) {
+      // A body read that the abort interrupted is the timeout, not a
+      // refusal: rethrow it as itself so the caller names the timeout
+      // instead of "the server answered 503" (finding 2.11).
+      if (error instanceof DOMException && error.name === 'AbortError') throw error;
       // keep the status line as the reason
     }
     throw new RequestError(what, reason);

@@ -368,6 +368,54 @@ describe('a poll that never settles', () => {
 });
 
 describe('a poll that times out', () => {
+  test('names the product request when the product fetch is what timed out (finding 2.11)', async () => {
+    (globalThis as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const target = input instanceof URL ? input.pathname + input.search : String(input);
+      if (target === '/api/pages') {
+        return new Response(JSON.stringify(listWithPages), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (target === '/api/product') {
+        return await new Promise<Response>((_rest, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+        });
+      }
+      return new Response(JSON.stringify({ message: 'nothing answers ' + target }), { status: 404 });
+    }) as unknown as typeof fetch;
+    goto('/');
+    await intoApp(createElement(App, { tickMs: 60_000, pollTimeoutMs: 20 }));
+    await until(() => document.querySelector('p.error') !== null, 'the shown timeout');
+    const shown = document.querySelector('p.error')?.textContent ?? '';
+    expect(shown).toContain('/api/product');
+    expect(shown).toContain('timed out');
+    expect(shown).not.toContain('/api/pages');
+  });
+
+  test('a stalled error-body read is reported as the timeout it was (finding 2.11)', async () => {
+    (globalThis as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const target = input instanceof URL ? input.pathname + input.search : String(input);
+      if (target === '/api/pages') {
+        // A 503 header whose body never arrives: reading it can only end in the abort.
+        return new Response(new ReadableStream<Uint8Array>({
+          start(controller) {
+            init?.signal?.addEventListener('abort', () =>
+              controller.error(new DOMException('aborted', 'AbortError')));
+          },
+        }), { status: 503, headers: { 'content-type': 'application/json' } });
+      }
+      if (target === '/api/product') {
+        return new Response(JSON.stringify(product), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ message: 'nothing answers ' + target }), { status: 404 });
+    }) as unknown as typeof fetch;
+    goto('/');
+    await intoApp(createElement(App, { tickMs: 60_000, pollTimeoutMs: 20 }));
+    await until(() => document.querySelector('p.error') !== null, 'the shown timeout');
+    const shown = document.querySelector('p.error')?.textContent ?? '';
+    expect(shown).toContain('timed out');
+    expect(shown).not.toContain('503');
+    expect(shown).not.toContain('The operation was aborted');
+  });
+
   test('names what was being read and that it timed out (finding 2.10)', async () => {
     (globalThis as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const target = input instanceof URL ? input.pathname + input.search : String(input);

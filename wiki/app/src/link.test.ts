@@ -45,6 +45,13 @@ describe('a Markdown link target', () => {
     expect(resolveLink('docs/index.md', '/docs/other.md', held)).toEqual({ kind: 'plain' });
   });
 
+  test('a rooted destination resolves against the product root like a relative one (finding 2.11)', () => {
+    expect(resolveLink('docs/index.md', '/docs/./vision.md', held)).toEqual({ kind: 'wiki', path: 'docs/vision.md' });
+    expect(resolveLink('docs/index.md', '/docs/deep/../vision.md', held)).toEqual({ kind: 'wiki', path: 'docs/vision.md' });
+    // Nothing climbs above the product root.
+    expect(resolveLink('docs/index.md', '/../../vision.md', held)).toEqual({ kind: 'plain' });
+  });
+
   test('a link written as the wiki\'s own address opens that page (finding 5)', () => {
     expect(resolveLink('docs/index.md', '/p/docs/vision.md', held)).toEqual({ kind: 'wiki', path: 'docs/vision.md' });
     expect(resolveLink('docs/index.md', '/p/docs/a%20b.md', new Set(['docs/a b.md']))).toEqual({ kind: 'wiki', path: 'docs/a b.md' });

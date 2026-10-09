@@ -284,21 +284,25 @@ describe('the server\'s product mode', () => {
     draft();
     const distFolder = join(import.meta.dir, '..', 'wiki', 'app', 'dist');
     const index = join(distFolder, 'index.html');
-    const made = !existsSync(index);
-    if (made) {
-      mkdirSync(distFolder, { recursive: true });
-      writeFileSync(index, '<!doctype html><title>fixture app</title>');
-    }
+    // Track the directory, not the file: when `dist` already stood with
+    // other assets and no index.html, only the fixture may be removed —
+    // a pre-existing asset must survive the test (finding 2.11).
+    const madeDir = !existsSync(distFolder);
+    if (madeDir) mkdirSync(distFolder, { recursive: true });
+    const wroteIndex = !existsSync(index);
+    if (wroteIndex) writeFileSync(index, '<!doctype html><title>fixture app</title>');
+    const keptAsset = join(distFolder, 'pre-existing.js');
+    writeFileSync(keptAsset, 'export const kept = 1;\n');
     try {
       server = startServer({ productFolder: folder!, port: 0, log: () => {}, errorLog: () => {} });
       const root = await fetch(`${server.url}/`);
       expect(root.status).toBe(200);
       expect((await root.text()).length).toBeGreaterThan(0);
+      expect(existsSync(keptAsset)).toBe(true);
     } finally {
-      if (made) {
-        rmSync(index);
-        rmSync(distFolder, { recursive: true, force: true });
-      }
+      rmSync(keptAsset);
+      if (wroteIndex) rmSync(index);
+      if (madeDir) rmSync(distFolder, { recursive: true, force: true });
     }
   });
 

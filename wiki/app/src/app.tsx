@@ -65,8 +65,12 @@ export function App({ tickMs = defaultTickMs, pageRetryMs = 1000, pollTimeoutMs 
             controller?.abort();
           }, pollTimeoutMs)
         : undefined;
+      // The request that was actually in flight when the timeout fired, so
+      // the sentence names it and not always the page list (finding 2.11).
+      let current: string = '/api/pages';
       try {
         const nextList = await getPages(controller.signal);
+        current = '/api/product';
         const nextProduct = await getProduct(controller.signal);
         if (!alive || lastAnsweredTurn > turn) return;
         lastAnsweredTurn = turn;
@@ -78,9 +82,9 @@ export function App({ tickMs = defaultTickMs, pageRetryMs = 1000, pollTimeoutMs 
         const expired = aborted && timeoutFired;
         if (alive && lastAnsweredTurn <= turn && (!aborted || expired)) {
           // A poll the app itself killed at its own timeout is named as
-          // such: what was being read and that it timed out — never the
-          // abort's raw "The operation was aborted." (finding 2.10).
-          if (expired) setError(`Could not read the page list: the request to /api/pages timed out after ${pollTimeoutMs} ms`);
+          // such: what was being read — the request that timed out — and
+          // that it timed out — never the abort's raw message (finding 2.10).
+          if (expired) setError(`Could not read the page list: the request to ${current} timed out after ${pollTimeoutMs} ms`);
           else setError(caught instanceof Error ? caught.message : String(caught));
         }
       } finally {

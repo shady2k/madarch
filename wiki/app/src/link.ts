@@ -48,9 +48,13 @@ export function classifyTarget(pagePath: string, href: string): ResolvedLink {
   }
   let resolved: string;
   if (destination.startsWith('/p/')) {
-    resolved = destination.slice('/p/'.length);
+    resolved = resolveRelative('', destination.slice('/p/'.length));
   } else if (destination.startsWith('/')) {
-    resolved = destination.slice(1);
+    // A rooted address names the page at that path within the product, so
+    // it resolves against the product root with the same rules as a
+    // relative one: `/docs/./vision.md` and `/docs/deep/../vision.md`
+    // name the page their path reaches (finding 2.11).
+    resolved = resolveRelative('', destination.slice(1));
   } else {
     resolved = resolveRelative(pagePath, destination);
   }
