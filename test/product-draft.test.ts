@@ -235,13 +235,15 @@ describe('createDraft', () => {
   });
 
   test('the draft\'s git is called bare, with the caller\'s own environment filtered of the loader variables', () => {
-    // No extra option: the git calls build their environment from the
-    // process's, which here carries a GIT_DIR no git in the draft must see.
+    // A sealed identity, not an empty one: the environment the git calls
+    // run in is still built from the process's, which here carries a
+    // GIT_DIR no git in the draft must see — the identity the test itself
+    // needs must not come from the machine's git configuration.
     const home = tempFolder('madarch-products-');
     const saved = process.env.GIT_DIR;
     process.env.GIT_DIR = '/nowhere';
     try {
-      const draft = createDraft({ home, today: EXAMPLE_DAY, gitEnv: {} });
+      const draft = createDraft({ home, today: EXAMPLE_DAY, gitEnv: gitEnv(GIT_ENV) });
       expect(draft).toMatchObject({ outcome: 'created' });
     } finally {
       if (saved === undefined) delete process.env.GIT_DIR;
