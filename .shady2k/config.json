@@ -1,11 +1,14 @@
 {
   "strength": "block",
-  "currentMilestone": "knowledge-base",
+  "currentMilestone": "idea-to-wiki",
   "milestoneLabels": [
     "knowledge-base",
     "registry",
     "live-graph",
-    "answers"
+    "answers",
+    "idea-to-wiki",
+    "agent-access",
+    "work-from-wiki"
   ],
   "areaLabels": [
     "model",

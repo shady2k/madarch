@@ -3,10 +3,14 @@
 madarch keeps a product's knowledge as a graph: what people intend (its
 vision, requirements, use cases, decisions and architecture), joined with what
 madarch finds in its code, configuration and deployments, across every
-repository the product spans. The graph is the product; the wiki, diagrams and
-answers to agents are views of it. A reader goes from the product's purpose
-down to the line of code that implements one step of one use case, and every
-claim on the way names its evidence.
+repository the product spans. Its wiki is the product's single source of
+truth and place of work: ideas, hypotheses, requirements, use cases and the
+work itself are written there, kept as Markdown in the product's own git
+repository, and work is launched from it (decisions 0017, 0018). It is
+agent-first: an agent does most of the reading and writing, people decide and
+make the occasional edit by hand. A reader goes from the product's purpose down
+to the line of code that implements one step of one use case, and every claim
+on the way names its evidence.
 
 ## Audience
 
@@ -43,11 +47,14 @@ folder of documents nobody can trace.
   readable diagram and one README.
 - Anyone looking for a drawing tool. madarch computes views; it does not offer
   a canvas to arrange boxes by hand.
-- Anyone looking for a wiki editor. Documents are written in the repositories,
-  beside the code; the wiki is a view and is never edited in place.
+- Anyone looking for a general-purpose wiki or note-taking tool. madarch's
+  wiki holds a product's knowledge in a form it checks, not free pages.
 
 ## Problem
 
+- **An idea has nowhere to grow.** A new product starts as a conversation;
+  what was decided, why, and which hypothesis a requirement came from is lost
+  before the first line of code.
 - **Product knowledge is scattered and cannot be traced.** The vision lives in
   one place, requirements in another, decisions in a wiki or in people's
   memory, and nothing says which code realises which requirement or use case.
@@ -81,9 +88,10 @@ folder of documents nobody can trace.
 | Code-graph tools (codebase-memory-mcp, repowise, graphify) | They index what code does, not what was intended or why: no use cases, requirements, domains, zones or data classification, one repository at a time. madarch indexes code itself and joins it with intent |
 | Requirements traceability (sphinx-needs, Doorstop) | Requirements linked to requirements and tests, not to the architecture or the code's evidence |
 | Archi / ArchiMate | Manual layout and editing; no link to code |
-| Wikis (Confluence and the like) | Hand-written, unchecked, and wrong a few months after they are written |
+| Wikis (Confluence, Notion, the GitHub and GitLab wikis), with or without AI | Their pages are free text: unchecked, unlinked to the architecture, the code or the work, and wrong a few months after they are written; an AI that edits them edits text, not a product's checked knowledge |
 
-The difference: a **product corpus in git** under one versioned contract
+The difference: a **product corpus in git**, in one product repository and
+under one contract that madarch checks on every write and commit
 (vision, requirements, use cases as scenarios over the model, data entities,
 decisions, the intended model), **facts from madarch's own code index and
 pluggable extractors**, joined by **normalized contract ids** across
@@ -93,6 +101,14 @@ frontends.
 
 ## Key journeys
 
+0. **Lena has only an idea.** She runs `madarch new`: a draft product opens
+   as a wiki, with no name yet. Her agent talks the idea through with her in
+   plain words and writes what comes out (a vision, hypotheses, the record of
+   the conversation, then user stories, use cases and requirements), each page
+   linked to what it grew from, checked as it is written, and listed with
+   what is still missing. A prototype tests one hypothesis. When the idea
+   becomes a product, the agent helps her name it and offers a git remote; an
+   engineer can start from what is there.
 1. **Irina, an architect, explains the platform to a new team.** She opens the
    organisation's graph at the level of domains: six boxes and a few aggregated
    arrows. She drills into "Billing", then into "Payments", each view readable
@@ -142,9 +158,12 @@ frontends.
 - Checks: dangling cross-repository references, contracts without providers,
   rule violations, drift between intent and code, broken scenarios, the corpus
   against its contract.
-- Two modes: local (one repository, an embedded graph, a wiki built in place, a
-  local MCP for agents) and a server (a product of many repositories, its
-  history and its portal).
+- One product repository per product: the wiki and the work, a manifest of
+  its code repositories, the team's skills and its constitution for agents;
+  cloning it and running its bootstrap prepares the whole workspace.
+- The same madarch locally and centrally: a local one serves a workspace, the
+  central one serves the company and federates products; they sync through
+  git, and the graph in LadybugDB is derived and rebuildable from it.
 - Answers for people and agents over HTTP and MCP; diagrams through frontend
   plugins (Mermaid for documents, LikeC4 for navigation, graph databases for
   ad-hoc queries).
@@ -161,15 +180,14 @@ updating it, the product failed even if the wiki looks good.
 
 ## Exclusions
 
-- A manual diagram editor, a canvas or a wiki editor.
+- A manual diagram editor or a canvas.
 - A proprietary query language; ad-hoc queries use Cypher through the query
   engine or an exported graph database.
 - Storing secret values; only references to them.
-- Writing the corpus: authoring (the model, use cases, data entities,
-  onboarding a repository) is done by agent skills in the shady2k-skills set
-  against madarch's versioned document contract (decision 0016); madarch checks,
-  stores and serves it.
-- In the current milestone: see its charter, `docs/milestones/knowledge-base.md`.
+- The agents' behaviour (brainstorming, naming, writing a use case, running
+  work): it lives in the shady2k-skills set; madarch is the store, the checks,
+  the graph, the wiki and the interfaces agents use.
+- In the current milestone: see its charter, `docs/milestones/idea-to-wiki.md`.
 
 ## Constraints and assumptions
 
@@ -179,8 +197,8 @@ Known:
 - Open source, public repository: every dependency must be redistributable.
 - Products span many repositories on different git hosts; GitHub and GitLab are
   the first webhook sources.
-- The document contract is installed into repositories as one dependency-free
-  file with a version; the server accepts a range of versions.
+- A product's knowledge is kept in its own git repository, apart from its code:
+  nearly everyone may write to it, while write access to code stays narrow.
 
 Hypotheses to test:
 - Use cases written as scenarios over the model are cheap enough to keep
@@ -189,8 +207,11 @@ Hypotheses to test:
   to symbols precisely enough to be useful.
 - Normalized contract ids join facts from different repositories reliably
   enough to be useful.
-- People and agents keep the corpus current when it lives beside the code and
-  is checked on every change.
+- People and agents keep the corpus current when it is their place of work,
+  checked on every change, and work launched from it writes its own links to
+  the code.
+- Git is a good enough store for a product team's edits when each edit is a
+  commit and a conflict is shown, not silently merged.
 - A graph of 10^4–10^5 elements with full bitemporal history stays fast enough
   for interactive views with an embedded query engine.
 
@@ -205,19 +226,23 @@ Done:
 - live-graph (`docs/milestones/live-graph.md`), ended early: the registry's
   integrity (stable ids, digests, idempotent immutable uploads, protocol
   versions).
+- knowledge-base (`docs/milestones/knowledge-base.md`), ended early by decision
+  0017: use cases and data entities in the model.
 
-Near (`knowledge-base`, `docs/milestones/knowledge-base.md`):
-- The product wiki of one repository, from vision to code: the versioned
-  document contract in one file, use cases and data entities in the model, the
-  product section with backlinks, the data catalogue, deployments per
-  environment and open questions; madarch's own code index for files, imports
-  and symbols.
+Near (`idea-to-wiki`, `docs/milestones/idea-to-wiki.md`):
+- From an idea to a living wiki, for one person and their agent on their own
+  machine: a draft product, the wiki updating as files are saved, the check on
+  write and commit, linked vision, hypotheses, sources, user stories, use cases
+  and requirements, prototypes, open questions, and the draft turned into a
+  named product.
 
-Next (`registry`):
-- A product published from several repositories, joined at the contract
-  boundary, with its portal; the wiki kept current without hands (a pull-request
-  check, a publish after merge); the graph served to agents over MCP, locally
-  and from the server; the call graph and interactions from code.
+Next, as milestones:
+- Agents through MCP and an API, and editing by hand in the wiki.
+- Work launched from the wiki: code repositories, tasks and runs, feedback
+  from madarch's own code index.
+- The team and the central server: bootstrap, sign-in, single sign-on, roles.
+- Federation of products at their contract boundaries, then company-wide
+  abstractions.
 
 Later hypotheses:
 - Data flow inside code (which value reaches which topic); history queries and
@@ -226,5 +251,4 @@ Later hypotheses:
   uploads facts; runtime observation (tracing, broker ACLs).
 - Adapters for other code-graph tools as evidence sources.
 - Network access matrices and compliance exports generated from the graph.
-- Authentication, single sign-on and access by product.
 - Several independent graphs per server.

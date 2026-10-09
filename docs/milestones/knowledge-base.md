@@ -111,3 +111,10 @@ merge (madarch-tah).
 - Serve the graph to agents over MCP, locally and from the server
 (madarch-yhy).
 - Find the call graph and interactions in source code (madarch-850).
+
+## Ended
+
+Ended early 2026-10-09 by decision 0017 (owner). Accepted: outcome 2
+(madarch-hnq). Closed as moot: outcome 1 (madarch-o3b), whose per-repository
+contract file 0017 drops. Deferred: outcomes 3 (madarch-1ui) and 4
+(madarch-mv2). Its successor is `idea-to-wiki`.
