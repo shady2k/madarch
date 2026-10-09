@@ -2,14 +2,14 @@
  * The `madarch` command's `new` subcommand (docs/changes/draft-product/
  * capabilities/product-repository.md, requirement draft): the library
  * `createDraft` does the work; the command parses, prints and decides the
- * exit code — 0 created, 2 an argument or the products home cannot be
- * used, 1 a step of the repository's creation failed. Every test runs the
- * command as a child process, the way a person runs it, with the products
- * home at a scratch folder; no test writes into a real home, and no test
- * starts a server.
+ * exit code. Every test runs the command as a child process, the way a
+ * person runs it, with the products home at a scratch folder; no test
+ * writes into a real home. A run that creates a draft keeps serving its
+ * wiki until the test stops it, through the same app seam the serve tests
+ * use (MADARCH_APP at a ready dist), so no test runs bun's real build.
  */
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, chmodSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,6 +28,9 @@ function realGit(): string {
   if (!path) throw new Error('git is not on PATH; these tests need it');
   return path;
 }
+
+/** Children a test started live, killed again so none outlives its test. */
+const runningChildren: { kill(): void }[] = [];
 
 /** A word quoted shell-safely: even a path holding a dollar, a backtick or a quote stands as itself. */
 const shQuote = (word: string): string => "'" + word.split("'").join("'\\''") + "'";
@@ -53,15 +56,86 @@ function scratchFolder(prefix = 'madarch-cli-'): string {
 
 const removeMadeFolders = (): void => {
   for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
+  for (const proc of runningChildren.splice(0)) try { proc.kill(); } catch { /* already gone */ }
 };
 
 afterEach(removeMadeFolders);
 process.on('exit', removeMadeFolders);
 
-/** Runs the command the way a person does, as a child process that ends by itself. */
+
+/** Runs a command that ends by itself, the way a person does. */
 function runCommand(args: string[], overrides: Record<string, string> = {}): { status: number | null; stdout: string; stderr: string } {
   const run = spawnSync('bun', [CLI, ...args], { encoding: 'utf8', env: { ...process.env, ...SEALED_GIT, ...overrides } });
   return { status: run.status, stdout: run.stdout ?? '', stderr: run.stderr ?? '' };
+}
+
+/**
+ * One live child whose stdout is read as it arrives: the command serves
+ * until it is stopped, so a run that creates a draft is started, seen
+ * through its own fact lines, and stopped the way a reader stops a
+ * server — killed, then waited for (the exit is the signal's code).
+ */
+interface LiveNew {
+  readonly stdout: string;
+  readonly exitCode: number | null;
+  finish(): Promise<{ stdout: string }>;
+}
+function serveNew(args: string[], overrides: Record<string, string> = {}, program: readonly string[] = ['bun', CLI]): LiveNew {
+  const proc = Bun.spawn([...program, ...args], {
+    stdin: 'pipe', stdout: 'pipe', stderr: 'pipe',
+    env: { ...process.env, ...SEALED_GIT, ...overrides },
+  });
+  runningChildren.push(proc);
+  let stdoutText = '';
+  const whenStdout = (async () => {
+    const reader = (proc.stdout as ReadableStream).getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      stdoutText += new TextDecoder().decode(value);
+    }
+    return stdoutText;
+  })();
+  let stderrText = '';
+  (async () => {
+    const reader = (proc.stderr as ReadableStream).getReader();
+    for (;;) { const { done, value } = await reader.read(); if (done) break; stderrText += new TextDecoder().decode(value); }
+    if (stderrText !== '') throw new Error(`the command printed error output: ${stderrText}`);
+  })();
+  return {
+    get stdout() { return stdoutText; },
+    get exitCode() { return proc.exitCode; },
+    finish: async () => {
+      proc.kill();
+      const [, stdout] = await Promise.all([proc.exited, whenStdout]);
+      return { stdout };
+    },
+  };
+}
+
+/** An app folder with its dist already there: the serving builds nothing. */
+function builtApp(base: string): string {
+  const app = join(base, 'wiki-app');
+  mkdirSync(join(app, 'dist', 'assets'), { recursive: true });
+  writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'app', private: true, scripts: { build: 'true' } }, null, 2));
+  writeFileSync(join(app, 'dist', 'index.html'), '<!doctype html><title>built</title>');
+  writeFileSync(join(app, 'dist', 'assets', 'app.js'), 'export const x = 1;');
+  return app;
+}
+
+/** The draft's two printed facts, once both lines have arrived. */
+async function printedLiveFacts(serve: LiveNew): Promise<{ folder: string; id: string }> {
+  const start = Date.now();
+  for (;;) {
+    const lines = serve.stdout.split('\n').filter((line) => line !== '');
+    if (lines.length >= 2 && lines[0]!.startsWith('folder: ') && lines[1]!.startsWith('id: ')) {
+      return { folder: lines[0]!.slice('folder: '.length), id: lines[1]!.slice('id: '.length) };
+    }
+    if (serve.exitCode !== null || Date.now() - start > 15_000) {
+      throw new Error(`the command stopped before it served; stdout was: ${serve.stdout}`);
+    }
+    await Bun.sleep(50);
+  }
 }
 
 /** Today's date, the way the draft's name is folded from it. */
@@ -70,20 +144,13 @@ function todayName(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
 
-/** The two facts the command prints on a created draft, from its stdout. */
-function printedFacts(stdout: string): { folder: string; id: string } {
-  const lines = stdout.split('\n').filter((line) => line !== '');
-  expect(lines).toHaveLength(2);
-  return { folder: lines[0]!.slice('folder: '.length), id: lines[1]!.slice('id: '.length) };
-}
-
 describe('madarch new', () => {
-  test('creates the draft under MADARCH_HOME and prints its folder and its id, one fact per line', () => {
-    const home = scratchFolder();
-    const { status, stdout, stderr } = runCommand(['new'], { MADARCH_HOME: home });
-    expect(stderr).toBe('');
-    expect(status).toBe(0);
-    const { folder, id } = printedFacts(stdout);
+  test('creates the draft under MADARCH_HOME and prints its folder and its id, one fact per line, then serves its wiki', async () => {
+    const base = scratchFolder('madarch-cli-app-');
+    const home = join(base, 'home');
+    mkdirSync(home, { recursive: true });
+    const serve = serveNew(['new', '--port', '0', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: builtApp(base) });
+    const { folder, id } = await printedLiveFacts(serve);
     expect(folder).toBe(join(home, 'products', `idea-${todayName()}`));
     expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     expect(statSync(folder).isDirectory()).toBe(true);
@@ -91,34 +158,45 @@ describe('madarch new', () => {
     // The id the manifest holds is the one the command printed.
     const read = readProduct(folder);
     expect(read).toMatchObject({ ok: true, product: { id, name: `idea-${todayName()}`, schemaVersion: 1 } });
+    // Serving keeps the process alive until the test stops it.
+    expect(serve.exitCode).toBe(null);
+    await serve.finish();
   });
 
-  test("--home moves this one command's products home, over MADARCH_HOME", () => {
+  test("--home moves this one command's products home, over MADARCH_HOME", async () => {
     const madarchHome = scratchFolder();
     const home = scratchFolder('madarch-cli-elsewhere-');
-    const { status, stdout } = runCommand(['new', '--home', home], { MADARCH_HOME: madarchHome });
-    expect(status).toBe(0);
-    const { folder } = printedFacts(stdout);
+    const serve = serveNew(['new', '--home', home, '--port', '0', '--no-open'],
+      { MADARCH_HOME: madarchHome, MADARCH_APP: builtApp(home) });
+    const { folder } = await printedLiveFacts(serve);
     expect(folder).toBe(join(home, `idea-${todayName()}`));
     expect(statSync(folder).isDirectory()).toBe(true);
+    await serve.finish();
     // And MADARCH_HOME holds nothing: nothing was written there.
     expect(readdirSync(madarchHome)).toEqual([]);
   });
 
-  test('--home=FOLDER names the home in one word, the way the other commands parse it', () => {
+  test('--home=FOLDER names the home in one word, the way the other commands parse it', async () => {
+    const base = scratchFolder('madarch-cli-app-');
     const home = scratchFolder();
-    const { status, stdout } = runCommand(['new', `--home=${home}`], {});
-    expect(status).toBe(0);
-    const { folder } = printedFacts(stdout);
+    const serve = serveNew(['new', `--home=${home}`, '--port', '0', '--no-open'], { MADARCH_APP: builtApp(base) });
+    const { folder } = await printedLiveFacts(serve);
     expect(folder).toBe(join(home, `idea-${todayName()}`));
+    await serve.finish();
   });
 
-  test('a second new the same day makes -2, with its own id', () => {
+  test('a second new the same day makes -2, with its own id', async () => {
+    const base = scratchFolder('madarch-cli-app-');
     const home = scratchFolder();
-    const first = printedFacts(runCommand(['new'], { MADARCH_HOME: home }).stdout);
-    const second = printedFacts(runCommand(['new'], { MADARCH_HOME: home }).stdout);
-    expect(second.folder).toBe(`${first.folder}-2`);
-    expect(second.id).not.toBe(first.id);
+    const app = builtApp(base);
+    const first = serveNew(['new', '--port', '0', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app });
+    const firstFacts = await printedLiveFacts(first);
+    const second = serveNew(['new', '--port', '0', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app });
+    const secondFacts = await printedLiveFacts(second);
+    expect(secondFacts.folder).toBe(`${firstFacts.folder}-2`);
+    expect(secondFacts.id).not.toBe(firstFacts.id);
+    await first.finish();
+    await second.finish();
   });
 
   test('--help prints the subcommands and the options and exits 0', () => {
@@ -134,7 +212,7 @@ describe('madarch new', () => {
     expect(stdout).toBe('');
     expect(status).toBe(2);
     expect(stderr).toContain('--home');
-    expect(stderr).toContain('needs a folder');
+    expect(stderr).toContain('needs a value');
   });
 
   test('an unknown option exits 2 naming it and what is accepted', () => {
@@ -248,12 +326,14 @@ describe('madarch new: --home values a person cannot mean', () => {
     expect(readdirSync(home)).toEqual([]);
   });
 
-  test("`--home` with spaces around a real folder still creates the draft in that folder", () => {
+  test("`--home` with spaces around a real folder still creates the draft in that folder", async () => {
+    const base = scratchFolder('madarch-cli-app-');
     const home = scratchFolder();
-    const { status, stdout } = runCommand(['new', '--home', ` ${home} `], { MADARCH_HOME: scratchFolder() });
-    expect(status).toBe(0);
-    const { folder } = printedFacts(stdout);
+    const serve = serveNew(['new', '--home', ` ${home} `, '--port', '0', '--no-open'],
+      { MADARCH_HOME: scratchFolder(), MADARCH_APP: builtApp(base) });
+    const { folder } = await printedLiveFacts(serve);
     expect(folder).toBe(join(home, `idea-${todayName()}`));
+    await serve.finish();
   });
   test('`--home=--no-open` refuses the same way', () => {
     const home = scratchFolder();
@@ -275,12 +355,16 @@ describe('the madarch command as an executable', () => {
     expect((run.stdout ?? '').length).toBeGreaterThan(0);
   });
 
-  test('spawning the script itself creates a draft with MADARCH_HOME at a scratch folder', () => {
+  test('spawning the script itself creates a draft with MADARCH_HOME at a scratch folder, then serves it', async () => {
+    const base = scratchFolder('madarch-cli-app-');
     const home = scratchFolder();
-    const run = spawnSync(CLI, ['new'], { encoding: 'utf8', env: { ...process.env, ...SEALED_GIT, MADARCH_HOME: home } });
-    expect(run.status).toBe(0);
-    expect(run.stderr ?? '').toBe('');
-    const printed = printedFacts(run.stdout ?? '');
+    const app = builtApp(base);
+    // Not through `bun <file>`: the way `bun link`'s shim runs it — the
+    // executed script itself.
+    const serve = serveNew(['new', '--port', '0', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app }, [CLI]);
+    const printed = await printedLiveFacts(serve);
     expect(statSync(printed.folder).isDirectory()).toBe(true);
+    expect(printed.id).toMatch(/^[0-9a-f-]+$/);
+    await serve.finish();
   });
 });
