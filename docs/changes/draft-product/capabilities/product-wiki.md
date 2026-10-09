@@ -13,7 +13,9 @@ capability builds stays as the read-only export.
 When a product's wiki is served, it shall have a home page naming the product
 and listing its pages, and one page for every Markdown file under the
 product's `docs/` folder and for `README.md` at its root when it has one, in
-code point order of their paths. A page's title shall be its first level-one
+code point order of their paths. It shall read those two places and nothing
+else: the skill set's tracker at the product's root, every other dot-folder
+and every other folder are neither pages of the wiki nor read by it. A page's title shall be its first level-one
 heading, else its file's name without its extension, and its address shall be
 `/p/` and its path within the product. A page shall show its Markdown as
 formatted text. A link from one page to another page of the wiki shall open
@@ -124,3 +126,8 @@ files nor its repository.
 - Given: a served draft with its files and its git status recorded
 - When: its home page and one page are opened
 - Then: the product's files and its git status are unchanged
+
+### Scenario: only-docs-and-readme-are-pages
+- Given: a product whose root holds `.beads/issues.jsonl`, `skills/own.md`, `docs/vision.md` and `README.md`
+- When: its wiki is listed
+- Then: the pages are `README.md` and `docs/vision.md`, and neither the tracker nor `skills/own.md` is a page or is read

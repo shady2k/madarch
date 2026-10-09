@@ -36,7 +36,7 @@ them): the served app shows a document as formatted text first.
 - Writing from the wiki: the page editor, the chat, comments, sign-in and MCP
 (decisions 0017 and 0018; the agent-access milestone).
 - The contract a document is checked against on write and on commit: outcome 2
-(madarch-fe1).
+(madarch-fe1). `madarch new` installs no hook in the product repository.
 - The product's open questions (outcome 3, madarch-0uc), prototypes
 (outcome 4, madarch-ls3), naming the product, its remote and `madarch list`
 (outcome 5, madarch-mni).
@@ -137,6 +137,24 @@ Chosen by the agent while planning this change:
   moves the madarch home and `--home` this one command. Tests and the walk
   point it at a scratch folder, so no test writes into a person's home
   (madarch-1xq's rule).
+- **The manifest is how a product repository is recognised.** `workspace.yaml`
+  carries the three fields that are never renamed — `schemaVersion`, `id`,
+  `name` — and may carry the pinned version of the skill set; it grows by
+  fields added beside them, so a reader ignores what it does not know and a
+  manifest written by a later madarch still opens. The folder layout is fixed
+  by the schema version, never read from the manifest: `docs/` for the wiki's
+  documents, `model/` for the intended model, `skills/` for the team's own
+  skills (never a copy of the skill set), `prototypes/` and an untracked
+  `repos/`.
+- **`AGENTS.md` is written once.** `madarch new` writes the constitution and
+  never rewrites the file afterwards; the part madarch maintains later lives
+  between its marker comments, so the skill set may add its own sections
+  safely. Nothing madarch writes holds an absolute path to the product, and
+  the documents' links are relative paths, so renaming the draft's folder in
+  outcome 5 breaks none of them.
+- **The wiki reads the documents and nothing else.** `docs/` and `README.md`
+  alone: the skill set's tracker at the product's root, every other dot-folder
+  and every other folder are neither pages nor read.
 - **The draft's name.** `idea-YYYY-MM-DD`, of the day's date, from the local date, with
   `-2`, `-3` … when that day's names are taken. Naming the product is outcome
   5; the folder is renamed in place then, and the manifest's id does not
