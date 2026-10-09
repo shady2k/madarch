@@ -10,7 +10,13 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
 ## Lessons
 
 - Checks: `bun run check`, `bun test`; `MADARCH_SKIP_PERF=1 bun test` skips the
-  performance tests (about 6 s instead of minutes). Mutation testing is StrykerJS 9
+  performance tests (about 6 s instead of minutes). The `madarch` command
+  (`bun link` in a checkout, or `bun scripts/madarch.ts new|serve …`) creates
+  a draft product repository and serves its wiki; the products home is
+  `~/madarch/products`, moved by `MADARCH_HOME` (or `--home` for one command).
+  The wiki app's own checks run inside `wiki/app`:
+  `bun install --frozen-lockfile && bun run check && bun test && bun run build`.
+  Mutation testing is StrykerJS 9
   run from a scratch folder outside the repository with `typescript@5` beside it
   (TypeScript 7 has no JS API); see `.shady2k/integration.md`. With bun's command
   runner, mutate only the changed line ranges (`"src/x.ts:120-180"`) against one

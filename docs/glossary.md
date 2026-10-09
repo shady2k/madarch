@@ -219,12 +219,39 @@ report, documents first and confirmed in the code.
 A module element grouping a core's groups of modules when one page would hold
 too many of them; a modelling choice, not a kind of element.
 
-**Wiki** (`scripts/wiki.ts`):
-The static site generated from a repository's compiled model and its own
-documents: a page per domain and element with its diagram, pages for the
-interfaces, zones and data categories, and the repository's README, `docs/`
-and review report. Built by one of two engines, Zensical or Starlight (the
-Starlight template is `wiki/starlight/`).
+**Wiki** (`src/product-wiki/`, `wiki/app/`, `scripts/wiki.ts`):
+A product's wiki and a repository's static site. The served wiki is madarch's
+own thin app (`wiki/app/`), served by a local madarch through the `madarch new`
+and `madarch serve` commands (`src/product-wiki/`), showing the product's pages
+read from its working tree; the static export (`scripts/wiki.ts`) is the
+read-only site generated from a repository's compiled model and its own
+documents, built by one of two engines, Zensical or Starlight (the Starlight
+template is `wiki/starlight/`). (Decision 0018.)
+
+**Product repository**:
+One product's knowledge kept as Markdown and YAML in a git repository of its
+own, apart from the product's code; before it has a name it is a draft.
+
+**Draft product**:
+A product repository created by `madarch new`: a folder `idea-YYYY-MM-DD`
+under the products home, with a stable id, an empty `docs/`, and its wiki
+served from the working tree.
+
+**Products home**:
+The folder holding the product repositories (`~/madarch/products` by default),
+moved by `MADARCH_HOME` or `--home`.
+
+**Manifest**:
+The `workspace.yaml` of a product repository, carrying its `schemaVersion`,
+`id` and `name`; how madarch recognises a product and reads its identity.
+
+**Wiki app**:
+Madarch's own React app built by Vite from `wiki/app/`, served by the local
+madarch server to show a product's wiki.
+
+**Page**:
+One Markdown file under a product's `docs/`, or its `README.md`; shown at the
+address `/p/` plus its path within the product.
 
 **Diagram tab**:
 One format of a wiki page's view: LikeC4 (interactive), Mermaid, or archify

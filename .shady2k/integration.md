@@ -287,7 +287,9 @@ are the repository's installation, and each person's plugin and hooks are theirs
   this repository shows its branch's push run; `[skip ci]` in the pushed
   commit's message skips unfinished work). `.github/workflows/ci.yml` runs
   `bun install --frozen-lockfile`, `bun run check`, `bun test` and
-  `bun run views:check` on Linux, about 7 minutes; a change touching only
+  `bun run views:check` on Linux, about 7 minutes, and the wiki app's own
+  `bun install --frozen-lockfile`, `bun run check`, `bun test` and
+  `bun run build` inside `wiki/app`; a change touching only
   `docs/`, `.beads/`, `.shady2k/`, `.githooks/`, `.github/workflows/` or root
   `*.md` files runs nothing there (`paths-ignore`): it cannot touch the product.
   `.github/workflows/documents.yml` runs the product-documents check on every
@@ -304,7 +306,9 @@ are the repository's installation, and each person's plugin and hooks are theirs
   run check && bun test && bun run views:check` (Mermaid's parser and
   `likec4 validate` on the reference system's views, also in CI), plus `bun
   run schemas` and `bun run views` reproducing the committed `schema/*.json`
-  and `examples/reference-system/views/` (tests fail otherwise).
+  and `examples/reference-system/views/` (tests fail otherwise). The wiki
+  app's own checks run inside `wiki/app`: `bun install --frozen-lockfile &&
+  bun run check && bun test && bun run build`.
 - **Mutation checks:** StrykerJS 9 with the command runner (`bun test`),
   `coverageAnalysis: off`, run from outside the repository (it is not a
   dependency): a scratch folder with `@stryker-mutator/core@9` and

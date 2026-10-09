@@ -49,6 +49,29 @@ send and answers requests about them. The send command
 model. It never reads a repository (decision
 0007); what it shows is what was sent, at the commit it was sent for.
 
+**Product repository** (`src/product/`, `scripts/madarch.ts`): one product's
+knowledge as Markdown and YAML in a git repository of its own. `madarch new`
+creates a draft under the products home (`~/madarch/products`, moved by
+`MADARCH_HOME` or `--home`); the product's identity — its id and name — is
+read from its manifest, `workspace.yaml` (`src/product/manifest.ts`).
+
+**Served wiki** (`src/product-wiki/`, `wiki/app/`): a product's pages, read
+fresh from the working tree at every ask (`src/product-wiki/pages.ts`) — every
+Markdown file under `docs/` and `README.md` — shown by madarch's own app
+(`wiki/app/`, React built by Vite) and served by the server's product mode:
+started with a product folder instead of a data folder, it answers the app's
+files, the page addresses `/p/<path>` and the wiki's API (`/api/product`,
+`/api/pages`, `/api/page?path=…`), beside its model mode.
+
+## From a document to a reader
+
+A product's document reaches its reader without a send or a build: `madarch
+new` or `madarch serve` serves the product of the given or the current folder,
+the server reads the pages from the working tree at every ask, and the app
+shows them at `/p/<path>`; a file saved under `docs/` changes its page within
+two seconds, the open page refetching when the wiki's revision (a digest of
+the pages' paths and contents) changes.
+
 ## From a repository to a view
 
 A repository's intended model is compiled, the check passes on it, and the
