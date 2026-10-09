@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 /**
  * The `madarch` command line: `bun scripts/madarch.ts new [--home <folder>]`,
  * reached as `madarch` after `bun link` in a checkout (the `bin` field in

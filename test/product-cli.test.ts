@@ -18,6 +18,17 @@ import { readProduct } from '../src/product/manifest.js';
 
 const CLI = fileURLToPath(new URL('../scripts/madarch.ts', import.meta.url));
 
+/**
+ * The machine's real git, resolved once: a stub placed on PATH in a test
+ * passes every command it does not itself answer to this file, so the test
+ * depends only on git being installed, never on where it is.
+ */
+function realGit(): string {
+  const path = Bun.which('git');
+  if (!path) throw new Error('git is not on PATH; these tests need it');
+  return path;
+}
+
 /** Git's own identity for the command's child process, so a test never depends on the machine's git config. */
 const SEALED_GIT = {
   GIT_CONFIG_GLOBAL: '/dev/null',
@@ -120,7 +131,7 @@ describe('madarch new', () => {
     expect(stdout).toBe('');
     expect(status).toBe(2);
     expect(stderr).toContain('--home');
-    expect(stderr).toContain('needs a value');
+    expect(stderr).toContain('needs a folder');
   });
 
   test('an unknown option exits 2 naming it and what is accepted', () => {
@@ -174,7 +185,7 @@ describe('madarch new', () => {
 
   test('a git that refuses to commit exits 1 with git\'s own words and leaves no folder behind', () => {
     const stubs = scratchFolder('madarch-cli-gitstub-');
-    const script = ['#!/bin/sh', 'if [ "$1" = "commit" ]; then', "  echo 'stub: refusing to commit' >&2; exit 1; fi", 'exec /run/current-system/sw/bin/git "$@"', ''].join('\n');
+    const script = ['#!/bin/sh', 'if [ "$1" = "commit" ]; then', "  echo 'stub: refusing to commit' >&2; exit 1; fi", `exec ${JSON.stringify(realGit())} "$@"`, ''].join('\n');
     writeFileSync(join(stubs, 'git'), script);
     chmodSync(join(stubs, 'git'), 0o700);
     const home = scratchFolder();
@@ -183,5 +194,55 @@ describe('madarch new', () => {
     expect(status).toBe(1);
     expect(stderr).toContain('refusing to commit');
     expect(readdirSync(home).filter((name) => name.startsWith('idea-'))).toEqual([]);
+  });
+});
+
+describe('madarch new: --home values a person cannot mean', () => {
+  test("`--home --no-open` refuses: another option is not the home, and no draft is created", () => {
+    const home = scratchFolder();
+    const { status, stdout, stderr } = runCommand(['new', '--home', '--no-open'], { MADARCH_HOME: home });
+    expect(stdout).toBe('');
+    expect(status).toBe(2);
+    expect(stderr).toContain('--home');
+    expect(stderr).toContain('--no-open');
+    expect(readdirSync(home)).toEqual([]);
+  });
+
+  test('`--home=` refuses: an empty value is no home, and no draft is created', () => {
+    const home = scratchFolder();
+    const { status, stdout, stderr } = runCommand(['new', '--home='], { MADARCH_HOME: home });
+    expect(stdout).toBe('');
+    expect(status).toBe(2);
+    expect(stderr).toContain('--home');
+    expect(readdirSync(home)).toEqual([]);
+  });
+
+  test('`--home=--no-open` refuses the same way', () => {
+    const home = scratchFolder();
+    const { status, stderr } = runCommand(['new', '--home=--no-open'], { MADARCH_HOME: home });
+    expect(status).toBe(2);
+    expect(stderr).toContain('--home');
+    expect(stderr).toContain('--no-open');
+    expect(readdirSync(home)).toEqual([]);
+  });
+});
+
+describe('the madarch command as an executable', () => {
+  test('spawning the committed script itself answers --help: it carries an interpreter directive and the exec bit', () => {
+    // Not through `bun <file>`: the way `bun link`'s shim runs it — the
+    // file itself, executed, which needs its own directive and mode.
+    const run = spawnSync(CLI, ['--help'], { encoding: 'utf8' });
+    expect(run.status).toBe(0);
+    expect(run.stderr ?? '').toBe('');
+    expect((run.stdout ?? '').length).toBeGreaterThan(0);
+  });
+
+  test('spawning the script itself creates a draft with MADARCH_HOME at a scratch folder', () => {
+    const home = scratchFolder();
+    const run = spawnSync(CLI, ['new'], { encoding: 'utf8', env: { ...process.env, ...SEALED_GIT, MADARCH_HOME: home } });
+    expect(run.status).toBe(0);
+    expect(run.stderr ?? '').toBe('');
+    const printed = printedFacts(run.stdout ?? '');
+    expect(statSync(printed.folder).isDirectory()).toBe(true);
   });
 });

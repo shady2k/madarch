@@ -66,15 +66,25 @@ export function main(args: readonly string[]): number {
   for (let i = 1; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === '--home') {
+      // The next word is the home: a word that is empty, that is only the
+      // next option, or that never comes is not a home anyone named. The
+      // command refuses before the library is called — a folder named
+      // `--no-open`, or a fall-through to MADARCH_HOME and the machine
+      // default, is a draft written where nobody asked.
       home = args[i + 1];
-      if (home === undefined) {
-        console.error('the --home flag needs a value: it names the products home of this one command');
+      i++;
+      if (home === undefined || home === '' || home.startsWith('--')) {
+        console.error(`the --home flag needs a folder${home === undefined ? '' : `, not "${home}"`}: it names the products home of this one command`);
         console.error(USAGE);
         return 2;
       }
-      i++;
     } else if (arg.startsWith('--home=')) {
       home = arg.slice('--home='.length);
+      if (home === '' || home.startsWith('--')) {
+        console.error(`the --home flag needs a folder${home === '' ? '' : `, not "${home}"`}: it names the products home of this one command`);
+        console.error(USAGE);
+        return 2;
+      }
     } else if (arg.startsWith('--')) {
       console.error(`unknown option "${arg}": the options "new" accepts are --home <folder>`);
       console.error(USAGE);

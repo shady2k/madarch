@@ -11,8 +11,8 @@
  * sentence with the field or the reason.
  */
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { LineCounter, parseDocument, isMap } from 'yaml';
+import { join, resolve } from 'node:path';
+import { LineCounter, parseDocument, isAlias, isMap } from 'yaml';
 import { lineForPath } from '../model/yaml-position.js';
 import { PRODUCT_SCHEMA_VERSION } from './draft.js';
 
@@ -50,14 +50,15 @@ export type ProductRead =
  * field is ignored: the manifest grows by fields added beside the three.
  */
 export function readProduct(productFolder: string): ProductRead {
-  const manifestFile = join(productFolder, MANIFEST_FILE);
+  const folder = resolve(productFolder);
+  const manifestFile = join(folder, MANIFEST_FILE);
 
   let text: string;
   try {
     text = readFileSync(manifestFile, 'utf8');
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return { ok: false, file: manifestFile, line: 1, message: `the folder ${productFolder} holds no workspace.yaml: a product is recognised by its manifest` };
+      return { ok: false, file: manifestFile, line: 1, message: `the folder ${folder} holds no workspace.yaml: a product is recognised by its manifest` };
     }
     return { ok: false, file: manifestFile, line: 1, message: `the manifest ${manifestFile} could not be read: ${(error as Error).message}` };
   }
@@ -74,9 +75,35 @@ export function readProduct(productFolder: string): ProductRead {
     return { ok: false, file: manifestFile, line, message: `the manifest ${manifestFile} cannot be read as YAML: ${parseError.message}` };
   }
 
-  const value: unknown = doc.toJS();
+  // Some documents parse without an error but cannot be converted — an
+  // alias whose anchor never appeared, as one. `toJS` throws; the refusal
+  // names the alias's own line, as a parser error would.
+  let value: unknown;
+  try {
+    value = doc.toJS();
+  } catch (error) {
+    return {
+      ok: false,
+      file: manifestFile,
+      line: aliasLine(doc, lineCounter) ?? 1,
+      message: `the manifest ${manifestFile} cannot be read as YAML: ${(error as Error).message}`,
+    };
+  }
   if (value === null || typeof value !== 'object' || Array.isArray(value) || !isMap(doc.contents)) {
     return { ok: false, file: manifestFile, line: 1, message: `the manifest ${manifestFile} is not a mapping of manifest fields` };
+  }
+  // The parser's own duplicate check has no position, so the document's
+  // own items are looked at directly: with `uniqueKeys: false` a field
+  // named twice stands in the map twice, and the later pairing is set
+  // aside.
+  const duplicate = firstDuplicate(doc, lineCounter);
+  if (duplicate !== undefined) {
+    return {
+      ok: false,
+      file: manifestFile,
+      line: duplicate.line,
+      message: `the manifest ${manifestFile} names "${duplicate.key}" twice, again on line ${duplicate.line}: each field is given once`,
+    };
   }
   const record = value as Record<string, unknown>;
 
@@ -99,7 +126,7 @@ export function readProduct(productFolder: string): ProductRead {
   let name: string;
   const named = record.name;
   if (named === undefined || named === '') {
-    name = basename(productFolder);
+    name = basename(folder);
   } else if (typeof named === 'string') {
     name = named;
   } else {
@@ -107,7 +134,40 @@ export function readProduct(productFolder: string): ProductRead {
     return { ok: false, file: manifestFile, line, message: `the manifest ${manifestFile} holds ${JSON.stringify(named)} at "name": not a name` };
   }
 
-  return { ok: true, product: { folder: productFolder, id, name, schemaVersion: PRODUCT_SCHEMA_VERSION } };
+  return { ok: true, product: { folder, id, name, schemaVersion: PRODUCT_SCHEMA_VERSION } };
+}
+
+/**
+ * The line of the first alias node the document holds, from the value's
+ * own range: the one conversion fails on when an anchor never appeared.
+ */
+function aliasLine(doc: { contents: unknown }, lineCounter: LineCounter): number | undefined {
+  if (!isMap(doc.contents)) return undefined;
+  for (const pair of doc.contents.items) {
+    const valueNode = pair.value as unknown;
+    if (isAlias(valueNode) && valueNode.range) return lineCounter.linePos(valueNode.range[0]).line;
+  }
+  return undefined;
+}
+
+/**
+ * The first field the document's mapping names a second time, with the
+ * line the second one stands on — the parser's own duplicate check has
+ * no position, so the position is read from the pair's key node itself.
+ */
+function firstDuplicate(doc: { contents: unknown }, lineCounter: LineCounter): { key: string; line: number } | undefined {
+  if (!isMap(doc.contents)) return undefined;
+  const seen = new Set<string>();
+  for (const pair of doc.contents.items) {
+    const keyNode = pair.key as { value?: unknown; range?: number[] } | null;
+    if (typeof keyNode?.value !== 'string') continue;
+    if (seen.has(keyNode.value)) {
+      const line = keyNode.range !== undefined ? lineCounter.linePos(keyNode.range[0]!).line : lineForPath(doc, lineCounter, [keyNode.value]);
+      return { key: keyNode.value, line };
+    }
+    seen.add(keyNode.value);
+  }
+  return undefined;
 }
 
 /** The last non-empty path segment of a folder: the folder's own name, wherever a trailing slash stands. */

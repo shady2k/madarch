@@ -4,6 +4,17 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createDraft, productsHome } from '../src/product/draft.js';
+
+/**
+ * The machine's real git, resolved once: a stub placed on PATH in a test
+ * passes every command it does not itself answer to this file, so the test
+ * depends only on git being installed, never on where it is.
+ */
+function realGit(): string {
+  const path = Bun.which('git');
+  if (!path) throw new Error('git is not on PATH; these tests need it');
+  return path;
+}
 import { readProduct } from '../src/product/manifest.js';
 import { gitEnv } from './git-env.js';
 import { GIT_IDENTITY, GIT_ENV } from './model-check-repo.js';
@@ -249,7 +260,7 @@ describe('createDraft', () => {
 
   test("a git that refuses to commit fails with git's own words and leaves no folder behind", () => {
     const stubs = tempFolder('madarch-products-gitstub-');
-    const script = ['#!/bin/sh', 'if [ "$1" = "commit" ]; then', "  echo 'stub: refusing to commit' >&2; exit 1; fi", 'exec /run/current-system/sw/bin/git "$@"', ''].join('\n');
+    const script = ['#!/bin/sh', 'if [ "$1" = "commit" ]; then', "  echo 'stub: refusing to commit' >&2; exit 1; fi", `exec ${JSON.stringify(realGit())} "$@"`, ''].join('\n');
     writeFileSync(join(stubs, 'git'), script);
     chmodSync(join(stubs, 'git'), 0o700);
     const home = tempFolder('madarch-products-');
@@ -262,7 +273,7 @@ describe('createDraft', () => {
 
   test('a git that refuses to stage fails with git\'s own words and leaves no folder behind', () => {
     const stubs = tempFolder('madarch-products-gitstub-add-');
-    const script = ['#!/bin/sh', 'if [ "$1" = "add" ]; then', "  echo 'stub: refusing to add' >&2; exit 1; fi", 'exec /run/current-system/sw/bin/git "$@"', ''].join('\n');
+    const script = ['#!/bin/sh', 'if [ "$1" = "add" ]; then', "  echo 'stub: refusing to add' >&2; exit 1; fi", `exec ${JSON.stringify(realGit())} "$@"`, ''].join('\n');
     writeFileSync(join(stubs, 'git'), script);
     chmodSync(join(stubs, 'git'), 0o700);
     const home = tempFolder('madarch-products-');
@@ -462,3 +473,125 @@ function draftIdOf(manifest: string): string {
   expect(line).toBeDefined();
   return (line ?? '').slice('id: '.length).trim();
 }
+
+describe('createDraft: reservations and homes that cannot be used', () => {
+  test('a folder that appears before the draft is named is left alone, and the draft takes the next suffix', () => {
+    // The shape the review found: another run's folder stands where this
+    // run's first candidate name points, with an inner `docs` that is a
+    // file. The run must refuse nothing, delete nothing of that folder,
+    // and take the day's next suffix.
+    const home = tempFolder('madarch-products-race-');
+    const other = join(home, 'idea-2026-10-09');
+    mkdirSync(other);
+    writeFileSync(join(other, 'docs'), "another run's draft\n");
+    const draft = draftIn(home);
+    expect(draft).toMatchObject({ outcome: 'created' });
+    if (draft.outcome !== 'created') return;
+    expect(draft.folder).toBe(join(home, 'idea-2026-10-09-2'));
+    expect(readFileSync(join(other, 'docs'), 'utf8')).toContain('another run');
+  });
+
+  test('a products home the process cannot write into is refused, not failed', () => {
+    if (process.getuid?.() === 0) return; // root writes anywhere; the case is meaningless there.
+    const base = tempFolder('madarch-products-nowrap-');
+    const home = join(base, 'products');
+    mkdirSync(home, { recursive: true, mode: 0o555 });
+    try {
+      const draft = draftIn(home);
+      expect(draft).toMatchObject({ outcome: 'refused' });
+      if (draft.outcome !== 'refused') return;
+      expect(draft.message).toContain(home);
+      expect(readdirSync(home)).toEqual([]);
+    } finally {
+      chmodSync(home, 0o700);
+    }
+  });
+
+  test('git missing from the environment fails with git\'s own error as the cause', () => {
+    const home = tempFolder('madarch-products-nogit-');
+    const draft = createDraft({ home, today: EXAMPLE_DAY, gitEnv: gitEnv({ ...GIT_ENV, PATH: '/nonexistent' }) });
+    expect(draft).toMatchObject({ outcome: 'failed' });
+    if (draft.outcome !== 'failed') return;
+    // The cause after the colon is git's own error, never nothing:
+    expect(draft.message).toMatch(/git init failed in .+: .+/);
+    expect(readdirSync(home).filter((name) => name.startsWith('idea-'))).toEqual([]);
+  });
+
+  test('a draft read by a relative path names the full path', () => {
+    const home = tempFolder('madarch-products-rel-');
+    const draft = draftIn(home);
+    expect(draft.outcome).toBe('created');
+    if (draft.outcome !== 'created') return;
+    const saved = process.cwd();
+    process.chdir(home);
+    try {
+      const base = draft.folder.split('/').at(-1)!;
+      const read = readProduct(base);
+      expect(read.ok).toBe(true);
+      if (!read.ok) return;
+      expect(read.product.folder).toBe(join(home, base));
+      expect(read.product.id).toBe(draft.id);
+    } finally {
+      process.chdir(saved);
+    }
+  });
+});
+
+describe('createDraft: a cleanup that fails is reported', () => {
+  test('git fails and the leftover folder cannot be removed: both failures are named, with the full path', () => {
+    if (process.getuid?.() === 0) return; // root unlinks anywhere; the case is meaningless there.
+    const stubs = tempFolder('madarch-products-wedgestub-');
+    // The stub refuses the add and makes the draft's own folder
+    // unremovable before it exits, so the cleanup fails after the failure.
+    const script = [
+      '#!/bin/sh',
+      'if [ "$1" = "add" ]; then',
+      `  ${JSON.stringify(Bun.which('chmod') ?? 'chmod')} u-w . docs model skills prototypes repos`,
+      "  echo 'stub: refusing to add' >&2; exit 1;",
+      'fi',
+      `exec ${JSON.stringify(realGit())} "$@"`,
+      '',
+    ].join('\n');
+    writeFileSync(join(stubs, 'git'), script);
+    chmodSync(join(stubs, 'git'), 0o700);
+    const home = tempFolder('madarch-products-');
+    const draft = createDraft({ home, today: EXAMPLE_DAY, gitEnv: gitEnv({ ...GIT_ENV, PATH: stubs }) });
+    expect(draft).toMatchObject({ outcome: 'failed' });
+    if (draft.outcome !== 'failed') return;
+    expect(draft.message).toContain('refusing to add');
+    const leftover = readdirSync(home).find((name) => name.startsWith('idea-'));
+    expect(leftover).toBeDefined();
+    expect(draft.message).toContain(join(home, leftover ?? ''));
+    expect(draft.message).toContain('could not be removed');
+    // Let the tests' own cleanup remove the leftover: the stub made the
+    // draft's own folders unwritable, and this undoes exactly that.
+    for (const dir of ['', 'docs', 'model', 'skills', 'prototypes', 'repos']) {
+      chmodSync(join(home, leftover!, dir), 0o700);
+    }
+  });
+});
+
+describe('readProduct: manifests the reader cannot take', () => {
+  test('a valid manifest followed by an unresolvable alias is refused, not thrown over', () => {
+    const folder = tempFolder('madarch-products-alias-');
+    writeFileSync(join(folder, 'workspace.yaml'), ['schemaVersion: 1', 'id: 3f6d2dc8-b16e-4bf0-9d3a-2c9c00b5287d', 'name: idea-2026-10-09', 'extra: *missing', ''].join('\n'));
+    const read = readProduct(folder);
+    expect(read.ok).toBe(false);
+    if (read.ok) return;
+    expect(read.file).toBe(join(folder, 'workspace.yaml'));
+    expect(read.line).toBe(4);
+    expect(read.message).toContain('cannot be read as YAML');
+  });
+
+  test('a manifest naming a field twice is refused, naming the line the duplicate stands on', () => {
+    const folder = tempFolder('madarch-products-dup-');
+    writeFileSync(join(folder, 'workspace.yaml'), ['schemaVersion: 1', 'id: 3f6d2dc8-b16e-4bf0-9d3a-2c9c00b5287d', 'name: idea-2026-10-09', 'schemaVersion: 2', ''].join('\n'));
+    const read = readProduct(folder);
+    expect(read.ok).toBe(false);
+    if (read.ok) return;
+    expect(read.file).toBe(join(folder, 'workspace.yaml'));
+    expect(read.message).toContain('"schemaVersion"');
+    expect(read.message).toContain('twice');
+    expect(read.line).toBe(4);
+  });
+});

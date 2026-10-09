@@ -12,9 +12,9 @@
  */
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 /** The environment the products home is read from: the process's, or the caller's. */
 export type DraftEnv = Readonly<Record<string, string | undefined>>;
@@ -129,7 +129,7 @@ function manifestText(id: string, name: string): string {
  * folder behind.
  */
 export function createDraft(options: DraftOptions = {}): DraftResult {
-  const home = productsHome(process.env as DraftEnv, options.home);
+  const home = resolve(productsHome(process.env as DraftEnv, options.home));
 
   // A products home that is not a folder is refused before anything is
   // written: a file of that name, wherever the path came from, must not be
@@ -148,28 +148,30 @@ export function createDraft(options: DraftOptions = {}): DraftResult {
     return { outcome: 'refused', message: `the products home ${home} cannot be created: ${(error as Error).message}` };
   }
 
-  // The day's name, from the folder names this home holds now; the suffix
-  // grows until a free name is found, `-2`, `-3`, and so on.
+  // The day's name. The candidate is reserved with one non-recursive
+  // `mkdirSync`, which fails with EEXIST when another run took the name:
+  // a recursive reservation would succeed into the other run's folder and
+  // its cleanup would delete it. The suffix grows, `-2`, `-3`, and so on,
+  // until a name this run alone reserved.
   const today = options.today ?? new Date();
   const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  let taken: string[];
+  let folder: string;
   try {
-    taken = readdirSync(home);
+    folder = reserveDraftFolder(home, day);
   } catch (error) {
-    return { outcome: 'refused', message: `the products home ${home} cannot be listed: ${(error as Error).message}` };
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'EACCES' || code === 'EPERM' || code === 'EROFS') {
+      return { outcome: 'refused', message: `the products home ${home} cannot be written into: ${(error as Error).message}` };
+    }
+    return { outcome: 'failed', message: `the draft could not be created in ${home}: ${(error as Error).message}` };
   }
-  const takenNames = new Set(taken);
-  let name = `idea-${day}`;
-  for (let suffix = 2; takenNames.has(name); suffix++) name = `idea-${day}-${suffix}`;
 
-  const folder = join(home, name);
   const id = randomUUID();
   try {
-    mkdirSync(folder, { recursive: true });
     for (const folderName of FOLDERS) mkdirSync(join(folder, folderName));
     writeFileSync(join(folder, 'AGENTS.md'), AGENTS_MD);
     writeFileSync(join(folder, 'CLAUDE.md'), '@AGENTS.md\n');
-    writeFileSync(join(folder, 'workspace.yaml'), manifestText(id, name));
+    writeFileSync(join(folder, 'workspace.yaml'), manifestText(id, folder.slice(home.length + 1)));
     writeFileSync(join(folder, '.gitignore'), 'repos/\n');
     for (const folderName of TRACKED_FOLDERS) writeFileSync(join(folder, folderName, '.gitkeep'), '');
 
@@ -181,11 +183,12 @@ export function createDraft(options: DraftOptions = {}): DraftResult {
     if (!commit.ok) throw new Error(`git commit failed in ${folder}: ${commit.output}`);
   } catch (error) {
     // Whatever failed — a folder that could not be written, git that
-    // refused a step — the folder named so far is removed whole.
-    rmSyncQuietly(folder);
-    return { outcome: 'failed', message: error instanceof Error ? error.message : String(error) };
+    // refused a step — the folder this run reserved is removed whole.
+    const failure = error instanceof Error ? error.message : String(error);
+    const cleanup = removeDraftFolder(folder);
+    return { outcome: 'failed', message: cleanup === undefined ? failure : `${failure}; ${cleanup}` };
   }
-  return { outcome: 'created', folder, id, name };
+  return { outcome: 'created', folder, id, name: folder.slice(home.length + 1) };
 }
 
 /** One git invocation in the product folder, with the caller's environment sealed off the loader variables. */
@@ -197,15 +200,38 @@ function runGit(folder: string, args: string[], extra?: Record<string, string>):
   Object.assign(env, extra);
   const run = spawnSync('git', args, { cwd: folder, encoding: 'utf8', env });
   const output = `${run.stderr ?? ''}${run.stdout ?? ''}`.trim();
-  if (run.error !== undefined || run.status !== 0) return { ok: false, output };
+  if (run.error !== undefined) {
+    // No run happened: git's own error — normally ENOENT under a name the
+    // PATH does not hold — is the only cause there is.
+    return { ok: false, output: output === '' ? run.error.message : `${output}; ${run.error.message}` };
+  }
+  if (run.status !== 0) return { ok: false, output };
   return { ok: true, output: '' };
 }
 
-function rmSyncQuietly(folder: string): void {
+function reserveDraftFolder(home: string, day: string): string {
+  for (let attempt = 1; ; attempt++) {
+    const name = attempt === 1 ? `idea-${day}` : `idea-${day}-${attempt}`;
+    const candidate = join(home, name);
+    try {
+      // Non-recursive: the home exists, so this is the reservation, and
+      // it is the only thing that answers what the folder belongs to.
+      mkdirSync(candidate);
+      return candidate;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue; // another run's name; the next suffix.
+      throw error;
+    }
+  }
+}
+
+/** Removes the folder this invocation itself reserved; the failure, when there is one, is the caller's to report. */
+function removeDraftFolder(folder: string): string | undefined {
   try {
     rmSync(folder, { recursive: true, force: true });
-  } catch {
-    // Nothing better to do: report the failure as it stood.
+    return undefined;
+  } catch (error) {
+    return `the failed draft's folder ${folder} could not be removed: ${(error as Error).message}`;
   }
 }
 
