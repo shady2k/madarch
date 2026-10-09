@@ -32,6 +32,19 @@ describe('a Markdown link target', () => {
     expect(classifyTarget('docs/index.md', '#part')).toEqual({ kind: 'plain' });
   });
 
+  test('a relative target with percent escapes is decoded before it is resolved (finding 2.10)', () => {
+    expect(resolveLink('docs/index.md', 'a%20b.md', new Set(['docs/a b.md']))).toEqual({ kind: 'wiki', path: 'docs/a b.md' });
+    // An escape the wiki cannot read stays plain.
+    expect(resolveLink('docs/index.md', 'a%zz.md', held)).toEqual({ kind: 'plain' });
+  });
+
+  test('a product-root destination naming a held page opens it (finding 2.10)', () => {
+    expect(resolveLink('docs/index.md', '/docs/vision.md', held)).toEqual({ kind: 'wiki', path: 'docs/vision.md' });
+    expect(resolveLink('docs/deep/x.md', '/docs/vision.md', held)).toEqual({ kind: 'wiki', path: 'docs/vision.md' });
+    // A rooted target naming no held page stays plain.
+    expect(resolveLink('docs/index.md', '/docs/other.md', held)).toEqual({ kind: 'plain' });
+  });
+
   test('a link written as the wiki\'s own address opens that page (finding 5)', () => {
     expect(resolveLink('docs/index.md', '/p/docs/vision.md', held)).toEqual({ kind: 'wiki', path: 'docs/vision.md' });
     expect(resolveLink('docs/index.md', '/p/docs/a%20b.md', new Set(['docs/a b.md']))).toEqual({ kind: 'wiki', path: 'docs/a b.md' });

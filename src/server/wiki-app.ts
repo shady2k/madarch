@@ -74,7 +74,13 @@ export function createWikiPart(
         });
       }
       const asked = wiki.page(askedFor);
-      if (!asked.ok) return refused(404, { field: 'path', message: asked.message });
+      // Absence or an invalid ask is a 404; a filesystem failure is the
+      // server failing, answered with 500 and the cause kept (finding 2.10).
+      if (!asked.ok) {
+        return asked.notFound
+          ? refused(404, { field: 'path', message: asked.message })
+          : refused(500, { field: 'path', message: asked.message });
+      }
       return { response: json(200, { path: asked.page.path, title: asked.page.title, markdown: asked.page.markdown }) };
     },
     app: appFolder === undefined ? (): Handled | undefined => undefined : (pathname): Handled | undefined => serveAppFiles(json, refused, appFolder, pathname),
@@ -83,13 +89,13 @@ export function createWikiPart(
 
 /**
  * One path under the app's files, or index.html when the app holds no file
- * there — a page's address `/p/docs/vision.md` names no file, and index.html
- * answers it, so the app's own routes run; the same answer keeps reload and
- * links working. A path under /api/ never reaches here: it is answered by
- * the routes or refused. Everything else is tried as a file inside the app
- * folder, % escapes decoded, no path climbing out of it — then index.html —
- * then a refusal naming the path asked for and the app folder, when even
- * index.html is missing.
+ * there — the app's own routes, `/` and `/p/…` only, fall back to index.html
+ * when no file answers: a page's address `/p/docs/vision.md` names no file,
+ * and index.html answers it, so the app's own routes run; the same answer
+ * keeps reload and links working. A path under /api/ never reaches here: it
+ * is answered by the routes or refused. Any other path is tried as a file
+ * inside the app folder, % escapes decoded, no path climbing out of it — and
+ * when no file answers it, it is a named 404, never index.html (finding 6).
  */
 function serveAppFiles(json: ReplyMaker['json'], refused: ReplyMaker['refused'], appFolder: string, pathname: string): Handled {
   const root = resolve(appFolder);

@@ -76,8 +76,13 @@ export function App({ tickMs = defaultTickMs, pageRetryMs = 1000, pollTimeoutMs 
       } catch (caught: unknown) {
         const aborted = caught instanceof DOMException && caught.name === 'AbortError';
         const expired = aborted && timeoutFired;
-        if (alive && lastAnsweredTurn <= turn && (!aborted || expired))
-          setError(caught instanceof Error ? caught.message : String(caught));
+        if (alive && lastAnsweredTurn <= turn && (!aborted || expired)) {
+          // A poll the app itself killed at its own timeout is named as
+          // such: what was being read and that it timed out — never the
+          // abort's raw "The operation was aborted." (finding 2.10).
+          if (expired) setError(`Could not read the page list: the request to /api/pages timed out after ${pollTimeoutMs} ms`);
+          else setError(caught instanceof Error ? caught.message : String(caught));
+        }
       } finally {
         if (timeout !== undefined) window.clearTimeout(timeout);
         asking = false;

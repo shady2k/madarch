@@ -1,10 +1,15 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { startServer, type StartedServer } from '../src/index.js';
+
+/** Renames one folder, failing loudly when the move did not happen. */
+function renameOrThrow(from: string, to: string): void {
+  renameSync(from, to);
+}
 
 /** A compiled-model element shaped like the server's tests use, so the sent model is a real one. */
 function element(id: string): Record<string, unknown> {
@@ -130,6 +135,28 @@ describe('the server\'s product mode', () => {
     expect(((await noPath.json()) as { message: string }).message).toContain('"path"');
   });
 
+  test('a read failure while another subfolder is unreadable answers 500 naming path and cause (finding 2.10)', async () => {
+    draft();
+    builtApp();
+    const locked = join(folder!, 'docs', 'locked');
+    mkdirSync(locked);
+    writeFileSync(join(locked, 'secret.md'), '# hidden');
+    const url = startProduct();
+    // The unreadable subfolder is a filesystem failure, not an absent page:
+    // the answer is a 500 naming the path asked for and the cause.
+    let answer: Response;
+    try {
+      chmodSync(locked, 0o000);
+      answer = await fetch(`${url}/api/page?path=docs/vision.md`);
+    } finally {
+      chmodSync(locked, 0o755);
+    }
+    expect(answer.status).toBe(500);
+    const body = (await answer.json()) as { message: string };
+    expect(body.message).toContain('docs/vision.md');
+    expect(body.message).toContain('EACCES');
+  });
+
   test('the app\'s files are served, and a path the app does not hold answers index.html', async () => {
     draft();
     builtApp();
@@ -248,20 +275,42 @@ describe('the server\'s product mode', () => {
     expect(() => startServer({ port: 0 })).toThrow(/neither a data folder nor a product folder/);
   });
 
-  test('without an app folder named, the checkout\'s built app is used and / answers; without a dist the start refuses saying what to build (finding 3)', async () => {
+  test('without an app folder named, the checkout\'s built app is used and / answers (finding 3, deterministic)', async () => {
     // The requirement (server.md, serves-wiki; architecture.md): a server
-    // given only a product folder serves the checkout's own built app when
-    // it stands — and refuses naming what to build when it does not. The
-    // real checkout dist is the seam: which half holds is decided by it,
-    // and both halves are held by this test.
+    // given only a product folder serves the checkout's own built app. A
+    // fixture index.html is put in the dist for the length of this test and
+    // removed after, so the built-app branch runs on fresh CI too, where no
+    // build has happened yet.
     draft();
-    const dist = join(import.meta.dir, '..', 'wiki', 'app', 'dist', 'index.html');
-    if (existsSync(dist)) {
+    const distFolder = join(import.meta.dir, '..', 'wiki', 'app', 'dist');
+    const index = join(distFolder, 'index.html');
+    const made = !existsSync(index);
+    if (made) {
+      mkdirSync(distFolder, { recursive: true });
+      writeFileSync(index, '<!doctype html><title>fixture app</title>');
+    }
+    try {
       server = startServer({ productFolder: folder!, port: 0, log: () => {}, errorLog: () => {} });
       const root = await fetch(`${server.url}/`);
       expect(root.status).toBe(200);
       expect((await root.text()).length).toBeGreaterThan(0);
-    } else {
+    } finally {
+      if (made) {
+        rmSync(index);
+        rmSync(distFolder, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test('without a dist the start refuses saying what to build (finding 3)', async () => {
+    // The absence case stands on its own: whatever the checkout holds, the
+    // dist is moved aside for the length of this test and put back after.
+    draft();
+    const distFolder = join(import.meta.dir, '..', 'wiki', 'app', 'dist');
+    const heldAside = distFolder + '.held-aside-by-test';
+    const moved = existsSync(distFolder);
+    if (moved) renameOrThrow(distFolder, heldAside);
+    try {
       let message = '';
       try {
         startServer({ productFolder: folder!, port: 0 });
@@ -270,6 +319,8 @@ describe('the server\'s product mode', () => {
       }
       expect(message).toContain('wiki/app/dist');
       expect(message).toContain('build the app first');
+    } finally {
+      if (moved) renameOrThrow(heldAside, distFolder);
     }
   });
 

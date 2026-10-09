@@ -34,21 +34,25 @@ export function classifyTarget(pagePath: string, href: string): ResolvedLink {
   if (target === '') return { kind: 'plain' };
   if (/^[a-z][a-z0-9+.-]*:/i.test(target)) return { kind: 'plain' };
   if (target.startsWith('//')) return { kind: 'plain' };
-  // The wiki's own addresses — `/p/` plus the held path, percent escapes
-  // included — name the page they were made from, so a reader who copies an
-  // address into a document reaches it (finding 5). A rooted address that is
-  // not a page address names no page of the wiki.
-  let resolved: string;
-  if (target.startsWith('/p/')) {
-    try {
-      resolved = decodeURIComponent(target.slice('/p/'.length));
-    } catch {
-      return { kind: 'plain' };
-    }
-  } else if (target.startsWith('/')) {
+  // Percent escapes are decoded before resolving, wherever the target is
+  // rooted: `a%20b.md` and `/docs/a%20b.md` name the files they escape
+  // (finding 2.10). An escape the wiki cannot read names no page.
+  // A rooted address names the page at that path within the product —
+  // `/docs/vision.md` and `/p/docs/vision.md` reach the same page, the
+  // second being the wiki's own address shape (finding 5).
+  let destination: string;
+  try {
+    destination = decodeURIComponent(target);
+  } catch {
     return { kind: 'plain' };
+  }
+  let resolved: string;
+  if (destination.startsWith('/p/')) {
+    resolved = destination.slice('/p/'.length);
+  } else if (destination.startsWith('/')) {
+    resolved = destination.slice(1);
   } else {
-    resolved = resolveRelative(pagePath, target);
+    resolved = resolveRelative(pagePath, destination);
   }
   if (resolved === '') return { kind: 'plain' };
   return { kind: 'wiki', path: resolved };

@@ -286,10 +286,10 @@ are the repository's installation, and each person's plugin and hooks are theirs
 - **CI:** GitHub Actions on every push of any branch, once (a pull request from
   this repository shows its branch's push run; `[skip ci]` in the pushed
   commit's message skips unfinished work). `.github/workflows/ci.yml` runs
-  `bun install --frozen-lockfile`, `bun run check`, `bun test` and
-  `bun run views:check` on Linux, about 7 minutes, and the wiki app's own
-  `bun install --frozen-lockfile`, `bun run check`, `bun test` and
-  `bun run build` inside `wiki/app`; a change touching only
+  `bun install --frozen-lockfile`, `bun run check`, `bun run test` (the root's
+  tests in `test/`) and `bun run views:check` on Linux, about 7 minutes, and
+  the wiki app's own `bun install --frozen-lockfile`, `bun run check`,
+  `bun test` and `bun run build` inside `wiki/app`; a change touching only
   `docs/`, `.beads/`, `.shady2k/`, `.githooks/`, `.github/workflows/` or root
   `*.md` files runs nothing there (`paths-ignore`): it cannot touch the product.
   `.github/workflows/documents.yml` runs the product-documents check on every

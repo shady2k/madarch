@@ -367,6 +367,30 @@ describe('a poll that never settles', () => {
   });
 });
 
+describe('a poll that times out', () => {
+  test('names what was being read and that it timed out (finding 2.10)', async () => {
+    (globalThis as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const target = input instanceof URL ? input.pathname + input.search : String(input);
+      if (target === '/api/pages') {
+        return await new Promise<Response>((_rest, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+        });
+      }
+      if (target === '/api/product') {
+        return new Response(JSON.stringify(product), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ message: 'nothing answers ' + target }), { status: 404 });
+    }) as unknown as typeof fetch;
+    goto('/');
+    await intoApp(createElement(App, { tickMs: 60_000, pollTimeoutMs: 20 }));
+    await until(() => document.querySelector('p.error') !== null, 'the shown timeout');
+    const shown = document.querySelector('p.error')?.textContent ?? '';
+    expect(shown).toContain('page list');
+    expect(shown).toContain('timed out');
+    expect(shown).not.toContain('The operation was aborted');
+  });
+});
+
 describe('a failed page read that is retried', () => {
   test('shows the failure while it retries, and recovers when the read succeeds', async () => {
     let tries = 0;

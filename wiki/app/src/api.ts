@@ -42,6 +42,9 @@ export async function readJson<T>(what: string, url: string, signal?: AbortSigna
   try {
     response = await fetch(url, { signal });
   } catch (error: unknown) {
+    // An aborted read is rethrown as itself, so the caller can tell its own
+    // timeout abort from a real failure (finding 2.10).
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;
     const reason = error instanceof Error ? error.message : String(error);
     throw new RequestError(what, `the request to ${url} failed (${reason})`);
   }

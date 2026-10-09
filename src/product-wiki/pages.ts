@@ -70,7 +70,8 @@ export type ProductWikiPages =
 /** One page as one ask found it, or the refusal naming the path asked for. */
 export type ProductWikiPage =
   | { ok: true; page: WikiPage }
-  | { ok: false; message: string };
+  | { ok: false; message: string; /** Absence or an invalid ask (404), not a filesystem failure (500). */
+      notFound?: boolean };
 
 /** One product folder opened as a wiki, or the refusal `readProduct` named. */
 export type OpenedProductWiki =
@@ -129,13 +130,14 @@ class FreshProductWiki implements ProductWiki {
       try {
         path = decodeURIComponent(asked.slice(PAGE_ADDRESS_PREFIX.length));
       } catch {
-        return { ok: false, message: `the address ${JSON.stringify(asked)} holds a percent escape the wiki cannot read: ask for the page by its path within the product` };
+        return { ok: false, notFound: true, message: `the address ${JSON.stringify(asked)} holds a percent escape the wiki cannot read: ask for the page by its path within the product` };
       }
     }
     const pagePath = pagePathProblem(path);
     if (pagePath !== undefined) {
       return {
         ok: false,
+        notFound: true,
         message: path === asked ? pagePath.message : `the address ${JSON.stringify(asked)} does not name a page of the wiki: ${pagePath.message}`,
       };
     }
@@ -152,6 +154,7 @@ class FreshProductWiki implements ProductWiki {
     if (!held.includes(path)) {
       return {
         ok: false,
+        notFound: true,
         message: `the wiki does not hold ${JSON.stringify(path)}: a page is every Markdown file under ${DOCS_FOLDER}/ and ${'README.md'} at the product's root`,
       };
     }
