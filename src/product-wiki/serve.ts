@@ -103,6 +103,11 @@ export function machineOpener(env: ServeEnv = process.env): Opener {
         resolveOutcome({ ok: false, message: `the opener ${JSON.stringify(chosen)} could not be launched for ${url}: ${(error as Error).message}` });
         return;
       }
+      // The opener's lifetime is the browser's, never this process's: once
+      // the handlers above are attached, the child is unref'd so a stopped
+      // server does not stay alive while a browser (or a sleeping opener)
+      // still runs (finding 8).
+      child.unref();
       child.on('error', (error) => {
         resolveOutcome({ ok: false, message: `the opener ${JSON.stringify(chosen)} failed for ${url}: ${error.message}` });
       });

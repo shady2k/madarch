@@ -200,8 +200,8 @@ export function startServer(options: ServerOptions): StartedServer {
     graphs,
     log,
     errorLog,
-    wiki: productWiki === undefined ? undefined : createWikiPart(makeJson, wikiRefused, productWiki, options.appFolder),
-    appFolder: options.appFolder,
+    wiki: productWiki === undefined ? undefined : createWikiPart(makeJson, wikiRefused, productWiki, appFolder),
+    appFolder,
   });
   const server = Bun.serve({ hostname: options.host ?? '127.0.0.1', port: options.port ?? 4180, fetch: handle });
   return {

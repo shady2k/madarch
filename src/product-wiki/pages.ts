@@ -139,7 +139,17 @@ class FreshProductWiki implements ProductWiki {
         message: path === asked ? pagePath.message : `the address ${JSON.stringify(asked)} does not name a page of the wiki: ${pagePath.message}`,
       };
     }
-    if (!markdownPaths(this.product.folder).includes(path)) {
+    // The walk's own failure — an unreadable folder on the way, a page
+    // that is not a regular file — is kept at this boundary as the
+    // refusal naming the path and the cause, never rethrown for the
+    // handler's generic 500 to swallow (finding 7).
+    let held: string[];
+    try {
+      held = markdownPaths(this.product.folder);
+    } catch (error) {
+      return { ok: false, message: `the page ${JSON.stringify(path)} could not be read from ${JSON.stringify(this.product.folder)}: ${(error as Error).message}` };
+    }
+    if (!held.includes(path)) {
       return {
         ok: false,
         message: `the wiki does not hold ${JSON.stringify(path)}: a page is every Markdown file under ${DOCS_FOLDER}/ and ${'README.md'} at the product's root`,
@@ -207,8 +217,14 @@ function markdownPaths(productFolder: string): string[] {
         continue;
       }
       if (!entry.name.endsWith('.md')) continue;
-      inProductOrThrow(productFolder, full, relative(productFolder, full).split('\\').join('/'));
-      paths.push(relative(productFolder, full).split('\\').join('/'));
+      const within = relative(productFolder, full).split('\\').join('/');
+      // A non-regular file — a FIFO, a socket, a device — is never opened:
+      // opening it could block the server for good, so it is refused by
+      // name before the read is even tried (finding 2).
+      if (!inProductOrThrow(productFolder, full, within)) {
+        throw new Error(`the page ${JSON.stringify(within)} at ${full} is not a regular file: the wiki reads Markdown files only`);
+      }
+      paths.push(within);
     }
   }
 }

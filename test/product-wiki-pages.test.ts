@@ -1,4 +1,5 @@
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -262,6 +263,33 @@ describe('the pages a product holds', () => {
     const escaped = product.page('/p/docs/a%20b.md');
     if (!escaped.ok) throw new Error(escaped.message);
     expect(escaped.page.path).toBe('docs/a b.md');
+  });
+
+  test('a FIFO named .md is refused naming its path, never opened', () => {
+    draft();
+    write('docs/vision.md', '# Vision\n');
+    const made = spawnSync('mkfifo', [join(folder!, 'docs', 'pipe.md')]);
+    expect(made.status).toBe(0); // the fixture exists: the assertion below is about the walk, not mkfifo
+    const product = requireProduct(openProductWiki(folder!));
+    const pages = product.pages();
+    expect(pages.ok).toBe(false);
+    if (!pages.ok) expect(pages.message).toContain('docs/pipe.md');
+  });
+
+  test('a single-page ask keeps the walk\'s failure instead of throwing it away', () => {
+    draft();
+    write('docs/vision.md', '# Vision\n');
+    mkdirSync(join(folder!, 'docs', 'private'), { recursive: true });
+    const privateDir = join(folder!, 'docs', 'private');
+    chmodSync(privateDir, 0o000);
+    try {
+      const product = requireProduct(openProductWiki(folder!));
+      const asked = product.page('docs/vision.md');
+      expect(asked.ok).toBe(false);
+      if (!asked.ok) expect(asked.message).toContain(privateDir);
+    } finally {
+      chmodSync(privateDir, 0o755);
+    }
   });
 
   test('asking reads the product without changing it', () => {

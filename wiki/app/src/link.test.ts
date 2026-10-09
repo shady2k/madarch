@@ -31,4 +31,13 @@ describe('a Markdown link target', () => {
   test('a same-page anchor names no other page', () => {
     expect(classifyTarget('docs/index.md', '#part')).toEqual({ kind: 'plain' });
   });
+
+  test('a link written as the wiki\'s own address opens that page (finding 5)', () => {
+    expect(resolveLink('docs/index.md', '/p/docs/vision.md', held)).toEqual({ kind: 'wiki', path: 'docs/vision.md' });
+    expect(resolveLink('docs/index.md', '/p/docs/a%20b.md', new Set(['docs/a b.md']))).toEqual({ kind: 'wiki', path: 'docs/a b.md' });
+    // An address the wiki's route shape names, for a page the wiki does not hold, stays plain.
+    expect(resolveLink('docs/index.md', '/p/AGENTS.md', held)).toEqual({ kind: 'plain' });
+    // A rooted address that is not a page address stays plain too.
+    expect(resolveLink('docs/index.md', '/assets/app.js', held)).toEqual({ kind: 'plain' });
+  });
 });

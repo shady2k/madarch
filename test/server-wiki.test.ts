@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -167,6 +167,27 @@ describe('the server\'s product mode', () => {
     void headed;
   });
 
+  test('the fallback answers only the app\'s own routes; an unknown path or a missing asset is a named 404 (finding 6)', async () => {
+    draft();
+    builtApp();
+    const url = startProduct();
+    // A page address the wiki's routes answer falls back to the app.
+    const page = await fetch(`${url}/p/docs/vision.md`);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain('demo wiki');
+    // A named asset that is missing is a 404 naming the path.
+    const missingAsset = await fetch(`${url}/assets/missing.js`);
+    expect(missingAsset.status).toBe(404);
+    expect(((await missingAsset.json()) as { message: string }).message).toContain('/assets/missing.js');
+    // Any other unsupported path is a named 404 too, never index.html.
+    for (const asked of ['/models', '/typo']) {
+      const answer = await fetch(`${url}${asked}`);
+      expect(answer.status).toBe(404);
+      const body = (await answer.json()) as { message: string };
+      expect(body.message).toContain(asked);
+    }
+  });
+
   test('a path under /api that nothing answers is refused with JSON naming it', async () => {
     draft();
     builtApp();
@@ -225,6 +246,31 @@ describe('the server\'s product mode', () => {
 
   test('started with neither a product folder nor a data folder, it refuses to start', () => {
     expect(() => startServer({ port: 0 })).toThrow(/neither a data folder nor a product folder/);
+  });
+
+  test('without an app folder named, the checkout\'s built app is used and / answers; without a dist the start refuses saying what to build (finding 3)', async () => {
+    // The requirement (server.md, serves-wiki; architecture.md): a server
+    // given only a product folder serves the checkout's own built app when
+    // it stands — and refuses naming what to build when it does not. The
+    // real checkout dist is the seam: which half holds is decided by it,
+    // and both halves are held by this test.
+    draft();
+    const dist = join(import.meta.dir, '..', 'wiki', 'app', 'dist', 'index.html');
+    if (existsSync(dist)) {
+      server = startServer({ productFolder: folder!, port: 0, log: () => {}, errorLog: () => {} });
+      const root = await fetch(`${server.url}/`);
+      expect(root.status).toBe(200);
+      expect((await root.text()).length).toBeGreaterThan(0);
+    } else {
+      let message = '';
+      try {
+        startServer({ productFolder: folder!, port: 0 });
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toContain('wiki/app/dist');
+      expect(message).toContain('build the app first');
+    }
   });
 
   test('the model routes stay as they are: a sent model and the product stay apart', async () => {

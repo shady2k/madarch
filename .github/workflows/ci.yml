@@ -27,7 +27,10 @@ jobs:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
       - run: bun run check
-      - run: bun test
+      # The root's tests only (`bun run test` = `bun test test/`): the wiki
+      # app has its own package and lockfile, discovered only after its own
+      # install step below — the root job must not run its tests before that.
+      - run: bun run test
       - run: bun run views:check
       # The wiki app has its own package and lockfile, so its checks run beside
       # the product's: a broken app fails CI.

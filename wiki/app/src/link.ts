@@ -34,7 +34,22 @@ export function classifyTarget(pagePath: string, href: string): ResolvedLink {
   if (target === '') return { kind: 'plain' };
   if (/^[a-z][a-z0-9+.-]*:/i.test(target)) return { kind: 'plain' };
   if (target.startsWith('//')) return { kind: 'plain' };
-  const resolved = target.startsWith('/') ? target.slice(1) : resolveRelative(pagePath, target);
+  // The wiki's own addresses — `/p/` plus the held path, percent escapes
+  // included — name the page they were made from, so a reader who copies an
+  // address into a document reaches it (finding 5). A rooted address that is
+  // not a page address names no page of the wiki.
+  let resolved: string;
+  if (target.startsWith('/p/')) {
+    try {
+      resolved = decodeURIComponent(target.slice('/p/'.length));
+    } catch {
+      return { kind: 'plain' };
+    }
+  } else if (target.startsWith('/')) {
+    return { kind: 'plain' };
+  } else {
+    resolved = resolveRelative(pagePath, target);
+  }
   if (resolved === '') return { kind: 'plain' };
   return { kind: 'wiki', path: resolved };
 }

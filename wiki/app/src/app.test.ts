@@ -338,6 +338,35 @@ describe('the page-list poll', () => {
   });
 });
 
+
+describe('a poll that never settles', () => {
+  test('stops polling only for the stalled request and asks again afterwards (finding 4)', async () => {
+    let asks = 0;
+    (globalThis as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const target = input instanceof URL ? input.pathname + input.search : String(input);
+      if (target === '/api/pages') {
+        asks++;
+        if (asks === 1) {
+          return await new Promise<Response>((_rest, reject) => {
+            // A real stalled request dies when it is aborted: the stub dies with it.
+            init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+          });
+        }
+        return new Response(JSON.stringify(listWithPages), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (target === '/api/product') {
+        return new Response(JSON.stringify(product), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ message: 'nothing answers ' + target }), { status: 404 });
+    }) as unknown as typeof fetch;
+    goto('/');
+    await intoApp(createElement(App, { tickMs: 5, pollTimeoutMs: 20 }));
+    await until(() => asks >= 2, 'the next poll after the stalled one expired');
+    await until(() => text().includes('Draft Idea'), 'the answered home page');
+    expect(text()).not.toContain('the poll of /api/pages timed out');
+  });
+});
+
 describe('a failed page read that is retried', () => {
   test('shows the failure while it retries, and recovers when the read succeeds', async () => {
     let tries = 0;
@@ -405,6 +434,36 @@ describe('a request that fails', () => {
     await intoApp(createElement(App, { tickMs: 10 }));
     await until(() => text().includes('Could not read the page docs/missing.md'), 'the failed page read');
     expect(text()).toContain('the wiki does not hold docs/missing.md');
+  });
+});
+
+describe('a page linking by the wiki\'s own address', () => {
+  test('opens the page it names, escapes included (finding 5)', async () => {
+    const withAddress = {
+      ...pagesAtR1,
+      'docs/vision.md': {
+        path: 'docs/vision.md',
+        title: 'Vision',
+        markdown: 'See [the notes](/p/docs/notes.md) and [spaced](/p/docs/a%20b.md).',
+      },
+    };
+    const pagesList: PageList = {
+      revision: 'r1',
+      pages: [...listWithPages.pages, { path: 'docs/a b.md', title: 'spaced', url: '/p/docs/a%20b.md' }],
+    };
+    const held = {
+      ...pagesAtR1,
+      'docs/a b.md': { path: 'docs/a b.md', title: 'spaced', markdown: '# spaced' },
+    };
+    install(answerFor(product, pagesList, { ...withAddress, 'docs/a b.md': held['docs/a b.md']! }));
+    goto('/p/docs/vision.md');
+    await intoApp(createElement(App, { tickMs: 10 }));
+    await until(() => document.querySelector('a[href="/p/docs/notes.md"]') !== null, 'the address link');
+    expect(html()).not.toContain('plain-link');
+    const spaced = document.querySelector('a[href="/p/docs/a%20b.md"]');
+    expect(spaced).not.toBeNull();
+    (spaced as HTMLAnchorElement).click();
+    await until(() => document.querySelector('main#page h1')?.textContent === 'spaced', 'the moved-to page');
   });
 });
 

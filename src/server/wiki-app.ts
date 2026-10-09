@@ -108,8 +108,12 @@ function serveAppFiles(json: ReplyMaker['json'], refused: ReplyMaker['refused'],
         return { response: new Response(readFileSync(full), { status: 200, headers: { 'content-type': type } }) };
       }
     } catch {
-      // Not held as a file: index.html answers instead.
+      // Not held as a file: an app route falls back to index.html below;
+      // anything else is a named 404 (finding 6).
     }
+  }
+  if (!isAppRoute(pathname)) {
+    return refused(404, { message: `no such path "${pathname}": the server offers the wiki's API and the app's routes (${APP_ROUTE_PREFIXES.join(', ')})` });
   }
   try {
     const index = readFileSync(joinPath(root, 'index.html'));
@@ -119,4 +123,12 @@ function serveAppFiles(json: ReplyMaker['json'], refused: ReplyMaker['refused'],
       message: `no file answers "${pathname}" and the app folder ${JSON.stringify(appFolder)} holds no index.html: the app's built files were expected there (${(error as Error).message})`,
     });
   }
+}
+
+/** The address prefixes the app itself answers: a page's route and the home page. */
+const APP_ROUTE_PREFIXES = ['/p/', '/'];
+
+/** Whether the fallback to index.html may answer this path: only the app's own routes. */
+function isAppRoute(pathname: string): boolean {
+  return pathname === '/' || pathname.startsWith('/p/');
 }

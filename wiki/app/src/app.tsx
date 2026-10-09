@@ -22,9 +22,12 @@ export const defaultTickMs = 1000;
 /** How many times one page read is tried before the app gives up on it. */
 export const pageTriesLimit = 3;
 
-export type AppProps = { tickMs?: number; pageRetryMs?: number };
+/** How long one poll may run before it is aborted and its failure shown. */
+export const defaultPollTimeoutMs = 5000;
 
-export function App({ tickMs = defaultTickMs, pageRetryMs = 1000 }: AppProps): ReactElement {
+export type AppProps = { tickMs?: number; pageRetryMs?: number; pollTimeoutMs?: number };
+
+export function App({ tickMs = defaultTickMs, pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs }: AppProps): ReactElement {
   const [route, setRoute] = useState<RouteSnapshot>(() => routeOf(window.location.pathname));
   const [list, setList] = useState<PageList | null>(null);
   const [data, setData] = useState<{ product: Product; list: PageList } | null>(null);
@@ -52,6 +55,16 @@ export function App({ tickMs = defaultTickMs, pageRetryMs = 1000 }: AppProps): R
       asking = true;
       controller = new AbortController();
       const turn = ++requestTurn;
+      // A request that never answers must not hold the flag forever: the
+      // poll is aborted when its own timeout passes, the failure is shown,
+      // and the next tick asks again (finding 4).
+      let timeoutFired = false;
+      const timeout = pollTimeoutMs > 0
+        ? window.setTimeout(() => {
+            timeoutFired = true;
+            controller?.abort();
+          }, pollTimeoutMs)
+        : undefined;
       try {
         const nextList = await getPages(controller.signal);
         const nextProduct = await getProduct(controller.signal);
@@ -62,9 +75,11 @@ export function App({ tickMs = defaultTickMs, pageRetryMs = 1000 }: AppProps): R
         setError(null);
       } catch (caught: unknown) {
         const aborted = caught instanceof DOMException && caught.name === 'AbortError';
-        if (alive && !aborted && lastAnsweredTurn <= turn)
+        const expired = aborted && timeoutFired;
+        if (alive && lastAnsweredTurn <= turn && (!aborted || expired))
           setError(caught instanceof Error ? caught.message : String(caught));
       } finally {
+        if (timeout !== undefined) window.clearTimeout(timeout);
         asking = false;
       }
     };
