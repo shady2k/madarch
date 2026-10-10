@@ -45,6 +45,23 @@ const SEALED_GIT = {
   GIT_COMMITTER_EMAIL: 'product-cli@example.com',
 };
 
+/**
+ * The zone the command's child process is given, so the day it reads is the
+ * day this file reads. `bun test` runs this file's own process in UTC when TZ
+ * is unset, whatever the machine's zone is (bun 1.4.2: `new Date().toString()`
+ * is `GMT+0000` inside `bun test` with TZ unset, and the machine's zone
+ * outside it or with an explicit TZ), while a child left on the machine's
+ * zone reads the local day. The two disagree whenever the local date differs
+ * from UTC's — between 21:00 and 24:00 UTC here — so the draft's name, and
+ * every assertion made from `todayName()`, would fail for three hours a day.
+ * The product's rule is the local day, and it is left untouched: the child is
+ * pinned to UTC only when TZ is unset and this process itself reads UTC,
+ * which is that run's own zone; a run started with an explicit TZ keeps the
+ * child on it (both sides then read that zone and agree), so the pin never
+ * moves the child off the zone the file reads (madarch-rtr.1.8).
+ */
+const SEALED_CLOCK: Record<string, string> = process.env.TZ === undefined && new Date().getTimezoneOffset() === 0 ? { TZ: 'UTC' } : {};
+
 /** Every temporary folder this file makes, removed after each test and on exit. */
 const made: string[] = [];
 
@@ -65,7 +82,7 @@ process.on('exit', removeMadeFolders);
 
 /** Runs a command that ends by itself, the way a person does. */
 function runCommand(args: string[], overrides: Record<string, string> = {}): { status: number | null; stdout: string; stderr: string } {
-  const run = spawnSync('bun', [CLI, ...args], { encoding: 'utf8', env: { ...process.env, ...SEALED_GIT, ...overrides } });
+  const run = spawnSync('bun', [CLI, ...args], { encoding: 'utf8', env: { ...process.env, ...SEALED_GIT, ...SEALED_CLOCK, ...overrides } });
   return { status: run.status, stdout: run.stdout ?? '', stderr: run.stderr ?? '' };
 }
 
@@ -83,7 +100,7 @@ interface LiveNew {
 function serveNew(args: string[], overrides: Record<string, string> = {}, program: readonly string[] = ['bun', CLI]): LiveNew {
   const proc = Bun.spawn([...program, ...args], {
     stdin: 'pipe', stdout: 'pipe', stderr: 'pipe',
-    env: { ...process.env, ...SEALED_GIT, ...overrides },
+    env: { ...process.env, ...SEALED_GIT, ...SEALED_CLOCK, ...overrides },
   });
   runningChildren.push(proc);
   let stdoutText = '';
@@ -138,7 +155,12 @@ async function printedLiveFacts(serve: LiveNew): Promise<{ folder: string; id: s
   }
 }
 
-/** Today's date, the way the draft's name is folded from it. */
+/**
+ * Today's date, the way the draft's name is folded from it: the day this
+ * file's own process reads (UTC when `bun test` runs it with TZ unset), and
+ * the day the command's child reads, which `SEALED_CLOCK` holds to the same
+ * zone.
+ */
 function todayName(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
