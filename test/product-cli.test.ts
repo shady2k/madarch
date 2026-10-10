@@ -18,7 +18,7 @@ import { readProduct } from '../src/product/manifest.js';
 import { createDraft } from '../src/product/draft.js';
 import { gitEnv } from './git-env.js';
 import { GIT_IDENTITY, GIT_ENV } from './model-check-repo.js';
-import { homeOfCommand, noStrayDrafts } from './scratch-home.js';
+import { homeOfCommand, noStrayDrafts, sealedHome } from './scratch-home.js';
 
 const CLI = fileURLToPath(new URL('../scripts/madarch.ts', import.meta.url));
 
@@ -79,7 +79,8 @@ const removeMadeFolders = (): void => {
   for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
   for (const proc of runningChildren.splice(0)) try { proc.kill(); } catch { /* already gone */ }
   const strays = noStrayDrafts();
-  if (strays.length) throw new Error(`the tests left stray drafts in the real products home: ${strays.join(', ')} (removed)`);
+  if (strays.leftAlone.length) throw new Error(`the tests left what they cannot own in the real products home, untouched: ${strays.leftAlone.join(', ')}`);
+  if (strays.removed.length) throw new Error(`the tests left stray drafts in the real products home (removed): ${strays.removed.join(', ')}`);
 };
 
 afterEach(removeMadeFolders);
@@ -88,7 +89,7 @@ process.on('exit', removeMadeFolders);
 
 /** Runs a command that ends by itself, the way a person does. */
 function runCommand(args: string[], overrides: Record<string, string> = {}): { status: number | null; stdout: string; stderr: string } {
-  const env = { ...process.env, ...SEALED_GIT, ...SEALED_CLOCK, ...overrides };
+  const env = { ...process.env, ...SEALED_GIT, ...SEALED_CLOCK, ...sealedHome(overrides), ...overrides };
   // A creator must aim at a scratch home before anything is spawned: the
   // arguments, then MADARCH_HOME — the resolved home is refused otherwise.
   if (args[0] === 'new' || args[0] === 'list') homeOfCommand(args, env);
@@ -108,7 +109,7 @@ interface LiveNew {
   finish(): Promise<{ stdout: string }>;
 }
 function serveNew(args: string[], overrides: Record<string, string> = {}, program: readonly string[] = ['bun', CLI]): LiveNew {
-  const env = { ...process.env, ...SEALED_GIT, ...SEALED_CLOCK, ...overrides };
+  const env = { ...process.env, ...SEALED_GIT, ...SEALED_CLOCK, ...sealedHome(overrides), ...overrides };
   if (args[0] === 'new') homeOfCommand(args, env);
   const proc = Bun.spawn([...program, ...args], {
     stdin: 'pipe', stdout: 'pipe', stderr: 'pipe',

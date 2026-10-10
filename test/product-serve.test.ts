@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, test } from 'bun:test';
-import { homeOfCommand, noStrayDrafts } from './scratch-home.js';
+import { homeOfCommand, noStrayDrafts, sealedHome } from './scratch-home.js';
 
 /**
  * The `madarch` command's serve step (docs/changes/draft-product/
@@ -55,14 +55,15 @@ afterEach(() => {
   stopAll();
   for (const dir of scratchFolders.splice(0)) rmSync(dir, { recursive: true, force: true });
   const strays = noStrayDrafts();
-  if (strays.length) throw new Error(`the tests left stray drafts in the real products home: ${strays.join(', ')} (removed)`);
+  if (strays.leftAlone.length) throw new Error(`the tests left what they cannot own in the real products home, untouched: ${strays.leftAlone.join(', ')}`);
+  if (strays.removed.length) throw new Error(`the tests left stray drafts in the real products home (removed): ${strays.removed.join(', ')}`);
 });
 process.on('exit', stopAll);
 
 /** Runs the command to its own end: for the exits that terminate by themselves. */
 function runCommand(args: string[], overrides: Record<string, string> = {}, cwd?: string):
   { status: number | null; stdout: string; stderr: string } {
-  const env = { ...process.env, ...SEALED_GIT, ...overrides };
+  const env = { ...process.env, ...SEALED_GIT, ...sealedHome(overrides), ...overrides };
   if (args[0] === 'new' || args[0] === 'list') homeOfCommand(args, env);
   const run = spawnSync('bun', [CLI, ...args], {
     encoding: 'utf8',
@@ -87,7 +88,7 @@ function addressOf(stdout: string): string | undefined {
 
 /** Starts the command live, watching its stdout, until the test closes it through `finish`. */
 function serveLive(args: string[], overrides: Record<string, string>, cwd?: string): LiveServe & { raw: Bun.Subprocess } {
-  const env = { ...process.env, ...SEALED_GIT, ...overrides };
+  const env = { ...process.env, ...SEALED_GIT, ...sealedHome(overrides), ...overrides };
   if (args[0] === 'new') homeOfCommand(args, env);
   const proc = Bun.spawn(['bun', CLI, ...args], {
     stdin: 'pipe',

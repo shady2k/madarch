@@ -72,10 +72,13 @@ describe('the manifest reader against the set\'s own fixture cases', () => {
           }
         }
       } else {
+        // The refusal names the file it was found in: the case's own
+        // workspace.yaml, whatever else the words say.
         const line = one.line ?? 1;
-        const same = read.ok === false && read.line === line && read.message.includes(one.message ?? '');
+        const file = join(folder, 'workspace.yaml');
+        const same = read.ok === false && read.file === file && read.line === line && read.message.includes(one.message ?? '');
         if (!same) {
-          mismatches.push(`${one.name}: expected refused at line ${line} naming ${JSON.stringify(one.message ?? '')}, got ${read.ok ? 'read as ok' : `line ${read.line}: ${read.message}`}`);
+          mismatches.push(`${one.name}: expected refused in ${file} at line ${line} naming ${JSON.stringify(one.message ?? '')}, got ${read.ok ? 'read as ok' : `${read.file}, line ${read.line}: ${read.message}`}`);
         }
       }
     }

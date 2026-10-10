@@ -64,8 +64,8 @@ export declare function createDraft(options?: {
   gitEnv?: ProgramGitEnv;
 }): ProgramDraftResult;
 
-/** Reads one product folder's manifest. */
-export declare function readProduct(productFolder?: string): ProgramRead;
+/** Reads one product folder's manifest; the folder is the one asked about, never nothing. */
+export declare function readProduct(productFolder: string): ProgramRead;
 
 /** Whether a day is written `YYYY-MM-DD` and is a day the calendar has. */
 export declare function whyNotADay(date: string): string | null;

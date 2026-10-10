@@ -144,11 +144,11 @@ function list(home: string | undefined): number {
     console.log(`id: ${product.id}`);
     console.log(`name: ${product.name}`);
   }
-  // A manifest that stands but cannot be read is named, and the list still
-  // says what it did read: hiding a broken draft would say a folder is fine
-  // that nobody looked at.
+  // A manifest that stands but cannot be read is named where the reader
+  // found it, and the list still says what it did read: hiding a broken
+  // draft would say a folder is fine that nobody looked at.
   for (const unreadable of listed.unreadable) {
-    console.error(unreadable.message);
+    console.error(`${unreadable.file}:${unreadable.line}: ${unreadable.message}`);
   }
   return 0;
 }

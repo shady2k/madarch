@@ -21,7 +21,13 @@ const shQuote = (word: string): string => "'" + word.split("'").join("'\\''") + 
 import { readProduct } from '../src/product/manifest.js';
 import { gitEnv } from './git-env.js';
 import { GIT_IDENTITY, GIT_ENV } from './model-check-repo.js';
-import { refuseNonScratchHome, noStrayDrafts } from './scratch-home.js';
+import { refuseNonScratchHome, noStrayDrafts, ISOLATED_HOME } from './scratch-home.js';
+
+// The library tests here create drafts in-process: with MADARCH_HOME at a
+// scratch home, a mutated productsHome that ignores the `home` its caller
+// gave still lands beside the scratch, never in the account's real home —
+// the command tests seal their children's HOME besides this (scratch-home).
+process.env.MADARCH_HOME = process.env.MADARCH_HOME ?? ISOLATED_HOME;
 
 /**
  * The draft product repository (docs/changes/draft-product/capabilities/
@@ -48,7 +54,8 @@ function tempFolder(prefix: string): string {
 const removeMadeFolders = (): void => {
   for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
   const strays = noStrayDrafts();
-  if (strays.length) throw new Error(`the tests left stray drafts in the real products home: ${strays.join(', ')} (removed)`);
+  if (strays.leftAlone.length) throw new Error(`the tests left what they cannot own in the real products home, untouched: ${strays.leftAlone.join(', ')}`);
+  if (strays.removed.length) throw new Error(`the tests left stray drafts in the real products home (removed): ${strays.removed.join(', ')}`);
 };
 
 afterEach(removeMadeFolders);
@@ -159,7 +166,7 @@ describe('createDraft', () => {
 
   test('a day of one-digit month and date is padded to two digits', () => {
     const home = tempFolder('madarch-products-');
-    const draft = createDraft({ home, today: new Date(2026, 0, 5), gitEnv: gitEnv(GIT_ENV) });
+    const draft = createDraft({ home: refuseNonScratchHome(home, 'the padded-day test'), today: new Date(2026, 0, 5), gitEnv: gitEnv(GIT_ENV) });
     if (draft.outcome !== 'created') throw new Error('the draft was not created');
     expect(draft.folder).toBe(join(home, 'idea-2026-01-05'));
   });
@@ -286,7 +293,10 @@ describe('createDraft', () => {
     // something a folder-listing test can honestly say.
     let draft: ReturnType<typeof draftIn> | undefined;
     try {
-      draft = draftIn('/');
+      // The one exemption the guard holds: this test touches `/` as a
+      // products home on purpose, and removes exactly the folder the
+      // creation reports. The guard's allowance says so in the same breath.
+      draft = createDraft({ home: refuseNonScratchHome('/', 'the root home test', { allow: 'the root home test', why: 'touching / is the test\'s own subject' }), today: EXAMPLE_DAY, gitEnv: gitEnv(GIT_ENV) });
       if (draft.outcome !== 'created') throw new Error(`the draft was not created: ${JSON.stringify(draft)}`);
       expect(draft.folder).toBe(join('/', draft.name));
       // The name is the folder's own name — read never by a slice of the path.
@@ -306,7 +316,7 @@ describe('createDraft', () => {
     writeFileSync(join(stubs, 'git'), script);
     chmodSync(join(stubs, 'git'), 0o700);
     const home = tempFolder('madarch-products-');
-    const draft = createDraft({ home, today: EXAMPLE_DAY, gitEnv: gitEnv({ ...GIT_ENV, PATH: stubs }) });
+    const draft = createDraft({ home: refuseNonScratchHome(home, 'a stub test'), today: EXAMPLE_DAY, gitEnv: gitEnv({ ...GIT_ENV, PATH: stubs }) });
     expect(draft).toMatchObject({ outcome: 'failed' });
     if (draft.outcome !== 'failed') return;
     expect(draft.message).toContain('refusing to commit');
@@ -319,7 +329,7 @@ describe('createDraft', () => {
     writeFileSync(join(stubs, 'git'), script);
     chmodSync(join(stubs, 'git'), 0o700);
     const home = tempFolder('madarch-products-');
-    const draft = createDraft({ home, today: EXAMPLE_DAY, gitEnv: gitEnv({ ...GIT_ENV, PATH: stubs }) });
+    const draft = createDraft({ home: refuseNonScratchHome(home, 'a stub test'), today: EXAMPLE_DAY, gitEnv: gitEnv({ ...GIT_ENV, PATH: stubs }) });
     expect(draft).toMatchObject({ outcome: 'failed' });
     if (draft.outcome !== 'failed') return;
     expect(draft.message).toContain('refusing to add');
@@ -444,7 +454,7 @@ describe('createDraft: reservations and homes that cannot be used', () => {
 
   test('git missing from the environment fails with git\'s own error as the cause', () => {
     const home = tempFolder('madarch-products-nogit-');
-    const draft = createDraft({ home, today: EXAMPLE_DAY, gitEnv: gitEnv({ ...GIT_ENV, PATH: '/nonexistent' }) });
+    const draft = createDraft({ home: refuseNonScratchHome(home, 'the git-missing test'), today: EXAMPLE_DAY, gitEnv: gitEnv({ ...GIT_ENV, PATH: '/nonexistent' }) });
     expect(draft).toMatchObject({ outcome: 'failed' });
     if (draft.outcome !== 'failed') return;
     // The cause after the colon is git's own error, never nothing:
@@ -490,7 +500,7 @@ describe('createDraft: a cleanup that fails is reported', () => {
     writeFileSync(join(stubs, 'git'), script);
     chmodSync(join(stubs, 'git'), 0o700);
     const home = tempFolder('madarch-products-');
-    const draft = createDraft({ home, today: EXAMPLE_DAY, gitEnv: gitEnv({ ...GIT_ENV, PATH: stubs }) });
+    const draft = createDraft({ home: refuseNonScratchHome(home, 'a stub test'), today: EXAMPLE_DAY, gitEnv: gitEnv({ ...GIT_ENV, PATH: stubs }) });
     expect(draft).toMatchObject({ outcome: 'failed' });
     if (draft.outcome !== 'failed') return;
     expect(draft.message).toContain('refusing to add');
