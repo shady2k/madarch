@@ -498,6 +498,10 @@ describe('madarch list', () => {
     const stray = join(home, 'old-notes');
     mkdirSync(stray);
     cpSync(SET_MADE, join(home, 'set-made'), { recursive: true });
+    // A plain file stands beside the products: a folder is what the list
+    // walks, and saying so in code is what a sorted walk over Dirents is
+    // for; a home that took the file as a folder would name it a product.
+    writeFileSync(join(home, 'notepad.txt'), 'a plain file this home also holds\n');
     const { status, stdout, stderr } = runCommand(['list', '--home', home]);
     expect(stderr).toBe('');
     expect(status).toBe(0);
