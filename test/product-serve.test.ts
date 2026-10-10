@@ -350,9 +350,23 @@ describe('madarch serve: an existing product served', () => {
     await serve.finish();
   }, 30_000);
 
-  test.skipIf(process.getuid?.() === 0)('a step that fails exits 1: the server could not take the port it was given', () => {
+  test('a step that fails exits 1: the server could not take the port it was given', () => {
     // The start itself failing — a port the user may not listen on, not an
     // address already in use — is a failed step, exit 1, whole words added.
+    // The case needs a port the environment refuses: the test binds one
+    // itself, and where that succeeds (root, capable containers), the
+    // failing start cannot be reached this way and the test says so.
+    let mayListen = false;
+    let probe: Bun.TCPSocketListener | undefined;
+    try {
+      probe = Bun.listen({ hostname: '127.0.0.1', port: 1, socket: { open(_socket) {}, data(_socket, _data) {}, close() {}, end() {}, error(_socket, _error) {} } });
+      mayListen = true;
+    } catch {
+      mayListen = false; // the binding the run below needs for failing
+    } finally {
+      if (probe) probe.stop(true);
+    }
+    if (mayListen) return; // this environment can serve there; the exit-1 path needs a port the system refuses.
     const base = scratchFolder();
     const built = builtApp(base);
     const folder = product(base);

@@ -19,7 +19,13 @@ import { createDraft } from '../src/product/draft.js';
 import { listProducts } from '../src/product/list.js';
 import { gitEnv } from './git-env.js';
 import { GIT_IDENTITY, GIT_ENV } from './model-check-repo.js';
-import { homeOfCommand, noStrayDrafts, sealedHome } from './scratch-home.js';
+import { homeOfCommand, noStrayDrafts, ISOLATED_HOME, sealedHome } from './scratch-home.js';
+
+// The library paths here create drafts in-process as well: MADARCH_HOME at
+// the guard's scratch from this module's load, so a mutated home resolution
+// that ignores an explicit home lands beside the scratch, never in the
+// account's real home (the command tests seal their children besides this).
+process.env.MADARCH_HOME = ISOLATED_HOME;
 
 const CLI = fileURLToPath(new URL('../scripts/madarch.ts', import.meta.url));
 
