@@ -299,6 +299,22 @@ describe('madarch new', () => {
     expect(stderr).toContain('unexpected argument');
   });
 
+  test('an option another subcommand owns is refused, never silently ignored', () => {
+    // `new` takes no --product and serve takes no --home: a silently accepted
+    // option would tell a person their words were used when nothing was.
+    const home = scratchFolder();
+    const run = runCommand(['new', '--product', home], { MADARCH_HOME: home });
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('--product');
+    expect(run.stderr).toContain('unknown option');
+    expect(readdirSync(home).filter((name) => name.startsWith('idea-'))).toEqual([]);
+
+    const serveRun = runCommand(['serve', '--home', home], { MADARCH_HOME: home });
+    expect(serveRun.status).toBe(2);
+    expect(serveRun.stderr).toContain('--home');
+    expect(serveRun.stderr).toContain('unknown option');
+  });
+
   test('a products home that is a file exits 2 naming the path, and no product folder is created anywhere', () => {
     const base = scratchFolder('madarch-cli-file-');
     const home = join(base, 'home');
@@ -575,5 +591,33 @@ describe('madarch list', () => {
     const openRun = runCommand(['list', '--home', home, '--no-open']);
     expect(openRun.status).toBe(2);
     expect(openRun.stderr).toContain('--no-open');
+    const productRun = runCommand(['list', '--home', home, '--product', home]);
+    expect(productRun.status).toBe(2);
+    expect(productRun.stderr).toContain('--product');
+    expect(productRun.stderr).toContain('unknown option');
+  });
+
+  test('a folder whose manifest cannot even be reached is named, not skipped', () => {
+    // The manifest is there but the folder cannot be looked into: the
+    // reader is asked anyway, so its refusal — never a quiet skip — is
+    // what the list shows. The 3-kinds kind of skip is for folders with
+    // no manifest at all.
+    if (process.getuid?.() === 0) return; // root opens anything; the case is meaningless there.
+    const home = scratchFolder('madarch-cli-list-dark-');
+    const dark = join(home, 'dark-draft');
+    mkdirSync(dark);
+    writeFileSync(join(dark, 'workspace.yaml'), 'schemaVersion: 1\nid: x\nname: dark\n');
+    const good = join(home, 'set-made');
+    cpSync(SET_MADE, good, { recursive: true });
+    chmodSync(dark, 0o000);
+    try {
+      const { status, stdout, stderr } = runCommand(['list', '--home', home]);
+      expect(status).toBe(0);
+      expect(stdout).toContain('set-made');
+      expect(stderr).toContain(dark);
+      expect(stderr).toContain('could not be read');
+    } finally {
+      chmodSync(dark, 0o700);
+    }
   });
 });
