@@ -1,41 +1,55 @@
 /**
  * The app itself: a home page naming the product and listing its documents as
- * grouped kind cards, and a page per document. It asks for the page list about
- * once a second and, when the wiki's revision changes, refetches the open
- * page, so a file saved in the product shows within two seconds with no
- * reload and no server restart (requirements `pages`, `live`, `app`). It
- * keeps one list request in flight at a time, aborts it on cleanup, and never
- * lets an older answer overwrite a newer one; it asks also while the tab is
- * hidden, and asks at once when the tab becomes visible again. A failed page
- * read is retried on its own, bounded, with the failure shown while the
- * retries run.
+ * quiet kind groups, and a page per document. The page list is asked for once
+ * at load, and again only when the wiki's Server-Sent Events stream carries
+ * a change event — the server watches the product's working tree — so a file
+ * saved in the product shows within two seconds with no reload and no server
+ * restart (requirements `pages`, `live`, `app`). A tab the reader leaves alone
+ * adds no requests beyond its one open stream: there is no polling. The
+ * stream reconnects with backoff when it drops, and the backoff resets when a
+ * stream answers again. It keeps one list request in flight at a time, aborts
+ * it on cleanup, and never lets an older answer overwrite a newer one —
+ * including while the tab is hidden, where the stream keeps delivering. A
+ * failed page read is retried on its own, bounded, with the failure shown
+ * while the retries run.
  */
-import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { useContext, useEffect, useRef, useState, useCallback, type ReactElement, type ReactNode } from 'react';
 import { FileTextIcon } from 'lucide-react';
 import { getProduct, getPages, getPage, type Product, type PageList, type Page } from './api.js';
 import { routeOf, addressOfPage } from './routes.js';
 import { Markdown, PageLink } from './view.js';
-import { routeContext } from './hold.js';
+import { routeContext, statusContext } from './hold.js';
 import { groupNav, groupOf, kindOf, wordLabel, Shell } from './shell.js';
 import { wordCount } from './text.js';
 export type RouteSnapshot = { name: 'home' } | { name: 'page'; path: string };
 
-/** How far apart the app asks for the page list again, about once a second. */
-export const defaultTickMs = 1000;
-
 /** How many times one page read is tried before the app gives up on it. */
 export const pageTriesLimit = 3;
 
-/** How long one poll may run before it is aborted and its failure shown. */
+/** How long one read of the wiki may run before it is aborted and its failure shown. */
 export const defaultPollTimeoutMs = 5000;
 
-export type AppProps = { tickMs?: number; pageRetryMs?: number; pollTimeoutMs?: number };
+/** The first gap before a dropped stream is asked for again; each miss doubles it. */
+export const defaultReconnectMs = 1000;
 
-export function App({ tickMs = defaultTickMs, pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs }: AppProps): ReactElement {
+/** The longest gap a dropped stream waits before it is asked for again. */
+const maxReconnectMs = 15_000;
+
+/** Where the wiki's change stream answers. */
+export const EVENTS_PATH = '/api/events';
+
+export type AppProps = {
+  pageRetryMs?: number;
+  pollTimeoutMs?: number;
+  /** The reconnect base for the tests; a dropped stream doubles it each miss. */
+  reconnectMs?: number;
+};
+
+export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, reconnectMs = defaultReconnectMs }: AppProps): ReactElement {
   const [route, setRoute] = useState<RouteSnapshot>(() => routeOf(window.location.pathname));
-  const [list, setList] = useState<PageList | null>(null);
   const [data, setData] = useState<{ product: Product; list: PageList } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refresh, setRefresh] = useState(0);
 
   // The route follows the history bar: back and forward as much as the app's own moves.
   useEffect(() => {
@@ -44,10 +58,11 @@ export function App({ tickMs = defaultTickMs, pageRetryMs = 1000, pollTimeoutMs 
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  // The page list, asked again about once a second: one request in flight at a
-  // time, aborted on cleanup, and an answer from an older request never wins
-  // against a newer one. The reader is asked for regardless of the tab's
-  // visibility, so a hidden page stays live too.
+  // The wiki's page list, asked for at load and again only on the stream's
+  // change events (there is no polling): one request in flight at a time,
+  // aborted on cleanup, and an answer from an older request never wins
+  // against a newer one. The reader reads regardless of the tab's
+  // visibility, since the stream delivers events while the tab is hidden too.
   useEffect(() => {
     let alive = true;
     let controller: AbortController | undefined;
@@ -60,8 +75,8 @@ export function App({ tickMs = defaultTickMs, pageRetryMs = 1000, pollTimeoutMs 
       controller = new AbortController();
       const turn = ++requestTurn;
       // A request that never answers must not hold the flag forever: the
-      // poll is aborted when its own timeout passes, the failure is shown,
-      // and the next tick asks again (finding 4).
+      // read is aborted when its own timeout passes and the failure shown;
+      // the stream's next change event asks again (finding 4).
       let timeoutFired = false;
       const timeout = pollTimeoutMs > 0
         ? window.setTimeout(() => {
@@ -79,13 +94,12 @@ export function App({ tickMs = defaultTickMs, pageRetryMs = 1000, pollTimeoutMs 
         if (!alive || lastAnsweredTurn > turn) return;
         lastAnsweredTurn = turn;
         setData({ product: nextProduct, list: nextList });
-        setList(nextList);
         setError(null);
       } catch (caught: unknown) {
         const aborted = caught instanceof DOMException && caught.name === 'AbortError';
         const expired = aborted && timeoutFired;
         if (alive && lastAnsweredTurn <= turn && (!aborted || expired)) {
-          // A poll the app itself killed at its own timeout is named as
+          // A read the app itself killed at its own timeout is named as
           // such: what was being read — the request that timed out — and
           // that it timed out — never the abort's raw message (finding 2.10).
           if (expired) setError(`Could not read the page list: the request to ${current} timed out after ${pollTimeoutMs} ms`);
@@ -97,28 +111,80 @@ export function App({ tickMs = defaultTickMs, pageRetryMs = 1000, pollTimeoutMs 
       }
     };
     loadList();
-    const onVisible = (): void => {
-      if (document.visibilityState === 'visible') loadList();
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    const timer = window.setInterval(loadList, tickMs);
     return () => {
       alive = false;
-      document.removeEventListener('visibilitychange', onVisible);
-      window.clearInterval(timer);
       controller?.abort();
       controller = undefined;
       asking = false;
     };
-  }, [tickMs]);
+  }, [pollTimeoutMs, refresh]);
+
+  // The stream itself: one long-lived request, held for the tab's whole
+  // life, reading Server-Sent Events frames. A change event asks for the
+  // list again; a dropped stream reconnects with backoff, resetting the
+  // backoff when a stream answers again.
+  useEffect(() => {
+    let alive = true;
+    let misses = 0;
+    let timer: number | undefined;
+    const decoder = new TextDecoder();
+    let stream: AbortController | undefined;
+    const open = async (): Promise<void> => {
+      if (!alive) return;
+      stream = new AbortController();
+      try {
+        const response = await fetch(EVENTS_PATH, { signal: stream.signal });
+        if (!response.ok || response.body === null) {
+          throw new Error(String('the stream to ' + EVENTS_PATH + ' answered ' + response.status));
+        }
+        // A stream that answers after a miss is asked with one resync: the
+        // events the dead stream swallowed are read as a change now.
+        if (misses > 0) {
+          misses = 0;
+          setRefresh((held) => held + 1);
+        }
+        const reader = response.body.getReader();
+        let frame = '';
+        while (alive) {
+          const next = await reader.read();
+          if (next.done) break;
+          frame += decoder.decode(next.value, { stream: true });
+          let end: number;
+          while ((end = frame.indexOf('\n\n')) !== -1) {
+            const lines = frame.slice(0, end).split('\n');
+            frame = frame.slice(end + 2);
+            const kind = lines.find((line) => line.startsWith('event:'))?.slice(6).trim() ?? 'message';
+            if (kind === 'change') setRefresh((held) => held + 1);
+          }
+        }
+        throw new Error('the stream to ' + EVENTS_PATH + ' ended');
+      } catch (caught: unknown) {
+        const stop = !alive || (caught instanceof DOMException && caught.name === 'AbortError');
+        if (!stop && alive) {
+          misses += 1;
+          const wait = Math.min(maxReconnectMs, reconnectMs * 2 ** (misses - 1));
+          timer = window.setTimeout(open, wait);
+        }
+      }
+    };
+    open();
+    return () => {
+      alive = false;
+      if (timer !== undefined) window.clearTimeout(timer);
+      stream?.abort();
+      stream = undefined;
+    };
+  }, [reconnectMs]);
 
   if (error !== null) return <ErrorLine message={error} />;
-  if (data === null || list === null) return <p className="loading">Waiting for the wiki</p>;
+  if (data === null) return <p className="loading">Waiting for the wiki</p>;
 
+  const list = data.list;
   const heldPaths = new Set(list.pages.map((meta) => meta.path));
   return (
-    <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, heldPaths }}>
-      <Shell product={data.product} list={list}>
+    <StatusBridge>
+      <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, heldPaths }}>
+        <Shell product={data.product} list={list}>
         {route.name === 'home' ? (
           <HomePage product={data.product} list={list} />
         ) : (
@@ -129,42 +195,81 @@ export function App({ tickMs = defaultTickMs, pageRetryMs = 1000, pollTimeoutMs 
             retryMs={pageRetryMs}
           />
         )}
-      </Shell>
-    </routeContext.Provider>
+        </Shell>
+      </routeContext.Provider>
+    </StatusBridge>
+  );
+}
+
+/** The home's facts, read again only when the document count changes. */
+export const homeStatus = (documents: number): readonly string[] | null =>
+  documents === 0
+    ? null
+    : [`${documents} ${documents === 1 ? 'document' : 'documents'}`, 'Markdown', 'UTF-8'];
+
+/** Whether two status lines name exactly the same parts; the same line is one state, not a new one. */
+function sameLine(held: readonly string[] | null, parts: readonly string[] | null): boolean {
+  if (held === parts) return true;
+  if (held === null || parts === null || held.length !== parts.length) return false;
+  return held.every((word, at) => word === parts[at]);
+}
+
+/**
+ * Holds the shell's status line: whatever is open publishes here, and the
+ * shell's bottom edge reads it. The setter is stable and lets an
+ * unchanged line through, so a publish never re-renders for nothing.
+ */
+export function StatusBridge({ children }: { children: ReactNode }): ReactElement {
+  const [line, setLine] = useState<readonly string[] | null>(null);
+  const publish = useCallback((parts: readonly string[] | null): void => {
+    setLine((held) => (sameLine(held, parts) ? held : parts));
+  }, []);
+  return (
+    <statusContext.Provider value={{ publish, parts: line }}>
+      {children}
+    </statusContext.Provider>
   );
 }
 
 /**
- * The home page: the product's name and its documents as grouped kind cards —
- * a heading per kind with its document count, the documents as the links they
- * are — or the plain truth when the product has no pages yet. Not a bare link
- * list: kind and count say what a reader is choosing between.
+ * The home page, in the mockup's overview language: an eyebrow, the product's
+ * name, a short lead, then the documents as quiet groups — a small kind label
+ * with its count beside it, and the documents as icon plus title rows on the
+ * navigation's row rhythm. No boxed cards, no divider lines between links, no
+ * underlines: the kind and its small muted count say what a reader is
+ * choosing between, the rows read like the sidebar's. A product with no
+ * pages yet says so plainly in the lead.
  */
 export function HomePage({ product, list }: { product: Product; list: PageList }): ReactElement {
+  const groups = groupNav(list.pages);
+  const documents = list.pages.length;
+  const { publish } = useContext(statusContext);
+  useEffect(() => {
+    publish(homeStatus(documents));
+    return () => publish(null);
+  }, [publish, documents]);
+  const lead = documents === 0
+    ? `${product.name} has no pages yet.`
+    : `The reading space of ${product.name}: ${documents} ${documents === 1 ? 'document' : 'documents'} in ${groups.length} ${groups.length === 1 ? 'group' : 'groups'}.`;
   return (
     <main id="home">
-      <h1>{product.name}</h1>
-      {list.pages.length === 0 ? (
-        <p className="no-pages">{product.name} has no pages yet.</p>
-      ) : (
+      <p className="eyebrow">Product overview</p>
+      <h1 className="app-title">{product.name}</h1>
+      <p className="home-lead" data-testid="home-lead">{lead}</p>
+      {documents === 0 ? null : (
         <div className="home-groups">
-          {groupNav(list.pages).map((group) => (
-            <section key={group.name} data-kind={group.name} className="home-card my-6 rounded-[6px] border border-line bg-chrome p-4">
-              <header className="mb-2 flex items-baseline gap-2.5">
-                <h2 className="text-h2 font-semibold text-ink">{wordLabel(group.name)}</h2>
-                <span className="text-small text-muted" data-testid="card-count">
-                  {group.pages.length} {group.pages.length === 1 ? 'page' : 'pages'}
-                </span>
+          {groups.map((group) => (
+            <section key={group.name} data-kind={group.name} className="home-group mt-7 first:mt-0">
+              <header className="home-group-head">
+                <h2 className="text-ink">{wordLabel(group.name)}</h2>
+                <span className="home-count" data-testid="card-count">{group.pages.length}</span>
               </header>
-              <ul className="m-0 p-0 [&>li]:list-none">
+              <ul className="home-rows">
                 {group.pages.map((meta) => (
-                  <li key={meta.path} className="border-t border-line first:border-t-0">
-                    <PageLink
-                      path={meta.path}
-                      className="flex items-center gap-2 rounded-[5px] px-2 py-1.5 no-underline hover:bg-pill"
-                    >
-                      <FileTextIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-                      <span className="text-secondary">{meta.title}</span>
+                  <li key={meta.path}>
+                    <PageLink path={meta.path} className="home-row">
+                      <FileTextIcon aria-hidden="true" className="home-row-icon" />
+                      <span className="home-row-title">{meta.title}</span>
                     </PageLink>
                   </li>
                 ))}
@@ -215,6 +320,16 @@ export function PageReader({
     else setOwnTitle(pageRef.current?.querySelector('.reading > h1:first-child') !== null);
   }, [page]);
 
+  // The shell's bottom status bar is fed by what is open: this page's word
+  // count and its format facts. The facts leave when the page leaves, so a
+  // home page is never shown a document's count.
+  const { publish } = useContext(statusContext);
+  useEffect(() => {
+    if (page === null) publish(null);
+    else publish([`${wordCount(page.markdown)} words`, 'Markdown', 'UTF-8']);
+    return () => publish(null);
+  }, [page, publish]);
+
   useEffect(() => {
     let alive = true;
     let timer: number | undefined;
@@ -253,15 +368,6 @@ export function PageReader({
       <p className="eyebrow">{kindOf(path, groupOf(path))}</p>
       {!ownTitle && <h1 className="app-title">{page.title}</h1>}
       <Markdown text={page.markdown} />
-      {/* The thin status bar the mockup puts at the bottom of the document
-       * area: the page's word count and its format and encoding facts. */}
-      <footer className="statusbar" role="contentinfo">
-        <span data-testid="word-count">{wordCount(page.markdown)} words</span>
-        {' · '}
-        <span>Markdown</span>
-        {' · '}
-        <span>UTF-8</span>
-      </footer>
     </main>
   );
 }

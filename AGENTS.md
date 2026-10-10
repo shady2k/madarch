@@ -18,6 +18,11 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   (or `--home` for one command).
   The wiki app's own checks run inside `wiki/app`:
   `bun install --frozen-lockfile && bun run check && bun test && bun run build`.
+  `bun run wiki:demo` serves the committed demo product `wiki/demo` and opens
+  its wiki in the browser; `bun run wiki:shots` renders the side-by-side
+  mockup/ours pairs of the mockup-fidelity acceptance (`--mockup <the mockup's
+  dist folder>` to pair; without it ours only) into a scratch folder outside
+  the repository and prints it.
   Mutation testing is StrykerJS 9
   run from a scratch folder outside the repository with `typescript@5` beside it
   (TypeScript 7 has no JS API); see `.shady2k/integration.md`. With bun's command

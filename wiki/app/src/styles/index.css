@@ -29,6 +29,7 @@
   /* Colours: the token names, as utilities. */
   --color-page: var(--bg-page);
   --color-chrome: var(--bg-chrome);
+  --color-ground: var(--bg-ground);
   --color-ink: var(--text);
   --color-secondary: var(--text-secondary);
   --color-muted: var(--text-muted);
@@ -48,12 +49,15 @@
 
   body {
     margin: 0;
-    min-height: 100vh;
+    /* The shell fills the window: the page never scrolls itself, the only
+     * scrolling lives in the document's own column. */
+    height: 100%;
+    overflow: hidden;
     font-family: var(--font-sans);
     font-size: var(--fs-body);
     line-height: var(--leading);
     color: var(--text);
-    background: var(--bg-page);
+    background: var(--bg-ground);
   }
 
   code,
@@ -109,9 +113,9 @@
 .reading > h1 {
   font-size: var(--fs-h1);
   line-height: 1.25;
-  /* the mockup's title weight and optical tracking */
+  /* the mockup's reading: a medium-weight title on its normal tracking */
   font-weight: 650;
-  letter-spacing: -0.03em;
+  letter-spacing: -1.3px;
   margin-block: 0 0.75em;
   color: var(--text);
 }
@@ -120,7 +124,7 @@ main h1 {
   font-size: var(--fs-h1);
   line-height: 1.25;
   font-weight: 650;
-  letter-spacing: -0.03em;
+  letter-spacing: -1.3px;
   margin-block: 0 0.75em;
 }
 
@@ -130,15 +134,15 @@ main h1 {
 main h2 {
   font-size: var(--fs-h2);
   line-height: 1.35;
-  font-weight: 620;
-  letter-spacing: -0.02em;
+  font-weight: 650;
+  letter-spacing: -1.3px;
   margin-block: 2em 0.6em;
 }
 
 main h3 {
   font-size: var(--fs-h3);
   line-height: 1.35;
-  font-weight: 700;
+  font-weight: 600;
   margin-block: 1.75em 0.5em;
 }
 
@@ -292,6 +296,89 @@ main th {
   background: var(--bg-chrome);
 }
 
+/* The window-height shell: the document's column is the only thing that
+   scrolls, at any window height — the home page included. The column keeps
+   the accepted measure and the two-em drop under the top bars; its own
+   bottom padding keeps the last lines off the status bar. */
+.shell-scroll {
+  min-height: 0;
+  padding-block-end: 2.5em;
+}
+
+/* The tab strip row under the top bar: the strip on the base ground, the open
+   file's tab on the page ground with the mockup's top rule. The switch and
+   the history stand out until they work (madarch-j0a). */
+.document-tab {
+  border-block-start: 2px solid var(--text);
+}
+
+/* The home page in the mockup's overview language: a lead, quiet kind groups,
+   icon plus title rows on the navigation's rhythm, small muted counts. No
+   boxed cards, no separating rules between the links, no underlines. */
+.home-lead {
+  margin-block: 0 2em;
+  font-size: 1.05em;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.home-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-block: 0 0.35em;
+}
+
+.home-group-head h2 {
+  font-size: var(--fs-small);
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.home-count {
+  font-size: var(--fs-small);
+  color: var(--text-muted);
+}
+
+.home-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.home-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 10px;
+  margin: 1px 0;
+  border-radius: 5px;
+  text-decoration: none;
+  color: var(--text-secondary);
+  font-size: var(--fs-small);
+  line-height: 1.5;
+}
+
+.home-row:hover {
+  background: var(--code-bg);
+  color: var(--text);
+}
+
+.home-row-icon {
+  margin-block-start: 2px;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.home-row-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 /* 4.4 A rule between sections. */
 main hr {
   border: 0;
@@ -299,10 +386,16 @@ main hr {
   margin-block: 2em 1.75em;
 }
 
-/* 4.3 Links: underlined structure, no accent colour. */
+/* The mockup's links: ink on a thin, offset, muted rule — a quiet underline,
+ * not a full-colour one. */
 main a {
   color: var(--link);
-  text-decoration: underline;
+  text-decoration: none;
+  border-block-end: 1px solid var(--link-underline);
+}
+
+main a:hover {
+  background: var(--code-bg);
 }
 
 /* Small text (nav, metadata, footnotes) never drops under the 14px floor:
@@ -333,13 +426,16 @@ main .footnotes {
 }
 
 .statusbar {
-  /* visible at the bottom of what the reader sees at every width: the page
-   * scrolls under it (the checkpoint's defect: it was below the fold) */
-  position: sticky;
-  bottom: 0;
-  background: var(--bg-page);
+  /* the very bottom of the window, outside the scrolled content — a row of
+   * the shell itself, the mockup's quiet bar; nothing open above shows it */
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1.4em;
+  min-height: 35px;
+  background: var(--bg-ground);
   border-block-start: 1px solid var(--border);
-  padding-block: 8px;
+  padding-inline: 1.4em;
   font-size: var(--fs-small);
   color: var(--text-muted);
 }
@@ -360,9 +456,7 @@ main .footnotes {
 }
 
 
-/* The home cards are not document text: the kind heading takes no top margin inside
- * its card (the main h2's rhythm is for the document), and the list rides
- * the sidebar's row rhythm by the classes the card carries. */
-.home-card h2 {
+/* The home's kind heading is a small quiet label, not a document h2. */
+.home-group-head h2 {
   margin-block: 0;
 }

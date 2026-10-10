@@ -18,13 +18,14 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { Shell } from './shell.js';
-import { routeContext } from './hold.js';
+import { routeContext, statusContext } from './hold.js';
 import type { Product, PageList, PageMeta } from './api.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const indexCss = readFileSync(join(here, 'styles/index.css'), 'utf8');
 const tokensCss = readFileSync(join(here, 'styles/tokens.css'), 'utf8');
 const sheetTsx = readFileSync(join(here, 'components/ui/sheet.tsx'), 'utf8');
+const shellTsx = readFileSync(join(here, 'shell.tsx'), 'utf8');
 
 beforeAll(() => {
   GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -62,9 +63,13 @@ async function intoShell(): Promise<HTMLElement> {
   rendered = { root, container };
   root.render(
     createElement(
+      statusContext.Provider,
+      { value: { publish: (): void => undefined, parts: ['word count', 'Markdown', 'UTF-8'] } },
+      createElement(
       routeContext.Provider,
       { value: { path: 'docs/requirements/one.md', heldPaths: new Set<string>() } },
       createElement(Shell, { product, list, children: createElement('p', {}, 'doc') }),
+      ),
     ),
   );
   for (let i = 0; i < 200; i++) {
@@ -142,5 +147,42 @@ describe('the shell markup', () => {
     const container = await intoShell();
     const crumb = container.querySelector('.shell-breadcrumb');
     expect(crumb?.textContent).toBe('Requirements / Requirement one');
+  });
+
+  test('the tab strip row stands under the top bar and carries the open file\'s name; no dead controls with it', async () => {
+    const container = await intoShell();
+    const tab = container.querySelector('[data-testid="document-tab"]');
+    expect(tab).not.toBeNull();
+    expect(tab?.textContent).toContain('docs/requirements/one.md');
+    // The strip is a row between the top bar and the document, and nothing
+    // dead rides in it: no view switch, no history button, no search box.
+    expect(container.querySelector('.document-bar')?.parentElement?.className).toContain('shell-main');
+    expect(container.querySelectorAll('.document-bar button').length).toBe(0);
+    expect(container.querySelector('.search-trigger')).toBeNull();
+  });
+
+  test('the document toolbar rule conveys the tab and the mockup\'s top rule; the strip stands on the base ground', () => {
+    expect(indexCss).toMatch(/\.document-tab \{[^}]*border-block-start:\s*2px solid var\(--text\)/s);
+    expect(shellTsx).toContain('bg-ground');
+    expect(shellTsx).toContain('shell-scroll min-w-0 flex-1 overflow-y-auto');
+  });
+
+  test('the status bar is a row of the shell at its very bottom edge, outside the scrolled content', async () => {
+    const container = await intoShell();
+    const bar = container.querySelector('footer.statusbar');
+    expect(bar).not.toBeNull();
+    // The bar lives in the shell's main column directly, not inside the
+    // scrolling column: its parent is the flex-col shell-main, after the row.
+    expect(bar?.previousElementSibling?.className).toContain('shell-row');
+    expect(container.querySelector('.shell-scroll footer.statusbar')).toBeNull();
+    // the bar shows what the open document published
+    expect(bar?.textContent).toContain('word count');
+  });
+
+  test('the shell fills the window and the only scrolling lives in the document column', () => {
+    expect(shellTsx).toContain('flex h-dvh');
+    expect(tokensCss).toMatch(/--bg-ground/);
+    expect(indexCss).toMatch(/body \{[^}]*overflow: hidden;/s);
+    expect(indexCss).toMatch(/\.shell-scroll \{/s);
   });
 });

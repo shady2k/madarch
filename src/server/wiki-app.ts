@@ -18,9 +18,106 @@
  */
 import { basename as nameOf } from 'node:path';
 import type { ProductWiki } from '../product-wiki/pages.js';
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, statSync, watch } from 'node:fs';
 import { join as joinPath, normalize, resolve } from 'node:path';
 import type { Handled, Refusal, ReplyMaker } from './http.js';
+
+/** How long the event stream holds a burst of tree events back before it asks the wiki what changed. */
+export const CHANGE_DEBOUNCE_MS = 200;
+
+/** How often a tree that gave no watch events is asked again, so a change is never missed. */
+const WATCH_FALLBACK_MS = 300;
+
+/** The never-and-then-closer of a stream's tail: the encoded bytes one event line is written in. */
+const eventBytes = new TextEncoder();
+
+/**
+ * One long-lived Server-Sent Events stream of the wiki's changes: an initial
+ * `retry:` line, then one `change` event each time the product's working
+ * tree revision differs from the one the stream last sent — a burst of tree
+ * events within `CHANGE_DEBOUNCE_MS` of each other is one event. The tree is
+ * watched; where the platform gives no events (or none it shows), a fallback
+ * timer asks for the revision at WATCH_FALLBACK_MS, so a change is never
+ * missed on either ground. The revision itself is asked from the wiki — the
+ * same digest every answer carries — so a stream never invents a change.
+ * The stream ends when the asking side hangs up (`request.signal`); the
+ * watcher and its timers end with it, so nothing keeps running past an
+ * answered stream.
+ */
+export function streamingEvents(wiki: ProductWiki, request: Request): Handled {
+  const stream = new ReadableStream({
+    start: (into): void => {
+      const write = (line: string): void => {
+        try {
+          into.enqueue(eventBytes.encode(line));
+        } catch {
+          // A stream that stopped taking bytes is ending; the closer below runs.
+        }
+      };
+      let lastRevision: string | undefined;
+      let debounce: ReturnType<typeof setTimeout> | undefined;
+      let fallback: ReturnType<typeof setInterval> | undefined;
+      let watcher: ReturnType<typeof watch> | undefined;
+      let ended = false;
+      const closeHandlers: (() => void)[] = [];
+      const close = (): void => {
+        if (ended) return;
+        ended = true;
+        for (const off of closeHandlers.splice(0)) off();
+        if (debounce !== undefined) clearTimeout(debounce);
+        if (fallback !== undefined) clearInterval(fallback);
+        watcher?.close();
+        try {
+          into.close();
+        } catch {
+          // Already closing or closed by the asking side.
+        }
+      };
+      const ask = (): void => {
+        const asked = wiki.pages();
+        if (!asked.ok || asked.revision === lastRevision) return;
+        lastRevision = asked.revision;
+        write(`event: change\ndata: ${JSON.stringify({ revision: asked.revision })}\n\n`);
+      };
+      const debounced = (): void => {
+        if (debounce !== undefined) clearTimeout(debounce);
+        debounce = setTimeout(() => {
+          try {
+            ask();
+          } catch {
+            // A tree unread at this instant is not an event: the next tree event or the fallback asks again.
+          }
+        }, CHANGE_DEBOUNCE_MS);
+      };
+      write(`retry: 3000\n\n`);
+      // A quiet product still needs the server to say something: an SSE
+      // comment every 30 s keeps proxies and the server's own idle timer
+      // from closing a stream nothing changed on. A comment is no event.
+      const keepAlive = setInterval(() => write(': ping\n\n'), 30_000);
+      closeHandlers.push(() => clearInterval(keepAlive));
+      // The fallback timer shares the debounced check with the watcher, so a
+      // stream that gets both asks once per burst and never twice.
+      fallback = setInterval(debounced, WATCH_FALLBACK_MS);
+      try {
+        watcher = watch(wiki.product.folder, { recursive: true }, debounced);
+      } catch {
+        // No watcher on this platform: the fallback timer stays alone.
+        watcher = undefined;
+      }
+      request.signal.addEventListener('abort', close);
+    },
+  });
+  return {
+    response: new Response(stream, {
+      status: 200,
+      headers: {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache',
+        'connection': 'keep-alive',
+      },
+    }),
+  };
+}
 
 /** Which app files answer which requests, by extension. */
 const CONTENT_TYPES: Record<string, string> = {
@@ -47,6 +144,8 @@ export interface WikiPart {
   pages: () => Handled;
   /** `GET /api/page?path=...`: one page, whole. */
   page: (request: Request) => Promise<Handled>;
+  /** `GET /api/events`: the wiki's change stream, held open until the asker hangs up. */
+  events: (request: Request) => Handled;
   /** The app's files: called for a path outside the route table, answering a file or index.html. */
   app: (pathname: string) => Handled | undefined;
 }
@@ -84,6 +183,7 @@ export function createWikiPart(
       }
       return { response: json(200, { path: asked.page.path, title: asked.page.title, markdown: asked.page.markdown }) };
     },
+    events: (request) => streamingEvents(wiki, request),
     app: appFolder === undefined ? (): Handled | undefined => undefined : (pathname): Handled | undefined => serveAppFiles(json, refused, appFolder, pathname),
   };
 }

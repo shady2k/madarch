@@ -21,8 +21,8 @@
  */
 import { useEffect, useRef, useState, useContext, type ReactElement, type ReactNode, type MouseEventHandler } from 'react';
 import {
-  BookOpenIcon,
   ChevronDownIcon,
+  ChevronRightIcon,
   FileTextIcon,
   FolderGit2Icon,
   FocusIcon,
@@ -30,7 +30,7 @@ import {
   PanelRightIcon,
 } from 'lucide-react';
 import type { PageList, PageMeta, Product } from './api.js';
-import { routeContext } from './hold.js';
+import { routeContext, statusContext } from './hold.js';
 import { PageLink } from './view.js';
 import { Button } from '@/components/ui/button.js';
 import { Toggle } from '@/components/ui/toggle.js';
@@ -146,7 +146,7 @@ export function groupNav(pages: readonly PageMeta[]): NavGroup[] {
 export function navLinkClasses(current: boolean): string {
   const pill = 'bg-pill hover:bg-pill';
   return [
-    'nav-link my-px flex items-start gap-2.5 rounded-[5px] px-[10px] py-[11px] text-small',
+    'nav-link my-px flex items-start gap-2.5 rounded-[5px] pl-[38px] pr-[10px] py-[11px] text-small',
     'text-secondary hover:text-ink',
     current ? 'nav-current ' + pill + ' font-[550] text-ink' : 'hover:bg-pill/60',
   ].join(' ');
@@ -170,12 +170,13 @@ function NavPanel({ product, groups, current, onNavigate }: {
   };
   return (
     <>
-      <div className="nav-brand flex items-center gap-2.5 px-2 py-3.5">
-        <span aria-hidden="true" className="text-[17px] font-semibold tracking-tight text-ink">m&middot;</span>
-        <strong className="text-[17px] font-semibold tracking-[-0.8px] text-ink">{product.name}</strong>
+      <div className="nav-brand flex items-center gap-1.5 px-2 py-3">
+        <span aria-hidden="true" className="text-[15px] text-ink">m<span className="text-muted">&middot;</span></span>
+        <strong className="text-[15px] font-normal text-ink">madarch</strong>
+        <small className="nav-concept ml-auto rounded-[4px] border border-line px-[5px] py-0.5 text-[11px] leading-4 text-muted">wiki</small>
       </div>
       <div
-        className="mb-4 flex w-full items-center gap-2.5 rounded-[6px] border border-line bg-page px-[9px] py-[11px]"
+        className="mb-3 flex w-full items-start gap-2.5 px-[9px] py-2"
         data-testid="product-block"
       >
         <span
@@ -185,21 +186,22 @@ function NavPanel({ product, groups, current, onNavigate }: {
           {product.name.charAt(0).toUpperCase()}
         </span>
         <span className="min-w-0 flex-1">
-          <b className="block text-[13px] font-semibold leading-5 text-ink">{product.name}</b>
+          <b className="block text-[13px] leading-5 text-ink">{product.name}</b>
           <small className="block text-[11px] leading-4 text-muted">Product space</small>
+          <small className="block text-[11px] leading-4 text-muted">the demo files live under docs/</small>
         </span>
         <ChevronDownIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
       </div>
       <a
-        className="mb-4 flex items-center gap-2.5 rounded-[5px] border border-line bg-page px-2.5 py-2 text-small text-secondary no-underline hover:bg-pill hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+        className="mb-3 flex items-center justify-between rounded-[5px] px-2.5 py-2 text-[13px] text-ink no-underline hover:bg-pill/60 focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
         href="/"
         data-testid="nav-overview"
       >
-        <BookOpenIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-        Product overview
+        <span className="flex items-center gap-2.5"><PanelRightIcon aria-hidden="true" className="size-4 shrink-0 text-muted" /> Product overview</span>
+        <ChevronRightIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
       </a>
       <div className="mb-1.5 mt-2 flex items-center justify-between px-2">
-        <h2 className="text-small font-semibold uppercase tracking-[1.4px] text-muted">Documents</h2>
+        <h2 className="text-small text-muted">Documents</h2>
         <span className="text-small text-muted" data-testid="documents-count">
           {groups.reduce((n, g) => n + g.pages.length, 0)}
         </span>
@@ -218,7 +220,7 @@ function NavPanel({ product, groups, current, onNavigate }: {
                   aria-hidden="true"
                   className={'size-4 shrink-0 text-muted transition-transform duration-150 ' + (isOpen ? '' : '-rotate-90')}
                 />
-                <span className="nav-group-title min-w-0 flex-1 truncate text-[13px] font-medium text-secondary">
+                <span className="nav-group-title min-w-0 flex-1 truncate text-[13px] text-secondary">
                   {wordLabel(group.name)}
                 </span>
                 <span className="text-small text-muted">{group.pages.length}</span>
@@ -267,11 +269,26 @@ function NavPanel({ product, groups, current, onNavigate }: {
   );
 }
 
+/** The shell's bottom status bar: what is open publishes its parts; nothing open shows nothing. */
+export function StatusBar(): ReactElement | null {
+  const { parts } = useContext(statusContext);
+  if (parts === null) return null;
+  return (
+    <footer className="statusbar" role="contentinfo">
+      {parts.map((part, at) => (
+        <span key={at} data-testid={at === 0 ? 'word-count' : undefined}>{part}</span>
+      ))}
+    </footer>
+  );
+}
+
 /**
  * The shell itself. Everything the app shows stands inside it: the navigation
  * panel, the toolbar (the breadcrumb on the left; the menu button, the focus
- * toggle and the context-panel place on the right), the document as `main`,
- * and the closed context panel place.
+ * toggle and the context-panel place on the right), the document toolbar —
+ * the tab strip row carrying the open file's name — the document inside its
+ * own scrolling column (the only scrolling part at any window height), and
+ * the status bar along the window's bottom edge.
  */
 export function Shell({ product, list, children }: { product: Product; list: PageList; children: ReactNode }): ReactElement {
   const route = useContext(routeContext);
@@ -299,7 +316,7 @@ export function Shell({ product, list, children }: { product: Product; list: Pag
   /* The breadcrumb names the reading: the page's kind, then its title — the
    * truth the sidebar and the heading also carry; the home page just says the
    * product. */
-  const crumb = openPage === undefined ? product.name : wordLabel(groupOf(openPage.path)) + ' / ' + openPage.title;
+  const crumb = openPage === undefined ? 'Product overview' : wordLabel(groupOf(openPage.path)) + ' / ' + openPage.title;
   const classes = ['shell'];
   if (menuOpen) classes.push('nav-open');
   if (focused) classes.push('doc-only');
@@ -315,7 +332,7 @@ export function Shell({ product, list, children }: { product: Product; list: Pag
           <NavPanel product={product} groups={groups} current={current} onNavigate={() => setMenuOpen(false)} />
         </aside>
         <div className="shell-main flex min-w-0 flex-1 flex-col">
-          <header className="shell-toolbar flex min-h-[65px] items-center justify-between gap-3 border-b border-line px-4 wide:px-[35px] md:min-h-[58px]">
+          <header className="shell-toolbar flex min-h-[66px] items-center justify-between gap-3 border-b border-line px-4 wide:px-[35px]">
             <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
               {crumb}
             </span>
@@ -367,10 +384,25 @@ export function Shell({ product, list, children }: { product: Product; list: Pag
               </Tooltip>
             </span>
           </header>
-          <div className="shell-row flex min-h-0 flex-1 items-start">
-            <div className="shell-document w-full">{children}</div>
+          {/* The tab strip row under the top bar: the open file's name on its
+           * tab. The mockup's view switch and history button stay out until
+           * they work (madarch-j0a); the row's structure stands now. */}
+          <div className="document-bar flex min-h-[45px] items-stretch bg-ground wide:min-h-[53px]">
+            <div className="document-tab flex items-center gap-2 border-r border-line bg-page px-6 text-[13px] text-secondary" data-testid="document-tab">
+              <FileTextIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
+              <span className="truncate">{openPage?.path ?? 'Product overview'}</span>
+            </div>
+          </div>
+          {/* The window-height shell: every panel and bar stays in place and
+           * the ONLY scrolling lives in the document's own column — the home
+           * page scrolls here too. */}
+          <div className="shell-row flex min-h-0 flex-1 overflow-hidden">
+            <div className="shell-scroll min-w-0 flex-1 overflow-y-auto">
+              <div className="shell-document w-full">{children}</div>
+            </div>
             <aside className="context-panel" aria-label="Page context" hidden></aside>
           </div>
+          <StatusBar />
         </div>
       </div>
     </TooltipProvider>

@@ -203,7 +203,15 @@ export function startServer(options: ServerOptions): StartedServer {
     wiki: productWiki === undefined ? undefined : createWikiPart(makeJson, wikiRefused, productWiki, appFolder),
     appFolder,
   });
-  const server = Bun.serve({ hostname: options.host ?? '127.0.0.1', port: options.port ?? 4180, fetch: handle });
+  const server = Bun.serve({
+    hostname: options.host ?? '127.0.0.1',
+    port: options.port ?? 4180,
+    fetch: handle,
+    // A wiki's change stream goes quiet for minutes; the idle default would
+    // end it. 255 s between incoming frames, plus the stream's own 30 s
+    // comments, keeps one long-lived request alive without polling.
+    idleTimeout: 255,
+  });
   return {
     hostname: server.url.hostname,
     port: server.url.port === '' ? (options.port ?? 4180) : Number(server.url.port),
@@ -255,6 +263,7 @@ function createHandler(dependencies: {
       { method: 'GET', path: '/api/product', handle: () => wiki.product() },
       { method: 'GET', path: '/api/pages', handle: () => wiki.pages() },
       { method: 'GET', path: '/api/page', handle: wiki.page },
+      { method: 'GET', path: '/api/events', handle: wiki.events },
     ] as Route[]) : []),
   ];
 

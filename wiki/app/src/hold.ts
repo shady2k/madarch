@@ -2,7 +2,9 @@
  * The route the reader is on, shared with the Markdown renderer, and the one
  * way to move between pages on the client side: the new address pushed into
  * the history, so the server can answer it again directly on a reload
- * (requirement `app`, the app's routes).
+ * (requirement `app`, the app's routes). The same module holds the status
+ * line: what the shell's bottom bar shows — the open document's facts,
+ * published by whatever the shell holds.
  */
 import { createContext } from 'react';
 import type { Route } from './routes.js';
@@ -11,6 +13,11 @@ import type { Route } from './routes.js';
 export type RouteData = { path?: string; heldPaths: ReadonlySet<string> };
 
 export const routeContext = createContext<RouteData>({ heldPaths: new Set() });
+
+/** The status line the shell's bottom edge shows: what is open publishes, the shell reads. `null` shows nothing. */
+export type StatusPublish = { publish: (parts: readonly string[] | null) => void; parts: readonly string[] | null };
+
+export const statusContext = createContext<StatusPublish>({ publish: (): void => undefined, parts: null });
 
 /** Moves the app to an address without a full page load. */
 export function navigateTo(address: string): void {

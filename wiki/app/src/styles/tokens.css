@@ -39,7 +39,9 @@
   /* 4.3 Colours, light. Every stated text pair measures >= 4.5:1, computed in
      the note's review; the quote border passes the non-text 3:1 bound. */
   --bg-page: #ffffff;
-  --bg-chrome: #fafafa;
+  --bg-chrome: #f3f3f3;
+  /* the base ground the body and the window's bottom bar stand on */
+  --bg-ground: #ffffff;
   --text: #2e3034;
   --text-secondary: #5c5e66;
   --text-muted: #6e7178;
@@ -47,7 +49,8 @@
   --code-bg: #f4f5f6;
   --border: #e4e5e8;
   --quote-border: #8f9199;
-  --link: #2e3034; /* underlined: structure, no accent colour */
+  --link: #2e3034; /* structure, no accent colour; the rule under it is muted */
+  --link-underline: #a1a1a1;
   --selection: rgba(48, 49, 54, 0.18);
   /* the shell's overlay shadow (the mockup's shadow, per the lane review) */
   --nav-shadow: 12px 0 32px rgba(0, 0, 0, 0.18);
@@ -55,20 +58,27 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    /* 4.3 Colours, dark, same names; the dark block changes colours only. */
-    --bg-page: #1e2023;
-    --bg-chrome: #17181b;
-    --text: #e9eaec;
-    --text-secondary: #b0b2b8;
-    --text-muted: #8b8e96;
-    --code-ink: #d7d9de;
-    --code-bg: #26282c;
-    --border: #303338;
-    --quote-border: #6f7178;
-    --link: #e9eaec;
-    --selection: rgba(233, 234, 236, 0.22);
+    /* The mockup's dark, at the values its stylesheet renders
+     * (mockup/dist/style.css, revision 2 dark block; measured on the rendered
+     * mock-1440-dark.png: page #252525, sidebar #1d1d1d, top bars #252525 over
+     * the #202020 ground, lines #3b3b3b). The same names change colour only:
+     * the page ground lighter than the chrome, so the sidebar, the top bars
+     * and the document read apart. */
+    --bg-page: #252525;
+    --bg-chrome: #1d1d1d;
+    --bg-ground: #202020;
+    --text: #e5e5e5;
+    --text-secondary: #b6b6b6;
+    --text-muted: #a0a0a0;
+    --code-ink: #e5e5e5;
+    --code-bg: #303030;
+    --border: #3b3b3b;
+    --quote-border: #656565;
+    --link: #e5e5e5;
+    --link-underline: #888888;
+    --selection: rgba(229, 229, 229, 0.2);
     --nav-shadow: 12px 0 32px rgba(0, 0, 0, 0.32);
-}
+  }
 }
 
 /* The title's width steps (4.2: 36px under 1150px, 32px under 700px) follow the

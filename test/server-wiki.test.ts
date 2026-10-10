@@ -104,6 +104,77 @@ describe('the server\'s product mode', () => {
     expect(body.revision).toBe((await (await fetch(`${url}/api/pages`)).json() as typeof body).revision);
   });
 
+  test('GET /api/events answers a text/event-stream whose `retry` comes first', async () => {
+    draft();
+    builtApp();
+    const url = startProduct();
+    const asking = new AbortController();
+    const response = await fetch(`${url}/api/events`, { signal: asking.signal });
+    expect(response.ok).toBe(true);
+    expect(response.headers.get('content-type')).toContain('text/event-stream');
+    expect(response.headers.get('cache-control')).toContain('no-cache');
+    const reader = response.body!.getReader();
+    const read = async (ms: number): Promise<string> => {
+      const chunks: string[] = [];
+      const decoder = new TextDecoder();
+      const tick = setTimeout(() => {}, ms);
+      try {
+        for (;;) {
+          const next = await reader.read();
+          if (next.done) break;
+          chunks.push(decoder.decode(next.value, { stream: true }));
+          if (chunks.join('').includes('\n\n')) break;
+        }
+      } catch (error) {
+        if ((error as Error).name !== 'AbortError') throw error;
+      } finally {
+        clearTimeout(tick);
+      }
+      return chunks.join('');
+    };
+    const first = await read(2000);
+    expect(first.startsWith('retry: 3000')).toBe(true);
+    asking.abort();
+  });
+
+  test('GET /api/events carries one change event for a saved file, within two seconds, and a burst of saves is one event', async () => {
+    draft();
+    builtApp();
+    const url = startProduct();
+    const asking = new AbortController();
+    const response = await fetch(`${url}/api/events`, { signal: asking.signal });
+    expect(response.headers.get('content-type')).toContain('text/event-stream');
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let held = '';
+    const rest = async (): Promise<void> => {
+      for (;;) {
+        const next = await reader.read();
+        if (next.done) return;
+        held += decoder.decode(next.value, { stream: true });
+        if (held.includes('event: change')) return;
+      }
+    };
+    // A saved file: one event, its data naming the revision, inside two seconds.
+    const writing = join(folder!, 'docs', 'vision.md');
+    writeFileSync(writing, '# Vision\n\nSaved line.\n');
+    let wideEnough = await Promise.race([rest().then(() => true), new Promise<boolean>((done) => setTimeout(() => done(false), 2000))]);
+    expect(wideEnough).toBe(true);
+    const afterOne = held.split('event: change').length - 1;
+    expect(afterOne).toBe(1);
+    expect(held).toContain('data: {');
+    // A burst of saves inside the debounce window is one event: the stream
+    // asks the revision once the tree has settled, not once per write.
+    held = '';
+    writeFileSync(writing, '# Vision\n\nAnother line.\n');
+    writeFileSync(writing, '# Vision\n\nA third line.\n');
+    await Promise.race([new Promise<void>((done) => setTimeout(done, 900))]);
+    const afterBurst = held.split('event: change').length - 1;
+    expect(afterBurst).toBeLessThanOrEqual(1);
+    expect(held).not.toContain('# Vision'); // the event carries no document bytes
+    asking.abort();
+  });
+
   test('GET /api/page gives one page whole; asking twice after a save gives the new bytes', async () => {
     draft();
     builtApp();

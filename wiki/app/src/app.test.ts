@@ -13,7 +13,7 @@ import { afterEach, afterAll, beforeAll, describe, expect, test } from 'bun:test
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import { createRoot, type Root } from 'react-dom/client';
 import { createElement } from 'react';
-import { App, HomePage, PageReader } from './app.js';
+import { App, HomePage, PageReader, EVENTS_PATH } from './app.js';
 import { groupNav } from './shell.js';
 import { addressOfPage } from './routes.js';
 import type { Product, PageList, Page } from './api.js';
@@ -200,14 +200,53 @@ describe('a page', () => {
   });
 });
 
+/**
+ * A served wiki with its own stream: fetch is stubbed for every address,
+ * `/api/events` answers a ReadableStream the test writes into, and every
+ * event frame the test pushes is delivered to the app as it arrives.
+ */
+function installWithStream(answerSupplier: Answer): {
+  calls: string[];
+  set: (next: Answer) => void;
+  push: (frame: string) => void;
+} {
+  const calls: string[] = [];
+  let answer = answerSupplier;
+  let pushInside: ((frame: string) => void) | undefined;
+  const stub = async (input: RequestInfo | URL): Promise<Response> => {
+    const target = input instanceof URL ? input.pathname + input.search : String(input);
+    calls.push(target);
+    if (target === EVENTS_PATH) {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          const encoder = new TextEncoder();
+          controller.enqueue(encoder.encode('retry: 3000\n\n'));
+          pushInside = (frame: string): void => controller.enqueue(encoder.encode(frame));
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream; charset=utf-8' },
+      });
+    }
+    const blade = answer(target);
+    if (blade.body === undefined)
+      return new Response(JSON.stringify({ message: 'nothing answers ' + target }), { status: 404 });
+    return new Response(JSON.stringify(blade.body), {
+      status: blade.status ?? 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+  (globalThis as { fetch: typeof fetch }).fetch = stub as unknown as typeof fetch;
+  return { calls, push: (frame) => pushInside?.(frame), set: (next) => { answer = next; } };
+}
+
 describe('live update', () => {
-  test('a changed revision refetches the open page, without a reload', async () => {
-    const api = install(answerFor(product, listWithPages, pagesAtR1));
+  test('a saved file shows within two seconds, without a reload, when the stream carries the change', async () => {
+    const stream = installWithStream(answerFor(product, listWithPages, pagesAtR1));
     goto('/p/docs/vision.md');
-    await intoApp(createElement(App, { tickMs: 10 }));
+    await intoApp(createElement(App, { reconnectMs: 5 }));
     await until(() => document.querySelector('main .reading > h1')?.textContent === 'Vision extra', 'the first read');
-    const revisionBefore = api.calls.filter((call) => call === '/api/pages').length;
-    expect(revisionBefore).toBeGreaterThan(0);
     const changed: PageList = {
       revision: 'r2',
       pages: [
@@ -222,112 +261,148 @@ describe('live update', () => {
         markdown: '# Vision saved\n\nWhat it is for.',
       },
     };
-    api.set(answerFor(product, changed, changedPages));
+    stream.set(answerFor(product, changed, changedPages));
+    const before = Date.now();
+    stream.push('event: change\ndata: {"revision":"r2"}\n\n');
     await until(() => text().includes('What it is for.'), 'the saved text');
-    expect(api.calls.some((call) => call === '/api/page?path=docs%2Fvision.md')).toBe(true);
+    expect(Date.now() - before).toBeLessThanOrEqual(2000);
+    expect(stream.calls.some((call) => call === '/api/page?path=docs%2Fvision.md')).toBe(true);
+    // The update was not a reload: the same document holds the new content.
+    expect(document.querySelector('main .reading > h1')).not.toBeNull();
+    expect(stream.calls.filter((call) => call === EVENTS_PATH).length).toBe(1);
   });
 
-  test('an unchanged revision fetches each page only once per read', async () => {
-    const api = install(answerFor(product, listWithPages, pagesAtR1));
+  test('an idle tab makes no request after the load beyond its one stream', async () => {
+    const stream = installWithStream(answerFor(product, listWithPages, pagesAtR1));
     goto('/p/docs/vision.md');
-    await intoApp(createElement(App, { tickMs: 10 }));
-    await until(() => document.querySelector('main .reading > h1')?.textContent === 'Vision extra', 'the read');
-    let fetchesAgain = 0;
-    for (let attempt = 0; attempt < 200; attempt++) {
-      await new Promise((step) => setTimeout(step, 5));
-      fetchesAgain = Math.max(fetchesAgain, api.calls.filter((call) => call.startsWith('/api/page?')).length);
-    }
-    expect(fetchesAgain).toBe(1);
+    await intoApp(createElement(App, { reconnectMs: 5 }));
+    await until(() => document.querySelector('main .reading > h1')?.textContent === 'Vision extra', 'the load');
+    const byAddress = (call: string): number => stream.calls.filter((named) => named === call).length;
+    // The load of a wiki: the list, the product and the one long-lived stream.
+    expect(byAddress('/api/pages')).toBe(1);
+    expect(byAddress('/api/product')).toBe(1);
+    expect(byAddress(EVENTS_PATH)).toBe(1);
+    // Two idle seconds: nothing goes out at all, no per-second fetch beyond the stream.
+    const before = stream.calls.length;
+    await new Promise((step) => setTimeout(step, 2000));
+    expect(stream.calls.length).toBe(before);
+    expect(byAddress(EVENTS_PATH)).toBe(1);
   });
 
-  test('keeps asking while the tab is hidden, and asks at once when it becomes visible', async () => {
-    const api = install(answerFor(product, listWithPages, pagesAtR1));
+  test('a hidden tab stays live: the stream carries the event, and the list is asked again', async () => {
+    const stream = installWithStream(answerFor(product, listWithPages, pagesAtR1));
     goto('/');
-    await intoApp(createElement(App, { tickMs: 10 }));
+    await intoApp(createElement(App, { reconnectMs: 5 }));
     await until(() => text().includes('Draft Idea'), 'the home page');
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
       get: () => 'hidden',
     });
-    await new Promise((step) => setTimeout(step, 60));
-    const whileHidden = api.calls.filter((call) => call === '/api/pages').length;
-    expect(whileHidden).toBeGreaterThan(1);
-    Object.defineProperty(document, 'visibilityState', {
-      configurable: true,
-      get: () => 'visible',
-    });
-    document.dispatchEvent(new Event('visibilitychange'));
-    await new Promise((step) => setTimeout(step, 5));
-    const afterVisible = api.calls.filter((call) => call === '/api/pages').length;
-    expect(afterVisible).toBeGreaterThan(whileHidden);
+    const whileHidden = stream.calls.filter((call) => call === '/api/pages').length;
+    await new Promise((step) => setTimeout(step, 100));
+    expect(stream.calls.filter((call) => call === '/api/pages').length).toBe(whileHidden);
+    stream.set(answerFor(product, { ...listWithPages, revision: 'r2' }, pagesAtR1));
+    stream.push('event: change\ndata: {"revision":"r2"}\n\n');
+    await until(() => stream.calls.filter((call) => call === '/api/pages').length > whileHidden, 'the event-driven re-ask');
     delete (Object.getOwnPropertyDescriptor(document, 'visibilityState') ?? {}).get as never;
+  });
+
+  test('a dropped stream reconnects, with backoff, and an event on it still updates the page', async () => {
+    let answers = 0;
+    const which = { list: listWithPages, page: pagesAtR1['docs/vision.md']! };
+    let push: ((frame: string) => void) | undefined;
+    (globalThis as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL): Promise<Response> => {
+      const target = input instanceof URL ? input.pathname + input.search : String(input);
+      if (target === EVENTS_PATH) {
+        answers += 1;
+        const held = answers;
+        if (held === 1) {
+          // The first stream asks, answers nothing and drops at once.
+          return new Response(new ReadableStream<Uint8Array>({ start(c) { c.close(); } }), {
+            status: 200,
+            headers: { 'content-type': 'text/event-stream; charset=utf-8' },
+          });
+        }
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            const encoder = new TextEncoder();
+            controller.enqueue(encoder.encode('retry: 3000\n\n'));
+            if (held >= 2) push = (frame: string): void => controller.enqueue(encoder.encode(frame));
+          },
+        });
+        return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8' } });
+      }
+      if (target === '/api/pages') return new Response(JSON.stringify(which.list), { status: 200, headers: { 'content-type': 'application/json' } });
+      if (target === '/api/product') return new Response(JSON.stringify(product), { status: 200, headers: { 'content-type': 'application/json' } });
+      if (target.startsWith('/api/page?path=docs%2Fvision.md')) {
+        return new Response(JSON.stringify(which.page), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ message: 'nothing answers ' + target }), { status: 404 });
+    }) as unknown as typeof fetch;
+    goto('/p/docs/vision.md');
+    await intoApp(createElement(App, { reconnectMs: 5 }));
+    // The first stream drops; the app asks again (its backoff is the test's 5 ms).
+    await until(() => answers >= 2, 'the reconnected stream');
+    await until(() => document.querySelector('main .reading > h1')?.textContent === 'Vision extra', 'the read over the second stream');
+    // A later change event on the healthy stream updates the open page.
+    which.list = {
+      revision: 'r2',
+      pages: [
+        { path: 'README.md', title: 'README', url: '/p/README.md' },
+        { path: 'docs/vision.md', title: 'Vision', url: '/p/docs/vision.md' },
+      ],
+    };
+    which.page = { path: 'docs/vision.md', title: 'Vision', markdown: '# Vision saved\n\nAfter the drop.' };
+    push?.('event: change\ndata: {"revision":"r2"}\n\n');
+    await until(() => text().includes('After the drop.'), 'the page saved after the drop');
+    expect(answers).toBe(2);
   });
 });
 
-describe('the page-list poll', () => {
-  test('keeps one request in flight while an earlier one is pending', async () => {
-    let release: (() => void) | undefined;
-    let asks = 0;
-    let stalled = 0;
-    (globalThis as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL): Promise<Response> => {
-      const target = input instanceof URL ? input.pathname + input.search : String(input);
-      if (target !== '/api/pages') {
-        return new Response(JSON.stringify(product), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        });
-      }
-      asks++;
-      stalled++;
-      if (stalled === 1) await new Promise<void>((rest) => { release = rest; });
-      return new Response(JSON.stringify(listWithPages), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      });
-    }) as unknown as typeof fetch;
-    goto('/');
-    await intoApp(createElement(App, { tickMs: 5 }));
-    await new Promise((step) => setTimeout(step, 40));
-    expect(asks).toBe(1);
-    release?.();
-    await until(() => text().includes('Draft Idea'), 'the first answer');
-  });
 
-  test('a stalled answer shows once it arrives, and the next poll supersedes it', async () => {
-    let servedR9 = false;
-    const superseded = (): boolean => servedR9;
-    let releases: ((value: Response) => void)[] = [];
-    let turn = 0;
+describe('the page list read', () => {
+  test('a newer list a stream event asked for is never overwritten by the older stalled one', async () => {
+    let releaseOld: (() => void) | undefined;
+    let asks = 0;
+    let push: ((frame: string) => void) | undefined;
     (globalThis as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL): Promise<Response> => {
       const target = input instanceof URL ? input.pathname + input.search : String(input);
-      if (target !== '/api/pages') {
-        return new Response(JSON.stringify(product), {
+      if (target === EVENTS_PATH) {
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            const encoder = new TextEncoder();
+            controller.enqueue(encoder.encode('retry: 3000\n\n'));
+            push = (frame: string): void => controller.enqueue(encoder.encode(frame));
+          },
+        });
+        return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8' } });
+      }
+      if (target === '/api/pages') {
+        asks += 1;
+        const held = asks;
+        if (held === 1) {
+          await new Promise<void>((rest) => { releaseOld = rest; });
+          return new Response(JSON.stringify(listWithPages), { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+        return new Response(JSON.stringify({ ...listWithPages, revision: 'r9', pages: [...listWithPages.pages, { path: 'docs/rushed.md', title: 'Rushed', url: '/p/docs/rushed.md' }] }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         });
       }
-      turn++;
-      const which = turn;
-      if (which === 1) {
-        return await new Promise<Response>((rest) => { releases.push(rest); });
-      }
-      servedR9 = true;
-      return new Response(JSON.stringify({ ...listWithPages, revision: 'r9' }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      });
+      return new Response(JSON.stringify(product), { status: 200, headers: { 'content-type': 'application/json' } });
     }) as unknown as typeof fetch;
     goto('/');
-    await intoApp(createElement(App, { tickMs: 5 }));
-    await new Promise((step) => setTimeout(step, 30));
-    expect(text()).not.toContain('Draft Idea');
-    releases[0]?.(new Response(JSON.stringify(listWithPages), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    }));
-    releases = [];
-    await until(() => text().includes('Draft Idea'), 'the stalled answer');
-    await until(() => superseded(), 'the superseding answer');
+    await intoApp(createElement(App, { reconnectMs: 60_000 }));
+    // The first read stalls; the stream's event asks again and the newer answer lands.
+    await new Promise((step) => setTimeout(step, 20));
+    expect(asks).toBe(1);
+    push?.('event: change\ndata: {"revision":"r9"}\n\n');
+    await until(() => text().includes('Rushed'), 'the newer list');
+    // The older answer arriving late never wins against the newer one.
+    releaseOld?.();
+    await new Promise((step) => setTimeout(step, 20));
+    expect(text()).toContain('Rushed');
+    expect(asks).toBe(2);
   });
 
   test('aborts the request still in flight when the app is unmounted', async () => {
@@ -341,7 +416,7 @@ describe('the page-list poll', () => {
       });
     }) as unknown as typeof fetch;
     goto('/');
-    await intoApp(createElement(App, { tickMs: 5 }));
+    await intoApp(createElement(App, { reconnectMs: 60_000 }));
     await new Promise((step) => setTimeout(step, 20));
     expect(aborted).toBe(false);
     unmount();
@@ -350,34 +425,45 @@ describe('the page-list poll', () => {
   });
 });
 
-
-describe('a poll that never settles', () => {
-  test('stops polling only for the stalled request and asks again afterwards (finding 4)', async () => {
+describe('a load that never settles', () => {
+  test('the timeout shows the failure, and the stream\'s next event asks again and succeeds (finding 4)', async () => {
     let asks = 0;
+    let push: ((frame: string) => void) | undefined;
     (globalThis as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const target = input instanceof URL ? input.pathname + input.search : String(input);
+      if (target === EVENTS_PATH) {
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            const encoder = new TextEncoder();
+            controller.enqueue(encoder.encode('retry: 3000\n\n'));
+            push = (frame: string): void => controller.enqueue(encoder.encode(frame));
+          },
+        });
+        return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8' } });
+      }
       if (target === '/api/pages') {
-        asks++;
+        asks += 1;
         if (asks === 1) {
           return await new Promise<Response>((_rest, reject) => {
-            // A real stalled request dies when it is aborted: the stub dies with it.
             init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
           });
         }
         return new Response(JSON.stringify(listWithPages), { status: 200, headers: { 'content-type': 'application/json' } });
       }
-      if (target === '/api/product') {
-        return new Response(JSON.stringify(product), { status: 200, headers: { 'content-type': 'application/json' } });
-      }
-      return new Response(JSON.stringify({ message: 'nothing answers ' + target }), { status: 404 });
+      return new Response(JSON.stringify(product), { status: 200, headers: { 'content-type': 'application/json' } });
     }) as unknown as typeof fetch;
     goto('/');
-    await intoApp(createElement(App, { tickMs: 5, pollTimeoutMs: 20 }));
-    await until(() => asks >= 2, 'the next poll after the stalled one expired');
+    await intoApp(createElement(App, { reconnectMs: 60_000, pollTimeoutMs: 20 }));
+    await until(() => document.querySelector('p.error') !== null, 'the shown timeout');
+    // The stream is still open; its next change event asks again, and the answer clears the error.
+    push?.('event: change\ndata: {"revision":"r1"}\n\n');
     await until(() => text().includes('Draft Idea'), 'the answered home page');
-    expect(text()).not.toContain('the poll of /api/pages timed out');
+    expect(text()).not.toContain('timed out');
   });
 });
+
+
+
 
 describe('a poll that times out', () => {
   test('names the product request when the product fetch is what timed out (finding 2.11)', async () => {
@@ -394,7 +480,7 @@ describe('a poll that times out', () => {
       return new Response(JSON.stringify({ message: 'nothing answers ' + target }), { status: 404 });
     }) as unknown as typeof fetch;
     goto('/');
-    await intoApp(createElement(App, { tickMs: 60_000, pollTimeoutMs: 20 }));
+    await intoApp(createElement(App, { pollTimeoutMs: 20, reconnectMs: 60_000 }));
     await until(() => document.querySelector('p.error') !== null, 'the shown timeout');
     const shown = document.querySelector('p.error')?.textContent ?? '';
     expect(shown).toContain('/api/product');
@@ -420,7 +506,7 @@ describe('a poll that times out', () => {
       return new Response(JSON.stringify({ message: 'nothing answers ' + target }), { status: 404 });
     }) as unknown as typeof fetch;
     goto('/');
-    await intoApp(createElement(App, { tickMs: 60_000, pollTimeoutMs: 20 }));
+    await intoApp(createElement(App, { pollTimeoutMs: 20, reconnectMs: 60_000 }));
     await until(() => document.querySelector('p.error') !== null, 'the shown timeout');
     const shown = document.querySelector('p.error')?.textContent ?? '';
     expect(shown).toContain('timed out');
@@ -442,7 +528,7 @@ describe('a poll that times out', () => {
       return new Response(JSON.stringify({ message: 'nothing answers ' + target }), { status: 404 });
     }) as unknown as typeof fetch;
     goto('/');
-    await intoApp(createElement(App, { tickMs: 60_000, pollTimeoutMs: 20 }));
+    await intoApp(createElement(App, { pollTimeoutMs: 20, reconnectMs: 60_000 }));
     await until(() => document.querySelector('p.error') !== null, 'the shown timeout');
     const shown = document.querySelector('p.error')?.textContent ?? '';
     expect(shown).toContain('page list');
@@ -456,6 +542,13 @@ describe('a failed page read that is retried', () => {
     let tries = 0;
     (globalThis as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL): Promise<Response> => {
       const target = input instanceof URL ? input.pathname + input.search : String(input);
+      if (target === EVENTS_PATH) {
+        // A stream that connects and stays quiet: this test is about the page read.
+        return new Response(new ReadableStream<Uint8Array>({ start(c) { c.close(); } }), {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream; charset=utf-8' },
+        });
+      }
       if (target === '/api/pages') {
         return new Response(JSON.stringify(listWithPages), {
           status: 200,
@@ -476,7 +569,7 @@ describe('a failed page read that is retried', () => {
       });
     }) as unknown as typeof fetch;
     goto('/p/docs/vision.md');
-    await intoApp(createElement(App, { tickMs: 10, pageRetryMs: 5 }));
+    await intoApp(createElement(App, { pageRetryMs: 5 }));
     await until(() => text().includes('Could not read the page docs/vision.md'), 'the shown failure');
     await until(() => document.querySelector('main .reading > h1')?.textContent === 'Vision extra', 'the recovered page');
     expect(tries).toBe(3);
@@ -487,6 +580,13 @@ describe('a failed page read that is retried', () => {
     const pageCalls: string[] = [];
     (globalThis as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL): Promise<Response> => {
       const target = input instanceof URL ? input.pathname + input.search : String(input);
+      if (target === EVENTS_PATH) {
+        // A stream that connects and stays quiet: this test is about the page read.
+        return new Response(new ReadableStream<Uint8Array>({ start(c) { c.close(); } }), {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream; charset=utf-8' },
+        });
+      }
       if (target === '/api/pages') {
         return new Response(JSON.stringify(listWithPages), {
           status: 200,
@@ -503,7 +603,7 @@ describe('a failed page read that is retried', () => {
       return new Response(JSON.stringify({ message: 'the wiki does not hold it' }), { status: 500 });
     }) as unknown as typeof fetch;
     goto('/p/docs/vision.md');
-    await intoApp(createElement(App, { tickMs: 10, pageRetryMs: 5 }));
+    await intoApp(createElement(App, { pageRetryMs: 5, reconnectMs: 60_000 }));
     const tries = (): number => pageCalls.filter((call) => call === '/api/page?path=docs%2Fvision.md').length;
     await until(() => tries() === pageTriesLimit, 'the bounded tries');
     await new Promise((step) => setTimeout(step, 40));
@@ -515,7 +615,7 @@ describe('a request that fails', () => {
   test('is shown to the reader as a short message naming what was asked for', async () => {
     install(answerFor(product, listWithPages, {}));
     goto('/p/docs/missing.md');
-    await intoApp(createElement(App, { tickMs: 10 }));
+    await intoApp(createElement(App, { reconnectMs: 60_000 }));
     await until(() => text().includes('Could not read the page docs/missing.md'), 'the failed page read');
     expect(text()).toContain('the wiki does not hold docs/missing.md');
   });
@@ -541,7 +641,7 @@ describe('a page linking by the wiki\'s own address', () => {
     };
     install(answerFor(product, pagesList, { ...withAddress, 'docs/a b.md': held['docs/a b.md']! }));
     goto('/p/docs/vision.md');
-    await intoApp(createElement(App, { tickMs: 10 }));
+    await intoApp(createElement(App, { reconnectMs: 60_000 }));
     await until(() => document.querySelector('a[href="/p/docs/notes.md"]') !== null, 'the address link');
     expect(html()).not.toContain('plain-link');
     const spaced = document.querySelector('a[href="/p/docs/a%20b.md"]');
@@ -594,12 +694,13 @@ describe('the reading shell', () => {
     expect(otherGroup).toEqual(['AGENTS', 'Boards']);
   });
 
-  test('the nav names the product at its top', async () => {
+  test('the brand reads madarch, and the product block below it names the product', async () => {
     install(answerFor(product, shellList, shellPages));
     goto('/');
     await intoApp(createElement(App));
     await until(() => document.querySelector('.app-nav .nav-brand') !== null, 'the brand');
-    expect(document.querySelector('.app-nav .nav-brand')?.textContent).toContain('Draft Idea');
+    expect(document.querySelector('.app-nav .nav-brand')?.textContent).toContain('madarch');
+    expect(document.querySelector('[data-testid="product-block"]')?.textContent).toContain('Draft Idea');
   });
 
   test('the open page is the one marked: aria-current and a non-color mark on its link alone', async () => {
