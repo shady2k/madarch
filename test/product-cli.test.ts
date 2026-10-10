@@ -18,6 +18,7 @@ import { readProduct } from '../src/product/manifest.js';
 import { createDraft } from '../src/product/draft.js';
 import { gitEnv } from './git-env.js';
 import { GIT_IDENTITY, GIT_ENV } from './model-check-repo.js';
+import { homeOfCommand, noStrayDrafts } from './scratch-home.js';
 
 const CLI = fileURLToPath(new URL('../scripts/madarch.ts', import.meta.url));
 
@@ -77,6 +78,8 @@ function scratchFolder(prefix = 'madarch-cli-'): string {
 const removeMadeFolders = (): void => {
   for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
   for (const proc of runningChildren.splice(0)) try { proc.kill(); } catch { /* already gone */ }
+  const strays = noStrayDrafts();
+  if (strays.length) throw new Error(`the tests left stray drafts in the real products home: ${strays.join(', ')} (removed)`);
 };
 
 afterEach(removeMadeFolders);
@@ -85,7 +88,11 @@ process.on('exit', removeMadeFolders);
 
 /** Runs a command that ends by itself, the way a person does. */
 function runCommand(args: string[], overrides: Record<string, string> = {}): { status: number | null; stdout: string; stderr: string } {
-  const run = spawnSync('bun', [CLI, ...args], { encoding: 'utf8', env: { ...process.env, ...SEALED_GIT, ...SEALED_CLOCK, ...overrides } });
+  const env = { ...process.env, ...SEALED_GIT, ...SEALED_CLOCK, ...overrides };
+  // A creator must aim at a scratch home before anything is spawned: the
+  // arguments, then MADARCH_HOME — the resolved home is refused otherwise.
+  if (args[0] === 'new' || args[0] === 'list') homeOfCommand(args, env);
+  const run = spawnSync('bun', [CLI, ...args], { encoding: 'utf8', env });
   return { status: run.status, stdout: run.stdout ?? '', stderr: run.stderr ?? '' };
 }
 
@@ -101,10 +108,12 @@ interface LiveNew {
   finish(): Promise<{ stdout: string }>;
 }
 function serveNew(args: string[], overrides: Record<string, string> = {}, program: readonly string[] = ['bun', CLI]): LiveNew {
+  const env = { ...process.env, ...SEALED_GIT, ...SEALED_CLOCK, ...overrides };
+  if (args[0] === 'new') homeOfCommand(args, env);
   const proc = Bun.spawn([...program, ...args], {
     stdin: 'pipe', stdout: 'pipe', stderr: 'pipe',
-    env: { ...process.env, ...SEALED_GIT, ...SEALED_CLOCK, ...overrides },
-  });
+    env,
+  },);
   runningChildren.push(proc);
   let stdoutText = '';
   const whenStdout = (async () => {

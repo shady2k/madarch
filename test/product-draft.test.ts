@@ -21,6 +21,7 @@ const shQuote = (word: string): string => "'" + word.split("'").join("'\\''") + 
 import { readProduct } from '../src/product/manifest.js';
 import { gitEnv } from './git-env.js';
 import { GIT_IDENTITY, GIT_ENV } from './model-check-repo.js';
+import { refuseNonScratchHome, noStrayDrafts } from './scratch-home.js';
 
 /**
  * The draft product repository (docs/changes/draft-product/capabilities/
@@ -46,6 +47,8 @@ function tempFolder(prefix: string): string {
 
 const removeMadeFolders = (): void => {
   for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
+  const strays = noStrayDrafts();
+  if (strays.length) throw new Error(`the tests left stray drafts in the real products home: ${strays.join(', ')} (removed)`);
 };
 
 afterEach(removeMadeFolders);
@@ -60,7 +63,7 @@ const git = (args: string[], cwd: string): { ok: boolean; stdout: string; stderr
 };
 
 /** Creates a draft on the capability's example day, with git sealed to a fixed identity. */
-const draftIn = (home: string) => createDraft({ home, today: EXAMPLE_DAY, gitEnv: gitEnv(GIT_ENV) });
+const draftIn = (home: string) => createDraft({ home: refuseNonScratchHome(home, 'draftIn'), today: EXAMPLE_DAY, gitEnv: gitEnv(GIT_ENV) });
 
 /** The files git tracks at the draft's HEAD, in code-point order. */
 const tracked = (folder: string): string[] =>
