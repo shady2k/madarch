@@ -11,9 +11,11 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
 
 - Checks: `bun run check`, `bun test`; `MADARCH_SKIP_PERF=1 bun test` skips the
   performance tests (about 6 s instead of minutes). The `madarch` command
-  (`bun link` in a checkout, or `bun scripts/madarch.ts new|serve …`) creates
-  a draft product repository and serves its wiki; the products home is
-  `~/madarch/products`, moved by `MADARCH_HOME` (or `--home` for one command).
+  (`bun link` in a checkout, or `bun scripts/madarch.ts new|serve|list …`)
+  creates a draft product repository through the skill set's pinned
+  product-repository program, serves its wiki, and lists the products of the
+  products home; the home is `~/madarch/products`, moved by `MADARCH_HOME`
+  (or `--home` for one command).
   The wiki app's own checks run inside `wiki/app`:
   `bun install --frozen-lockfile && bun run check && bun test && bun run build`.
   Mutation testing is StrykerJS 9

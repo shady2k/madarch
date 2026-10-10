@@ -53,10 +53,17 @@ for. The one repository it reads at all is the product folder it is given,
 read-only, as the wiki's working tree.
 
 **Product repository** (`src/product/`, `scripts/madarch.ts`): one product's
-knowledge as Markdown and YAML in a git repository of its own. `madarch new`
-creates a draft under the products home (`~/madarch/products`, moved by
-`MADARCH_HOME` or `--home`); the product's identity — its id and name — is
-read from its manifest, `workspace.yaml` (`src/product/manifest.ts`).
+knowledge as Markdown and YAML in a git repository of its own. The
+repository's lifecycle is the skill set's product-repository program
+(decision 0019): its creation is the release pinned in
+`vendor/shady2k-skills/`, which `src/product/program.ts` names once;
+`madarch new` is the thin wrapper that resolves the products home
+(`~/madarch/products`, moved by `MADARCH_HOME` or `--home`) and hands the
+work to it, and `madarch list` names the products that home holds. The
+product's identity — its id and name — is read from its manifest,
+`workspace.yaml`, by the pinned release's reader behind
+`src/product/manifest.ts`; the consumer tests hold that reader to the set's
+own manifest cases and example folder.
 
 **Served wiki** (`src/product-wiki/`, `wiki/app/`): a product's pages, read
 fresh from the working tree at every ask (`src/product-wiki/pages.ts`) — every

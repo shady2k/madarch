@@ -243,7 +243,8 @@ moved by `MADARCH_HOME` or `--home`.
 
 **Manifest**:
 The `workspace.yaml` of a product repository, carrying its `schemaVersion`,
-`id` and `name`; how madarch recognises a product and reads its identity.
+`id` and `name`, the skill set it pins and the code repositories it spans;
+how madarch recognises a product and reads its identity.
 
 **Wiki app**:
 Madarch's own React app built by Vite from `wiki/app/`, served by the local
