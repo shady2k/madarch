@@ -37,6 +37,43 @@ a product with no pages shall say that it has none yet.
 - When: its index page is read
 - Then: the link to `vision.md` opens the vision page, and the link to `AGENTS.md` is not a page of the wiki
 
+## Requirement: shell — The reading shell holds the navigation, the document and the panel place
+When a product's wiki is served, its pages shall be shown in a reading shell: a left navigation holding the product's name and its documents grouped by kind — the kind a page's path names, pages outside a kind by themselves — with the current page marked visually and by its accessibility attributes, and every page of the wiki one click away from it; the document in the centre as the main element; and a place for a right context panel, closed by default and empty until content fills it. A focus mode shall hide both panels and bring them back, and on a narrow screen the navigation shall open from a menu without narrowing the document's column.
+
+### Scenario: navigation-groups-and-marks
+- Given: a served product whose `docs/` holds a vision, a requirement, a decision and a research note, opened at one of them
+- When: its page is read in a browser
+- Then: the left navigation lists all of them grouped by kind, the current page is marked visually and carries `aria-current`, and each other page opens with one click
+
+### Scenario: focus-mode-hides-and-returns
+- Given: a served product's page open
+- When: focus mode is turned on and then off
+- Then: with it on the navigation and the panel place are hidden and only the document shows; with it off both panels are back
+
+### Scenario: phone-menu
+- Given: the wiki open at 390 px
+- When: the shell is read and the menu is opened
+- Then: the navigation opens from a menu, and the document column keeps its measure without narrowing
+
+## Requirement: reading-typography — Pages read on the shared design tokens
+The app's styles shall take their values from one tokens module the editor of madarch-j0a reuses: font families, a type scale, spacing, colours, a light theme and a dark theme that follows the system setting. It shall ship the fonts it names — Inter for text and a monospace face — under the SIL Open Font Licence with Cyrillic, licences recorded beside the files, with a fallback stack for macOS, Linux and Windows. A page's text column shall measure 60 to 75 characters of body text with a body line height of 1.4 to 1.6, its heading scale shall keep a steady vertical rhythm, its quotes, code blocks, lists and tables shall read comfortably, and no element shall overflow the column at 1150 px or 390 px width.
+
+### Scenario: column-and-leading
+- Given: a fixture product whose page holds paragraphs, headings of every level, a list, a quote, a code block, a table and a long line
+- When: its page is read at 1150 px and then at 390 px
+- Then: at 1150 px the text column measures 60 to 75 characters with a body line height of 1.4 to 1.6; at both widths no element overflows the column, and at 390 px the column keeps its font size on the full available width, its characters-per-line recorded at the walk and not held to the desktop range (a phone column inside 60 to 75 characters would need the body size the owner rejected)
+
+### Scenario: dark-follows-system
+- Given: the system set to dark mode
+- When: a page of the wiki is opened
+- Then: the page shows the dark theme without a switch inside the app
+
+### Scenario: shipped-fonts-render
+- Given: a page of the wiki on Linux, where no system font matches Inter
+- When: the page's rendered text is inspected
+- Then: the page's text renders in the shipped Inter and its code in the shipped monospace face, not in a fallback the system chose
+
+
 ## Requirement: live — A page follows its file as it is saved
 When a page is asked for, its text shall be read from the product's working
 tree then, never from a copy kept from an earlier read. When a file of the
