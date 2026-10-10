@@ -14,6 +14,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import { createRoot, type Root } from 'react-dom/client';
 import { createElement } from 'react';
 import { App, HomePage, PageReader } from './app.js';
+import { groupNav } from './shell.js';
 import { addressOfPage } from './routes.js';
 import type { Product, PageList, Page } from './api.js';
 
@@ -145,17 +146,28 @@ describe('the home page', () => {
 });
 
 describe('a page', () => {
-  test('is shown at /p/ plus its path, with its title as a heading and its Markdown as formatted text', async () => {
+  test('is shown at /p/ plus its path, with the document first-level heading as the one heading, and its Markdown as formatted text', async () => {
     install(answerFor(product, listWithPages, pagesAtR1));
     goto('/p/docs/vision.md');
     await intoApp(createElement(App));
-    await until(() => document.querySelector('main#page h1')?.textContent === 'Vision', 'the page heading');
-    // The page's title is a heading as the server names it; a level-one heading
-    // in the Markdown becomes a real heading of its own, not raw text.
-    expect(document.querySelectorAll('main#page h1').length).toBe(2);
-    const headings = [...document.querySelectorAll('main#page h1')].map((node) => node.textContent);
-    expect(headings).toContain('Vision extra');
+    await until(() => document.querySelector('main .reading > h1')?.textContent === 'Vision extra', 'the document heading');
+    // Exactly one h1 node per page: the document's own heading is the page's
+    // title and the app's fallback heading above it is never rendered at all
+    // (the checkpoint's doubled-title defect, decided on the renderer output).
+    await until(() => document.querySelector('main > h1.app-title') === null, 'the fallback title leaves');
+    expect(document.querySelectorAll('main .reading h1').length).toBe(1);
     expect(html()).toContain('It holds');
+    // The nav and the breadcrumb still name the page by its meta title.
+    expect(document.querySelector('.nav-current')?.textContent).toContain('Vision');
+  });
+
+  test('a page without a first-level heading still shows its title as the heading, once', async () => {
+    install(answerFor(product, listWithPages, { 'docs/notes.md': { path: 'docs/notes.md', title: 'notes', markdown: 'Plain body, no heading.\n' } }));
+    goto('/p/docs/notes.md');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('main#page h1')?.textContent === 'notes', 'the title heading');
+    expect(document.querySelectorAll('main#page h1').length).toBe(1);
+    expect(html()).toContain('Plain body');
   });
 
   test('shows a link to a page the wiki holds as a link that opens it without a reload', async () => {
@@ -193,7 +205,7 @@ describe('live update', () => {
     const api = install(answerFor(product, listWithPages, pagesAtR1));
     goto('/p/docs/vision.md');
     await intoApp(createElement(App, { tickMs: 10 }));
-    await until(() => document.querySelector('main#page h1')?.textContent === 'Vision', 'the first read');
+    await until(() => document.querySelector('main .reading > h1')?.textContent === 'Vision extra', 'the first read');
     const revisionBefore = api.calls.filter((call) => call === '/api/pages').length;
     expect(revisionBefore).toBeGreaterThan(0);
     const changed: PageList = {
@@ -219,7 +231,7 @@ describe('live update', () => {
     const api = install(answerFor(product, listWithPages, pagesAtR1));
     goto('/p/docs/vision.md');
     await intoApp(createElement(App, { tickMs: 10 }));
-    await until(() => document.querySelector('main#page h1')?.textContent === 'Vision', 'the read');
+    await until(() => document.querySelector('main .reading > h1')?.textContent === 'Vision extra', 'the read');
     let fetchesAgain = 0;
     for (let attempt = 0; attempt < 200; attempt++) {
       await new Promise((step) => setTimeout(step, 5));
@@ -466,7 +478,7 @@ describe('a failed page read that is retried', () => {
     goto('/p/docs/vision.md');
     await intoApp(createElement(App, { tickMs: 10, pageRetryMs: 5 }));
     await until(() => text().includes('Could not read the page docs/vision.md'), 'the shown failure');
-    await until(() => document.querySelector('main#page h1')?.textContent === 'Vision', 'the recovered page');
+    await until(() => document.querySelector('main .reading > h1')?.textContent === 'Vision extra', 'the recovered page');
     expect(tries).toBe(3);
   });
 
@@ -545,3 +557,257 @@ describe('addresses', () => {
     expect(addressOfPage('docs/a b.md')).toBe('/p/docs/a%20b.md');
   });
 });
+
+describe('the reading shell', () => {
+  const shellList: PageList = {
+    revision: 'r1',
+    pages: [
+      { path: 'README.md', title: 'README', url: '/p/README.md' },
+      { path: 'docs/vision.md', title: 'Vision', url: '/p/docs/vision.md' },
+      { path: 'docs/requirements/one.md', title: 'First requirement', url: '/p/docs/requirements/one.md' },
+      { path: 'docs/decisions/0001-choice.md', title: 'Decision one', url: '/p/docs/decisions/0001-choice.md' },
+      { path: 'docs/research/notes.md', title: 'Research notes', url: '/p/docs/research/notes.md' },
+      { path: 'AGENTS.md', title: 'AGENTS', url: '/p/AGENTS.md' },
+      { path: 'prototypes/boards.md', title: 'Boards', url: '/p/prototypes/boards.md' },
+    ],
+  };
+  const shellPages: Record<string, Page> = {};
+  for (const meta of shellList.pages)
+    shellPages[meta.path] = { path: meta.path, title: meta.title, markdown: '# ' + meta.title };
+
+  test('the nav groups the pages by kind, in kind order, each group by path in code point order', async () => {
+    install(answerFor(product, shellList, shellPages));
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('.app-nav nav') !== null, 'the navigation');
+    const titles = [...document.querySelectorAll('.nav-group-title')].map((node) => node.textContent);
+    expect(titles).toEqual(['Product', 'Requirements', 'Decisions', 'Research', 'Other']);
+    const productGroup = [...document.querySelectorAll('[data-nav-group="product"] .nav-link')].map(
+      (node) => node.textContent,
+    );
+    expect(productGroup).toEqual(['README', 'Vision']);
+    // Only docs/<folder>/<file>.md names a group of its own; prototypes/boards.md
+    // is any other path, so the "other" group takes it, in path order.
+    const otherGroup = [...document.querySelectorAll('[data-nav-group="other"] .nav-link')].map(
+      (node) => node.textContent,
+    );
+    expect(otherGroup).toEqual(['AGENTS', 'Boards']);
+  });
+
+  test('the nav names the product at its top', async () => {
+    install(answerFor(product, shellList, shellPages));
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('.app-nav .nav-brand') !== null, 'the brand');
+    expect(document.querySelector('.app-nav .nav-brand')?.textContent).toContain('Draft Idea');
+  });
+
+  test('the open page is the one marked: aria-current and a non-color mark on its link alone', async () => {
+    install(answerFor(product, shellList, shellPages));
+    goto('/p/docs/vision.md');
+    await intoApp(createElement(App));
+    await until(
+      () => document.querySelector('a[href="/p/docs/vision.md"][aria-current="page"]') !== null,
+      'the current mark',
+    );
+    const current = document.querySelectorAll('a[aria-current="page"]');
+    expect(current.length).toBe(1);
+    expect(current[0]?.getAttribute('href')).toBe('/p/docs/vision.md');
+    expect(current[0]?.className).toContain('nav-current');
+    expect(document.querySelector('a[href="/p/docs/research/notes.md"]')?.getAttribute('aria-current')).toBeNull();
+  });
+
+  test('any page is one click away from the panel', async () => {
+    install(answerFor(product, shellList, shellPages));
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('.app-nav a[href="/p/docs/research/notes.md"]') !== null, 'the nav link');
+    (document.querySelector('.app-nav a[href="/p/docs/research/notes.md"]') as HTMLAnchorElement).click();
+    await until(() => document.querySelector('main#page h1')?.textContent === 'Research notes', 'the opened page');
+  });
+
+  test('the context panel place exists: empty, closed, named', async () => {
+    install(answerFor(product, shellList, shellPages));
+    goto('/p/docs/vision.md');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('main#page') !== null, 'the page');
+    const place = document.querySelector('aside[class~="context-panel"]');
+    expect(place).not.toBeNull();
+    expect(place?.hasAttribute('hidden')).toBe(true);
+    expect(place?.textContent).toBe('');
+    expect(place?.getAttribute('aria-label')).toBe('Page context');
+  });
+
+  test('the menu button opens the navigation and closes it again', async () => {
+    install(answerFor(product, shellList, shellPages));
+    goto('/p/docs/vision.md');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('.shell-menu') !== null, 'the menu button');
+    const button = document.querySelector('.shell-menu') as HTMLButtonElement;
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    button.click();
+    await until(() => document.querySelector('.shell.nav-open') !== null, 'the opened menu');
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    button.click();
+    await until(() => document.querySelector('.shell.nav-open') === null, 'the closed menu');
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  test('choosing a page from the opened menu closes it', async () => {
+    install(answerFor(product, shellList, shellPages));
+    goto('/p/docs/vision.md');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('.shell-menu') !== null, 'the menu button');
+    (document.querySelector('.shell-menu') as HTMLButtonElement).click();
+    await until(() => document.querySelector('.shell.nav-open') !== null, 'the opened menu');
+    (document.querySelector('a[href="/p/docs/research/notes.md"]') as HTMLAnchorElement).click();
+    await until(() => document.querySelector('.shell.nav-open') === null, 'the closed menu');
+    await until(() => document.querySelector('main#page h1')?.textContent === 'Research notes', 'the opened page');
+  });
+});
+
+describe('groupNav', () => {
+  test('fixed kinds first, then the remaining group names in code point order, pages within a group by path', () => {
+    const grouped = groupNav([
+      { path: 'prototypes/boards.md', title: 'B', url: '' },
+      { path: 'AGENTS.md', title: 'A', url: '' },
+      { path: 'docs/vision.md', title: 'V', url: '' },
+      { path: 'README.md', title: 'R', url: '' },
+      { path: 'docs/a/one.md', title: '1', url: '' },
+      { path: 'docs/requirements/one.md', title: '2', url: '' },
+      { path: 'docs/decisions/0001.md', title: '3', url: '' },
+      { path: 'docs/research/notes.md', title: '4', url: '' },
+      { path: 'docs/nested/folder/file.md', title: '5', url: '' },
+    ]);
+    expect(grouped.map((group) => group.name)).toEqual([
+      'product', 'requirements', 'decisions', 'research', 'a', 'other',
+    ]);
+    expect(grouped[0]?.pages.map((page) => page.path)).toEqual(['README.md', 'docs/vision.md']);
+    // Only docs/<folder>/<file>.md names its own group: a path outside docs/,
+    // a deeper docs/ path and prototypes/boards.md are any other path.
+    expect(grouped[5]?.pages.map((page) => page.path)).toEqual([
+      'AGENTS.md', 'docs/nested/folder/file.md', 'prototypes/boards.md',
+    ]);
+  });
+
+  test('paths sort by code points, not UTF-16 units: a private-use BMP code point precedes an astral one', () => {
+    // Each path's first folder is one name written as a single escape, so the
+    // group names are the two code points themselves. UTF-16 < would order by
+    // code units and put the astral group (D800...) before the BMP one (E000);
+    // code point order puts U+E000 first.
+    const grouped = groupNav([
+      { path: 'docs/\u{10000}/later.md', title: 'astral', url: '' },
+      { path: 'docs/\uE000/first.md', title: 'private', url: '' },
+    ]);
+    const names = grouped.map((group) => group.name);
+    expect(names[0]).toBe(String.fromCodePoint(0xe000));
+    expect(names[1]).toBe(String.fromCodePoint(0x10000));
+  });
+});
+
+
+ describe('the focus mode', () => {
+  const focusList: PageList = {
+    revision: 'r1',
+    pages: [
+      { path: 'README.md', title: 'Readme', url: '/p/README.md' },
+      { path: 'docs/vision.md', title: 'Vision', url: '/p/docs/vision.md' },
+      { path: 'docs/research/notes.md', title: 'Research notes', url: '/p/docs/research/notes.md' },
+    ],
+  };
+  const focusPages: Record<string, Page> = {};
+  for (const meta of focusList.pages)
+    focusPages[meta.path] = { path: meta.path, title: meta.title, markdown: '# ' + meta.title };
+
+  test('a toolbar control hides both panel places, says it with aria-pressed, and is a reachable button', async () => {
+    install(answerFor(product, focusList, focusPages));
+    goto('/p/docs/vision.md');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('.shell-focus') !== null, 'the focus control');
+    const control = document.querySelector('.shell-focus') as HTMLButtonElement;
+    expect(control instanceof HTMLButtonElement).toBe(true);
+    expect(control.getAttribute('aria-pressed')).toBe('false');
+    expect(() => control.focus()).not.toThrow();
+    expect(document.activeElement).toBe(control);
+    control.click();
+    await until(() => document.querySelector('.shell.doc-only') !== null, 'the focused shell');
+    expect(control.getAttribute('aria-pressed')).toBe('true');
+    // The hide is in the DOM, not only in the stylesheet: the navigation loses
+    // its visibility attribute and the shell names the doc-only state.
+    expect(document.querySelector('#app-nav')?.hasAttribute('hidden')).toBe(true);
+    expect(document.querySelector('.context-panel')?.hasAttribute('hidden')).toBe(true);
+    expect(document.querySelector('main')).not.toBeNull();
+  });
+
+  test('the same control brings the panels back and says so', async () => {
+    install(answerFor(product, focusList, focusPages));
+    goto('/p/docs/vision.md');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('.shell-focus') !== null, 'the focus control');
+    (document.querySelector('.shell-focus') as HTMLButtonElement).click();
+    await until(() => document.querySelector('.shell.doc-only') !== null, 'the focused shell');
+    (document.querySelector('.shell-focus') as HTMLButtonElement).click();
+    await until(() => document.querySelector('.shell.doc-only') === null, 'the unfocused shell');
+    expect(document.querySelector('.shell-focus')?.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  test('the choice stays for the open page only: opening another page clears it', async () => {
+    install(answerFor(product, focusList, focusPages));
+    goto('/p/docs/vision.md');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('.shell-focus') !== null, 'the focus control');
+    (document.querySelector('.shell-focus') as HTMLButtonElement).click();
+    await until(() => document.querySelector('.shell.doc-only') !== null, 'the focused shell');
+    (
+      document.querySelector('#app-nav a[href="/p/README.md"]') as HTMLAnchorElement
+    ).click();
+    await until(() => document.querySelector('main h1')?.textContent === 'Readme', 'the opened page');
+    await until(() => document.querySelector('.shell.doc-only') === null, 'the cleared focus');
+    expect(document.querySelector('.shell-focus')?.getAttribute('aria-pressed')).toBe('false');
+  });
+ });
+
+
+
+
+ describe('the phone shell', () => {
+  const phoneList: PageList = {
+    revision: 'r1',
+    pages: [
+      { path: 'README.md', title: 'Readme', url: '/p/README.md' },
+      { path: 'docs/vision.md', title: 'Vision', url: '/p/docs/vision.md' },
+      { path: 'docs/decisions/0001-choice.md', title: 'Decision one', url: '/p/docs/decisions/0001-choice.md' },
+    ],
+  };
+  const phonePages: Record<string, Page> = {};
+  for (const meta of phoneList.pages)
+    phonePages[meta.path] = { path: meta.path, title: meta.title, markdown: '# ' + meta.title };
+
+  test('the toolbar carries the breadcrumb, the menu and the toggles apart, no crowding', async () => {
+    install(answerFor(product, phoneList, phonePages));
+    goto('/p/docs/decisions/0001-choice.md');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('.shell-breadcrumb') !== null, 'the breadcrumb');
+    expect(document.querySelector('.shell-breadcrumb')?.textContent).toBe('Decisions / Decision one');
+    expect(document.querySelector('.shell-menu')).not.toBeNull();
+    expect(document.querySelector('.shell-focus')).not.toBeNull();
+    expect(document.querySelector('.shell-menu')?.getAttribute('aria-label')).toBe('Document navigation');
+    expect(document.querySelector('.shell-focus')?.getAttribute('aria-label')).toBe('Focus mode');
+    expect(document.querySelector('button[aria-label="Page context"]')).not.toBeNull();
+  });
+
+  test('escape closes the opened menu and focus returns to the menu button', async () => {
+    install(answerFor(product, phoneList, phonePages));
+    goto('/p/docs/vision.md');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('.shell-menu') !== null, 'the menu button');
+    const button = document.querySelector('.shell-menu') as HTMLButtonElement;
+    button.click();
+    await until(() => document.querySelector('.shell.nav-open') !== null, 'the opened menu');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await until(() => document.querySelector('.shell.nav-open') === null, 'the closed menu');
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(button);
+  });
+ });
+

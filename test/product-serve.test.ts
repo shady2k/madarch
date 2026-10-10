@@ -1,3 +1,4 @@
+import { basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, cpSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -309,8 +310,8 @@ describe('madarch serve: an existing product served', () => {
     const serve = serveLive(['serve', '--product', folder, '--port', '0', '--no-open'],
       { MADARCH_HOME: base, MADARCH_APP: built, MADARCH_APP_BUILD: builder.command, MADARCH_BROWSER: opener });
     const address = await whenServing(serve, '/api/product');
-    const body = (await (await fetch(`${address}/api/product`)).json()) as { id: string; name: string };
-    expect(body).toEqual({ id: 'demo-id', name: 'named' });
+    const body = (await (await fetch(`${address}/api/product`)).json()) as { id: string; name: string; folder: string };
+    expect(body).toEqual({ id: 'demo-id', name: 'named', folder: basename(folder) });
     const vision = (await (await fetch(`${address}/api/page?path=docs/vision.md`)).json()) as { title: string; markdown: string };
     expect(vision.title).toBe('Vision');
     expect(vision.markdown).toBe('# Vision\n\nWhat it is for.\n');

@@ -1,0 +1,368 @@
+/**
+ * The wiki app's entry stylesheet: Tailwind v4, CSS-first; every value comes
+ * from the design tokens (styles/tokens.css), mapped by name in the @theme
+ * block below — the tokens stay the values source, and the app (this editor's
+ * UI) and the shell (madarch-j0a's editor) both read the same names.
+ *
+ * Three layers of rules live here:
+ * - the @theme mapping (utility names -> token variables) and the breakpoints
+ *   at the accepted widths (md: 700px, the phone menu; wide: 1150px, the
+ *   sidebar's step; the title's own steps stay in tokens.css);
+ * - the base layer (body reset on the tokens);
+ * - the reading and shell rules that carry the accepted measured values
+ *   (the column measure, the element rhythm, the table's own scroll). They
+ *   are our own element rules themed on the tokens; the typography plugin
+ *   contributes no rule to any element today and stays pinned for the
+ *   editor of madarch-j0a.
+ */
+@import "tailwindcss";
+@import "./fonts.css";
+@import "./tokens.css";
+@plugin "@tailwindcss/typography";
+
+@theme {
+  --breakpoint-md: 700px;
+  --breakpoint-wide: 1150px;
+}
+
+@theme inline {
+  /* Colours: the token names, as utilities. */
+  --color-page: var(--bg-page);
+  --color-chrome: var(--bg-chrome);
+  --color-ink: var(--text);
+  --color-secondary: var(--text-secondary);
+  --color-muted: var(--text-muted);
+  --color-line: var(--border);
+  --color-pill: var(--code-bg);
+  /* Font sizes: the scale tokens. */
+  --text-body: var(--fs-body);
+  --text-title: var(--fs-h1);
+  --text-h2: var(--fs-h2);
+  --text-small: var(--fs-small);
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: var(--font-sans);
+    font-size: var(--fs-body);
+    line-height: var(--leading);
+    color: var(--text);
+    background: var(--bg-page);
+  }
+
+  code,
+  pre,
+  kbd,
+  samp {
+    font-family: var(--font-mono);
+  }
+
+  ::selection {
+    background: var(--selection);
+  }
+}
+
+/* 4.2 The page: the column's measure, centred against the panel place; the
+   two-em space above, the same a section heading takes, so the title never
+   glues to the toolbar's bottom border. The column never widens on a
+   long unbreakable word (the walk checks the page never scrolls). */
+.shell-document {
+  max-inline-size: var(--measure);
+  margin-inline: auto;
+  margin-block-start: 2em;
+  overflow-wrap: break-word;
+  font-size: var(--fs-body);
+  line-height: var(--leading);
+}
+
+@media (max-width: 700px) {
+  .shell-document {
+    max-inline-size: none;
+    padding-inline: 24px;
+  }
+}
+
+/* 4.2/4.4 The reading styles: our own element rules themed on the tokens
+   (the typography plugin's classes are not wired in, so no accepted value
+   rides its defaults). */
+
+/* Exactly one visible title per page: when the document's own text renders
+ * a level-one heading as its first element, the fallback title above it
+ * hides (the checkpoint's doubled-title defect), and the phone breadcrumb
+ * names something the heading already shows. */
+.shell:has(.reading > h1:first-child) main > .app-title {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  .shell:has(.reading > h1:first-child) .shell-breadcrumb {
+    display: none;
+  }
+}
+
+.reading > h1 {
+  font-size: var(--fs-h1);
+  line-height: 1.25;
+  /* the mockup's title weight and optical tracking */
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  margin-block: 0 0.75em;
+  color: var(--text);
+}
+
+main h1 {
+  font-size: var(--fs-h1);
+  line-height: 1.25;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  margin-block: 0 0.75em;
+}
+
+/* 4.2 The heading ladder: four visible size levels, weight before size;
+   headings take space above and below (Butterick, /headings). The mockup's
+   h2 reading: 26px, weight 620, tracking -0.6px. */
+main h2 {
+  font-size: var(--fs-h2);
+  line-height: 1.35;
+  font-weight: 620;
+  letter-spacing: -0.02em;
+  margin-block: 2em 0.6em;
+}
+
+main h3 {
+  font-size: var(--fs-h3);
+  line-height: 1.35;
+  font-weight: 700;
+  margin-block: 1.75em 0.5em;
+}
+
+main h4 {
+  font-size: var(--fs-h4);
+  line-height: 1.35;
+  font-weight: 700;
+  margin-block: 1.5em 0.5em;
+}
+
+main h5 {
+  font-size: var(--fs-h5);
+  line-height: 1.35;
+  font-weight: 600;
+  margin-block: 1.25em 0.3em;
+}
+
+main h6 {
+  font-size: var(--fs-h6);
+  line-height: 1.35;
+  font-weight: 700;
+  margin-block: 1.25em 0.3em;
+}
+
+/* 4.4 Paragraph rhythm: space, not indent; the first paragraph starts flush. */
+main p {
+  margin-block: 0 0.95em;
+}
+
+main p:first-child {
+  margin-block-start: 0;
+}
+
+/* The mockup's lead: the document's first paragraph is the lead — the
+ * secondary colour, one step up from the body, the leading relaxed to its
+ * own size. It stands as the lead when it opens the document directly or
+ * follows the document's own first heading (the title). */
+.reading > p:first-child,
+.reading > h1:first-child + p {
+  font-size: 1.12em;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  margin-block: 0 0.95em;
+}
+
+/* 4.4 Lists: the mockup's gap and lead, one step of the body grid per item. */
+main ul,
+main ol {
+  margin-block: 1em;
+  padding-inline-start: 1.4em;
+}
+
+/* Tailwind's preflight removes the markers; the document puts them back,
+ * nested lists reading as circle inside disc (the checkpoint's defect). */
+main ul {
+  list-style: disc;
+}
+
+main ol {
+  list-style: decimal;
+}
+
+main ul ul {
+  list-style: circle;
+}
+
+main ol ol,
+main ol ul {
+  list-style: lower-alpha;
+}
+
+main ol ul {
+  list-style: circle;
+}
+
+main li {
+  margin-block: 0.35em;
+}
+
+/* 4.3/4.4 Blockquote: Zettlr's 0.25em inline-start rule with the theme colour
+   replaced by the graphite quote border; the quote reads as secondary text. */
+main blockquote {
+  border-inline-start: 0.25em solid var(--quote-border);
+  padding-inline-start: 1em;
+  margin-block: 1.5em 0.95em;
+  color: var(--text-secondary);
+}
+
+main blockquote p {
+  margin-block: 0 0.95em;
+}
+
+main blockquote p:last-child {
+  margin-block-end: 0;
+}
+
+/* 4.3 Inline code: the code pair on its grey ground. */
+main :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--code-bg);
+  color: var(--code-ink);
+}
+
+/* 4.3 Code blocks: plain ink on the code ground, no syntax colours, and a
+   block that scrolls on its own rather than widening the page. */
+main pre {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  line-height: 1.6;
+  padding: 1em 1.25em;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--code-bg);
+  color: var(--code-ink);
+  overflow: auto;
+}
+
+main pre code {
+  font-family: var(--font-mono);
+  font-size: inherit;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+}
+
+/* 4.3/4.4 Tables: the collapsed 1px grid, header cells on the chrome ground;
+   the wrap keeps a wide table scrolling in its own container (never the
+   page). The wrap is the hook Markdown renders (view.tsx). */
+main .table-wrap {
+  margin-block: 1em;
+  overflow: auto;
+}
+
+main table {
+  border-collapse: collapse;
+  font-size: var(--fs-body);
+}
+
+main th,
+main td {
+  border: 1px solid var(--border);
+  padding: 0.5em 0.75em;
+}
+
+main th {
+  font-weight: 600;
+  background: var(--bg-chrome);
+}
+
+/* 4.4 A rule between sections. */
+main hr {
+  border: 0;
+  border-block-start: 1px solid var(--border);
+  margin-block: 2em 1.75em;
+}
+
+/* 4.3 Links: underlined structure, no accent colour. */
+main a {
+  color: var(--link);
+  text-decoration: underline;
+}
+
+/* Small text (nav, metadata, footnotes) never drops under the 14px floor:
+   --fs-small is 0.78em at the body size (14.04px at 18px). */
+main small,
+main .footnotes {
+  font-size: var(--fs-small);
+}
+
+/* The phone: cells never squeeze under 9em (162px at the 18px body); the
+   extra width scrolls inside .table-wrap, never the page. */
+@media (max-width: 700px) {
+  main .table-wrap th,
+  main .table-wrap td {
+    min-width: 9em;
+  }
+}
+
+/* The eyebrow and the status bar of the mockup's document header, lifted to
+   the accepted small-text floor (the mockup reads 12px; --fs-small holds). */
+.eyebrow {
+  margin-block: 0 0.5em;
+  font-size: var(--fs-small);
+  font-weight: 500;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.statusbar {
+  /* visible at the bottom of what the reader sees at every width: the page
+   * scrolls under it (the checkpoint's defect: it was below the fold) */
+  position: sticky;
+  bottom: 0;
+  background: var(--bg-page);
+  border-block-start: 1px solid var(--border);
+  padding-block: 8px;
+  font-size: var(--fs-small);
+  color: var(--text-muted);
+}
+
+/* The focus choice hides the side panels: the navigation and the context
+ * panel place leave, only the document column shows. */
+.shell.doc-only .app-nav,
+.shell.doc-only .context-panel {
+  display: none;
+}
+
+/* The hidden attribute carries the same hide for readers of the DOM directly:
+ * the class utilities must not cancel it (the focus choice, the empty panel
+ * place). */
+.app-nav[hidden],
+.context-panel[hidden] {
+  display: none;
+}
+
+
+/* The home cards are not document text: the kind heading takes no top margin inside
+ * its card (the main h2's rhythm is for the document), and the list rides
+ * the sidebar's row rhythm by the classes the card carries. */
+.home-card h2 {
+  margin-block: 0;
+}

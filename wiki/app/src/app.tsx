@@ -1,19 +1,23 @@
 /**
- * The app itself: a home page naming the product and listing its pages, and a
- * page per document. It asks for the page list about once a second and, when
- * the wiki's revision changes, refetches the open page, so a file saved in the
- * product shows within two seconds with no reload and no server restart
- * (requirements `pages`, `live`, `app`). It keeps one list request in flight
- * at a time, aborts it on cleanup, and never lets an older answer overwrite a
- * newer one; it asks also while the tab is hidden, and asks at once when the
- * tab becomes visible again. A failed page read is retried on its own, bounded,
- * with the failure shown while the retries run.
+ * The app itself: a home page naming the product and listing its documents as
+ * grouped kind cards, and a page per document. It asks for the page list about
+ * once a second and, when the wiki's revision changes, refetches the open
+ * page, so a file saved in the product shows within two seconds with no
+ * reload and no server restart (requirements `pages`, `live`, `app`). It
+ * keeps one list request in flight at a time, aborts it on cleanup, and never
+ * lets an older answer overwrite a newer one; it asks also while the tab is
+ * hidden, and asks at once when the tab becomes visible again. A failed page
+ * read is retried on its own, bounded, with the failure shown while the
+ * retries run.
  */
-import { useEffect, useState, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { FileTextIcon } from 'lucide-react';
 import { getProduct, getPages, getPage, type Product, type PageList, type Page } from './api.js';
 import { routeOf, addressOfPage } from './routes.js';
 import { Markdown, PageLink } from './view.js';
 import { routeContext } from './hold.js';
+import { groupNav, groupOf, kindOf, wordLabel, Shell } from './shell.js';
+import { wordCount } from './text.js';
 export type RouteSnapshot = { name: 'home' } | { name: 'page'; path: string };
 
 /** How far apart the app asks for the page list again, about once a second. */
@@ -114,21 +118,28 @@ export function App({ tickMs = defaultTickMs, pageRetryMs = 1000, pollTimeoutMs 
   const heldPaths = new Set(list.pages.map((meta) => meta.path));
   return (
     <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, heldPaths }}>
-      {route.name === 'home' ? (
-        <HomePage product={data.product} list={list} />
-      ) : (
-        <PageReader
-          key={"page:" + route.path + ":" + list.revision}
-          path={route.path}
-          heldPaths={heldPaths}
-          retryMs={pageRetryMs}
-        />
-      )}
+      <Shell product={data.product} list={list}>
+        {route.name === 'home' ? (
+          <HomePage product={data.product} list={list} />
+        ) : (
+          <PageReader
+            key={"page:" + route.path + ":" + list.revision}
+            path={route.path}
+            heldPaths={heldPaths}
+            retryMs={pageRetryMs}
+          />
+        )}
+      </Shell>
     </routeContext.Provider>
   );
 }
 
-/** The home page: the product's name, its pages, or the plain truth when it has none. */
+/**
+ * The home page: the product's name and its documents as grouped kind cards —
+ * a heading per kind with its document count, the documents as the links they
+ * are — or the plain truth when the product has no pages yet. Not a bare link
+ * list: kind and count say what a reader is choosing between.
+ */
 export function HomePage({ product, list }: { product: Product; list: PageList }): ReactElement {
   return (
     <main id="home">
@@ -136,13 +147,31 @@ export function HomePage({ product, list }: { product: Product; list: PageList }
       {list.pages.length === 0 ? (
         <p className="no-pages">{product.name} has no pages yet.</p>
       ) : (
-        <ul className="page-list">
-          {list.pages.map((meta) => (
-            <li key={meta.path}>
-              <PageLink path={meta.path}>{meta.title}</PageLink>
-            </li>
+        <div className="home-groups">
+          {groupNav(list.pages).map((group) => (
+            <section key={group.name} data-kind={group.name} className="home-card my-6 rounded-[6px] border border-line bg-chrome p-4">
+              <header className="mb-2 flex items-baseline gap-2.5">
+                <h2 className="text-h2 font-semibold text-ink">{wordLabel(group.name)}</h2>
+                <span className="text-small text-muted" data-testid="card-count">
+                  {group.pages.length} {group.pages.length === 1 ? 'page' : 'pages'}
+                </span>
+              </header>
+              <ul className="m-0 p-0 [&>li]:list-none">
+                {group.pages.map((meta) => (
+                  <li key={meta.path} className="border-t border-line first:border-t-0">
+                    <PageLink
+                      path={meta.path}
+                      className="flex items-center gap-2 rounded-[5px] px-2 py-1.5 no-underline hover:bg-pill"
+                    >
+                      <FileTextIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
+                      <span className="text-secondary">{meta.title}</span>
+                    </PageLink>
+                  </li>
+                ))}
+              </ul>
+            </section>
           ))}
-        </ul>
+        </div>
       )}
     </main>
   );
@@ -167,12 +196,24 @@ export function PageReader({
   const [page, setPage] = useState<Page | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tries, setTries] = useState(0);
+  // Whether the document rendered its own first-level heading: the fallback
+  // title above it then leaves the DOM, so a page holds exactly one h1.
+  const [ownTitle, setOwnTitle] = useState(false);
+  const pageRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     setPage(null);
     setError(null);
     setTries(0);
+    setOwnTitle(false);
   }, [path]);
+
+  // The decision reads the rendered truth: the Markdown's first child being
+  // an h1 is what the renderer itself produced, never a text guess.
+  useEffect(() => {
+    if (page === null) setOwnTitle(false);
+    else setOwnTitle(pageRef.current?.querySelector('.reading > h1:first-child') !== null);
+  }, [page]);
 
   useEffect(() => {
     let alive = true;
@@ -204,9 +245,23 @@ export function PageReader({
   if (error !== null) return <ErrorLine message={error} />;
   if (page === null) return <p className="loading">Waiting for the wiki</p>;
   return (
-    <main id="page">
-      <h1>{page.title}</h1>
+    <main id="page" ref={pageRef}>
+      {/* The mockup's document header: the kind as an eyebrow above the title.
+       * Exactly one h1 per page: when the document renders its own
+       * first-level heading, the fallback title above it is not rendered
+       * (the checkpoint's doubled-title defect). */}
+      <p className="eyebrow">{kindOf(path, groupOf(path))}</p>
+      {!ownTitle && <h1 className="app-title">{page.title}</h1>}
       <Markdown text={page.markdown} />
+      {/* The thin status bar the mockup puts at the bottom of the document
+       * area: the page's word count and its format and encoding facts. */}
+      <footer className="statusbar" role="contentinfo">
+        <span data-testid="word-count">{wordCount(page.markdown)} words</span>
+        {' · '}
+        <span>Markdown</span>
+        {' · '}
+        <span>UTF-8</span>
+      </footer>
     </main>
   );
 }

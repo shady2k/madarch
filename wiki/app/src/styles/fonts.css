@@ -1,0 +1,47 @@
+/**
+ * The wiki's shipped web fonts. Every face is redistributed byte-identical from
+ * its official GitHub release under the SIL Open Font License 1.1; see
+ * public/fonts/FONTS-LICENSES.md for the upstream versions, the exact release
+ * files and the verbatim licence texts beside the faces.
+ *
+ * Inter's variable files carry all subsets (latin, cyrillic, cyrillic-ext,
+ * greek, vietnamese) in one binary, so no unicode-range subsetting is needed;
+ * JetBrains Mono's webfonts carry latin and Cyrillic but not U+0462 and not
+ * every extended subset (see FONTS-LICENSES.md). Declared wide, verified
+ * against the release files (madarch-iuc.3.1).
+ */
+
+/* Inter variable, renders all weights and optical sizes as one file. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/InterVariable.woff2") format("woff2");
+}
+
+/* Inter variable, italic: the reading view renders markdown emphasis. */
+@font-face {
+  font-family: "Inter";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/InterVariable-Italic.woff2") format("woff2");
+}
+
+/* JetBrains Mono static 400 and 700: code and code blocks only. */
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-Regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-Bold.woff2") format("woff2");
+}

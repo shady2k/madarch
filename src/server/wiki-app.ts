@@ -16,6 +16,7 @@
  * because the app's reader shows the message straight from that field
  * (wiki/app/src/api.ts); the model routes keep their own error envelope.
  */
+import { basename as nameOf } from 'node:path';
 import type { ProductWiki } from '../product-wiki/pages.js';
 import { readFileSync, statSync } from 'node:fs';
 import { join as joinPath, normalize, resolve } from 'node:path';
@@ -58,7 +59,7 @@ export function createWikiPart(
   appFolder: string | undefined,
 ): WikiPart {
   return {
-    product: (): Handled => ({ response: json(200, { id: wiki.product.id, name: wiki.product.name }) }),
+    product: (): Handled => ({ response: json(200, { id: wiki.product.id, name: wiki.product.name, folder: nameOf(wiki.product.folder) }) }),
     pages: (): Handled => {
       const asked = wiki.pages();
       if (!asked.ok) return refused(500, { message: `the pages of the product ${JSON.stringify(wiki.product.folder)} could not be read: ${asked.message}` });
@@ -138,3 +139,4 @@ const APP_ROUTE_PREFIXES = ['/p/', '/'];
 function isAppRoute(pathname: string): boolean {
   return pathname === '/' || pathname.startsWith('/p/');
 }
+

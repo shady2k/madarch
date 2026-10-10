@@ -8,6 +8,8 @@
 export type Product = {
   id: string;
   name: string;
+  /** The product folder's name on this machine (the sidebar footer names it). */
+  folder?: string;
 };
 
 export type PageMeta = {

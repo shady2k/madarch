@@ -1,3 +1,4 @@
+import { basename } from 'node:path';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -79,13 +80,13 @@ function startProduct(): string {
 }
 
 describe('the server\'s product mode', () => {
-  test('GET /api/product names the product\'s id and name', async () => {
+  test('GET /api/product names the product\'s id and name and its folder', async () => {
     draft();
     builtApp();
     const url = startProduct();
     const answer = await fetch(`${url}/api/product`);
     expect(answer.status).toBe(200);
-    expect(await answer.json()).toEqual({ id: 'demo', name: 'Demo' });
+    expect(await answer.json()).toEqual({ id: 'demo', name: 'Demo', folder: basename(folder!) });
   });
 
   test('GET /api/pages lists the pages with paths, titles, addresses and the revision', async () => {

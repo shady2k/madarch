@@ -1,0 +1,87 @@
+/**
+ * The wiki's design tokens: type scale, rhythm, measure and neutral graphite
+ * colour pairs. The values implement the accepted research note
+ * (/tmp/madarch-run-iuc/research/tokens.md, sections 4.1-4.5, as corrected in
+ * the review of 2026-10-10); every token names its section there.
+ *
+ * Layout, element spacing and the page markup are NOT here: spacing selectors
+ * belong to the reading sheet (owned by the reading lane), page layout to the shell
+ * lane. This file only states the shared vocabulary.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* 4.1 Font families: shipped faces first, system fallbacks after. */
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas,
+    "DejaVu Sans Mono", monospace;
+
+  /* 4.2 Type scale, relative to the 18px body size. */
+  --fs-body: 18px;
+  /* The page h1: 40px desktop, 36px under 1150px, 32px under 700px. */
+  --fs-title: 2.22em;
+  --fs-h1: var(--fs-title); /* the page h1 is the title; stage 5's markup uses it */
+  --fs-h2: 1.5em;
+  --fs-h3: 1.25em;
+  --fs-h4: 1.1em;
+  /* h5 and h6 ride the body size; weight carries the differentiation. */
+  --fs-h5: 1em;
+  --fs-h6: 1em;
+  /* a floor, not a ratio: nesting it must not compound (14px at the body size) */
+  --fs-small: max(14px, 0.78em);
+
+  /* 4.4 Rhythm and measure. */
+  --leading: 1.55; /* unitless body line height */
+  --measure: 36em; /* the text column; 648px at the body size */
+
+  /* 4.3 Colours, light. Every stated text pair measures >= 4.5:1, computed in
+     the note's review; the quote border passes the non-text 3:1 bound. */
+  --bg-page: #ffffff;
+  --bg-chrome: #fafafa;
+  --text: #2e3034;
+  --text-secondary: #5c5e66;
+  --text-muted: #6e7178;
+  --code-ink: #2e3034;
+  --code-bg: #f4f5f6;
+  --border: #e4e5e8;
+  --quote-border: #8f9199;
+  --link: #2e3034; /* underlined: structure, no accent colour */
+  --selection: rgba(48, 49, 54, 0.18);
+  /* the shell's overlay shadow (the mockup's shadow, per the lane review) */
+  --nav-shadow: 12px 0 32px rgba(0, 0, 0, 0.18);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* 4.3 Colours, dark, same names; the dark block changes colours only. */
+    --bg-page: #1e2023;
+    --bg-chrome: #17181b;
+    --text: #e9eaec;
+    --text-secondary: #b0b2b8;
+    --text-muted: #8b8e96;
+    --code-ink: #d7d9de;
+    --code-bg: #26282c;
+    --border: #303338;
+    --quote-border: #6f7178;
+    --link: #e9eaec;
+    --selection: rgba(233, 234, 236, 0.22);
+    --nav-shadow: 12px 0 32px rgba(0, 0, 0, 0.32);
+}
+}
+
+/* The title's width steps (4.2: 36px under 1150px, 32px under 700px) follow the
+   viewport, not the scheme, so they apply under either colour block. */
+@media (max-width: 1150px) {
+  :root {
+    --fs-title: 2em;
+  }
+}
+
+@media (max-width: 700px) {
+  :root {
+    --fs-title: 1.78em;
+  }
+}
+
