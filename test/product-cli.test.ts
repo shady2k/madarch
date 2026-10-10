@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { readProduct } from '../src/product/manifest.js';
 import { createDraft } from '../src/product/draft.js';
+import { listProducts } from '../src/product/list.js';
 import { gitEnv } from './git-env.js';
 import { GIT_IDENTITY, GIT_ENV } from './model-check-repo.js';
 import { homeOfCommand, noStrayDrafts, sealedHome } from './scratch-home.js';
@@ -238,6 +239,18 @@ describe('madarch new', () => {
     const { status, stdout, stderr } = runCommand(['--help']);
     expect(status).toBe(0);
     expect(stderr).toBe('');
+    const lines = stdout.split('\n');
+    // The lines each subcommand's surface promises, whole: a help that was
+    // edited away would be a promise the command no longer keeps.
+    for (const line of [
+      '   or: bun scripts/madarch.ts list [--home <folder>]',
+      '  list    name the products the products home holds',
+      '  --home <folder>       new and list: the products home of this one command, over MADARCH_HOME',
+      '                        (without either, ~/madarch/products)',
+      '  --product <folder>    serve only: the product folder to serve; the current folder when absent',
+    ]) {
+      expect(lines).toContain(line);
+    }
     expect(stdout).toContain('new');
     expect(stdout).toContain('--home');
   });
@@ -499,6 +512,58 @@ describe('madarch list', () => {
     expect(stdout).toBe('');
     expect(stderr).toContain(home);
     expect(stderr).toContain('cannot be');
+  });
+
+  test('a home whose path cannot be looked at is refused exit 2, not an empty list', () => {
+    // The home's parent is a file: the stat of the home itself fails with
+    // ENOTDIR, and an empty list would say there is nothing where the
+    // command could not even look.
+    const base = scratchFolder('madarch-cli-list-notdir-');
+    const home = join(base, 'blocker', 'deeper', 'products');
+    writeFileSync(join(base, 'blocker'), 'a file where a folder is needed\n');
+    const { status, stdout, stderr } = runCommand(['list', '--home', home]);
+    expect(status).toBe(2);
+    expect(stdout).toBe('');
+    expect(stderr).toContain(home);
+    expect(stderr).toContain('cannot be');
+  });
+
+  test('a home that cannot be listed is refused, naming the path and the cause', () => {
+    if (process.getuid?.() === 0) return; // root lists anything; the case is meaningless there.
+    const base = scratchFolder('madarch-cli-list-noacc-');
+    const home = join(base, 'home');
+    mkdirSync(home, { recursive: true, mode: 0o000 }); // no read: listing it is refused by the system, not by madarch.
+    try {
+      const { status, stdout, stderr } = runCommand(['list', '--home', home]);
+      expect(status).toBe(2);
+      expect(stdout).toBe('');
+      expect(stderr).toContain(home);
+    } finally {
+      chmodSync(home, 0o700);
+    }
+  });
+
+  test("the library's own outcomes are the words the command maps: listed, products and unreadable in place", () => {
+    const home = scratchFolder('madarch-cli-list-lib-');
+    const made = createDraft({ home, gitEnv: gitEnv(GIT_ENV) });
+    expect(made.outcome).toBe('created');
+    const broken = join(home, 'broken');
+    mkdirSync(broken);
+    writeFileSync(join(broken, 'workspace.yaml'), 'schemaVersion: 1\nid: x\nname: 5\n');
+    const listed = listProducts({ home });
+    expect(listed.outcome).toBe('listed');
+    if (listed.outcome !== 'listed') return;
+    expect(listed.products.map((p) => p.folder)).toEqual([made.outcome === 'created' ? made.folder : 'never']);
+    expect(listed.unreadable.map((u) => u.folder)).toEqual([broken]);
+    const absent = listProducts({ home: join(home, 'nothing-here') });
+    expect(absent.outcome).toBe('listed');
+    if (absent.outcome !== 'listed') return;
+    expect(absent.products).toEqual([]);
+    expect(absent.unreadable).toEqual([]);
+    const base = scratchFolder('madarch-cli-list-libfile-');
+    const fileHome = join(base, 'home');
+    writeFileSync(fileHome, 'not a folder\n');
+    expect(listProducts({ home: fileHome })).toMatchObject({ outcome: 'refused', message: expect.stringContaining('cannot be listed') });
   });
 
   test('list takes no --port and opens no browser: a serving option is refused, naming what list accepts', () => {

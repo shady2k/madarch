@@ -76,7 +76,7 @@ export interface CliDeps {
 
 export function main(args: readonly string[], deps: CliDeps = {}): number {
   if (args.length === 0) {
-    console.error('no subcommand given: the subcommands are "new" and "serve"');
+    console.error('no subcommand given: the subcommands are "new", "serve" and "list"');
     console.error(USAGE);
     return 2;
   }
