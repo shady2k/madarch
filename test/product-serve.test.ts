@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { chmodSync, cpSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,6 +25,9 @@ import { afterEach, describe, expect, test } from 'bun:test';
  * and MADARCH_APP_BUILD), so no test runs bun's real build or a registry.
  */
 const CLI = fileURLToPath(new URL('../scripts/madarch.ts', import.meta.url));
+
+/** The set's example product folder, vendored with the pinned program. */
+const SET_MADE_FIXTURE = fileURLToPath(new URL('../vendor/shady2k-skills/0.94.0/fixtures/product/good', import.meta.url));
 
 const SEALED_GIT = {
   GIT_CONFIG_GLOBAL: '/dev/null',
@@ -317,6 +320,26 @@ describe('madarch serve: an existing product served', () => {
     // The build ran exactly once for this serving.
     const calls = await Bun.file(builder.callsFile).text();
     expect(calls.split('\n').filter((line) => line !== '')).toHaveLength(1);
+  }, 30_000);
+
+  test('a folder the set made serves the same way: its identity and its pages come from its manifest and docs', async () => {
+    // The set's example product folder (decision 0019: madarch serves a
+    // set-made, a madarch-made and a hand-made folder alike).
+    const base = scratchFolder();
+    const built = builtApp(base);
+    const setMade = join(base, 'leftover-listings');
+    cpSync(SET_MADE_FIXTURE, setMade, { recursive: true });
+    const serve = serveLive(['serve', '--product', setMade, '--port', '0', '--no-open'],
+      { MADARCH_HOME: base, MADARCH_APP: built });
+    const address = await whenServing(serve, '/api/product');
+    const body = (await (await fetch(`${address}/api/product`)).json()) as { id: string; name: string; schemaVersion: number };
+    expect(body.id).toBe('8f2c1d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f');
+    expect(body.name).toBe('leftover-listings');
+    const pages = (await (await fetch(`${address}/api/pages`)).json()) as unknown as { pages: { path: string; title: string }[] };
+    const paths = pages.pages.map((page) => page.path);
+    expect(paths).toContain('docs/vision.md');
+    expect(paths).toContain('docs/requirements/FR-001-list-in-a-minute.md');
+    await serve.finish();
   }, 30_000);
 
   test('a second serve while the dist stands builds nothing', async () => {

@@ -9,12 +9,15 @@
  * use (MADARCH_APP at a ready dist), so no test runs bun's real build.
  */
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, chmodSync } from 'node:fs';
+import { cpSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { readProduct } from '../src/product/manifest.js';
+import { createDraft } from '../src/product/draft.js';
+import { gitEnv } from './git-env.js';
+import { GIT_IDENTITY, GIT_ENV } from './model-check-repo.js';
 
 const CLI = fileURLToPath(new URL('../scripts/madarch.ts', import.meta.url));
 
@@ -388,5 +391,114 @@ describe('the madarch command as an executable', () => {
     expect(statSync(printed.folder).isDirectory()).toBe(true);
     expect(printed.id).toMatch(/^[0-9a-f-]+$/);
     await serve.finish();
+  });
+});
+
+describe('madarch list', () => {
+  /** The set's example product folder, vendored with the pinned program. */
+  const SET_MADE = fileURLToPath(new URL('../vendor/shady2k-skills/0.94.0/fixtures/product/good', import.meta.url));
+
+  test('names every product the home holds, one fact per line, in code point order, and serves nothing', () => {
+    const home = scratchFolder('madarch-cli-list-');
+    // A madarch-made draft (through the library its command wraps), the
+    // set's own example, and a folder written by hand — the three kinds.
+    const made = createDraft({ home, gitEnv: gitEnv(GIT_IDENTITY ? { ...GIT_ENV } : {}) });
+    if (made.outcome !== 'created') throw new Error(`the draft was not created: ${JSON.stringify(made)}`);
+    const setMade = join(home, 'set-made');
+    cpSync(SET_MADE, setMade, { recursive: true });
+    const hand = join(home, 'hand-written');
+    mkdirSync(hand);
+    writeFileSync(join(hand, 'workspace.yaml'), ['schemaVersion: 1', 'id: 3f6d2dc8-b16e-4bf0-9d3a-2c9c00b5287d'].join('\n'));
+
+    const { status, stdout, stderr } = runCommand(['list', '--home', home]);
+    expect(stderr).toBe('');
+    expect(status).toBe(0);
+    // Code point order of the folders: hand-written < idea-… < set-made.
+    const at = (needle: string) => stdout.indexOf(needle);
+    const blocks = stdout.split('\n\n').filter((block) => block !== '');
+    expect(blocks.length).toBe(3);
+    const names = blocks.map((block) => (block.split('\n').find((line) => line.startsWith('name: ')) ?? '').slice('name: '.length));
+    expect(names).toEqual(['hand-written', `idea-${todayName()}`, 'leftover-listings']);
+    for (const block of blocks) {
+      expect(block).toMatch(/^folder: .+\n(id|name): /);
+    }
+    expect(at('hand-written')).toBeGreaterThan(-1);
+    expect(at('leftover-listings')).toBeGreaterThan(at(`idea-${todayName()}`));
+    expect(at(`idea-${todayName()}`)).toBeGreaterThan(at('hand-written'));
+  });
+
+  test('the products home MADARCH_HOME names is listed with no --home, as a draft\'s home is', () => {
+    const madarchHome = scratchFolder('madarch-cli-list-home-');
+    const products = join(madarchHome, 'products');
+    mkdirSync(products, { recursive: true });
+    const made = createDraft({ home: products, gitEnv: gitEnv(GIT_ENV) });
+    expect(made.outcome).toBe('created');
+    const { status, stdout, stderr } = runCommand(['list'], { MADARCH_HOME: madarchHome });
+    expect(stderr).toBe('');
+    expect(status).toBe(0);
+    expect(stdout).toContain(made.outcome === 'created' ? made.folder : 'never');
+    expect(stdout).toContain(`id: ${made.outcome === 'created' ? made.id : ''}`);
+  });
+
+  test('an absent home and an empty home are each an empty list: exit 0, no output', () => {
+    const absent = join(scratchFolder('madarch-cli-list-absent-'), 'nothing-here');
+    const absentRun = runCommand(['list', '--home', absent]);
+    expect(absentRun.status).toBe(0);
+    expect(absentRun.stdout).toBe('');
+    expect(absentRun.stderr).toBe('');
+
+    const empty = scratchFolder('madarch-cli-list-empty-');
+    const emptyRun = runCommand(['list', '--home', empty]);
+    expect(emptyRun.status).toBe(0);
+    expect(emptyRun.stdout).toBe('');
+    expect(emptyRun.stderr).toBe('');
+  });
+
+  test('a subfolder that holds no manifest is not a product and is not listed', () => {
+    const home = scratchFolder('madarch-cli-list-stray-');
+    const stray = join(home, 'old-notes');
+    mkdirSync(stray);
+    cpSync(SET_MADE, join(home, 'set-made'), { recursive: true });
+    const { status, stdout, stderr } = runCommand(['list', '--home', home]);
+    expect(stderr).toBe('');
+    expect(status).toBe(0);
+    expect(stdout).toContain('set-made');
+    expect(stdout).not.toContain('old-notes');
+  });
+
+  test('a product whose manifest cannot be read is named on standard error, and the list still shows what it read', () => {
+    const home = scratchFolder('madarch-cli-list-broken-');
+    const broken = join(home, 'broken-draft');
+    mkdirSync(broken);
+    writeFileSync(join(broken, 'workspace.yaml'), ['schemaVersion: 1', 'id: 3f6d2dc8-b16e-4bf0-9d3a-2c9c00b5287d', 'name: 5', ''].join('\n'));
+    cpSync(SET_MADE, join(home, 'set-made'), { recursive: true });
+    const { status, stdout, stderr } = runCommand(['list', '--home', home]);
+    expect(status).toBe(0);
+    expect(stdout).toContain('set-made');
+    expect(stdout).not.toContain('broken-draft');
+    expect(stderr).toContain(join(broken, 'workspace.yaml'));
+    expect(stderr).toContain('"name"');
+  });
+
+  test('a home that is a file exits 2 naming the path', () => {
+    const base = scratchFolder('madarch-cli-list-file-');
+    const home = join(base, 'home');
+    writeFileSync(home, 'not a folder\n');
+    const { status, stdout, stderr } = runCommand(['list', '--home', home]);
+    expect(status).toBe(2);
+    expect(stdout).toBe('');
+    expect(stderr).toContain(home);
+    expect(stderr).toContain('cannot be');
+  });
+
+  test('list takes no --port and opens no browser: a serving option is refused, naming what list accepts', () => {
+    const home = scratchFolder('madarch-cli-list-flags-');
+    const run = runCommand(['list', '--home', home, '--port', '0']);
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('--port');
+    expect(run.stderr).toContain('unknown option');
+    const openRun = runCommand(['list', '--home', home, '--no-open']);
+    expect(openRun.status).toBe(2);
+    expect(openRun.stderr).toContain('--no-open');
   });
 });

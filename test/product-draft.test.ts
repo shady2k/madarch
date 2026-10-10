@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, w
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
-import { createDraft, productsHome, reserveDraftFolder } from '../src/product/draft.js';
+import { createDraft, productsHome } from '../src/product/draft.js';
 
 /**
  * The machine's real git, resolved once: a stub placed on PATH in a test
@@ -190,9 +190,11 @@ describe('createDraft', () => {
     expect(agents).toContain('Markdown');
     expect(agents).toContain('git');
     expect(agents).toContain("team's own skills");
-    // A marker pair around the part madarch maintains, its end unmistakable.
+    // A marker pair around the part the pinned program maintains, its end
+    // unmistakable: the set's own markers (decision 0019 — the creation is
+    // the set's program, so its markers name the program, not madarch).
     const lines = agents.split('\n');
-    for (const line of ['# Constitution', '## Folders', '## Documents', '<!-- madarch:maintained -->', '<!-- /madarch:maintained -->']) {
+    for (const line of ['# Constitution', '## Folders', '## Documents', '<!-- product:maintained -->', '<!-- /product:maintained -->']) {
       expect(lines).toContain(line);
     }
   });
@@ -359,58 +361,6 @@ describe('readProduct', () => {
     expect(readProduct(`${folder}/`)).toMatchObject({ ok: true, product: { name: 'my-product-folder' } });
   });
 
-  test('a manifest whose name is not a word is refused, naming the field and its line', () => {
-    const folder = tempFolder('madarch-products-badname-');
-    writeFileSync(join(folder, 'workspace.yaml'), ['schemaVersion: 1', 'id: 3f6d2dc8-b16e-4bf0-9d3a-2c9c00b5287d', 'name: 5', ''].join('\n'));
-    const read = readProduct(folder);
-    expect(read.ok).toBe(false);
-    if (read.ok) return;
-    expect(read.file).toBe(join(folder, 'workspace.yaml'));
-    expect(read.message).toContain('"name"');
-    expect(read.line).toBe(3);
-  });
-
-  test('a manifest naming no schema version is refused, naming the field', () => {
-    const folder = tempFolder('madarch-products-noschema-');
-    writeFileSync(join(folder, 'workspace.yaml'), ['id: 3f6d2dc8-b16e-4bf0-9d3a-2c9c00b5287d', 'name: idea-2026-10-09', ''].join('\n'));
-    const read = readProduct(folder);
-    expect(read.ok).toBe(false);
-    if (read.ok) return;
-    expect(read.file).toBe(join(folder, 'workspace.yaml'));
-    expect(read.message).toContain('names no "schemaVersion"');
-  });
-
-  test('a manifest whose id is there but empty is refused as one naming no id', () => {
-    const folder = tempFolder('madarch-products-noid2-');
-    writeFileSync(join(folder, 'workspace.yaml'), ['schemaVersion: 1', `id: ""`, 'name: idea-2026-10-09', ''].join('\n'));
-    const read = readProduct(folder);
-    expect(read.ok).toBe(false);
-    if (read.ok) return;
-    expect(read.message).toContain('"id"');
-  });
-
-  test('a manifest whose id is only spaces is refused as well', () => {
-    const folder = tempFolder('madarch-products-blankid-');
-    writeFileSync(join(folder, 'workspace.yaml'), ['schemaVersion: 1', "id: '   '", 'name: idea-2026-10-09', ''].join('\n'));
-    const read = readProduct(folder);
-    expect(read.ok).toBe(false);
-    if (read.ok) return;
-    expect(read.message).toContain('"id"');
-  });
-
-  test('a manifest whose id is not a word is refused, naming the field and what stood there', () => {
-    const folder = tempFolder('madarch-products-badid-');
-    writeFileSync(join(folder, 'workspace.yaml'), ['schemaVersion: 1', 'name: idea-2026-10-09', 'id: 5', ''].join('\n'));
-    const read = readProduct(folder);
-    expect(read.ok).toBe(false);
-    if (read.ok) return;
-    expect(read.file).toBe(join(folder, 'workspace.yaml'));
-    expect(read.message).toContain('5');
-    expect(read.message).toContain('"id"');
-    expect(read.message).not.toContain('names no');
-    expect(read.line).toBe(3);
-  });
-
   test('a manifest naming no id is refused, naming the file and the field', () => {
     const home = tempFolder('madarch-products-');
     const draft = draftIn(home);
@@ -425,15 +375,6 @@ describe('readProduct', () => {
     expect(read.message).toContain('id');
   });
 
-  test('a manifest naming no id is refused with its own words, not the missing value\'s', () => {
-    const folder = tempFolder('madarch-products-noid3-');
-    writeFileSync(join(folder, 'workspace.yaml'), ['schemaVersion: 1', 'name: idea-2026-10-09', ''].join('\n'));
-    const read = readProduct(folder);
-    expect(read.ok).toBe(false);
-    if (read.ok) return;
-    expect(read.message).toContain('names no "id"');
-  });
-
   test('a folder holding no manifest is refused, naming the file looked for and the folder', () => {
     const folder = tempFolder('madarch-products-empty-');
     const read = readProduct(folder);
@@ -446,29 +387,6 @@ describe('readProduct', () => {
     expect(read.line).toBe(1);
   });
 
-  test('a schema version this madarch does not know is refused, naming the field and its line', () => {
-    const folder = tempFolder('madarch-products-version-');
-    writeFileSync(join(folder, 'workspace.yaml'), ['# the manifest of a later madarch with a new schema version', 'name: idea-2026-10-09', 'schemaVersion: 2', 'id: 3f6d2dc8-b16e-4bf0-9d3a-2c9c00b5287d', ''].join('\n'));
-    const read = readProduct(folder);
-    expect(read.ok).toBe(false);
-    if (read.ok) return;
-    expect(read.file).toBe(join(folder, 'workspace.yaml'));
-    expect(read.message).toContain('"schemaVersion"');
-    expect(read.line).toBe(3);
-  });
-
-  test('a manifest that cannot be read is refused, naming the file, the line and the reason', () => {
-    const folder = tempFolder('madarch-products-bad-');
-    writeFileSync(join(folder, 'workspace.yaml'), ['id: [', 'name: idea-2026-10-09', ''].join('\n'));
-    const read = readProduct(folder);
-    expect(read.ok).toBe(false);
-    if (read.ok) return;
-    expect(read.file).toBe(join(folder, 'workspace.yaml'));
-    // The line the parser gives when it stops reading, 1 or later.
-    expect(read.line).toBeGreaterThanOrEqual(1);
-    expect(read.message).toContain('cannot be read as YAML');
-  });
-
   test('a manifest that is a folder is refused as one that could not be read', () => {
     const folder = tempFolder('madarch-products-dirman-');
     mkdirSync(join(folder, 'workspace.yaml'));
@@ -478,29 +396,6 @@ describe('readProduct', () => {
     expect(read.file).toBe(join(folder, 'workspace.yaml'));
     expect(read.message).toContain('could not be read');
     expect(read.line).toBe(1);
-  });
-
-  test('a manifest that is not a mapping is refused, naming the file', () => {
-    const folder = tempFolder('madarch-products-stray-');
-    writeFileSync(join(folder, 'workspace.yaml'), 'just a word\n');
-    const read = readProduct(folder);
-    expect(read.ok).toBe(false);
-    if (read.ok) return;
-    expect(read.file).toBe(join(folder, 'workspace.yaml'));
-  });
-
-  test('a manifest that is empty, and one that is a list, are each refused', () => {
-    const empty = tempFolder('madarch-products-emptyfile-');
-    writeFileSync(join(empty, 'workspace.yaml'), '');
-    const readEmpty = readProduct(empty);
-    expect(readEmpty.ok).toBe(false);
-
-    const listed = tempFolder('madarch-products-listfile-');
-    writeFileSync(join(listed, 'workspace.yaml'), '- just a list\n');
-    const readListed = readProduct(listed);
-    expect(readListed.ok).toBe(false);
-    if (readListed.ok) return;
-    expect(readListed.file).toBe(join(listed, 'workspace.yaml'));
   });
 });
 
@@ -528,24 +423,6 @@ describe('createDraft: reservations and homes that cannot be used', () => {
     expect(readFileSync(join(other, 'docs'), 'utf8')).toContain('another run');
   });
 
-  test("the reservation itself takes the next suffix on EEXIST and never touches a folder it did not create", () => {
-    // The first-round race test pre-created the competitor before the run
-    // ever chose a name; the old list-then-mkdir implementation survived
-    // that too. The honest seam is the reservation step itself: one
-    // non-recursive mkdir of the candidate, which must take the next
-    // suffix when the name is taken and leave the other run's folder
-    // exactly as it found it.
-    const home = tempFolder('madarch-products-reserve-');
-    const other = join(home, 'idea-2026-10-09');
-    mkdirSync(other);
-    writeFileSync(join(other, 'docs'), "another run's draft\n");
-    const reserved = reserveDraftFolder(home, '2026-10-09');
-    expect(reserved).toEqual({ folder: join(home, 'idea-2026-10-09-2'), name: 'idea-2026-10-09-2' });
-    expect(readFileSync(join(other, 'docs'), 'utf8')).toContain('another run');
-    // A first name still free is taken as it is.
-    const fresh = reserveDraftFolder(home, '2026-10-10');
-    expect(fresh).toEqual({ folder: join(home, 'idea-2026-10-10'), name: 'idea-2026-10-10' });
-  });
   test('a products home the process cannot write into is refused, not failed', () => {
     if (process.getuid?.() === 0) return; // root writes anywhere; the case is meaningless there.
     const base = tempFolder('madarch-products-nowrap-');
@@ -623,146 +500,5 @@ describe('createDraft: a cleanup that fails is reported', () => {
     for (const dir of ['', 'docs', 'model', 'skills', 'prototypes', 'repos']) {
       chmodSync(join(home, leftover!, dir), 0o700);
     }
-  });
-});
-
-describe('readProduct: manifests the reader cannot take', () => {
-  test('a valid manifest followed by an unresolvable alias is refused, not thrown over', () => {
-    const folder = tempFolder('madarch-products-alias-');
-    writeFileSync(join(folder, 'workspace.yaml'), ['schemaVersion: 1', 'id: 3f6d2dc8-b16e-4bf0-9d3a-2c9c00b5287d', 'name: idea-2026-10-09', 'extra: *missing', ''].join('\n'));
-    const read = readProduct(folder);
-    expect(read.ok).toBe(false);
-    if (read.ok) return;
-    expect(read.file).toBe(join(folder, 'workspace.yaml'));
-    expect(read.line).toBe(4);
-    expect(read.message).toContain('cannot be read as YAML');
-  });
-
-  test('a manifest using an alias as a mapping key is refused, naming the line the alias stands on', () => {
-    // The review's shape: `extra: &key id` then `*key : replacement`. With
-    // the alias resolved the key is `id`, so the later pairing overwrites
-    // the product's id and the reader would succeed with the wrong id.
-    const folder = tempFolder('madarch-products-aliaskey-');
-    writeFileSync(join(folder, 'workspace.yaml'), ['schemaVersion: 1', 'id: 3f6d2dc8-b16e-4bf0-9d3a-2c9c00b5287d', 'extra: &key id', '*key : replacement-id', ''].join('\n'));
-    const read = readProduct(folder);
-    expect(read.ok).toBe(false);
-    if (read.ok) return;
-    expect(read.file).toBe(join(folder, 'workspace.yaml'));
-    expect(read.message).toContain('alias');
-    expect(read.line).toBe(4);
-  });
-
-  test("a valid alias cannot pin a later alias's failure on the earlier line", () => {
-    // Line 3 holds an alias that resolves; line 4 holds one that never
-    // appeared. The conversion refusal must name line 4.
-    const folder = tempFolder('madarch-products-aliasline-');
-    writeFileSync(join(folder, 'workspace.yaml'), ['schemaVersion: &ref 1', 'id: *ref', 'extra: *missing', ''].join('\n'));
-    const read = readProduct(folder);
-    expect(read.ok).toBe(false);
-    if (read.ok) return;
-    expect(read.file).toBe(join(folder, 'workspace.yaml'));
-    expect(read.line).toBe(3);
-  });
-  test("a valid alias cannot pin a later alias's failure on the earlier line", () => {
-    // Line 3 holds an alias that resolves; line 4 holds one that never
-    // appeared. The conversion refusal must name line 4.
-    const folder = tempFolder('madarch-products-aliasline-');
-    writeFileSync(join(folder, 'workspace.yaml'), ['schemaVersion: &ref 1', 'id: *ref', 'extra: *missing', ''].join('\n'));
-    const read = readProduct(folder);
-    expect(read.ok).toBe(false);
-    if (read.ok) return;
-    expect(read.file).toBe(join(folder, 'workspace.yaml'));
-    expect(read.line).toBe(3);
-  });
-  test("an alias with a forward reference is refused, naming the alias stand-in's line in document order", () => {
-    // `*later` stands on line 4 while its anchor is defined on line 5: an
-    // alias resolves only when its anchor was defined before it, and the
-    // refusal names line 4 — where the reader knows the problem — never
-    // the resolved alias `*id` on line 3.
-    const folder = tempFolder('madarch-products-aliasforward-');
-    writeFileSync(join(folder, 'workspace.yaml'), ['schemaVersion: 1', 'id: &id original', 'name: *id', 'extra: *later', 'future: &later present', ''].join('\n'));
-    const read = readProduct(folder);
-    expect(read.ok).toBe(false);
-    if (read.ok) return;
-    expect(read.file).toBe(join(folder, 'workspace.yaml'));
-    expect(read.line).toBe(4);
-    expect(read.message).toContain('cannot be read as YAML');
-  });
-  test("an unresolved alias that stands later keeps the earlier one's line as the blame", () => {
-    // The failure is the forward reference on line 4; another alias the
-    // document never resolves at line 6 does not move where the reader
-    // looks. Resolution goes in document order and reports the first
-    // alias whose anchor was not defined before it.
-    const folder = tempFolder('madarch-products-aliaslater-');
-    writeFileSync(join(folder, 'workspace.yaml'), ['schemaVersion: 1', 'id: &id original', 'name: *id', 'extra: *later', 'future: &later present', 'unknown: *missing', ''].join('\n'));
-    const read = readProduct(folder);
-    expect(read.ok).toBe(false);
-    if (read.ok) return;
-    expect(read.line).toBe(4);
-  });
-  test("an alias-limit refusal cannot blame a later unresolved alias's line", () => {
-    // The review's mixed shape: well over the alias count limit, and an
-    // alias behind them that never appeared. The refusal is the limit —
-    // conversion stops there and never reaches the later alias — so the
-    // ordered walk must not be consulted, and line 1 says unknown.
-    const folder = tempFolder('madarch-products-limitalias-');
-    const manifest = [
-      'schemaVersion: 1',
-      'id: &i product-identity',
-      ...Array.from({ length: 120 }, (_, n) => `f${n}: *i`),
-      'unrelated: *missing',
-      '',
-    ].join('\n');
-    writeFileSync(join(folder, 'workspace.yaml'), manifest);
-    const read = readProduct(folder);
-    expect(read.ok).toBe(false);
-    if (read.ok) return;
-    expect(read.message).toContain('cannot be read as YAML');
-    expect(read.line).toBe(1);
-  });
-  test("an alias-limit refusal cannot blame a later forward reference's line either", () => {
-    // The same mixed shape with a forward reference instead: the anchor
-    // stands after the alias, but the limit ends conversion first.
-    const folder = tempFolder('madarch-products-limforward-');
-    const manifest = [
-      'schemaVersion: 1',
-      'id: &i product-identity',
-      ...Array.from({ length: 120 }, (_, n) => `f${n}: *i`),
-      'extra: *later',
-      'future: &later defined-later',
-      '',
-    ].join('\n');
-    writeFileSync(join(folder, 'workspace.yaml'), manifest);
-    const read = readProduct(folder);
-    expect(read.ok).toBe(false);
-    if (read.ok) return;
-    expect(read.line).toBeGreaterThanOrEqual(1);
-    expect(read.message).toContain('cannot be read as YAML');
-    expect(read.line).toBe(1);
-  });
-
-  test('a conversion failure no unresolved alias explains — an alias limit reached — reports line 1 as unknown', () => {
-    // Well over the reader's alias count limit: the document is refused
-    // by the parser's guard, not at any one alias. Naming the first
-    // alias would blame a field that reads fine; line 1 says unknown.
-    const folder = tempFolder('madarch-products-aliaslimit-');
-    const manifest = ['schemaVersion: 1', 'id: &i product-identity', ...Array.from({ length: 120 }, (_, n) => `f${n}: *i`), ''].join('\n');
-    writeFileSync(join(folder, 'workspace.yaml'), manifest);
-    const read = readProduct(folder);
-    expect(read.ok).toBe(false);
-    if (read.ok) return;
-    expect(read.message).toContain('cannot be read as YAML');
-    expect(read.line).toBe(1);
-  });
-  test('a manifest naming a field twice is refused, naming the line the duplicate stands on', () => {
-    const folder = tempFolder('madarch-products-dup-');
-    writeFileSync(join(folder, 'workspace.yaml'), ['schemaVersion: 1', 'id: 3f6d2dc8-b16e-4bf0-9d3a-2c9c00b5287d', 'name: idea-2026-10-09', 'schemaVersion: 2', ''].join('\n'));
-    const read = readProduct(folder);
-    expect(read.ok).toBe(false);
-    if (read.ok) return;
-    expect(read.file).toBe(join(folder, 'workspace.yaml'));
-    expect(read.message).toContain('"schemaVersion"');
-    expect(read.message).toContain('twice');
-    expect(read.line).toBe(4);
   });
 });

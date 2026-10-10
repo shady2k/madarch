@@ -1,37 +1,35 @@
 /**
  * The `madarch` command's parsing and printing
  * (docs/changes/draft-product/capabilities/product-repository.md,
- * requirement draft). `scripts/madarch.ts` is the entry point; this
- * module parses the arguments the way the project's other command
+ * requirements draft and list). `scripts/madarch.ts` is the entry point;
+ * this module parses the arguments the way the project's other command
  * scripts parse (`scripts/serve.ts`), calls the draft library, and
  * decides only the exit code and the stream: 0 when the draft was
- * created, 2 when an argument or the products home cannot be used, 1
- * when a step of the creation failed (git refused) — the library's
- * `refused` and `failed` carry the message, printed whole on standard
- * error. The created draft's folder and its id go to standard output,
- * one fact per line, as `folder: <path>` and `id: <id>`.
- *
- * This task creates the draft only: `new` starts no server and opens
- * no browser (madarch-rtr.2.3's work), so `--port` and `--no-open` are
- * not options yet and an unknown option is refused, naming what is
- * accepted — a silently ignored option would tell a person a browser
- * was opened when nothing was.
+ * created or the products were listed, 2 when an argument or the
+ * products home cannot be used, 1 when a step of the creation failed
+ * (git refused) — the library's `refused` and `failed` carry the
+ * message, printed whole on standard error. The created draft's folder
+ * and its id go to standard output, one fact per line, as
+ * `folder: <path>` and `id: <id>`.
  */
 import { createDraft } from './draft.js';
+import { listProducts, type ProductList } from './list.js';
 import { serveWiki, type Opener, type ServeOptions } from '../product-wiki/serve.js';
 
 /** The usage lines, shaped the way `scripts/serve.ts` and `scripts/wiki.ts` print theirs. */
 export const USAGE = [
   'usage: bun scripts/madarch.ts serve [--product <folder>] [--port <n>] [--no-open]',
   '   or: bun scripts/madarch.ts new [--home <folder>] [--port <n>] [--no-open]',
-  '   (the same commands after `bun link` in a checkout: madarch new, madarch serve)',
+  '   or: bun scripts/madarch.ts list [--home <folder>]',
+  '   (the same commands after `bun link` in a checkout: madarch new, madarch serve, madarch list)',
 ].join('\n');
 
 /** The text `--help` prints: the subcommands and the options each does what. */
 export const HELP = [
   'usage: bun scripts/madarch.ts serve [--product <folder>] [--port <n>] [--no-open]',
   '   or: bun scripts/madarch.ts new [--home <folder>] [--port <n>] [--no-open]',
-  '   or: madarch serve|new — the same commands after `bun link` in a checkout',
+  '   or: bun scripts/madarch.ts list [--home <folder>]',
+  '   or: madarch serve|new|list — the same commands after `bun link` in a checkout',
   '',
   'new creates a draft product repository under the products home, then serves',
   "its wiki: the draft's folder and id, the address of the wiki, one fact per",
@@ -39,15 +37,21 @@ export const HELP = [
   '--product folder, or the folder the command runs in (the folder the working',
   "agent is in). Both serve until they are stopped.",
   '',
-  'The first run also builds the app the wiki reads (wiki/app in the madarch',
-  'checkout): it says so on standard output before the build starts, and never',
-  'builds again while the built files are there.',
+  'list names the products the products home holds, one product at a time:',
+  'its folder, id and name, one fact per line, in code point order of the',
+  'folders. A product the home holds whose manifest cannot be read is named',
+  'on standard error, and the list still shows what it did read.',
+  '',
+  'The first serve or new also builds the app the wiki reads (wiki/app in the',
+  'madarch checkout): it says so on standard output before the build starts,',
+  'and never builds again while the built files are there.',
   '',
   'subcommands:',
   '  new     create a draft product repository and serve its wiki',
   '  serve   serve the product of the given or the current folder',
+  '  list    name the products the products home holds',
   'options:',
-  '  --home <folder>       new only: the products home of this one command, over MADARCH_HOME',
+  '  --home <folder>       new and list: the products home of this one command, over MADARCH_HOME',
   '                        (without either, ~/madarch/products)',
   '  --product <folder>    serve only: the product folder to serve; the current folder when absent',
   '  --port <n>            the port the wiki is served on (4180 by default; a port in use is refused)',
@@ -86,13 +90,13 @@ export function main(args: readonly string[], deps: CliDeps = {}): number {
     console.error(USAGE);
     return 2;
   }
-  if (command !== 'new' && command !== 'serve') {
-    console.error(`unknown subcommand "${command}": the subcommands are "new" and "serve"`);
+  if (command !== 'new' && command !== 'serve' && command !== 'list') {
+    console.error(`unknown subcommand "${command}": the subcommands are "new", "serve" and "list"`);
     console.error(USAGE);
     return 2;
   }
 
-  const parsed = parse({ home: command === 'new', product: command === 'serve' }, args.slice(1));
+  const parsed = parse(acceptsFor(command), args.slice(1));
   if (typeof parsed === 'number') return parsed;
   const { home, product, port, open } = parsed;
 
@@ -105,10 +109,11 @@ export function main(args: readonly string[], deps: CliDeps = {}): number {
     opener: deps.opener,
   };
 
+  if (command === 'list') return list(home);
   if (command === 'serve') {
     return serve(serveOptions, product);
   }
-  // new: the draft is created as it ever was, then its wiki is served.
+  // new: the draft is created through the pinned set program, then its wiki is served.
   const draft = createDraft(home === undefined ? {} : { home });
   if (draft.outcome !== 'created') {
     console.error(draft.message);
@@ -117,6 +122,35 @@ export function main(args: readonly string[], deps: CliDeps = {}): number {
   console.log(`folder: ${draft.folder}`);
   console.log(`id: ${draft.id}`);
   return serve(serveOptions, draft.folder);
+}
+
+/** The flags one subcommand takes, beside the ones they both share. */
+function acceptsFor(command: string): { home: boolean; product: boolean; port: boolean; open: boolean } {
+  if (command === 'list') return { home: true, product: false, port: false, open: false };
+  if (command === 'serve') return { home: false, product: true, port: true, open: true };
+  return { home: true, product: false, port: true, open: true }; // new
+}
+
+/** The list of the products home, printed one product at a time; 0 listed, 2 when the home cannot be used. */
+function list(home: string | undefined): number {
+  const listed: ProductList = listProducts(home === undefined ? {} : { home });
+  if (listed.outcome === 'refused') {
+    console.error(listed.message);
+    return 2;
+  }
+  for (const [i, product] of listed.products.entries()) {
+    if (i > 0) console.log('');
+    console.log(`folder: ${product.folder}`);
+    console.log(`id: ${product.id}`);
+    console.log(`name: ${product.name}`);
+  }
+  // A manifest that stands but cannot be read is named, and the list still
+  // says what it did read: hiding a broken draft would say a folder is fine
+  // that nobody looked at.
+  for (const unreadable of listed.unreadable) {
+    console.error(unreadable.message);
+  }
+  return 0;
 }
 
 /** The serving of one subcommand's product: its prints and its exit code; 0 once the address stands. */
@@ -135,19 +169,20 @@ interface Parsed {
   open: boolean;
 }
 
+
 /**
  * The options of the subcommand, parsed the way the other commands parse
  * (`--flag value` and `--flag=value` alike): a word that starts with `--`
  * is always a flag, never the value of the flag before it — `--home
  * --no-open` is refused instead of silently naming a folder `--no-open`.
  */
-function parse(accepts: { home: boolean; product: boolean }, given: readonly string[]): Parsed | number {
+function parse(accepts: { home: boolean; product: boolean; port: boolean; open: boolean }, given: readonly string[]): Parsed | number {
   const parsed: Parsed = { home: undefined, product: undefined, port: undefined, open: true };
   const flags = [
     ...(accepts.home ? ['--home <folder>'] : []),
     ...(accepts.product ? ['--product <folder>'] : []),
-    '--port <n>',
-    '--no-open',
+    ...(accepts.port ? ['--port <n>'] : []),
+    ...(accepts.open ? ['--no-open'] : []),
   ].join(', ');
   for (let i = 0; i < given.length; i++) {
     const arg = given[i]!;
@@ -157,7 +192,7 @@ function parse(accepts: { home: boolean; product: boolean }, given: readonly str
       return 2;
     }
     const name = arg.includes('=') ? arg.slice(0, arg.indexOf('=')) : arg;
-    if (!flagListFor(accepts).includes(name)) {
+    if (!flagNamesFor(accepts).includes(name)) {
       console.error(`unknown option "${arg}": the options are ${flags}`);
       console.error(USAGE);
       return 2;
@@ -182,6 +217,7 @@ function parse(accepts: { home: boolean; product: boolean }, given: readonly str
     };
 
     if (name === '--no-open') {
+      if (!accepts.open) return unknownOption(arg, flags);
       if (arg.includes('=')) {
         console.error(`the --no-open flag takes no value: it says whether the browser is opened`);
         console.error(USAGE);
@@ -191,6 +227,7 @@ function parse(accepts: { home: boolean; product: boolean }, given: readonly str
       continue;
     }
     if (name === '--port') {
+      if (!accepts.port) return unknownOption(arg, flags);
       const value = flagValue();
       const n = value === undefined ? Number.NaN : Number(value);
       if (value === undefined || !Number.isInteger(n) || n < 0 || n > 65535) {
@@ -217,11 +254,18 @@ function parse(accepts: { home: boolean; product: boolean }, given: readonly str
 }
 
 /** The flags one subcommand takes, beside the ones they both share. */
-function flagListFor(accepts: { home: boolean; product: boolean }): readonly string[] {
+function flagNamesFor(accepts: { home: boolean; product: boolean; port: boolean; open: boolean }): readonly string[] {
   return [
     ...(accepts.home ? ['--home'] : []),
     ...(accepts.product ? ['--product'] : []),
-    '--port',
-    '--no-open',
+    ...(accepts.port ? ['--port'] : []),
+    ...(accepts.open ? ['--no-open'] : []),
   ];
+}
+
+/** The refusal one not-accepted option earns: what was given, and what the subcommand takes. */
+function unknownOption(arg: string, flags: string): number {
+  console.error(`unknown option "${arg}": the options are ${flags}`);
+  console.error(USAGE);
+  return 2;
 }
