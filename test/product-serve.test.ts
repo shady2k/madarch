@@ -350,6 +350,19 @@ describe('madarch serve: an existing product served', () => {
     await serve.finish();
   }, 30_000);
 
+  test('a step that fails exits 1: the server could not take the port it was given', () => {
+    // The start itself failing — a port the user may not listen on, not an
+    // address already in use — is a failed step, exit 1, whole words added.
+    const base = scratchFolder();
+    const built = builtApp(base);
+    const folder = product(base);
+    const run = runCommand(['serve', '--product', folder, '--port', '1', '--no-open'],
+      { MADARCH_HOME: base, MADARCH_APP: built }, folder);
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('port 1');
+    expect(run.stderr).toContain('the server could not be started');
+  });
+
   test('a second serve while the dist stands builds nothing', async () => {
     const base = scratchFolder();
     const built = builtApp(base);
