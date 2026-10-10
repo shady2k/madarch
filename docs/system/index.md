@@ -57,6 +57,14 @@ Changed 2026-10-08 with the change use-cases-data-entities (`docs/changes/use-ca
 
 Its run's decisions are in `docs/changes/use-cases-data-entities/change.md`, "Design and decisions".
 
+Changed and added 2026-10-10 with the change draft-product (`docs/changes/draft-product/`):
+
+- [product-repository](capabilities/product-repository.md): creating a draft product repository with its constitution, its manifest, its stable id and its own git history, and reading a product's identity from its manifest.
+- [product-wiki](capabilities/product-wiki.md): the product's wiki — the pages its documents make, their live update as the files are saved, the command that serves the wiki and opens it, and madarch's own app that shows it.
+- server: a server started with a product folder serves that product's wiki, reading that one repository read-only to do it.
+
+Its run's decisions are in `docs/changes/draft-product/change.md`, "Design and decisions".
+
 ## Known unknowns
 
 - The query engine's memory in a long-lived process: measured with the
