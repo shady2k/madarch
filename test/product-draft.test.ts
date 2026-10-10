@@ -27,7 +27,7 @@ import { refuseNonScratchHome, noStrayDrafts, ISOLATED_HOME } from './scratch-ho
 // scratch home, a mutated productsHome that ignores the `home` its caller
 // gave still lands beside the scratch, never in the account's real home —
 // the command tests seal their children's HOME besides this (scratch-home).
-process.env.MADARCH_HOME = process.env.MADARCH_HOME ?? ISOLATED_HOME;
+process.env.MADARCH_HOME = ISOLATED_HOME; // an inherited one is never trusted: only the guard's scratch.
 
 /**
  * The draft product repository (docs/changes/draft-product/capabilities/
@@ -54,8 +54,7 @@ function tempFolder(prefix: string): string {
 const removeMadeFolders = (): void => {
   for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
   const strays = noStrayDrafts();
-  if (strays.leftAlone.length) throw new Error(`the tests left what they cannot own in the real products home, untouched: ${strays.leftAlone.join(', ')}`);
-  if (strays.removed.length) throw new Error(`the tests left stray drafts in the real products home (removed): ${strays.removed.join(', ')}`);
+  if (strays.newEntries.length) throw new Error(`the real products home gained entries while the tests ran (named, left in place): ${strays.newEntries.join(', ')}`);
 };
 
 afterEach(removeMadeFolders);

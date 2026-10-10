@@ -80,8 +80,7 @@ const removeMadeFolders = (): void => {
   for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
   for (const proc of runningChildren.splice(0)) try { proc.kill(); } catch { /* already gone */ }
   const strays = noStrayDrafts();
-  if (strays.leftAlone.length) throw new Error(`the tests left what they cannot own in the real products home, untouched: ${strays.leftAlone.join(', ')}`);
-  if (strays.removed.length) throw new Error(`the tests left stray drafts in the real products home (removed): ${strays.removed.join(', ')}`);
+  if (strays.newEntries.length) throw new Error(`the real products home gained entries while the tests ran (named, left in place): ${strays.newEntries.join(', ')}`);
 };
 
 afterEach(removeMadeFolders);
@@ -94,7 +93,7 @@ function runCommand(args: string[], overrides: Record<string, string> = {}): { s
   // A creator must aim at a scratch home before anything is spawned: the
   // arguments, then MADARCH_HOME — the resolved home is refused otherwise.
   if (args[0] === 'new' || args[0] === 'list') homeOfCommand(args, env);
-  const run = spawnSync('bun', [CLI, ...args], { encoding: 'utf8', env });
+  const run = spawnSync('bun', [CLI, ...args], { encoding: 'utf8', env, timeout: 120_000 });
   return { status: run.status, stdout: run.stdout ?? '', stderr: run.stderr ?? '' };
 }
 
@@ -413,7 +412,7 @@ describe('the madarch command as an executable', () => {
   test('spawning the committed script itself answers --help: it carries an interpreter directive and the exec bit', () => {
     // Not through `bun <file>`: the way `bun link`'s shim runs it — the
     // file itself, executed, which needs its own directive and mode.
-    const run = spawnSync(CLI, ['--help'], { encoding: 'utf8' });
+    const run = spawnSync(CLI, ['--help'], { encoding: 'utf8', timeout: 120_000 });
     expect(run.status).toBe(0);
     expect(run.stderr ?? '').toBe('');
     expect((run.stdout ?? '').length).toBeGreaterThan(0);

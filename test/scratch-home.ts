@@ -16,16 +16,16 @@
  *    never resolved, because that run creates nothing.
  * 3. `noStrayDrafts` is the backstop against what no argument can see: a
  *    mutant writing a draft anywhere it wants. It lists the real home once
- *    when the tests load, and after every test reports what is new there,
- *    removing only what the tests can own — an entry this run created in
- *    the drafts' own name, within this run's lifetime. Anything else new
- *    fails the run named and untouched.
+ *    when the tests load, and after every test names everything new there
+ *    and fails the run — and removes nothing: a person's draft created in
+ *    the run's window cannot be told apart from a mutant's, so the deletion
+ *    is the operator's, with the list in hand.
  *
  * The real home is read from the account's own record (`userInfo`), never
  * from `HOME`, so a test or a sandbox that moves `HOME` off the account
  * cannot move what the guard watches.
  */
-import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
@@ -118,43 +118,34 @@ export function homeOfCommand(args: readonly string[], env: Record<string, strin
  * is kept as it is, git's identity being sealed beside it by the callers.
  */
 export function sealedHome(overrides: Record<string, string>): { HOME: string; MADARCH_HOME: string } {
-  const home = process.env.HOME;
-  const homeAlreadyScratch = home !== undefined && resolve(home) !== resolve(ACCOUNT_HOME) && (home.startsWith(tmpdir() + sep) || home === tmpdir());
   return {
-    HOME: homeAlreadyScratch ? home! : ISOLATED_HOME,
-    MADARCH_HOME: overrides.MADARCH_HOME ?? process.env.MADARCH_HOME ?? join(ISOLATED_HOME, 'madarch'),
+    HOME: tmpdirIsolation() ? process.env.HOME! : ISOLATED_HOME,
+    // The test's own MADARCH_HOME is refused to scratch before the spawn
+    // (homeOfCommand); what it is not is never inherited from the shell.
+    MADARCH_HOME: overrides.MADARCH_HOME ?? join(ISOLATED_HOME, 'madarch'),
   };
 }
 
 /** Whether the surrounding process's home is already a scratch one: true inside the mutation sandboxes. */
 export function tmpdirIsolation(): boolean {
   const home = process.env.HOME;
-  return home !== undefined && resolve(home) !== resolve(ACCOUNT_HOME) && home.startsWith(tmpdir() + sep);
-}
-
-/** What the tripwire found after a test: what the tests owned and removed, and what it left alone. */
-export interface Strays {
-  /** Entries the tests created, removed from the real home. */
-  removed: string[];
-  /** Entries new in the real home that the tests could not own: named, and never touched. */
-  leftAlone: string[];
-}
-
-/** The stray drafts in the real products home since the tests loaded, as the guard's third hold decides them. */
-export function noStrayDrafts(): Strays {
-  if (!existsSync(REAL_PRODUCTS_HOME) || !statSync(REAL_PRODUCTS_HOME).isDirectory()) return { removed: [], leftAlone: [] };
-  const removed: string[] = [];
-  const leftAlone: string[] = [];
-  for (const name of readdirSync(REAL_PRODUCTS_HOME)) {
-    if (BEFORE.has(name)) continue;
-    const path = join(REAL_PRODUCTS_HOME, name);
-    const owned = name.startsWith('idea-') && existsSync(join(path, 'workspace.yaml')) && statSync(path).ctimeMs >= LOADED_AT;
-    if (owned) {
-      rmSync(path, { recursive: true, force: true });
-      removed.push(name);
-    } else {
-      leftAlone.push(name);
-    }
+  if (home === undefined) return false;
+  try {
+    const real = realpathSync(home);
+    return real.startsWith(tmpdir() + sep) || real === tmpdir();
+  } catch {
+    return false;
   }
-  return { removed, leftAlone };
+}
+
+/** What the tripwire found after a test: everything new in the real home since it loaded, each named. */
+export interface Strays {
+  /** Entries new in the real home: named, and never touched — their removal is the operator's. */
+  newEntries: string[];
+}
+
+/** The entries the real products home gained since the tests loaded, each named and never touched. */
+export function noStrayDrafts(): Strays {
+  if (!existsSync(REAL_PRODUCTS_HOME) || !statSync(REAL_PRODUCTS_HOME).isDirectory()) return { newEntries: [] };
+  return { newEntries: readdirSync(REAL_PRODUCTS_HOME).filter((name) => !BEFORE.has(name)) };
 }

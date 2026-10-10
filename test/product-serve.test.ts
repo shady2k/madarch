@@ -55,8 +55,7 @@ afterEach(() => {
   stopAll();
   for (const dir of scratchFolders.splice(0)) rmSync(dir, { recursive: true, force: true });
   const strays = noStrayDrafts();
-  if (strays.leftAlone.length) throw new Error(`the tests left what they cannot own in the real products home, untouched: ${strays.leftAlone.join(', ')}`);
-  if (strays.removed.length) throw new Error(`the tests left stray drafts in the real products home (removed): ${strays.removed.join(', ')}`);
+  if (strays.newEntries.length) throw new Error(`the real products home gained entries while the tests ran (named, left in place): ${strays.newEntries.join(', ')}`);
 });
 process.on('exit', stopAll);
 
@@ -68,6 +67,7 @@ function runCommand(args: string[], overrides: Record<string, string> = {}, cwd?
   const run = spawnSync('bun', [CLI, ...args], {
     encoding: 'utf8',
     env,
+    timeout: 120_000, // a serving run never ends by itself: a run that serves instead of ending is stopped here, the suite never hangs
     ...(cwd === undefined ? {} : { cwd }),
   });
   return { status: run.status, stdout: run.stdout ?? '', stderr: run.stderr ?? '' };
@@ -350,7 +350,7 @@ describe('madarch serve: an existing product served', () => {
     await serve.finish();
   }, 30_000);
 
-  test('a step that fails exits 1: the server could not take the port it was given', () => {
+  test.skipIf(process.getuid?.() === 0)('a step that fails exits 1: the server could not take the port it was given', () => {
     // The start itself failing — a port the user may not listen on, not an
     // address already in use — is a failed step, exit 1, whole words added.
     const base = scratchFolder();
@@ -361,7 +361,7 @@ describe('madarch serve: an existing product served', () => {
     expect(run.status).toBe(1);
     expect(run.stderr).toContain('port 1');
     expect(run.stderr).toContain('the server could not be started');
-  });
+  }); // root or a capable environment may listen on the port and serve: the case is not a failure there
 
   test('a second serve while the dist stands builds nothing', async () => {
     const base = scratchFolder();
