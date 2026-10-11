@@ -374,9 +374,7 @@ function prototypePaths(productFolder: string): string[] {
   const folder = joinPath(productFolder, 'prototypes');
   if (lstatSyncQuiet(folder) === undefined) return [];
   const out: string[] = [];
-  const seen = new Set<string>();
-  const walk = (path: string, within: string, depth: number): void => {
-    if (depth > PROTOTYPE_WALK_DEPTH) return;
+  const walk = (path: string, within: string, walked: ReadonlySet<string>): void => {
     let entries: Dirent[];
     try {
       entries = readdirSync(path, { withFileTypes: true });
@@ -387,10 +385,11 @@ function prototypePaths(productFolder: string): string[] {
       const full = joinPath(path, entry.name);
       const rel = within === '' ? entry.name : `${within}/${entry.name}`;
       // The entry is read the way the set's check reads it: statSync
-      // follows symlinks, so a symlinked directory is a directory and its
-      // files count for the check's `Code:` rule — and for this key. A
-      // cycle ends where a real folder path is seen twice; the depth cap
-      // bounds the rest.
+      // follows symlinks, so a symlinked directory is a directory whose
+      // files count for the check's `Code:` rule — and for this key, each
+      // DECLARED path walked and hashed on its own name: two links to one
+      // real folder are two names the check can answer about (an alias
+      // changes which Code: exists), so the walk enters both.
       let follows: import('node:fs').Stats;
       try {
         follows = statSync(full);
@@ -398,23 +397,25 @@ function prototypePaths(productFolder: string): string[] {
         continue; // a dangling or unreadable entry holds no file the check can list
       }
       if (!follows.isDirectory()) { out.push(rel); continue; }
+      // A cycle — a link chain that comes back to a folder already on THE
+      // CURRENT PATH — ends here. The set travels down the recursion only:
+      // a sibling alias to a folder walked elsewhere is a distinct name
+      // and is entered all the same.
       let real: string;
       try {
         real = realpathSync(full);
       } catch {
         real = full;
       }
-      if (seen.has(real)) continue;
-      seen.add(real);
-      walk(full, rel, depth + 1);
+      if (walked.has(real)) continue;
+      const nextWalked = new Set(walked);
+      nextWalked.add(real);
+      walk(full, rel, nextWalked);
     }
   };
-  walk(folder, '', 0);
+  walk(folder, '', new Set());
   return out;
 }
-
-/** How deep the prototype walk follows folders, symlinked ones included. */
-const PROTOTYPE_WALK_DEPTH = 16;
 
 /**
  * Every Markdown path within the product, `docs/` depth first and `README.md`,

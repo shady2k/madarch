@@ -685,3 +685,87 @@ describe('the prototype walk deeper cases', () => {
     }
   });
 });
+
+describe('the convergence round two, held by tests', () => {
+  test('an ALIAS symlink to an already-walked real folder still feeds its files into the key', () => {
+    draft();
+    write('docs/vision.md', '# The vision\n\nThe reading comes first.\n');
+    write('docs/hypotheses/H-001-held.md', '# H-001 — Held\n\nGrew from: VISION\n\n## Belief\nWe believe.\n\n## Test\nTry.\n\n## Metric\nM.\n\n## Threshold\nT.\n');
+    write('docs/prototypes/P-001-tries.md', '# P-001 — Tries\n\nTests: H-001\nCode: prototypes/first\n\n## What it tries\nX.\n\n## How to run\nOpen it.\n');
+    const outside = mkdtempSync(join(tmpdir(), 'madarch-alias-real-'));
+    try {
+      // One real folder outside the product; two declared names inside:
+      // prototypes/first (a real folder) and prototypes/alias (a symlink
+      // to the same real folder, reached after the first walk).
+      writeFileSync(join(outside, 'index.html'), '<p>v1</p>\n');
+      mkdirSync(join(folder!, 'prototypes', 'first'), { recursive: true });
+      symlinkSync(outside, join(folder!, 'prototypes', 'first', 'shared'));
+      symlinkSync(outside, join(folder!, 'prototypes', 'alias'));
+      // A third prototype whose Code: is the ALIAS name itself: the
+      // alias's existence is a fact the check reads (does that folder
+      // hold files?), so the alias's declared name must reach the key
+      // even though its real folder was already walked.
+      write('docs/hypotheses/H-002-alias.md', '# H-002 — Alias\n\nGrew from: VISION\n\n## Belief\nWe believe.\n\n## Test\nTry.\n\n## Metric\nM.\n\n## Threshold\nT.\n');
+      write('docs/prototypes/P-002-alias.md', '# P-002 — Alias\n\nTests: H-002\nCode: prototypes/alias\n\n## What it tries\nX.\n\n## How to run\nOpen it.\n');
+      const one = wiki();
+      const first = one.page('docs/prototypes/P-002-alias.md');
+      if (!first.ok) throw new Error(first.message);
+      expect(first.page.check?.ran).toBe(true);
+      expect(first.page.findings).toEqual([]); // both declared names hold files
+      // Removing the ALIAS symlink: prototypes/alias now holds nothing,
+      // so P-002 gains the dangling-reference finding. The walk already
+      // visited the alias's real folder through first/shared — a walk
+      // that skipped it for that reason would keep the key still and
+      // answer these findings stale.
+      rmSync(join(folder!, 'prototypes', 'alias'));
+      const second = one.page('docs/prototypes/P-002-alias.md');
+      if (!second.ok) throw new Error(second.message);
+      expect(second.page.check?.ran).toBe(true);
+      expect(second.page.findings.some((finding) => finding.rule === 'dangling-reference')).toBe(true);
+      const triesPage = one.page('docs/prototypes/P-001-tries.md');
+      if (!triesPage.ok) throw new Error(triesPage.message);
+      expect(triesPage.page.findings).toEqual([]); // prototypes/first still holds its file
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('a DEEP prototype folder (30 levels, past any small cap) still feeds the key', () => {
+    draft();
+    write('docs/vision.md', '# The vision\n\nThe reading comes first.\n');
+    write('docs/hypotheses/H-001-held.md', '# H-001 — Held\n\nGrew from: VISION\n\n## Belief\nWe believe.\n\n## Test\nTry.\n\n## Metric\nM.\n\n## Threshold\nT.\n');
+    write('docs/prototypes/P-001-deep.md', '# P-001 — Deep\n\nTests: H-001\nCode: prototypes/deep-root\n\n## What it tries\nX.\n\n## How to run\nOpen it.\n');
+    let deep = join(folder!, 'prototypes', 'deep-root');
+    for (let level = 0; level < 30; level++) deep = join(deep, 'd');
+    mkdirSync(deep, { recursive: true });
+    writeFileSync(join(deep, 'leaf.html'), '<p>leaf</p>\n');
+    const one = wiki();
+    const first = one.page('docs/prototypes/P-001-deep.md');
+    if (!first.ok) throw new Error(first.message);
+    expect(first.page.check?.ran).toBe(true);
+    expect(first.page.findings).toEqual([]); // the Code: folder holds a file, 30 levels down
+    // A file added deeper still (level 31) turns the key: the walk has no
+    // small cap — the cycle guard is what ends it.
+    mkdirSync(join(deep, 'e'), { recursive: true });
+    writeFileSync(join(deep, 'e', 'late.html'), '<p>late</p>\n');
+    const second = one.page('docs/prototypes/P-001-deep.md');
+    if (!second.ok) throw new Error(second.message);
+    expect(second.page.check?.ran).toBe(true);
+  });
+
+  test('a symlink cycle ends: the pages still answer, the check still runs', () => {
+    draft();
+    write('docs/vision.md', '# The vision\n\nThe reading comes first.\n');
+    write('docs/hypotheses/H-001-held.md', '# H-001 — Held\n\nGrew from: VISION\n\n## Belief\nWe believe.\n\n## Test\nTry.\n\n## Metric\nM.\n\n## Threshold\nT.\n');
+    write('docs/prototypes/P-001-loop.md', '# P-001 — Loop\n\nTests: H-001\nCode: prototypes/loop\n\n## What it tries\nX.\n\n## How to run\nOpen it.\n');
+    mkdirSync(join(folder!, 'prototypes', 'loop'), { recursive: true });
+    write('prototypes/loop/keeper.html', '<p>keeper</p>\n');
+    // self is a symlink to the folder that holds it: a cycle.
+    symlinkSync(join(folder!, 'prototypes', 'loop'), join(folder!, 'prototypes', 'loop', 'self'));
+    const one = wiki();
+    const asked = one.page('docs/prototypes/P-001-loop.md');
+    if (!asked.ok) throw new Error(asked.message);
+    expect(asked.page.check?.ran).toBe(true);
+    expect(asked.page.findings).toEqual([]); // keeper.html counts; the cycle ended
+  });
+});

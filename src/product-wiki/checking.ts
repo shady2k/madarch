@@ -91,6 +91,7 @@ export function runProductCheck(productFolder: string): ProductCheckRun {
     }
     try {
       const answer = JSON.parse(run.stdout) as { version: string; findings: ProductFinding[] };
+      if (process.env['MADARCH_CHECK_DEBUG'] === '1') console.error('CHECKOUT:', run.stdout.slice(0, 600));
       return { ran: true, version: answer.version, findings: answer.findings };
     } catch {
       return {
