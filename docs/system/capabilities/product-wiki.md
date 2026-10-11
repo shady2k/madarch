@@ -255,3 +255,28 @@ file's real modification time, never placeholder content.
 - Given: the English and Russian JSON catalogues
 - When: their message keys are compared
 - Then: each key exists in both catalogues
+
+## Requirement: describe-guide — The engineer's guide carries the describing step
+The engineer's guide to starting a product from the repositories they
+already have (`docs/guides/start-a-product.md`) shall carry the describing
+step: after `madarch repo add` connects a repository, the engineer asks the
+agent running in the product folder to describe it; the guide shall say
+what the agent then writes — the repository's intended model with its
+evidence into the repository's own `madarch/` folder, the architecture page
+under `docs/repositories/name/`, the capabilities found in the code as
+requirements and use cases marked derived from code, the decisions found in
+the code or its ADRs — that a repository holding uncommitted changes is
+described only after they are committed, that everything is a page of the
+wiki the moment it is saved, and how to describe every connected
+repository at once. The guide's other sections and their commands stay as
+they are.
+
+### Scenario: guide-carries-the-step
+- Given: the guide at the change's revision
+- When: its sections are read
+- Then: a section after the agent-work section says to describe each repository after `madarch repo add`, names the four artifacts and the committed-checkout rule, and changes none of the guide's commands
+
+### Scenario: described-pages-appear-live
+- Given: a served fixture product whose repository has been described by the skill, its wiki open
+- When: one of the description's pages is saved again
+- Then: the open page shows the new text within two seconds, without a reload, and the page is in the navigation's groups

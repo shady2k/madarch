@@ -172,3 +172,84 @@ as unknown, naming what it accepts.
 - Given: the path `--home` names is a file
 - When: `madarch list` is run
 - Then: it exits 2 naming that path
+
+## Requirement: describe-step — madarch carries the describing step for a product to lay in
+madarch shall carry the describing step in its checkout, beside the pinned
+program, in one folder — `skills/describe-repository/` — holding the
+describing skill's `SKILL.md` and the section text `AGENTS-section.md` an
+engineer or their agent lays below the pinned program's maintained markers
+of a product's `AGENTS.md`. The section shall say that a code repository
+entered with `madarch repo add` is described before work begins; that the
+description follows the product's own skill `skills/describe-repository/`;
+and that the description writes the repository's intended model, with its
+evidence, into the repository's own `madarch/` folder, the architecture
+page under the product's `docs/repositories/name/`, the capabilities found
+in the code as requirements and use cases marked derived from code, and
+the decisions found in the code or its ADRs, each linked to the model
+elements it shapes. It shall say that a repository holding uncommitted
+changes is described only after they are committed, and that every page is
+written under `docs/` so the wiki shows it as it is saved. The engineer's
+guide shall name the copy: the folder copied into the product's `skills/`,
+the section appended to the product's `AGENTS.md` below the maintained
+markers. The pinned program's draft stays byte for byte what the program
+writes — decision 0019: the constitution is the program's, so a section is
+laid below its markers by whoever runs the product, never written into the
+pinned skeleton; a draft `madarch new` alone makes carries neither the
+skill folder nor the section until the copy is made.
+
+### Scenario: checkout-carries-the-step
+- Given: a madarch checkout at the change's revision
+- When: its `skills/describe-repository/` folder is listed and the two files are read
+- Then: it holds `SKILL.md` and `AGENTS-section.md`; the skill names the four artifacts, the model check command, the committed-checkout rule and the derived-from-code provenance shape; the section names the skill, the four artifacts, the committed-checkout rule and the wiki's live display
+
+### Scenario: a-fresh-draft-carries-nothing-until-copied
+- Given: a draft created by `madarch new` alone
+- When: its `AGENTS.md` and its `skills/` folder are read
+- Then: `AGENTS.md` is byte for byte the pinned program's constitution, and `skills/` holds only the program's `.gitkeep` — no describe-repository folder, no section
+
+### Scenario: the-copy-lays-the-step
+- Given: a fresh draft and a madarch checkout
+- When: the checkout's `skills/describe-repository/` folder is copied into the draft's `skills/` and its `AGENTS-section.md` is appended to the draft's `AGENTS.md`
+- Then: the draft's `AGENTS.md` holds the pinned constitution followed by the section, the section stands after the maintained markers, and the draft's `skills/` holds the skill beside the kept `.gitkeep`
+
+## Requirement: describe-skill — The product's own skill describes a repository into the wiki's artifacts
+A new product's `skills/` folder shall hold the product's own
+describe-repository skill, one Agent Skills folder whose instructions run,
+for one repository of the product's manifest: first the repository's
+intended model, written through madarch's model-writing machinery — the
+set's `write-intended-model` procedure and the model check run from a
+madarch checkout — into the repository's own `madarch/` folder with a
+review report beside it, every element, interface and relation carrying
+evidence naming the file, the line or range, and the commit and blob it was
+read from, the check finishing only on a run that exits 0; then the
+architecture page `docs/repositories/name/architecture.md` in the
+product's `docs/`, prose that names the model's views and links the model's
+folder and the review report by relative paths; then the capabilities found
+in the code as user stories, use cases and product requirements in the
+set's forms, continuing the product's own id numbering, each marked derived
+from code in its title and by `Source: code` and `Evidence:` lines in its
+`Sources` section naming the file and lines every statement was read from; and then one MADR decision record per
+decision found in the repository's code or its own ADRs, under
+`docs/repositories/name/decisions/`, each record naming the model ids it
+shapes. The skill shall refuse a checkout with uncommitted changes before
+reading it, naming the folder and the command that showed the changes; it
+shall update an existing model instead of rewriting it, keeping every id
+the changes do not concern; and it shall finish by running the product's
+document check on what it wrote and reporting the repository, the model
+check's verdict, the pages with their paths and the ids it took, leaving
+committing to the person.
+
+### Scenario: described-repository-shows-its-artifacts
+- Given: a fixture product whose manifest declares one small repository and whose checkout is clean
+- When: the describe-repository skill is run on that repository
+- Then: the repository's `madarch/` folder holds a model and a review report the model check passes, the product's `docs/repositories/name/` holds the architecture page, at least one requirement and one use case marked derived from code with `Source: code` and `Evidence:` lines of file-and-line citations in their `Sources` sections, and one decision record naming a model id, and every page the skill wrote is a page of the wiki
+
+### Scenario: uncommitted-checkout-refused
+- Given: a fixture product whose declared repository holds an uncommitted change
+- When: the describe-repository skill is asked to describe it
+- Then: nothing is written, and the refusal names the repository folder and the command that showed the changes
+
+### Scenario: evidence-is-traceable
+- Given: a requirement the skill derived from code
+- When: its `Evidence:` line is read and each citation opened
+- Then: every citation names a file of the repository and a line range, and the statement it supports reads at that place in the repository's committed text
