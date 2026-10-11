@@ -96,7 +96,7 @@ function intoApp(element: ReturnType<typeof createElement>): Promise<void> {
 }
 
 /** Waits until the tree matches, or fails after the plainly too-long wait. */
-async function until(holds: () => boolean, what: string): Promise<void> {
+async function until(holds: () => boolean | undefined, what: string): Promise<void> {
   for (let attempt = 0; attempt < 400; attempt++) {
     if (holds()) return;
     await new Promise((step) => setTimeout(step, 10));
@@ -357,6 +357,65 @@ describe('live update', () => {
     await until(() => text().includes('After the drop.'), 'the page saved after the drop');
     expect(answers).toBe(2);
   });
+  test('the status bar names the stream state on its own: Reconnecting until open, then Live', async () => {
+    // The first /api/events asks and holds its answer until the test lets it
+    // through: the connection state reads Reconnecting for as long as the
+    // stream is not open, and Live the moment it opens.
+    let open: ((response: Response) => void) | undefined;
+    (globalThis as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL): Promise<Response> => {
+      const target = input instanceof URL ? input.pathname + input.search : String(input);
+      if (target === EVENTS_PATH) {
+        return await new Promise<Response>((resolve) => {
+          open = (response) => resolve(response);
+        });
+      }
+      if (target === '/api/pages') return new Response(JSON.stringify(listWithPages), { status: 200, headers: { 'content-type': 'application/json' } });
+      if (target === '/api/product') return new Response(JSON.stringify(product), { status: 200, headers: { 'content-type': 'application/json' } });
+      if (target.startsWith('/api/page?path=')) return new Response(JSON.stringify(pagesAtR1['docs/vision.md']!), { status: 200, headers: { 'content-type': 'application/json' } });
+      return new Response(JSON.stringify({ message: 'nothing answers ' + target }), { status: 404 });
+    }) as unknown as typeof fetch;
+    goto('/p/docs/vision.md');
+    await intoApp(createElement(App, { reconnectMs: 5 }));
+    await until(() => open !== undefined, 'the stream is asked');
+    await until(() => document.querySelector('[data-testid="connection-status"]')?.textContent?.includes('Reconnecting'), 'a not-yet-open stream reads Reconnecting');
+    open?.(new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('retry: 3000\n\n'));
+      },
+    }), { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8' } }));
+    await until(() => document.querySelector('[data-testid="connection-status"]')?.textContent?.includes('Live'), 'an open stream reads Live');
+    expect(document.querySelector('[data-testid="connection-status"]')?.getAttribute('data-state')).toBe('live');
+  });
+
+  test('a stream that opens and then fails reads Reconnecting again', async () => {
+    let answers = 0;
+    (globalThis as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL): Promise<Response> => {
+      const target = input instanceof URL ? input.pathname + input.search : String(input);
+      if (target === EVENTS_PATH) {
+        answers += 1;
+        if (answers === 1) {
+          return new Response(new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('retry: 3000\n\n'));
+              setTimeout(() => controller.close(), 10);
+            },
+          }), { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8' } });
+        }
+        // The reconnection ask never answers: the broken stream's Reconnecting state stays visible.
+        return new Promise<Response>(() => undefined);
+      }
+      if (target === '/api/pages') return new Response(JSON.stringify(listWithPages), { status: 200, headers: { 'content-type': 'application/json' } });
+      if (target === '/api/product') return new Response(JSON.stringify(product), { status: 200, headers: { 'content-type': 'application/json' } });
+      if (target.startsWith('/api/page?path=')) return new Response(JSON.stringify(pagesAtR1['docs/vision.md']!), { status: 200, headers: { 'content-type': 'application/json' } });
+      return new Response(JSON.stringify({ message: 'nothing answers ' + target }), { status: 404 });
+    }) as unknown as typeof fetch;
+    goto('/p/docs/vision.md');
+    await intoApp(createElement(App, { reconnectMs: 5 }));
+    await until(() => document.querySelector('[data-testid="connection-status"]')?.textContent?.includes('Live'), 'the first stream opens Live');
+    await until(() => document.querySelector('[data-testid="connection-status"]')?.textContent?.includes('Reconnecting'), 'the broken stream reads Reconnecting');
+    expect(document.querySelector('[data-testid="connection-status"]')?.getAttribute('data-state')).toBe('reconnecting');
+  });
+
 });
 
 

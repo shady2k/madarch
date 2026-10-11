@@ -188,6 +188,8 @@ describe('the shell markup', () => {
     // the bar shows what the open document published
     expect(bar?.textContent).toContain('word count');
     expect(bar?.querySelector('[data-testid="connection-status"]')?.textContent).toContain('Reconnecting');
+    // the carried state names itself: a bare shell (no app stream bound) is reconnecting
+    expect(bar?.querySelector('[data-testid="connection-status"]')?.getAttribute('data-state')).toBe('reconnecting');
     expect(bar?.querySelector('.status-dot')).not.toBeNull();
   });
 
