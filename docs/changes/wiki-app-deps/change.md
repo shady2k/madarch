@@ -26,8 +26,19 @@ An app folder that cannot install alone breaks CI's wiki/app steps and
 every clean clone; a dependency the code imports belongs in the package
 that imports it.
 
+The same commit carries the walk-2 conformance fixes (note-walk-fixes no. 3 and 4): an
+architecture view or element page now reads "Architecture / the view's or element's name"
+in the top bar's breadcrumb and the document tab (the shell requirement's breadcrumb
+naming, which the pages did not follow), the arrows' numbered labels get a page-ground chip
+so the number reads over the line (the relation table keeps the mapping), and the report's
+LikeC4 line is corrected — the panel renders in the walk. No requirement text moves.
+
 ## Preserved contracts
 - product-wiki/app: the app is still built from wiki/app by the same build step; only the folder's own dependency list grows.
+- product-wiki/shell: the breadcrumb and tab rule is unchanged — architecture pages now follow it.
+- product-wiki/architecture: the diagram is still the shared renderer's Mermaid source; only its label legibility styling moves.
 
 ## Coverage
 - product-wiki/app: test
+- product-wiki/shell: test
+- product-wiki/architecture: test
