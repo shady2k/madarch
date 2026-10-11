@@ -90,13 +90,15 @@ None.
 
 ## Design and decisions
 - Nothing in the product's creation moves. The skeleton is the pinned
-  program's byte for byte (decision 0019); the describing step lands in the
-  two places a product's own writing lives, `AGENTS.md` and `skills/`, and
-  this change carries both texts — the `AGENTS.md` step as the wording an
-  engineer or the set's program puts under the maintained part, the skill as
-  the product's own skill folder — because madarch does not own a product's
-  constitution once the program has written it (decision 0019: the set owns
-  the forms, madarch the wiki).
+  program's byte for byte (decision 0019), and madarch does not own a
+  product's constitution once the program has written it, so the describing
+  step is carried by madarch in one folder of its checkout —
+  `skills/describe-repository/`, the skill's `SKILL.md` beside the
+  `AGENTS-section.md` text — and the guide names the copy: the folder into
+  the product's `skills/`, the section appended to the product's
+  `AGENTS.md` below the maintained markers, by the engineer or their agent.
+  A draft `madarch new` alone makes carries neither until the copy is made,
+  and the tests pin that honest absence.
 - The model is written through the machinery madarch already pins: the
   set's `write-intended-model` procedure (the claims ledger, the evidence
   rules, the review report) and the model check run from a madarch checkout.
@@ -139,6 +141,7 @@ describe-repository skill run by an agent produces: the repository's
 `docs/repositories/<name>/`, at least one requirement and one use case
 marked derived from code with file-and-line evidence, and one decision
 record linked to a model id; the wiki shows every page in both languages; the
-skeleton's `AGENTS.md` names the step and the skill; the guide carries the
-describing step; nothing under the real products home was touched, and no
+checkout's `skills/describe-repository/` holds the skill and the section
+text, the guide names the copy that lays them into a product; the guide
+carries the describing step; nothing under the real products home was touched, and no
 server or app code moved.

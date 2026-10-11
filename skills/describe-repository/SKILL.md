@@ -57,9 +57,10 @@ repository is for in the product; its elements and what each holds, from
 the model's second level; the relations between them, each named for what
 crosses; and which decisions shape it, linking the decision pages of step 4.
 Reference the model's views by name (`landscape`, the service's own page)
-and link the model's folder relatively (`../../../../repos/<name>/madarch/`
-from the page — relative links only; a product's folder may be renamed).
-Link the review report the same way.
+and link the model's folder relatively (`../../../repos/<name>/madarch/`
+from the page — three levels up from `docs/repositories/<name>/` to the
+product's root, then into `repos/`; relative links only, a product's folder
+may be renamed). Link the review report the same way.
 
 ### 3. Write the capabilities found in the code, as requirements and use cases
 

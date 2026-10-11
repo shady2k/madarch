@@ -173,32 +173,44 @@ as unknown, naming what it accepts.
 - When: `madarch list` is run
 - Then: it exits 2 naming that path
 
-## Requirement: describe-step — The skeleton's instructions carry the describing step
-The skeleton's `AGENTS.md` shall carry, after the program's maintained part,
-a section on describing the connected repositories: it shall say that a code
-repository entered with `madarch repo add` is described before work begins;
-that the description follows the product's own skill `skills/describe-repository/`;
+## Requirement: describe-step — madarch carries the describing step for a product to lay in
+madarch shall carry the describing step in its checkout, beside the pinned
+program, in one folder — `skills/describe-repository/` — holding the
+describing skill's `SKILL.md` and the section text `AGENTS-section.md` an
+engineer or their agent lays below the pinned program's maintained markers
+of a product's `AGENTS.md`. The section shall say that a code repository
+entered with `madarch repo add` is described before work begins; that the
+description follows the product's own skill `skills/describe-repository/`;
 and that the description writes the repository's intended model, with its
-evidence, into the repository's own `madarch/` folder, the architecture page
-under the product's `docs/repositories/name/`, the capabilities found in
-the code as requirements and use cases marked derived from code, and the
-decisions found in the code or its ADRs, each linked to the model elements
-it shapes. It shall say that a repository holding uncommitted changes is
-described only after they are committed, and that every page is written
-under `docs/` so the wiki shows it as it is saved. The section shall be
-outside the program's maintained markers, and the program's byte-for-byte
-pin of the skeleton stays as it is: this wording belongs to the product's
-own instructions, carried beside the pinned program, not inside it.
+evidence, into the repository's own `madarch/` folder, the architecture
+page under the product's `docs/repositories/name/`, the capabilities found
+in the code as requirements and use cases marked derived from code, and
+the decisions found in the code or its ADRs, each linked to the model
+elements it shapes. It shall say that a repository holding uncommitted
+changes is described only after they are committed, and that every page is
+written under `docs/` so the wiki shows it as it is saved. The engineer's
+guide shall name the copy: the folder copied into the product's `skills/`,
+the section appended to the product's `AGENTS.md` below the maintained
+markers. The pinned program's draft stays byte for byte what the program
+writes — decision 0019: the constitution is the program's, so a section is
+laid below its markers by whoever runs the product, never written into the
+pinned skeleton; a draft `madarch new` alone makes carries neither the
+skill folder nor the section until the copy is made.
 
-### Scenario: skeleton-names-the-step
-- Given: a draft created by `madarch new`
-- When: its `AGENTS.md` is read
-- Then: after the maintained markers it carries the describing section naming `skills/describe-repository/`, the four artifacts, the committed-checkout rule and the wiki's live display, and the rest of the file is byte for byte the pinned program's constitution
+### Scenario: checkout-carries-the-step
+- Given: a madarch checkout at the change's revision
+- When: its `skills/describe-repository/` folder is listed and the two files are read
+- Then: it holds `SKILL.md` and `AGENTS-section.md`; the skill names the four artifacts, the model check command, the committed-checkout rule and the derived-from-code provenance shape; the section names the skill, the four artifacts, the committed-checkout rule and the wiki's live display
 
-### Scenario: skill-folder-exists
-- Given: a draft created by `madarch new`
-- When: its `skills/` folder is listed
-- Then: it holds the describe-repository skill folder with its `SKILL.md`, beside the pinned program's `.gitkeep`
+### Scenario: a-fresh-draft-carries-nothing-until-copied
+- Given: a draft created by `madarch new` alone
+- When: its `AGENTS.md` and its `skills/` folder are read
+- Then: `AGENTS.md` is byte for byte the pinned program's constitution, and `skills/` holds only the program's `.gitkeep` — no describe-repository folder, no section
+
+### Scenario: the-copy-lays-the-step
+- Given: a fresh draft and a madarch checkout
+- When: the checkout's `skills/describe-repository/` folder is copied into the draft's `skills/` and its `AGENTS-section.md` is appended to the draft's `AGENTS.md`
+- Then: the draft's `AGENTS.md` holds the pinned constitution followed by the section, the section stands after the maintained markers, and the draft's `skills/` holds the skill beside the kept `.gitkeep`
 
 ## Requirement: describe-skill — The product's own skill describes a repository into the wiki's artifacts
 A new product's `skills/` folder shall hold the product's own
