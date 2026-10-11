@@ -161,8 +161,13 @@ When a product's wiki is served, its pages shall be shown by madarch's own app:
 the static files madarch's build produces from `wiki/app` in the madarch
 checkout (decision 0018). When those files are absent, the command shall
 build them once from that folder, saying so before it starts, and then serve
-them; while they are there it shall not build again. If the build fails, the
-command shall stop with exit 2 and print what the builder said.
+them. The build shall record into the dist the hash of the app's sources and
+lockfile, and the command shall compare that record against the sources on
+every later start: with sources unchanged it shall not build again; with
+sources changed since the build it shall build again, saying so in one line
+before it starts. A dist holding no record — built by hand — shall be served
+as it stands. If the build fails, the command shall stop with exit 2 and
+print what the builder said.
 
 
 
@@ -170,7 +175,15 @@ command shall stop with exit 2 and print what the builder said.
 ### Scenario: built-on-first-use
 - Given: a madarch checkout whose app has never been built
 - When: a product's wiki is served
-- Then: the app is built once, the command says so, and the wiki is served; serving a second time builds nothing
+- Then: the app is built once, the command says so, and the wiki is served; serving a second time with unchanged sources builds nothing
+### Scenario: sources-changed-since-the-build
+- Given: a checkout whose app was built from its sources, then a source file changed
+- When: a product's wiki is served again
+- Then: the app is built again, with one line saying so before it starts
+### Scenario: hand-built-dist
+- Given: a dist with no hash record of its build
+- When: a product's wiki is served
+- Then: nothing is built and the dist is served as it stands
 ### Scenario: build-fails
 - Given: an app folder whose build fails
 - When: a product's wiki is served
