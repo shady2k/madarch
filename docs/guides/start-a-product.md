@@ -205,3 +205,62 @@ folder it looked from and the `--product` it would have taken:
 
 Name a product explicitly when the command is run from elsewhere:
 `--product ~/madarch/products/gadgets`.
+
+## Describe each repository you connected
+
+The repositories under `repos/` join the product as code; the product's wiki
+shows documents. Before describing, give the product the describing step —
+`madarch new` creates the product's `skills/` empty, so copy the describing
+skill from the madarch checkout into the product and lay its AGENTS section
+below the maintained markers of the product's `AGENTS.md` (ask your agent to
+do it, or run, from the madarch checkout, with the product folder in
+`$PRODUCT`):
+
+    cp -r skills/describe-repository "$PRODUCT/skills/"
+    cat skills/describe-repository/AGENTS-section.md >> "$PRODUCT/AGENTS.md"
+
+Then ask the agent that runs in the product folder to describe a repository:
+
+    describe the library repository for this product
+
+The agent follows the product's own skill, `skills/describe-repository/`,
+and for each repository:
+
+1. writes the repository's intended model into the repository's own
+   `madarch/` folder with the model-writing skill and the model check —
+   every element, interface and relation carrying the file, the lines, the
+   commit and the blob it was read from;
+2. writes the repository's architecture page under the product's
+   `docs/repositories/library/`, prose that names the model's views and
+   links them;
+3. writes what the code can do as requirements and use cases marked
+   derived from code, each statement naming the file and the lines it was
+   read from;
+4. writes the decisions found in the code or in the repository's own ADRs
+   as decision records, each linked to the model elements it shapes.
+
+Everything is written as the wiki's pages: the wiki's live stream carries
+every save, so a file written under `docs/` shows on its page
+within two seconds, without a reload. Describe each repository you connected:
+
+    describe every repository under repos/
+
+A repository that holds uncommitted changes is refused before anything is
+read: the evidence the model pins is committed text (`git -C repos/library
+status --porcelain` must print nothing). What the agent writes lands in two
+places — the model in the repository's `madarch/` folder (kept with that
+repository's own history), the pages in the product's `docs/` (kept with the
+product's) — and nothing of it needs the wiki restarted.
+
+## How the commands find the product
+
+The lifecycle commands (`rename`, `remote`, `repo add`, `bootstrap`) take
+the product from where you stand: the product the working folder is, or the
+product a checkout under its `repos/` is checked out from. Run a command
+where no product stands above, and it refuses with exit 2, naming the
+folder it looked from and the `--product` it would have taken:
+
+    no product was found above /home/you/somewhere: run the command in a product folder or in a checkout under its repos/, or name the product with --product <folder>
+
+Name a product explicitly when the command is run from elsewhere:
+`--product ~/madarch/products/gadgets`.
