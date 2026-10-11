@@ -3,7 +3,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import { createRoot, type Root } from 'react-dom/client';
 import { createElement } from 'react';
 import { StagePage, TaskGroups, addressOfStage } from './stages.js';
-import { stageIds } from './shell.js';
+import { groupOf, stageIds } from './shell.js';
 import { setWikiLanguage } from './i18n.js';
 import { addressOfStageRoute, routeOf } from './routes.js';
 import type { StagesIndex } from './api.js';
@@ -173,13 +173,23 @@ describe('the stages view', () => {
     expect(text()).toContain('Stage one accepted');
   });
 
-  test("the other features' sections are quiet text until their routes land in this build", async () => {
+  test("the other features' sections link their routes — both sections are served by the app", async () => {
     into(createElement(StagePage, { stage: index.stages.find((stage) => stage.id === 'build')!, index }));
     await until(() => document.querySelector('[data-testid="stage-section-repositories"]') !== null, 'the repositories line');
     const line = document.querySelector('[data-testid="stage-section-repositories"]');
-    // Not a link in this build: the Repositories section is another change's work.
-    expect(line?.querySelector('a')).toBeNull();
-    expect(line?.textContent).toContain('Repositories');
+    // Both sections exist on main: the line is a real link to the route.
+    const anchor = line?.querySelector('a');
+    expect(anchor).not.toBeNull();
+    expect(anchor?.getAttribute('href')).toBe('/r');
+  });
+
+  test("a described repository's pages group under repositories, never as Other", () => {
+    // The first folder under docs/ names the group at any depth (main's landed rule).
+    expect(groupOf('docs/repositories/library/stories/US-002-parse.md')).toBe('repositories');
+    expect(groupOf('docs/repositories/library/requirements/FR-010.md')).toBe('repositories');
+    expect(groupOf('docs/repositories/library/architecture.md')).toBe('repositories');
+    expect(groupOf('docs/repositories/library/README.md')).toBe('repositories');
+    expect(groupOf('docs/stories/US-001.md')).toBe('stories');
   });
 
   test("the Build stage's mended and dropped rows surface with their file and line", async () => {

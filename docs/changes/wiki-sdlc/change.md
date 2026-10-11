@@ -1,7 +1,7 @@
 # The wiki shows the product's life cycle: every SDLC stage from the real files
 
 Change: wiki-sdlc
-Base: 7d9ac8015e0902b28303b26cbef80980fdb2b781
+Base: 359f8d791b0def8f249119617ff9aece99523534
 Tasks: madarch-iuc.16
 Kind: behavior
 

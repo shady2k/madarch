@@ -229,7 +229,8 @@
       "release notes": "Release notes",
       "incident record": "Incident record",
       "architecture views": "Architecture views",
-      "task": "Task"
+      "task": "Task",
+      "repository architecture": "Repository architecture"
     }
   },
   "repos": {

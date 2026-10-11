@@ -229,7 +229,8 @@
       "release notes": "Заметки о выпуске",
       "incident record": "Запись об инциденте",
       "architecture views": "Виды архитектуры",
-      "task": "Задача"
+      "task": "Задача",
+      "repository architecture": "Архитектура репозитория"
     }
   },
   "repos": {

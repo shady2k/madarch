@@ -152,6 +152,50 @@ use the selected catalogue.
 - When: the Architecture page is opened, and any document page with it
 - Then: the Architecture page lists the error with the file's path, the line number and the offending value's path, and the document pages render as usual
 
+## Requirement: repositories — The manifest's code repositories in the wiki
+When the product's manifest declares code repositories (`workspace.yaml`, the
+`repos` list), the wiki shall show them in a repositories section at its own
+address `/r`, reached from a sidebar entry that carries the section's label
+and the count of the declared repositories, and the sidebar shall hold no
+repositories entry and no `/r` route when the manifest declares none — no
+empty stub, no dead link. Every declared repository shall have one row naming
+its name, its url and its branch when the manifest declares one, and the
+state of its checkout under the product's `repos/` folder: `checked out`
+when `repos/NAME` is a folder holding a git repository of its own, `not
+checked out` when nothing stands there, and `unreadable` — with the cause
+named — when the name is taken by something else, a symlink, a folder with
+no repository of its own, a HEAD git cannot show, or bytes that cannot be
+read. A checkout's last commit shall be shown as its short sha, its subject
+and its age, read by read-only git at the checkout at ask time, and the age
+through the same relative-time machinery the pages' change times use. When a
+checked-out checkout's root holds a README (any case), its bytes shall be
+rendered as markdown through the same pipeline the pages use; when there is
+none, the row shall say so quietly. The section's strings shall follow the
+wiki's own language the way the chrome's do, counts through `Intl`, and the
+git calls the section makes shall write nothing and never reach past the
+checkout's own repository.
+
+### Scenario: declared-and-not-checked-out
+- Given: a product whose manifest declares `core` (no branch) and `web` (branch `main`), with nothing under its `repos/`
+- When: its wiki's repositories section is read
+- Then: it shows `core` with its url as not checked out and `web` with its url and `branch: main` as not checked out, the sidebar entry names the section with the count 2, and the row states read in Russian as «Не склонирован» when the chrome is Russian
+### Scenario: checked-out-with-readme-and-head
+- Given: a product whose `repos/core` holds a git repository of its own with one commit "Make the core" and a `README.md`
+- When: its wiki's repositories section is read
+- Then: `core` reads checked out, the row carries the commit's short sha, its subject and its age, and the README renders as markdown under the row
+### Scenario: no-repos-declared
+- Given: a product whose manifest holds no `repos` item
+- When: its wiki is read
+- Then: no repositories entry stands in the sidebar, `/r` answers the home's content, and no repositories section is shown anywhere
+### Scenario: unreadable-checkout
+- Given: a product whose manifest declares `broken` while `repos/broken` is a plain folder with no git repository of its own
+- When: its wiki's repositories section is read
+- Then: `broken` reads unreadable with the path named, and the section itself still answers
+### Scenario: served-read-only
+- Given: a served product whose `repos/core` is a checked-out repository
+- When: its repositories section is read
+- Then: the checkout's files and git status are unchanged, and a second commit inside the checkout is what the next ask reports
+
 ## Requirement: stages — Every stage of the life cycle is visible, in order, from the real files
 When a product's wiki is served, the app shall show the SDLC stages as
 sections in the life cycle's own order — Idea, Requirements, Design, Build,
@@ -163,11 +207,15 @@ every ask and never written to:
   the prototypes and their results, each with its page path, its title and its
   kind, linking to the page the wiki already serves;
 - the Requirements stage: the user stories, the use cases and the product
-  requirements, the same way;
-- the Design stage: the decision records and the design specs, the same way;
-  where the product holds an intended model (`model/`), the stage names the
-  Architecture section and links to it instead of repeating it — the
-  Architecture section itself is another change's work and is not built here;
+  requirements, the same way — and the described repositories' derived
+  documents the describe-repository skill writes under
+  `docs/repositories/REPO/`, named by their full paths;
+- the Design stage: the decision records and the design specs, the same
+  way, beside the described repositories' architecture pages and their
+  decision records; where the product holds an intended model (`model/`),
+  the stage names the Architecture section and links to it instead of
+  repeating it — the Architecture section itself is another change's work
+  and is not built here;
 - the Build stage: the product's tasks, read only from the tracker's own
   export `.beads/issues.jsonl`, an open, in-progress or done status each,
   grouped by the feature (the tracker epic) each hangs under by its
@@ -207,7 +255,10 @@ surfaced at its full path and line while the groups stand.
 Every stage name, kind name, status and missing-skill line of the app's own
 wording shall go through the same message catalogues as the rest of the
 chrome, in English and Russian, with the task counts through
-`Intl.PluralRules`.
+`Intl.PluralRules`. A set-form document is its id, not its folder: a
+document whose identity line names a known id prefix stands on its stage
+wherever under `docs/` it lives, and the navigation groups a described
+repository's pages by their kind folders beside the product's own.
 
 ### Scenario: stages-order-and-navigation
 - Given: a served product

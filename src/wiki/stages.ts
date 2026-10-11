@@ -151,6 +151,9 @@ const KIND_FOLDERS: ReadonlyArray<{ stage: StageId; kind: string; folder: string
 /** The tracker export the Build stage reads its tasks from. */
 const TRACKER_EXPORT = '.beads/issues.jsonl';
 
+/** The folder the describe-repository skill writes each repository's derived documents under. */
+const REPOSITORY_DOCS = 'docs/repositories';
+
 /**
  * Where ship-release's records are read. The notes are the project's
  * changelog — Keep a Changelog's is the common form the skill names — and
@@ -210,6 +213,65 @@ export function readStagesIndex(productFolder: string): StagesIndex {
     const builder = stageOf.get(entry.stage)!;
     const full = joinPath(productFolder, ...entry.folder.split('/'));
     for (const artifact of documentsOf(full, entry.kind, entry.plural, problems)) builder.artifacts.push(artifact);
+  }
+
+  // The described repositories (the describe-repository skill's own layout):
+  // what the skill derived from each repository's code stands under
+  // docs/repositories/<name>/ in the set's kind folders, and its architecture
+  // page beside them. Those are the Requirements and Design stages' material
+  // as much as the product's own documents — the stages read them too, named
+  // by their full path, which the page reader serves.
+  const reposDocs = joinPath(productFolder, ...REPOSITORY_DOCS.split('/'));
+  for (const name of fileNames(reposDocs, undefined, problems)) {
+    const repoFolder = joinPath(reposDocs, name);
+    const architecturePage = joinPath(repoFolder, 'architecture.md');
+    if (existsSync(architecturePage)) {
+      try {
+        stageOf.get('design')!.artifacts.push({
+          path: `${REPOSITORY_DOCS}/${name}/architecture.md`,
+          title: titleOf(readFileSync(architecturePage, 'utf8'), name),
+          kind: 'repository architecture',
+          served: true,
+        });
+      } catch (error) {
+        problems.push({ where: architecturePage, message: (error as Error).message });
+      }
+    }
+    for (const entry of KIND_FOLDERS) {
+      if (entry.stage !== 'requirements' && entry.stage !== 'design') continue;
+      if (!entry.plural) continue;
+      const kindFolder = joinPath(repoFolder, ...entry.folder.split('/').slice(1));
+      for (const artifact of documentsOf(kindFolder, entry.kind, true, problems)) builderOf(stageOf, entry.stage).push(artifact);
+    }
+  }
+
+  // The identity sweep: a set-form document is its id, wherever it sits.
+  // Every page under docs/ the kind folders did not already claim is read
+  // for its identity line, and a known id prefix puts it on its stage — a
+  // derived FR the describe-repository skill left in any folder still stands
+  // on the Requirements stage, a decision record in any repository's
+  // subtrees still stands on Design. Duplicates by path are impossible (the
+  // sweep skips every path the folders already claimed); the artifacts are
+  // deduplicated by path at the end.
+  const claimed = new Set<string>([...stageOf.values()].flatMap((b) => b.artifacts.map((a) => a.path)));
+  for (const page of markdownPagesUnder(joinPath(productFolder, 'docs'), problems)) {
+    if (claimed.has(page.path)) continue;
+    let text: string;
+    try {
+      text = readFileSync(joinPath(productFolder, ...page.path.split('/')), 'utf8');
+    } catch (error) {
+      problems.push({ where: joinPath(productFolder, ...page.path.split('/')), message: (error as Error).message });
+      continue;
+    }
+    const identity = /^#\s+([A-Z]+-\d{3,})\b/.exec(text);
+    if (identity === null) continue;
+    const where = KIND_BY_PREFIX.get(identity[1]!.slice(0, identity[1]!.indexOf('-')));
+    if (where === undefined) continue;
+    stageOf.get(where.stage)!.artifacts.push({ path: page.path, title: titleOf(text, page.path.split('/').pop()!), kind: where.kind, served: true });
+  }
+  for (const builder of stageOf.values()) {
+    const seen = new Set<string>();
+    builder.artifacts = builder.artifacts.filter((a) => (seen.has(a.path) ? false : seen.add(a.path)));
   }
 
   // The Build stage's tasks: read-only from the same export the tracker writes.
@@ -286,6 +348,39 @@ export function readStagesIndex(productFolder: string): StagesIndex {
     return buildSection(builder);
   });
   return { stages, problems };
+}
+
+/** The set's id prefixes and the stage and kind each names. */
+const KIND_BY_PREFIX = new Map<string, { stage: StageId; kind: string }>([
+  ['S', { stage: 'idea', kind: 'source' }],
+  ['H', { stage: 'idea', kind: 'hypothesis' }],
+  ['Q', { stage: 'idea', kind: 'open question' }],
+  ['P', { stage: 'idea', kind: 'prototype' }],
+  ['R', { stage: 'idea', kind: 'result' }],
+  ['US', { stage: 'requirements', kind: 'user story' }],
+  ['UC', { stage: 'requirements', kind: 'use case' }],
+  ['FR', { stage: 'requirements', kind: 'product requirement' }],
+]);
+
+/** Every Markdown page under one folder, at any depth, in code point order of their paths. */
+function markdownPagesUnder(folder: string, problems: { where: string; message: string }[]): { path: string }[] {
+  const pages: { path: string }[] = [];
+  const walk = (current: string, within: string): void => {
+    for (const name of fileNames(current, '.md', problems)) {
+      pages.push({ path: within === '' ? name : `${within}/${name}` });
+    }
+    for (const name of fileNames(current, undefined, problems)) {
+      walk(joinPath(current, name), within === '' ? name : `${within}/${name}`);
+    }
+  };
+  if (!existsSync(folder)) return pages;
+  walk(folder, 'docs');
+  return pages;
+}
+
+/** The artifact list of one stage's builder, for the repository-subtree reads. */
+function builderOf(stageOf: Map<StageId, StageSectionBuilder>, id: StageId): StageArtifact[] {
+  return stageOf.get(id)!.artifacts;
 }
 
 /** Every task in a Build stage's groups, for the missing-line decision. */

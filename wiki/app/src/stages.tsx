@@ -160,10 +160,10 @@ function SectionLinks({ links }: { links: readonly StageSectionLink[] }): ReactE
   );
 }
 
-/** The routes the other features' sections answer, when their changes land. */
+/** The routes the other features' sections answer; both sections are served by the app. */
 const ARCHITECTURE_ADDRESS = '/p/madarch/architecture';
 const REPOSITORIES_ADDRESS = '/r';
-const KNOWN_SECTION_ROUTES = new Set<string>([]);
+const KNOWN_SECTION_ROUTES = new Set<string>([ARCHITECTURE_ADDRESS, REPOSITORIES_ADDRESS]);
 
 /** The one stage's own page: every artifact a link, the tasks of Build, the linked sections, the missing lines. */
 export function StagePage({ stage, index }: { stage: StageSection; index: StagesIndex }): ReactElement {

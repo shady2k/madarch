@@ -461,6 +461,63 @@ describe('the stage index of a product', () => {
     expect(stagesSourceDigest(folder!)).not.toBe(withDocs);
   });
 
+  test("a described repository's derived documents land on their stages beside the product's own", () => {
+    draft();
+    write('docs/stories/US-001-own.md', "# US-001 — The product's own story\nGrew from: H-001\n");
+    write('docs/repositories/library/stories/US-002-parse.md', '# US-002 derived from code — parse the model\nGrew from: H-001\n');
+    write('docs/repositories/library/use-cases/UC-002-load.md', '# UC-002 derived from code — load a model\nServes: US-002\n');
+    write('docs/repositories/library/requirements/FR-010-parse.md', '# FR-010 derived from code — parse in a second\nServes: UC-002\n');
+    write('docs/repositories/library/decisions/0002-refine.md', '# Keep the ids the change does not concern\n');
+    write('docs/repositories/library/architecture.md', "# The library's architecture\n\nViews and their links.\n");
+    const index = readStagesIndex(folder!);
+    const requirements = index.stages.find((stage) => stage.id === 'requirements')!;
+    expect(requirements.artifacts.map((a) => a.path)).toEqual([
+      'docs/repositories/library/requirements/FR-010-parse.md',
+      'docs/repositories/library/stories/US-002-parse.md',
+      'docs/repositories/library/use-cases/UC-002-load.md',
+      'docs/stories/US-001-own.md',
+    ]);
+    expect(requirements.artifacts.every((a) => a.served)).toBe(true);
+    expect(requirements.artifacts.find((a) => a.path === 'docs/repositories/library/stories/US-002-parse.md')!.title)
+      .toBe('US-002 derived from code — parse the model');
+    const design = index.stages.find((stage) => stage.id === 'design')!;
+    expect(design.artifacts.map((a) => a.path)).toEqual([
+      'docs/repositories/library/architecture.md',
+      'docs/repositories/library/decisions/0002-refine.md',
+    ]);
+    expect(design.artifacts.find((a) => a.kind === 'repository architecture')).toBeDefined();
+    expect(design.artifacts.find((a) => a.path === 'docs/repositories/library/decisions/0002-refine.md')!.kind).toBe('decision');
+  });
+
+  test('a repository subtree that cannot be read is a problem naming the folder, never silence', () => {
+    draft();
+    const repo = join(thisFolder(), 'docs', 'repositories', 'library', 'stories');
+    mkdirSync(join(thisFolder(), 'docs', 'repositories', 'library', 'stories'), { recursive: true });
+    write('docs/repositories/library/stories/US-009.md', '# US-009\n');
+    chmodSync(join(thisFolder(), 'docs', 'repositories', 'library', 'stories'), 0o000);
+    const index = readStagesIndex(thisFolder());
+    chmodSync(join(thisFolder(), 'docs', 'repositories', 'library', 'stories'), 0o755);
+    expect(index.problems.some((p) => p.where === repo && p.message.includes('could not be read'))).toBe(true);
+  });
+
+  test('a set-form document is counted by its id wherever it lives', () => {
+    draft();
+    write('docs/repositories/x/notes/FR-099-derived.md', '# FR-099 derived from code — anything it does\nServes: UC-001\n');
+    write('docs/repositories/x/US-042-elsewhere.md', '# US-042 derived from code — another slice\nGrew from: H-001\n');
+    write('docs/elsewhere/Q-003-unowned.md', '# Q-003 — Who owns this?\nConcerns: VISION\n');
+    // A page with no identity line is nobody's artifact.
+    write('docs/repositories/x/README.md', '# The library\n');
+    const index = readStagesIndex(folder!);
+    const requirements = index.stages.find((stage) => stage.id === 'requirements')!;
+    expect(requirements.artifacts.map((a) => a.path)).toEqual([
+      'docs/repositories/x/US-042-elsewhere.md',
+      'docs/repositories/x/notes/FR-099-derived.md',
+    ]);
+    const idea = index.stages.find((stage) => stage.id === 'idea')!;
+    expect(idea.artifacts.map((a) => a.path)).toEqual(['docs/elsewhere/Q-003-unowned.md']);
+    expect(idea.artifacts[0]!.kind).toBe('open question');
+  });
+
   test('reading the stages changes nothing in the product', () => {
     draft();
     write('docs/vision.md', '# Vision\n');
