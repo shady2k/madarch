@@ -18,9 +18,9 @@ export const Toggle = forwardRef<HTMLButtonElement, ToggleProps>(function Toggle
     <TogglePrimitive.Root
       ref={ref}
       className={cn(
-        'inline-flex select-none items-center justify-center rounded-[5px] text-secondary outline-none',
-        'hover:bg-pill hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-page',
-        'data-[state=on]:bg-pill data-[state=on]:text-ink disabled:pointer-events-none disabled:opacity-50',
+        'ui-toggle inline-flex select-none items-center justify-center rounded-[var(--radius-control)] text-secondary outline-none transition-colors duration-150 motion-reduce:transition-none',
+        'hover:bg-[var(--surface-hover)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-page',
+        'data-[state=on]:bg-[var(--surface-active)] data-[state=on]:text-ink disabled:pointer-events-none disabled:opacity-50',
         className,
       )}
       {...props}

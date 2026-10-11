@@ -31,14 +31,14 @@ export const SheetContent = forwardRef<
       <DialogPrimitive.Content
         ref={ref}
         className={cn(
-          'fixed z-50 flex w-[min(280px,_82vw)] flex-col bg-chrome shadow-[var(--nav-shadow)] outline-none',
+          'sheet-drawer fixed z-50 flex w-[min(280px,_82vw)] flex-col rounded-r-[var(--radius-panel)] border border-line bg-[var(--surface-menu)] shadow-[var(--nav-shadow)] outline-none',
           sideClasses[side],
           className,
         )}
         {...props}
       >
         <DialogPrimitive.Title className="sr-only">{title}</DialogPrimitive.Title>
-        <DialogPrimitive.Close className="absolute right-2 top-2 rounded-[5px] p-1 text-secondary hover:bg-pill hover:text-ink">
+        <DialogPrimitive.Close className="absolute right-2 top-2 rounded-[var(--radius-control)] p-1 text-secondary hover:bg-[var(--surface-hover)] hover:text-ink">
           <XIcon aria-hidden="true" size={16} />
           <span className="sr-only">{closeLabel}</span>
         </DialogPrimitive.Close>

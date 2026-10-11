@@ -87,10 +87,12 @@ describe('the entry stylesheet', () => {
 
   test('the column, the leading, the two-em head and the wrap ride the tokens', () => {
     const block = indexCss.slice(indexCss.indexOf('.shell-document {'), indexCss.indexOf('}', indexCss.indexOf('.shell-document {')));
-    expect(block).toContain('max-inline-size: var(--measure);');
+    expect(block).toContain('max-inline-size: calc(var(--measure) + 48px);');
     expect(block).toContain('overflow-wrap: break-word;');
-    expect(block).toContain('margin-block-start: 2.5em;');
-    expect(indexCss).toMatch(/@media \(max-width: 700px\)[\s\S]*?\.shell-document[\s\S]*?padding-inline: 24px;/);
+    expect(block).toContain('padding: calc(2.5em + 14px) 24px 2.5em;');
+    expect(block).toContain('border-radius: var(--radius-page) var(--radius-page) 0 0;');
+    expect(block).toContain('box-shadow: var(--shadow-medium);');
+    expect(indexCss).toMatch(/@media \(max-width: 700px\)[\s\S]*?\.shell-document[\s\S]*?padding: calc\(2.5em - 8px\) 24px 2.5em;/);
   });
 
   test('the paragraph gap is the research value, first paragraph above it keeps 0', () => {
@@ -114,6 +116,15 @@ describe('the entry stylesheet', () => {
 
   test('a long word wraps inside the column, never the page', () => {
     expect(indexCss).toMatch(/\.shell-document \{[\s\S]*overflow-wrap: break-word;/s);
+  });
+
+  test('home overview rows are not underlined by the document-link rule', () => {
+    const row = indexCss.slice(indexCss.indexOf('.home-row {'), indexCss.indexOf('}', indexCss.indexOf('.home-row {')));
+    expect(row).toContain('border-block-end: none;');
+    expect(indexCss).toContain('.home-row:hover {');
+    expect(indexCss).toContain('background: var(--surface-hover);');
+    expect(indexCss).toContain('main a {');
+    expect(indexCss).toContain('border-block-end: 1px solid var(--link-underline);');
   });
 
   test('the table scrolls in its own wrap and phone cells hold the 9em minimum', () => {

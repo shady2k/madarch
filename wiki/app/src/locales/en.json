@@ -19,8 +19,7 @@
     "contextUnavailable": "Page context is not available yet",
     "language": "Language",
     "english": "English",
-    "russian": "Russian",
-    "switchTo": "Switch language to {{language}}"
+    "russian": "Russian"
   },
   "groups": {
     "product": "Product",
@@ -86,6 +85,7 @@
   },
   "tooltips": {
     "productId": "Product id: {{id}}",
-    "contextUnavailable": "Page context is not available yet"
+    "contextUnavailable": "Page context is not available yet",
+    "language": "Choose language"
   }
 }

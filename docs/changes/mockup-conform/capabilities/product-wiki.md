@@ -40,10 +40,14 @@ a product with no pages shall say that it has none yet.
 - Then: the link to `vision.md` opens the vision page, and the link to `AGENTS.md` is not a page of the wiki
 
 ## Requirement: shell — The reading shell holds the navigation, the document and the panel place
-When a product's wiki is served, its pages shall be shown in a reading shell: a left navigation holding the product's name and its documents grouped by kind — the kind a page's path names, pages outside a kind by themselves — with the current page marked visually and by its accessibility attributes, and every page of the wiki one click away from it; the document in the centre as the main element; and a place for a right context panel, closed by default and empty until content fills it. A focus mode shall hide both panels and bring them back, and on a narrow screen the navigation shall open from a menu without narrowing the document's column.
+When a product's wiki is served, its pages shall be shown in a reading shell: a left navigation holding the product's name and its documents grouped by kind — the kind a page's path names, pages outside a kind by themselves — with the current page marked visually and by its accessibility attributes, and every page of the wiki one click away from it; the document in the centre as the main element; and a place for a right context panel, closed by default and empty until content fills it. A focus mode shall hide both panels and bring them back, and on a narrow screen the navigation shall open from a menu without narrowing the document's column. Language selection shall live in a globe menu in the top bar; the globe button shall have a localized accessible name and tooltip, and the menu shall mark the current language as checked.
 
 The shell shall fill the window at any window height: its sidebar, its top bar and its tab strip stay while only the document column scrolls, and a tab strip row under the top bar carries the open file name (the view switch and history arrive with the editor work and no control stands dead). The status bar stands at the very bottom of the window, outside the scrolled content, and carries on its left the wiki's actual live-connection state — Live when the event stream is open, Reconnecting while it is not — with nothing claimed about browser persistence. The chrome reads as the mockup lays it: the brand as the product's own mark, a product block naming the product with its "Product space" line and an initial square about 36 px, no trailing chevron on the product overview row, the sidebar's group heading in small muted uppercase, and a breadcrumb whose parent sits muted around a spaced slash with the current page in the primary text colour.
 
+### Scenario: language-menu
+- Given: the wiki is open with English chrome and the reader opens the globe menu
+- When: the menu is shown and Russian is chosen
+- Then: the menu marks English as checked before the choice, then the chrome changes to Russian and the saved preference is Russian
 ### Scenario: navigation-groups-and-marks
 - Given: a served product whose `docs/` holds a vision, a requirement, a decision and a research note, opened at one of them
 - When: its page is read in a browser
@@ -72,7 +76,12 @@ The shell shall fill the window at any window height: its sidebar, its top bar a
 ## Requirement: reading-typography — Pages read on the shared design tokens
 The app's styles shall take their values from one tokens module the editor of madarch-j0a reuses: font families, a type scale, spacing, colours, a light theme and a dark theme that follows the system setting. It shall ship the fonts it names — Inter for text and a monospace face — under the SIL Open Font Licence with Cyrillic, licences recorded beside the files, with a fallback stack for macOS, Linux and Windows. A page's text column shall measure 60 to 75 characters of body text with a body line height of 1.4 to 1.6, its heading scale shall keep a steady vertical rhythm, its quotes, code blocks, lists and tables shall read comfortably, and no element shall overflow the column at 1150 px or 390 px width.
 
-The document typography reads like the mockup: the body rides the mockup's 18 px, heading weights sit medium with the mockup's normal tracking, the eyebrow and the lead sit as the mockup places them, and the column measure may take the mockup's proportion where the window gives it room.
+The document typography reads like the mockup: the body rides the mockup's 18 px, heading weights sit medium with the mockup's normal tracking, the eyebrow and the lead sit as the mockup places them, and the column measure may take the mockup's proportion where the window gives it room. The shared design tokens define calm, neutral surfaces, radii and three restrained shadow levels in both themes. The shell uses them consistently, keeps hover and focus visible, and honors reduced motion.
+
+### Scenario: layered-surfaces-and-accessible-states
+- Given: the wiki is shown in light or dark theme, including with reduced motion requested
+- When: its navigation, document, cards, controls, code and menus are read or focused
+- Then: their surfaces and radii follow the shared tokens, elevation stays restrained, hover and keyboard focus remain visible, and reduced motion disables transitions
 
 ### Scenario: column-and-leading
 - Given: a fixture product whose page holds paragraphs, headings of every level, a list, a quote, a code block, a table and a long line

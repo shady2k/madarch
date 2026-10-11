@@ -42,8 +42,12 @@ a product with no pages shall say that it has none yet.
 ## Requirement: shell — The reading shell holds the navigation, the document and the panel place
 When a product's wiki is served, its pages shall be shown in a reading shell: a left navigation holding the product's name and its documents grouped by kind — the kind a page's path names, pages outside a kind by themselves — with the current page marked visually and by its accessibility attributes, and every page of the wiki one click away from it; the document in the centre as the main element; and a place for a right context panel, closed by default and empty until content fills it. A focus mode shall hide both panels and bring them back, and on a narrow screen the navigation shall open from a menu without narrowing the document's column.
 
-The shell shall fill the window at any window height: its sidebar, its top bar and its tab strip stay while only the document column scrolls, and a tab strip row under the top bar carries the open file name (the view switch and history arrive with the editor work and no control stands dead). The status bar stands at the very bottom of the window, outside the scrolled content.
+The shell shall fill the window at any window height: its sidebar, its top bar and its tab strip stay while only the document column scrolls, and a tab strip row under the top bar carries the open file name (the view switch and history arrive with the editor work and no control stands dead). The status bar stands at the very bottom of the window, outside the scrolled content. Language selection shall live in a globe menu in the top bar; the globe button shall have a localized accessible name and tooltip, and the menu shall mark the current language as checked.
 
+### Scenario: language-menu
+- Given: the wiki is open with English chrome and the reader opens the globe menu
+- When: the menu is shown and Russian is chosen
+- Then: the menu marks English as checked before the choice, then the chrome changes to Russian and the saved preference is Russian
 ### Scenario: navigation-groups-and-marks
 - Given: a served product whose `docs/` holds a vision, a requirement, a decision and a research note, opened at one of them
 - When: its page is read in a browser

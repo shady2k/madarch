@@ -91,6 +91,19 @@ describe('the shell markup', () => {
     expect(tokensCss).toContain('--nav-shadow');
   });
 
+  test('the language choice is a translated globe menu beside the toolbar controls', async () => {
+    const container = await intoShell();
+    const globe = container.querySelector('.shell-language');
+    expect(globe?.getAttribute('aria-label')).toBe('Language');
+    expect(globe?.getAttribute('title')).toBe('Choose language');
+    expect(globe?.getAttribute('aria-haspopup')).toBe('menu');
+    expect(shellTsx).toContain('<DropdownMenu.RadioGroup');
+    expect(shellTsx).toContain('value={language}');
+    expect(shellTsx).toContain('onValueChange=');
+    expect(shellTsx).toContain('value="ru"');
+    expect(shellTsx).toContain('value="en"');
+  });
+
   test('the drawer is a shadcn Sheet on Radix dialog', async () => {
     await intoShell();
     const trigger = rendered?.container.querySelector('.shell-menu');
@@ -117,7 +130,7 @@ describe('the shell markup', () => {
     expect(current).not.toBeNull();
     expect(current?.getAttribute('aria-current')).toBe('page');
     expect(current?.className).toContain('font-[550]');
-    expect(current?.className).toContain('bg-pill');
+    expect(current?.className).toContain('bg-[var(--surface-active)]');
   });
 
   test('group titles and the brand never compute under the 14px floor', () => {

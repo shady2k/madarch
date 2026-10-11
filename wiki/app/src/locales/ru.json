@@ -18,9 +18,8 @@
     "context": "Контекст страницы",
     "contextUnavailable": "Контекст страницы пока недоступен",
     "language": "Язык",
-    "english": "Английский",
-    "russian": "Русский",
-    "switchTo": "Переключить язык на {{language}}"
+    "english": "English",
+    "russian": "Русский"
   },
   "groups": {
     "product": "Продукт",
@@ -86,6 +85,7 @@
   },
   "tooltips": {
     "productId": "ID продукта: {{id}}",
-    "contextUnavailable": "Контекст страницы пока недоступен"
+    "contextUnavailable": "Контекст страницы пока недоступен",
+    "language": "Выбрать язык"
   }
 }

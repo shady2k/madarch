@@ -72,29 +72,26 @@
   }
 }
 
-/* 4.2 The page: the column's measure, centred against the panel place; the
-   two-em space above, the same a section heading takes, so the title never
-   glues to the toolbar's bottom border. The column never widens on a
-   long unbreakable word (the walk checks the page never scrolls). */
+/* The raised reading page sits over the ground; its inner measure stays the
+   mockup's accepted width while the soft frame gives the shell visible layers. */
 .shell-document {
-  max-inline-size: var(--measure);
+  box-sizing: border-box;
+  max-inline-size: calc(var(--measure) + 48px);
+  min-block-size: 100%;
   margin-inline: auto;
-  margin-block-start: 2.5em;
+  padding: calc(2.5em + 14px) 24px 2.5em;
   overflow-wrap: break-word;
+  border-radius: var(--radius-page) var(--radius-page) 0 0;
+  background: var(--surface-page);
+  box-shadow: var(--shadow-medium);
   font-size: var(--fs-body);
   line-height: var(--leading);
-}
-
-@media (min-width: 701px) {
-  .shell-document {
-    margin-block-start: calc(2.5em + 14px);
-  }
 }
 
 @media (max-width: 700px) {
   .shell-toolbar {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-columns: auto minmax(0, 1fr) auto auto auto;
     min-height: 58px;
   }
 
@@ -117,15 +114,21 @@
     grid-row: 1;
   }
 
-  .shell-toolbar button[aria-label="Page context"] {
+  .shell-language {
     grid-column: 4;
+    grid-row: 1;
+  }
+
+  .shell-context {
+    grid-column: 5;
     grid-row: 1;
   }
 
   .shell-document {
     max-inline-size: none;
-    margin-block-start: calc(2.5em - 8px);
-    padding-inline: 24px;
+    min-block-size: 100%;
+    padding: calc(2.5em - 8px) 24px 2.5em;
+    border-radius: var(--radius-page) var(--radius-page) 0 0;
   }
 
   .eyebrow {
@@ -261,8 +264,10 @@ main li {
    replaced by the graphite quote border; the quote reads as secondary text. */
 main blockquote {
   border-inline-start: 0.25em solid var(--quote-border);
-  padding-inline-start: 1em;
+  border-radius: 0 var(--radius-card) var(--radius-card) 0;
+  padding: 0.7em 1em;
   margin-block: 1.5em 0.95em;
+  background: var(--surface-quote);
   color: var(--text-secondary);
 }
 
@@ -279,8 +284,8 @@ main :not(pre) > code {
   font-family: var(--font-mono);
   font-size: 0.875em;
   padding: 0.1em 0.35em;
-  border-radius: 4px;
-  background: var(--code-bg);
+  border-radius: var(--radius-code);
+  background: var(--surface-code);
   color: var(--code-ink);
 }
 
@@ -291,9 +296,10 @@ main pre {
   font-size: 0.875em;
   line-height: 1.6;
   padding: 1em 1.25em;
-  border-radius: 6px;
+  border-radius: var(--radius-card);
   border: 1px solid var(--border);
-  background: var(--code-bg);
+  background: var(--surface-code);
+  box-shadow: var(--shadow-low);
   color: var(--code-ink);
   overflow: auto;
 }
@@ -313,10 +319,15 @@ main pre code {
 main .table-wrap {
   margin-block: 1em;
   overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-page);
+  box-shadow: var(--shadow-low);
 }
 
 main table {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: var(--fs-body);
 }
 
@@ -328,7 +339,11 @@ main td {
 
 main th {
   font-weight: 600;
-  background: var(--bg-chrome);
+  background: var(--surface-soft);
+}
+
+main tbody tr:nth-child(odd) {
+  background: var(--surface-zebra);
 }
 
 /* The window-height shell: the document's column is the only thing that
@@ -337,6 +352,7 @@ main th {
    bottom padding keeps the last lines off the status bar. */
 .shell-scroll {
   min-height: 0;
+  background: var(--surface-ground);
   padding-block-end: 2.5em;
 }
 
@@ -345,11 +361,24 @@ main th {
    the history stand out until they work (madarch-j0a). */
 .document-tab {
   border-block-start: 2px solid var(--text);
+  border-radius: var(--radius-row) var(--radius-row) 0 0;
+  background: var(--surface-page);
+  box-shadow: var(--shadow-low);
 }
 
 /* The home page in the mockup's overview language: a lead, quiet kind groups,
    icon plus title rows on the navigation's rhythm, small muted counts. No
    boxed cards, no separating rules between the links, no underlines. */
+/* Calm low-elevation overview surfaces: depth comes from the surface step,
+   not saturated colour or heavy borders. */
+.home-group {
+  padding: 14px 16px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-low);
+}
+
 .home-lead {
   margin-block: 0 2em;
   font-size: 1.05em;
@@ -389,15 +418,17 @@ main th {
   gap: 10px;
   padding: 9px 10px;
   margin: 1px 0;
-  border-radius: 5px;
+  border-block-end: none;
+  border-radius: var(--radius-row);
   text-decoration: none;
   color: var(--text-secondary);
   font-size: var(--fs-small);
   line-height: 1.5;
+  transition: background-color 140ms ease, color 140ms ease;
 }
 
 .home-row:hover {
-  background: var(--code-bg);
+  background: var(--surface-hover);
   color: var(--text);
 }
 
@@ -427,10 +458,12 @@ main a {
   color: var(--link);
   text-decoration: none;
   border-block-end: 1px solid var(--link-underline);
+  transition: background-color 140ms ease, color 140ms ease, border-radius 140ms ease;
 }
 
 main a:hover {
-  background: var(--code-bg);
+  border-radius: var(--radius-row);
+  background: var(--surface-hover);
 }
 
 /* Small text (nav, metadata, footnotes) never drops under the 14px floor:
@@ -549,4 +582,102 @@ main .footnotes {
 /* The home's kind heading is a small quiet label, not a document h2. */
 .home-group-head h2 {
   margin-block: 0;
+}
+
+
+/* A restrained top-layer language menu, aligned with the shared neutral tokens. */
+.language-menu {
+  z-index: 60;
+  min-inline-size: 170px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-menu);
+  color: var(--text);
+  box-shadow: var(--shadow-high);
+  transform-origin: var(--radix-dropdown-menu-content-transform-origin);
+}
+
+.language-menu[data-state="open"],
+.tooltip-surface[data-state="delayed-open"] {
+  animation: menu-in 140ms ease-out;
+}
+
+.language-menu-label {
+  padding: 5px 9px 7px;
+  color: var(--text-muted);
+  font-size: var(--fs-small);
+}
+
+.language-menu-separator {
+  height: 1px;
+  margin: 2px 4px 5px;
+  background: var(--border);
+}
+
+.language-menu-item {
+  display: flex;
+  min-block-size: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  border-radius: var(--radius-row);
+  color: var(--text-secondary);
+  cursor: pointer;
+  outline: none;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.language-menu-item:hover,
+.language-menu-item:focus,
+.language-menu-item[data-highlighted] {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.language-menu-item:focus-visible {
+  outline: 2px solid var(--text-secondary);
+  outline-offset: -2px;
+}
+
+.language-menu-check {
+  display: grid;
+  inline-size: 16px;
+  block-size: 16px;
+  place-items: center;
+}
+
+.tooltip-surface {
+  animation: menu-in 120ms ease-out;
+}
+
+.sheet-drawer[data-state="open"] {
+  animation: drawer-in 140ms ease-out;
+}
+
+@keyframes menu-in {
+  from { opacity: 0; transform: translateY(-3px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes drawer-in {
+  from { opacity: 0.8; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+:focus-visible:not(button):not(input) {
+  outline: 2px solid var(--text-secondary);
+  outline-offset: 2px;
+  border-radius: var(--radius-row);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

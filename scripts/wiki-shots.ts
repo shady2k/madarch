@@ -131,6 +131,43 @@ try {
       console.log('the phone menu shot failed: ' + (error as Error).message);
     }
 
+    // The language menu is an ours-only state: the mockup has no language picker.
+    {
+      const page = await browser.newPage();
+      await page.setViewport({ width: 1110, height: 900, deviceScaleFactor: 1 });
+      await page.goto(ours + '/', { waitUntil: 'load', timeout: 30_000 });
+      await page.waitForSelector('main', { timeout: 20_000 });
+      await selectUiLanguage(page);
+      await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+      await page.click('.shell-language');
+      await page.waitForSelector('[role="menuitemradio"]', { timeout: 10_000 });
+      const choices = await page.$$('[role="menuitemradio"]');
+      const labels = await Promise.all(choices.map((choice) => choice.evaluate((item) => item.textContent ?? '')));
+      const russianLabel = uiLanguage === 'ru' ? 'Русский' : 'Russian';
+      const selectedLabel = uiLanguage === 'ru' ? 'Русский' : 'English';
+      if (!labels[0]?.includes(russianLabel) || !labels[1]?.includes('English')) {
+        throw new Error(uiLanguage + '-language menu has unexpected choices: ' + labels.join(' / '));
+      }
+      const checked = await page.$eval('[role="menuitemradio"][aria-checked="true"]', (item) => item.textContent ?? '');
+      if (!checked.includes(selectedLabel)) throw new Error(uiLanguage + ' menu choice is not marked checked: ' + checked);
+      const otherChoice = uiLanguage === 'ru' ? 1 : 0;
+      await choices[otherChoice]?.click();
+      const otherLanguage = uiLanguage === 'ru' ? 'en' : 'ru';
+      await page.waitForFunction((language) => document.documentElement.lang === language, { timeout: 10_000 }, otherLanguage);
+      await page.click('.shell-language');
+      await page.waitForSelector('[role="menuitemradio"]', { timeout: 10_000 });
+      const resetChoices = await page.$$('[role="menuitemradio"]');
+      await resetChoices[uiLanguage === 'ru' ? 0 : 1]?.click();
+      await page.waitForFunction((language) => document.documentElement.lang === language, { timeout: 10_000 }, uiLanguage);
+      await page.click('.shell-language');
+      await page.waitForSelector('[role="menuitemradio"]', { timeout: 10_000 });
+      await new Promise((step) => setTimeout(step, 200));
+      const file = join(outFolder, 'home-ours-language-menu-1110.png');
+      await page.screenshot({ path: file });
+      await page.close();
+      pairs.push({ name: 'home-language-menu-1110-light', ours: { file, width: 1110, height: 900 } });
+    }
+
     // The scrolled home page: the only scrolling column at its bottom.
     {
       const { width, height, scheme } = SIZES['1440']!;
@@ -172,7 +209,7 @@ try {
     for (const pair of pairs) {
       const { ours: left, mockup: right, name } = pair;
       if (left === undefined && right === undefined) continue;
-      if (left === undefined || (mockupIndex !== undefined && right === undefined && !name.startsWith('home-phone-menu-') && !name.startsWith('home-scrolled-'))) {
+      if (left === undefined || (mockupIndex !== undefined && right === undefined && !name.startsWith('home-phone-menu-') && !name.startsWith('home-scrolled-') && !name.startsWith('home-language-menu-'))) {
         throw new Error(`cannot compose ${name}: a required screenshot half is missing`);
       }
       const halves: string[] = [];

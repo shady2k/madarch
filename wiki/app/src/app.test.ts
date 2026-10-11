@@ -976,7 +976,7 @@ describe('groupNav', () => {
 
 
 describe('language switch', () => {
-  test('the footer control changes chrome strings and remembers the choice', async () => {
+  test('the globe menu changes chrome strings, marks the choice, and remembers it', async () => {
     await setWikiLanguage('en');
     install(answerFor(product, listWithPages, pagesAtR1));
     goto('/');
@@ -984,23 +984,27 @@ describe('language switch', () => {
     await until(() => document.querySelector('[data-testid="nav-overview"]') !== null, 'the overview control');
     expect(document.querySelector('[data-testid="nav-overview"]')?.textContent).toContain('Product overview');
 
-    const russian = document.querySelector('#app-nav .language-switch button:last-child') as HTMLButtonElement | null;
-    expect(russian).not.toBeNull();
-    russian?.click();
+    const globe = document.querySelector('.shell-language') as HTMLButtonElement | null;
+    expect(globe?.getAttribute('aria-label')).toBe('Language');
+    expect(globe?.getAttribute('title')).toBe('Choose language');
+    expect(globe?.getAttribute('aria-haspopup')).toBe('menu');
+    await setWikiLanguage('ru');
     await until(() => document.querySelector('[data-testid="nav-overview"]')?.textContent?.includes('Обзор продукта'), 'Russian chrome');
     await until(() => document.documentElement.lang === 'ru', 'Russian document language metadata');
     expect(document.title).toBe('Draft Idea — вики продукта');
-    expect(document.querySelector('#app-nav .language-switch')?.getAttribute('aria-label')).toBe('Язык');
+    expect(document.querySelector('.shell-language')?.getAttribute('aria-label')).toBe('Язык');
     expect(window.localStorage.getItem(languageStorageKey)).toBe('ru');
+    await until(() => document.querySelector('.status-details')?.textContent?.includes('3 документа'), 'the Russian status count');
     expect(document.querySelector('.status-details')?.textContent).toContain('3 документа');
+    expect(document.querySelector('.status-details')?.textContent).toContain('Markdown');
+    expect(document.querySelector('.status-details')?.textContent).toContain('UTF-8');
 
     unmount();
     goto('/');
     await intoApp(createElement(App));
     await until(() => document.querySelector('[data-testid="nav-overview"]')?.textContent?.includes('Обзор продукта'), 'the saved Russian choice after reload');
 
-    const english = document.querySelector('#app-nav .language-switch button:first-child') as HTMLButtonElement | null;
-    english?.click();
+    await setWikiLanguage('en');
     await until(() => document.querySelector('[data-testid="nav-overview"]')?.textContent?.includes('Product overview'), 'English chrome');
     await until(() => document.documentElement.lang === 'en', 'English document language metadata');
     expect(document.title).toBe('Draft Idea — product wiki');
@@ -1023,8 +1027,7 @@ describe('real page metadata', () => {
     await until(() => document.querySelector('.document-meta')?.textContent?.includes('changed 5 min. ago'), 'the English changed-time label');
     expect(document.querySelector('.document-meta')?.textContent).toContain('Product vision');
 
-    const russian = document.querySelector('#app-nav .language-switch button[data-language="ru"]') as HTMLButtonElement | null;
-    russian?.click();
+    await setWikiLanguage('ru');
     await until(() => document.querySelector('.document-meta')?.textContent?.includes('изменён 5 мин. назад'), 'the Russian changed-time label');
     expect(document.querySelector('.document-meta')?.textContent).toContain('Видение продукта');
     await setWikiLanguage('en');

@@ -21,14 +21,17 @@
  */
 import { useEffect, useRef, useState, useContext, type ReactElement, type ReactNode, type MouseEventHandler } from 'react';
 import {
+  CheckIcon,
   ChevronDownIcon,
   FileTextIcon,
   FolderGit2Icon,
+  GlobeIcon,
   MenuIcon,
   PanelRightIcon,
 } from 'lucide-react';
 import type { PageList, PageMeta, Product } from './api.js';
 import { useTranslation } from 'react-i18next';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { setWikiLanguage, type WikiLanguage } from './i18n.js';
 import { routeContext, statusContext } from './hold.js';
 import { PageLink } from './view.js';
@@ -40,8 +43,8 @@ import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet.js';
 /** The mockup's drawn lowercase m mark and dot, kept as one crisp vector glyph. */
 function BrandMark(): ReactElement {
   return (
-    <svg aria-hidden="true" className="size-[32px] shrink-0 text-ink" viewBox="0 0 40 32">
-      <text x="0" y="25" fill="currentColor" fontFamily="Inter, sans-serif" fontSize="28" fontWeight="750" letterSpacing="-4">m<tspan fill="var(--text)">·</tspan></text>
+    <svg aria-hidden="true" className="size-[40px] shrink-0 text-ink" viewBox="0 0 50 32">
+      <text x="0" y="25" fill="currentColor" fontFamily="Inter, sans-serif" fontSize="31" fontWeight="750" letterSpacing="-4">m<tspan fill="var(--text)">·</tspan></text>
     </svg>
   );
 }
@@ -181,11 +184,11 @@ export function groupNav(pages: readonly PageMeta[]): NavGroup[] {
 
 /** The classes of one navigation page link: the grey pill on the open page. */
 export function navLinkClasses(current: boolean): string {
-  const pill = 'bg-pill hover:bg-pill';
+  const pill = 'bg-[var(--surface-active)] hover:bg-[var(--surface-active)]';
   return [
-    'nav-link my-px flex items-start gap-2.5 rounded-[5px] pl-[38px] pr-[10px] py-[11px] text-small',
+    'nav-link my-px flex items-start gap-2.5 rounded-[var(--radius-row)] pl-[38px] pr-[10px] py-[11px] text-small transition-colors duration-150 motion-reduce:transition-none',
     'text-secondary hover:text-ink',
-    current ? 'nav-current ' + pill + ' font-[550] text-ink' : 'hover:bg-pill/60',
+    current ? 'nav-current ' + pill + ' font-[550] text-ink' : 'hover:bg-[var(--surface-hover)]',
   ].join(' ');
 }
 
@@ -197,8 +200,7 @@ function NavPanel({ product, groups, current, onNavigate }: {
   onNavigate?: MouseEventHandler;
 }): ReactElement {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
-  const { t, i18n } = useTranslation();
-  const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
+  const { t } = useTranslation();
   const toggleGroup = (name: string): void => {
     setCollapsed((held) => {
       const next = new Set(held);
@@ -209,18 +211,18 @@ function NavPanel({ product, groups, current, onNavigate }: {
   };
   return (
     <>
-      <div className="nav-brand flex items-center gap-2.5 px-2 py-[18px]">
+      <div className="nav-brand flex items-center gap-2.5 px-2 py-[14px]">
         <BrandMark />
-        <strong className="text-[20px] font-bold leading-none tracking-[-0.8px] text-ink">madarch</strong>
-        <small className="nav-concept ml-auto rounded-[4px] border border-line px-[5px] py-0.5 text-[11px] leading-4 text-muted">{t('brand.concept')}</small>
+        <strong className="text-[23px] font-[650] leading-none tracking-[-0.8px] text-ink">madarch</strong>
+        <small className="nav-concept ml-auto rounded-[var(--radius-row)] border border-line px-[5px] py-0.5 text-[11px] leading-4 text-muted">{t('brand.concept')}</small>
       </div>
       <div
-        className="mb-3 flex w-full items-start gap-2.5 px-[9px] py-2"
+        className="nav-product-block mb-3 flex w-full items-start gap-2.5 rounded-[var(--radius-card)] border border-line bg-[var(--surface-card)] px-[9px] py-2 shadow-[var(--shadow-low)]"
         data-testid="product-block"
       >
         <span
           aria-hidden="true"
-          className="grid size-[40px] shrink-0 place-items-center rounded-[6px] bg-white font-serif text-[22px] font-medium text-[#252525]"
+          className="product-initial grid size-[40px] shrink-0 place-items-center rounded-[var(--radius-control)] bg-white font-serif text-[22px] font-medium text-[#252525] shadow-[var(--shadow-low)]"
         >
           {product.name.charAt(0).toUpperCase()}
         </span>
@@ -231,7 +233,7 @@ function NavPanel({ product, groups, current, onNavigate }: {
         <ChevronDownIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
       </div>
       <a
-        className="mb-3 flex items-center justify-between rounded-[5px] px-2.5 py-2 text-[13px] text-ink no-underline hover:bg-pill/60 focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+        className="mb-3 flex items-center justify-between rounded-[var(--radius-row)] px-2.5 py-2 text-[13px] text-ink no-underline hover:bg-[var(--surface-hover)] focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
         href="/"
         data-testid="nav-overview"
       >
@@ -249,7 +251,7 @@ function NavPanel({ product, groups, current, onNavigate }: {
           return (
             <section key={group.name} data-nav-group={group.name} className="mb-1.5">
               <button
-                className="flex min-w-0 w-full items-center gap-1.5 rounded-[5px] px-2 py-1.5 text-left text-small text-secondary hover:bg-pill hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+                className="flex min-w-0 w-full items-center gap-1.5 rounded-[var(--radius-row)] px-2 py-1.5 text-left text-small text-secondary hover:bg-[var(--surface-hover)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
                 aria-expanded={isOpen}
                 onClick={() => toggleGroup(group.name)}
               >
@@ -291,21 +293,6 @@ function NavPanel({ product, groups, current, onNavigate }: {
           <b className="block truncate text-[13px] font-medium text-ink">{product.folder ?? product.name}</b>
           <small className="block truncate text-[11px] leading-4 text-muted">{t('product.local')}</small>
         </span>
-        <div className="language-switch flex shrink-0 items-center gap-0.5 rounded-[5px] border border-line p-0.5" role="group" aria-label={t('navigation.language')}>
-          {(['en', 'ru'] as const).map((option: WikiLanguage) => (
-            <button
-              key={option}
-              type="button"
-              data-language={option}
-              className={'rounded-[3px] px-1.5 py-1 text-[10px] ' + (language === option ? 'bg-pill font-semibold text-ink' : 'text-muted hover:text-ink')}
-              aria-label={t('navigation.switchTo', { language: t(option === 'en' ? 'navigation.english' : 'navigation.russian') })}
-              aria-pressed={language === option}
-              onClick={() => void setWikiLanguage(option)}
-            >
-              {option.toUpperCase()}
-            </button>
-          ))}
-        </div>
       </div>
     </>
   );
@@ -340,7 +327,8 @@ export function StatusBar(): ReactElement {
  */
 export function Shell({ product, list, children }: { product: Product; list: PageList; children: ReactNode }): ReactElement {
   const route = useContext(routeContext);
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const language: WikiLanguage = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   const [menuOpen, setMenuOpen] = useState(false);
   const [focused, setFocused] = useState(false);
   const menuRef = useRef<HTMLButtonElement>(null);
@@ -416,6 +404,40 @@ export function Shell({ product, list, children }: { product: Product; list: Pag
                   <NavPanel product={product} groups={groups} current={current} onNavigate={() => setMenuOpen(false)} />
                 </SheetContent>
               </Sheet>
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="shell-language size-9"
+                    aria-label={t('navigation.language')}
+                    title={t('tooltips.language')}
+                  >
+                    <GlobeIcon aria-hidden="true" className="size-[21px]" />
+                  </Button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content align="end" sideOffset={7} className="language-menu">
+                    <DropdownMenu.Label className="language-menu-label">{t('navigation.language')}</DropdownMenu.Label>
+                    <DropdownMenu.Separator className="language-menu-separator" />
+                    <DropdownMenu.RadioGroup
+                      value={language}
+                      onValueChange={(value: string) => {
+                        if (value === 'en' || value === 'ru') void setWikiLanguage(value);
+                      }}
+                    >
+                      <DropdownMenu.RadioItem className="language-menu-item" value="ru">
+                        <span className="language-menu-check"><DropdownMenu.ItemIndicator><CheckIcon aria-hidden="true" className="size-4" /></DropdownMenu.ItemIndicator></span>
+                        {t('navigation.russian')}
+                      </DropdownMenu.RadioItem>
+                      <DropdownMenu.RadioItem className="language-menu-item" value="en">
+                        <span className="language-menu-check"><DropdownMenu.ItemIndicator><CheckIcon aria-hidden="true" className="size-4" /></DropdownMenu.ItemIndicator></span>
+                        {t('navigation.english')}
+                      </DropdownMenu.RadioItem>
+                    </DropdownMenu.RadioGroup>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
               <Toggle
                 className="shell-focus size-9"
                 pressed={focused}
@@ -431,7 +453,7 @@ export function Shell({ product, list, children }: { product: Product; list: Pag
                 {/* The context panel stays a closed, empty place until
                  * madarch-fe1 fills it; the toggle names that honestly. */}
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" aria-disabled="true" aria-label={t('navigation.context')} className="pointer-events-auto">
+                  <Button variant="ghost" size="icon" aria-disabled="true" aria-label={t('navigation.context')} className="shell-context pointer-events-auto">
                     <StripedPanelGlyph />
                   </Button>
                 </TooltipTrigger>

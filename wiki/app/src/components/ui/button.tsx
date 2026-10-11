@@ -16,8 +16,8 @@ export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 };
 
 const variantClasses: Record<ButtonVariant, string> = {
-  default: 'bg-chrome text-ink border border-line shadow-none hover:bg-pill',
-  ghost: 'text-secondary hover:enabled:bg-pill hover:enabled:text-ink',
+  default: 'bg-chrome text-ink border border-line shadow-none hover:bg-[var(--surface-hover)]',
+  ghost: 'text-secondary hover:enabled:bg-[var(--surface-hover)] hover:enabled:text-ink',
 };
 
 const sizeClasses: Record<ButtonSize, string> = {
@@ -34,7 +34,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     <button
       ref={ref}
       className={cn(
-        'inline-flex select-none items-center justify-center gap-2 rounded-[5px] outline-none',
+        'ui-button inline-flex select-none items-center justify-center gap-2 rounded-[var(--radius-control)] outline-none transition-colors duration-150 motion-reduce:transition-none',
         'focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-page',
         'disabled:pointer-events-none disabled:opacity-50',
         variantClasses[variant],

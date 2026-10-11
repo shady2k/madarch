@@ -21,8 +21,8 @@ export const TooltipContent = forwardRef<
         ref={ref}
         sideOffset={sideOffset}
         className={cn(
-          'z-50 rounded-[5px] bg-ink px-2 py-1 text-small text-page shadow-md',
-          'data-[state=delayed-open]:data-[side=top]:animate-in data-[state=delayed-open]:data-[side=bottom]:animate-in [--tw-ring-color:transparent]',
+          'z-50 rounded-[var(--radius-row)] border border-line bg-[var(--surface-menu)] px-2 py-1 text-small text-ink shadow-[var(--shadow-high)]',
+          'tooltip-surface [--tw-ring-color:transparent]',
           className,
         )}
         {...props}
