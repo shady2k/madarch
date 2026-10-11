@@ -205,3 +205,40 @@ files nor its repository.
 - Given: a product whose root holds `.beads/issues.jsonl`, `skills/own.md`, `docs/vision.md` and `README.md`
 - When: its wiki is listed
 - Then: the pages are `README.md` and `docs/vision.md`, and neither the tracker nor `skills/own.md` is a page or is read
+
+## Requirement: internationalization — The wiki app speaks English and Russian
+The product wiki's app shall provide its chrome in English and Russian through
+message catalogues with the same keys. A language control in the shell shall
+switch languages, expose its selected state to assistive technology, and retain
+the reader's choice in local storage. Before the reader chooses, the app shall
+select Russian for a browser language beginning `ru` (case-insensitive), and
+English for every other or missing browser language. Changing the chrome shall
+never translate product document content.
+
+Every app-owned visible string shall use the selected catalogue, including the
+sidebar, top bar, document tab, document-kind eyebrow, home overview, status,
+loading and error states, tooltips and accessible labels. Counts and relative
+file-change times shall follow the selected language through `Intl.PluralRules`
+and `Intl.RelativeTimeFormat`. The document's changed-time label shall use the
+file's real modification time, never placeholder content.
+
+### Scenario: browser-language-default
+- Given: the wiki is opened with no saved choice in a browser whose language is `ru-RU`, and then in one whose language is `en-US`
+- When: each wiki shell first renders
+- Then: the first shell is Russian and the second is English
+### Scenario: language-choice-persists
+- Given: the wiki is open in English
+- When: the reader selects Russian and reloads the wiki
+- Then: the chrome is Russian after the reload, the control names Russian as selected, and product document text stays unchanged
+### Scenario: russian-counts
+- Given: the shell is Russian
+- When: a page has 1, 2 or 5 words
+- Then: its status line uses `1 слово`, `2 слова` or `5 слов` respectively
+### Scenario: localized-date
+- Given: a page file has a recorded modification time
+- When: the page is read in English or Russian
+- Then: its eyebrow reports the real relative modification time in the selected language
+### Scenario: catalogue-key-parity
+- Given: the English and Russian JSON catalogues
+- When: their message keys are compared
+- Then: each key exists in both catalogues

@@ -36,3 +36,4 @@ The owner supplied the 2026-10-11 fluid-width direction in note-width.md: remove
 - product-wiki/serve: test
 - product-wiki/app: test
 - product-wiki/result: test
+- product-wiki/internationalization: test, browser-walk
