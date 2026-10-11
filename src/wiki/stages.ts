@@ -155,11 +155,10 @@ const TRACKER_EXPORT = '.beads/issues.jsonl';
  * Where ship-release's records are read. The notes are the project's
  * changelog — Keep a Changelog's is the common form the skill names — and
  * the FIRST of the two spots that exists is the release notes, never both:
- * a fallback, not an accumulation. The set's own per-change records under
- * docs/changes/ are read beside them (CHANGE_RECORDS_FOLDER).
+ * a fallback, not an accumulation. The change proposals under docs/changes/
+ * are never shown as releases — a proposal is not a release until it lands.
  */
 const RELEASE_NOTE_PLACES = ['CHANGELOG.md', 'docs/CHANGELOG.md'];
-const CHANGE_RECORDS_FOLDER = 'docs/changes';
 
 /** Where stage acceptance records are looked for: the set's records folder beside its checks. */
 const RECORDS_FOLDER = '.shady2k/records';
@@ -248,25 +247,12 @@ export function readStagesIndex(productFolder: string): StagesIndex {
     }
   }
 
-  // The Release stage: the change records the set writes under docs/changes/
-  // (each with its base, tasks and kind), and the project's changelog — the
-  // FIRST spot that exists is the release notes, never both: a fallback, not
-  // an accumulation.
+  // The Release stage: the project's changelog — the FIRST spot that
+  // exists is the release notes, never both. The change records under
+  // docs/changes/ are proposals until they land, so they are never shown
+  // as releases; where the product keeps no release form at all, the
+  // stage's missing line says what fills it.
   const release = stageOf.get('release')!;
-  for (const change of fileNames(joinPath(productFolder, ...CHANGE_RECORDS_FOLDER.split('/')), undefined, problems)) {
-    const record = joinPath(productFolder, CHANGE_RECORDS_FOLDER, change, 'change.md');
-    if (!existsSync(record)) continue;
-    try {
-      release.artifacts.push({
-        path: `${CHANGE_RECORDS_FOLDER}/${change}/change.md`,
-        title: titleOf(readFileSync(record, 'utf8'), change),
-        kind: 'change record',
-        served: true,
-      });
-    } catch (error) {
-      problems.push({ where: record, message: (error as Error).message });
-    }
-  }
   for (const place of RELEASE_NOTE_PLACES) {
     const full = joinPath(productFolder, ...place.split('/'));
     if (!existsSync(full)) continue;
@@ -389,11 +375,15 @@ function documentsOf(full: string, kind: string, plural: boolean, problems: { wh
  * silence.
  */
 function fileNames(folder: string, extension: string | undefined, problems: { where: string; message: string }[]): string[] {
-  if (!existsSync(folder)) return [];
-  const kind = lstatSync(folder);
-  if (!kind.isDirectory()) return [];
+  // Existence, type and the listing itself stand in one error path: a
+  // permission, a wrong type or an I/O failure is a problem naming the
+  // folder and the cause, never an empty list that reads as absence and
+  // never a throw that escapes the sink.
   let entries: import('node:fs').Dirent[];
   try {
+    if (!existsSync(folder)) return [];
+    const kind = lstatSync(folder);
+    if (!kind.isDirectory()) return [];
     entries = readdirSync(folder, { withFileTypes: true });
   } catch (error) {
     problems.push({ where: folder, message: `the folder could not be read: ${(error as Error).message}` });
@@ -438,7 +428,7 @@ function missingOf(id: StageId, artifacts: readonly StageArtifact[], taskCount: 
     missing.push({ kind: entry.kind, skill: STAGE_SKILLS[id] });
   }
   if (id === 'verify' && !held.has('acceptance record')) missing.push({ kind: 'acceptance record', skill: STAGE_SKILLS[id] });
-  if (id === 'release' && !held.has('release notes') && !held.has('change record')) missing.push({ kind: 'release record', skill: STAGE_SKILLS[id] });
+  if (id === 'release' && !held.has('release notes')) missing.push({ kind: 'release record', skill: STAGE_SKILLS[id] });
   if (id === 'build' && taskCount === 0) missing.push({ kind: 'task', skill: STAGE_SKILLS[id] });
   // The Operate stage's material is what handle-incident records — the
   // review's timeline, cost and filed work — and none of it is held here.
@@ -639,8 +629,5 @@ export function stagesSourceDigest(productFolder: string): string {
     file(joinPath(productFolder, RECORDS_FOLDER, name));
   }
   file(joinPath(productFolder, 'workspace.yaml'));
-  for (const change of folderNames(joinPath(productFolder, CHANGE_RECORDS_FOLDER))) {
-    file(joinPath(productFolder, CHANGE_RECORDS_FOLDER, change, 'change.md'));
-  }
   return hash.digest('hex');
 }

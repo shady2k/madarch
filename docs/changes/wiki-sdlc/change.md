@@ -1,7 +1,7 @@
 # The wiki shows the product's life cycle: every SDLC stage from the real files
 
 Change: wiki-sdlc
-Base: 36aeb263c60c918c0364f810b0f8a6d63d240867
+Base: 7d9ac8015e0902b28303b26cbef80980fdb2b781
 Tasks: madarch-iuc.16
 Kind: behavior
 
@@ -15,9 +15,10 @@ folders on the Idea, Requirements and Design stages; the product's tasks on
 Build, read only from the tracker's own export `.beads/issues.jsonl` and
 grouped by the feature each task hangs under; the acceptance records the
 set's gate writes under its records folder on Verify; the Release stage
-reads the set's change records under `docs/changes/` and the project's
-changelog (the first of the two usual spots — Keep a Changelog's is the
-common form), never both; the Operate stage holds none of
+reads the project's changelog — the first of the two usual spots (Keep a
+Changelog's is the common form), never both, and never the change proposals
+under `docs/changes/`, which are not releases until they land; the Operate
+stage holds none of
 `handle-incident`'s material here and says so — the skill's review turns
 into tracked work and lessons kept where every agent reads, not into a
 folder. A stage that holds nothing of a kind names the skill that fills it,
@@ -61,20 +62,24 @@ missing line.
 ## Preserved contracts
 - product-wiki/pages: test
 - product-wiki/shell: test
+- product-wiki/reading-typography: test
+- product-wiki/architecture: test
 - product-wiki/live: test
 - product-wiki/serve: test
 - product-wiki/app: test
 - product-wiki/result: test
-- product-wiki/reading-typography: test
 - product-wiki/internationalization: test
+- product-wiki/describe-guide: test
 
 ## Coverage
 - product-wiki/stages: test, mutation, browser-walk
 - product-wiki/pages: test
 - product-wiki/shell: test
+- product-wiki/reading-typography: test
+- product-wiki/architecture: test
 - product-wiki/live: test
 - product-wiki/serve: test
 - product-wiki/app: test
 - product-wiki/result: test
-- product-wiki/reading-typography: test
 - product-wiki/internationalization: test
+- product-wiki/describe-guide: test

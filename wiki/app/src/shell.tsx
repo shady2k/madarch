@@ -261,41 +261,6 @@ export function navLinkClasses(current: boolean): string {
   ].join(' ');
 }
 
-/** The navigation content: the product's mark, its block, the tree, the footer. */
-function StagesNav({ current, onNavigate }: { current: string | undefined; onNavigate?: MouseEventHandler }): ReactElement {
-  const { t } = useTranslation();
-  return (
-    <section data-testid="stages-nav" className="mb-1.5" aria-label={t('stages.title')}>
-      <div className="flex items-center justify-between px-2 py-1.5">
-        <h2 className="text-[12px] uppercase tracking-[0.08em] text-muted">{t('stages.title')}</h2>
-      </div>
-      <ul className="m-0 list-none p-0">
-        {stageIds.map((stage) => {
-          const isCurrent = current === stage;
-          return (
-            <li key={stage} onClick={onNavigate}>
-              <a
-                href={addressOfStageRoute(stage)}
-                className={navLinkClasses(isCurrent)}
-                aria-current={isCurrent ? 'page' : undefined}
-                data-stage-link={stage}
-                onClick={(event) => {
-                  if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
-                  event.preventDefault();
-                  navigateTo(addressOfStageRoute(stage));
-                }}
-              >
-                <span className="min-w-0 whitespace-normal leading-snug">{t(`stages.names.${stage}`)}</span>
-              </a>
-            </li>
-          );
-        })}
-      </ul>
-    </section>
-  );
-}
-
-function NavPanel({ product, groups, current, currentStage, onNavigate, architectureCount }: {
 /** The stages navigator: one row per stage, in the life cycle's order, the open stage marked. */
 function StagesNav({ current, onNavigate }: { current: string | undefined; onNavigate?: MouseEventHandler }): ReactElement {
   const { t } = useTranslation();
@@ -330,7 +295,7 @@ function StagesNav({ current, onNavigate }: { current: string | undefined; onNav
   );
 }
 
-function NavPanel({ product, groups, current, currentStage, onNavigate }: {
+function NavPanel({ product, groups, current, currentStage, onNavigate, architectureCount }: {
   product: Product;
   groups: readonly NavGroup[];
   current: string | undefined;

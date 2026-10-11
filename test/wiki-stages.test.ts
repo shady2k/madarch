@@ -28,6 +28,10 @@ afterEach(() => {
   }
 });
 
+function thisFolder(): string {
+  return folder!;
+}
+
 function draft(): string {
   folder = mkdtempSync(join(tmpdir(), 'madarch-stages-'));
   mkdirSync(folder, { recursive: true });
@@ -223,7 +227,6 @@ describe('the stage index of a product', () => {
     write('.shady2k/records/stage-one.md', 'accepted: {"base": "aaaa", "final": "bbbb"}\nCriteria hold.\n');
     write('.shady2k/records/stage-two.md', '# Stage two accepted\n\nFinal: 0e46cba2f5ab381f9732e93a9c0f47f89b53c878 in prose, the older form.\n');
     write('.shady2k/records/not-a-record.md', '# Just a note\n\nNothing accepted here.\n');
-    write('docs/changes/wiki-i18n/change.md', '# The wiki chrome in two languages\n\nChange: wiki-i18n\nKind: behavior\n');
     const index = readStagesIndex(folder!);
     const verify = index.stages.find((stage) => stage.id === 'verify')!;
     expect(verify.artifacts.map((a) => a.path)).toEqual(['.shady2k/records/stage-one.md', '.shady2k/records/stage-two.md']);
@@ -231,10 +234,10 @@ describe('the stage index of a product', () => {
     // Records outside the served pages are named, never linked.
     expect(verify.artifacts[0]!.served).toBe(false);
     expect(verify.missing).toEqual([]);
+    // Unshipped change proposals are never presented as releases.
     const release = index.stages.find((stage) => stage.id === 'release')!;
-    expect(release.artifacts.map((a) => a.path)).toEqual(['docs/changes/wiki-i18n/change.md']);
-    expect(release.artifacts[0]!.served).toBe(true);
-    expect(release.missing).toEqual([]);
+    expect(release.artifacts).toEqual([]);
+    expect(release.missing.map((m) => m.skill)).toEqual(['ship-release']);
     // Operate: the skills hold no incident folder; the stage says what fills it.
     const operate = index.stages.find((stage) => stage.id === 'operate')!;
     expect(operate.artifacts).toEqual([]);
@@ -242,8 +245,9 @@ describe('the stage index of a product', () => {
     expect(operate.missing.map((m) => m.skill)).toEqual(['handle-incident']);
   });
 
-  test('the release notes are the FIRST changelog that exists, never both', () => {
+  test('the release notes are the FIRST changelog that exists, never both, and proposals are not releases', () => {
     draft();
+    write('docs/changes/wiki-i18n/change.md', '# A proposal, not a release\n');
     write('CHANGELOG.md', '# Changelog\n\n## 1.0.0\n\nEverything.\n');
     write('docs/CHANGELOG.md', '# Stale changelog\n');
     let release = readStagesIndex(folder!).stages.find((stage) => stage.id === 'release')!;
@@ -254,6 +258,35 @@ describe('the stage index of a product', () => {
     // The fallback: no root changelog, the docs one answers.
     release = readStagesIndex(folder!).stages.find((stage) => stage.id === 'release')!;
     expect(release.artifacts.map((a) => a.path)).toEqual(['docs/CHANGELOG.md']);
+    // The change proposal never appears beside them, whatever the changelogs.
+    expect(release.artifacts.map((a) => a.path)).not.toContain('docs/changes/wiki-i18n/change.md');
+  });
+
+  test('an unreadable changelog is a problem naming the file, and the stage still answers', () => {
+    draft();
+    mkdirSync(join(folder!, '.shady2k', 'records'), { recursive: true });
+    const changelog = join(folder!, 'CHANGELOG.md');
+    writeFileSync(changelog, '# Changelog\n');
+    chmodSync(changelog, 0o000);
+    const index = readStagesIndex(folder!);
+    chmodSync(changelog, 0o644);
+    expect(index.problems).toHaveLength(1);
+    expect(index.problems[0]!.where).toBe(changelog);
+    expect(index.problems[0]!.message).toContain('EACCES');
+    expect(index.stages.find((stage) => stage.id === 'release')!.missing.map((m) => m.skill)).toEqual(['ship-release']);
+  });
+
+  test('an unreadable kind folder is a problem naming the folder, never a silently empty stage', () => {
+    draft();
+    const folder = join(thisFolder(), 'docs', 'hypotheses');
+    mkdirSync(join(thisFolder(), 'docs', 'hypotheses'), { recursive: true });
+    write('docs/hypotheses/H-001-fast.md', '# H-001 — Fast enough\n');
+    chmodSync(folder, 0o000);
+    const index = readStagesIndex(thisFolder());
+    chmodSync(folder, 0o755);
+    const idea = index.stages.find((stage) => stage.id === 'idea')!;
+    expect(index.problems.some((p) => p.where === folder && p.message.includes('could not be read'))).toBe(true);
+    expect(idea.artifacts).toEqual([]);
   });
 
   test('the other features\' sections are named where the product holds what they read, absent otherwise', () => {
