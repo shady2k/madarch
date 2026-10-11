@@ -1,0 +1,51 @@
+{
+  "generatedAt": "2026-01-31T00:00:00Z",
+  "source": "fixture: touched today, active, and the tracker says nobody holds it",
+  "issues": [
+    {
+      "id": "E1",
+      "title": "Issue E1",
+      "type": "epic",
+      "status": "open",
+      "labels": [
+        "transport",
+        "v0-5"
+      ],
+      "parent": null,
+      "blockedBy": [],
+      "body": "DONE WHEN a person can do the thing. Falsified if they cannot.",
+      "updatedAt": "2026-01-30T00:00:00.000Z"
+    },
+    {
+      "id": "T1",
+      "title": "Issue T1",
+      "type": "task",
+      "status": "active",
+      "labels": [
+        "transport"
+      ],
+      "parent": "E1",
+      "blockedBy": [],
+      "body": "",
+      "updatedAt": "2026-01-30T00:00:00.000Z",
+      "holder": null
+    },
+    {
+      "id": "T2",
+      "title": "Issue T2",
+      "type": "task",
+      "status": "active",
+      "labels": [
+        "transport"
+      ],
+      "parent": "E1",
+      "blockedBy": [],
+      "body": "",
+      "updatedAt": "2026-01-30T00:00:00.000Z",
+      "holder": "somebody"
+    }
+  ],
+  "expectViolations": [
+    "stale-hold|T1|"
+  ]
+}

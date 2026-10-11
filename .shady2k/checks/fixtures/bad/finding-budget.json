@@ -1,0 +1,99 @@
+{
+  "generatedAt": "2026-01-31T00:00:00Z",
+  "source": "fixture bad/finding-budget",
+  "issues": [
+    {
+      "id": "E1",
+      "title": "Issue E1",
+      "type": "epic",
+      "status": "open",
+      "labels": [
+        "transport",
+        "v0-5"
+      ],
+      "parent": null,
+      "blockedBy": [],
+      "body": "DONE WHEN a person can do the thing. Falsified if they cannot.",
+      "updatedAt": "2026-01-30T00:00:00.000Z",
+      "createdAt": "2026-01-10T00:00:00.000Z"
+    },
+    {
+      "id": "B1",
+      "title": "Issue B1",
+      "type": "bug",
+      "status": "closed",
+      "labels": [
+        "transport",
+        "finding"
+      ],
+      "parent": "E1",
+      "blockedBy": [],
+      "body": "",
+      "updatedAt": "2026-01-30T00:00:00.000Z",
+      "createdAt": "2026-01-11T00:00:00.000Z"
+    },
+    {
+      "id": "B2",
+      "title": "Issue B2",
+      "type": "bug",
+      "status": "open",
+      "labels": [
+        "transport",
+        "finding"
+      ],
+      "parent": "E1",
+      "blockedBy": [],
+      "body": "",
+      "updatedAt": "2026-01-30T00:00:00.000Z",
+      "createdAt": "2026-01-12T00:00:00.000Z"
+    },
+    {
+      "id": "B3",
+      "title": "Issue B3",
+      "type": "bug",
+      "status": "open",
+      "labels": [
+        "transport",
+        "finding",
+        "v0-5"
+      ],
+      "parent": null,
+      "blockedBy": [],
+      "body": "",
+      "updatedAt": "2026-01-30T00:00:00.000Z",
+      "createdAt": "2026-01-13T00:00:00.000Z"
+    },
+    {
+      "id": "B4",
+      "title": "Issue B4",
+      "type": "bug",
+      "status": "deferred",
+      "labels": [
+        "transport",
+        "finding"
+      ],
+      "parent": "E1",
+      "blockedBy": [],
+      "body": "",
+      "updatedAt": "2026-01-30T00:00:00.000Z",
+      "createdAt": "2026-01-14T00:00:00.000Z"
+    },
+    {
+      "id": "T1",
+      "title": "Issue T1",
+      "type": "task",
+      "status": "open",
+      "labels": [
+        "transport"
+      ],
+      "parent": "E1",
+      "blockedBy": [],
+      "body": "",
+      "updatedAt": "2026-01-30T00:00:00.000Z",
+      "createdAt": "2026-01-15T00:00:00.000Z"
+    }
+  ],
+  "expectViolations": [
+    "finding-budget|B3|"
+  ]
+}

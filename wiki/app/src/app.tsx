@@ -17,7 +17,7 @@ import { useContext, useEffect, useRef, useState, useCallback, type ReactElement
 import { useTranslation } from 'react-i18next';
 import { FileTextIcon, FolderGit2Icon, GitBranch, NetworkIcon } from 'lucide-react';
 import { relativeTime } from './i18n.js';
-import { getProduct, getPages, getPage, getQuestions, getRepos, type Product, type ProductWithAudience, type PageList, type Page, type QuestionList, type QuestionEntry, type Architecture, type RepoEntry, type ReposList } from './api.js';
+import { getProduct, getPages, getPage, getQuestions, getRepos, type Product, type ProductWithAudience, type PageList, type Page, type QuestionList, type QuestionEntry, type PageDocument, type Architecture, type RepoEntry, type ReposList } from './api.js';
 import { routeOf, addressOfPage, architectureAddress, type Route } from './routes.js';
 import { Markdown, PageLink } from './view.js';
 import { routeContext, statusContext } from './hold.js';
@@ -352,6 +352,28 @@ export function HomePage({ product, list, architecture }: { product: ProductWith
       ) : (
         <p className="home-audience" data-testid="home-audience">{t('home.audience', { audience: product.audience })}</p>
       )}
+      {documents === 0 ? null : (
+        <div className="home-groups">
+          {groups.map((group) => (
+            <section key={group.name} data-kind={group.name} className="home-group mt-7 first:mt-0">
+              <header className="home-group-head">
+                <h2 className="text-ink">{t('kinds.' + group.name, { defaultValue: t('groups.' + group.name, { defaultValue: wordLabel(group.name) }) })}</h2>
+                <span className="home-count" data-testid="card-count">{group.pages.length}</span>
+              </header>
+              <ul className="home-rows">
+                {group.pages.map((meta) => (
+                  <li key={meta.path}>
+                    <PageLink path={meta.path} className="home-row">
+                      <FileTextIcon aria-hidden="true" className="home-row-icon" />
+                      <span className="home-row-title">{meta.title}</span>
+                    </PageLink>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+      )}
       <div className="home-groups">
         {documents === 0 ? null : groups.map((group) => (
           <section key={group.name} data-kind={group.name} className="home-group mt-7 first:mt-0">
@@ -481,21 +503,176 @@ export function PageReader({
     return <ErrorLine message={error} />;
   if (error !== null) return <ErrorLine message={error} />;
   if (page === null) return <p className="loading">{t('loading.wiki')}</p>;
+  // The set's document this page is, or a plain page of no set kind: the
+  // header block reads the form's fields where the set names the document,
+  // and keeps the mockup's plain eyebrow where it does not.
+  const doc = page.document;
+  const setKind = doc?.kind;
+  const kindLabel = setKind !== undefined
+    ? t('kinds.' + setKind, { defaultValue: setKind })
+    : t('kinds.' + kindOf(path, groupOf(path)).toLowerCase(), { defaultValue: kindOf(path, groupOf(path)) });
   return (
     <main id="page" ref={pageRef}>
-      {/* The mockup's document header: the kind as an eyebrow above the title.
-       * Exactly one h1 per page: when the document renders its own
-       * first-level heading, the fallback title above it is not rendered
-       * (the checkpoint's doubled-title defect). */}
+      {/* The document's header: the kind as an eyebrow above the title, then
+       * the set's calm field block for a document the set names. Exactly one
+       * h1 per page: when the document renders its own first-level heading,
+       * the fallback title above it is not rendered (the checkpoint's
+       * doubled-title defect). */}
       <div className="document-meta eyebrow">
-        <strong className="eyebrow-kind">{t('kinds.' + kindOf(path, groupOf(path)).toLowerCase(), { defaultValue: kindOf(path, groupOf(path)) })}</strong>
+        <strong className="eyebrow-kind">{kindLabel}</strong>
         <span className="eyebrow-dot" aria-hidden="true">•</span>
         <span className="eyebrow-secondary">{page.changedAt ? t('document.changed', { when: relativeTime(page.changedAt, i18n.resolvedLanguage) }) : t('document.local')}</span>
       </div>
       {!ownTitle && <h1 className="app-title">{page.title}</h1>}
+      {doc !== undefined && <DocumentHeader document={doc} />}
       <Markdown text={page.markdown} elementLinks={elementLinksFor(bundle, path)} />
+      <DocumentLinks page={page} />
+      <FindingsBlock page={page} />
     </main>
   );
+}
+
+/**
+ * The set's document fields, shown calm: the identity fields the form
+ * names — the id, the status the set computes, the dates and the people a
+ * kind carries — then the rest of the form's fields, one quiet row each,
+ * values as written. A form the set computes nothing for shows its fields
+ * and nothing invented.
+ */
+function DocumentHeader({ document: doc }: { document: PageDocument }): ReactElement | null {
+  const { t } = useTranslation();
+  const identity: { label: string; value: string }[] = [];
+  if (doc.id !== undefined) identity.push({ label: t('document.fieldId'), value: doc.id });
+  if (doc.status !== undefined) identity.push({ label: t('document.fieldStatus'), value: t('status.' + doc.status, { defaultValue: doc.status }) });
+  const namedDates = new Set(['Date', 'Since']);
+  const people = new Set(['With', 'Who can answer']);
+  const all = doc.fields ?? [];
+  const rest = all.filter((field) => !namedDates.has(field.name) && !people.has(field.name));
+  const dates = all.filter((field) => namedDates.has(field.name));
+  if (dates.length > 0) {
+    identity.push({
+      label: t('document.fieldDates'),
+      value: dates.map((field) => `${field.name} ${field.value}`).join(' · '),
+    });
+  }
+  const peopleFields = all.filter((field) => people.has(field.name));
+  if (peopleFields.length > 0) {
+    identity.push({
+      label: t('document.fieldWho'),
+      value: peopleFields.map((field) => field.value).join(' · '),
+    });
+  }
+  if (identity.length === 0 && rest.length === 0) return null;
+  return (
+    <dl className="doc-fields" data-testid="doc-fields">
+      {identity.map((field) => (
+        <div key={field.label} className="doc-field doc-field-identity">
+          <dt className="doc-field-name">{field.label}</dt>
+          <dd className="doc-field-value">{field.value}</dd>
+        </div>
+      ))}
+      {rest.map((field) => (
+        <div key={field.name + String(field.line)} className="doc-field">
+          <dt className="doc-field-name">{field.name}</dt>
+          <dd className="doc-field-value">{field.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/**
+ * What the document grew from, and who links to it: the set's link fields
+ * first, then the pages whose body names this one. Both stand as quiet
+ * rows of page links after the document, the form's own way of walking the
+ * chain up and down. A page of no set kind, and one with neither, shows
+ * neither.
+ */
+function DocumentLinks({ page }: { page: Page }): ReactElement {
+  const { t } = useTranslation();
+  const document = page.document;
+  if (document === undefined) return <></>;
+  const grew = document.grewFrom ?? [];
+  const backlinks = document.backlinks ?? [];
+  if (grew.length === 0 && backlinks.length === 0) return <></>;
+  return (
+    <div className="doc-links" data-testid="doc-links">
+      {grew.length > 0 && (
+        <section className="doc-links-row" data-testid="grown-from">
+          <h2 className="doc-links-head">{t('document.grewFrom')}</h2>
+          <ul className="doc-links-list">
+            {grew.map((entry) => (
+              <li key={entry.id} className="doc-links-item">
+                {entry.path !== undefined ? (
+                  <PageLink path={entry.path} className="doc-links-link">
+                    <span className="doc-links-id">{entry.id}</span>
+                    {entry.title !== undefined && entry.title !== entry.id ? <span className="doc-links-title">{entry.title}</span> : null}
+                  </PageLink>
+                ) : (
+                  <span className="doc-links-link doc-links-unresolved">
+                    <span className="doc-links-id">{entry.id}</span>
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {backlinks.length > 0 && (
+        <section className="doc-links-row" data-testid="linked-from">
+          <h2 className="doc-links-head">{t('document.linkedFrom')}</h2>
+          <ul className="doc-links-list">
+            {backlinks.map((entry) => (
+              <li key={entry.path} className="doc-links-item">
+                <PageLink path={entry.path} className="doc-links-link">
+                  {entry.id !== undefined ? <span className="doc-links-id">{entry.id}</span> : null}
+                  <span className="doc-links-title">{entry.title}</span>
+                </PageLink>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The set's product check, on the page that fails it: every finding of
+ * this page with its rule, its line and the full path the check named. A
+ * page the check says nothing about shows nothing; the check's absence is
+ * said once, on the page a reader opens while the check could not run.
+ */
+export function FindingsBlock({ page }: { page: Page }): ReactElement | null {
+  const { t } = useTranslation();
+  const findings = page.findings ?? [];
+  const note = t('document.checkNote');
+  if (findings.length > 0) {
+    return (
+      <section className="doc-findings" data-testid="doc-findings" aria-live="polite">
+        <h2 className="doc-findings-head">{t('document.findings', { count: findings.length })}</h2>
+        <p className="doc-findings-note">{t('document.findingsNote', { version: page.check?.ran === true ? page.check.version : '', product: page.path })}</p>
+        <ul className="doc-findings-list">
+          {findings.map((finding, at) => (
+            <li key={at} className="doc-finding" data-rule={finding.rule} data-note={finding.note === true ? 'true' : undefined}>
+              <span className="doc-finding-place">{finding.file}:{finding.line}</span>
+              <span className="doc-finding-rule">{finding.rule}</span>
+              <span className="doc-finding-what">{finding.what}</span>
+              {finding.why ? <span className="doc-finding-why">{finding.why}</span> : null}
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
+  }
+  if (page.check !== undefined && page.check.ran === false) {
+    return (
+      <section className="doc-findings doc-findings-unavailable" data-testid="doc-check-unavailable">
+        <p className="doc-finding-what">{note} {page.check.message}</p>
+      </section>
+    );
+  }
+  return null;
 }
 
 /** The revision of the list the app was last told, so a changed wiki refetches the open page. */

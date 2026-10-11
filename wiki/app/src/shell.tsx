@@ -32,8 +32,9 @@ import {
   PanelRightIcon,
 } from 'lucide-react';
 import type { PageList, PageMeta, Product, QuestionList } from './api.js';
-import { architectureAddress, addressOfStageRoute, QUESTIONS_ADDRESS, REPOS_ADDRESS } from './routes.js';
 import type { Architecture } from './api.js';
+import { architectureAddress, addressOfStageRoute, QUESTIONS_ADDRESS, REPOS_ADDRESS } from './routes.js';
+import { KIND_ORDER } from './kinds.js';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { setWikiLanguage, type WikiLanguage } from './i18n.js';
@@ -167,27 +168,52 @@ export function byCodePoint(a: string, b: string): number {
 }
 
 /**
- * The navigation groups for a page list: grouped by the rule, fixed kinds
- * first, remaining names alphabetical, pages in each group in code point
- * order of their paths.
+ * The kind a page is grouped by: the set's own kind when the server read
+ * one from the page's form or place, else the path's group as before —
+ * the wiki of a product the set's forms have not reached still groups the
+ * way it did.
+ */
+export function kindGroupOf(page: PageMeta): string {
+  return page.kind ?? groupOf(page.path);
+}
+
+/**
+ * The navigation groups for a page list: the set's kinds first, in the
+ * life-cycle order the forms read (vision, sources, hypotheses, stories,
+ * use cases, requirements, decisions, design, architecture, capability,
+ * change records, explorations, questions, prototypes, results, practices
+ * active, practices retired); then the plain path groups — README and the
+ * docs root as the product group, the old requirements, decisions and
+ * research folders before the rest alphabetically. Pages inside a group
+ * stand in their path's code point order.
  */
 export function groupNav(pages: readonly PageMeta[]): NavGroup[] {
-  const byGroup = new Map<string, PageMeta[]>();
+  // A group is a set-kind group when at least one page in it carries the
+  // server's kind; the same word from a plain path (a docs/requirements/
+  // folder of non-set notes) stays a plain path group. A name both carry
+  // merges into the one set-kind group, pages in path order inside.
+  const byGroup = new Map<string, { fromKind: boolean; pages: PageMeta[] }>();
   for (const page of pages) {
-    const name = groupOf(page.path);
+    const fromKind = page.kind !== undefined;
+    const name = page.kind ?? groupOf(page.path);
     const held = byGroup.get(name);
-    if (held === undefined) byGroup.set(name, [page]);
-    else held.push(page);
+    if (held === undefined) byGroup.set(name, { fromKind, pages: [page] });
+    else {
+      if (fromKind) held.fromKind = true;
+      held.pages.push(page);
+    }
   }
-  const names = [...byGroup.keys()];
-  names.sort((a, b) => byCodePoint(a, b));
-  const ordered = [
-    ...fixedGroupOrder.filter((name) => byGroup.has(name)),
-    ...names.filter((name) => !(fixedGroupOrder as readonly string[]).includes(name)),
+  const kindNames = KIND_ORDER.filter((name) => byGroup.get(name)?.fromKind === true);
+  const names = [...byGroup.keys()].sort((a, b) => byCodePoint(a, b));
+  const plainNames = names.filter((name) => !kindNames.includes(name));
+  const plainOrdered = [
+    ...fixedGroupOrder.filter((name) => plainNames.includes(name)),
+    ...plainNames.filter((name) => !(fixedGroupOrder as readonly string[]).includes(name)),
   ];
+  const ordered = [...kindNames, ...plainOrdered];
   return ordered.map((name) => {
-    const held = byGroup.get(name) as PageMeta[];
-    const sorted = [...held].sort((a, b) => byCodePoint(a.path, b.path));
+    const held = byGroup.get(name) as { fromKind: boolean; pages: PageMeta[] };
+    const sorted = [...held.pages].sort((a, b) => byCodePoint(a.path, b.path));
     return { name, pages: sorted };
   });
 }
@@ -539,7 +565,9 @@ export function Shell({ product, list, children, architecture, reposCount, repos
                 reposOpen === true ? t('navigation.repositories') : t('navigation.overview')
               ) : (
                 <>
-                  <span className="text-muted">{t('groups.' + groupOf(openPage.path), { defaultValue: wordLabel(groupOf(openPage.path)) })}</span>{' '}
+                  <span className="text-muted">{openPage.kind !== undefined
+                  ? t('kinds.' + openPage.kind, { defaultValue: wordLabel(openPage.kind) })
+                  : t('groups.' + groupOf(openPage.path), { defaultValue: wordLabel(groupOf(openPage.path)) })}</span>{' '}
                   <span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
                   <span className="text-ink">{openPage.title}</span>
                 </>

@@ -44,7 +44,25 @@
     "decision": "Decision",
     "research": "Research",
     "product": "Product",
-    "other": "Document"
+    "other": "Document",
+    "roadmap": "Roadmap",
+    "milestone": "Milestone",
+    "sources": "Sources",
+    "hypotheses": "Hypotheses",
+    "stories": "User stories",
+    "use-cases": "Use cases",
+    "requirements": "Product requirements",
+    "decisions": "Decisions",
+    "design": "Design records",
+    "architecture": "Architecture",
+    "capability": "Capabilities",
+    "change": "Change records",
+    "exploration": "Explorations",
+    "questions": "Open questions",
+    "prototypes": "Prototypes",
+    "results": "Results",
+    "practices": "Practices",
+    "practices-retired": "Retired practices"
   },
   "home": {
     "overview": "Product overview",
@@ -69,7 +87,19 @@
   },
   "document": {
     "changed": "changed {{when}}",
-    "local": "Local file"
+    "local": "Local file",
+    "fieldId": "Id",
+    "fieldStatus": "Status",
+    "fieldDates": "Dates",
+    "fieldWho": "Who",
+    "grewFrom": "Grew from",
+    "linkedFrom": "Linked from",
+    "findings_one": "The set's check reports {{count}} finding on this page",
+    "findings_other": "The set's check reports {{count}} findings on this page",
+    "findingsNote": "The set's product check (rules {{version}}) ran over the product; these findings name this page by path and line.",
+    "checkNote": "The set's product check could not run:",
+    "findings_few": "The set's check reports {{count}} findings on this page",
+    "findings_many": "The set's check reports {{count}} findings on this page"
   },
   "status": {
     "live": "Live",
@@ -80,7 +110,12 @@
     "documents": "{{count}} {{unit}}",
     "elements": "{{count}} elements",
     "views": "{{count}} views",
-    "repos": "{{count}} {{unit}}"
+    "repos": "{{count}} {{unit}}",
+    "answered": "answered",
+    "open": "open",
+    "confirmed": "confirmed",
+    "refuted": "refuted",
+    "unclear": "unclear"
   },
   "units": {
     "word_one": "word",

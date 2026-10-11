@@ -257,7 +257,17 @@ export function createWikiPart(
           ? refused(404, { field: 'path', message: asked.message })
           : refused(500, { field: 'path', message: asked.message });
       }
-      return { response: json(200, { path: asked.page.path, title: asked.page.title, markdown: asked.page.markdown, changedAt: asked.page.changedAt }) };
+      return {
+        response: json(200, {
+          path: asked.page.path,
+          title: asked.page.title,
+          markdown: asked.page.markdown,
+          changedAt: asked.page.changedAt,
+          document: asked.page.document,
+          findings: asked.page.findings,
+          check: asked.page.check,
+        }),
+      };
     },
     stages: (): Handled => {
       let index: StagesIndex;

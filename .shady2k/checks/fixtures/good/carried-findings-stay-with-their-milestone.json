@@ -1,0 +1,80 @@
+{
+  "generatedAt": "2026-01-31T00:00:00Z",
+  "source": "fixture: a feature carried into v0-5 with the findings it closed in v0-4",
+  "issues": [
+    {
+      "id": "E1",
+      "title": "Issue E1",
+      "type": "epic",
+      "status": "open",
+      "labels": [
+        "transport",
+        "v0-5"
+      ],
+      "parent": null,
+      "blockedBy": [],
+      "body": "DONE WHEN a person can do the thing. Falsified if they cannot.",
+      "updatedAt": "2026-01-30T00:00:00.000Z"
+    },
+    {
+      "id": "OLD1",
+      "title": "Issue OLD1",
+      "type": "bug",
+      "status": "closed",
+      "labels": [
+        "transport",
+        "finding",
+        "v0-4"
+      ],
+      "parent": "E1",
+      "blockedBy": [],
+      "body": "",
+      "updatedAt": "2026-01-30T00:00:00.000Z"
+    },
+    {
+      "id": "OLD2",
+      "title": "Issue OLD2",
+      "type": "bug",
+      "status": "closed",
+      "labels": [
+        "transport",
+        "finding",
+        "v0-4"
+      ],
+      "parent": "E1",
+      "blockedBy": [],
+      "body": "",
+      "updatedAt": "2026-01-30T00:00:00.000Z"
+    },
+    {
+      "id": "OLD3",
+      "title": "Issue OLD3",
+      "type": "bug",
+      "status": "closed",
+      "labels": [
+        "transport",
+        "finding",
+        "v0-4"
+      ],
+      "parent": "E1",
+      "blockedBy": [],
+      "body": "",
+      "updatedAt": "2026-01-30T00:00:00.000Z"
+    },
+    {
+      "id": "B1",
+      "title": "Issue B1",
+      "type": "bug",
+      "status": "open",
+      "labels": [
+        "transport",
+        "finding",
+        "v0-5"
+      ],
+      "parent": "E1",
+      "blockedBy": [],
+      "body": "",
+      "updatedAt": "2026-01-30T00:00:00.000Z"
+    }
+  ]
+}

@@ -787,6 +787,7 @@ main .footnotes {
   }
 }
 
+<<<<<<< HEAD
 /* Feature E (madarch-iuc.15): the Architecture section. The diagrams draw
  * at the reading measure; a wide diagram scrolls in its own box, never the
  * page. LikeC4 sizes its view to the box when it is revealed (the same
@@ -891,4 +892,162 @@ main section h2 {
 
 .repo-readme .reading > :first-child {
   margin-block-start: 0;
+=======
+/* The set's document header block: the identity fields and the form's own
+ * fields as one calm list under the title — names muted, values in the
+ * secondary colour, the whole block quiet against the document text. */
+.doc-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 1.6em;
+  margin-block: 0 1.2em;
+  padding: 0.5em 0;
+  border-block-end: 1px solid var(--border);
+}
+
+.doc-field {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45em;
+  font-size: var(--fs-small);
+}
+
+.doc-field-name {
+  color: var(--text-muted);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.doc-field-name::after {
+  content: ":";
+}
+
+.doc-field-value {
+  margin: 0;
+  color: var(--text-secondary);
+  font-weight: 450;
+}
+
+.doc-field-identity .doc-field-value {
+  font-weight: 550;
+  color: var(--text-secondary);
+}
+
+/* The chain rows: what the document grew from, and who links to it —
+ * quiet page links after the document, the mockup's row rhythm. */
+.doc-links {
+  margin-block: 2.2em 0.5em;
+  padding-block-start: 0.9em;
+  border-block-start: 1px solid var(--border);
+}
+
+.doc-links-row {
+  margin-block: 0 0.9em;
+}
+
+.doc-links-head {
+  font-size: var(--fs-small);
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-block: 0 0.35em;
+}
+
+.doc-links-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.doc-links-item {
+  margin-block: 2px;
+}
+
+.doc-links-link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.55em;
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+.doc-links-link:hover .doc-links-title {
+  color: var(--text);
+}
+
+.doc-links-id {
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.doc-links-title {
+  font-size: var(--fs-body);
+  color: var(--text-secondary);
+}
+
+.doc-links-unresolved .doc-links-id {
+  color: var(--quote-border);
+}
+
+/* The set's check findings, on the page that fails: a bordered block, one
+ * row per finding, each naming rule, path, line and the words. */
+.doc-findings {
+  margin-block: 1.4em 1em;
+  padding: 0.85em 1em;
+  border: 1px solid var(--quote-border);
+  border-radius: var(--radius-card, 10px);
+  background: color-mix(in oklab, var(--quote-border) 8%, transparent);
+}
+
+.doc-findings-head {
+  font-size: var(--fs-small);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text);
+  margin-block: 0 0.4em;
+}
+
+.doc-findings-note {
+  font-size: var(--fs-small);
+  color: var(--text-muted);
+  margin-block: 0 0.6em;
+}
+
+.doc-findings-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.55em;
+}
+
+.doc-finding {
+  display: grid;
+  gap: 0.1em;
+  font-size: var(--fs-small);
+}
+
+.doc-finding-place {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--fs-small);
+  color: var(--text-secondary);
+}
+
+.doc-finding-rule {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.doc-finding-what {
+  color: var(--text);
+  font-weight: 450;
+}
+
+.doc-finding-why {
+  color: var(--text-muted);
+>>>>>>> 0ccc33ea (The product's documents in the set's forms, linked both ways, with the set's check on the page)
 }

@@ -172,10 +172,12 @@ describe('the server\'s product mode', () => {
     const url = startProduct();
     const answer = await fetch(`${url}/api/pages`);
     expect(answer.status).toBe(200);
-    const body = (await answer.json()) as { revision: string; pages: { path: string; title: string; address: string }[] };
+    const body = (await answer.json()) as { revision: string; pages: { path: string; title: string; address: string; kind?: string }[] };
+    // A page the set's forms recognize carries its kind (requirement
+    // `front-matter`); a page of no set kind carries none.
     expect(body.pages).toEqual([
       { path: 'docs/a-notes.md', title: 'a-notes', address: '/p/docs/a-notes.md' },
-      { path: 'docs/vision.md', title: 'Vision', address: '/p/docs/vision.md' },
+      { path: 'docs/vision.md', title: 'Vision', address: '/p/docs/vision.md', kind: 'vision' },
     ]);
     expect(body.revision).toBe((await (await fetch(`${url}/api/pages`)).json() as typeof body).revision);
   });

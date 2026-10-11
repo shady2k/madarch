@@ -1122,10 +1122,104 @@ describe('real page metadata', () => {
     await intoApp(createElement(App));
     await until(() => document.querySelector('.document-meta')?.textContent?.includes('changed 5 min. ago'), 'the English changed-time label');
     expect(document.querySelector('.document-meta')?.textContent).toContain('Product vision');
+    expect(document.querySelector('main .reading > h1')?.textContent).toContain('Vision');
 
     await setWikiLanguage('ru');
     await until(() => document.querySelector('.document-meta')?.textContent?.includes('изменён 5 мин. назад'), 'the Russian changed-time label');
-    expect(document.querySelector('.document-meta')?.textContent).toContain('Видение продукта');
+    expect(document.querySelector('.document-meta')?.textContent).toContain('Видение');
+    await setWikiLanguage('en');
+  });
+});
+
+describe('the documents view', () => {
+  const failingPath = 'docs/requirements/FR-999-a-failing-example.md';
+  const failingList: PageList = {
+    revision: 'r9',
+    pages: [
+      { path: 'README.md', title: 'Fieldnote', url: '/p/README.md' },
+      { path: failingPath, title: 'FR-999 — The failing example', url: '/p/' + failingPath, kind: 'requirements' },
+    ],
+  };
+  const FR999_MARKDOWN = '# FR-999 — The failing example\n\nA break stands here.\n';
+
+  function pageWithDocument(overrides: Partial<import('./api.js').Page> = {}): import('./api.js').Page {
+    return {
+      path: 'docs/requirements/FR-999-a-failing-example.md',
+      title: 'FR-999 — The failing example',
+      markdown: FR999_MARKDOWN,
+      changedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+      findings: [
+        { rule: 'document-form', file: 'docs/requirements/FR-999-a-failing-example.md', line: 3, what: 'between the identity line and the first section only fields stand', why: 'a product document is its identity line' },
+        { rule: 'unverified-quote', file: 'docs/requirements/FR-999-a-failing-example.md', line: 9, what: 'S-001 has no lines 99', why: 'the quote must stand at the lines it names' },
+      ],
+      check: { ran: true, version: '0.44.0' },
+      document: {
+        kind: 'requirements',
+        id: 'FR-999',
+        status: undefined,
+        fields: [
+          { name: 'Serves', value: 'UC-001', line: 5 },
+          { name: 'Verified by', value: 'wishful thinking', line: 6 },
+        ],
+        grewFrom: [{ id: 'UC-001', via: 'Serves', path: 'docs/use-cases/UC-001-return.md', title: 'Return to a note', kind: 'use-cases' }],
+        backlinks: [{ path: 'README.md', title: 'Fieldnote' }],
+      },
+      ...overrides,
+    };
+  }
+
+  test('the header block carries the kind, the id and the form fields; the chain rows link both ways', async () => {
+    install(answerFor(product, failingList, { [failingPath]: pageWithDocument() }));
+    goto('/p/' + failingPath);
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('[data-testid="doc-fields"]') !== null, 'the header block');
+    const eyebrow = document.querySelector('.document-meta')?.textContent ?? '';
+    expect(eyebrow).toContain('Product requirements');
+    const fields = document.querySelector('[data-testid="doc-fields"]')?.textContent ?? '';
+    expect(fields).toContain('Id');
+    expect(fields).toContain('FR-999');
+    expect(fields).toContain('Serves');
+    expect(fields).toContain('UC-001');
+    const grown = document.querySelector('[data-testid="grown-from"]')?.textContent ?? '';
+    expect(grown).toContain('Grew from');
+    expect(grown).toContain('UC-001');
+    const linked = document.querySelector('[data-testid="linked-from"]')?.textContent ?? '';
+    expect(linked).toContain('Linked from');
+    expect(linked).toContain('Fieldnote');
+  });
+
+  test('the findings block stands on the failing page only, each finding with rule, path, line and words', async () => {
+    install(answerFor(product, failingList, { [failingPath]: pageWithDocument() }));
+    goto('/p/' + failingPath);
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('[data-testid="doc-findings"]') !== null, 'the findings block');
+    const block = document.querySelector('[data-testid="doc-findings"]')?.textContent ?? '';
+    expect(block).toContain('2 findings');
+    expect(block).toContain('docs/requirements/FR-999-a-failing-example.md:3');
+    expect(block).toContain('document-form');
+    expect(block).toContain('S-001 has no lines 99');
+  });
+
+  test('a clean page shows no findings block; a page of no set kind shows neither block nor fields', async () => {
+    const clean = pageWithDocument({ findings: [], document: undefined });
+    install(answerFor(product, failingList, { [failingPath]: clean }));
+    goto('/p/' + failingPath);
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('.reading') !== null, 'the page renders');
+    expect(document.querySelector('[data-testid="doc-findings"]')).toBeNull();
+    expect(document.querySelector('[data-testid="doc-fields"]')).toBeNull();
+    expect(document.querySelector('[data-testid="doc-links"]')).toBeNull();
+  });
+
+  test('the findings count follows the Russian plurals', async () => {
+    install(answerFor(product, failingList, { [failingPath]: pageWithDocument() }));
+    goto('/p/' + failingPath);
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('[data-testid="doc-findings"]') !== null, 'the findings block');
+    await setWikiLanguage('ru');
+    await until(() => (document.querySelector('[data-testid="doc-findings"]')?.textContent ?? '').includes('замечания'), 'the Russian findings line');
+    const block = document.querySelector('[data-testid="doc-findings"]')?.textContent ?? '';
+    expect(block).toContain('Проверка набора нашла 2 замечания');
     await setWikiLanguage('en');
   });
 });

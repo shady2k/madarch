@@ -12,10 +12,57 @@ export type Product = {
   folder?: string;
 };
 
+export type DocumentField = {
+  name: string;
+  value: string;
+  line: number;
+};
+
+/** Whom a link field names, resolved to the page it opens when it can. */
+export type GrownFromEntry = {
+  id: string;
+  via: string;
+  path?: string;
+  title?: string;
+  kind?: string;
+};
+
+export type BacklinkEntry = {
+  path: string;
+  title: string;
+  id?: string;
+};
+
+/** The set's document a page is, as the server read its form. */
+export type PageDocument = {
+  kind?: string;
+  id?: string;
+  status?: string;
+  fields: DocumentField[];
+  grewFrom: GrownFromEntry[];
+  backlinks: BacklinkEntry[];
+};
+
+/** One finding of the set's product check, at file, line and path. */
+export type PageFinding = {
+  rule: string;
+  file: string;
+  line: number;
+  what: string;
+  why?: string | null;
+  note?: boolean;
+};
+
+export type PageCheck = { ran: true; version: string } | { ran: false; message: string };
+
 export type PageMeta = {
   path: string;
   title: string;
   url: string;
+  /** The set's kind the page's form or place names, when the set names one. */
+  kind?: string;
+  /** The status the set computes for the kind, when one is derivable. */
+  status?: string;
 };
 
 export type PageList = {
@@ -64,6 +111,10 @@ export type Page = {
   markdown: string;
   changedAt?: string;
   revision?: string;
+  document?: PageDocument;
+  /** This page's findings of the set's product check; absent where an older server sent none. */
+  findings?: PageFinding[];
+  check?: PageCheck;
 };
 
 /** An API read that failed, with a message naming what was asked for. */

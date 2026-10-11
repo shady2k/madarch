@@ -1,0 +1,77 @@
+{
+  "generatedAt": "2026-01-31T00:00:00Z",
+  "source": "fixture good/findings-within-budget",
+  "issues": [
+    {
+      "id": "E1",
+      "title": "Issue E1",
+      "type": "epic",
+      "status": "open",
+      "labels": [
+        "transport",
+        "v0-5"
+      ],
+      "parent": null,
+      "blockedBy": [],
+      "body": "DONE WHEN a person can do the thing. Falsified if they cannot.",
+      "updatedAt": "2026-01-30T00:00:00.000Z"
+    },
+    {
+      "id": "B1",
+      "title": "Issue B1",
+      "type": "bug",
+      "status": "closed",
+      "labels": [
+        "transport",
+        "finding"
+      ],
+      "parent": "E1",
+      "blockedBy": [],
+      "body": "",
+      "updatedAt": "2026-01-30T00:00:00.000Z"
+    },
+    {
+      "id": "B2",
+      "title": "Issue B2",
+      "type": "bug",
+      "status": "open",
+      "labels": [
+        "transport",
+        "finding"
+      ],
+      "parent": "E1",
+      "blockedBy": [],
+      "body": "",
+      "updatedAt": "2026-01-30T00:00:00.000Z"
+    },
+    {
+      "id": "B4",
+      "title": "Issue B4",
+      "type": "bug",
+      "status": "deferred",
+      "labels": [
+        "transport",
+        "finding"
+      ],
+      "parent": "E1",
+      "blockedBy": [],
+      "body": "",
+      "updatedAt": "2026-01-30T00:00:00.000Z"
+    },
+    {
+      "id": "B5",
+      "title": "Issue B5",
+      "type": "bug",
+      "status": "deferred",
+      "labels": [
+        "ui",
+        "finding",
+        "v0-6"
+      ],
+      "parent": null,
+      "blockedBy": [],
+      "body": "",
+      "updatedAt": "2026-01-30T00:00:00.000Z"
+    }
+  ]
+}

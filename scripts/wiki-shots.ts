@@ -33,6 +33,9 @@ const CHROME = process.env.CHROME ?? '/nix/store/6bg6ciwh50x38sca5x9zimdzqijkc8s
 /** One screen of the wiki: the address on our server and the pair's name. */
 const SCREENS = [
   { name: 'document', address: '/p/docs/vision.md' },
+  { name: 'fr', address: '/p/docs/requirements/FR-001-old-note-reads-in-place.md' },
+  { name: 'failing', address: '/p/docs/requirements/FR-999-a-failing-example.md' },
+  { name: 'source', address: '/p/docs/sources/S-001-first-conversation.md' },
   { name: 'home', address: '/' },
   { name: 'questions', address: '/questions' },
 ] as const;

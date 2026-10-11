@@ -1,10 +1,10 @@
-node_modules/
-dist/
 build/
-*.tsbuildinfo
+dist/
+node_modules/
 .repowise/
-
-# The wiki app build output, rebuilt on first use by madarch serve
-/wiki/app/dist/
+/.stryker-tmp/
 # The demo product's declared checkouts: the product leaves repos/ untracked
+# The wiki app build output, rebuilt on first use by madarch serve
+*.tsbuildinfo
+/wiki/app/dist/
 /wiki/demo/repos/

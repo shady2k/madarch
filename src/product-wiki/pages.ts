@@ -27,11 +27,24 @@ import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, readdirSync, realpathSync, statSync, type Dirent } from 'node:fs';
 import { basename as nameOf, isAbsolute, join as joinPath, relative } from 'node:path';
 import { scanDocument } from '../wiki/documents.js';
-import { stagesSourceDigest } from '../wiki/stages.js';
-import { readProduct, type ProductIdentity } from '../product/manifest.js';
 import { modelSourceDigest } from './model.js';
 import { parseQuestion, changedAtOf, productAudience, type OpenQuestion } from './questions.js';
+import { stagesSourceDigest } from '../wiki/stages.js';
+import { readProduct, type ProductIdentity } from '../product/manifest.js';
 import { byCodePoint } from '../model/order.js';
+import {
+  backlinksOf,
+  documentsOf,
+  grownFromOf,
+  statusOf,
+  type BacklinkEntry,
+  type ComputedStatus,
+  type DocumentField,
+  type DocumentKind,
+  type GrownFromEntry,
+  type ProductDocuments,
+} from './documents.js';
+import { CheckRunCache, runProductCheck, type ProductCheckRun, type ProductFinding } from './checking.js';
 
 /** The address prefix of a page's route within the app. */
 export const PAGE_ADDRESS_PREFIX = '/p/';
@@ -56,6 +69,26 @@ export interface WikiPageEntry {
   title: string;
   /** The address the app answers the page at, like `/p/docs/vision.md`. */
   address: string;
+  /** The set's kind the page's form or place names, when the set names one. */
+  kind?: DocumentKind;
+  /** The status the set computes for the kind, when one is derivable. */
+  status?: ComputedStatus;
+}
+
+/** One page as the document's forms read it: the fields, whom it grew from, who links to it. */
+export interface WikiPageDocument {
+  /** The set's kind, when the form or the place names one; `undefined` keeps the plain page. */
+  kind?: DocumentKind;
+  /** The document's id (`FR-001`, `VISION`, `PRA-001`), when the identity line gives one. */
+  id?: string;
+  /** The status the set computes, when one is derivable from this document's own text. */
+  status?: ComputedStatus;
+  /** The form's fields, at the lines the set's check names. */
+  fields: DocumentField[];
+  /** What this document grew from: every link field's target, resolved where it can open. */
+  grewFrom: GrownFromEntry[];
+  /** Every document whose link fields or body reference this page. */
+  backlinks: BacklinkEntry[];
 }
 
 /** One page asked for, whole. */
@@ -65,6 +98,12 @@ export interface WikiPage {
   markdown: string;
   /** The source file's last filesystem modification time, for honest UI metadata. */
   changedAt?: string;
+  /** The set's document the page is, read from its form; `undefined` for a page of no set kind. */
+  document?: WikiPageDocument;
+  /** This page's findings of the set's product check, each with file, line and full path. */
+  findings: ProductFinding[];
+  /** Whether the set's check ran against the product this ask was answered from. */
+  check?: { ran: true; version: string } | { ran: false; message: string };
 }
 
 /** The wiki's pages as one ask found them. */
@@ -72,13 +111,13 @@ export type ProductWikiPages =
   | { ok: true; revision: string; pages: WikiPageEntry[] }
   | { ok: false; message: string };
 
-/** One page as one ask found it, or the refusal naming the path asked for. */
 /** The wiki's open questions and the answered ones, as one ask found them. */
 export type ProductWikiQuestions =
   | { ok: true; questions: OpenQuestion[]; openCount: number }
   | { ok: false; message: string };
 
 
+/** One page as one ask found it, or the refusal naming the path asked for. */
 export type ProductWikiPage =
   | { ok: true; page: WikiPage }
   | { ok: false; message: string; /** Absence or an invalid ask (404), not a filesystem failure (500). */
@@ -112,10 +151,32 @@ export function openProductWiki(productFolder: string): OpenedProductWiki {
   return { ok: true, wiki: new FreshProductWiki(read.product) };
 }
 
+/**
+ * One read of the whole page set, taken once per ask: the pages' paths, the
+ * revision digest the pages gave, every page's Markdown as the set's
+ * documents read it, and the index the backlinks ask across. Nothing is
+ * cached between asks — the working tree is walked, read and parsed again
+ * the way the page reads below say — so what the tree holds is what each
+ * ask answers.
+ */
+interface PageSetSnapshot {
+  revision: string;
+  paths: string[];
+  titles: Map<string, string>;
+  /** The pages' Markdown as the walk read it, by path. */
+  texts: Map<string, string>;
+  docs: ProductDocuments;
+  held: Set<string>;
+}
+
 class FreshProductWiki implements ProductWiki {
+  /** The check run per revision: a quiet product runs the set's check once. */
+  private readonly checkRuns = new CheckRunCache();
+
   constructor(readonly product: ProductIdentity) {}
 
-  pages(): ProductWikiPages {
+  /** One fresh read of the page set: walk, read, parse the set's forms, digest. */
+  private snapshot(): { ok: true; snapshot: PageSetSnapshot } | { ok: false; message: string } {
     let paths: string[];
     try {
       paths = markdownPaths(this.product.folder);
@@ -123,13 +184,16 @@ class FreshProductWiki implements ProductWiki {
       return { ok: false, message: `the pages of the product ${JSON.stringify(this.product.folder)} could not be read: ${(error as Error).message}` };
     }
     paths.sort(byCodePoint);
-    const pages: WikiPageEntry[] = [];
+    const pathsHeld = new Set(paths);
+    const texts = new Map<string, string>();
+    const titles = new Map<string, string>();
     const hash = createHash('sha256');
     for (const path of paths) {
       const markdown = this.fileText(path);
       if (!markdown.ok) return markdown;
+      texts.set(path, markdown.markdown);
+      titles.set(path, titleOf(path, markdown.markdown));
       hash.update(`${path}\u0000${markdown.markdown}\u0000`);
-      pages.push({ path, title: titleOf(path, markdown.markdown), address: addressOf(path) });
     }
     // The revision covers the model's sources (feature E) and the stages'
     // inputs (madarch-iuc.16): a saved model file, task, acceptance record
@@ -137,7 +201,27 @@ class FreshProductWiki implements ProductWiki {
     // section asks again, the same live rule as a page.
     hash.update(`model\u0000${modelSourceDigest(this.product)}\u0000`);
     hash.update(`stages\u0000${stagesSourceDigest(this.product.folder)}\u0000`);
-    return { ok: true, revision: hash.digest('hex'), pages };
+    const docs = documentsOf(paths, (page) => texts.get(page) as string, pathsHeld);
+    return { ok: true, snapshot: { revision: hash.digest('hex'), paths, titles, texts, docs, held: pathsHeld } };
+  }
+
+  pages(): ProductWikiPages {
+    const taken = this.snapshot();
+    if (!taken.ok) return taken;
+    const { revision, paths, titles, docs } = taken.snapshot;
+    const pages: WikiPageEntry[] = [];
+    for (const path of paths) {
+      const doc = docs.byPath.get(path);
+      const status = doc === undefined ? undefined : statusOf(doc);
+      pages.push({
+        path,
+        title: titles.get(path) as string,
+        address: addressOf(path),
+        kind: doc?.kind,
+        status,
+      });
+    }
+    return { ok: true, revision, pages };
   }
 
   page(asked: string): ProductWikiPage {
@@ -165,29 +249,53 @@ class FreshProductWiki implements ProductWiki {
     // The walk's own failure — an unreadable folder on the way, a page
     // that is not a regular file — is kept at this boundary as the
     // refusal naming the path and the cause, never rethrown for the
-    // handler's generic 500 to swallow (finding 7).
-    let held: string[];
-    try {
-      held = markdownPaths(this.product.folder);
-    } catch (error) {
-      return { ok: false, message: `the page ${JSON.stringify(path)} could not be read from ${JSON.stringify(this.product.folder)}: ${(error as Error).message}` };
+    // handler's generic 500 to swallow (finding 7); the snapshot reads the
+    // whole set together, so the backlinks answer at the same revision
+    // their own page was read at.
+    const taken = this.snapshot();
+    if (!taken.ok) {
+      return { ok: false, message: `the page ${JSON.stringify(path)} could not be read from ${JSON.stringify(this.product.folder)}: ${taken.message}` };
     }
-    if (!held.includes(path)) {
+    if (!taken.snapshot.held.has(path)) {
       return {
         ok: false,
         notFound: true,
         message: `the wiki does not hold ${JSON.stringify(path)}: a page is every Markdown file under ${DOCS_FOLDER}/ and ${'README.md'} at the product's root`,
       };
     }
-    const markdown = this.fileText(path);
-    if (!markdown.ok) return markdown;
+    const markdown = taken.snapshot.texts.get(path);
+    if (markdown === undefined) {
+      return { ok: false, message: `the page ${JSON.stringify(path)} could not be read from ${JSON.stringify(this.product.folder)}: the page set's own walk held it an instant ago` };
+    }
+    const doc = taken.snapshot.docs.byPath.get(path);
     let changedAt: string;
     try {
       changedAt = statSync(joinPath(this.product.folder, ...path.split('/'))).mtime.toISOString();
     } catch (error) {
       return { ok: false, message: `the page ${JSON.stringify(path)} modification time could not be read from ${JSON.stringify(this.product.folder)}: ${(error as Error).message}` };
     }
-    return { ok: true, page: { path, title: titleOf(path, markdown.markdown), markdown: markdown.markdown, changedAt } };
+    const check = this.checkRuns.run(taken.snapshot.revision, () => runProductCheck(this.product.folder));
+    const findings = check.ran ? check.findings.filter((finding) => finding.file === path) : [];
+    const grown = doc === undefined ? [] : grownFromOf(doc, taken.snapshot.docs);
+    const linked = doc === undefined ? [] : backlinksOf(doc, taken.snapshot.docs);
+    const status = doc === undefined ? undefined : statusOf(doc);
+    // A page of no set kind — no kind, no id, no fields, no links either
+    // way — carries no document at all: the plain page behaviour stands.
+    const document = doc === undefined || (doc.kind === undefined && doc.id === undefined && doc.fields.length === 0 && grown.length === 0 && linked.length === 0 && status === undefined)
+      ? undefined
+      : { kind: doc.kind, id: doc.id, status, fields: doc.fields, grewFrom: grown, backlinks: linked };
+    return {
+      ok: true,
+      page: {
+        path,
+        title: titleOf(path, markdown),
+        markdown,
+        changedAt,
+        document,
+        findings,
+        check: check.ran ? { ran: true, version: check.version } : { ran: false, message: check.message },
+      },
+    };
   }
 
   questions(): ProductWikiQuestions {
@@ -205,7 +313,6 @@ class FreshProductWiki implements ProductWiki {
       if (parsed === undefined) continue;
       questions.push(parsed);
     }
-    // Questions in the same order as the paths themselves: code point order.
     questions.sort((a, b) => byCodePoint(a.path, b.path));
     const withChange = questions.map((question) => {
       const changedAt = changedAtOf(question.path, this.product.folder);
