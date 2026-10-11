@@ -42,7 +42,7 @@ a product with no pages shall say that it has none yet.
 ## Requirement: shell — The reading shell holds the navigation, the document and the panel place
 When a product's wiki is served, its pages shall be shown in a reading shell: a left navigation holding the product's name and its documents grouped by kind — the kind a page's path names, pages outside a kind by themselves — with the current page marked visually and by its accessibility attributes, and every page of the wiki one click away from it; the document in the centre as the main element; and a place for a right context panel, closed by default and empty until content fills it. A focus mode shall hide both panels and bring them back, and on a narrow screen the navigation shall open from a menu without narrowing the document's column. Language selection shall live in a globe menu in the top bar; the globe button shall have a localized accessible name and tooltip, and the menu shall mark the current language as checked.
 
-The shell shall fill the window at any window height: its sidebar, its top bar and its tab strip stay while only the work area scrolls, and a tab strip row under the top bar carries the open file name (the view switch and history arrive with the editor work and no control stands dead). The document surface shall be flush across the work area, from the sidebar edge to the window edge and from the tab strip through the status bar, with no inset page or raised frame. The status bar stands at the very bottom of the window, outside the scrolled content, and carries on its left the wiki's actual live-connection state — Live when the event stream is open, Reconnecting while it is not — with nothing claimed about browser persistence. The chrome reads as the mockup lays it: the brand as the product's own mark, a product block naming the product with its "Product space" line and an initial square about 36 px, no trailing chevron on the product overview row, the sidebar's group heading in small muted uppercase, and a breadcrumb whose parent sits muted around a spaced slash with the current page in the primary text colour.
+The sidebar carries an Architecture entry in the life-cycle order — after the decisions, before the research kinds — with the model's views' count; the entry stands even where the product holds no model. The shell shall fill the window at any window height: its sidebar, its top bar and its tab strip stay while only the work area scrolls, and a tab strip row under the top bar carries the open file name (the view switch and history arrive with the editor work and no control stands dead). The document surface shall be flush across the work area, from the sidebar edge to the window edge and from the tab strip through the status bar, with no inset page or raised frame. The status bar stands at the very bottom of the window, outside the scrolled content, and carries on its left the wiki's actual live-connection state — Live when the event stream is open, Reconnecting while it is not — with nothing claimed about browser persistence. The chrome reads as the mockup lays it: the brand as the product's own mark, a product block naming the product with its "Product space" line and an initial square about 36 px, no trailing chevron on the product overview row, the sidebar's group heading in small muted uppercase, and a breadcrumb whose parent sits muted around a spaced slash with the current page in the primary text colour.
 
 ### Scenario: language-menu
 - Given: the wiki is open with English chrome and the reader opens the globe menu
@@ -65,6 +65,10 @@ The shell shall fill the window at any window height: its sidebar, its top bar a
 - Given: the wiki open at a 1000x700 window and the reader exits focus mode
 - When: the shell is read
 - Then: the document and home surface is flush from the sidebar edge to the window edge, the sidebar is 240 px wide, and no inset or raised page frame remains
+### Scenario: architecture-entry-in-the-sidebar
+- Given: a served product's page open
+- When: the sidebar is read
+- Then: the Architecture entry stands between the decisions and the research kinds and opens the section's index; on a product with no model the entry is still there and the page says what is missing
 ### Scenario: window-height-shell
 - Given: the wiki open in a tall window (1440x1400) and then scrolled
 - When: the shell is read while the column scrolls
@@ -101,16 +105,70 @@ The document typography reads like the mockup: the body rides the mockup's 18 px
 - When: the page's rendered text is inspected
 - Then: the page's text renders in the shipped Inter and its code in the shipped monospace face, not in a fallback the system chose
 
+## Requirement: architecture — The model's views and elements are the Architecture section
+When a product's wiki is served, it shall have an Architecture section — the
+Design stage's part of the life cycle — computed from the product's model:
+the product's own model files (`model/` of the product repository) merged
+with each declared code repository's own `madarch/` model under `repos/`, in
+the manifest's repository order, the product's files first. The section
+shall have an index page listing the model's views and elements; one page
+per view with its diagram drawn in the browser — the shared renderer's
+Mermaid source drawn client-side, and the LikeC4 webcomponent of the same
+view beside it — with the view's relation table, the view one level up and
+the drill-down to the views it opens; and one page per model element with
+its kind, technology, parent, its interfaces, its incoming and outgoing
+relations, and the pages whose text names it. A document page shall link the
+first standalone, word-bounded mention of an element's id (the backlinks'
+conservative rule) to the element's page. A declared repository with no
+checkout under `repos/` shall be named as a note beside the model, never
+omitted silently. When the model does not compile, the section's pages shall
+show the compiler's own errors, each naming its file, line and path, and
+every other page of the wiki shall keep working. The diagrams shall follow
+the reader's colour scheme, and every app-owned string of the section shall
+use the selected catalogue.
+
+### Scenario: views-and-elements
+- Given: a served product whose `model/` holds a landscape, an overview and a flow view
+- When: the Architecture section is opened
+- Then: the index lists the three views and every element, and each view's page draws its diagram and links up and drill-down
+### Scenario: element-page-relations
+- Given: a model where `library` syncs through `sync-engine`
+- When: the page of `sync-engine` is opened
+- Then: it shows `library` as its incoming other end with the relation's name and interface, and the pages that name it
+### Scenario: document-links-to-element
+- Given: a document page whose text names `sync-engine`
+- When: the document page is read
+- Then: the first standalone mention of the id is a link to `/p/madarch/element/sync-engine`, and mentions inside code spans, fences and link targets are not wrapped
+### Scenario: merge-with-repository-model
+- Given: a product whose manifest declares a repository checked out under `repos/alpha` with a `madarch/` model
+- When: the Architecture section is computed
+- Then: the elements and relations of both models are shown as one model, and a duplicate id across the two is a compile error naming both files
+### Scenario: missing-checkout-is-a-note
+- Given: a product whose manifest declares a repository that is not checked out under `repos/`
+- When: the Architecture section is computed
+- Then: the model is shown from what is on disk, and the section names the missing checkout with its path
+### Scenario: compile-errors-do-not-blank-the-wiki
+- Given: a served product whose model file declares a kind that does not exist
+- When: the Architecture page is opened, and any document page with it
+- Then: the Architecture page lists the error with the file's path, the line number and the offending value's path, and the document pages render as usual
+
 ## Requirement: live — A page follows its file as it is saved
 When a page is asked for, its text shall be read from the product's working
 tree then, never from a copy kept from an earlier read. When a file of the
 wiki is created, changed or removed while the wiki is open, every open page
 shall show what the working tree holds within two seconds, with the server
 still running and without the reader reloading the page. The same pages shall
-give the same revision, so an unchanged wiki is never shown as changed.
+give the same revision, so an unchanged wiki is never shown as changed. The
+revision shall cover the model's sources too — the product's `model/` and
+every declared repository's `madarch/` — so a saved model file is a wiki
+change: the stream reports it and the Architecture section is asked again.
 
 The server watches the product working tree and answers one Server-Sent Events stream (one long-lived request per open wiki, debounced as a tree change arrives); an open page refetches what it shows when its stream carries an event, and reconnects with backoff when the stream drops. A loaded tab the reader leaves alone makes no per-second requests beyond its open stream. The app shows the stream's actual state on its own (Live when open, Reconnecting while it is not); no save events outside the product's own files are claimed.
 
+### Scenario: saved-model-becomes-a-change
+- Given: a served product whose model compiles, open in a browser at the Architecture section
+- When: a model file is saved with a new element
+- Then: the section shows the new element within two seconds, without a reload, and an unchanged model never changes the revision
 ### Scenario: saved-file-becomes-a-page
 - Given: a served draft with no pages, open in a browser
 - When: `docs/vision.md` is written in the product root
