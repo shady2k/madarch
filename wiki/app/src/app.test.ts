@@ -17,7 +17,11 @@ import { App, HomePage, PageReader, RepositoriesPage, RepoCard, EVENTS_PATH } fr
 import { groupNav } from './shell.js';
 import { languageStorageKey, setWikiLanguage } from './i18n.js';
 import { addressOfPage } from './routes.js';
+<<<<<<< HEAD
 import type { Product, PageList, Page, RepoEntry } from './api.js';
+=======
+import type { Product, ProductWithAudience, PageList, Page, QuestionList, QuestionEntry } from './api.js';
+>>>>>>> ecf27cea (The product's open questions: the /questions view, the sidebar count, the answer semantics of the set's form and the draft's name and audience)
 
 beforeAll(async () => {
   GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -35,11 +39,15 @@ afterAll(async () => {
 type Blade = { body: unknown; status?: number };
 type Answer = (target: string) => Blade;
 
-function answerFor(product: Product, list: PageList, pages: Record<string, Page>): Answer {
+function answerFor(product: Product, list: PageList, pages: Record<string, Page>, questions: QuestionList = { questions: [], openCount: 0 }): Answer {
   return (target: string): Blade => {
     if (target === '/api/product') return { body: product };
     if (target === '/api/pages') return { body: list };
+<<<<<<< HEAD
     if (target === '/api/repos') return { body: { repos: [] } };
+=======
+    if (target === '/api/questions') return { body: questions };
+>>>>>>> ecf27cea (The product's open questions: the /questions view, the sidebar count, the answer semantics of the set's form and the draft's name and audience)
     if (target.startsWith('/api/page?') === false)
       return { body: { message: 'the server does not answer ' + target }, status: 404 };
     const path = new URL('http://x' + target).searchParams.get('path') ?? '';
@@ -338,7 +346,11 @@ describe('live update', () => {
       if (target === '/api/pages') return new Response(JSON.stringify(which.list), { status: 200, headers: { 'content-type': 'application/json' } });
       if (target === '/api/repos') return new Response(JSON.stringify({ repos: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
       if (target === '/api/product') return new Response(JSON.stringify(product), { status: 200, headers: { 'content-type': 'application/json' } });
+<<<<<<< HEAD
       if (target === '/api/repos') return new Response(JSON.stringify({ repos: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+=======
+      if (target === '/api/questions') return new Response(JSON.stringify({ questions: [], openCount: 0 }), { status: 200, headers: { 'content-type': 'application/json' } });
+>>>>>>> ecf27cea (The product's open questions: the /questions view, the sidebar count, the answer semantics of the set's form and the draft's name and audience)
       if (target.startsWith('/api/page?path=docs%2Fvision.md')) {
         return new Response(JSON.stringify(which.page), { status: 200, headers: { 'content-type': 'application/json' } });
       }
@@ -376,7 +388,11 @@ describe('live update', () => {
       }
       if (target === '/api/pages') return new Response(JSON.stringify(listWithPages), { status: 200, headers: { 'content-type': 'application/json' } });
       if (target === '/api/product') return new Response(JSON.stringify(product), { status: 200, headers: { 'content-type': 'application/json' } });
+<<<<<<< HEAD
       if (target === '/api/repos') return new Response(JSON.stringify({ repos: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+=======
+      if (target === '/api/questions') return new Response(JSON.stringify({ questions: [], openCount: 0 }), { status: 200, headers: { 'content-type': 'application/json' } });
+>>>>>>> ecf27cea (The product's open questions: the /questions view, the sidebar count, the answer semantics of the set's form and the draft's name and audience)
       if (target.startsWith('/api/page?path=')) return new Response(JSON.stringify(pagesAtR1['docs/vision.md']!), { status: 200, headers: { 'content-type': 'application/json' } });
       return new Response(JSON.stringify({ message: 'nothing answers ' + target }), { status: 404 });
     }) as unknown as typeof fetch;
@@ -412,7 +428,11 @@ describe('live update', () => {
       }
       if (target === '/api/pages') return new Response(JSON.stringify(listWithPages), { status: 200, headers: { 'content-type': 'application/json' } });
       if (target === '/api/product') return new Response(JSON.stringify(product), { status: 200, headers: { 'content-type': 'application/json' } });
+<<<<<<< HEAD
       if (target === '/api/repos') return new Response(JSON.stringify({ repos: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+=======
+      if (target === '/api/questions') return new Response(JSON.stringify({ questions: [], openCount: 0 }), { status: 200, headers: { 'content-type': 'application/json' } });
+>>>>>>> ecf27cea (The product's open questions: the /questions view, the sidebar count, the answer semantics of the set's form and the draft's name and audience)
       if (target.startsWith('/api/page?path=')) return new Response(JSON.stringify(pagesAtR1['docs/vision.md']!), { status: 200, headers: { 'content-type': 'application/json' } });
       return new Response(JSON.stringify({ message: 'nothing answers ' + target }), { status: 404 });
     }) as unknown as typeof fetch;
@@ -545,6 +565,9 @@ describe('a poll that times out', () => {
           init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
         });
       }
+      if (target === '/api/questions') {
+        return new Response(JSON.stringify({ questions: [], openCount: 0 }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
       return new Response(JSON.stringify({ message: 'nothing answers ' + target }), { status: 404 });
     }) as unknown as typeof fetch;
     goto('/');
@@ -571,6 +594,9 @@ describe('a poll that times out', () => {
       if (target === '/api/product') {
         return new Response(JSON.stringify(product), { status: 200, headers: { 'content-type': 'application/json' } });
       }
+      if (target === '/api/questions') {
+        return new Response(JSON.stringify({ questions: [], openCount: 0 }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
       return new Response(JSON.stringify({ message: 'nothing answers ' + target }), { status: 404 });
     }) as unknown as typeof fetch;
     goto('/');
@@ -592,6 +618,9 @@ describe('a poll that times out', () => {
       }
       if (target === '/api/product') {
         return new Response(JSON.stringify(product), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (target === '/api/questions') {
+        return new Response(JSON.stringify({ questions: [], openCount: 0 }), { status: 200, headers: { 'content-type': 'application/json' } });
       }
       return new Response(JSON.stringify({ message: 'nothing answers ' + target }), { status: 404 });
     }) as unknown as typeof fetch;
@@ -626,8 +655,13 @@ describe('a failed page read that is retried', () => {
           headers: { 'content-type': 'application/json' },
         });
       }
+<<<<<<< HEAD
       if (target === '/api/repos') {
         return new Response(JSON.stringify({ repos: [] }), {
+=======
+      if (target === '/api/questions') {
+        return new Response(JSON.stringify({ questions: [], openCount: 0 }), {
+>>>>>>> ecf27cea (The product's open questions: the /questions view, the sidebar count, the answer semantics of the set's form and the draft's name and audience)
           status: 200,
           headers: { 'content-type': 'application/json' },
         });
@@ -676,8 +710,13 @@ describe('a failed page read that is retried', () => {
           headers: { 'content-type': 'application/json' },
         });
       }
+<<<<<<< HEAD
       if (target === '/api/repos') {
         return new Response(JSON.stringify({ repos: [] }), {
+=======
+      if (target === '/api/questions') {
+        return new Response(JSON.stringify({ questions: [], openCount: 0 }), {
+>>>>>>> ecf27cea (The product's open questions: the /questions view, the sidebar count, the answer semantics of the set's form and the draft's name and audience)
           status: 200,
           headers: { 'content-type': 'application/json' },
         });
@@ -1080,6 +1119,7 @@ describe('real page metadata', () => {
   });
 });
 
+<<<<<<< HEAD
 /** The answer kinds extended with the repositories' answer. */
 function answerWithRepos(product: Product, list: PageList, pages: Record<string, Page>, repos: RepoEntry[]): Answer {
   const base = answerFor(product, list, pages);
@@ -1331,5 +1371,94 @@ describe('the repositories section', () => {
     } finally {
       await setWikiLanguage('en');
     }
+=======
+describe('the open questions', () => {
+  const openQuestion: QuestionEntry = {
+    path: 'docs/questions/Q-004-who-collects.md',
+    id: 'Q-004',
+    title: 'Who collects the unclaimed portions?',
+    question: 'Does the owner want to be told?',
+    who: 'the cafe owner',
+    concerns: ['UC-001', 'FR-002'],
+    state: 'open',
+  };
+  const answeredQuestion: QuestionEntry = {
+    path: 'docs/questions/Q-002-delivery.md',
+    id: 'Q-002',
+    title: 'Should leftovers be delivered?',
+    question: 'Do buyers expect the portions to be delivered?',
+    who: 'the product owner',
+    concerns: ['VISION'],
+    state: 'answered',
+    answer: 'A first run showed no buyer asked for delivery.',
+  };
+  const notApplicable: QuestionEntry = {
+    path: 'docs/questions/Q-003-chains.md',
+    id: 'Q-003',
+    title: 'Chains with their own apps?',
+    question: 'Do we serve chains that already run their own ordering apps?',
+    who: 'the product owner',
+    concerns: ['VISION'],
+    state: 'not-applicable',
+    answer: 'Not applicable: chains are out of the vision.',
+  };
+
+  test('the sidebar names the view with the live count, in Russian with its plurals', async () => {
+    await setWikiLanguage('en');
+    const list: QuestionList = { questions: [openQuestion, answeredQuestion, notApplicable], openCount: 1 };
+    install(answerFor(product, listWithPages, pagesAtR1, list));
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => text().includes('Open questions'), 'the sidebar entry');
+    expect(document.querySelector('[data-testid="open-questions-count"]')?.textContent).toBe('1');
+    await setWikiLanguage('ru');
+    await until(() => text().includes('Открытые вопросы'), 'the Russian entry');
+    await setWikiLanguage('en');
+  });
+
+  test('the questions view lists the open ones first and the closed ones muted with their answers', async () => {
+    const list: QuestionList = { questions: [openQuestion, answeredQuestion, notApplicable], openCount: 1 };
+    install(answerFor(product, listWithPages, pagesAtR1, list));
+    goto('/questions');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('[data-testid="questions-view"]') !== null, 'the questions view');
+    const view = document.querySelector('[data-testid="questions-view"]')!;
+    const rows = [...view.querySelectorAll('[data-question-id]')];
+    expect(rows.map((row) => row.getAttribute('data-question-id'))).toEqual(['Q-004', 'Q-002', 'Q-003']);
+    expect(view.querySelector('[data-testid="questions-count"]')?.textContent).toContain('1');
+    expect(view.querySelector('[data-testid="questions-closed"]')).not.toBeNull();
+    expect(view.textContent).toContain('Not applicable: chains are out of the vision.');
+  });
+
+  test('answering a question closes it: the count drops and the row moves to the closed read', async () => {
+    const before: QuestionList = { questions: [openQuestion, answeredQuestion, notApplicable], openCount: 1 };
+    const stream = installWithStream(answerFor(product, listWithPages, pagesAtR1, before));
+    goto('/questions');
+    await intoApp(createElement(App, { reconnectMs: 5 }));
+    await until(() => document.querySelector('[data-testid="open-questions-count"]')?.textContent === '1', 'the first count');
+    const closed: QuestionList = {
+      questions: [{ ...openQuestion, state: 'answered', answer: 'The owner collects them.' }, answeredQuestion, notApplicable],
+      openCount: 0,
+    };
+    stream.set(answerFor(product, listWithPages, pagesAtR1, closed));
+    stream.push('event: change\ndata: {"revision":"r2"}\n\n');
+    await until(() => document.querySelector('[data-testid="open-questions-count"]')?.textContent === '0', 'the answered count');
+    await until(() => text().includes('The owner collects them.'), 'the answer shown');
+    expect(stream.calls.filter((call) => call === EVENTS_PATH).length).toBe(1);
+  });
+
+  test('the draft carries its audience on the home; a draft without a vision says so', async () => {
+    const withAudience: ProductWithAudience = { ...product, audience: 'Owners of small cafes with fewer than twenty seats.' };
+    install(answerFor(withAudience, listWithPages, pagesAtR1));
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('[data-testid="home-audience"]') !== null, 'the audience line');
+    expect(document.querySelector('[data-testid="home-audience"]')?.textContent).toContain('Owners of small cafes');
+    unmount();
+    install(answerFor(product, listWithPages, pagesAtR1));
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('[data-testid="home-audience"]')?.textContent?.includes('not written yet'), 'the empty audience line');
+>>>>>>> ecf27cea (The product's open questions: the /questions view, the sidebar count, the answer semantics of the set's form and the draft's name and audience)
   });
 });

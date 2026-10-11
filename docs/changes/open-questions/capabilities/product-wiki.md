@@ -1,0 +1,459 @@
+# Product wiki
+
+Capability: product-wiki
+
+## Purpose
+A product's wiki as its reader reaches it on their own machine: madarch's own
+thin app (decision 0018), served by a local madarch, showing the product's
+pages read from its working tree, so that what the person and their agent
+write is what the wiki shows as soon as it is saved. The static site the wiki
+capability builds stays as the read-only export.
+
+## Requirement: pages — The product's documents are the wiki's pages
+When a product's wiki is served, it shall have a home page naming the product
+and listing its pages, and one page for every Markdown file under the
+product's `docs/` folder and for `README.md` at its root when it has one, in
+code point order of their paths. It shall read those two places and nothing
+else: the skill set's tracker at the product's root, every other dot-folder
+and every other folder are neither pages of the wiki nor read by it. A page's title shall be its first level-one
+heading, else its file's name without its extension, and its address shall be
+`/p/` and its path within the product. A page shall show its Markdown as
+formatted text. A link from one page to another page of the wiki shall open
+that page; a link to anything else shall be shown as its text. A home page of
+a product with no pages shall say that it has none yet.
+
+
+
+
+
+### Scenario: draft-pages
+- Given: a draft whose `docs/vision.md` holds `# Vision` and whose `docs/notes.md` holds no heading
+- When: its wiki is opened
+- Then: the home page names the product and lists `Vision` and `notes`, and `/p/docs/vision.md` shows the document's text as formatted text
+### Scenario: no-pages-yet
+- Given: a draft whose `docs/` holds no Markdown file
+- When: its wiki is opened
+- Then: the home page names the product and says it has no pages yet
+### Scenario: link-between-pages
+- Given: a product whose `docs/index.md` links to `vision.md` and to `../AGENTS.md`
+- When: its index page is read
+- Then: the link to `vision.md` opens the vision page, and the link to `AGENTS.md` is not a page of the wiki
+
+## Requirement: shell — The reading shell holds the navigation, the document and the panel place
+When a product's wiki is served, its pages shall be shown in a reading shell: a left navigation holding the product's name and its documents grouped by kind — the kind a page's path names, pages outside a kind by themselves — with the current page marked visually and by its accessibility attributes, and every page of the wiki one click away from it; the document in the centre as the main element; and a place for a right context panel, closed by default and empty until content fills it. A focus mode shall hide both panels and bring them back, and on a narrow screen the navigation shall open from a menu without narrowing the document's column. Language selection shall live in a globe menu in the top bar; the globe button shall have a localized accessible name and tooltip, and the menu shall mark the current language as checked.
+
+The sidebar carries an Architecture entry in the life-cycle order — after the decisions, before the research kinds — with the model's views' count; the entry stands even where the product holds no model. The sidebar also carries an open-questions entry beside the product's overview entry, with the count of the open questions; the entry opens the questions view at `/questions`. The shell shall fill the window at any window height: its sidebar, its top bar and its tab strip stay while only the work area scrolls, and a tab strip row under the top bar carries the open file name (the view switch and history arrive with the editor work and no control stands dead). The document surface shall be flush across the work area, from the sidebar edge to the window edge and from the tab strip through the status bar, with no inset page or raised frame. The status bar stands at the very bottom of the window, outside the scrolled content, and carries on its left the wiki's actual live-connection state — Live when the event stream is open, Reconnecting while it is not — with nothing claimed about browser persistence. The chrome reads as the mockup lays it: the brand as the product's own mark, a product block naming the product with its "Product space" line and an initial square about 36 px, no trailing chevron on the product overview row, the sidebar's group heading in small muted uppercase, and a breadcrumb whose parent sits muted around a spaced slash with the current page in the primary text colour.
+
+### Scenario: language-menu
+- Given: the wiki is open with English chrome and the reader opens the globe menu
+- When: the menu is shown and Russian is chosen
+- Then: the menu marks English as checked before the choice, then the chrome changes to Russian and the saved preference is Russian
+### Scenario: navigation-groups-and-marks
+- Given: a served product whose `docs/` holds a vision, a requirement, a decision and a research note, opened at one of them
+- When: its page is read in a browser
+- Then: the left navigation lists all of them grouped by kind, the current page is marked visually and carries `aria-current`, and each other page opens with one click
+### Scenario: focus-mode-hides-and-returns
+- Given: a served product's page open
+- When: focus mode is turned on and then off
+- Then: with it on the navigation and the panel place are hidden and only the document shows; with it off both panels are back
+### Scenario: phone-menu
+- Given: the wiki open at 390 px
+- When: the shell is read and the menu is opened
+- Then: the navigation opens from a menu, and the text uses the full work area minus 20 px on each side without narrowing
+
+### Scenario: flush-work-area-and-responsive-sidebar
+- Given: the wiki open at a 1000x700 window and the reader exits focus mode
+- When: the shell is read
+- Then: the document and home surface is flush from the sidebar edge to the window edge, the sidebar is 240 px wide, and no inset or raised page frame remains
+### Scenario: architecture-entry-in-the-sidebar
+- Given: a served product's page open
+- When: the sidebar is read
+- Then: the Architecture entry stands between the decisions and the research kinds and opens the section's index; on a product with no model the entry is still there and the page says what is missing
+### Scenario: open-questions-entry-in-the-sidebar
+- Given: a served product whose `docs/` holds one open question and two closed ones
+- When: the sidebar is read
+- Then: the open-questions entry names the view with the count 1, and the entry opens `/questions`
+### Scenario: window-height-shell
+- Given: the wiki open in a tall window (1440x1400) and then scrolled
+- When: the shell is read while the column scrolls
+- Then: the sidebar and the top bars stay fixed while only the document column scrolls, and the status bar stands at the bottom edge of the window
+### Scenario: home-overview
+- Given: a served product home read in a browser
+- When: the home page is read
+- Then: the home carries a lead, its documents grouped by kind with counts, links not underlined, each row icon and title on the navigation rhythm, and groups that share the document text measure with rounded hairline borders and no inner rules
+### Scenario: connection-state-in-the-status-bar
+- Given: the wiki served and its event stream open
+- When: the status bar is read, and then the stream is dropped
+- Then: with the stream open the status bar names the connection Live; with it dropped it names Reconnecting, and it never claims a browser save happened
+
+## Requirement: reading-typography — Pages read on the shared design tokens
+The app's styles shall take their values from one tokens module the editor of madarch-j0a reuses: font families, a type scale, spacing, colours, a light theme and a dark theme that follows the system setting. It shall ship the fonts it names — Inter for text and a monospace face — under the SIL Open Font Licence with Cyrillic, licences recorded beside the files, with a fallback stack for macOS, Linux and Windows. Document text and home groups shall share one fluid measure: 48 px inline padding on desktop, 32 px on tablet and 20 px on phone, with a 960 px maximum text width centered only when the work area has room. Its body line height shall be 1.4 to 1.6, its heading scale shall keep a steady vertical rhythm, its quotes, code blocks, lists and tables shall read comfortably, and no element shall overflow the text area. The column measure: the earlier research value (36em/62 chars; the mockup's 740px) is superseded by the owner's fluid-width direction of 2026-10-11 (note-width.md).
+
+The document typography reads like the mockup: the body rides the mockup's 18 px, heading weights sit medium with the mockup's normal tracking, and the eyebrow and the lead sit as the mockup places them. The shared design tokens define calm, neutral surfaces, radii and three restrained shadow levels in both themes. The work area has no inset or raised page frame; home groups use the shared measure, rounded hairline borders and no inner rules. The shell uses tokens consistently, keeps hover and focus visible, and honors reduced motion.
+
+### Scenario: layered-surfaces-and-accessible-states
+- Given: the wiki is shown in light or dark theme, including with reduced motion requested
+- When: its navigation, document, cards, controls, code and menus are read or focused
+- Then: their surfaces and radii follow the shared tokens, elevation stays restrained, hover and keyboard focus remain visible, and reduced motion disables transitions
+
+### Scenario: fluid-column-and-leading
+- Given: a fixture product whose page holds paragraphs, headings of every level, a list, a quote, a code block, a table and a long line
+- When: its page and home are read at 1000x700, 1150x900, 1440x900 and 390x844
+- Then: at 1000 and 1150 px the text fills the work area minus 48 px desktop padding; at tablet widths it uses 32 px padding; at 390 px it uses 20 px padding; at 1440 px it is capped at 960 px and centered. The browser walk records the exact text widths at 1000, 1150 and 1440 px; body line height stays 1.4 to 1.6, and no element overflows the text area.
+### Scenario: dark-follows-system
+- Given: the system set to dark mode
+- When: a page of the wiki is opened
+- Then: the page shows the dark theme without a switch inside the app
+### Scenario: shipped-fonts-render
+- Given: a page of the wiki on Linux, where no system font matches Inter
+- When: the page's rendered text is inspected
+- Then: the page's text renders in the shipped Inter and its code in the shipped monospace face, not in a fallback the system chose
+
+## Requirement: architecture — The model's views and elements are the Architecture section
+When a product's wiki is served, it shall have an Architecture section — the
+Design stage's part of the life cycle — computed from the product's model:
+the product's own model files (`model/` of the product repository) merged
+with each declared code repository's own `madarch/` model under `repos/`, in
+the manifest's repository order, the product's files first. The section
+shall have an index page listing the model's views and elements; one page
+per view with its diagram drawn in the browser — the shared renderer's
+Mermaid source drawn client-side, and the LikeC4 webcomponent of the same
+view beside it — with the view's relation table, the view one level up and
+the drill-down to the views it opens; and one page per model element with
+its kind, technology, parent, its interfaces, its incoming and outgoing
+relations, and the pages whose text names it. A document page shall link the
+first standalone, word-bounded mention of an element's id (the backlinks'
+conservative rule) to the element's page. A declared repository with no
+checkout under `repos/` shall be named as a note beside the model, never
+omitted silently. When the model does not compile, the section's pages shall
+show the compiler's own errors, each naming its file, line and path, and
+every other page of the wiki shall keep working. The diagrams shall follow
+the reader's colour scheme, and every app-owned string of the section shall
+use the selected catalogue.
+
+### Scenario: views-and-elements
+- Given: a served product whose `model/` holds a landscape, an overview and a flow view
+- When: the Architecture section is opened
+- Then: the index lists the three views and every element, and each view's page draws its diagram and links up and drill-down
+### Scenario: element-page-relations
+- Given: a model where `library` syncs through `sync-engine`
+- When: the page of `sync-engine` is opened
+- Then: it shows `library` as its incoming other end with the relation's name and interface, and the pages that name it
+### Scenario: document-links-to-element
+- Given: a document page whose text names `sync-engine`
+- When: the document page is read
+- Then: the first standalone mention of the id is a link to `/p/madarch/element/sync-engine`, and mentions inside code spans, fences and link targets are not wrapped
+### Scenario: merge-with-repository-model
+- Given: a product whose manifest declares a repository checked out under `repos/alpha` with a `madarch/` model
+- When: the Architecture section is computed
+- Then: the elements and relations of both models are shown as one model, and a duplicate id across the two is a compile error naming both files
+### Scenario: missing-checkout-is-a-note
+- Given: a product whose manifest declares a repository that is not checked out under `repos/`
+- When: the Architecture section is computed
+- Then: the model is shown from what is on disk, and the section names the missing checkout with its path
+### Scenario: compile-errors-do-not-blank-the-wiki
+- Given: a served product whose model file declares a kind that does not exist
+- When: the Architecture page is opened, and any document page with it
+- Then: the Architecture page lists the error with the file's path, the line number and the offending value's path, and the document pages render as usual
+
+## Requirement: stages — Every stage of the life cycle is visible, in order, from the real files
+When a product's wiki is served, the app shall show the SDLC stages as
+sections in the life cycle's own order — Idea, Requirements, Design, Build,
+Verify, Release, Operate — under a Life cycle heading in the navigation, and
+one page per stage at the app's `/s/` route. Each stage's section shall hold
+what the product really has at that stage, read from the product's files at
+every ask and never written to:
+- the Idea stage: the vision, the sources, the hypotheses, the open questions,
+  the prototypes and their results, each with its page path, its title and its
+  kind, linking to the page the wiki already serves;
+- the Requirements stage: the user stories, the use cases and the product
+  requirements, the same way;
+- the Design stage: the decision records and the design specs, the same way;
+  where the product holds an intended model (`model/`), the stage names the
+  Architecture section and links to it instead of repeating it — the
+  Architecture section itself is another change's work and is not built here;
+- the Build stage: the product's tasks, read only from the tracker's own
+  export `.beads/issues.jsonl`, an open, in-progress or done status each,
+  grouped by the feature (the tracker epic) each hangs under by its
+  `parent-child` dependency, tasks with no epic under no feature; where the
+  product declares repositories in its manifest or holds a cloned `repos/`,
+  the stage names the Repositories section and links to it instead of listing
+  the repositories itself; the tasks are read-only: no control here writes,
+  closes or edits anything;
+- the Verify stage: the acceptance records — the files under the set's
+  records folder whose text holds an `accepted:` or `implemented:` record
+  (or the older prose `Final:` form); they stand outside the served pages,
+  so the stage names them as text, never links that cannot open;
+- the Release stage: the project's changelog — the first of `CHANGELOG.md`
+  and `docs/CHANGELOG.md` that exists is the release notes, a fallback,
+  never both; the change proposals under `docs/changes/` are never shown as
+  releases — a proposal is not a release until it lands;
+- the Operate stage: nothing is read — `handle-incident` turns its review
+  into tracked work and lessons kept where every agent reads, not into a
+  folder of records, so the stage holds its missing line and names the
+  skill.
+
+A kind a stage holds nothing of shall show one quiet line naming the skill of
+the set that fills it — `define-product`, `to-spec`, `to-design`,
+`take-task`, `ship-release` or `handle-incident` — and no dead control: a
+stage with nothing shows only what is missing and who writes it. An artifact
+whose path the page reader does not serve shall be named as text, never
+wrapped in a link. The sections other features own — Architecture and
+Repositories — shall be named on their stages, linked only where the serving
+app holds their routes, and quiet text until then. A tracker export or
+records place that exists but cannot be read shall be named as a problem
+with its full path and the cause, on the stage page it belongs to, and shall
+never shrink silently into an empty stage; a row the Build stage's reader
+mends or leaves out — a repeated id, a row with no status, a status the
+stages do not group, a dependency edge that is not an object — shall be
+surfaced at its full path and line while the groups stand.
+
+Every stage name, kind name, status and missing-skill line of the app's own
+wording shall go through the same message catalogues as the rest of the
+chrome, in English and Russian, with the task counts through
+`Intl.PluralRules`.
+
+### Scenario: stages-order-and-navigation
+- Given: a served product
+- When: the stages navigator is read
+- Then: it lists Idea, Requirements, Design, Build, Verify, Release, Operate in that order, each opening its own stage page at its `/s/` route, and the open stage is marked and named in the breadcrumb and the document tab
+### Scenario: idea-stage-shows-the-chain
+- Given: a product whose `docs/` holds a vision, a source, a hypothesis, a user story, a use case and a product requirement
+- When: the Idea and Requirements stage pages are read
+- Then: the Idea page lists the vision, the source and the hypothesis with their titles and kinds, each a link to the page that holds it, the Requirements page lists the story, the use case and the requirement the same way, and the kinds each stage holds nothing of are named with the skill that writes them
+### Scenario: build-stage-tasks-grouped-by-feature
+- Given: a product whose tracker export holds an epic with tasks of statuses open, in progress and closed under it by parent-child dependencies, and a task with no epic
+- When: the Build stage page is read
+- Then: the tasks stand under their feature's title with the counts of open, in-progress and done tasks, the task with no epic stands under no feature, and nothing on the page writes to the tracker
+### Scenario: build-stage-refuses-a-damaged-export-by-name
+- Given: a product whose `.beads/issues.jsonl` holds a line that is not JSON
+- When: the Build stage page is read
+- Then: the page names the export's full path and the line that cannot be read, and the stage page still answers
+### Scenario: empty-stage-names-its-skill
+- Given: a product whose root holds no changelog and no change records
+- When: the Release and Operate stage pages are read
+- Then: each page shows the quiet line naming `ship-release` or `handle-incident` as the skill that fills it, and no button, link or control stands dead on it
+### Scenario: build-stage-surfaces-what-it-mends
+- Given: a product whose tracker export holds a task with the status `deferred` and a repeated id
+- When: the Build stage page is read
+- Then: each mended or dropped row is named with the export's full path and its line, the healthy tasks still stand grouped, and the stage's missing line names `take-task` when no task is grouped
+### Scenario: verify-records-are-text-not-links
+- Given: a product whose records folder holds an acceptance record
+- When: the Verify stage page is read
+- Then: the record is named with its title and kind as text, no link to it is rendered, and the page carries no dead control
+### Scenario: stages-are-read-only
+- Given: a served product whose stage pages are opened
+- When: its files and git status are compared before and after
+- Then: reading the stages changed nothing in the product
+
+## Requirement: open-questions — The wiki lists the product's open questions
+When a product's wiki is served, it shall read the open-question documents
+the set's form lays down (the identity line `# Q-001 — The question in one
+line`, the fields `Concerns:` and `Who can answer:`, and the sections
+`## Question`, `## What settles it` and `## Answer`) from the product's
+`docs/`, whatever folder under `docs/` the file stands in,
+and offer the open-questions view at `/questions`: each question as its title,
+who can answer it, what it concerns, its state — open, answered, or not
+applicable — and its file's real modification time; the open ones first, the
+closed ones below them as a muted read with their answers shown. The question's
+state is computed from the answer's own text, never invented: an absent or
+empty `## Answer` leaves the question open; an answer beginning
+`Not applicable:` makes it not-applicable; any other non-empty answer closes
+it as answered. The sidebar carries an open-questions entry naming the view
+with the count of open questions; an answered or not-applicable question
+leaves the count and stays readable in the view. The count and the list are
+read through the server's questions answer, and follow the working tree
+through the wiki's own change stream: closing or opening a question updates
+the view and the count within two seconds, without a reload, and a loaded tab
+the reader leaves alone makes no request beyond its one open stream.
+
+### Scenario: question-states-follow-the-form
+- Given: a product whose `docs/questions/` holds `Q-001` with an empty `## Answer`, `Q-002` answered with text, and `Q-003` whose answer begins `Not applicable:`
+- When: the questions view is read
+- Then: `Q-001` stands as an open question, `Q-002` and `Q-003` stand closed with their answers readable, and the count counted in the sidebar is 1
+### Scenario: answered-question-closes-in-place
+- Given: the questions view open, with `Q-001` open and counted in the sidebar
+- When: `Q-001`'s document is saved with a written answer
+- Then: within two seconds the sidebar count is 0 and `Q-001` reads among the closed ones with its answer shown, without a reload
+### Scenario: questions-are-readable-pages
+- Given: the questions view open
+- When: a reader opens a question
+- Then: the question's own document page shows as any page of the wiki
+### Scenario: questions-view-home
+- Given: the wiki's home read
+- When: the home page is read
+- Then: the home names the audience the product's vision carries, and a draft whose vision is not written yet says so instead of an audience, holding the manifest's name as the product's name
+
+## Requirement: live — A page follows its file as it is saved
+When a page is asked for, its text shall be read from the product's working
+tree then, never from a copy kept from an earlier read. When a file of the
+wiki is created, changed or removed while the wiki is open, every open page
+shall show what the working tree holds within two seconds, with the server
+still running and without the reader reloading the page. The same pages shall
+give the same revision, so an unchanged wiki is never shown as changed. The
+revision shall cover the model's sources too — the product's `model/` and
+every declared repository's `madarch/` — so a saved model file is a wiki
+change: the stream reports it and the Architecture section is asked again.
+
+The server watches the product working tree and answers one Server-Sent Events stream (one long-lived request per open wiki, debounced as a tree change arrives); an open page refetches what it shows when its stream carries an event, and reconnects with backoff when the stream drops. A loaded tab the reader leaves alone makes no per-second requests beyond its open stream. The app shows the stream's actual state on its own (Live when open, Reconnecting while it is not); no save events outside the product's own files are claimed.
+
+### Scenario: saved-model-becomes-a-change
+- Given: a served product whose model compiles, open in a browser at the Architecture section
+- When: a model file is saved with a new element
+- Then: the section shows the new element within two seconds, without a reload, and an unchanged model never changes the revision
+### Scenario: saved-file-becomes-a-page
+- Given: a served draft with no pages, open in a browser
+- When: `docs/vision.md` is written in the product root
+- Then: the vision page's title appears in the open home page within two seconds, without a reload and with the server still running
+### Scenario: open-page-follows-its-file
+- Given: a served draft whose page `/p/docs/vision.md` holds `# Vision`, open in a browser
+- When: the file is saved with `# Vision` and the sentence `What it is for.` below it
+- Then: the open page shows the new text within two seconds, without a reload
+### Scenario: no-cache
+- Given: a served draft
+- When: one page is asked for before and after its file is saved
+- Then: the two answers differ, the second holding the new bytes
+### Scenario: idle-tab
+- Given: the wiki open in a loaded tab the reader leaves alone for a minute
+- When: the open page's requests are read for that minute
+- Then: no per-second requests go out after the load beyond the one open stream
+
+## Requirement: serve — A local madarch serves the wiki and opens it
+When a local madarch is given a product folder, it shall serve that product's
+wiki at its address and print the address; `madarch new` shall create the
+draft and serve its wiki in one command, and `madarch serve` shall serve the
+product of the current folder when it is given none. `madarch new` shall open
+the address in the browser the machine uses; where no browser can be opened,
+it shall say so and print the address without failing. The server shall serve
+the app's built files and answer the wiki's pages; a request it cannot answer
+shall be refused with a message naming what was asked for, and no document's
+content shall be logged.
+
+
+
+
+
+### Scenario: new-opens-the-wiki
+- Given: `MADARCH_HOME` names a scratch folder and the machine's browser opener is recorded
+- When: `madarch new` is run
+- Then: the command prints the address, opens that address in the browser, and the address answers the draft's home page while the command runs
+### Scenario: serve-an-existing-product
+- Given: a draft created earlier and no server running
+- When: `madarch serve` is run in the product's root
+- Then: the same wiki answers at the address it prints
+### Scenario: unknown-page
+- Given: a served draft
+- When: a page of a path the product does not hold, and a path outside its `docs/`, are asked for
+- Then: each is refused, naming the path and that the wiki does not hold it
+
+## Requirement: app — The wiki is madarch's own app, served from madarch's build
+When a product's wiki is served, its pages shall be shown by madarch's own app:
+the static files madarch's build produces from `wiki/app` in the madarch
+checkout (decision 0018). When those files are absent, the command shall
+build them once from that folder, saying so before it starts, and then serve
+them; while they are there it shall not build again. If the build fails, the
+command shall stop with exit 2 and print what the builder said.
+
+
+
+
+### Scenario: built-on-first-use
+- Given: a madarch checkout whose app has never been built
+- When: a product's wiki is served
+- Then: the app is built once, the command says so, and the wiki is served; serving a second time builds nothing
+### Scenario: build-fails
+- Given: an app folder whose build fails
+- When: a product's wiki is served
+- Then: the command exits 2 printing what the builder said, and serves nothing
+
+## Requirement: result — Served, opened or refused, and why
+When a product's wiki is served, the command shall serve until it is stopped.
+It shall exit 2 when its input cannot be read — an argument it does not know,
+a product folder that is not there, a product whose manifest cannot be read, an
+address already taken, or an app that cannot be built — naming what is wrong;
+and 1 when a step it takes fails. Serving shall change neither the product's
+files nor its repository.
+
+
+
+
+
+
+### Scenario: no-product
+- Given: a folder that holds no `workspace.yaml`
+- When: `madarch serve --product` naming that folder is run
+- Then: it exits 2 naming the folder and the manifest it looked for
+### Scenario: address-taken
+- Given: a server already answering on the default port
+- When: another product's wiki is served on it
+- Then: it exits 2 naming the address and the option that moves it
+### Scenario: serves-read-only
+- Given: a served draft with its files and its git status recorded
+- When: its home page and one page are opened
+- Then: the product's files and its git status are unchanged
+### Scenario: only-docs-and-readme-are-pages
+- Given: a product whose root holds `.beads/issues.jsonl`, `skills/own.md`, `docs/vision.md` and `README.md`
+- When: its wiki is listed
+- Then: the pages are `README.md` and `docs/vision.md`, and neither the tracker nor `skills/own.md` is a page or is read
+
+## Requirement: internationalization — The wiki app speaks English and Russian
+The product wiki's app shall provide its chrome in English and Russian through
+message catalogues with the same keys. A language control in the shell shall
+switch languages, expose its selected state to assistive technology, and retain
+the reader's choice in local storage. Before the reader chooses, the app shall
+select Russian for a browser language beginning `ru` (case-insensitive), and
+English for every other or missing browser language. Changing the chrome shall
+never translate product document content.
+
+Every app-owned visible string shall use the selected catalogue, including the
+sidebar, top bar, document tab, document-kind eyebrow, home overview, status,
+loading and error states, tooltips and accessible labels. Counts and relative
+file-change times shall follow the selected language through `Intl.PluralRules`
+and `Intl.RelativeTimeFormat`. The document's changed-time label shall use the
+file's real modification time, never placeholder content.
+
+### Scenario: browser-language-default
+- Given: the wiki is opened with no saved choice in a browser whose language is `ru-RU`, and then in one whose language is `en-US`
+- When: each wiki shell first renders
+- Then: the first shell is Russian and the second is English
+### Scenario: language-choice-persists
+- Given: the wiki is open in English
+- When: the reader selects Russian and reloads the wiki
+- Then: the chrome is Russian after the reload, the control names Russian as selected, and product document text stays unchanged
+### Scenario: russian-counts
+- Given: the shell is Russian
+- When: a page has 1, 2 or 5 words
+- Then: its status line uses `1 слово`, `2 слова` or `5 слов` respectively
+### Scenario: localized-date
+- Given: a page file has a recorded modification time
+- When: the page is read in English or Russian
+- Then: its eyebrow reports the real relative modification time in the selected language
+### Scenario: catalogue-key-parity
+- Given: the English and Russian JSON catalogues
+- When: their message keys are compared
+- Then: each key exists in both catalogues
+
+## Requirement: describe-guide — The engineer's guide carries the describing step
+The engineer's guide to starting a product from the repositories they
+already have (`docs/guides/start-a-product.md`) shall carry the describing
+step: after `madarch repo add` connects a repository, the engineer asks the
+agent running in the product folder to describe it; the guide shall say
+what the agent then writes — the repository's intended model with its
+evidence into the repository's own `madarch/` folder, the architecture page
+under `docs/repositories/name/`, the capabilities found in the code as
+requirements and use cases marked derived from code, the decisions found in
+the code or its ADRs — that a repository holding uncommitted changes is
+described only after they are committed, that everything is a page of the
+wiki the moment it is saved, and how to describe every connected
+repository at once. The guide's other sections and their commands stay as
+they are.
+
+### Scenario: guide-carries-the-step
+- Given: the guide at the change's revision
+- When: its sections are read
+- Then: a section after the agent-work section says to describe each repository after `madarch repo add`, names the four artifacts and the committed-checkout rule, and changes none of the guide's commands
+
+### Scenario: described-pages-appear-live
+- Given: a served fixture product whose repository has been described by the skill, its wiki open
+- When: one of the description's pages is saved again
+- Then: the open page shows the new text within two seconds, without a reload, and the page is in the navigation's groups

@@ -303,3 +303,564 @@ describe('the pages a product holds', () => {
     expect(readFileSync(join(folder!, 'docs', 'vision.md'), 'utf8')).toBe(before);
   });
 });
+
+describe('the product\'s open questions', () => {
+  const OPEN = [
+    '# Q-004 — Who collects the unclaimed portions?',
+    '',
+    'Concerns: UC-001, FR-002',
+    'Who can answer: the cafe owner',
+    '',
+    '## Question',
+    'When the cafe closes and portions are still listed, does the owner want to be told?',
+    '',
+    '## What settles it',
+    "The owner's answer after the first week with the prototype.",
+    '',
+    '## Answer',
+    '',
+  ].join('\n');
+
+  test('a question whose answer is empty is open; one with text is answered; Not applicable closes', () => {
+    draft();
+    write('docs/questions/Q-004-who-collects-unclaimed.md', OPEN + '\n');
+    const product = requireProduct(openProductWiki(folder!));
+    const asked = product.questions();
+    if (!asked.ok) throw new Error(asked.message);
+    expect(asked.questions.length).toBe(1);
+    const [question] = asked.questions;
+    expect(question!.id).toBe('Q-004');
+    expect(question!.title).toBe('Who collects the unclaimed portions?');
+    expect(question!.state).toBe('open');
+    expect(question!.who).toBe('the cafe owner');
+    expect(question!.concerns).toEqual(['UC-001', 'FR-002']);
+    expect(asked.openCount).toBe(1);
+  });
+
+  test('an answered and a not-applicable question are closed; the empty answer is not an answer', () => {
+    draft();
+    write('docs/questions/Q-001-open.md', OPEN.replace('Q-004', 'Q-001') + '\n');
+    write('docs/questions/Q-002-answered.md', [
+      '# Q-002 — Should leftovers be delivered?',
+      '',
+      'Concerns: VISION',
+      'Who can answer: the product owner',
+      '',
+      '## Question',
+      'Do buyers expect the portions to be delivered?',
+      '',
+      '## What settles it',
+      "The product owner's decision on scope.",
+      '',
+      '## Answer',
+      'A first run showed no buyer asked for delivery in the first week.',
+    ].join('\n') + '\n');
+    write('docs/questions/Q-003-na.md', [
+      '# Q-003 — Chains with their own apps?',
+      '',
+      'Concerns: VISION',
+      'Who can answer: the product owner',
+      '',
+      '## Question',
+      'Do we serve chains that already run their own ordering apps?',
+      '',
+      '## What settles it',
+      'The vision.',
+      '',
+      '## Answer',
+      'Not applicable: delivery and chains are out of the vision.',
+    ].join('\n') + '\n');
+    const product = requireProduct(openProductWiki(folder!));
+    const asked = product.questions();
+    if (!asked.ok) throw new Error(asked.message);
+    expect(asked.questions.map((each) => each.state)).toEqual(['open', 'answered', 'not-applicable']);
+    expect(asked.openCount).toBe(1);
+    const closed = asked.questions.find((each) => each.id === 'Q-003');
+    expect(closed?.answer).toBe('Not applicable: delivery and chains are out of the vision.');
+  });
+
+  test('the answer is read whole, code fences included; the identity line is no section', () => {
+    draft();
+    write('docs/questions/Q-005-fenced.md', [
+      '# Q-005 — Which kernel do we bind?',
+      '',
+      'Concerns: VISION',
+      'Who can answer: the owner',
+      '',
+      '## Question',
+      'Which database kernel does the first version bind?',
+      '',
+      '## What settles it',
+      'A benchmark both candidates pass.',
+      '',
+      '## Answer',
+      'Chosen: the embedded one, for the reasons the decision records.',
+      '',
+      '```',
+      '# not a heading inside the fence',
+      '```',
+    ].join('\n') + '\n');
+    const product = requireProduct(openProductWiki(folder!));
+    const asked = product.questions();
+    if (!asked.ok) throw new Error(asked.message);
+    expect(asked.questions.length).toBe(1);
+    expect(asked.questions[0]!.state).toBe('answered');
+  });
+
+  test('a document that is no question is not listed; the questions change with the files', () => {
+    draft();
+    write('docs/questions/Q-006-later.md', OPEN.replace('Q-004', 'Q-006') + '\n');
+    write('docs/vision.md', '# Vision\n\nNo question here.\n');
+    const product = requireProduct(openProductWiki(folder!));
+    const asked = product.questions();
+    if (!asked.ok) throw new Error(asked.message);
+    expect(asked.questions.map((each) => each.id)).toEqual(['Q-006']);
+    write('docs/questions/Q-006-later.md', OPEN.replace('Q-004', 'Q-006').replace('## Answer\n', '## Answer\nNow we know: the owner collects them.\n') + '\n');
+    const after = product.questions();
+    if (!after.ok) throw new Error(after.message);
+    expect(after.openCount).toBe(0);
+    expect(after.questions[0]!.state).toBe('answered');
+  });
+
+  test('the audience is the vision\'s Audience section; no vision, no audience', () => {
+    draft();
+    const product = requireProduct(openProductWiki(folder!));
+    expect(product.audience()).toBeUndefined();
+    write('docs/vision.md', [
+      '# Leftovers',
+      '',
+      '## Audience',
+      'Owners of small cafes with fewer than twenty seats.',
+      '',
+      '## Problem',
+      'Unsold portions are thrown away at closing.',
+    ].join('\n') + '\n');
+    expect(product.audience()).toBe('Owners of small cafes with fewer than twenty seats.');
+  });
+
+  test('an Audience inside a code fence is not the audience', () => {
+    draft();
+    write('docs/vision.md', [
+      '# Draft',
+      '',
+      '```',
+      '## Audience',
+      'not a section',
+      '```',
+      '',
+      '## Audience',
+      'The real one, after the fence.',
+    ].join('\n') + '\n');
+    const product = requireProduct(openProductWiki(folder!));
+    expect(product.audience()).toBe('The real one, after the fence.');
+  });
+});
+
+/**
+ * Mutation-killing edges: every branch of the parser named once. These run
+ * in-process on `parseQuestion` and `audienceOf` directly, so a mutant that
+ * changes one branch turns one of these cases red.
+ */
+import { parseQuestion, audienceOf } from '../src/product-wiki/questions.js';
+
+describe('parseQuestion edges, one branch at a time', () => {
+  const identity = (rest: string): string => `# ${rest}\n`;
+
+  test('a short id (fewer than three digits) is not a question; a title with no dash text is not one', () => {
+    expect(parseQuestion('docs/x.md', identity('Q-01 — Two digits'))).toBeUndefined();
+    expect(parseQuestion('docs/x.md', identity('Q-005 — '))).toBeUndefined();
+    expect(parseQuestion('docs/x.md', identity('FR-001 — Not a question'))).toBeUndefined();
+  });
+
+  test('a fence inside the Question section holds no section switch; tildes too', () => {
+    const withFence = [
+      '# Q-005 — Which kernel?',
+      '',
+      'Who can answer: the owner',
+      '',
+      '## Question',
+      'Which kernel?',
+      '',
+      '```',
+      '## What settles it inside',
+      '~~~',
+      'a plain line',
+      '```',
+      'The real settling line.',
+      '',
+      '## Answer',
+    ].join('\n');
+    const question = parseQuestion('docs/x.md', withFence);
+    expect(question?.question).toContain('The real settling line.');
+    expect(question?.question).toContain('What settles it inside');
+    expect(question?.question).toContain('a plain line');
+    expect(question?.state).toBe('open');
+  });
+
+  test('unknown top-level fields are ignored; Concerns splits and trims; a later field line is body', () => {
+    const doc = [
+      '# Q-006 — Splitting?',
+      '',
+      'Status: done',
+      'Concerns: VISION,  Q-001 , FR-002',
+      'Who can answer:  trimmed  ',
+      '',
+      '## Question',
+      'Concerns: not a field here',
+      '',
+      '## What settles it',
+      'A decision.',
+      '',
+      '## Answer',
+    ].join('\n');
+    const question = parseQuestion('docs/x.md', doc);
+    expect(question?.who).toBe('trimmed');
+    expect(question?.concerns).toEqual(['VISION', 'Q-001', 'FR-002']);
+    expect(question?.question).toContain('not a field here');
+    // A `Status:` line before a section is an unknown field to the reader,
+    // whatever the set's gate refuses: the state stays computed, never taken.
+    expect(question?.state).toBe('open');
+  });
+
+  test('Not applicable is the first line only; any other answer is answered; no Answer section is open', () => {
+    const base = (answer: string): string => [
+      '# Q-007 — Ends?',
+      '',
+      'Who can answer: the owner',
+      '',
+      '## Question',
+      'Does it end?',
+      '',
+      '## What settles it',
+      'An answer.',
+      '',
+      '## Answer',
+      answer,
+    ].join('\n');
+    expect(parseQuestion('docs/x.md', base('not applicable: lowercase first word'))?.state).toBe('answered');
+    expect(parseQuestion('docs/x.md', base('I do not think not applicable: no'))?.state).toBe('answered');
+    const naQuestion = parseQuestion('docs/x.md', base('Not applicable: out of scope, and the reason.'));
+    expect(naQuestion?.state).toBe('not-applicable');
+    expect(naQuestion?.answer).toBe('Not applicable: out of scope, and the reason.');
+    // Whitespace around the answer does not close anything.
+    expect(parseQuestion('docs/x.md', base('   '))?.state).toBe('open');
+    const withoutAnswer = [
+      '# Q-008 — Open entirely?',
+      '',
+      'Who can answer: the owner',
+      '',
+      '## Question',
+      'Does it end?',
+      '',
+      '## What settles it',
+      'An answer.',
+    ].join('\n');
+    expect(parseQuestion('docs/x.md', withoutAnswer)?.state).toBe('open');
+  });
+
+  test('the What settles it section alone, with no Question body, is still no question', () => {
+    const half = [
+      '# Q-009 — No question section?',
+      '',
+      'Who can answer: the owner',
+      '',
+      '## What settles it',
+      'An answer.',
+      '',
+      '## Answer',
+    ].join('\n');
+    expect(parseQuestion('docs/x.md', half)).toBeUndefined();
+  });
+
+  test('the identity line is not a section; a deeper heading after it is a body line', () => {
+    const doc = [
+      '# Q-010 — Which depth?',
+      '',
+      '## Question',
+      'The question first.',
+      '### A deeper heading',
+      'Then the body.',
+      '',
+      '## Answer',
+    ].join('\n');
+    expect(parseQuestion('docs/x.md', doc)?.question).toContain('The question first.');
+    expect(parseQuestion('docs/x.md', doc)?.question).toContain('A deeper heading');
+    expect(parseQuestion('docs/x.md', doc)?.question).toContain('Then the body.');
+  });
+
+  test('a document whose first non-empty line stands inside a fence is not a question', () => {
+    const doc = ['```', '# Q-011 — Inside the fence', '```'].join('\n');
+    expect(parseQuestion('docs/x.md', doc)).toBeUndefined();
+  });
+});
+
+describe('audienceOf edges', () => {
+  test('a lookalike heading does not count; the exact section heading does', () => {
+    expect(audienceOf(['# V', '', '## AudienceX', 'wrong one.', '', '## Audience', 'right one.'].join('\n'))).toBe('right one.');
+    expect(audienceOf('## Audience')).toBeUndefined(); // heading, then the section end: empty
+  });
+
+  test('the paragraph runs over its wrapped lines, ends at its first blank line, and never takes a heading', () => {
+    const doc = ['# V', '', '## Audience', 'Line one,', 'line two.', '', 'Second paragraph, not read.', '', '## Problem', 'After.'].join('\n');
+    expect(audienceOf(doc)).toBe('Line one, line two.');
+    const headingFollows = ['# V', '', '## Audience', '## Problem', 'After.'].join('\n');
+    expect(audienceOf(headingFollows)).toBeUndefined();
+  });
+
+  test('the section inside a code fence is not the audience; a blank line before the paragraph is skipped', () => {
+    const fenced = ['# V', '', '~~~sh', '## Audience', 'not this', '~~~', '', '## Audience', '', '', 'The real paragraph.'].join('\n');
+    expect(audienceOf(fenced)).toBe('The real paragraph.');
+  });
+});
+
+describe('parseQuestion and audienceOf: the fence and anchor edges the mutants probe', () => {
+  test('an invalid identity line over a document with sections is no question, not a crash', () => {
+    const wrong = [
+      '# Q-01 — Two digits, then sections',
+      '',
+      '## Question',
+      'Still a document shape.',
+      '',
+      '## What settles it',
+      'An answer.',
+    ].join('\n');
+    expect(parseQuestion('docs/x.md', wrong)).toBeUndefined();
+  });
+
+  test('the Not applicable word is recognised only as the answer line, whole', () => {
+    const base = (answer: string): string => [
+      '# Q-030 — Ends?',
+      '',
+      '## Question',
+      'Does it end?',
+      '',
+      '## What settles it',
+      'An answer.',
+      '',
+      '## Answer',
+      answer,
+    ].join('\n');
+    expect(parseQuestion('docs/x.md', base('I said, Not applicable: maybe'))?.state).toBe('answered');
+    expect(parseQuestion('docs/x.md', base('Not applicable, but no colon'))?.state).toBe('answered');
+  });
+
+  test('the identity line is anchored: a sentence that quotes one is not the identity', () => {
+    const quoted = [
+      'The set writes the line # Q-005 — like this inside prose.',
+      '',
+      '## Question',
+      'Real content.',
+      '',
+      '## What settles it',
+      'An answer.',
+    ].join('\n');
+    expect(parseQuestion('docs/x.md', quoted)).toBeUndefined();
+  });
+
+  test('blank and whitespace-only lines ahead of the identity line are skipped', () => {
+    const spaced = '\n   \n# Q-031 — After blanks?\n\n## Question\nQ.\n\n## What settles it\nA.\n';
+    const question = parseQuestion('docs/x.md', spaced);
+    expect(question?.id).toBe('Q-031');
+  });
+
+  test('a fence that opens before the identity line does not stop the reader', () => {
+    const first = ['```', 'random', '```', '# Q-032 — After a front fence?', '', '## Question', 'Q.', '## Answer', 'Known.'].join('\n');
+    const question = parseQuestion('docs/x.md', first);
+    expect(question?.id).toBe('Q-032');
+    expect(question?.state).toBe('answered');
+  });
+
+  test('a fence in the Question section holds the answer apart: tildes do not close backticks', () => {
+    const doc = [
+      '# Q-033 — With a fenced answer?',
+      '',
+      '## Question',
+      'Which kernel?',
+      '',
+      '```',
+      '## What settles it inside',
+      'a plain line',
+      '```',
+      'The real settling line.',
+      '',
+      '## Answer',
+      'The embedded one.',
+    ].join('\n');
+    const question = parseQuestion('docs/x.md', doc);
+    expect(question?.question).toContain('What settles it inside');
+    expect(question?.question).toContain('a plain line');
+    expect(question?.question).toContain('The real settling line.');
+    expect(question?.state).toBe('answered');
+    expect(question?.answer).toBe('The embedded one.');
+  });
+
+  test('longer rows of the same tick, and other ticks, do not close a fence', () => {
+    const doc = [
+      '# Q-034 — Long closes?',
+      '',
+      '## Question',
+      'A question.',
+      '',
+      '``````',
+      'still inside',
+      '~~~',
+      '~~~~',
+      '```',
+      '## Answer',
+      'Still closed by this section, once the fence ends.',
+    ].join('\n');
+    const question = parseQuestion('docs/x.md', doc);
+    expect(question?.question).toContain('still inside');
+    expect(question?.question).toContain('~~~');
+    expect(question?.question).toContain('~~~~');
+    expect(question?.state).toBe('open');
+  });
+
+  test('question and answer keep their joined lines exactly, trimming only the edges', () => {
+    const doc = [
+      '# Q-035 — Exact bodies?',
+      '',
+      'Who can answer: the owner',
+      '',
+      '## Question',
+      'Line one of the question.',
+      'Line two of the question.',
+      '',
+      '## What settles it',
+      'An answer.',
+      '',
+      '## Answer',
+      'Line one of the answer.',
+      'Line two of the answer.',
+    ].join('\n');
+    const question = parseQuestion('docs/x.md', doc);
+    expect(question?.question).toBe('Line one of the question.\nLine two of the question.');
+    expect(question?.answer).toBe('Line one of the answer.\nLine two of the answer.');
+  });
+
+  test('a repeated section heading does not wipe what came before it', () => {
+    const doc = [
+      '# Q-036 — Repeated?',
+      '',
+      '## Question',
+      'The first body.',
+      '',
+      '## Question',
+      'The second body.',
+      '',
+      '## What settles it',
+      'An answer.',
+    ].join('\n');
+    const question = parseQuestion('docs/x.md', doc);
+    expect(question?.question).toContain('The first body.');
+    expect(question?.question).toContain('The second body.');
+  });
+
+  test('a sentence naming a section in prose is not a section heading', () => {
+    const doc = [
+      '# Q-037 — Inline section names?',
+      '',
+      'The plan mentions ## Question above the fold, but not as a heading.',
+      '',
+      '## Question',
+      'Real body.',
+      '',
+      '## What settles it',
+      'An answer.',
+    ].join('\n');
+    expect(parseQuestion('docs/x.md', doc)?.question).toBe('Real body.');
+  });
+
+  test('a section heading keeps its name when the writer left trailing spaces', () => {
+    const doc = [
+      '# Q-038 — Trailing spaces?',
+      '',
+      '## Question  ',
+      'Real body.',
+      '',
+      '## What settles it',
+      'An answer.',
+      '',
+      '## Answer',
+      'It closes.',
+    ].join('\n');
+    const question = parseQuestion('docs/x.md', doc);
+    expect(question?.question).toBe('Real body.');
+    expect(question?.state).toBe('answered');
+  });
+
+  test('a body line that begins like a field, before the first section, is no field', () => {
+    const doc = [
+      '# Q-039 — Field-shaped prose?',
+      '',
+      'See Who can answer: nobody, in prose.',
+      '',
+      '## Question',
+      'Real body.',
+      '',
+      '## What settles it',
+      'An answer.',
+    ].join('\n');
+    const question = parseQuestion('docs/x.md', doc);
+    expect(question?.who).toBe('');
+  });
+})
+
+describe('audienceOf: the fence and anchor edges the mutants probe', () => {
+  test('a paragraph line that quotes a heading is not the section, and two spaces still are one', () => {
+    expect(audienceOf(['# V', '', 'see the ## Audience line, in prose.', '', '##  Audience', 'The two-space one.'].join('\n'))).toBe('The two-space one.');
+  });
+
+  test('only the first paragraph is the audience, blanks and stray fences aside', () => {
+    const doc = ['# V', '', '## Audience', 'Para one.', '', 'Second paragraph, not read.'].join('\n');
+    expect(audienceOf(doc)).toBe('Para one.');
+  });
+
+  test('a stray unticked fence marker inside prose opens no fence, and a quoted heading does not end a paragraph', () => {
+    const doc = [
+      '# V',
+      '',
+      'a word~~~ line',
+      '',
+      '## Audience',
+      'Para one speaks ## of the audience plainly, then keeps going.',
+      '',
+      '## Problem',
+      'After.',
+    ].join('\n');
+    expect(audienceOf(doc)).toBe('Para one speaks ## of the audience plainly, then keeps going.');
+  });
+})
+
+describe('parseQuestion: the fields the reader keeps', () => {
+  test('Concerns split drops the blanks; trimming is per id, not whole-line', () => {
+    const doc = [
+      '# Q-045 — Blanks in Concerns?',
+      '',
+      'Concerns: VISION, , FR-002 , ',
+      'Who can answer: the owner',
+      '',
+      '## Question',
+      'Q.',
+      '',
+      '## What settles it',
+      'An answer.',
+    ].join('\n');
+    expect(parseQuestion('docs/x.md', doc)?.concerns).toEqual(['VISION', 'FR-002']);
+  });
+
+  test('a prose line that only CONTAINS the field name is no field', () => {
+    const doc = [
+      '# Q-046 — Prose field?',
+      '',
+      'The plan (Who can answer: bob) says it in prose.',
+      '',
+      '## Question',
+      'Q.',
+      '',
+      '## What settles it',
+      'An answer.',
+    ].join('\n');
+    expect(parseQuestion('docs/x.md', doc)?.who).toBe('');
+  });
+});

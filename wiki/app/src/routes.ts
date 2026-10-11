@@ -11,6 +11,7 @@
 
 export type Route =
   | { name: 'home' }
+  | { name: 'questions' }
   | { name: 'page'; path: string }
   | { name: 'architecture' }
   | { name: 'view'; scope: string }
@@ -20,6 +21,9 @@ export type Route =
 
 /** The address prefix of the wiki's own (non-document) pages. */
 export const ARCHITECTURE_PREFIX = '/p/madarch/';
+
+/** The open-questions view's address. */
+export const QUESTIONS_ADDRESS = '/questions';
 
 /** The landscape view's scope in an address. */
 export const LANDSCAPE_SCOPE = '_landscape';
@@ -39,6 +43,9 @@ export function addressOfElement(id: string): string {
 
 /** Reads a route from the address. Anything else answers the home page. */
 export function routeOf(pathname: string): Route {
+  if (pathname === QUESTIONS_ADDRESS || pathname.startsWith(QUESTIONS_ADDRESS + '/')) {
+    return { name: 'questions' };
+  }
   if (pathname === `${ARCHITECTURE_PREFIX}architecture`) return { name: 'architecture' };
   if (pathname.startsWith(`${ARCHITECTURE_PREFIX}view/`)) {
     let scope = decodeURIComponent(pathname.slice(`${ARCHITECTURE_PREFIX}view/`.length));
@@ -46,8 +53,7 @@ export function routeOf(pathname: string): Route {
     return { name: 'view', scope };
   }
   if (pathname.startsWith(`${ARCHITECTURE_PREFIX}element/`)) {
-    return { name: 'element', id: decodeURIComponent(pathname.slice(`${ARCHITECTURE_PREFIX}element/`.length)) };
-  }
+    return { name: 'element', id: decodeURIComponent(pathname.slice(`${ARCHITECTURE_PREFIX}element/`.length)) };  }
   if (pathname.startsWith('/p/')) {
     return { name: 'page', path: decodeURIComponent(pathname.slice('/p/'.length)) };
   }

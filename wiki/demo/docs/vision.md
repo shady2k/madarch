@@ -87,3 +87,9 @@ The product is small on purpose. The reader-app renders and edits notes;
 the sync-engine carries them between devices, and what it writes lands in
 one note store. The Architecture section of this wiki draws the same
 model the documents talk about.
+
+## Audience
+
+A single person who keeps working notes: developers, researchers and
+writers who live in their editor and want their notes one keystroke away,
+readable weeks later without friction.

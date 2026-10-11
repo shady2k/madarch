@@ -261,6 +261,7 @@ function createHandler(dependencies: {
       : []),
     ...(wiki !== undefined ? ([
       { method: 'GET', path: '/api/product', handle: () => wiki.product() },
+      { method: 'GET', path: '/api/questions', handle: () => wiki.questions() },
       { method: 'GET', path: '/api/pages', handle: () => wiki.pages() },
       { method: 'GET', path: '/api/page', handle: wiki.page },
       { method: 'GET', path: '/api/stages', handle: () => wiki.stages() },

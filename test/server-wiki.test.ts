@@ -110,6 +110,61 @@ describe('the server\'s product mode', () => {
     expect(await answer.json()).toEqual({ id: 'demo', name: 'Demo', folder: basename(folder!) });
   });
 
+  test('GET /api/product names the audience the vision carries, and nothing when the vision is absent', async () => {
+    draft();
+    builtApp();
+    const url = startProduct();
+    const bare = await (await fetch(`${url}/api/product`)).json() as { audience?: string };
+    expect(bare.audience).toBeUndefined();
+    writeFileSync(join(folder!, 'docs', 'vision.md'), '# Vision\n\n## Audience\nCafe owners with waste.\n');
+    const named = await (await fetch(`${url}/api/product`)).json() as { audience?: string };
+    expect(named.audience).toBe('Cafe owners with waste.');
+  });
+
+  test('GET /api/questions lists the questions with their state and the open count', async () => {
+    draft();
+    builtApp();
+    const questions = join(folder!, 'docs', 'questions');
+    mkdirSync(questions, { recursive: true });
+    writeFileSync(join(questions, 'Q-001-open.md'), [
+      '# Q-001 — Who collects the unclaimed portions?',
+      '',
+      'Concerns: UC-001, FR-002',
+      'Who can answer: the cafe owner',
+      '',
+      '## Question',
+      'Does the owner want to be told?',
+      '',
+      '## What settles it',
+      "The owner's answer.",
+      '',
+      '## Answer',
+      '',
+    ].join('\n') + '\n');
+    writeFileSync(join(questions, 'Q-002-na.md'), [
+      '# Q-002 — Should leftovers be delivered?',
+      '',
+      'Concerns: VISION',
+      'Who can answer: the product owner',
+      '',
+      '## Question',
+      'Do buyers expect delivery?',
+      '',
+      '## What settles it',
+      "The product owner's decision on scope.",
+      '',
+      '## Answer',
+      'Not applicable: delivery is out of the vision.',
+    ].join('\n') + '\n');
+    const url = startProduct();
+    const answer = await fetch(`${url}/api/questions`);
+    expect(answer.status).toBe(200);
+    const body = (await answer.json()) as { questions: { id: string; state: string }[]; openCount: number };
+    expect(body.questions.map((each) => each.id)).toEqual(['Q-001', 'Q-002']);
+    expect(body.questions.map((each) => each.state)).toEqual(['open', 'not-applicable']);
+    expect(body.openCount).toBe(1);
+  });
+
   test('GET /api/pages lists the pages with paths, titles, addresses and the revision', async () => {
     draft();
     builtApp();

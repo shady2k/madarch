@@ -45,6 +45,20 @@ describe('wiki internationalization', () => {
     await setWikiLanguage('en');
   });
 
+  test('Russian open-question counts follow 1 / 2 / 5 forms, as Intl.PluralRules names them', async () => {
+    await setWikiLanguage('ru');
+    expect(i18n.t('units.question', { count: 1 })).toBe('открытый вопрос');
+    expect(i18n.t('units.question', { count: 2 })).toBe('открытых вопроса');
+    expect(i18n.t('units.question', { count: 5 })).toBe('открытых вопросов');
+    const rules = new Intl.PluralRules('ru');
+    expect(rules.select(1)).toBe('one');
+    expect(rules.select(2)).toBe('few');
+    expect(rules.select(5)).toBe('many');
+    await setWikiLanguage('en');
+    expect(i18n.t('units.question', { count: 1 })).toBe('open question');
+    expect(i18n.t('units.question', { count: 5 })).toBe('open questions');
+  });
+
   test('relative times use the selected locale formatter', () => {
     const now = Date.UTC(2026, 0, 1, 12, 0, 0);
     expect(relativeTime(new Date(now - 5 * 60_000).toISOString(), 'en', now)).toContain('5 min');

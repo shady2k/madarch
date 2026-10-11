@@ -10,6 +10,7 @@
   },
   "navigation": {
     "overview": "Product overview",
+    "openQuestions": "Open questions",
     "documents": "Documents",
     "aria": "Document navigation",
     "close": "Close navigation",
@@ -48,7 +49,23 @@
   "home": {
     "overview": "Product overview",
     "lead": "The reading space of {{product}}: {{count}} {{documentUnit}} in {{groupCount}} {{groupUnit}}.",
-    "noPages": "{{product}} has no pages yet."
+    "noPages": "{{product}} has no pages yet.",
+    "audience": "Audience: {{audience}}",
+    "noAudience": "The audience is not written yet"
+  },
+  "questions": {
+    "title": "Open questions",
+    "tagline": "A place for what is still to settle.",
+    "countLine": "{{count}} {{unit}}",
+    "none": "No open questions: all are closed.",
+    "closedHeading": "Closed questions",
+    "who": "Who can answer: {{who}}",
+    "concerns": "Concerns: {{concerns}}",
+    "state": {
+      "open": "Open",
+      "answered": "Answered",
+      "not-applicable": "Not applicable"
+    }
   },
   "document": {
     "changed": "changed {{when}}",
@@ -70,6 +87,10 @@
     "word_other": "words",
     "document_one": "document",
     "document_other": "documents",
+    "question_one": "open question",
+    "question_few": "open questions",
+    "question_many": "open questions",
+    "question_other": "open questions",
     "group_one": "group",
     "group_other": "groups",
     "word_few": "words",
@@ -97,7 +118,8 @@
   },
   "loading": {
     "wiki": "Waiting for the wiki",
-    "architecture": "Reading the model"
+    "architecture": "Reading the model",
+    "questions": "Waiting for the questions"
   },
   "architecture": {
     "title": "Architecture",

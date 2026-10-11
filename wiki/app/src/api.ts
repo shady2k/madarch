@@ -23,6 +23,41 @@ export type PageList = {
   revision: string;
 };
 
+/** The states an open question stands in, the set's own three (computed, never written). */
+export type QuestionState = 'open' | 'answered' | 'not-applicable';
+
+/** One open question, as the questions API carries it. */
+export type QuestionEntry = {
+  /** The path within the product of the question's document. */
+  path: string;
+  /** The document's id, `Q-004` for example. */
+  id: string;
+  /** The identity line's title: the question in one line. */
+  title: string;
+  /** The `## Question` section: what is not known, in full. */
+  question: string;
+  /** The `Who can answer:` field. */
+  who: string;
+  /** The `Concerns:` field's ids, split and trimmed. */
+  concerns: readonly string[];
+  /** The computed state: `open`, `answered` or `not-applicable`. */
+  state: QuestionState;
+  /** The answer's text when the question is closed. */
+  answer?: string;
+  /** The file's last modification time, ISO. */
+  changedAt?: string;
+};
+
+export type QuestionList = {
+  questions: QuestionEntry[];
+  openCount: number;
+};
+
+export type ProductWithAudience = Product & {
+  /** The audience the product's vision names; absent while the vision is not written. */
+  audience?: string;
+};
+
 export type Page = {
   path: string;
   title: string;
@@ -132,8 +167,11 @@ export type Architecture = {
   sources: string[];
 };
 
-export const getProduct = (signal?: AbortSignal): Promise<Product> =>
-  readJson<Product>('read the product', '/api/product', signal);
+export const getProduct = (signal?: AbortSignal): Promise<ProductWithAudience> =>
+  readJson<ProductWithAudience>('read the product', '/api/product', signal);
+
+export const getQuestions = (signal?: AbortSignal): Promise<QuestionList> =>
+  readJson<QuestionList>('read the open questions', '/api/questions', signal);
 
 export const getArchitecture = (signal?: AbortSignal): Promise<Architecture> =>
   readJson<Architecture>('read the architecture', '/api/architecture', signal);

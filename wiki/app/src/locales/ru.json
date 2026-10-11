@@ -10,6 +10,7 @@
   },
   "navigation": {
     "overview": "Обзор продукта",
+    "openQuestions": "Открытые вопросы",
     "documents": "Документы",
     "aria": "Навигация по документам",
     "close": "Закрыть навигацию",
@@ -48,7 +49,23 @@
   "home": {
     "overview": "Обзор продукта",
     "lead": "Пространство продукта {{product}}: {{count}} {{documentUnit}} в {{groupCount}} {{groupUnit}}.",
-    "noPages": "В {{product}} пока нет документов."
+    "noPages": "В {{product}} пока нет документов.",
+    "audience": "Аудитория: {{audience}}",
+    "noAudience": "Аудитория ещё не описана"
+  },
+  "questions": {
+    "title": "Открытые вопросы",
+    "tagline": "Место для того, что ещё предстоит решить.",
+    "countLine": "{{count}} {{unit}}",
+    "none": "Открытых вопросов нет: все закрыты.",
+    "closedHeading": "Закрытые вопросы",
+    "who": "Кто может ответить: {{who}}",
+    "concerns": "Касается: {{concerns}}",
+    "state": {
+      "open": "Открыт",
+      "answered": "Отвечен",
+      "not-applicable": "Не применимо"
+    }
   },
   "document": {
     "changed": "изменён {{when}}",
@@ -74,6 +91,10 @@
     "document_few": "документа",
     "document_many": "документов",
     "document_other": "документа",
+    "question_one": "открытый вопрос",
+    "question_few": "открытых вопроса",
+    "question_many": "открытых вопросов",
+    "question_other": "открытых вопроса",
     "group_one": "группа",
     "group_few": "группы",
     "group_many": "групп",
@@ -97,7 +118,8 @@
   },
   "loading": {
     "wiki": "Загрузка вики",
-    "architecture": "Чтение модели"
+    "architecture": "Чтение модели",
+    "questions": "Загрузка вопросов"
   },
   "architecture": {
     "title": "Архитектура",

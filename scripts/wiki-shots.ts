@@ -23,12 +23,18 @@ import { startServer, type StartedServer } from '../src/index.js';
 
 const here = new URL('.', import.meta.url).pathname;
 const repo = resolvePath(here, '..');
+const product = argument('product', '');
+if (product !== '' && !existsSync(join(product, 'workspace.yaml'))) {
+  console.error(`no product at ${product}: give the folder of a product repository (its workspace.yaml is read)`);
+  process.exit(2);
+}
 const CHROME = process.env.CHROME ?? '/nix/store/6bg6ciwh50x38sca5x9zimdzqijkc8sq-playwright-chromium/chrome-linux64/chrome';
 
 /** One screen of the wiki: the address on our server and the pair's name. */
 const SCREENS = [
   { name: 'document', address: '/p/docs/vision.md' },
   { name: 'home', address: '/' },
+  { name: 'questions', address: '/questions' },
 ] as const;
 
 /** The repositories' screens: the declared ones with a checkout built, the pristine manifest's declared-not-checked-out state. */
@@ -102,6 +108,17 @@ if (uiLanguage !== 'en' && uiLanguage !== 'ru') {
   console.error(`unknown UI language ${JSON.stringify(uiLanguage)}: choose en or ru`);
   process.exit(2);
 }
+const screensArg = argument('screens', '');
+const wantedScreens = screensArg === '' ? undefined : new Set(screensArg.split(',').map((name) => name.trim()).filter((name) => name !== ''));
+if (wantedScreens !== undefined) {
+  for (const name of wantedScreens) {
+    if (!SCREENS.some((screen) => screen.name === name)) {
+      console.error(`unknown screen ${JSON.stringify(name)}: choose ${SCREENS.map((screen) => screen.name).join(', ')}`);
+      process.exit(2);
+    }
+  }
+}
+const shotScreens = SCREENS.filter((screen) => wantedScreens === undefined || wantedScreens.has(screen.name));
 const mockupIndex = mockupFolder === '' ? undefined : join(mockupFolder, 'index.html');
 if (mockupIndex !== undefined && !existsSync(mockupIndex)) {
   console.error(`no mockup at ${mockupIndex}: give --mockup <the dist folder of the mockup>, or run without it for our shots only`);
@@ -115,7 +132,7 @@ type Pair = { name: string; ours?: Shot; mockup?: Shot };
 let server: StartedServer | undefined;
 let reposServer: StartedServer | undefined;
 try {
-  server = startServer({ productFolder: join(repo, 'wiki', 'demo'), port: 0 });
+  server = startServer({ productFolder: product === '' ? join(repo, 'wiki', 'demo') : product, port: 0 });
   const ours = server.url;
   // The repositories' own server: the demo product with its declared
   // checkout built under repos/, checked out, so the section shows the
@@ -165,7 +182,7 @@ try {
 
     const pairs: Pair[] = [];
     for (const size of Object.keys(SIZES)) {
-      for (const screen of SCREENS) {
+      for (const screen of shotScreens) {
         const name = `${screen.name}-${size}`;
         pairs.push({
           name,
