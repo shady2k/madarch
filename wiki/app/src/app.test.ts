@@ -42,6 +42,24 @@ function answerFor(product: Product, list: PageList, pages: Record<string, Page>
     if (target === '/api/pages') return { body: list };
 
     if (target === '/api/questions') return { body: questions };
+    if (target === '/api/architecture')
+      return {
+        body: {
+          notes: [],
+          model: {
+            views: [
+              { scope: '', title: 'Landscape', mermaid: 'flowchart LR', table: { columns: [], rows: [] }, opens: [] },
+              { scope: 'shop', title: 'Shop', mermaid: 'flowchart LR', table: { columns: [], rows: [] }, opens: [], up: '' },
+            ],
+            elements: [
+              { id: 'shop', name: 'Shop', kind: 'domain', ancestors: [], outgoing: [], incoming: [], provides: [], namedBy: [] },
+            ],
+          },
+          errors: [],
+          warnings: [],
+          sources: ['model'],
+        },
+      };
     if (target.startsWith('/api/page?') === false)
       return { body: { message: 'the server does not answer ' + target }, status: 404 };
     const path = new URL('http://x' + target).searchParams.get('path') ?? '';
@@ -815,6 +833,16 @@ describe('the reading shell', () => {
     // stages before it (requirements here), never omitted for an absent group.
     expect(titles).toEqual(['Product', 'Requirements', 'Architecture', 'Research', 'Other']);
   });
+  test('an architecture view page reads Architecture / the view in the breadcrumb and the tab', async () => {
+    install(answerFor(product, shellList, shellPages));
+    goto('/p/madarch/view/shop');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('.app-nav nav') !== null, 'the navigation');
+    await until(() => document.querySelector('.shell-breadcrumb')?.textContent?.includes('Shop') === true, 'the Architecture breadcrumb');
+    expect(document.querySelector('.shell-breadcrumb')?.textContent).toContain('Architecture');
+    expect(document.querySelector('[data-testid="document-tab"]')?.textContent).toContain('Shop');
+  });
+
 
 
   test('the brand reads madarch, and the product block below it names the product', async () => {

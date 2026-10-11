@@ -808,6 +808,24 @@ main .footnotes {
   height: auto;
 }
 
+/* The arrows' numbered labels sit ON the line; a page-ground chip behind
+ * the text keeps the number legible without touching the renderer's
+ * source (the relation table under the diagram carries the mapping). */
+.diagram-mermaid .edgeLabel {
+  background-color: var(--surface-page);
+}
+
+.diagram-mermaid .edgeLabel rect,
+.diagram-mermaid .edgeLabel polygon {
+  fill: var(--surface-page);
+}
+
+.diagram-mermaid .edgeLabel span,
+.diagram-mermaid .edgeLabel p {
+  background-color: var(--surface-page);
+  padding-inline: 3px;
+}
+
 likec4-view {
   display: block;
   width: 100%;

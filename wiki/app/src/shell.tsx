@@ -523,7 +523,13 @@ export function Shell({ product, list, children, architecture, reposCount, repos
         <div className="shell-main flex min-w-0 flex-1 flex-col">
           <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line px-4 wide:px-[35px]">
             <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
-              {openPage === undefined && route.stage !== undefined ? (
+              {openPage === undefined && route.architecture !== undefined ? (
+                <>
+                  <span className="text-muted">{t('architecture.title')}</span>{' '}
+                  <span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
+                  <span className="text-ink">{route.architecture.title}</span>
+                </>
+              ) : openPage === undefined && route.stage !== undefined ? (
                 <>
                   <span className="text-muted">{t('stages.title')}</span>{' '}
                   <span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
@@ -629,7 +635,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
           <div className="document-bar flex min-h-[45px] items-stretch bg-ground">
             <div className="document-tab flex min-w-[182px] items-center gap-2 border-r border-line bg-page px-[25px] text-[13px] text-secondary" data-testid="document-tab">
               <FileTextIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-              <span className="truncate">{openPage?.path.split('/').pop() ?? (route.stage !== undefined ? t(`stages.names.${route.stage}`) : (reposOpen === true ? t('navigation.repositories') : t('navigation.overview')))}</span>
+              <span className="truncate">{openPage?.path.split('/').pop() ?? (route.architecture !== undefined ? route.architecture.title : (route.stage !== undefined ? t(`stages.names.${route.stage}`) : (reposOpen === true ? t('navigation.repositories') : t('navigation.overview'))))}</span>
             </div>
           </div>
           {/* The window-height shell: every panel and bar stays in place and

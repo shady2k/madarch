@@ -216,9 +216,21 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
 
   const list = data.list;
   const heldPaths = new Set(list.pages.map((meta) => meta.path));
+  // The Architecture pages' breadcrumb fact (feature E): the section's
+  // name as the kind and the open view's or element's name as the title,
+  // read off the shared bundle.
+  let architectureCrumb: { kind: string; title: string } | undefined;
+  if (route.name === 'architecture') architectureCrumb = { kind: 'architecture', title: t('architecture.title') };
+  else if (route.name === 'view') {
+    const view = architecture?.model?.views.find((candidate) => candidate.scope === route.scope);
+    architectureCrumb = { kind: 'architecture', title: view ? (view.scope === '' ? t('architecture.landscape') : view.title) : (route.scope === '' ? t('architecture.landscape') : route.scope) };
+  } else if (route.name === 'element') {
+    const element = architecture?.model?.elements.find((candidate) => candidate.id === route.id);
+    architectureCrumb = { kind: 'architecture', title: element?.name ?? (route.id || '') };
+  }
   return (
     <StatusBridge streamConnected={streamConnected}>
-      <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, stage: route.name === 'stage' ? route.stage : undefined, heldPaths }}>
+      <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, stage: route.name === 'stage' ? route.stage : undefined, architecture: architectureCrumb, heldPaths }}>
         <Shell product={data.product} list={list} architecture={architecture} reposCount={data.repos?.repos.length} reposOpen={route.name === 'repos'} openQuestions={data.questions}>
         {route.name === 'home' ? (
           <HomePage product={data.product} list={list} architecture={architecture} />
