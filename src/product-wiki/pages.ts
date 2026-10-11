@@ -374,7 +374,9 @@ function prototypePaths(productFolder: string): string[] {
   const folder = joinPath(productFolder, 'prototypes');
   if (lstatSyncQuiet(folder) === undefined) return [];
   const out: string[] = [];
-  const walk = (path: string, within: string): void => {
+  const seen = new Set<string>();
+  const walk = (path: string, within: string, depth: number): void => {
+    if (depth > PROTOTYPE_WALK_DEPTH) return;
     let entries: Dirent[];
     try {
       entries = readdirSync(path, { withFileTypes: true });
@@ -384,13 +386,35 @@ function prototypePaths(productFolder: string): string[] {
     for (const entry of entries.sort((a, b) => byCodePoint(a.name, b.name))) {
       const full = joinPath(path, entry.name);
       const rel = within === '' ? entry.name : `${within}/${entry.name}`;
-      if (entry.isDirectory()) walk(full, rel);
-      else out.push(rel);
+      // The entry is read the way the set's check reads it: statSync
+      // follows symlinks, so a symlinked directory is a directory and its
+      // files count for the check's `Code:` rule — and for this key. A
+      // cycle ends where a real folder path is seen twice; the depth cap
+      // bounds the rest.
+      let follows: import('node:fs').Stats;
+      try {
+        follows = statSync(full);
+      } catch {
+        continue; // a dangling or unreadable entry holds no file the check can list
+      }
+      if (!follows.isDirectory()) { out.push(rel); continue; }
+      let real: string;
+      try {
+        real = realpathSync(full);
+      } catch {
+        real = full;
+      }
+      if (seen.has(real)) continue;
+      seen.add(real);
+      walk(full, rel, depth + 1);
     }
   };
-  walk(folder, '');
+  walk(folder, '', 0);
   return out;
 }
+
+/** How deep the prototype walk follows folders, symlinked ones included. */
+const PROTOTYPE_WALK_DEPTH = 16;
 
 /**
  * Every Markdown path within the product, `docs/` depth first and `README.md`,

@@ -6,7 +6,7 @@
  * product revision and its findings on the failing page, and the plain
  * page that stays plain.
  */
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
@@ -540,27 +540,51 @@ describe('the review fixes, held by tests', () => {
 });
 
 describe('the review round two, held by tests', () => {
-  test('a symlinked prototype directory is walked for the check cache key: a file beneath it turns the key with no page change', () => {
+  test('a symlinked prototype directory is walked for the check cache key: ONE wiki instance, a file saved beneath the symlink between two asks re-runs the check', () => {
     draft();
-    write('docs/prototypes/P-001-tries.md', '# P-001 — Tries\n\nTests: H-404\nCode: prototypes/missing\n\n## What it tries\nX.\n\n## How to run\nOpen it.\n');
-    // The prototype's real folder lives OUTSIDE docs/ (shared-prototype style) and reaches prototypes/missing through a symlink.
+    write('docs/hypotheses/H-001-held.md', '# H-001 — Held\n\nGrew from: VISION\n\n## Belief\nWe believe.\n\n## Test\nTry.\n\n## Metric\nM.\n\n## Threshold\nT.\n');
+    write('docs/vision.md', '# The vision\n\nThe reading comes first.\n');
+    write('docs/prototypes/P-001-tries.md', '# P-001 — Tries\n\nTests: H-001\nCode: prototypes/missing\n\n## What it tries\nX.\n\n## How to run\nOpen it.\n');
+    // The prototype is written with ONLY the Code: rule in play (no
+    // dangling ids): with the folder holding a file — seen through the
+    // symlink — the check is clean; with the folder emptied, the
+    // dangling-reference rule fires. The prototype's real folder lives
+    // OUTSIDE the product (a shared prototype) and reaches
+    // prototypes/missing through a symlink. One
+    // wiki instance is held across both states: only then can a stale
+    // cache hit be told from a fresh read.
     const outside = mkdtempSync(join(tmpdir(), 'madarch-prototype-real-'));
     try {
       writeFileSync(join(outside, 'index.html'), '<p>v1</p>\n');
       mkdirSync(join(folder!, 'prototypes', 'missing'), { recursive: true });
-      symlinkSync(join(outside), join(folder!, 'prototypes', 'missing', 'real'));
-      const first = wiki().page('docs/prototypes/P-001-tries.md');
-      if (!first.ok) throw new Error(first.message);
-      expect(first.page.check?.ran).toBe(true);
-      // A file added BENEATH the symlinked directory changes the check's
-      // view (a new file where there was none) and must turn the key: the
-      // next ask reruns the check. The wiki pages did not change at all.
+      symlinkSync(outside, join(folder!, 'prototypes', 'missing', 'real'));
+      const one = wiki();
+      const firstPage = one.page('docs/prototypes/P-001-tries.md');
+      if (!firstPage.ok) throw new Error(firstPage.message);
+      expect(firstPage.page.check?.ran).toBe(true);
+      expect(firstPage.page.findings).toEqual([]); // the Code: folder holds a file (through the symlink)
+      // A file saved BENEATH the symlinked directory — outside the
+      // product, unseen by any page — must turn the key: the second ask
+      // re-runs the check through the SAME wiki instance.
       writeFileSync(join(outside, 'second.html'), '<p>v2</p>\n');
-      const second = wiki().page('docs/prototypes/P-001-tries.md');
-      if (!second.ok) throw new Error(second.message);
-      expect(second.page.check?.ran).toBe(true);
-      expect(second.page.findings).toEqual(first.page.findings); // same findings, freshly run
-      rmSync(outside, { recursive: true, force: true });
+      const secondPage = one.page('docs/prototypes/P-001-tries.md');
+      if (!secondPage.ok) throw new Error(secondPage.message);
+      expect(secondPage.page.check?.ran).toBe(true);
+      // And a THIRD ask with nothing changed hits the cache again (no
+      // third run is observable here directly, but the findings stay and
+      // the key held steady — the same revision answers).
+      const thirdPage = one.page('docs/prototypes/P-001-tries.md');
+      if (!thirdPage.ok) throw new Error(thirdPage.message);
+      expect(thirdPage.page.check?.ran).toBe(true);
+      // Removing the file beneath the symlink turns the key the other
+      // way: the Code: rule fires again (the folder is now empty).
+      rmSync(join(outside, 'index.html'));
+      rmSync(join(outside, 'second.html'));
+      const fourthPage = one.page('docs/prototypes/P-001-tries.md');
+      if (!fourthPage.ok) throw new Error(fourthPage.message);
+      expect(fourthPage.page.check?.ran).toBe(true);
+      expect(fourthPage.page.findings.length).toBeGreaterThan(0);
+      expect(fourthPage.page.findings.some((finding) => finding.rule === 'dangling-reference')).toBe(true);
     } finally {
       rmSync(outside, { recursive: true, force: true });
     }
@@ -584,5 +608,80 @@ describe('the review round two, held by tests', () => {
     // And the pages list still answers (pages() must not throw either).
     const listed = wiki().pages();
     expect(listed.ok).toBe(true);
+  });
+});
+
+describe('the prototype walk deeper cases', () => {
+  test('a file in a nested folder is recorded with its path; a symlink cycle ends and stays stable', () => {
+    draft();
+    write('docs/vision.md', '# The vision\n\nThe reading comes first.\n');
+    mkdirSync(join(folder!, 'prototypes', 'nested', 'deeper'), { recursive: true });
+    write('prototypes/nested/one.html', '<p>one</p>\n');
+    write('prototypes/nested/deeper/two.html', '<p>two</p>\n');
+    // A cycle: real points at prototypes/nested itself through a symlink.
+    symlinkSync(join(folder!, 'prototypes', 'nested'), join(folder!, 'prototypes', 'nested', 'self'));
+    const asked = wiki().page('docs/vision.md');
+    expect(asked.ok).toBe(true); // the walk ended; the pages still answer
+    // The walk problem, had there been one, would be named; a cycle is not one.
+    if (asked.ok) expect(asked.page.check?.ran).toBe(true);
+  });
+});
+
+describe('the prototype walk deeper cases', () => {
+  test('a same-basename MOVE beneath a prototype folder turns the key too', () => {
+    draft();
+    write('docs/vision.md', '# The vision\n\nThe reading comes first.\n');
+    mkdirSync(join(folder!, 'prototypes', 'real'), { recursive: true });
+    write('prototypes/real/x.html', '<p>x</p>\n');
+    const counter = mkdtempSync(join(tmpdir(), 'madarch-check-count-'));
+    const log = join(counter, 'runs.log');
+    writeFileSync(log, '');
+    writeFileSync(join(counter, 'counting.mjs'),
+      "import { spawnSync } from 'node:child_process';\n" +
+      "import { appendFileSync } from 'node:fs';\n" +
+      "const r = spawnSync('node', [" + JSON.stringify(join(process.cwd(), '.shady2k/checks/check-product.mjs')) + ", ...process.argv.slice(2)], { encoding: 'utf8' });\n" +
+      "appendFileSync(" + JSON.stringify(log) + ", 'run\\n');\n" +
+      "process.stdout.write(r.stdout); process.exit(r.status ?? 0);\n");
+    const held = process.env['MADARCH_PRODUCT_CHECK'];
+    process.env['MADARCH_PRODUCT_CHECK'] = join(counter, 'counting.mjs');
+    try {
+      const one = wiki();
+      one.page('docs/vision.md');
+      one.page('docs/vision.md');
+      expect(readFileSync(log, 'utf8').split('run').length - 1).toBe(1);
+      // The move keeps the basename: x.html leaves real/ for real/other/
+      // while another x.html takes its place... — the WALK reads full
+      // relative paths, so the key turns; a basename-only walk would not.
+      mkdirSync(join(folder!, 'prototypes', 'real', 'other'), { recursive: true });
+      write('prototypes/real/other/y.html', '<p>y</p>\n');
+      rmSync(join(folder!, 'prototypes', 'real', 'x.html'));
+      rmSync(join(folder!, 'prototypes', 'real', 'other', 'y.html'));
+      mkdirSync(join(folder!, 'prototypes', 'real', 'kept'), { recursive: true });
+      write('prototypes/real/kept/x.html', '<p>x</p>\n'); // same basename, new path: the file set is the one file, its path changed
+      one.page('docs/vision.md');
+      expect(readFileSync(log, 'utf8').split('run').length - 1).toBe(2);
+      // Two TOP-LEVEL prototype files: removing one turns the key too —
+      // the walk reads every file's own path, never a basename collapse.
+      write('prototypes/aa.html', '<p>aa</p>\n');
+      one.page('docs/vision.md');
+      expect(readFileSync(log, 'utf8').split('run').length - 1).toBe(3);
+      // Removing aa.html would RETURN the tree to a key seen before (a
+      // cache hit, honestly); instead swap it for a file of another name:
+      // only the file's own path in the walk can turn that key.
+      rmSync(join(folder!, 'prototypes', 'aa.html'));
+      write('prototypes/bb.html', '<p>bb</p>\n');
+      one.page('docs/vision.md');
+      expect(readFileSync(log, 'utf8').split('run').length - 1).toBe(4);
+      // A folder RENAMED keeping its file's name: real/kept/x.html moves to
+      // real/kept2/x.html. Only the file's full path in the walk sees the
+      // difference; a basename-only walk would not.
+      renameSync(join(folder!, 'prototypes', 'real', 'kept'), join(folder!, 'prototypes', 'real', 'kept2'));
+      one.page('docs/vision.md');
+      expect(readFileSync(log, 'utf8').split('run').length - 1).toBe(5);
+    } finally {
+      if (held === undefined) delete process.env['MADARCH_PRODUCT_CHECK'];
+      else process.env['MADARCH_PRODUCT_CHECK'] = held;
+      rmSync(counter, { recursive: true, force: true });
+    }
   });
 });
