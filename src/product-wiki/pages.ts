@@ -30,6 +30,7 @@ import { scanDocument } from '../wiki/documents.js';
 import { stagesSourceDigest } from '../wiki/stages.js';
 import { readProduct, type ProductIdentity } from '../product/manifest.js';
 import { modelSourceDigest } from './model.js';
+import { parseQuestion, changedAtOf, productAudience, type OpenQuestion } from './questions.js';
 import { byCodePoint } from '../model/order.js';
 
 /** The address prefix of a page's route within the app. */
@@ -72,6 +73,12 @@ export type ProductWikiPages =
   | { ok: false; message: string };
 
 /** One page as one ask found it, or the refusal naming the path asked for. */
+/** The wiki's open questions and the answered ones, as one ask found them. */
+export type ProductWikiQuestions =
+  | { ok: true; questions: OpenQuestion[]; openCount: number }
+  | { ok: false; message: string };
+
+
 export type ProductWikiPage =
   | { ok: true; page: WikiPage }
   | { ok: false; message: string; /** Absence or an invalid ask (404), not a filesystem failure (500). */
@@ -90,6 +97,10 @@ export interface ProductWiki {
   pages(): ProductWikiPages;
   /** One page by its path within the product, read from disk now. */
   page(path: string): ProductWikiPage;
+  /** The product's open questions as the set's form computes their state, read from disk now. */
+  questions(): ProductWikiQuestions;
+  /** The audience the product's vision names, when one is written. */
+  audience(): string | undefined;
 }
 
 /** Opens a product folder as a wiki; a folder whose manifest cannot be read is refused by `readProduct`. */
@@ -179,7 +190,35 @@ class FreshProductWiki implements ProductWiki {
     return { ok: true, page: { path, title: titleOf(path, markdown.markdown), markdown: markdown.markdown, changedAt } };
   }
 
-  /** One page's bytes, read from disk now — or the refusal that reading gave. */
+  questions(): ProductWikiQuestions {
+    let held: string[];
+    try {
+      held = markdownPaths(this.product.folder);
+    } catch (error) {
+      return { ok: false, message: `the open questions of the product ${JSON.stringify(this.product.folder)} could not be read: ${(error as Error).message}` };
+    }
+    const questions: OpenQuestion[] = [];
+    for (const path of held) {
+      const markdown = this.fileText(path);
+      if (!markdown.ok) return markdown;
+      const parsed = parseQuestion(path, markdown.markdown);
+      if (parsed === undefined) continue;
+      questions.push(parsed);
+    }
+    // Questions in the same order as the paths themselves: code point order.
+    questions.sort((a, b) => byCodePoint(a.path, b.path));
+    const withChange = questions.map((question) => {
+      const changedAt = changedAtOf(question.path, this.product.folder);
+      return changedAt === undefined ? question : { ...question, changedAt };
+    });
+    return { ok: true, questions: withChange, openCount: withChange.filter((question) => question.state === 'open').length };
+  }
+
+  audience(): string | undefined {
+    return productAudience(this.product.folder);
+  }
+
+    /** One page's bytes, read from disk now — or the refusal that reading gave. */
   private fileText(path: string): { ok: true; markdown: string } | { ok: false; message: string } {
     try {
       return { ok: true, markdown: readFileSync(joinPath(this.product.folder, ...path.split('/')), 'utf8') };

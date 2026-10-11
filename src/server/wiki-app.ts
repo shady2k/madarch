@@ -146,6 +146,8 @@ const CONTENT_TYPES: Record<string, string> = {
 export interface WikiPart {
   /** `GET /api/product`: the product's id and name. */
   product: () => Handled;
+  /** `GET /api/questions`: the product's open questions as the set's form computes them. */
+  questions: () => Handled;
   /** `GET /api/architecture`: the whole Architecture bundle, read fresh. */
   architecture: () => Handled;
   /** `GET /api/architecture/likec4.js`: the LikeC4 webcomponent bundle of the rendered workspace. */
@@ -174,7 +176,22 @@ export function createWikiPart(
   appFolder: string | undefined,
 ): WikiPart {
   return {
-    product: (): Handled => ({ response: json(200, { id: wiki.product.id, name: wiki.product.name, folder: nameOf(wiki.product.folder) }) }),
+    product: (): Handled => {
+      // The audience is the vision's `## Audience` first paragraph, when the
+      // product's vision is written; the draft carries none, and its absence
+      // is the draft's own state the app reads.
+      const audience = wiki.audience();
+      return {
+        response: json(200, audience === undefined
+          ? { id: wiki.product.id, name: wiki.product.name, folder: nameOf(wiki.product.folder) }
+          : { id: wiki.product.id, name: wiki.product.name, folder: nameOf(wiki.product.folder), audience }),
+      };
+    },
+    questions: (): Handled => {
+      const asked = wiki.questions();
+      if (!asked.ok) return { response: json(500, { message: asked.message }) };
+      return { response: json(200, { questions: asked.questions, openCount: asked.openCount }) };
+    },
     architecture: (): Handled => {
       const product = readProductModel(wiki.product);
       const pages = new Map<string, string>();

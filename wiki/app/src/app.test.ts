@@ -17,11 +17,8 @@ import { App, HomePage, PageReader, RepositoriesPage, RepoCard, EVENTS_PATH } fr
 import { groupNav } from './shell.js';
 import { languageStorageKey, setWikiLanguage } from './i18n.js';
 import { addressOfPage } from './routes.js';
-<<<<<<< HEAD
-import type { Product, PageList, Page, RepoEntry } from './api.js';
-=======
+
 import type { Product, ProductWithAudience, PageList, Page, QuestionList, QuestionEntry } from './api.js';
->>>>>>> ecf27cea (The product's open questions: the /questions view, the sidebar count, the answer semantics of the set's form and the draft's name and audience)
 
 beforeAll(async () => {
   GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -43,11 +40,8 @@ function answerFor(product: Product, list: PageList, pages: Record<string, Page>
   return (target: string): Blade => {
     if (target === '/api/product') return { body: product };
     if (target === '/api/pages') return { body: list };
-<<<<<<< HEAD
-    if (target === '/api/repos') return { body: { repos: [] } };
-=======
+
     if (target === '/api/questions') return { body: questions };
->>>>>>> ecf27cea (The product's open questions: the /questions view, the sidebar count, the answer semantics of the set's form and the draft's name and audience)
     if (target.startsWith('/api/page?') === false)
       return { body: { message: 'the server does not answer ' + target }, status: 404 };
     const path = new URL('http://x' + target).searchParams.get('path') ?? '';
@@ -346,11 +340,8 @@ describe('live update', () => {
       if (target === '/api/pages') return new Response(JSON.stringify(which.list), { status: 200, headers: { 'content-type': 'application/json' } });
       if (target === '/api/repos') return new Response(JSON.stringify({ repos: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
       if (target === '/api/product') return new Response(JSON.stringify(product), { status: 200, headers: { 'content-type': 'application/json' } });
-<<<<<<< HEAD
-      if (target === '/api/repos') return new Response(JSON.stringify({ repos: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
-=======
+
       if (target === '/api/questions') return new Response(JSON.stringify({ questions: [], openCount: 0 }), { status: 200, headers: { 'content-type': 'application/json' } });
->>>>>>> ecf27cea (The product's open questions: the /questions view, the sidebar count, the answer semantics of the set's form and the draft's name and audience)
       if (target.startsWith('/api/page?path=docs%2Fvision.md')) {
         return new Response(JSON.stringify(which.page), { status: 200, headers: { 'content-type': 'application/json' } });
       }
@@ -388,11 +379,8 @@ describe('live update', () => {
       }
       if (target === '/api/pages') return new Response(JSON.stringify(listWithPages), { status: 200, headers: { 'content-type': 'application/json' } });
       if (target === '/api/product') return new Response(JSON.stringify(product), { status: 200, headers: { 'content-type': 'application/json' } });
-<<<<<<< HEAD
-      if (target === '/api/repos') return new Response(JSON.stringify({ repos: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
-=======
+
       if (target === '/api/questions') return new Response(JSON.stringify({ questions: [], openCount: 0 }), { status: 200, headers: { 'content-type': 'application/json' } });
->>>>>>> ecf27cea (The product's open questions: the /questions view, the sidebar count, the answer semantics of the set's form and the draft's name and audience)
       if (target.startsWith('/api/page?path=')) return new Response(JSON.stringify(pagesAtR1['docs/vision.md']!), { status: 200, headers: { 'content-type': 'application/json' } });
       return new Response(JSON.stringify({ message: 'nothing answers ' + target }), { status: 404 });
     }) as unknown as typeof fetch;
@@ -428,11 +416,8 @@ describe('live update', () => {
       }
       if (target === '/api/pages') return new Response(JSON.stringify(listWithPages), { status: 200, headers: { 'content-type': 'application/json' } });
       if (target === '/api/product') return new Response(JSON.stringify(product), { status: 200, headers: { 'content-type': 'application/json' } });
-<<<<<<< HEAD
-      if (target === '/api/repos') return new Response(JSON.stringify({ repos: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
-=======
+
       if (target === '/api/questions') return new Response(JSON.stringify({ questions: [], openCount: 0 }), { status: 200, headers: { 'content-type': 'application/json' } });
->>>>>>> ecf27cea (The product's open questions: the /questions view, the sidebar count, the answer semantics of the set's form and the draft's name and audience)
       if (target.startsWith('/api/page?path=')) return new Response(JSON.stringify(pagesAtR1['docs/vision.md']!), { status: 200, headers: { 'content-type': 'application/json' } });
       return new Response(JSON.stringify({ message: 'nothing answers ' + target }), { status: 404 });
     }) as unknown as typeof fetch;
@@ -655,13 +640,9 @@ describe('a failed page read that is retried', () => {
           headers: { 'content-type': 'application/json' },
         });
       }
-<<<<<<< HEAD
-      if (target === '/api/repos') {
-        return new Response(JSON.stringify({ repos: [] }), {
-=======
+
       if (target === '/api/questions') {
         return new Response(JSON.stringify({ questions: [], openCount: 0 }), {
->>>>>>> ecf27cea (The product's open questions: the /questions view, the sidebar count, the answer semantics of the set's form and the draft's name and audience)
           status: 200,
           headers: { 'content-type': 'application/json' },
         });
@@ -710,13 +691,9 @@ describe('a failed page read that is retried', () => {
           headers: { 'content-type': 'application/json' },
         });
       }
-<<<<<<< HEAD
-      if (target === '/api/repos') {
-        return new Response(JSON.stringify({ repos: [] }), {
-=======
+
       if (target === '/api/questions') {
         return new Response(JSON.stringify({ questions: [], openCount: 0 }), {
->>>>>>> ecf27cea (The product's open questions: the /questions view, the sidebar count, the answer semantics of the set's form and the draft's name and audience)
           status: 200,
           headers: { 'content-type': 'application/json' },
         });
@@ -1119,259 +1096,7 @@ describe('real page metadata', () => {
   });
 });
 
-<<<<<<< HEAD
-/** The answer kinds extended with the repositories' answer. */
-function answerWithRepos(product: Product, list: PageList, pages: Record<string, Page>, repos: RepoEntry[]): Answer {
-  const base = answerFor(product, list, pages);
-  return (target: string): Blade => {
-    if (target === '/api/repos') return { body: { repos } };
-    return base(target);
-  };
-}
 
-/** Installs a fetch stub like `install`, one that also answers the events stream with a quiet open stream. */
-function installWithLiveStream(answerSupplier: Answer): { calls: string[] } {
-  const calls: string[] = [];
-  const stub = async (input: RequestInfo | URL): Promise<Response> => {
-    const target = input instanceof URL ? input.pathname + input.search : String(input);
-    calls.push(target);
-    if (target === EVENTS_PATH) {
-      return new Response(new ReadableStream<Uint8Array>({
-        start(controller) {
-          controller.enqueue(new TextEncoder().encode('retry: 3000\n\n'));
-        },
-      }), { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8' } });
-    }
-    const blade = answerSupplier(target);
-    if (blade.body === undefined)
-      return new Response(JSON.stringify({ message: 'nothing answers ' + target }), { status: 404 });
-    return new Response(JSON.stringify(blade.body), {
-      status: blade.status ?? 200,
-      headers: { 'content-type': 'application/json' },
-    });
-  };
-  (globalThis as { fetch: typeof fetch }).fetch = stub as unknown as typeof fetch;
-  return { calls };
-}
-
-const checkedOut: RepoEntry = {
-  name: 'fieldnote-core',
-  url: 'https://example.com/fieldnote/fieldnote-core.git',
-  state: 'checked-out',
-  head: { sha: 'abc1234', subject: 'First commit of the core', committedAt: '2026-10-11T12:00:00+03:00' },
-  readme: { file: 'README.md', markdown: '# fieldnote-core\n\nThe core library.\n' },
-};
-const declaredOnly: RepoEntry = {
-  name: 'fieldnote-web',
-  url: 'https://example.com/fieldnote/fieldnote-web.git',
-  branch: 'main',
-  state: 'not-checked-out',
-};
-
-describe('the repositories section', () => {
-  test('the repositories page names each declared repository with its url, branch, state, HEAD and rendered README', async () => {
-    install(answerWithRepos(product, listWithPages, pagesAtR1, [checkedOut, declaredOnly]));
-    const { createElement } = await import('react');
-    intoApp(createElement(RepositoriesPage, { product, repos: [checkedOut, declaredOnly] }));
-    await until(() => document.querySelector('[data-repo="fieldnote-core"]') !== undefined, 'the repositories');
-    await until(() => (document.body.textContent ?? '').includes('fieldnote-core'), 'the repositories text: ' + document.body.innerHTML.slice(0, 400));
-    expect(document.querySelector('#repos .eyebrow')?.textContent).toBe('Code repositories');
-    expect(document.querySelector('#repos .app-title')?.textContent).toBe('Repositories');
-    const text = document.body.textContent ?? '';
-    expect(text).toContain('fieldnote-core');
-    expect(text).toContain('https://example.com/fieldnote/fieldnote-core.git');
-    expect(text).toContain('branch main');
-    expect(document.querySelector('[data-repo="fieldnote-core"] [data-testid="repo-commit"]')?.textContent).toContain('abc1234');
-    expect(document.querySelector('[data-repo="fieldnote-core"] [data-testid="repo-commit"]')?.textContent).toContain('First commit of the core');
-    expect(document.querySelector('[data-repo="fieldnote-core"] .repo-readme h1')?.textContent).toBe('fieldnote-core');
-    expect(document.querySelector('[data-repo="fieldnote-web"] [data-testid="repo-state"]')?.textContent).toContain('Not checked out');
-    expect(document.querySelector('[data-repo="fieldnote-web"] .repo-readme')).toBeNull();
-  });
-
-  test('a checkout without a README says so quietly; an unreadable row names its cause', async () => {
-    const silent: RepoEntry = { name: 'plain', url: 'https://example.com/plain.git', state: 'checked-out', head: { sha: 'bbb2222', subject: 's', committedAt: '2026-10-11T12:00:00+03:00' } };
-    const unreadable: RepoEntry = { name: 'broken', url: 'https://example.com/broken.git', state: 'unreadable', problem: '/p/repos/broken is not a folder' };
-    const { createElement } = await import('react');
-    intoApp(createElement(RepositoriesPage, { product, repos: [silent, unreadable] }));
-    await until(() => document.querySelector('[data-repo="plain"] [data-testid="repo-no-readme"]')?.textContent !== undefined, 'the quiet readme row');
-    expect(document.querySelector('[data-repo="plain"] [data-testid="repo-no-readme"]')?.textContent).toContain('No README');
-    const problem = document.querySelector('[data-repo="broken"] [data-testid="repo-problem"]')?.textContent ?? '';
-    expect(problem).toContain('/p/repos/broken is not a folder');
-  });
-
-  test('the section publishes its status line and clears it on leaving; a broken row reads Unreadable', async () => {
-    const unreadable: RepoEntry = { name: 'broken', url: 'https://example.com/broken.git', state: 'unreadable', problem: 'p' };
-    installWithLiveStream(answerWithRepos(product, listWithPages, pagesAtR1, [checkedOut, unreadable]));
-    goto('/r');
-    const { createElement } = await import('react');
-    intoApp(createElement(App));
-    await until(() => document.querySelector('#repos') !== null, 'the repositories page');
-    await until(() => document.querySelector('[data-testid="word-count"]')?.textContent?.includes('2 repositories'), 'the published status line');
-    expect(document.querySelector('.status-details')?.textContent).toContain('Markdown');
-    expect(document.querySelector('.status-details')?.textContent).toContain('UTF-8');
-    await until(() => document.querySelector('[data-testid="connection-status"]')?.textContent?.includes('Live'), 'the live status');
-    expect(document.querySelector('[data-repo="broken"] [data-testid="repo-state"]')?.textContent).toContain('Unreadable');
-    expect(document.querySelector('[data-repo="broken"] [data-testid="repo-no-readme"]')).toBeNull();
-    unmount();
-  });
-
-  test('a not-checked-out row shows its state label even where a checked-out row would show the commit', async () => {
-    const { createElement } = await import('react');
-    // A head on a not-checked-out row is a shape the row must refuse to show,
-    // as is a problem on a clean row: the guards are per row, not global.
-    const mismatchedHead: RepoEntry = { name: 'ghost', url: 'https://example.com/ghost.git', state: 'not-checked-out', head: { sha: 'deadbee', subject: 'x', committedAt: '2026-10-11T12:00:00+03:00' } };
-    intoApp(createElement(RepositoriesPage, { product, repos: [{ ...declaredOnly }, mismatchedHead] }));
-    await until(() => document.querySelector('[data-repo="fieldnote-web"] [data-testid="repo-state"]')?.textContent !== undefined, 'the row');
-    const row = document.querySelector('[data-repo="fieldnote-web"]')!;
-    expect(row.querySelector('[data-testid="repo-state"]')?.textContent).toContain('Not checked out');
-    expect(row.querySelector('[data-testid="repo-commit"]')).toBeNull();
-    expect(row.querySelector('[data-testid="repo-branch"]')?.textContent).toContain('branch main');
-    const ghost = document.querySelector('[data-repo="ghost"]')!;
-    expect(ghost.querySelector('[data-testid="repo-commit"]')).toBeNull();
-  });
-
-  test('a checked-out row without a readable HEAD shows no commit row; a row\'s commit line carries its real words', async () => {
-    const headless: RepoEntry = { name: 'fresh', url: 'https://example.com/fresh.git', state: 'checked-out', problem: 'no commit yet' };
-    const { createElement } = await import('react');
-    intoApp(createElement(RepositoriesPage, { product, repos: [headless, checkedOut] }));
-    await until(() => document.querySelector('[data-repo="fresh"] [data-testid="repo-state"]')?.textContent !== undefined, 'the rows');
-    expect(document.querySelector('[data-repo="fresh"] [data-testid="repo-commit"]')).toBeNull();
-    const line = document.querySelector('[data-repo="fieldnote-core"] [data-testid="repo-commit"]')?.textContent ?? '';
-    expect(line).toContain('abc1234');
-    expect(line).toContain('First commit of the core');
-    expect(line).toMatch(/last commit \S/);
-    expect(line).not.toContain('{{');
-  });
-
-  test('the cards follow the count that changes; an empty section renders no cards', async () => {
-    const { createElement } = await import('react');
-    const element = (n: number): ReturnType<typeof createElement> =>
-      createElement(RepositoriesPage, { product, repos: Array.from({ length: n }, (_, i) => ({ ...declaredOnly, name: 'r' + i, url: 'https://example.com/r' + i + '.git' })) });
-    intoApp(element(2));
-    await until(() => document.querySelectorAll('.home-group').length === 2, 'the two cards');
-    const container = document.body.lastElementChild as HTMLElement;
-    const root2 = createRoot(container);
-    rendered = { root: root2 };
-    root2.render(element(3));
-    await until(() => document.querySelectorAll('.home-group').length === 3, 'the three cards');
-    root2.render(element(0));
-    await until(() => document.querySelector('.home-groups') === null && (document.body.textContent ?? '').includes('0 repositories'), 'the empty section');
-  });
-
-  test('the card\'s quiet rows: no branch, no problem, no no-readme on the rows that do not carry them', async () => {
-    const { createElement } = await import('react');
-    intoApp(createElement(RepositoriesPage, { product, repos: [checkedOut, { ...declaredOnly }] }));
-    await until(() => document.querySelector('[data-repo="fieldnote-core"] [data-testid="repo-commit"]')?.textContent !== undefined, 'the cards');
-    const core = document.querySelector('[data-repo="fieldnote-core"]')!;
-    expect(core.querySelector('[data-testid="repo-branch"]')).toBeNull();
-    expect(core.querySelector('[data-testid="repo-problem"]')).toBeNull();
-    expect(core.querySelector('[data-testid="repo-no-readme"]')).toBeNull();
-    expect(core.querySelector('[data-testid="repo-commit"]')?.textContent).toContain('abc1234 First commit of the core');
-    expect(core.querySelector('[data-testid="repo-commit"]')?.textContent).toContain('·');
-    const web = document.querySelector('[data-repo="fieldnote-web"]')!;
-    expect(web.querySelector('[data-testid="repo-problem"]')).toBeNull();
-    expect(web.querySelector('[data-testid="repo-no-readme"]')?.textContent).toContain('No README');
-  });
-
-  test('the count follows the Russian plural: 1 репозиторий, 2 репозитория, 5 репозиториев', async () => {
-    await setWikiLanguage('ru');
-    try {
-      const { createElement } = await import('react');
-      const one: RepoEntry = { ...declaredOnly, name: 'one', url: 'https://example.com/one.git' };
-      intoApp(createElement(RepositoriesPage, { product, repos: [one] }));
-      await until(() => (document.body.textContent ?? '').includes('1 репозиторий'), 'the russian singular');
-      unmount();
-      intoApp(createElement(RepositoriesPage, { product, repos: [checkedOut, declaredOnly] }));
-      await until(() => (document.body.textContent ?? '').includes('2 репозитория'), 'the russian few');
-      unmount();
-      const five: RepoEntry[] = [1, 2, 3, 4, 5].map((n) => ({ ...declaredOnly, name: 'r' + n, url: 'https://example.com/r' + n + '.git' }));
-      intoApp(createElement(RepositoriesPage, { product, repos: five }));
-      await until(() => (document.body.textContent ?? '').includes('5 репозиториев'), 'the russian many');
-    } finally {
-      unmount();
-      await setWikiLanguage('en');
-    }
-  });
-
-  test('the sidebar names Repositories with its count only where the manifest declares repositories, and the entry opens the section', async () => {
-    install(answerWithRepos(product, listWithPages, pagesAtR1, [checkedOut, declaredOnly]));
-    goto('/');
-    intoApp(createElement(App));
-    await until(() => document.querySelector('[data-testid="nav-repositories"]')?.textContent !== undefined, 'the repositories entry');
-    const entry = document.querySelector('[data-testid="nav-repositories"]');
-    expect(entry?.textContent).toContain('Repositories');
-    expect(entry?.textContent).toContain('2');
-    (entry as HTMLAnchorElement).click();
-    await until(() => document.querySelector('#repos') !== null, 'the repositories page');
-    expect(document.querySelector('#repos [data-testid="repos-lead"]')?.textContent).toContain('2');
-  });
-
-  test('with no repositories declared the sidebar holds no repositories entry and the home shows none', async () => {
-    install(answerWithRepos(product, listWithPages, pagesAtR1, []));
-    goto('/');
-    intoApp(createElement(App));
-    await until(() => text().includes('Draft Idea'), 'the home');
-    expect(document.querySelector('[data-testid="nav-repositories"]')).toBeNull();
-    expect(document.querySelector('#repos')).toBeNull();
-  });
-
-  test('a server that refuses /api/repos (no repositories declared) still loads the wiki: the home answers, no section', async () => {
-    // The undeclared product's server 404s /api/repos; the optional ask is
-    // the section's absence, never the wiki's failure.
-    const calls: string[] = [];
-    (globalThis as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL): Promise<Response> => {
-      const target = input instanceof URL ? input.pathname + input.search : String(input);
-      calls.push(target);
-      if (target === EVENTS_PATH) {
-        return new Response(new ReadableStream<Uint8Array>({
-          start(controller) {
-            controller.enqueue(new TextEncoder().encode('retry: 3000\n\n'));
-          },
-        }), { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8' } });
-      }
-      if (target === '/api/repos') return new Response(JSON.stringify({ message: 'no such path "/api/repos": the server offers the wiki\'s API and the app\'s routes' }), { status: 404 });
-      const blade = answerFor(product, listWithPages, pagesAtR1)(target);
-      if (blade.body === undefined)
-        return new Response(JSON.stringify({ message: 'nothing answers ' + target }), { status: 404 });
-      return new Response(JSON.stringify(blade.body), {
-        status: blade.status ?? 200,
-        headers: { 'content-type': 'application/json' },
-      });
-    }) as unknown as typeof fetch;
-    goto('/');
-    intoApp(createElement(App));
-    await until(() => text().includes('Draft Idea'), 'the home of an undeclared product');
-    expect(document.querySelector('#repos')).toBeNull();
-    expect(document.querySelector('[data-testid="nav-repositories"]')).toBeNull();
-    expect(document.querySelector('p.error')).toBeNull();
-    expect(calls).toContain('/api/repos');
-    unmount();
-  });
-
-  test('the reader typing /r of an undeclared product gets the home content, never a repositories section', async () => {
-    install(answerWithRepos(product, listWithPages, pagesAtR1, []));
-    goto('/r');
-    intoApp(createElement(App));
-    await until(() => text().includes('Draft Idea'), 'the home at /r');
-    expect(document.querySelector('#repos')).toBeNull();
-    expect(document.querySelector('[data-testid="repos-lead"]')).toBeNull();
-    expect(document.querySelector('main#home')?.textContent).toContain('Draft Idea');
-  });
-
-  test('the repositories labels come from the Russian catalogue when the chrome is Russian', async () => {
-    await setWikiLanguage('ru');
-    try {
-      const { createElement } = await import('react');
-      intoApp(createElement(RepositoriesPage, { product, repos: [checkedOut, declaredOnly] }));
-      await until(() => (document.body.textContent ?? '').includes('Репозитории'), 'the russian labels: ' + document.body.innerHTML.slice(0, 400));
-      const text = document.body.textContent ?? '';
-      expect(text).toContain('Склонирован');
-      expect(text).toContain('Не склонирован');
-      expect(document.querySelector('[data-repo="fieldnote-web"] [data-testid="repo-no-readme"]')?.textContent).toContain('README в корне нет');
-    } finally {
-      await setWikiLanguage('en');
-    }
-=======
 describe('the open questions', () => {
   const openQuestion: QuestionEntry = {
     path: 'docs/questions/Q-004-who-collects.md',
@@ -1459,6 +1184,5 @@ describe('the open questions', () => {
     goto('/');
     await intoApp(createElement(App));
     await until(() => document.querySelector('[data-testid="home-audience"]')?.textContent?.includes('not written yet'), 'the empty audience line');
->>>>>>> ecf27cea (The product's open questions: the /questions view, the sidebar count, the answer semantics of the set's form and the draft's name and audience)
   });
 });

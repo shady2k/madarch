@@ -17,7 +17,7 @@ import { useContext, useEffect, useRef, useState, useCallback, type ReactElement
 import { useTranslation } from 'react-i18next';
 import { FileTextIcon, FolderGit2Icon, GitBranch, NetworkIcon } from 'lucide-react';
 import { relativeTime } from './i18n.js';
-import { getProduct, getPages, getPage, getRepos, type Product, type PageList, type Page, type Architecture, type RepoEntry, type ReposList } from './api.js';
+import { getProduct, getPages, getPage, getQuestions, getRepos, type Product, type ProductWithAudience, type PageList, type Page, type QuestionList, type QuestionEntry, type Architecture, type RepoEntry, type ReposList } from './api.js';
 import { routeOf, addressOfPage, architectureAddress, type Route } from './routes.js';
 import { Markdown, PageLink } from './view.js';
 import { routeContext, statusContext } from './hold.js';
@@ -25,6 +25,7 @@ import { groupNav, groupOf, kindOf, wordLabel, Shell } from './shell.js';
 import { wordCount } from './text.js';
 import { useArchitecture, ArchitectureIndex, ViewPage, ElementPage, elementLinksFor } from './architecture.js';
 import { StagePage, useStages } from './stages.js';
+import { QuestionsView } from './questions.js';
 export type RouteSnapshot = Route;
 
 /** How many times one page read is tried before the app gives up on it. */
@@ -56,7 +57,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
   // product whose manifest declares no repositories has no `/api/repos` at
   // all — the server refuses it — and the wiki loads all the same, the
   // section simply absent.
-  const [data, setData] = useState<{ product: Product; list: PageList; repos: ReposList | null } | null>(null);
+  const [data, setData] = useState<{ product: ProductWithAudience; list: PageList; repos: ReposList | null; questions?: QuestionList } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [streamConnected, setStreamConnected] = useState(false);
@@ -106,6 +107,13 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
         const nextList = await getPages(controller.signal);
         current = '/api/product';
         const nextProduct = await getProduct(controller.signal);
+        current = '/api/questions';
+        let nextQuestions: QuestionList | undefined;
+        try {
+          nextQuestions = await getQuestions(controller.signal);
+        } catch {
+          if (!alive || lastAnsweredTurn > turn) return;
+        }
         // The repositories' ask is the one optional read: its refusal (the
         // server's 404 for an undeclared product, or any other failure) is
         // the section's absence, never the wiki's failure.
@@ -113,7 +121,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
         const nextRepos = await getRepos(controller.signal).catch(() => null);
         if (!alive || lastAnsweredTurn > turn) return;
         lastAnsweredTurn = turn;
-        setData({ product: nextProduct, list: nextList, repos: nextRepos });
+        setData({ product: nextProduct, list: nextList, repos: nextRepos, questions: nextQuestions });
         setError(null);
       } catch (caught: unknown) {
         const aborted = caught instanceof DOMException && caught.name === 'AbortError';
@@ -211,7 +219,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
   return (
     <StatusBridge streamConnected={streamConnected}>
       <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, stage: route.name === 'stage' ? route.stage : undefined, heldPaths }}>
-        <Shell product={data.product} list={list} architecture={architecture} reposCount={data.repos?.repos.length} reposOpen={route.name === 'repos'}>
+        <Shell product={data.product} list={list} architecture={architecture} reposCount={data.repos?.repos.length} reposOpen={route.name === 'repos'} openQuestions={data.questions}>
         {route.name === 'home' ? (
           <HomePage product={data.product} list={list} architecture={architecture} />
         ) : route.name === 'repos' && (data.repos?.repos.length ?? 0) > 0 ? (
@@ -228,6 +236,8 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
           <ArchitectureReader key={'element:' + route.id + ':' + list.revision} revision={list.revision} routeName="element" id={route.id} />
         ) : route.name === 'stage' ? (
           <StageRoute key={"stage:" + route.stage + ":" + list.revision} stage={route.stage} revision={list.revision} />
+        ) : route.name === 'questions' ? (
+          <QuestionsView key={"questions:" + list.revision} questions={data.questions ?? null} />
 
         ) : (
           <PageReader
@@ -302,7 +312,7 @@ export function StatusBridge({ children, streamConnected }: { children: ReactNod
  * choosing between, the rows read like the sidebar's. A product with no
  * pages yet says so plainly in the lead.
  */
-export function HomePage({ product, list, architecture }: { product: Product; list: PageList; architecture?: Architecture | null }): ReactElement {
+export function HomePage({ product, list, architecture }: { product: ProductWithAudience; list: PageList; architecture?: Architecture | null }): ReactElement {
   const groups = groupNav(list.pages);
   const documents = list.pages.length;
   const { publish } = useContext(statusContext);
@@ -325,6 +335,11 @@ export function HomePage({ product, list, architecture }: { product: Product; li
       <p className="eyebrow">{t('home.overview')}</p>
       <h1 className="app-title">{product.name}</h1>
       <p className="home-lead" data-testid="home-lead">{lead}</p>
+      {product.audience === undefined ? (
+        <p className="home-audience home-audience-empty" data-testid="home-audience">{t('home.noAudience')}</p>
+      ) : (
+        <p className="home-audience" data-testid="home-audience">{t('home.audience', { audience: product.audience })}</p>
+      )}
       <div className="home-groups">
         {documents === 0 ? null : groups.map((group) => (
           <section key={group.name} data-kind={group.name} className="home-group mt-7 first:mt-0">

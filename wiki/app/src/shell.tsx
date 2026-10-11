@@ -22,6 +22,7 @@
 import { useEffect, useRef, useState, useContext, type ReactElement, type ReactNode, type MouseEventHandler } from 'react';
 import {
   CheckIcon,
+  CircleDashedIcon,
   ChevronDownIcon,
   FileTextIcon,
   FolderGit2Icon,
@@ -30,8 +31,8 @@ import {
   NetworkIcon,
   PanelRightIcon,
 } from 'lucide-react';
-import type { PageList, PageMeta, Product } from './api.js';
-import { architectureAddress, addressOfStageRoute, REPOS_ADDRESS } from './routes.js';
+import type { PageList, PageMeta, Product, QuestionList } from './api.js';
+import { architectureAddress, addressOfStageRoute, QUESTIONS_ADDRESS, REPOS_ADDRESS } from './routes.js';
 import type { Architecture } from './api.js';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
@@ -295,12 +296,14 @@ function StagesNav({ current, onNavigate }: { current: string | undefined; onNav
   );
 }
 
-function NavPanel({ product, groups, current, currentStage, onNavigate, architectureCount, reposCount }: {
+function NavPanel({ product, groups, current, currentStage, openQuestions, onNavigate, architectureCount, reposCount }: {
   product: Product;
   groups: readonly NavGroup[];
   current: string | undefined;
   /** The open stage's id, when the route is a stage's. */
   currentStage?: string;
+  /** The product's open questions, when the questions view is wired. */
+  openQuestions?: QuestionList;
   onNavigate?: MouseEventHandler;
   /** The Architecture section's view count, when the model holds views. */
   architectureCount?: number;
@@ -346,6 +349,16 @@ function NavPanel({ product, groups, current, currentStage, onNavigate, architec
         data-testid="nav-overview"
       >
         <span className="flex items-center gap-2.5"><PanelRightIcon aria-hidden="true" className="size-4 shrink-0 text-muted" /> {t('navigation.overview')}</span>
+      </a>
+      <a
+        className="mb-3 flex items-center justify-between rounded-[var(--radius-row)] px-2.5 py-2 text-[13px] text-ink no-underline hover:bg-[var(--surface-hover)] focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+        href={QUESTIONS_ADDRESS}
+        data-testid="nav-open-questions"
+      >
+        <span className="flex items-center gap-2.5"><CircleDashedIcon aria-hidden="true" className="size-4 shrink-0 text-muted" /> {t('navigation.openQuestions')}</span>
+        {openQuestions !== undefined && (
+          <span className="nav-questions-count text-[12px] text-muted" data-testid="open-questions-count">{openQuestions.openCount}</span>
+        )}
       </a>
       {reposCount !== undefined && reposCount > 0 && (
         <a
@@ -454,7 +467,7 @@ export function StatusBar(): ReactElement {
  * own scrolling column (the only scrolling part at any window height), and
  * the status bar along the window's bottom edge.
  */
-export function Shell({ product, list, children, architecture, reposCount, reposOpen }: {
+export function Shell({ product, list, children, architecture, reposCount, reposOpen, openQuestions }: {
   product: Product;
   list: PageList;
   children: ReactNode;
@@ -463,6 +476,8 @@ export function Shell({ product, list, children, architecture, reposCount, repos
   reposCount?: number;
   /** Whether the repositories' page is the one open, for the breadcrumb and the tab strip. */
   reposOpen?: boolean;
+  /** The product's open questions, when the questions view is wired. */
+  openQuestions?: QuestionList;
 }): ReactElement {
   const route = useContext(routeContext);
   const { t, i18n } = useTranslation();
@@ -500,7 +515,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
           aria-label={t('navigation.aria')}
           hidden={focused}
         >
-          <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} />
+          <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} openQuestions={openQuestions} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} />
         </aside>
         <div className="shell-main flex min-w-0 flex-1 flex-col">
           <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line px-4 wide:px-[35px]">
@@ -545,7 +560,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
                   data-testid="phone-nav"
                   className={'app-nav w-[min(280px,_82vw)] px-[14px] py-3 ' + (focused ? 'bg-chrome' : '')}
                 >
-                  <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} />
+                  <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} openQuestions={openQuestions} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} />
                 </SheetContent>
               </Sheet>
               <DropdownMenu.Root>
