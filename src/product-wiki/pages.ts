@@ -163,6 +163,8 @@ interface PageSetSnapshot {
   revision: string;
   /** The check cache's key: the pages' revision plus the paths under prototypes/, which the set's check reads for `Code:`. */
   checkKey: string;
+  /** Set when the prototypes could not be listed: a finding-shaped refusal every page shows, and the check run does not start. */
+  prototypeProblem?: string;
   paths: string[];
   titles: Map<string, string>;
   /** The pages' Markdown as the walk read it, by path. */
@@ -210,10 +212,20 @@ class FreshProductWiki implements ProductWiki {
     // no page, so a file added to or removed from prototypes/ changes the
     // findings with no change in the pages' revision. The key is the
     // pages' revision plus every path under prototypes/ — the check reads
-    // the folder's existence, never its bytes.
+    // the folder's existence, never its bytes. A prototype walk that
+    // cannot be read is not a server failure: it is a finding-shaped
+    // refusal the page shows, the same shape the check's own findings
+    // take, and the check run itself is refused with the same words.
     const revision = hash.digest('hex');
+    let prototypeList: string[];
+    try {
+      prototypeList = prototypePaths(this.product.folder);
+    } catch (error) {
+      const message = `the prototypes of the product ${JSON.stringify(this.product.folder)} could not be listed: ${(error as Error).message}`;
+      return { ok: true, snapshot: { revision, checkKey: `${revision}\u0000unreadable-prototypes`, paths, titles, texts, docs, held: pathsHeld, prototypeProblem: message } };
+    }
     const prototypeKey = createHash('sha256');
-    for (const prototypePath of prototypePaths(this.product.folder)) prototypeKey.update(`${prototypePath}\u0000`);
+    for (const prototypePath of prototypeList) prototypeKey.update(`${prototypePath}\u0000`);
     const checkKey = `${revision}\u0000${prototypeKey.digest('hex')}`;
     return { ok: true, snapshot: { revision, checkKey, paths, titles, texts, docs, held: pathsHeld } };
   }
@@ -287,7 +299,9 @@ class FreshProductWiki implements ProductWiki {
     } catch (error) {
       return { ok: false, message: `the page ${JSON.stringify(path)} modification time could not be read from ${JSON.stringify(this.product.folder)}: ${(error as Error).message}` };
     }
-    const check = this.checkRuns.run(taken.snapshot.checkKey, () => runProductCheck(this.product.folder));
+    const check: ProductCheckRun = taken.snapshot.prototypeProblem !== undefined
+      ? { ran: false, message: taken.snapshot.prototypeProblem }
+      : this.checkRuns.run(taken.snapshot.checkKey, () => runProductCheck(this.product.folder));
     const findings = check.ran ? check.findings.filter((finding) => finding.file === path) : [];
     const grown = doc === undefined ? [] : grownFromOf(doc, taken.snapshot.docs);
     const linked = doc === undefined ? [] : backlinksOf(doc, taken.snapshot.docs);

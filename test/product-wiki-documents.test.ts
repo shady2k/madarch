@@ -6,7 +6,7 @@
  * product revision and its findings on the failing page, and the plain
  * page that stays plain.
  */
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
@@ -536,5 +536,53 @@ describe('the review fixes, held by tests', () => {
     // was the only one, and the Code: folder now exists.
     expect(secondPage.page.findings.length).toBeLessThan(firstPage.page.findings.length);
     expect(pagesList.revision).toBe((after.pages() as { ok: true; revision: string }).revision);
+  });
+});
+
+describe('the review round two, held by tests', () => {
+  test('a symlinked prototype directory is walked for the check cache key: a file beneath it turns the key with no page change', () => {
+    draft();
+    write('docs/prototypes/P-001-tries.md', '# P-001 — Tries\n\nTests: H-404\nCode: prototypes/missing\n\n## What it tries\nX.\n\n## How to run\nOpen it.\n');
+    // The prototype's real folder lives OUTSIDE docs/ (shared-prototype style) and reaches prototypes/missing through a symlink.
+    const outside = mkdtempSync(join(tmpdir(), 'madarch-prototype-real-'));
+    try {
+      writeFileSync(join(outside, 'index.html'), '<p>v1</p>\n');
+      mkdirSync(join(folder!, 'prototypes', 'missing'), { recursive: true });
+      symlinkSync(join(outside), join(folder!, 'prototypes', 'missing', 'real'));
+      const first = wiki().page('docs/prototypes/P-001-tries.md');
+      if (!first.ok) throw new Error(first.message);
+      expect(first.page.check?.ran).toBe(true);
+      // A file added BENEATH the symlinked directory changes the check's
+      // view (a new file where there was none) and must turn the key: the
+      // next ask reruns the check. The wiki pages did not change at all.
+      writeFileSync(join(outside, 'second.html'), '<p>v2</p>\n');
+      const second = wiki().page('docs/prototypes/P-001-tries.md');
+      if (!second.ok) throw new Error(second.message);
+      expect(second.page.check?.ran).toBe(true);
+      expect(second.page.findings).toEqual(first.page.findings); // same findings, freshly run
+      rmSync(outside, { recursive: true, force: true });
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('an unreadable prototypes folder becomes a finding-shaped refusal on the page, never a 500', () => {
+    draft();
+    write('docs/notes.md', '# Notes\n\nPlain.\n');
+    mkdirSync(join(folder!, 'prototypes'), { recursive: true });
+    // A prototypes/ that is a FILE, not a folder: the walk refuses it.
+    rmSync(join(folder!, 'prototypes'), { recursive: true, force: true });
+    writeFileSync(join(folder!, 'prototypes'), 'not a folder\n');
+    const asked = wiki().page('docs/notes.md');
+    expect(asked.ok).toBe(true);
+    if (!asked.ok) return;
+    expect(asked.page.check?.ran).toBe(false);
+    if (asked.page.check?.ran === false) {
+      expect(asked.page.check.message).toContain('prototypes');
+      expect(asked.page.check.message).toContain('could not be listed');
+    }
+    // And the pages list still answers (pages() must not throw either).
+    const listed = wiki().pages();
+    expect(listed.ok).toBe(true);
   });
 });
