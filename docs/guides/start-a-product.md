@@ -18,8 +18,9 @@ madarch runs with Bun, from a checkout of the madarch repository:
 
     git clone <your-fork-or-the-madarch-url> madarch
 
-(`the-madarch-url` is a placeholder here: the address you clone from — the
-shell would read a bare `<...>` as redirection, so it is never pasted as is.)
+(`<your-fork-or-the-madarch-url>` is a placeholder: the address you clone
+from. The shell would read a bare `<...>` as redirection, so a placeholder
+is never pasted as is.)
     cd madarch
     bun install --frozen-lockfile
     bun link
@@ -43,15 +44,14 @@ makes the draft product repository under the products home, `~/madarch/products`
 `idea-2026-10-09`, then `idea-2026-10-09-2` for the second draft that day.
 It prints the draft's folder and id, then serves the wiki:
 
-    folder: /home/you/madarch/products/idea-2026-10-09
-    id: 9e0f6a2c-6d3e-4a58-9c1e-2b7f0a45e3d1
-    building the wiki app in /home/you/madarch/wiki/app: the dist "…" does not hold index.html yet
-    address: http://localhost:4180
+    folder: /home/you/madarch/products/idea-2026-10-11
+    id: 473611d2-ffdd-408e-b94c-143221f4c343
+    address: http://127.0.0.1:14280
 
-The addresses and ids here are examples; yours will be yours. The build
-line appears once, the first time the wiki is served: the wiki's app is
-built in the madarch checkout and served from it, and is not built again
-while the built files stand. The other lines name the draft and its id —
+The addresses and ids here are this guide's run's; yours will be yours (the
+folder is named for the day you run it). The first serve builds the wiki's
+app in the madarch checkout and serves it from there, saying so while it
+builds, and does not build again while the built files stand. The other lines name the draft and its id —
 the identifier the product keeps for its whole life, whatever the folder
 is later called. The command
 serves until you stop it; leave it running, open another terminal, and keep
