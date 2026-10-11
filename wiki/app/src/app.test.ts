@@ -755,6 +755,23 @@ describe('the reading shell', () => {
     );
     expect(otherGroup).toEqual(['AGENTS', 'Boards']);
   });
+  test('a product with no decisions group still carries the Architecture entry at the Design stage position', async () => {
+    const noDecisions: PageList = {
+      revision: 'r1',
+      pages: shellList.pages.filter((meta) => !meta.path.startsWith('docs/decisions/')),
+    };
+    const noDecisionPages: Record<string, Page> = {};
+    for (const meta of noDecisions.pages) noDecisionPages[meta.path] = { path: meta.path, title: meta.title, markdown: '# ' + meta.title };
+    install(answerFor(product, noDecisions, noDecisionPages));
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('.app-nav nav') !== null, 'the navigation');
+    const titles = [...document.querySelectorAll('.nav-group-title')].map((node) => node.textContent);
+    // The Design stage's part stands after the last present group of the
+    // stages before it (requirements here), never omitted for an absent group.
+    expect(titles).toEqual(['Product', 'Requirements', 'Architecture', 'Research', 'Other']);
+  });
+
 
   test('the brand reads madarch, and the product block below it names the product', async () => {
     install(answerFor(product, shellList, shellPages));

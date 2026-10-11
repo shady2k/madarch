@@ -185,6 +185,69 @@ export function groupNav(pages: readonly PageMeta[]): NavGroup[] {
   });
 }
 
+/**
+ * The Design stage's rank in the life cycle, per group name (the set's
+ * reading): Idea-stage kinds rank 0, Requirements-stage kinds 1, the
+ * Design stage's records 2; every other group — Build, Verify, Release,
+ * Operate and the unknown folder names — ranks after the Design stage.
+ */
+function stageRank(group: string): 0 | 1 | 2 | 3 {
+  if (group === 'product' || group === 'research' || group === 'sources' || group === 'hypotheses' || group === 'questions' || group === 'prototypes' || group === 'results') return 0;
+  if (group === 'requirements' || group === 'stories' || group === 'use-cases') return 1;
+  if (group === 'decisions' || group === 'design' || group === 'specs' || group === 'architecture') return 2;
+  return 3;
+}
+
+/**
+ * The nav's entries with the Architecture section (feature E) at its
+ * stage position: the Design stage's part, after the last present group
+ * of the Idea, Requirements or Design stages — and after the decisions
+ * when they are there. A product with none of those groups (or no groups
+ * at all) still carries the entry: it stands before whatever follows, so
+ * the Design stage's place in the life cycle is never empty of it.
+ */
+/** One nav entry: a kind group, or the Architecture section at its stage position. */
+export type NavEntry = { kind: 'group'; group: NavGroup } | { kind: 'architecture'; node: ReactElement };
+
+/** Whether the entry is a kind group (the type guard the nav's map narrows with). */
+export function isGroupEntry(entry: NavEntry): entry is { kind: 'group'; group: NavGroup } {
+  return entry.kind === 'group';
+}
+
+export function withArchitectureEntry(groups: readonly NavGroup[], architectureCount: number | undefined, translate: (key: string) => string): readonly NavEntry[] {
+  const entries: NavEntry[] = groups.map((group) => ({ kind: 'group', group }));
+  const node = (
+    <section key="architecture" data-nav-group="architecture" className="mb-1.5" data-testid="nav-architecture-group">
+      <a
+        className="flex min-w-0 w-full items-center gap-1.5 rounded-[var(--radius-row)] px-2 py-1.5 text-left text-small text-secondary hover:bg-[var(--surface-hover)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+        href={architectureAddress()}
+        data-testid="nav-architecture"
+      >
+        <NetworkIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
+        <span className="nav-group-title min-w-0 flex-1 truncate text-[13px] text-secondary">{translate('architecture.title')}</span>
+        {architectureCount !== undefined && <span className="text-small text-muted">{architectureCount}</span>}
+      </a>
+    </section>
+  );
+  // The entry stands at the Design stage's position: after the last
+  // present group OF the Design stage; where none is, after the last
+  // Requirements-stage group; where none is, after the last Idea-stage
+  // group; where no group stands at all, first — the stage position of
+  // the entry never depends on one group's presence.
+  let insertAt = 0;
+  for (const want of [2, 1, 0] as const) {
+    for (let at = groups.length - 1; at >= 0; at--) {
+      if (stageRank(groups[at]!.name) === want) {
+        insertAt = at + 1;
+        break;
+      }
+    }
+    if (insertAt > 0) break;
+  }
+  entries.splice(insertAt, 0, { kind: 'architecture', node });
+  return entries;
+}
+
 /** The classes of one navigation page link: the grey pill on the open page. */
 export function navLinkClasses(current: boolean): string {
   const pill = 'bg-[var(--surface-active)] hover:bg-[var(--surface-active)]';
@@ -251,7 +314,9 @@ function NavPanel({ product, groups, current, onNavigate, architectureCount }: {
         </span>
       </div>
       <nav aria-label={t('navigation.documents')} className="min-h-0 flex-1 overflow-y-auto pb-4">
-        {groups.flatMap((group) => {
+        {withArchitectureEntry(groups, architectureCount, t).map((entry): ReactNode => {
+          if (!isGroupEntry(entry)) return entry.node;
+          const group = entry.group;
           const isOpen = !collapsed.has(group.name);
           const section = (
             <section key={group.name} data-nav-group={group.name} className="mb-1.5">
@@ -290,24 +355,7 @@ function NavPanel({ product, groups, current, onNavigate, architectureCount }: {
               )}
             </section>
           );
-          // The Architecture entry (feature E) stands in the life-cycle order:
-          // the Design stage's part, right after the Design stage's decision
-          // records. It stands even where the model is missing or refuses to
-          // compile — the page says what is wrong, never an empty box.
-          const architecture = group.name === 'decisions' ? (
-            <section key="architecture" data-nav-group="architecture" className="mb-1.5" data-testid="nav-architecture-group">
-              <a
-                className="flex min-w-0 w-full items-center gap-1.5 rounded-[var(--radius-row)] px-2 py-1.5 text-left text-small text-secondary hover:bg-[var(--surface-hover)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
-                href={architectureAddress()}
-                data-testid="nav-architecture"
-              >
-                <NetworkIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-                <span className="nav-group-title min-w-0 flex-1 truncate text-[13px] text-secondary">{t('architecture.title')}</span>
-                {architectureCount !== undefined && <span className="text-small text-muted">{architectureCount}</span>}
-              </a>
-            </section>
-          ) : null;
-          return architecture ? [section, architecture] : [section];
+          return section;
         })}
       </nav>
       <div className="mt-2 flex items-center gap-2.5 border-t border-line px-1 py-3">

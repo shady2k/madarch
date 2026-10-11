@@ -338,6 +338,9 @@ describe('the conservative name rule', () => {
     expect(textNamesElement('```\nshop\n```', 'shop')).toBe(false);
     expect(textNamesElement('see `shop` here', 'shop')).toBe(false);
     expect(textNamesElement('see [x](shop) here', 'shop')).toBe(false);
+    expect(textNamesElement('see [x](shop "the shop") here', 'shop')).toBe(false);
+    expect(textNamesElement('an [unclosed link (shop here', 'shop')).toBe(true);
+    expect(textNamesElement('see [x](/p/madarch/element/shop "t") here', 'shop')).toBe(false);
     expect(textNamesElement('~~shop~~ names it', 'shop')).toBe(true);
     expect(textNamesElement('read [the shop docs](x.md) now', 'shop')).toBe(true);
   });

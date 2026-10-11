@@ -170,6 +170,9 @@ describe('the document-to-element links', () => {
     expect(linkElements('the shop-item serves.', links)).not.toContain('[shop]');
     expect(linkElements('the shop, however, serves.', links)).toContain('[shop](/p/madarch/element/shop)');
     expect(linkElements('see `shop` and [x](shop) here.', links)).not.toContain('[shop](/p/madarch/element/shop)');
+    expect(linkElements('see [x](shop "the shop") here.', links)).not.toContain('[shop](/p/madarch/element/shop)');
+    expect(linkElements('see [x](/p/madarch/element/shop "t") here.', links)).not.toContain('[shop](/p/madarch/element/shop)');
+    expect(linkElements('a [real shop](x.md) mention.', links)).toContain('[shop](/p/madarch/element/shop)');
     expect(linkElements('a.b stands alone.', new Map([['b', '/p/madarch/element/b']]))).not.toContain('[b]');
   });
 

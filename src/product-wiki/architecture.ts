@@ -132,11 +132,38 @@ function isIdChar(char: string): boolean {
 }
 
 
-/** One line with its inline code spans and its link destinations masked out. */
+/**
+ * One line with its inline code spans and its link destinations masked
+ * out. A destination runs from `](` to its closing `)`, counted by depth
+ * so a destination with a parenthesised or quoted title
+ * (`[x](shop "the shop")`) is masked whole; the id inside it is no
+ * mention. The same masking the client's rewrite applies.
+ */
 function maskCodeAndLinks(line: string): string {
-  return line
-    .replace(/\]\([^()\s]*\)/g, ']( )')
-    .replace(/`[^`]*`/g, '``');
+  let masked = '';
+  let at = 0;
+  while (at < line.length) {
+    const open = line.indexOf('](', at);
+    if (open < 0) break;
+    const from = open + 1;
+    let depth = 0;
+    let close = -1;
+    for (let at2 = from; at2 < line.length; at2++) {
+      if (line[at2] === '(') depth++;
+      else if (line[at2] === ')') {
+        depth--;
+        if (depth === 0) {
+          close = at2;
+          break;
+        }
+      }
+    }
+    if (close < 0) break; // an unclosed link: nothing after it is masked
+    masked += line.slice(at, from) + '\u0000' + line.slice(close);
+    at = close;
+  }
+  masked += line.slice(at);
+  return masked.replace(/`[^`]*`/g, '``');
 }
 
 /** The relation rows of one element, one end at a time. */

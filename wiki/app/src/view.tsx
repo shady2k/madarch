@@ -87,10 +87,12 @@ export function linkElements(text: string, links: ReadonlyMap<string, string>): 
   /** The one part's plain text: the still-pending ids' first mentions wrapped. */
   function rewrite(part: string): string {
     if (pending.size === 0) return part;
-    // Existing links' targets are masked so a target that names an element
+    // Existing links' destinations are masked so a destination that names
+    // an element — title included, the run counted to its closing paren —
     // is never wrapped a second time; the masks go back after the rewrite.
+    // The same masking the server's named-by read applies.
     const masks: string[] = [];
-    const masked = part.replace(/\]\([^()\s]*\)/g, (whole) => {
+    const masked = maskLinkDestinations(part, (whole) => {
       masks.push(whole);
       return `\u0000${masks.length - 1}\u0000`;
     });
@@ -124,6 +126,38 @@ function isIdChar(char: string): boolean {
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Masks every link destination — `](` to its closing `)`, counted by depth
+ * so a destination with a parenthesised or quoted title is masked whole —
+ * handing each run to `mask` and splicing its return in its place. The
+ * same masking the server's named-by read applies.
+ */
+function maskLinkDestinations(line: string, mask: (whole: string) => string): string {
+  let masked = '';
+  let at = 0;
+  while (at < line.length) {
+    const open = line.indexOf('](', at);
+    if (open < 0) break;
+    const from = open + 1;
+    let depth = 0;
+    let close = -1;
+    for (let at2 = from; at2 < line.length; at2++) {
+      if (line[at2] === '(') depth++;
+      else if (line[at2] === ')') {
+        depth--;
+        if (depth === 0) {
+          close = at2;
+          break;
+        }
+      }
+    }
+    if (close < 0) break; // an unclosed link: nothing after it is masked
+    masked += line.slice(at, from) + mask(line.slice(from, close + 1)) ;
+    at = close + 1;
+  }
+  return masked + line.slice(at);
 }
 
 /**
