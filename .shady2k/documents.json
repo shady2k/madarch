@@ -1,9 +1,13 @@
 {
   "mode": "new",
-  "approvalFor": ["behavior"],
+  "approvalFor": [
+    "behavior"
+  ],
   "exempt": {
     "adoptedAt": "2026-09-24",
-    "reason": "At adoption no open task carried product code and no branch was unmerged; the list is empty. A task listed here exempts its descendants too.",
-    "tasks": []
+    "reason": "At adoption no open task carried product code and no branch was unmerged; the list is empty. A task listed here exempts its descendants too. 2026-10-11: madarch-iuc.15 added \u2014 its change closed and replayed into the spec at 7d9ac801; the walk-fix commits on the branch carry Task: madarch-iuc.15 and the closed change must not be gated again (its proposal can never match the replayed baseline).",
+    "tasks": [
+      "madarch-iuc.15"
+    ]
   }
 }
