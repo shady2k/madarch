@@ -34,9 +34,9 @@
 
   /* 4.4 Rhythm and measure. */
   --leading: 1.58; /* unitless body line height */
-  --measure: 740px; /* mockup's 1440px reading-column measure */
+  --measure: 960px; /* maximum text width; the work area remains fluid below it */
 
-  /* Calm light surfaces: the raised reading page stays white over a faint ground. */
+  /* Calm light surfaces: the work area is one continuous page surface. */
   --surface-ground: #f1f2f3;
   --surface-page: #ffffff;
   --surface-card: #ffffff;
@@ -69,6 +69,7 @@
   --code-ink: #2e3034;
   --code-bg: var(--surface-code);
   --border: #e4e5e8;
+  --border-subtle: #ececef;
   --quote-border: #8f9199;
   --link: #2e3034; /* structure, no accent colour; the rule under it is muted */
   --link-underline: #a1a1a1;
@@ -107,6 +108,7 @@
     --code-ink: #e5e5e5;
     --code-bg: var(--surface-code);
     --border: #444444;
+    --border-subtle: #393939;
     --quote-border: #777777;
     --link: #e5e5e5;
     --link-underline: #888888;

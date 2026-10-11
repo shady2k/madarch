@@ -86,6 +86,7 @@ describe('the shell markup', () => {
     const container = await intoShell();
     const aside = container.querySelector('.app-nav');
     expect(aside?.className).toContain('hidden');
+    expect(aside?.className).toContain('w-[240px] wide:w-[260px]');
     // the drawer's shadow rides the token, in the component and the CSS class
     expect(sheetTsx).toContain('shadow-[var(--nav-shadow)]');
     expect(tokensCss).toContain('--nav-shadow');

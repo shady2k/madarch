@@ -70,9 +70,9 @@ describe('the entry stylesheet', () => {
   test('the tokens hold the agreed names the reading rules ride', () => {
     expect(tokensCss).toContain('--fs-body: 18px;');
     expect(tokensCss).toContain('--leading: 1.58;');
-    expect(tokensCss).toContain('--measure: 740px;');
+    expect(tokensCss).toContain('--measure: 960px;');
     expect(tokensCss).toContain('--fs-h1: var(--fs-title);');
-    for (const name of ['--bg-page', '--bg-chrome', '--text', '--text-secondary', '--code-bg', '--border', '--quote-border', '--selection']) {
+    for (const name of ['--bg-page', '--bg-chrome', '--text', '--text-secondary', '--code-bg', '--border', '--border-subtle', '--quote-border', '--selection']) {
       expect(tokensCss).toContain(name + ':');
       expect(tokensCss.split('@media (prefers-color-scheme: dark)').length).toBeGreaterThanOrEqual(2);
     }
@@ -85,14 +85,23 @@ describe('the entry stylesheet', () => {
     expect(indexCss).toMatch(/@media \(max-width: 700px\)[\s\S]*min-width: 9em/);
   });
 
-  test('the column, the leading, the two-em head and the wrap ride the tokens', () => {
-    const block = indexCss.slice(indexCss.indexOf('.shell-document {'), indexCss.indexOf('}', indexCss.indexOf('.shell-document {')));
-    expect(block).toContain('max-inline-size: calc(var(--measure) + 48px);');
-    expect(block).toContain('overflow-wrap: break-word;');
-    expect(block).toContain('padding: calc(2.5em + 14px) 24px 2.5em;');
-    expect(block).toContain('border-radius: var(--radius-page) var(--radius-page) 0 0;');
-    expect(block).toContain('box-shadow: var(--shadow-medium);');
-    expect(indexCss).toMatch(/@media \(max-width: 700px\)[\s\S]*?\.shell-document[\s\S]*?padding: calc\(2.5em - 8px\) 24px 2.5em;/);
+  test('the work area is flush and its text measure is fluid, capped only on wide windows', () => {
+    const workArea = indexCss.slice(indexCss.indexOf('.shell-document {'), indexCss.indexOf('}', indexCss.indexOf('.shell-document {')));
+    const content = indexCss.slice(indexCss.indexOf('.shell-document > main {'), indexCss.indexOf('}', indexCss.indexOf('.shell-document > main {')));
+    expect(workArea).toContain('width: 100%;');
+    expect(workArea).toContain('min-block-size: 100%;');
+    expect(workArea).toContain('padding: calc(2.5em + 14px) 48px 2.5em;');
+    expect(workArea).toContain('overflow-wrap: break-word;');
+    expect(workArea).not.toContain('max-inline-size:');
+    expect(workArea).not.toContain('margin-inline:');
+    expect(workArea).not.toContain('border-radius:');
+    expect(workArea).not.toContain('box-shadow:');
+    expect(content).toContain('max-inline-size: var(--measure);');
+    expect(content).toContain('margin-inline: auto;');
+    expect(indexCss).toMatch(/@media \(max-width: 900px\)[\s\S]*?padding-inline: 32px;/);
+    expect(indexCss).toMatch(/@media \(max-width: 700px\)[\s\S]*?padding: calc\(2.5em - 8px\) 20px 2.5em;/);
+    const scroll = indexCss.slice(indexCss.indexOf('.shell-scroll {'), indexCss.indexOf('}', indexCss.indexOf('.shell-scroll {')));
+    expect(scroll).toContain('background: var(--surface-page);');
   });
 
   test('the paragraph gap is the research value, first paragraph above it keeps 0', () => {
@@ -116,6 +125,15 @@ describe('the entry stylesheet', () => {
 
   test('a long word wraps inside the column, never the page', () => {
     expect(indexCss).toMatch(/\.shell-document \{[\s\S]*overflow-wrap: break-word;/s);
+  });
+
+  test('home overview groups fill the text measure with a rounded hairline, no cards cast a shadow', () => {
+    const group = indexCss.slice(indexCss.indexOf('.home-group {'), indexCss.indexOf('}', indexCss.indexOf('.home-group {')));
+    expect(group).toContain('border: 1px solid var(--border-subtle);');
+    expect(group).toContain('border-radius: var(--radius-card);');
+    expect(group).not.toContain('box-shadow:');
+    expect(indexCss).toContain('.shell-document > main {');
+    expect(indexCss).toContain('max-inline-size: var(--measure);');
   });
 
   test('home overview rows are not underlined by the document-link rule', () => {

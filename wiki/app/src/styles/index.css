@@ -72,20 +72,28 @@
   }
 }
 
-/* The raised reading page sits over the ground; its inner measure stays the
-   mockup's accepted width while the soft frame gives the shell visible layers. */
+/* The work area is a single, flush surface. Only its reading content gets a
+   cap; it uses all available width at the owner's narrower window sizes. */
 .shell-document {
   box-sizing: border-box;
-  max-inline-size: calc(var(--measure) + 48px);
+  width: 100%;
   min-block-size: 100%;
-  margin-inline: auto;
-  padding: calc(2.5em + 14px) 24px 2.5em;
+  padding: calc(2.5em + 14px) 48px 2.5em;
   overflow-wrap: break-word;
-  border-radius: var(--radius-page) var(--radius-page) 0 0;
   background: var(--surface-page);
-  box-shadow: var(--shadow-medium);
   font-size: var(--fs-body);
   line-height: var(--leading);
+}
+
+.shell-document > main {
+  max-inline-size: var(--measure);
+  margin-inline: auto;
+}
+
+@media (max-width: 900px) {
+  .shell-document {
+    padding-inline: 32px;
+  }
 }
 
 @media (max-width: 700px) {
@@ -125,10 +133,8 @@
   }
 
   .shell-document {
-    max-inline-size: none;
     min-block-size: 100%;
-    padding: calc(2.5em - 8px) 24px 2.5em;
-    border-radius: var(--radius-page) var(--radius-page) 0 0;
+    padding: calc(2.5em - 8px) 20px 2.5em;
   }
 
   .eyebrow {
@@ -346,14 +352,16 @@ main tbody tr:nth-child(odd) {
   background: var(--surface-zebra);
 }
 
-/* The window-height shell: the document's column is the only thing that
-   scrolls, at any window height — the home page included. The column keeps
-   the accepted measure and the two-em drop under the top bars; its own
-   bottom padding keeps the last lines off the status bar. */
+/* The window-height shell: the work area scrolls as one continuous surface;
+   the home and document share the same capped, fluid text measure. */
 .shell-scroll {
   min-height: 0;
-  background: var(--surface-ground);
+  background: var(--surface-page);
   padding-block-end: 2.5em;
+}
+
+.document-bar {
+  background: var(--surface-page);
 }
 
 /* The tab strip row under the top bar: the strip on the base ground, the open
@@ -369,14 +377,13 @@ main tbody tr:nth-child(odd) {
 /* The home page in the mockup's overview language: a lead, quiet kind groups,
    icon plus title rows on the navigation's rhythm, small muted counts. No
    boxed cards, no separating rules between the links, no underlines. */
-/* Calm low-elevation overview surfaces: depth comes from the surface step,
-   not saturated colour or heavy borders. */
+/* Overview groups fill the reading measure: rounded hairlines, with no
+   inner rules or elevation competing with the work area. */
 .home-group {
   padding: 14px 16px 12px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
   background: var(--surface-card);
-  box-shadow: var(--shadow-low);
 }
 
 .home-lead {

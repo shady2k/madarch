@@ -8,10 +8,10 @@
  * --out) and prints the folder.
  *
  * The pairs cover the home and a document page carrying every element (the
- * demo wiki/demo/docs/vision.md) at 1440x900 dark and light, 1150x900 and
- * 390x844 light, and a tall 1440x1400 dark window; our run adds the home
- * page scrolled — the two shots the mockup does not hold render ours alone
- * and stay unpaired, named so in the output. Headless chrome at the
+ * demo wiki/demo/docs/vision.md) at the owner's 1000x700 light and dark size,
+ * 1440x900 dark and light, 1150x900, 1110x900 and 390x844 light, plus tall
+ * 1440x1400 windows. Ours-only shots include the phone drawer, language menu,
+ * and scrolled home; the mockup has no counterparts. Headless chrome at the
  * machine's path (CHROME names another) drives every window through
  * puppeteer-core; this script writes nothing in the repository.
  */
@@ -32,6 +32,8 @@ const SCREENS = [
 
 /** One window size, as the acceptance names them. */
 const SIZES: Record<string, { width: number; height: number; scheme: 'dark' | 'light' }> = {
+  '1000': { width: 1000, height: 700, scheme: 'dark' },
+  '1000-light': { width: 1000, height: 700, scheme: 'light' },
   '1440' : { width: 1440, height: 900, scheme: 'dark' },
   '1440-light': { width: 1440, height: 900, scheme: 'light' },
   '1150': { width: 1150, height: 900, scheme: 'light' },
@@ -96,6 +98,10 @@ try {
       if (sink.endsWith('-ours')) await selectUiLanguage(page);
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: scheme }]);
       await new Promise((step) => setTimeout(step, 400));
+      if (sink === 'document-ours' && [1000, 1150, 1440].includes(width)) {
+        const textWidth = await page.$eval('.shell-document > main', (node) => node.getBoundingClientRect().width);
+        console.log(`[measure] ${uiLanguage} ${width}x${height} ${scheme}: ${textWidth.toFixed(1)} px text width`);
+      }
       const file = join(outFolder, `${sink}-${size}.png`);
       await page.screenshot({ path: file });
       await page.close();

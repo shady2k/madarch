@@ -358,7 +358,7 @@ export function Shell({ product, list, children }: { product: Product; list: Pag
       <div className={classes.join(' ') + ' flex h-dvh bg-page text-ink [font-family:var(--font-sans)] text-body'}>
         <aside
           id="app-nav"
-          className={'app-nav hidden w-[250px] wide:w-[270px] shrink-0 flex-col border-r border-line bg-chrome px-[14px] wide:px-[18px] md:flex'}
+          className={'app-nav hidden w-[240px] wide:w-[260px] shrink-0 flex-col border-r border-line bg-chrome px-[14px] wide:px-[18px] md:flex'}
           aria-label={t('navigation.aria')}
           hidden={focused}
         >

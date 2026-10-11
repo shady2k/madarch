@@ -42,7 +42,7 @@ a product with no pages shall say that it has none yet.
 ## Requirement: shell — The reading shell holds the navigation, the document and the panel place
 When a product's wiki is served, its pages shall be shown in a reading shell: a left navigation holding the product's name and its documents grouped by kind — the kind a page's path names, pages outside a kind by themselves — with the current page marked visually and by its accessibility attributes, and every page of the wiki one click away from it; the document in the centre as the main element; and a place for a right context panel, closed by default and empty until content fills it. A focus mode shall hide both panels and bring them back, and on a narrow screen the navigation shall open from a menu without narrowing the document's column. Language selection shall live in a globe menu in the top bar; the globe button shall have a localized accessible name and tooltip, and the menu shall mark the current language as checked.
 
-The shell shall fill the window at any window height: its sidebar, its top bar and its tab strip stay while only the document column scrolls, and a tab strip row under the top bar carries the open file name (the view switch and history arrive with the editor work and no control stands dead). The status bar stands at the very bottom of the window, outside the scrolled content, and carries on its left the wiki's actual live-connection state — Live when the event stream is open, Reconnecting while it is not — with nothing claimed about browser persistence. The chrome reads as the mockup lays it: the brand as the product's own mark, a product block naming the product with its "Product space" line and an initial square about 36 px, no trailing chevron on the product overview row, the sidebar's group heading in small muted uppercase, and a breadcrumb whose parent sits muted around a spaced slash with the current page in the primary text colour.
+The shell shall fill the window at any window height: its sidebar, its top bar and its tab strip stay while only the work area scrolls, and a tab strip row under the top bar carries the open file name (the view switch and history arrive with the editor work and no control stands dead). The document surface shall be flush across the work area, from the sidebar edge to the window edge and from the tab strip through the status bar, with no inset page or raised frame. The status bar stands at the very bottom of the window, outside the scrolled content, and carries on its left the wiki's actual live-connection state — Live when the event stream is open, Reconnecting while it is not — with nothing claimed about browser persistence. The chrome reads as the mockup lays it: the brand as the product's own mark, a product block naming the product with its "Product space" line and an initial square about 36 px, no trailing chevron on the product overview row, the sidebar's group heading in small muted uppercase, and a breadcrumb whose parent sits muted around a spaced slash with the current page in the primary text colour.
 
 ### Scenario: language-menu
 - Given: the wiki is open with English chrome and the reader opens the globe menu
@@ -59,7 +59,12 @@ The shell shall fill the window at any window height: its sidebar, its top bar a
 ### Scenario: phone-menu
 - Given: the wiki open at 390 px
 - When: the shell is read and the menu is opened
-- Then: the navigation opens from a menu, and the document column keeps its measure without narrowing
+- Then: the navigation opens from a menu, and the text uses the full work area minus 20 px on each side without narrowing
+
+### Scenario: flush-work-area-and-responsive-sidebar
+- Given: the wiki open at a 1000x700 window and the reader exits focus mode
+- When: the shell is read
+- Then: the document and home surface is flush from the sidebar edge to the window edge, the sidebar is 240 px wide, and no inset or raised page frame remains
 ### Scenario: window-height-shell
 - Given: the wiki open in a tall window (1440x1400) and then scrolled
 - When: the shell is read while the column scrolls
@@ -67,26 +72,26 @@ The shell shall fill the window at any window height: its sidebar, its top bar a
 ### Scenario: home-overview
 - Given: a served product home read in a browser
 - When: the home page is read
-- Then: the home carries a lead, its documents grouped by kind with counts, links not underlined, each row icon and title on the navigation rhythm, and no boxed cards
+- Then: the home carries a lead, its documents grouped by kind with counts, links not underlined, each row icon and title on the navigation rhythm, and groups that share the document text measure with rounded hairline borders and no inner rules
 ### Scenario: connection-state-in-the-status-bar
 - Given: the wiki served and its event stream open
 - When: the status bar is read, and then the stream is dropped
 - Then: with the stream open the status bar names the connection Live; with it dropped it names Reconnecting, and it never claims a browser save happened
 
 ## Requirement: reading-typography — Pages read on the shared design tokens
-The app's styles shall take their values from one tokens module the editor of madarch-j0a reuses: font families, a type scale, spacing, colours, a light theme and a dark theme that follows the system setting. It shall ship the fonts it names — Inter for text and a monospace face — under the SIL Open Font Licence with Cyrillic, licences recorded beside the files, with a fallback stack for macOS, Linux and Windows. A page's text column shall measure 60 to 75 characters of body text with a body line height of 1.4 to 1.6, its heading scale shall keep a steady vertical rhythm, its quotes, code blocks, lists and tables shall read comfortably, and no element shall overflow the column at 1150 px or 390 px width.
+The app's styles shall take their values from one tokens module the editor of madarch-j0a reuses: font families, a type scale, spacing, colours, a light theme and a dark theme that follows the system setting. It shall ship the fonts it names — Inter for text and a monospace face — under the SIL Open Font Licence with Cyrillic, licences recorded beside the files, with a fallback stack for macOS, Linux and Windows. Document text and home groups shall share one fluid measure: 48 px inline padding on desktop, 32 px on tablet and 20 px on phone, with a 960 px maximum text width centered only when the work area has room. Its body line height shall be 1.4 to 1.6, its heading scale shall keep a steady vertical rhythm, its quotes, code blocks, lists and tables shall read comfortably, and no element shall overflow the text area. The column measure: the earlier research value (36em/62 chars; the mockup's 740px) is superseded by the owner's fluid-width direction of 2026-10-11 (note-width.md).
 
-The document typography reads like the mockup: the body rides the mockup's 18 px, heading weights sit medium with the mockup's normal tracking, the eyebrow and the lead sit as the mockup places them, and the column measure may take the mockup's proportion where the window gives it room. The shared design tokens define calm, neutral surfaces, radii and three restrained shadow levels in both themes. The shell uses them consistently, keeps hover and focus visible, and honors reduced motion.
+The document typography reads like the mockup: the body rides the mockup's 18 px, heading weights sit medium with the mockup's normal tracking, and the eyebrow and the lead sit as the mockup places them. The shared design tokens define calm, neutral surfaces, radii and three restrained shadow levels in both themes. The work area has no inset or raised page frame; home groups use the shared measure, rounded hairline borders and no inner rules. The shell uses tokens consistently, keeps hover and focus visible, and honors reduced motion.
 
 ### Scenario: layered-surfaces-and-accessible-states
 - Given: the wiki is shown in light or dark theme, including with reduced motion requested
 - When: its navigation, document, cards, controls, code and menus are read or focused
 - Then: their surfaces and radii follow the shared tokens, elevation stays restrained, hover and keyboard focus remain visible, and reduced motion disables transitions
 
-### Scenario: column-and-leading
+### Scenario: fluid-column-and-leading
 - Given: a fixture product whose page holds paragraphs, headings of every level, a list, a quote, a code block, a table and a long line
-- When: its page is read at 1150 px and then at 390 px
-- Then: at 1150 px the text column measures 60 to 75 characters with a body line height of 1.4 to 1.6; at both widths no element overflows the column, and at 390 px the column keeps its font size on the full available width, its characters-per-line recorded at the walk and not held to the desktop range (a phone column inside 60 to 75 characters would need the body size the owner rejected)
+- When: its page and home are read at 1000x700, 1150x900, 1440x900 and 390x844
+- Then: at 1000 and 1150 px the text fills the work area minus 48 px desktop padding; at tablet widths it uses 32 px padding; at 390 px it uses 20 px padding; at 1440 px it is capped at 960 px and centered. The browser walk records the exact text widths at 1000, 1150 and 1440 px; body line height stays 1.4 to 1.6, and no element overflows the text area.
 ### Scenario: dark-follows-system
 - Given: the system set to dark mode
 - When: a page of the wiki is opened
