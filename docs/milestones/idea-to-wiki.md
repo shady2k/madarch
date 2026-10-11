@@ -62,9 +62,9 @@ requirement, all of it seen in the wiki.
 
 - Agents through MCP or an API; editing by hand in the wiki; the chat beside a
 page (decision 0017 keeps it for later).
-- Code repositories beyond the first, and work launched from the wiki: tasks,
+- Code repositories beyond the first (narrowed 2026-10-11, see Scope decisions: madarch-525o takes the first repositories' joining), and work launched from the wiki: tasks,
 runs, feedback from the code index (madarch-mv2).
-- The team: bootstrap of a cloned product, several people on one product.
+- The team: bootstrap of a cloned product, several people on one product (narrowed 2026-10-11, see Scope decisions: madarch-525o takes the first clone that joins).
 - The central server, federation, sign-in, single sign-on and roles
 (madarch-toc).
 - Computed pages beyond backlinks and open questions: sequence diagrams,
@@ -81,6 +81,7 @@ Closed as moot by decision 0017: madarch-o3b (the per-repository contract
 file). Deferred: madarch-1ui (computed wiki pages, to return on the new wiki)
 and madarch-mv2 (the code index, for the milestone of work launched from the
 wiki).
+- Widened 2026-10-11 by the owner, directly (~11:30 MSK), recorded on madarch-525o: engineers join tomorrow with their existing repositories. The exclusions "the team: bootstrap of a cloned product, several people on one product" and "code repositories beyond the first" no longer hold for the pieces of madarch-525o: the lifecycle commands (rename, remote, repo add, bootstrap, clone), the where resolution and the engineer's guide. Nothing planned is displaced; outcomes 2-5 keep their order after it. madarch-mni keeps its naming conversation; only what the joining needs is taken from it.
 - Carried over: madarch-l2f (checks independent of the unrelated repository)
 and madarch-1xq (temporary folders left by test suites): both still true.
 - Finding budget 5, the config key `findingBudget`: knowledge-base took in no
