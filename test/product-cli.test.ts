@@ -9,12 +9,13 @@
  * use (MADARCH_APP at a ready dist), so no test runs bun's real build.
  */
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, chmodSync } from 'node:fs';
+import { existsSync, cpSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { readProduct } from '../src/product/manifest.js';
+import { addCodeRepository, bootstrapProduct } from '../src/product/program.js';
 import { createDraft } from '../src/product/draft.js';
 import { listProducts } from '../src/product/list.js';
 import { gitEnv } from './git-env.js';
@@ -93,13 +94,19 @@ afterEach(removeMadeFolders);
 process.on('exit', removeMadeFolders);
 
 
-/** Runs a command that ends by itself, the way a person does. */
-function runCommand(args: string[], overrides: Record<string, string> = {}): { status: number | null; stdout: string; stderr: string } {
+/**
+ * Runs a command that ends by itself, the way a person does. `cwd` is the
+ * folder the command runs in: the lifecycle commands resolve the product
+ * from it (the program's where), so a test names the folder a person
+ * stands in.
+ */
+function runCommand(args: string[], overrides: Record<string, string> = {}, cwd?: string): { status: number | null; stdout: string; stderr: string } {
   const env = { ...process.env, ...SEALED_GIT, ...SEALED_CLOCK, ...sealedHome(overrides), ...overrides };
   // A creator must aim at a scratch home before anything is spawned: the
   // arguments, then MADARCH_HOME — the resolved home is refused otherwise.
   if (args[0] === 'new' || args[0] === 'list') homeOfCommand(args, env);
-  const run = spawnSync('bun', [CLI, ...args], { encoding: 'utf8', env, timeout: 120_000 });
+  if (args[0] === 'clone') homeOfCommand(args, env);
+  const run = spawnSync('bun', [CLI, ...args], { encoding: 'utf8', env, timeout: 120_000, cwd });
   return { status: run.status, stdout: run.stdout ?? '', stderr: run.stderr ?? '' };
 }
 
@@ -249,10 +256,10 @@ describe('madarch new', () => {
     // edited away would be a promise the command no longer keeps.
     for (const line of [
       '   or: bun scripts/madarch.ts list [--home <folder>]',
-      '  list    name the products the products home holds',
-      '  --home <folder>       new and list: the products home of this one command, over MADARCH_HOME',
+      '  list       name the products the products home holds',
+      '  --home <folder>       new, list and clone: the products home of this one command, over MADARCH_HOME',
       '                        (without either, ~/madarch/products)',
-      '  --product <folder>    serve only: the product folder to serve; the current folder when absent',
+      '  --product <folder>    serve, rename, remote, repo add and bootstrap: the product folder to work on;',
     ]) {
       expect(lines).toContain(line);
     }
@@ -628,5 +635,373 @@ describe('madarch list', () => {
     } finally {
       chmodSync(dark, 0o700);
     }
+  });
+});
+
+  /** A product draft made through the library its command wraps, with this file's own git identity. */
+function madeDraft(home: string): { folder: string; id: string; name: string } {
+  const made = createDraft({ home, gitEnv: gitEnv(GIT_ENV) });
+  if (made.outcome !== 'created') throw new Error(`the fixture draft was not created: ${JSON.stringify(made)}`);
+  return { folder: made.folder, id: made.id, name: made.name };
+}
+
+/**
+ * A bare git repository holding one commit, as a path a clone comes from:
+ * reachable only inside the test's own scratch folder.
+ */
+function sourceRepo(base: string, name: string): string {
+  const directory = join(base, name);
+  const work = join(base, `${name}-work`);
+  const git = (args: string[], cwd?: string): void => {
+    const step = spawnSync(realGit(), args, { cwd: cwd ?? directory, encoding: 'utf8', env: gitEnv(GIT_ENV) });
+    if (step.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${step.status} ${step.stdout} ${step.stderr} ${step.error ? String(step.error) : ''}`);
+  };
+  git(['init', '--bare', '--initial-branch=main', directory], base);
+  git(['init', '--initial-branch=main', work], base);
+  writeFileSync(join(work, 'README.md'), 'a repository the tests clone from\n');
+  git(['add', '--', 'README.md'], work);
+  git(['commit', '--quiet', '-m', 'One commit'], work);
+  git(['push', '--quiet', directory, 'main'], work);
+  rmSync(work, { recursive: true, force: true });
+  return directory;
+}
+
+/** A draft pushed to its own bare origin, optionally with one declared and bootstrapped code repository. */
+function productOnOrigin(base: string, home: string, options: { withRepo?: boolean } = {}): { folder: string; id: string } {
+  const draft = madeDraft(home);
+  if (options.withRepo === true) {
+    const url = sourceRepo(base, 'library-source');
+    const entered = addCodeRepository({ folder: draft.folder, name: 'library', url, gitEnv: gitEnv(GIT_ENV) });
+    if (entered.outcome !== 'entered') throw new Error(`the fixture repository was not entered: ${JSON.stringify(entered)}`);
+    const bootstrapped = bootstrapProduct({ folder: draft.folder, gitEnv: gitEnv(GIT_ENV) });
+    if (bootstrapped.outcome !== 'bootstrapped') throw new Error(`the fixture was not bootstrapped: ${JSON.stringify(bootstrapped)}`);
+  }
+  const origin = join(base, 'fixture-origin.git');
+  const bare = spawnSync('git', ['init', '--bare', '--initial-branch=main', origin], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
+  if (bare.status !== 0) throw new Error(`the fixture origin was not created: ${bare.stderr}`);
+  const pushed = spawnSync('git', ['push', '--quiet', '--all', origin], { cwd: draft.folder, encoding: 'utf8', env: gitEnv(GIT_ENV) });
+  if (pushed.status !== 0) throw new Error(`the fixture was not pushed: ${pushed.stdout} ${pushed.stderr}`);
+  return { folder: draft.folder, id: draft.id };
+}
+
+describe('madarch rename', () => {
+
+  test("renames the draft in place and keeps the id: the folder, the manifest's name and nothing else", () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const run = runCommand(['rename', 'gadgets', '--product', draft.folder], {});
+    expect(run.status).toBe(0);
+    expect(run.stderr).toBe('');
+    expect(run.stdout).toContain(`folder: ${join(home, 'gadgets')}`);
+    expect(run.stdout).toContain('name: gadgets');
+    const renamed = join(home, 'gadgets');
+    const read = readProduct(renamed);
+    expect(read).toMatchObject({ ok: true, product: { id: draft.id, name: 'gadgets' } });
+    expect(draft.folder).not.toBe(renamed);
+  });
+
+  test('also answers from a checkout of the product repos: the checkout parent product is renamed', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const product = productOnOrigin(base, home, { withRepo: true });
+    const run = runCommand(['rename', 'gadgets'], {}, join(product.folder, 'repos', 'library'));
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain(`folder: ${join(home, 'gadgets')}`);
+  });
+
+  test('from a folder that carries no product is refused, exit 2, naming the folder', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const run = runCommand(['rename', 'gadgets'], {}, base);
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain(base);
+    expect(run.stdout).toBe('');
+  });
+
+  test('to a name the home already holds is refused, exit 2, naming the folder in the way', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const first = madeDraft(home);
+    const second = madeDraft(home);
+    // The name the home already holds is the other draft's: what the folder the
+    // rename would take stands in (the program's own refusal words).
+    const run = runCommand(['rename', second.name, '--product', first.folder], {});
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('is in the way');
+  });
+
+  test('with no word naming the product is refused, exit 2', () => {
+    const run = runCommand(['rename'], {}, scratchFolder('madarch-cli-lc-'));
+    expect(run.status).toBe(2);
+    expect(run.stdout).toBe('');
+  });
+
+  test("a git that refuses to commit: exit 1 with git's own words, and the folder is not renamed", () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const stubs = scratchFolder('madarch-cli-gitstub-');
+    const script = ['#!/bin/sh', 'if [ "$1" = "commit" ]; then', "  echo 'stub: refusing to commit' >&2; exit 1; fi", `exec ${shQuote(realGit())} "$@"`, ''].join('\n');
+    writeFileSync(join(stubs, 'git'), script);
+    chmodSync(join(stubs, 'git'), 0o700);
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const run = runCommand(['rename', 'gadgets', '--product', draft.folder], { PATH: `${stubs}:${process.env.PATH ?? ''}` });
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('refusing to commit');
+    expect(readProduct(draft.folder).ok).toBe(true);
+    expect(readProduct(join(home, 'gadgets')).ok).toBe(false);
+  });
+});
+
+describe('madarch remote', () => {
+  test('adds origin and prints where the remote points', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const url = join(base, 'somewhere.git');
+    const run = runCommand(['remote', url, '--product', draft.folder], {});
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain(`folder: ${draft.folder}`);
+    expect(run.stdout).toContain('remote: origin');
+    expect(run.stdout).toContain(`url: ${url}`);
+    const got = spawnSync(realGit(), ['remote', 'get-url', 'origin'], { cwd: draft.folder, encoding: 'utf8', env: gitEnv(GIT_ENV) });
+    expect(got.stdout.trim()).toBe(url);
+  });
+
+  test('an origin already there is refused, never silently repointed', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    runCommand(['remote', join(base, 'one.git'), '--product', draft.folder], {});
+    const run = runCommand(['remote', join(base, 'two.git'), '--product', draft.folder], {});
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('already has the remote "origin"');
+  });
+
+  test('a folder that carries no product is refused, exit 2', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const run = runCommand(['remote', join(base, 'one.git')], {}, base);
+    expect(run.status).toBe(2);
+    expect(run.stdout).toBe('');
+  });
+
+  test('with no url is refused, exit 2', () => {
+    const run = runCommand(['remote'], {}, scratchFolder('madarch-cli-lc-'));
+    expect(run.status).toBe(2);
+  });
+});
+
+describe('madarch repo add', () => {
+  test('enters the repository in the manifest and clones it into repos/<name>', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const url = sourceRepo(base, 'library-source');
+    const run = runCommand(['repo', 'add', 'library', url, '--product', draft.folder], {});
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain(`repo: library`);
+    expect(run.stdout).toContain('cloned:');
+    const read = readProduct(draft.folder);
+    expect(read).toMatchObject({ ok: true, product: { repos: [{ name: 'library', url }] } });
+    expect(readFileSync(join(draft.folder, 'repos', 'library', 'README.md'), 'utf8')).toContain('a repository the tests clone from');
+  });
+
+  test('the branch given is declared in the manifest', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const url = sourceRepo(base, 'library-source');
+    const run = runCommand(['repo', 'add', 'library', url, '--branch', 'main', '--product', draft.folder], {});
+    expect(run.status).toBe(0);
+    const read = readProduct(draft.folder);
+    expect(read).toMatchObject({ ok: true, product: { repos: [{ name: 'library', branch: 'main' }] } });
+  });
+
+  test('a name the manifest already declares is refused, exit 2', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const url = sourceRepo(base, 'library-source');
+    runCommand(['repo', 'add', 'library', url, '--product', draft.folder], {});
+    const run = runCommand(['repo', 'add', 'library', url, '--product', draft.folder], {});
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('already declares the code repository');
+  });
+
+  test('a checkout already there is left alone and reported, and the manifest closes the case: exit 2', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const url = sourceRepo(base, 'library-source');
+    runCommand(['repo', 'add', 'library', url, '--product', draft.folder], {});
+    // The second command is refused for the manifest, before any clone: the
+    // checkout standing there keeps whatever a person did with it.
+    const changed = writeFileSync(join(draft.folder, 'repos', 'library', 'note.txt'), 'someone worked here\n');
+    const run = runCommand(['repo', 'add', 'library', url, '--product', draft.folder], {});
+    expect(run.status).toBe(2);
+    expect(readFileSync(join(draft.folder, 'repos', 'library', 'note.txt'), 'utf8')).toContain('someone worked here');
+  });
+
+  test('a product holding uncommitted changes is refused, exit 2', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const url = sourceRepo(base, 'library-source');
+    writeFileSync(join(draft.folder, 'docs', 'vision.md'), 'uncommitted work\n');
+    const run = runCommand(['repo', 'add', 'library', url, '--product', draft.folder], {});
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('not committed');
+  });
+
+  test('bootstrap runs after the manifest entry, so a second repository is cloned in the same command', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const first = sourceRepo(base, 'alpha-source');
+    const second = sourceRepo(base, 'beta-source');
+    const run = runCommand(['repo', 'add', 'beta', second, '--product', draft.folder], {});
+    expect(run.status).toBe(0);
+    expect(statSync(join(draft.folder, 'repos', 'beta')).isDirectory()).toBe(true);
+    expect(first).toContain('alpha-source'); // the unrelated one is untouched
+  });
+});
+
+describe('madarch bootstrap', () => {
+  test('clones what the manifest declares, works with no --product from inside the product', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const url = sourceRepo(base, 'library-source');
+    const entered = addCodeRepository({ folder: draft.folder, name: 'library', url, gitEnv: gitEnv(GIT_ENV) });
+    if (entered.outcome !== 'entered') throw new Error(`fixture: ${JSON.stringify(entered)}`);
+    const run = runCommand(['bootstrap'], {}, draft.folder);
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain('cloned:');
+    expect(readFileSync(join(draft.folder, 'repos', 'library', 'README.md'), 'utf8')).toContain('a repository the tests clone from');
+  });
+
+  test('a checkout already there is left alone and reported as present', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const url = sourceRepo(base, 'library-source');
+    const entered = addCodeRepository({ folder: draft.folder, name: 'library', url, gitEnv: gitEnv(GIT_ENV) });
+    if (entered.outcome !== 'entered') throw new Error(`fixture: ${JSON.stringify(entered)}`);
+    const bootstrapped = bootstrapProduct({ folder: draft.folder, gitEnv: gitEnv(GIT_ENV) });
+    if (bootstrapped.outcome !== 'bootstrapped') throw new Error(`fixture: ${JSON.stringify(bootstrapped)}`);
+    const run = runCommand(['bootstrap', '--product', draft.folder], {});
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain('library');
+    expect(run.stdout).toContain('present:');
+  });
+
+  test('a manifest with nothing declared: exit 0, no repositories named', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const run = runCommand(['bootstrap', '--product', draft.folder], {});
+    expect(run.status).toBe(0);
+    expect(run.stdout).toBe('');
+  });
+
+  test('a declared name standing in the way of the clone is a failure of the step: exit 1', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const url = sourceRepo(base, 'library-source');
+    const entered = addCodeRepository({ folder: draft.folder, name: 'library', url, gitEnv: gitEnv(GIT_ENV) });
+    if (entered.outcome !== 'entered') throw new Error(`fixture: ${JSON.stringify(entered)}`);
+    writeFileSync(join(draft.folder, 'repos', 'library'), 'not a folder\n');
+    const run = runCommand(['bootstrap', '--product', draft.folder], {});
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('library');
+  });
+});
+
+describe('madarch clone', () => {
+  test('clones a pushed product into a scratch home, bootstraps it and names the way to its wiki', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const product = productOnOrigin(base, home, { withRepo: true });
+    const other = join(base, 'other'); mkdirSync(other, { recursive: true });
+    const run = runCommand(['clone', join(base, 'fixture-origin.git'), '--home', other], {});
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain('folder: ');
+    expect(run.stdout).toContain('id: ');
+    expect(run.stdout).toContain('wiki: madarch serve --product');
+    expect(statSync(join(other, 'fixture-origin', 'repos', 'library')).isDirectory()).toBe(true);
+  });
+
+  test('a name the home holds is refused, exit 2, and the clone is not started', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const product = productOnOrigin(base, home);
+    const other = join(base, 'other'); mkdirSync(other, { recursive: true });
+    mkdirSync(join(other, 'fixture-origin'));
+    const run = runCommand(['clone', join(base, 'fixture-origin.git'), '--home', other], {});
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('is in the way');
+  });
+
+  test('a url that is no product repository is refused: the folder goes with it', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const bare = join(base, 'plain.git');
+    const work = join(base, 'plain-work');
+    const git = (args: string[], cwd?: string): void => {
+      const step = spawnSync(realGit(), args, { cwd, encoding: 'utf8', env: gitEnv(GIT_ENV) });
+      if (step.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${step.stderr}`);
+    };
+    git(['init', '--bare', '--initial-branch=main', bare], base);
+    git(['init', '--initial-branch=main', work], base);
+    writeFileSync(join(work, 'README.md'), 'no product here\n');
+    git(['-C', work, 'add', '--', 'README.md']);
+    git(['-C', work, 'commit', '--quiet', '-m', 'One commit']);
+    git(['-C', work, 'push', '--quiet', bare, 'main']);
+    const other = join(base, 'other'); mkdirSync(other, { recursive: true });
+    const run = runCommand(['clone', bare, '--home', other], {});
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('workspace.yaml');
+    expect(existsSync(join(other, 'plain'))).toBe(false);
+  });
+
+  test('a git that cannot clone is a failed step: exit 1 with git', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const stubs = scratchFolder('madarch-cli-gitstub-');
+    const script = ['#!/bin/sh', 'if [ "$1" = "clone" ]; then', "  echo 'stub: refusing to clone' >&2; exit 1; fi", `exec ${shQuote(realGit())} "$@"`, ''].join('\n');
+    writeFileSync(join(stubs, 'git'), script);
+    chmodSync(join(stubs, 'git'), 0o700);
+    const other = join(base, 'other'); mkdirSync(other, { recursive: true });
+    const run = runCommand(['clone', join(base, 'missing.git'), '--home', other], { PATH: `${stubs}:${process.env.PATH ?? ''}` });
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('refusing to clone');
+  });
+});
+
+describe('the lifecycle surface', () => {
+  test('--help lists the lifecycle subcommands with their options', () => {
+    const { status, stdout } = runCommand(['--help'], {});
+    expect(status).toBe(0);
+    for (const word of ['rename', 'remote', 'repo add', 'bootstrap', 'clone']) expect(stdout).toContain(word);
+  });
+
+  test('an option the subcommand does not take is refused, never silently ignored', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const run = runCommand(['rename', 'gadgets', '--home', join(base, 'home')], {});
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('unknown option');
+  });
+
+  test('a word the subcommand does not expect is refused, naming what it takes', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const run = runCommand(['rename', 'gadgets', 'extra'], {}, base);
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('extra');
+    expect(run.stderr).toContain('name');
+  });
+
+  test('repo without the verb add is refused', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const run = runCommand(['repo', 'clone', 'name', join(base, 'x.git')], {}, base);
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('add');
   });
 });

@@ -89,7 +89,7 @@ export function refuseNonScratchHome(home: string, what: string, unless?: { allo
  */
 export function homeOfCommand(args: readonly string[], env: Record<string, string | undefined>): string {
   const command = args[0] ?? '';
-  if (command !== 'new' && command !== 'list') return '';
+  if (command !== 'new' && command !== 'list' && command !== 'clone') return '';
   let named: string | undefined;
   for (let i = 1; i < args.length; i++) {
     const arg = args[i] ?? '';

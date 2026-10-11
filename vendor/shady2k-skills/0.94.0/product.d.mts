@@ -72,3 +72,82 @@ export declare function whyNotADay(date: string): string | null;
 
 /** Reserves the day's folder name in the products home; exported for the program's own tests. */
 export declare function reserveDraftFolder(home: string, day: string): { folder: string; name: string };
+
+/** How renaming a product in place ended; `refused` is the command's exit 2, `failed` its exit 1. A refusal from the reader names its file and line. */
+export type ProgramRenameResult =
+  | { outcome: 'renamed'; folder: string; id: string; name: string }
+  | { outcome: 'refused'; message: string; file?: string; line?: number }
+  | { outcome: 'failed'; message: string };
+
+/** How adding a product's remote ended; the program adds `origin` and never pushes. */
+export type ProgramRemoteResult =
+  | { outcome: 'added'; folder: string; remote: 'origin'; url: string }
+  | { outcome: 'refused'; message: string; file?: string; line?: number }
+  | { outcome: 'failed'; message: string };
+
+/** One code repository's bootstrap report: cloned now, present and left as it is, or failed with its message. */
+export interface ProgramRepoReport {
+  /** The repository the report is about, as the manifest declares it. */
+  name: string;
+  /** The url it is cloned from. */
+  url: string;
+  /** What the program did, or failed to do. */
+  state: 'cloned' | 'present' | 'failed';
+  /** Uncommitted changes in a checkout left standing: `null` where the state could not be read. */
+  dirty: boolean | null;
+  /** The failure's own words, set for `failed` and for a present checkout whose state was unreadable. */
+  message?: string;
+}
+
+/** How cloning what the manifest declares ended; each declared repository carries its own report. */
+export type ProgramBootstrapResult =
+  | { outcome: 'bootstrapped'; folder: string; repos: ProgramRepoReport[] }
+  | { outcome: 'refused'; message: string; file?: string; line?: number };
+
+/** How entering one code repository in the manifest ended; the entry is one commit and clones nothing. */
+export type ProgramRepoEntryResult =
+  | { outcome: 'entered'; folder: string; name: string; url: string; branch?: string }
+  | { outcome: 'refused'; message: string; file?: string; line?: number }
+  | { outcome: 'failed'; message: string };
+
+/** What a folder is, walking up: the product itself, a checkout under the product's `repos/` with its parent product, neither, or refused with the reader's words. */
+export type ProgramWhereResult =
+  | { outcome: 'product'; product: string }
+  | { outcome: 'code'; product: string; repo: string }
+  | { outcome: 'none' }
+  | { outcome: 'refused'; message: string; file?: string; line?: number };
+
+/** Renames a draft in place: the folder, the manifest's name, one commit of the product's own history. */
+export declare function renameProduct(options?: {
+  folder?: string;
+  name?: string;
+  gitEnv?: ProgramGitEnv;
+}): ProgramRenameResult;
+
+/** Adds `origin` to a product and never pushes; an origin already there is refused, never replaced. */
+export declare function addRemote(options?: {
+  folder?: string;
+  url?: string;
+  gitEnv?: ProgramGitEnv;
+}): ProgramRemoteResult;
+
+/** Enters one code repository in the manifest and commits it; it never clones, `bootstrapProduct` does. */
+export declare function addCodeRepository(options?: {
+  folder?: string;
+  name?: string;
+  url?: string;
+  branch?: string;
+  gitEnv?: ProgramGitEnv;
+}): ProgramRepoEntryResult;
+
+/** Clones the repositories the manifest declares into `repos/<name>`; a checkout already there is never replaced. */
+export declare function bootstrapProduct(options?: {
+  folder?: string;
+  gitEnv?: ProgramGitEnv;
+}): ProgramBootstrapResult;
+
+/** What a folder is, walking up from it: a product repository, a checkout under a product's `repos/`, or neither. */
+export declare function whereAmI(options?: {
+  folder?: string;
+  gitEnv?: ProgramGitEnv;
+}): ProgramWhereResult;

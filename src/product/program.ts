@@ -17,6 +17,11 @@ export {
   MANIFEST_FILE,
   createDraft,
   readProduct,
+  renameProduct,
+  addRemote,
+  addCodeRepository,
+  bootstrapProduct,
+  whereAmI,
 } from '../../vendor/shady2k-skills/0.94.0/product.mjs';
 export type {
   ProgramDraftResult,
@@ -24,4 +29,10 @@ export type {
   ProgramRead,
   ProgramRepo,
   ProgramGitEnv,
+  ProgramRenameResult,
+  ProgramRemoteResult,
+  ProgramRepoEntryResult,
+  ProgramRepoReport,
+  ProgramBootstrapResult,
+  ProgramWhereResult,
 } from '../../vendor/shady2k-skills/0.94.0/product.mjs';
