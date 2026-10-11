@@ -1275,6 +1275,39 @@ describe('the repositories section', () => {
     expect(document.querySelector('#repos')).toBeNull();
   });
 
+  test('a server that refuses /api/repos (no repositories declared) still loads the wiki: the home answers, no section', async () => {
+    // The undeclared product's server 404s /api/repos; the optional ask is
+    // the section's absence, never the wiki's failure.
+    const calls: string[] = [];
+    (globalThis as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL): Promise<Response> => {
+      const target = input instanceof URL ? input.pathname + input.search : String(input);
+      calls.push(target);
+      if (target === EVENTS_PATH) {
+        return new Response(new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('retry: 3000\n\n'));
+          },
+        }), { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8' } });
+      }
+      if (target === '/api/repos') return new Response(JSON.stringify({ message: 'no such path "/api/repos": the server offers the wiki\'s API and the app\'s routes' }), { status: 404 });
+      const blade = answerFor(product, listWithPages, pagesAtR1)(target);
+      if (blade.body === undefined)
+        return new Response(JSON.stringify({ message: 'nothing answers ' + target }), { status: 404 });
+      return new Response(JSON.stringify(blade.body), {
+        status: blade.status ?? 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as unknown as typeof fetch;
+    goto('/');
+    intoApp(createElement(App));
+    await until(() => text().includes('Draft Idea'), 'the home of an undeclared product');
+    expect(document.querySelector('#repos')).toBeNull();
+    expect(document.querySelector('[data-testid="nav-repositories"]')).toBeNull();
+    expect(document.querySelector('p.error')).toBeNull();
+    expect(calls).toContain('/api/repos');
+    unmount();
+  });
+
   test('the reader typing /r of an undeclared product gets the home content, never a repositories section', async () => {
     install(answerWithRepos(product, listWithPages, pagesAtR1, []));
     goto('/r');

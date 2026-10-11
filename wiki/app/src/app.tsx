@@ -52,7 +52,11 @@ export type AppProps = {
 export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, reconnectMs = defaultReconnectMs }: AppProps): ReactElement {
   const { t, i18n } = useTranslation();
   const [route, setRoute] = useState<RouteSnapshot>(() => routeOf(window.location.pathname));
-  const [data, setData] = useState<{ product: Product; list: PageList; repos: ReposList } | null>(null);
+  // The repositories' answer is optional (docs/changes/wiki-repos): a
+  // product whose manifest declares no repositories has no `/api/repos` at
+  // all — the server refuses it — and the wiki loads all the same, the
+  // section simply absent.
+  const [data, setData] = useState<{ product: Product; list: PageList; repos: ReposList | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [streamConnected, setStreamConnected] = useState(false);
@@ -102,8 +106,11 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
         const nextList = await getPages(controller.signal);
         current = '/api/product';
         const nextProduct = await getProduct(controller.signal);
+        // The repositories' ask is the one optional read: its refusal (the
+        // server's 404 for an undeclared product, or any other failure) is
+        // the section's absence, never the wiki's failure.
         current = '/api/repos';
-        const nextRepos = await getRepos(controller.signal);
+        const nextRepos = await getRepos(controller.signal).catch(() => null);
         if (!alive || lastAnsweredTurn > turn) return;
         lastAnsweredTurn = turn;
         setData({ product: nextProduct, list: nextList, repos: nextRepos });
@@ -204,11 +211,11 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
   return (
     <StatusBridge streamConnected={streamConnected}>
       <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, stage: route.name === 'stage' ? route.stage : undefined, heldPaths }}>
-        <Shell product={data.product} list={list} architecture={architecture} reposCount={data.repos.repos.length} reposOpen={route.name === 'repos'}>
+        <Shell product={data.product} list={list} architecture={architecture} reposCount={data.repos?.repos.length} reposOpen={route.name === 'repos'}>
         {route.name === 'home' ? (
           <HomePage product={data.product} list={list} architecture={architecture} />
-        ) : route.name === 'repos' && data.repos.repos.length > 0 ? (
-          <RepositoriesPage product={data.product} repos={data.repos.repos} />
+        ) : route.name === 'repos' && (data.repos?.repos.length ?? 0) > 0 ? (
+          <RepositoriesPage product={data.product} repos={data.repos!.repos} />
         ) : route.name === 'repos' ? (
           // `/r` of an undeclared product: no repositories section exists —
           // the server refuses the route and the reader sees the home.
