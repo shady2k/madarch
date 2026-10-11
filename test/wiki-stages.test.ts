@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
-import { readStagesIndex } from '../src/wiki/stages.js';
+import { readStagesIndex, stagesSourceDigest } from '../src/wiki/stages.js';
 import { startServer, type StartedServer } from '../src/index.js';
 
 /**
@@ -443,6 +443,22 @@ describe('the stage index of a product', () => {
     expect(build.notes).toHaveLength(1);
     expect(build.notes![0]!.line).toBe(2);
     expect(build.notes![0]!.message).toContain('already held');
+  });
+
+  test('an edit of the release notes moves the wiki revision: the stage page asks again', () => {
+    draft();
+    write('CHANGELOG.md', '# Changelog\n\n## 1.0.0\n\nEverything.\n');
+    const before = stagesSourceDigest(folder!);
+    write('CHANGELOG.md', '# Changelog\n\n## 1.0.1\n\nMore.\n');
+    expect(stagesSourceDigest(folder!)).not.toBe(before);
+    // The docs spelling is an input too, once it exists.
+    write('docs/CHANGELOG.md', '# Changelog\n');
+    const withDocs = stagesSourceDigest(folder!);
+    write('docs/CHANGELOG.md', '# Changelog\n\n## 2.0.0\n');
+    expect(stagesSourceDigest(folder!)).not.toBe(withDocs);
+    // A docs changelog whose root one is gone still moves it.
+    rmSync(join(folder!, 'docs', 'CHANGELOG.md'));
+    expect(stagesSourceDigest(folder!)).not.toBe(withDocs);
   });
 
   test('reading the stages changes nothing in the product', () => {

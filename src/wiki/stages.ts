@@ -629,5 +629,12 @@ export function stagesSourceDigest(productFolder: string): string {
     file(joinPath(productFolder, RECORDS_FOLDER, name));
   }
   file(joinPath(productFolder, 'workspace.yaml'));
+  // The release notes are stage inputs: both spellings hash, the read bytes
+  // only when the path exists, so an edit of the notes the stage shows moves
+  // the wiki revision and the open stage page asks again.
+  for (const place of RELEASE_NOTE_PLACES) {
+    const full = joinPath(productFolder, ...place.split('/'));
+    if (existsSync(full)) file(full);
+  }
   return hash.digest('hex');
 }

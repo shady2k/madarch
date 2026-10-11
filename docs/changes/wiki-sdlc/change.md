@@ -52,8 +52,9 @@ missing line.
   the life cycle in order from the product's real files, with the Build
   stage's tasks read-only from `.beads/issues.jsonl` grouped by feature,
   every mended or dropped row surfaced at its full path and line, the
-  acceptance records and the release records (change records and the first
-  changelog) from the places the skills actually write, a quiet line naming
+  acceptance records and the release notes (the first changelog that
+  exists — the change proposals under docs/changes/ are never releases)
+  from the places the skills actually write, a quiet line naming
   the filling skill for every kind a stage holds nothing of, refusals of
   unreadable places named with their full path, the other features'
   sections named — linked where the serving build holds their routes, quiet
