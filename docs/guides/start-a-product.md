@@ -245,6 +245,13 @@ places — the model in the repository's `madarch/` folder (kept with that
 repository's own history), the pages in the product's `docs/` (kept with the
 product's) — and nothing of it needs the wiki restarted.
 
+One honest limit: the wiki's pages are the product's `docs/` and `README.md`
+only, so a page's relative links into `repos/<name>/madarch/` (the model and
+its review report) show as plain text on the wiki page, not as links. They
+are real links in the checkout and on the repository's host; the diagrams
+work serves the models themselves. Keep them as citations — the walk keeps
+them, named for what they are.
+
 ## How the commands find the product
 
 The lifecycle commands (`rename`, `remote`, `repo add`, `bootstrap`) take
