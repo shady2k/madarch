@@ -90,14 +90,14 @@ export type NavGroup = { name: string; pages: PageMeta[] };
 /** The kinds that keep their order before the remaining names sort alphabetically. The architecture entry rides the same life-cycle order: the Design stage's part, after the decisions. */
 const fixedGroupOrder = ['product', 'requirements', 'decisions', 'research'] as const;
 
-/** The group a page's path belongs to, by the grouping rule. */
+/** The group a page's path belongs to, by the grouping rule: the first folder under `docs/` names the kind at any depth, so a described repository's pages (docs/repositories/<name>/architecture.md) stand in the repository group instead of falling out of every kind (walk 2, finding 3). */
 export function groupOf(path: string): string {
   if (path === 'README.md') return 'product';
   if (path.startsWith('docs/')) {
     const rest = path.slice('docs/'.length);
     const parts = rest.split('/');
     if (parts.length === 1) return 'product'; // docs/<file>.md
-    if (parts.length === 2) return parts[0] as string; // docs/<folder>/<file>.md
+    return parts[0] as string; // docs/<folder>/... — the folder names the kind, deeper pages included
   }
   return 'other';
 }
@@ -126,6 +126,7 @@ export function wordLabel(group: string): string {
     sources: 'Sources',
     hypotheses: 'Hypotheses',
     questions: 'Questions',
+    repositories: 'Repositories',
     'use-cases': 'Use cases',
     other: 'Other',
   };
@@ -142,8 +143,10 @@ export function kindOf(path: string, group: string): string {
     return base.replace(/\.md$/, '').toUpperCase();
   }
   // requirements -> REQUIREMENT, decisions -> DECISION, research -> RESEARCH:
-  // the group name names the kind, the trailing s is the group's generality.
-  return (group.endsWith('s') ? group.slice(0, -1) : group).toUpperCase();
+  // the group name names the kind, the trailing s is the group's generality —
+  // except 'repositories', whose singular keeps its 'y' (walk 2, finding 3).
+  const kind = group === 'repositories' ? 'repository' : group.endsWith('s') ? group.slice(0, -1) : group;
+  return kind.toUpperCase();
 }
 
 /**

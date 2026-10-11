@@ -2,7 +2,7 @@
 
 Change: open-questions
 Base: 01eca2e44ab09182b23526f2b521f5674984f467
-Tasks: madarch-pddl
+Tasks: madarch-pddl, madarch-hui1
 Kind: behavior
 
 ## Intent

@@ -902,15 +902,21 @@ describe('groupNav', () => {
       { path: 'docs/decisions/0001.md', title: '3', url: '' },
       { path: 'docs/research/notes.md', title: '4', url: '' },
       { path: 'docs/nested/folder/file.md', title: '5', url: '' },
+      { path: 'docs/repositories/library/architecture.md', title: '6', url: '' },
     ]);
     expect(grouped.map((group) => group.name)).toEqual([
-      'product', 'requirements', 'decisions', 'research', 'a', 'other',
+      'product', 'requirements', 'decisions', 'research', 'a', 'nested', 'other', 'repositories',
     ]);
     expect(grouped[0]?.pages.map((page) => page.path)).toEqual(['README.md', 'docs/vision.md']);
-    // Only docs/<folder>/<file>.md names its own group: a path outside docs/,
-    // a deeper docs/ path and prototypes/boards.md are any other path.
-    expect(grouped[5]?.pages.map((page) => page.path)).toEqual([
-      'AGENTS.md', 'docs/nested/folder/file.md', 'prototypes/boards.md',
+    // The first folder under docs/ names the group at any depth: a deeper
+    // docs/ path stands in its folder's group (the described repository's
+    // pages, walk 2 finding 3), never in "Other". A path outside docs/ and
+    // prototypes/boards.md are any other path.
+    expect(grouped[6]?.pages.map((page) => page.path)).toEqual([
+      'AGENTS.md', 'prototypes/boards.md',
+    ]);
+    expect(grouped[7]?.pages.map((page) => page.path)).toEqual([
+      'docs/repositories/library/architecture.md',
     ]);
   });
 

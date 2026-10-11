@@ -420,6 +420,28 @@ describe('the server\'s product mode', () => {
     }
   });
 
+  test('every app route answers the app\'s index.html directly: a reload or a shared link works (walk 1, fix 3)', async () => {
+    draft();
+    builtApp();
+    const url = startProduct();
+    // The addresses the app itself routes: the home, a page, the open-questions
+    // view, the Architecture index, one view, one element, the repositories,
+    // the stages. Each GET must answer the app's index.html — never a 404 —
+    // so an address opened directly (a reload, a link pasted in chat) reaches
+    // the app's own routing.
+    const asked = ['/', '/questions', '/p/docs/vision.md', '/p/madarch/architecture', '/p/madarch/view/_landscape', '/p/madarch/element/demo-element', '/s/idea', '/s/build'];
+    for (const path of asked) {
+      const answer = await fetch(`${url}${path}`);
+      expect(answer.status).toBe(200);
+      expect(await answer.text()).toContain('demo wiki');
+    }
+    // `/r` is an app route only where the manifest declares repositories; this
+    // draft declares none, so it stays the named 404.
+    const reposRoute = await fetch(`${url}/r`);
+    expect(reposRoute.status).toBe(404);
+    expect(((await reposRoute.json()) as { message: string }).message).toContain('/r');
+  });
+
   test('a path under /api that nothing answers is refused with JSON naming it', async () => {
     draft();
     builtApp();

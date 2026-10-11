@@ -328,12 +328,13 @@ function serveAppFiles(json: ReplyMaker['json'], refused: ReplyMaker['refused'],
   }
 }
 
-/** The address prefixes the app itself answers: a page's route, a stage's route and the home page; `/r` stands among them only where repositories are declared. */
-const APP_ROUTE_PREFIXES = ['/p/', '/r', '/s/', '/'];
+/** The address prefixes the app itself answers: a page's route, the questions view, a stage's route and the home page; `/r` stands among them only where repositories are declared. */
+const APP_ROUTE_PREFIXES = ['/p/', '/questions', '/r', '/s/', '/'];
 
 /** Whether the fallback to index.html may answer this path: only the app's own routes, `/r` only where the manifest declares repositories. */
 function isAppRoute(pathname: string, reposDeclared: boolean): boolean {
-  return pathname === '/' || pathname.startsWith('/p/') || pathname.startsWith('/s/')
+  return pathname === '/' || pathname === '/questions' || pathname.startsWith('/questions/')
+    || pathname.startsWith('/p/') || pathname.startsWith('/s/')
     || (reposDeclared && pathname === '/r');
 }
 
