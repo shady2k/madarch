@@ -196,7 +196,12 @@ export function cloneLife(options: { url?: string; home?: string; env: DraftEnv 
   const prints = [`folder: ${target}`, `id: ${read.product.id}`, `name: ${read.product.name}`];
   if (read.product.repos.length > 0) {
     const bootstrapped = bootstrapProduct({ folder: target });
-    if (bootstrapped.outcome === 'refused') return refused2(prints, bootstrapped.message);
+    if (bootstrapped.outcome === 'refused') {
+      // A refused clone leaves nothing behind, whoever refused: the folder was
+      // this command's to make, so it is this command's to take away.
+      rmSync(target, { recursive: true, force: true });
+      return refused2([], bootstrapped.message);
+    }
     const reported = reportLines(target, bootstrapped.repos, 'clone');
     const withReports = withFailures([...prints, ...reported.prints, `wiki: madarch serve --product ${target}`], reported.failures);
     return { ...withReports, exit: withReports.exit };

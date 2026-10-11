@@ -976,6 +976,29 @@ describe('madarch clone', () => {
   });
 });
 
+describe('the lifecycle surface: repeated options', () => {
+  test('a repeated value flag is refused, never silently taking the last', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const first = madeDraft(home);
+    const run = runCommand(['rename', 'gadgets', '--product', first.folder, '--product', first.folder], {});
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('repeated option');
+    const run2 = runCommand(['clone', join(base, 'x.git'), '--home', home, '--home', home], {});
+    expect(run2.status).toBe(2);
+    expect(run2.stderr).toContain('repeated option');
+  });
+
+  test('a repeated --branch on repo add is refused the same way', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const run = runCommand(['repo', 'add', 'lib', join(base, 'x.git'), '--branch', 'main', '--branch', 'dev', '--product', draft.folder], {});
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('repeated option');
+  });
+});
+
 describe('the lifecycle surface', () => {
   test('--help lists the lifecycle subcommands with their options', () => {
     const { status, stdout } = runCommand(['--help'], {});

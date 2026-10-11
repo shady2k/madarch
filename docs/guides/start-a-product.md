@@ -16,7 +16,10 @@ error: `0` when done, `2` when something you typed or named cannot be used
 
 madarch runs with Bun, from a checkout of the madarch repository:
 
-    git clone <the madarch repository> madarch
+    git clone <your-fork-or-the-madarch-url> madarch
+
+(`the-madarch-url` is a placeholder here: the address you clone from — the
+shell would read a bare `<...>` as redirection, so it is never pasted as is.)
     cd madarch
     bun install --frozen-lockfile
     bun link
@@ -61,9 +64,11 @@ A products home is a folder of products; move it for real life with
 
 ## Name the product
 
-The draft's name is its folder's name. Inside the draft folder:
+The draft's name is its folder's name. `madarch new` printed the folder —
+the example below carries the folder this guide's run printed, named for the
+day it ran; yours is named for the day you run it:
 
-    cd ~/madarch/products/idea-2026-10-09
+    cd ~/madarch/products/idea-2026-10-11
     madarch rename gadgets
 
 renames the folder in place to `products/gadgets`, writes the new name in
@@ -133,9 +138,11 @@ another url with your own git if you mean to.
 
 ## A colleague joins
 
-A colleague clones the product's remote into their own products home:
+A colleague clones the product's remote — the url you pushed to, which for
+this walk is a folder on the shared machine; for a real product it is its
+GitHub or GitLab url — into their own products home:
 
-    madarch clone ../gadgets.git
+    madarch clone <the product's url>
 
 The folder is named after the url (`gadgets.git` minus `.git`), the product
 is read, and whatever the manifest declares is cloned under `repos/`; the

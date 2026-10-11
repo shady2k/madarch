@@ -160,6 +160,7 @@ function flagNamesFor(flags: CommandSpec['flags']): readonly string[] {
  */
 function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
   const parsed: Parsed = { words: [], home: undefined, product: undefined, port: undefined, open: true, branch: undefined };
+  const seen = new Set<string>();
   const flags = flagNamesFor(spec.flags).map((name) => `${name}${name === '--no-open' ? '' : ' <value>'}`).join(', ');
   for (let i = 0; i < given.length; i++) {
     const arg = given[i]!;
@@ -180,6 +181,15 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
       console.error(USAGE);
       return 2;
     }
+    // A value flag takes one value: a second occurrence would silently move
+    // the first (a repeated --product can redirect the whole command), so it
+    // is refused the way an unknown option is.
+    if (name !== '--no-open' && seen.has(name)) {
+      console.error(`repeated option "${arg}": ${name.slice(2)} is given once`);
+      console.error(USAGE);
+      return 2;
+    }
+    seen.add(name);
     // The value, whether given inline or as the next word that is not an
     // option; the exact form each flag refuses is named with the flag.
     const valueProblem = (label: string, value: string | undefined): string | undefined => {
