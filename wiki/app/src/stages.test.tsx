@@ -31,8 +31,8 @@ const index: StagesIndex = {
     {
       id: 'idea',
       artifacts: [
-        { path: 'docs/vision.md', title: 'A cafe lists its leftovers', kind: 'vision' },
-        { path: 'docs/sources/S-001-first-talk.md', title: 'First talk', kind: 'source' },
+        { path: 'docs/vision.md', title: 'A cafe lists its leftovers', kind: 'vision', served: true },
+        { path: 'docs/sources/S-001-first-talk.md', title: 'First talk', kind: 'source', served: true },
       ],
       missing: [],
       empty: false,
@@ -152,6 +152,56 @@ describe('the stages view', () => {
     expect(i18n.t('stages.missingLine', { kind: 'запись о выпуске', skill: 'ship-release' })).toContain('ship-release');
     await setWikiLanguage('en');
     document.documentElement.lang = held;
+  });
+
+  test('an artifact the reader cannot serve stands as text, never a dead link', async () => {
+    const withRecord: StagesIndex = {
+      stages: [
+        {
+          id: 'verify',
+          artifacts: [{ path: '.shady2k/records/stage-one.md', title: 'Stage one accepted', kind: 'acceptance record', served: false }],
+          missing: [],
+          empty: false,
+        },
+      ],
+      problems: [],
+    };
+    into(createElement(StagePage, { stage: withRecord.stages[0]!, index: withRecord }));
+    await until(() => document.querySelectorAll('[data-testid="stage-artifact-text"]').length === 1, 'the text artifact');
+    // No anchor wraps the record: the reader does not serve it.
+    expect(document.querySelectorAll('a[href*=".shady2k"]')).toHaveLength(0);
+    expect(text()).toContain('Stage one accepted');
+  });
+
+  test("the other features' sections are quiet text until their routes land in this build", async () => {
+    into(createElement(StagePage, { stage: index.stages.find((stage) => stage.id === 'build')!, index }));
+    await until(() => document.querySelector('[data-testid="stage-section-repositories"]') !== null, 'the repositories line');
+    const line = document.querySelector('[data-testid="stage-section-repositories"]');
+    // Not a link in this build: the Repositories section is another change's work.
+    expect(line?.querySelector('a')).toBeNull();
+    expect(line?.textContent).toContain('Repositories');
+  });
+
+  test("the Build stage's mended and dropped rows surface with their file and line", async () => {
+    const withNotes: StagesIndex = {
+      stages: [
+        {
+          id: 'build',
+          artifacts: [],
+          missing: [{ kind: 'task', skill: 'take-task' }],
+          tasks: [],
+          notes: [{ where: '/tmp/x/.beads/issues.jsonl', line: 4, message: 'the issue "t-1" holds the status "deferred": the stages group open, in-progress and done, so it is left out' }],
+          empty: true,
+        },
+      ],
+      problems: [],
+    };
+    into(createElement(StagePage, { stage: withNotes.stages[0]!, index: withNotes }));
+    await until(() => document.querySelector('[data-testid="stage-notes"]') !== null, 'the notes');
+    expect(text()).toContain('line 4');
+    expect(text()).toContain('deferred');
+    // The empty Build stage still names take-task.
+    expect(text()).toContain('take-task');
   });
 
   test('the task groups render alone with their statuses', async () => {

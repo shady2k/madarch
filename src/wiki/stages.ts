@@ -23,6 +23,7 @@
  * they never duplicate the pages.
  */
 import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join as joinPath } from 'node:path';
 import { byCodePoint } from '../model/order.js';
 
@@ -49,6 +50,13 @@ export interface StageArtifact {
   readonly title: string;
   /** The set's kind of this document, like `vision`, `hypothesis`, `story`, `requirement`, `use case`. */
   readonly kind: string;
+  /**
+   * Whether the wiki's page reader serves this path (every Markdown under
+   * `docs/` and the root `README.md` — nothing else). A record kept outside
+   * those places, an acceptance record above all, is named as text on the
+   * stage page, never wrapped in a link that cannot open.
+   */
+  readonly served: boolean;
 }
 
 /**
@@ -84,6 +92,20 @@ export interface StageSectionLink {
   readonly present: boolean;
 }
 
+/**
+ * A row the Build stage's reader mended or left out, surfaced at its full
+ * path and line: a recognized status the stages do not group (deferred,
+ * blocked), an issue with no status, a repeated id whose later row was
+ * dropped, a dependency edge that is not an object. Notes never refuse the
+ * groups — a damaged export's problem is what refuses them — but nothing a
+ * tracker export holds disappears from this index in silence.
+ */
+export interface StageNote {
+  readonly where: string;
+  readonly line: number;
+  readonly message: string;
+}
+
 /** One stage as one ask of the index found it. */
 export interface StageSection {
   readonly id: StageId;
@@ -96,6 +118,8 @@ export interface StageSection {
   readonly missing: readonly { kind: string; skill: string }[];
   /** The Build stage's tasks, grouped by feature; other stages hold none. */
   readonly tasks?: readonly TaskFeature[];
+  /** The Build stage's mended and dropped rows, each at its full path and line; other stages hold none. */
+  readonly notes?: readonly StageNote[];
   /** The other features' sections this stage navigates to; absent when the stage names none. */
   readonly sections?: readonly StageSectionLink[];
   /** True when the stage holds nothing at all: the app then shows only the missing lines. */
@@ -127,11 +151,15 @@ const KIND_FOLDERS: ReadonlyArray<{ stage: StageId; kind: string; folder: string
 /** The tracker export the Build stage reads its tasks from. */
 const TRACKER_EXPORT = '.beads/issues.jsonl';
 
-/** Where ship-release's records are looked for, in the order the form names them. */
-const RELEASE_PLACES = ['docs/releases', 'CHANGELOG.md', 'docs/CHANGELOG.md'];
-
-/** Where handle-incident's records are looked for. */
-const INCIDENT_FOLDER = 'docs/incidents';
+/**
+ * Where ship-release's records are read. The notes are the project's
+ * changelog — Keep a Changelog's is the common form the skill names — and
+ * the FIRST of the two spots that exists is the release notes, never both:
+ * a fallback, not an accumulation. The set's own per-change records under
+ * docs/changes/ are read beside them (CHANGE_RECORDS_FOLDER).
+ */
+const RELEASE_NOTE_PLACES = ['CHANGELOG.md', 'docs/CHANGELOG.md'];
+const CHANGE_RECORDS_FOLDER = 'docs/changes';
 
 /** Where stage acceptance records are looked for: the set's records folder beside its checks. */
 const RECORDS_FOLDER = '.shady2k/records';
@@ -159,8 +187,9 @@ export function readStagesIndex(productFolder: string): StagesIndex {
   // Architecture section when the product holds a model/ for it to compile;
   // the Build stage navigates to the Repositories section when the manifest
   // declares repositories or a repos/ folder stands in the product. The
-  // stages name and link them; neither compiles the model nor lists the
-  // repositories here.
+  // stages name them; whether the serving app holds those sections is that
+  // app's build, so the index carries `present` and the app decides between
+  // a link and the named placeholder.
   const modelFolder = joinPath(productFolder, 'model');
   if (existsSync(modelFolder) && lstatSync(modelFolder).isDirectory()) {
     stageOf.get('design')!.sections = [{ kind: 'architecture', present: true }];
@@ -181,7 +210,7 @@ export function readStagesIndex(productFolder: string): StagesIndex {
   for (const entry of KIND_FOLDERS) {
     const builder = stageOf.get(entry.stage)!;
     const full = joinPath(productFolder, ...entry.folder.split('/'));
-    for (const artifact of documentsOf(full, entry.kind, entry.plural)) builder.artifacts.push(artifact);
+    for (const artifact of documentsOf(full, entry.kind, entry.plural, problems)) builder.artifacts.push(artifact);
   }
 
   // The Build stage's tasks: read-only from the same export the tracker writes.
@@ -191,76 +220,80 @@ export function readStagesIndex(productFolder: string): StagesIndex {
   if (existsSync(trackerFull)) {
     exported = true;
     const read = readTasks(trackerFull);
-    build.tasks = read.ok ? read.groups : [];
-    if (!read.ok) problems.push({ where: trackerFull, message: read.message });
+    if (read.ok) {
+      build.tasks = read.groups;
+      build.notes = read.notes;
+    } else {
+      build.tasks = [];
+      problems.push({ where: trackerFull, message: read.message });
+    }
   }
 
-  // The Verify stage's acceptance records: files the set's records folder holds.
+  // The Verify stage's acceptance records: files the set's records folder
+  // holds. They stand outside the wiki's served pages, so the artifacts are
+  // named, never linked.
   const verify = stageOf.get('verify')!;
   const recordsFull = joinPath(productFolder, RECORDS_FOLDER);
-  for (const name of fileNames(recordsFull, '.md')) {
+  for (const name of fileNames(recordsFull, '.md', problems)) {
     const full = joinPath(recordsFull, name);
     try {
       const text = readFileSync(full, 'utf8');
       const accepted = text.includes(ACCEPTED_MARK) || /Final: [0-9a-f]{7,}/.test(text);
       const implemented = text.includes(IMPLEMENTED_MARK);
       if (accepted || implemented) {
-        verify.artifacts.push({ path: `${RECORDS_FOLDER}/${name}`, title: titleOf(text, name), kind: 'acceptance record' });
+        verify.artifacts.push({ path: `${RECORDS_FOLDER}/${name}`, title: titleOf(text, name), kind: 'acceptance record', served: false });
       }
     } catch (error) {
       problems.push({ where: full, message: (error as Error).message });
     }
   }
 
-  // The Release stage: ship-release's records, wherever the project keeps them.
+  // The Release stage: the change records the set writes under docs/changes/
+  // (each with its base, tasks and kind), and the project's changelog — the
+  // FIRST spot that exists is the release notes, never both: a fallback, not
+  // an accumulation.
   const release = stageOf.get('release')!;
-  for (const place of RELEASE_PLACES) {
-    const full = joinPath(productFolder, ...place.split('/'));
-    const kind = place.endsWith('.md') ? 'release notes' : 'release record';
-    if (place.endsWith('.md')) {
-      if (!existsSync(full)) continue;
-      try {
-        release.artifacts.push({ path: place, title: titleOf(readFileSync(full, 'utf8'), place.split('/').pop()!), kind });
-      } catch (error) {
-        problems.push({ where: full, message: (error as Error).message });
-      }
-    } else {
-      for (const name of fileNames(full, '.md')) {
-        const file = joinPath(full, name);
-        try {
-          release.artifacts.push({ path: `${place}/${name}`, title: titleOf(readFileSync(file, 'utf8'), name), kind });
-        } catch (error) {
-          problems.push({ where: file, message: (error as Error).message });
-        }
-      }
+  for (const change of fileNames(joinPath(productFolder, ...CHANGE_RECORDS_FOLDER.split('/')), undefined, problems)) {
+    const record = joinPath(productFolder, CHANGE_RECORDS_FOLDER, change, 'change.md');
+    if (!existsSync(record)) continue;
+    try {
+      release.artifacts.push({
+        path: `${CHANGE_RECORDS_FOLDER}/${change}/change.md`,
+        title: titleOf(readFileSync(record, 'utf8'), change),
+        kind: 'change record',
+        served: true,
+      });
+    } catch (error) {
+      problems.push({ where: record, message: (error as Error).message });
     }
   }
-
-  // The Operate stage: handle-incident's records.
-  const operate = stageOf.get('operate')!;
-  const incidentsFull = joinPath(productFolder, INCIDENT_FOLDER);
-  for (const name of fileNames(incidentsFull, '.md')) {
-    const file = joinPath(incidentsFull, name);
+  for (const place of RELEASE_NOTE_PLACES) {
+    const full = joinPath(productFolder, ...place.split('/'));
+    if (!existsSync(full)) continue;
     try {
-      operate.artifacts.push({ path: `${INCIDENT_FOLDER}/${name}`, title: titleOf(readFileSync(file, 'utf8'), name), kind: 'incident record' });
+      release.artifacts.push({
+        path: place,
+        title: titleOf(readFileSync(full, 'utf8'), place.split('/').pop()!),
+        kind: 'release notes',
+        served: true,
+      });
+      break;
     } catch (error) {
-      problems.push({ where: file, message: (error as Error).message });
+      problems.push({ where: full, message: (error as Error).message });
     }
   }
 
   const stages = STAGE_IDS.map((id) => {
     const builder = stageOf.get(id)!;
     builder.artifacts.sort((a, b) => byCodePoint(a.path, b.path));
-    builder.missing = missingOf(id, builder.artifacts);
+    builder.missing = missingOf(id, builder.artifacts, builder.tasks === undefined ? 0 : countTasks(builder.tasks));
     if (builder.wantsArchitecture) {
       builder.missing.push({ kind: 'architecture views', skill: 'write-intended-model' });
     }
-    // An empty tasks table is left only where an export stands but holds no
-    // task: the app then says the tracker holds none, instead of hiding that
-    // the export was there. A product with no export at all carries no table.
-    // A product with no export at all carries no tasks table; where an export
-    // stands but holds no grouped task, the empty table stays so the app can
-    // say the tracker holds none.
+    // A product with no export at all carries no tasks table; where an
+    // export stands but holds no grouped task, the empty table stays so the
+    // app can say the tracker holds none. Either way the missing line names
+    // take-task.
     if (builder.tasks !== undefined && builder.tasks.length === 0 && !exported) {
       delete builder.tasks;
     }
@@ -269,12 +302,18 @@ export function readStagesIndex(productFolder: string): StagesIndex {
   return { stages, problems };
 }
 
+/** Every task in a Build stage's groups, for the missing-line decision. */
+function countTasks(groups: readonly TaskFeature[]): number {
+  return groups.reduce((n, group) => n + group.tasks.length, 0);
+}
+
 /** A stage section under construction. */
 interface StageSectionBuilder {
   id: StageId;
   artifacts: StageArtifact[];
   missing: { kind: string; skill: string }[];
   tasks?: TaskFeature[];
+  notes?: StageNote[];
   sections?: StageSectionLink[];
   /** The product holds no model/: the Design stage's missing lines name the views. */
   wantsArchitecture?: boolean;
@@ -287,43 +326,10 @@ function buildSection(builder: StageSectionBuilder): StageSection {
     artifacts: builder.artifacts,
     missing: builder.missing,
     ...(builder.tasks !== undefined ? { tasks: builder.tasks } : {}),
+    ...(builder.notes !== undefined ? { notes: builder.notes } : {}),
     ...(builder.sections !== undefined ? { sections: builder.sections } : {}),
     empty,
   };
-}
-
-function missingOf(id: StageId, artifacts: readonly StageArtifact[]): { kind: string; skill: string }[] {
-  const held = new Set(artifacts.map((artifact) => artifact.kind));
-  const missing: { kind: string; skill: string }[] = [];
-  for (const entry of KIND_FOLDERS) {
-    if (entry.stage !== id || held.has(entry.kind)) continue;
-    if (missing.some((m) => m.kind === entry.kind)) continue;
-    missing.push({ kind: entry.kind, skill: STAGE_SKILLS[id] });
-  }
-  if (id === 'verify' && !held.has('acceptance record')) missing.push({ kind: 'acceptance record', skill: STAGE_SKILLS[id] });
-  if (id === 'release' && !held.has('release record') && !held.has('release notes')) missing.push({ kind: 'release record', skill: STAGE_SKILLS[id] });
-  if (id === 'operate' && !held.has('incident record')) missing.push({ kind: 'incident record', skill: STAGE_SKILLS[id] });
-  return missing;
-}
-
-/** The set-form documents one folder (or the one vision file) holds. */
-function documentsOf(full: string, kind: string, plural: boolean): StageArtifact[] {
-  const names = plural ? fileNames(full, '.md') : existsSync(full) && lstatSync(full).isFile() ? [full] : [];
-  const artifacts: StageArtifact[] = [];
-  for (const name of names) {
-    const file = plural ? joinPath(full, name) : full;
-    const within = plural ? relativeDocsPath(full, name) : relativeDocsPathOf(full);
-    if (within === undefined) continue;
-    try {
-      const text = readFileSync(file, 'utf8');
-      artifacts.push({ path: within, title: titleOf(text, within.split('/').pop()!), kind });
-    } catch {
-      // An unreadable file of a kind is not an artifact; the page reader names
-      // its own refusal when the reader asks for it. Reading the folder again
-      // would only repeat what the walk already said.
-    }
-  }
-  return artifacts;
 }
 
 /** The path within the product a document sits at: the folder's own relative part plus the file name. */
@@ -342,19 +348,59 @@ function relativeDocsPathOf(full: string): string | undefined {
   return full.slice(at);
 }
 
-/** The Markdown files directly inside one folder, in code point order of their names. */
-function fileNames(folder: string, extension: string): string[] {
+/**
+ * The set-form documents one folder holds (or the one vision file). The
+ * folder walk and the file reads report their failures into `problems` —
+ * a folder that exists but cannot be read, a document that cannot be read —
+ * never a silently smaller stage.
+ */
+function documentsOf(full: string, kind: string, plural: boolean, problems: { where: string; message: string }[]): StageArtifact[] {
+  const artifacts: StageArtifact[] = [];
+  if (!plural) {
+    if (!existsSync(full)) return artifacts;
+    const within = relativeDocsPathOf(full);
+    if (within === undefined) return artifacts;
+    try {
+      const text = readFileSync(full, 'utf8');
+      artifacts.push({ path: within, title: titleOf(text, within.split('/').pop()!), kind, served: true });
+    } catch (error) {
+      problems.push({ where: full, message: (error as Error).message });
+    }
+    return artifacts;
+  }
+  for (const name of fileNames(full, '.md', problems)) {
+    const file = joinPath(full, name);
+    const within = relativeDocsPath(full, name);
+    if (within === undefined) continue;
+    try {
+      const text = readFileSync(file, 'utf8');
+      artifacts.push({ path: within, title: titleOf(text, within.split('/').pop()!), kind, served: true });
+    } catch (error) {
+      problems.push({ where: file, message: (error as Error).message });
+    }
+  }
+  return artifacts;
+}
+
+/**
+ * The Markdown files directly inside one folder, in code point order of
+ * their names. A folder that is not there holds nothing; a folder that is
+ * there but cannot be read is a problem naming it, never an empty list in
+ * silence.
+ */
+function fileNames(folder: string, extension: string | undefined, problems: { where: string; message: string }[]): string[] {
   if (!existsSync(folder)) return [];
   const kind = lstatSync(folder);
   if (!kind.isDirectory()) return [];
   let entries: import('node:fs').Dirent[];
   try {
     entries = readdirSync(folder, { withFileTypes: true });
-  } catch {
+  } catch (error) {
+    problems.push({ where: folder, message: `the folder could not be read: ${(error as Error).message}` });
     return [];
   }
   return entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(extension))
+    .filter((entry) => (extension === undefined ? entry.isDirectory() : entry.isFile() && entry.name.endsWith(extension)))
     .map((entry) => entry.name)
     .sort(byCodePoint);
 }
@@ -379,6 +425,27 @@ function titleOf(markdown: string, fallback: string): string {
   return fallback.replace(/\.md$/, '');
 }
 
+/**
+ * The kinds a stage holds nothing of, each with the skill that fills it. The
+ * Build stage's own kind is the task: no grouped task at all names take-task.
+ */
+function missingOf(id: StageId, artifacts: readonly StageArtifact[], taskCount: number): { kind: string; skill: string }[] {
+  const held = new Set(artifacts.map((artifact) => artifact.kind));
+  const missing: { kind: string; skill: string }[] = [];
+  for (const entry of KIND_FOLDERS) {
+    if (entry.stage !== id || held.has(entry.kind)) continue;
+    if (missing.some((m) => m.kind === entry.kind)) continue;
+    missing.push({ kind: entry.kind, skill: STAGE_SKILLS[id] });
+  }
+  if (id === 'verify' && !held.has('acceptance record')) missing.push({ kind: 'acceptance record', skill: STAGE_SKILLS[id] });
+  if (id === 'release' && !held.has('release notes') && !held.has('change record')) missing.push({ kind: 'release record', skill: STAGE_SKILLS[id] });
+  if (id === 'build' && taskCount === 0) missing.push({ kind: 'task', skill: STAGE_SKILLS[id] });
+  // The Operate stage's material is what handle-incident records — the
+  // review's timeline, cost and filed work — and none of it is held here.
+  if (id === 'operate') missing.push({ kind: 'incident record', skill: STAGE_SKILLS[id] });
+  return missing;
+}
+
 /** The manifest's text, when the product holds one; a manifest that cannot be read is no declaration. */
 function readManifestText(productFolder: string): string | undefined {
   const full = joinPath(productFolder, 'workspace.yaml');
@@ -397,8 +464,18 @@ function taskStatus(status: string): 'open' | 'in_progress' | 'done' | undefined
   return undefined;
 }
 
-/** The tracker export read into task groups; a file that exists but cannot be read is a refusal, never a smaller list. */
-function readTasks(exportPath: string): { ok: true; groups: TaskFeature[] } | { ok: false; message: string } {
+/**
+ * The tracker export read into task groups. Two kinds of trouble, never a
+ * silent smaller list:
+ * - damage — a line that is not JSON, a row that is not an object, an issue
+ *   with no id — refuses the groups whole: a partial list would read as the
+ *   whole tracker. One problem names the export and every damaged line.
+ * - mending and dropping — a repeated id whose later row cannot be shown, a
+ *   row with no status, a recognized status the stages do not group
+ *   (deferred, blocked), a dependency edge that is not an object — surfaces
+ *   as a note at its full path and line, and the groups stand.
+ */
+function readTasks(exportPath: string): { ok: true; groups: TaskFeature[]; notes: StageNote[] } | { ok: false; message: string } {
   let bytes: Buffer;
   try {
     bytes = readFileSync(exportPath);
@@ -412,62 +489,102 @@ function readTasks(exportPath: string): { ok: true; groups: TaskFeature[] } | { 
     return { ok: false, message: `the tracker export ${exportPath} is not UTF-8: ${(error as Error).message}` };
   }
   const lines = text.split('\n');
-  const issues = new Map<string, { id: string; title: string; issue_type: string; status: string; parents: string[] }>();
-  const problems: string[] = [];
+  interface Row {
+    id: string;
+    title: string;
+    issueType: string;
+    status: string;
+    statusHeld: boolean;
+    parents: string[];
+    line: number;
+  }
+  const rows = new Map<string, Row>();
+  const damage: string[] = [];
+  const notes: StageNote[] = [];
+  const note = (line: number, message: string): void => {
+    notes.push({ where: exportPath, line, message });
+  };
   for (let at = 0; at < lines.length; at++) {
+    const number = at + 1;
     const line = lines[at]!.trim();
     if (line === '') continue;
     let row: unknown;
     try {
       row = JSON.parse(line);
     } catch (error) {
-      problems.push(`line ${at + 1} of ${exportPath} is not JSON (${(error as Error).message})`);
+      damage.push(`line ${number} is not JSON (${(error as Error).message})`);
       continue;
     }
     if (row === null || typeof row !== 'object' || Array.isArray(row)) {
-      problems.push(`line ${at + 1} of ${exportPath} is not a tracker issue object`);
+      damage.push(`line ${number} is not a tracker issue object`);
       continue;
     }
     const record = row as Record<string, unknown>;
     const id = typeof record['id'] === 'string' ? record['id'] : undefined;
     if (id === undefined || id === '') {
-      problems.push(`line ${at + 1} of ${exportPath} holds an issue with no id`);
+      damage.push(`line ${number} holds an issue with no id`);
       continue;
+    }
+    if (rows.has(id)) {
+      note(number, `the issue "${id}" is already held from line ${rows.get(id)!.line}: this row is dropped, not merged`);
+      continue;
+    }
+    const status = record['status'];
+    const statusHeld = typeof status === 'string' && status !== '';
+    if (typeof status !== 'string' || status === '') {
+      note(number, `the issue "${id}" holds no status: the stages group open, in-progress and done, so it is left out`);
     }
     const parents: string[] = [];
     const dependencies = record['dependencies'];
     if (Array.isArray(dependencies)) {
       for (const edge of dependencies) {
-        if (edge === null || typeof edge !== 'object' || Array.isArray(edge)) continue;
+        if (edge === null || typeof edge !== 'object' || Array.isArray(edge)) {
+          note(number, `the issue "${id}" holds a dependency edge that is not an object: the edge is ignored`);
+          continue;
+        }
         const named = edge as Record<string, unknown>;
         if (named['type'] !== 'parent-child') continue;
         const parent = named['depends_on_id'];
         if (typeof parent === 'string') parents.push(parent);
+        else note(number, `the issue "${id}" names a parent-child parent that is not an id: the edge is ignored`);
       }
     }
-    issues.set(id, {
+    rows.set(id, {
       id,
       title: typeof record['title'] === 'string' ? record['title'] : id,
-      issue_type: typeof record['issue_type'] === 'string' ? record['issue_type'] : '',
-      status: typeof record['status'] === 'string' ? record['status'] : 'open',
+      issueType: typeof record['issue_type'] === 'string' ? record['issue_type'] : '',
+      status: statusHeld ? (status as string) : '',
+      statusHeld,
       parents,
+      line: number,
     });
   }
 
   const groups = new Map<string, { title: string; tasks: TaskEntry[] }>();
-  for (const issue of issues.values()) {
-    if (issue.issue_type === 'epic') continue;
-    const status = taskStatus(issue.status);
-    if (status === undefined) continue;
-    for (const parent of issue.parents) {
-      if (issues.get(parent)?.issue_type !== 'epic') continue;
-      if (!groups.has(parent)) groups.set(parent, { title: issues.get(parent)!.title, tasks: [] });
-      groups.get(parent)!.tasks.push({ id: issue.id, title: issue.title, status });
+  for (const row of rows.values()) {
+    if (row.issueType === 'epic') continue;
+    if (!row.statusHeld) continue;
+    const status = taskStatus(row.status);
+    if (status === undefined) {
+      note(row.line, `the issue "${row.id}" holds the status "${row.status}": the stages group open, in-progress and done, so it is left out`);
+      continue;
     }
-    if (issue.parents.length === 0 || issue.parents.every((parent) => issues.get(parent)?.issue_type !== 'epic')) {
+    let grouped = false;
+    for (const parent of row.parents) {
+      if (rows.get(parent)?.issueType !== 'epic') continue;
+      if (!groups.has(parent)) groups.set(parent, { title: rows.get(parent)!.title, tasks: [] });
+      groups.get(parent)!.tasks.push({ id: row.id, title: row.title, status });
+      grouped = true;
+    }
+    if (!grouped) {
       if (!groups.has('none')) groups.set('none', { title: '', tasks: [] });
-      groups.get('none')!.tasks.push({ id: issue.id, title: issue.title, status });
+      groups.get('none')!.tasks.push({ id: row.id, title: row.title, status });
     }
+  }
+  // A damaged line refuses the groups whole: a smaller list would read as
+  // the whole tracker. The rest of the stage index stands.
+  if (damage.length > 0) {
+    return { ok: false, message: damage.join('; ') };
   }
   const byFeatureThenNone = (a: string, b: string): number => {
     if (a === 'none') return 1;
@@ -487,8 +604,43 @@ function readTasks(exportPath: string): { ok: true; groups: TaskFeature[] } | { 
         tasks,
       };
     });
-  if (problems.length > 0) {
-    return { ok: false, message: problems.join('; ') };
+  return { ok: true, groups: ordered, notes };
+}
+
+/**
+ * The digest of everything the stages read beyond the wiki's pages: the
+ * tracker export, the records folder, the manifest and the change records'
+ * folder. The wiki's revision folds this in (the same rule feature E uses
+ * for the model's sources), so a saved task or an acceptance record is a
+ * wiki change: the stream reports it and the open stage page asks again.
+ * Unreadable places hash as unreadable, so a place coming back is a change.
+ */
+export function stagesSourceDigest(productFolder: string): string {
+  const hash = createHash('sha256');
+  const file = (path: string): void => {
+    hash.update(`${path}\u0000`);
+    try {
+      hash.update(readFileSync(path));
+    } catch {
+      hash.update('unreadable\u0000');
+    }
+    hash.update('\u0000');
+  };
+  const folderNames = (folder: string): string[] => {
+    if (!existsSync(folder)) return [];
+    try {
+      return readdirSync(folder).sort(byCodePoint);
+    } catch {
+      return ['unreadable'];
+    }
+  };
+  file(joinPath(productFolder, TRACKER_EXPORT));
+  for (const name of folderNames(joinPath(productFolder, RECORDS_FOLDER))) {
+    file(joinPath(productFolder, RECORDS_FOLDER, name));
   }
-  return { ok: true, groups: ordered };
+  file(joinPath(productFolder, 'workspace.yaml'));
+  for (const change of folderNames(joinPath(productFolder, CHANGE_RECORDS_FOLDER))) {
+    file(joinPath(productFolder, CHANGE_RECORDS_FOLDER, change, 'change.md'));
+  }
+  return hash.digest('hex');
 }

@@ -182,8 +182,8 @@
     },
     "problem": "{{where}}: {{message}}",
     "unknownStage": "The wiki holds no stage named “{{stage}}”: the stages are Idea, Requirements, Design, Build, Verify, Release and Operate.",
-    "architectureLink": "The architecture views are the Architecture section — served when the product holds an intended model (model/).",
-    "repositoriesLink": "The code repositories are the Repositories section — served from the repositories the product declares and has cloned.",
+    "architectureLink": "The architecture views belong to the Architecture section — the diagrams change serves it at /p/madarch/architecture when it lands; this build names it, it does not link it.",
+    "repositoriesLink": "The code repositories belong to the Repositories section — the repositories change serves it at /r when it lands; this build names it, it does not link it.",
     "kinds": {
       "vision": "Vision",
       "source": "Source",
@@ -200,7 +200,8 @@
       "release record": "Release record",
       "release notes": "Release notes",
       "incident record": "Incident record",
-      "architecture views": "Architecture views"
+      "architecture views": "Architecture views",
+      "task": "Task"
     }
   }
 }

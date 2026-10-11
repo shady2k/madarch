@@ -66,6 +66,7 @@ describe('the stage index of a product', () => {
     expect([...new Set(skills['verify'])]).toEqual(['take-task']);
     expect([...new Set(skills['release'])]).toEqual(['ship-release']);
     expect([...new Set(skills['operate'])]).toEqual(['handle-incident']);
+    expect([...new Set(skills['build'])]).toEqual(['take-task']);
     // The design stage of a model-less product also names the missing views.
     expect(skills['design']).toContain('write-intended-model');
     expect(index.problems).toEqual([]);
@@ -188,14 +189,22 @@ describe('the stage index of a product', () => {
     expect(build.tasks).toEqual([]);
   });
 
-  test('a task with a status the stages do not group is left out, never miscounted', () => {
+  test('a task with a status the stages do not group is left out AND surfaced at its line', () => {
     draft();
     tracker([{ id: 'proj-cc1', title: 'Deferred work', issue_type: 'task', status: 'deferred', dependencies: [] }]);
-    const build = readStagesIndex(folder!).stages.find((stage) => stage.id === 'build')!;
+    const index = readStagesIndex(folder!);
+    const build = index.stages.find((stage) => stage.id === 'build')!;
     expect(build.empty).toBe(true);
     // The export stands, so the empty table stays: the app names the tracker
-    // as holding no task, instead of pretending there is no export.
+    // as holding no task. The dropped row is surfaced at its full path and
+    // line — it never disappears in silence.
     expect(build.tasks).toEqual([]);
+    expect(build.notes).toHaveLength(1);
+    expect(build.notes![0]!.where).toBe(join(folder!, '.beads', 'issues.jsonl'));
+    expect(build.notes![0]!.line).toBe(1);
+    expect(build.notes![0]!.message).toContain('deferred');
+    // The missing line names take-task all the same.
+    expect(build.missing.map((m) => m.skill)).toEqual(['take-task']);
   });
 
   test('a status the tracker spells differently is still a stage status', () => {
@@ -209,33 +218,42 @@ describe('the stage index of a product', () => {
     expect(build.tasks![0]!.open).toBe(0);
   });
 
-  test('the Verify, Release and Operate stages read the records the skills write, where they write them', () => {
+  test("Verify reads the set's records folder; Release reads the change records and the first changelog", () => {
     draft();
     write('.shady2k/records/stage-one.md', 'accepted: {"base": "aaaa", "final": "bbbb"}\nCriteria hold.\n');
     write('.shady2k/records/stage-two.md', '# Stage two accepted\n\nFinal: 0e46cba2f5ab381f9732e93a9c0f47f89b53c878 in prose, the older form.\n');
     write('.shady2k/records/not-a-record.md', '# Just a note\n\nNothing accepted here.\n');
-    write('docs/releases/0.41.0.md', '# 0.41.0\n\nUsers can read the wiki in Russian.\n');
-    write('docs/incidents/2026-10-01-wiki-down.md', '# 2026-10-01 — The wiki refused to serve\n\nRestored.\n');
+    write('docs/changes/wiki-i18n/change.md', '# The wiki chrome in two languages\n\nChange: wiki-i18n\nKind: behavior\n');
     const index = readStagesIndex(folder!);
     const verify = index.stages.find((stage) => stage.id === 'verify')!;
     expect(verify.artifacts.map((a) => a.path)).toEqual(['.shady2k/records/stage-one.md', '.shady2k/records/stage-two.md']);
     expect(verify.artifacts[0]!.kind).toBe('acceptance record');
+    // Records outside the served pages are named, never linked.
+    expect(verify.artifacts[0]!.served).toBe(false);
     expect(verify.missing).toEqual([]);
     const release = index.stages.find((stage) => stage.id === 'release')!;
-    expect(release.artifacts.map((a) => a.path)).toEqual(['docs/releases/0.41.0.md']);
+    expect(release.artifacts.map((a) => a.path)).toEqual(['docs/changes/wiki-i18n/change.md']);
+    expect(release.artifacts[0]!.served).toBe(true);
+    expect(release.missing).toEqual([]);
+    // Operate: the skills hold no incident folder; the stage says what fills it.
     const operate = index.stages.find((stage) => stage.id === 'operate')!;
-    expect(operate.artifacts.map((a) => a.path)).toEqual(['docs/incidents/2026-10-01-wiki-down.md']);
-    expect(operate.empty).toBe(false);
-    expect(operate.missing).toEqual([]);
+    expect(operate.artifacts).toEqual([]);
+    expect(operate.empty).toBe(true);
+    expect(operate.missing.map((m) => m.skill)).toEqual(['handle-incident']);
   });
 
-  test('release records are read from the places ship-release writes, in the form it keeps them', () => {
+  test('the release notes are the FIRST changelog that exists, never both', () => {
     draft();
     write('CHANGELOG.md', '# Changelog\n\n## 1.0.0\n\nEverything.\n');
-    const release = readStagesIndex(folder!).stages.find((stage) => stage.id === 'release')!;
+    write('docs/CHANGELOG.md', '# Stale changelog\n');
+    let release = readStagesIndex(folder!).stages.find((stage) => stage.id === 'release')!;
     expect(release.artifacts.map((a) => a.path)).toEqual(['CHANGELOG.md']);
     expect(release.artifacts[0]!.kind).toBe('release notes');
     expect(release.missing).toEqual([]);
+    rmSync(join(folder!, 'CHANGELOG.md'));
+    // The fallback: no root changelog, the docs one answers.
+    release = readStagesIndex(folder!).stages.find((stage) => stage.id === 'release')!;
+    expect(release.artifacts.map((a) => a.path)).toEqual(['docs/CHANGELOG.md']);
   });
 
   test('the other features\' sections are named where the product holds what they read, absent otherwise', () => {
@@ -359,6 +377,39 @@ describe('the stage index of a product', () => {
     tracker([zz, child, ORPHAN]);
     const build = readStagesIndex(folder!).stages.find((stage) => stage.id === 'build')!;
     expect(build.tasks!.map((feature) => feature.id)).toEqual(['zz-ep1', 'none']);
+  });
+
+  test('a stage input outside the pages moves the wiki revision: the stream reports it', () => {
+    draft();
+    tracker([CHILD, EPIC]);
+    write('docs/vision.md', '# Vision\n');
+    const app = mkdtempSync(join(tmpdir(), 'madarch-stages-app2-'));
+    writeFileSync(join(app, 'index.html'), '<!doctype html><title>wiki</title>');
+    server = startServer({ productFolder: folder!, appFolder: app, port: 0, log: () => {}, errorLog: () => {} });
+    return (async () => {
+      const before = ((await (await fetch(`${server!.url}/api/pages`)).json()) as { revision: string }).revision;
+      // A tracker write is a wiki change: the revision moves.
+      tracker([CHILD, EPIC, { id: 'proj-aa4', title: 'One more task', issue_type: 'task', status: 'open', dependencies: [{ issue_id: 'proj-aa4', depends_on_id: 'proj-ep1', type: 'parent-child' }] }]);
+      const after = ((await (await fetch(`${server!.url}/api/pages`)).json()) as { revision: string }).revision;
+      expect(after).not.toBe(before);
+      // An acceptance record is one too.
+      const held = after;
+      mkdirSync(join(folder!, '.shady2k', 'records'), { recursive: true });
+      writeFileSync(join(folder!, '.shady2k', 'records', 'stage.md'), 'accepted: {"base": "a", "final": "b"}\n');
+      const third = ((await (await fetch(`${server!.url}/api/pages`)).json()) as { revision: string }).revision;
+      expect(third).not.toBe(held);
+    })();
+  });
+
+
+  test('a repeated id keeps the first row and surfaces the later one', () => {
+    draft();
+    tracker([CHILD, { ...CHILD, title: 'The duplicate row' }]);
+    const build = readStagesIndex(folder!).stages.find((stage) => stage.id === 'build')!;
+    expect(build.tasks![0]!.tasks).toHaveLength(1);
+    expect(build.notes).toHaveLength(1);
+    expect(build.notes![0]!.line).toBe(2);
+    expect(build.notes![0]!.message).toContain('already held');
   });
 
   test('reading the stages changes nothing in the product', () => {

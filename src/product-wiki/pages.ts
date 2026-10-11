@@ -27,6 +27,7 @@ import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, readdirSync, realpathSync, statSync, type Dirent } from 'node:fs';
 import { basename as nameOf, isAbsolute, join as joinPath, relative } from 'node:path';
 import { scanDocument } from '../wiki/documents.js';
+import { stagesSourceDigest } from '../wiki/stages.js';
 import { readProduct, type ProductIdentity } from '../product/manifest.js';
 import { modelSourceDigest } from './model.js';
 import { byCodePoint } from '../model/order.js';
@@ -119,10 +120,12 @@ class FreshProductWiki implements ProductWiki {
       hash.update(`${path}\u0000${markdown.markdown}\u0000`);
       pages.push({ path, title: titleOf(path, markdown.markdown), address: addressOf(path) });
     }
-    // The revision covers the model's sources too (feature E): a saved
-    // model file is a wiki change — the stream reports it and the
-    // Architecture section is asked again, the same live rule as a page.
+    // The revision covers the model's sources (feature E) and the stages'
+    // inputs (madarch-iuc.16): a saved model file, task, acceptance record
+    // or manifest edit is a wiki change — the stream reports it and the open
+    // section asks again, the same live rule as a page.
     hash.update(`model\u0000${modelSourceDigest(this.product)}\u0000`);
+    hash.update(`stages\u0000${stagesSourceDigest(this.product.folder)}\u0000`);
     return { ok: true, revision: hash.digest('hex'), pages };
   }
 

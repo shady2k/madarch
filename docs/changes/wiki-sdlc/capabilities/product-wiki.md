@@ -268,19 +268,32 @@ every ask and never written to:
   the repositories itself; the tasks are read-only: no control here writes,
   closes or edits anything;
 - the Verify stage: the acceptance records — the files under the set's
-  records folder whose text holds an `accepted:` or `implemented:` record;
-- the Release stage: the release records the ship-release skill writes — the
-  files under `docs/releases/`, else the project's `CHANGELOG.md`, else
-  `docs/CHANGELOG.md`;
-- the Operate stage: the incident records under `docs/incidents/`.
+  records folder whose text holds an `accepted:` or `implemented:` record
+  (or the older prose `Final:` form); they stand outside the served pages,
+  so the stage names them as text, never links that cannot open;
+- the Release stage: the set's change records under `docs/changes/` (each
+  change's own `change.md`) and the project's changelog — the first of
+  `CHANGELOG.md` and `docs/CHANGELOG.md` that exists is the release notes,
+  a fallback, never both;
+- the Operate stage: nothing is read — `handle-incident` turns its review
+  into tracked work and lessons kept where every agent reads, not into a
+  folder of records, so the stage holds its missing line and names the
+  skill.
 
 A kind a stage holds nothing of shall show one quiet line naming the skill of
 the set that fills it — `define-product`, `to-spec`, `to-design`,
 `take-task`, `ship-release` or `handle-incident` — and no dead control: a
-stage with nothing shows only what is missing and who writes it. A tracker
-export or records place that exists but cannot be read shall be named as a
-problem with its full path and the cause, on the stage page it belongs to,
-and shall never shrink silently into an empty stage.
+stage with nothing shows only what is missing and who writes it. An artifact
+whose path the page reader does not serve shall be named as text, never
+wrapped in a link. The sections other features own — Architecture and
+Repositories — shall be named on their stages, linked only where the serving
+app holds their routes, and quiet text until then. A tracker export or
+records place that exists but cannot be read shall be named as a problem
+with its full path and the cause, on the stage page it belongs to, and shall
+never shrink silently into an empty stage; a row the Build stage's reader
+mends or leaves out — a repeated id, a row with no status, a status the
+stages do not group, a dependency edge that is not an object — shall be
+surfaced at its full path and line while the groups stand.
 
 Every stage name, kind name, status and missing-skill line of the app's own
 wording shall go through the same message catalogues as the rest of the
@@ -304,9 +317,17 @@ chrome, in English and Russian, with the task counts through
 - When: the Build stage page is read
 - Then: the page names the export's full path and the line that cannot be read, and the stage page still answers
 ### Scenario: empty-stage-names-its-skill
-- Given: a product whose root holds no release record and no `docs/incidents/`
+- Given: a product whose root holds no changelog and no change records
 - When: the Release and Operate stage pages are read
 - Then: each page shows the quiet line naming `ship-release` or `handle-incident` as the skill that fills it, and no button, link or control stands dead on it
+### Scenario: build-stage-surfaces-what-it-mends
+- Given: a product whose tracker export holds a task with the status `deferred` and a repeated id
+- When: the Build stage page is read
+- Then: each mended or dropped row is named with the export's full path and its line, the healthy tasks still stand grouped, and the stage's missing line names `take-task` when no task is grouped
+### Scenario: verify-records-are-text-not-links
+- Given: a product whose records folder holds an acceptance record
+- When: the Verify stage page is read
+- Then: the record is named with its title and kind as text, no link to it is rendered, and the page carries no dead control
 ### Scenario: stages-are-read-only
 - Given: a served product whose stage pages are opened
 - When: its files and git status are compared before and after

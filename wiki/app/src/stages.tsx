@@ -16,8 +16,8 @@
  */
 import { useEffect, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CircleDashedIcon, CircleIcon, CircleCheckBigIcon, FlaskConicalIcon, ListTodoIcon } from 'lucide-react';
-import { getStages, type StagesIndex, type TaskFeature, type StageSection } from './api.js';
+import { CircleDashedIcon, CircleIcon, CircleCheckBigIcon, ListTodoIcon } from 'lucide-react';
+import { getStages, type StagesIndex, type TaskFeature, type StageSection, type StageSectionLink, type StageNote } from './api.js';
 import { PageLink } from './view.js';
 
 /** Reads the stages once for the open wiki; the caller rerenders it on the wiki's revision. */
@@ -109,6 +109,62 @@ function MissingLines({ section }: { section: StageSection }): ReactElement | nu
   );
 }
 
+/**
+ * The mended and dropped rows of the Build stage's tracker read, each at
+ * its full path and line: nothing an export holds disappears in silence.
+ */
+function Notes({ notes }: { notes: readonly StageNote[] }): ReactElement | null {
+  if (notes.length === 0) return null;
+  return (
+    <div className="stage-notes" data-testid="stage-notes">
+      {notes.map((note, at) => (
+        <p key={at} className="stage-problem">
+          {note.where}, line {note.line}: {note.message}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The sections other features own. The Architecture section is the diagrams
+ * change's (E, madarch-iuc.15, served at /p/madarch/architecture), the
+ * Repositories section is the repositories change's (D, madarch-iuc.14,
+ * served at /r). Where the serving app holds the section's route the line
+ * is a link; where it does not — this build, until those features land —
+ * the line is the same quiet text a missing line is, naming what serves it.
+ * No label ever poses as a control.
+ */
+function SectionLinks({ links }: { links: readonly StageSectionLink[] }): ReactElement {
+  const { t } = useTranslation();
+  return (
+    <div className="stage-sections">
+      {links.map((link) => {
+        const address = link.kind === 'architecture' ? ARCHITECTURE_ADDRESS : REPOSITORIES_ADDRESS;
+        const known = KNOWN_SECTION_ROUTES.has(address);
+        const line = t(link.kind === 'architecture' ? 'stages.architectureLink' : 'stages.repositoriesLink');
+        if (known) {
+          return (
+            <p key={link.kind} className="stage-section-link" data-testid={`stage-section-${link.kind}`}>
+              <a href={address}>{line}</a>
+            </p>
+          );
+        }
+        return (
+          <p key={link.kind} className="stage-missing-line" data-testid={`stage-section-${link.kind}`}>
+            {line}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The routes the other features' sections answer, when their changes land. */
+const ARCHITECTURE_ADDRESS = '/p/madarch/architecture';
+const REPOSITORIES_ADDRESS = '/r';
+const KNOWN_SECTION_ROUTES = new Set<string>([]);
+
 /** The one stage's own page: every artifact a link, the tasks of Build, the linked sections, the missing lines. */
 export function StagePage({ stage, index }: { stage: StageSection; index: StagesIndex }): ReactElement {
   const { t } = useTranslation();
@@ -126,35 +182,29 @@ export function StagePage({ stage, index }: { stage: StageSection; index: Stages
           ))}
         </div>
       )}
-      {stage.sections?.map((link) =>
-        link.kind === 'architecture' ? (
-          <p key={link.kind} className="stage-section-link" data-testid="stage-section-architecture">
-            <FlaskConicalIcon aria-hidden="true" className="mr-1.5 inline size-4 align-[-2px] text-muted" />
-            {t('stages.architectureLink')}
-          </p>
-        ) : (
-          <p key={link.kind} className="stage-section-link" data-testid="stage-section-repositories">
-            <ListTodoIcon aria-hidden="true" className="mr-1.5 inline size-4 align-[-2px] text-muted" />
-            {t('stages.repositoriesLink')}
-          </p>
-        ),
-      )}
+      <SectionLinks links={stage.sections ?? []} />
       {stage.artifacts.length > 0 && (
         <div className="home-groups">
           {stage.artifacts.map((artifact) => (
             <div key={artifact.path} className="home-group" data-stage-artifact={artifact.path}>
-              <PageLink path={artifact.path} className="home-row">
-                <span className="home-row-title">{artifact.title}</span>
-                <span className="home-count">{t(`stages.kinds.${artifact.kind}`, { defaultValue: artifact.kind })}</span>
-              </PageLink>
+              {artifact.served ? (
+                <PageLink path={artifact.path} className="home-row">
+                  <span className="home-row-title">{artifact.title}</span>
+                  <span className="home-count">{t(`stages.kinds.${artifact.kind}`, { defaultValue: artifact.kind })}</span>
+                </PageLink>
+              ) : (
+                <div className="home-row" data-testid="stage-artifact-text">
+                  <span className="home-row-title">{artifact.title}</span>
+                  <span className="home-count">{t(`stages.kinds.${artifact.kind}`, { defaultValue: artifact.kind })}</span>
+                </div>
+              )}
             </div>
           ))}
         </div>
       )}
       {stage.tasks !== undefined && stage.tasks.length > 0 && <TaskGroups groups={stage.tasks} />}
-      {stage.tasks !== undefined && stage.tasks.length === 0 && stage.artifacts.length === 0 && (
-        <p className="stage-missing-line">{t('stages.noTasks')}</p>
-      )}
+      {stage.notes !== undefined && <Notes notes={stage.notes} />}
+      {stage.tasks !== undefined && stage.tasks.length === 0 && <p className="stage-missing-line">{t('stages.noTasks')}</p>}
       <MissingLines section={stage} />
     </main>
   );

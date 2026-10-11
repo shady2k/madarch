@@ -149,6 +149,8 @@ export type StageArtifact = {
   path: string;
   title: string;
   kind: string;
+  /** Whether the page reader serves this path; false renders the artifact as text, never a dead link. */
+  served: boolean;
 };
 
 export type TaskEntry = {
@@ -171,11 +173,18 @@ export type StageSectionLink = {
   present: boolean;
 };
 
+export type StageNote = {
+  where: string;
+  line: number;
+  message: string;
+};
+
 export type StageSection = {
   id: string;
   artifacts: StageArtifact[];
   missing: { kind: string; skill: string }[];
   tasks?: TaskFeature[];
+  notes?: StageNote[];
   sections?: StageSectionLink[];
   empty: boolean;
 };
