@@ -266,8 +266,8 @@ function createHandler(dependencies: {
       { method: 'GET', path: '/api/stages', handle: () => wiki.stages() },
       { method: 'GET', path: '/api/events', handle: wiki.events },
       { method: 'GET', path: '/api/architecture', handle: () => wiki.architecture() },
-      { method: 'GET', path: '/api/repos', handle: () => wiki.repos() },
       { method: 'GET', path: '/api/architecture/likec4.js', handle: () => wiki.likec4Script() },
+      ...(wiki.reposDeclared ? ([{ method: 'GET', path: '/api/repos', handle: () => wiki.repos() }] as Route[]) : []),
     ] as Route[]) : []),
   ];
 

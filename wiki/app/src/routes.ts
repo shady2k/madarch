@@ -51,6 +51,10 @@ export function routeOf(pathname: string): Route {
   if (pathname.startsWith('/p/')) {
     return { name: 'page', path: decodeURIComponent(pathname.slice('/p/'.length)) };
   }
+  // `/r` is the repositories' route, held only where the manifest declares
+  // repositories: the server refuses `/r` of an undeclared product, and the
+  // app links the page from the sidebar entry it renders from the declared
+  // list, never from a static place.
   if (pathname === REPOS_ADDRESS) {
     return { name: 'repos' };
   }

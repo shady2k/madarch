@@ -207,8 +207,12 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
         <Shell product={data.product} list={list} architecture={architecture} reposCount={data.repos.repos.length} reposOpen={route.name === 'repos'}>
         {route.name === 'home' ? (
           <HomePage product={data.product} list={list} architecture={architecture} />
-        ) : route.name === 'repos' ? (
+        ) : route.name === 'repos' && data.repos.repos.length > 0 ? (
           <RepositoriesPage product={data.product} repos={data.repos.repos} />
+        ) : route.name === 'repos' ? (
+          // `/r` of an undeclared product: no repositories section exists —
+          // the server refuses the route and the reader sees the home.
+          <HomePage product={data.product} list={list} architecture={architecture} />
         ) : route.name === 'architecture' ? (
           <ArchitectureReader key={'architecture:' + list.revision} revision={list.revision} routeName="index" />
         ) : route.name === 'view' ? (

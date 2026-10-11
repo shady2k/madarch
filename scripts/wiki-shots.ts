@@ -46,8 +46,13 @@ const REPOS_SCREENS = [
 function buildDemoCheckout(product: string): string {
   const target = join(product, 'repos', 'fieldnote-core');
   mkdirSync(join(target, 'src'), { recursive: true });
-  const env = {
-    ...process.env,
+  // The fixture's own sealed environment: git's configuration sources off
+  // and the fixture's identity, with NO loader variables (`GIT_DIR`,
+  // `GIT_INDEX_FILE`, `GIT_WORK_TREE`) — the caller's environment is not
+  // spread in, so nothing can redirect the fixture's git outside the
+  // checkout it is building (the project's fixture-environment pattern).
+  const env: Record<string, string> = {
+    PATH: process.env.PATH ?? '',
     GIT_CONFIG_GLOBAL: '/dev/null',
     GIT_CONFIG_NOSYSTEM: '1',
     GIT_AUTHOR_NAME: 'Fieldnote Fixture',
@@ -55,6 +60,7 @@ function buildDemoCheckout(product: string): string {
     GIT_COMMITTER_NAME: 'Fieldnote Fixture',
     GIT_COMMITTER_EMAIL: 'fieldnote-fixture@example.com',
   };
+  for (const name of ['GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE'] as const) delete env[name];
   const run = (args: string[]): string => {
     const done = spawnSync('git', args, { cwd: target, encoding: 'utf8', env });
     if (done.status !== 0) throw new Error(`git ${args.join(' ')} failed at the demo checkout: ${done.stderr}${done.stdout}`);

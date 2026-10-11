@@ -151,13 +151,22 @@ describe('the server\'s product mode', () => {
     expect(core.readme?.markdown).toBe('# core\n');
   });
 
-  test('GET /api/repos names an unreadable checkout instead of failing, and answers empty when the manifest declares none', async () => {
+  test('an undeclared product holds no /api/repos and no /r: both refuse, the home still answers (finding: the route exists only where repos are declared)', async () => {
     draft();
     builtApp();
     const url = startProduct();
-    const empty = await (await fetch(`${url}/api/repos`)).json();
-    expect((empty as { repos: unknown[] }).repos).toEqual([]);
-    server?.stop();
+    const reposAnswer = await fetch(`${url}/api/repos`);
+    expect(reposAnswer.status).toBe(404);
+    const pageAnswer = await fetch(`${url}/r`);
+    expect(pageAnswer.status).toBe(404);
+    expect(((await pageAnswer.json()) as { message: string }).message).toContain('/r');
+    const home = await fetch(`${url}/`);
+    expect(home.status).toBe(200);
+  });
+
+  test('GET /api/repos names an unreadable checkout instead of failing; the answer follows the declared list', async () => {
+    draft();
+    builtApp();
     writeFileSync(
       join(folder!, 'workspace.yaml'),
       'schemaVersion: 1\nid: demo\nname: Demo\nrepos:\n  - name: broken\n    url: https://example.com/broken.git\n',

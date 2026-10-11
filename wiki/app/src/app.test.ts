@@ -1275,6 +1275,16 @@ describe('the repositories section', () => {
     expect(document.querySelector('#repos')).toBeNull();
   });
 
+  test('the reader typing /r of an undeclared product gets the home content, never a repositories section', async () => {
+    install(answerWithRepos(product, listWithPages, pagesAtR1, []));
+    goto('/r');
+    intoApp(createElement(App));
+    await until(() => text().includes('Draft Idea'), 'the home at /r');
+    expect(document.querySelector('#repos')).toBeNull();
+    expect(document.querySelector('[data-testid="repos-lead"]')).toBeNull();
+    expect(document.querySelector('main#home')?.textContent).toContain('Draft Idea');
+  });
+
   test('the repositories labels come from the Russian catalogue when the chrome is Russian', async () => {
     await setWikiLanguage('ru');
     try {

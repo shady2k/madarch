@@ -160,6 +160,8 @@ export interface WikiPart {
   events: (request: Request) => Handled;
   /** `GET /api/repos`: the declared code repositories, their checkouts, HEADs and READMEs. */
   repos: () => Handled;
+  /** Whether the manifest declares any repository: the `/r` route exists only then. */
+  reposDeclared: boolean;
   /** The app's files: called for a path outside the route table, answering a file or index.html. */
   app: (pathname: string) => Handled | undefined;
 }
@@ -258,7 +260,10 @@ export function createWikiPart(
       const asked = readProductRepos(wiki.product);
       return { response: json(200, { repos: asked.repos }) };
     },
-    app: appFolder === undefined ? (): Handled | undefined => undefined : (pathname): Handled | undefined => serveAppFiles(json, refused, appFolder, pathname),
+    reposDeclared: wiki.product.repos.length > 0,
+    app: appFolder === undefined
+      ? (): Handled | undefined => undefined
+      : (pathname): Handled | undefined => serveAppFiles(json, refused, appFolder, pathname, wiki.product.repos.length > 0),
   };
 }
 
@@ -272,7 +277,7 @@ export function createWikiPart(
  * inside the app folder, % escapes decoded, no path climbing out of it — and
  * when no file answers it, it is a named 404, never index.html (finding 6).
  */
-function serveAppFiles(json: ReplyMaker['json'], refused: ReplyMaker['refused'], appFolder: string, pathname: string): Handled {
+function serveAppFiles(json: ReplyMaker['json'], refused: ReplyMaker['refused'], appFolder: string, pathname: string, reposDeclared: boolean): Handled {
   const root = resolve(appFolder);
   let wanted: string | undefined;
   try {
@@ -293,7 +298,7 @@ function serveAppFiles(json: ReplyMaker['json'], refused: ReplyMaker['refused'],
       // anything else is a named 404 (finding 6).
     }
   }
-  if (!isAppRoute(pathname)) {
+  if (!isAppRoute(pathname, reposDeclared)) {
     return refused(404, { message: `no such path "${pathname}": the server offers the wiki's API and the app's routes (${APP_ROUTE_PREFIXES.join(', ')})` });
   }
   try {
@@ -306,11 +311,12 @@ function serveAppFiles(json: ReplyMaker['json'], refused: ReplyMaker['refused'],
   }
 }
 
-/** The address prefixes the app itself answers: a page's route, a stage's route and the home page. */
+/** The address prefixes the app itself answers: a page's route, a stage's route and the home page; `/r` stands among them only where repositories are declared. */
 const APP_ROUTE_PREFIXES = ['/p/', '/r', '/s/', '/'];
 
-/** Whether the fallback to index.html may answer this path: only the app's own routes. */
-function isAppRoute(pathname: string): boolean {
-  return pathname === '/' || pathname.startsWith('/p/') || pathname === '/r' || pathname.startsWith('/s/');
+/** Whether the fallback to index.html may answer this path: only the app's own routes, `/r` only where the manifest declares repositories. */
+function isAppRoute(pathname: string, reposDeclared: boolean): boolean {
+  return pathname === '/' || pathname.startsWith('/p/') || pathname.startsWith('/s/')
+    || (reposDeclared && pathname === '/r');
 }
 

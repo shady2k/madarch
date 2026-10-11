@@ -44,7 +44,7 @@ function productWithCheckout(): string {
   return folder;
 }
 
-function rows(extra: Record<string, string>): { state: string; head?: { sha: string; subject: string }; problem?: string } {
+function rows(extra: Record<string, string>): { state: string; head?: { sha: string; subject: string }; readme?: { file: string; markdown: string }; problem?: string } {
   const read = readProduct(folder!);
   if (!read.ok) throw new Error(read.message);
   // The overrides go in raw: gitEnvironment inside the read is what strips
@@ -152,16 +152,32 @@ describe('the repositories read through its git gateway', () => {
     }
   });
 
-  test('a checkout whose HEAD git cannot read is named by git\'s own words, not an empty refusal', () => {
+  test('a checkout whose HEAD git cannot read is unreadable, named by git\'s own words', () => {
     productWithCheckout();
     const target = join(folder!, 'repos', 'core');
     // Corrupt the ref git reads for HEAD, keeping the repository otherwise:
-    // `log` now fails with git's own diagnostic on stderr.
+    // `log` now fails with git's own diagnostic on stderr. A HEAD the read
+    // cannot trust is not a checkout to report: the state is unreadable.
     writeFileSync(join(target, '.git', 'HEAD'), 'ref: refs/heads/main\\n');
     rmSync(join(target, '.git', 'refs', 'heads', 'main'));
     const row = rows({});
+    expect(row.state).toBe('unreadable');
+    expect(row.problem).toContain('could not be read');
+    expect(row.problem).toContain('HEAD of the checkout');
+    expect(row.problem).toContain(join(folder!, 'repos', 'core'));
+    expect(row.head).toBeUndefined();
+  });
+
+  test('an unborn branch is the one failed `git log` that stays checked-out: the no-commit cause named', () => {
+    productWithCheckout();
+    const target = join(folder!, 'repos', 'core');
+    // An unborn branch answers with git's own "does not have any commits
+    // yet": that is a fresh checkout, not a broken one.
+    rmSync(join(target, '.git', 'refs', 'heads', 'main'));
+    const row = rows({});
     expect(row.state).toBe('checked-out');
+    expect(row.head).toBeUndefined();
     expect(row.problem).toContain('no commit yet');
-    expect(row.problem?.length).toBeGreaterThan('the checkout  shows no commit yet: git answers: '.length);
+    expect(row.readme?.markdown).toBe('# core\n');
   });
 });

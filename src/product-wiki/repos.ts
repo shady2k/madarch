@@ -222,13 +222,26 @@ function readOne(productFolder: string, declared: ProductRepo, gitEnv: ProgramGi
   }
   // The HEAD: one commit, read-only, its short sha, subject and time.
   const head = gitRead(target, ['log', '-1', '--pretty=format:%h%x00%s%x00%cI'], gitEnv);
-  const next: ProductRepoEntry = { ...entry, state: 'checked-out' };
   if (!head.ok) {
-    // A repository with no commit yet is still a checkout: the row names the
-    // cause git itself gave, and the README below it can still show.
-    next.problem = `the checkout ${JSON.stringify(target)} shows no commit yet: git answers: ${head.output}`;
-    return withReadme(next, target, productFolder, declared.name);
+    // An unborn branch — a repository with no commit yet — is still a
+    // checkout: the row names it, and the README below it can still show.
+    // Any other HEAD git cannot read is an unreadable checkout: the state
+    // says so, with git's own words as the cause.
+    if (/does not have any commits yet/i.test(head.output)) {
+      const next: ProductRepoEntry = {
+        ...entry,
+        state: 'checked-out',
+        problem: `the checkout ${JSON.stringify(target)} shows no commit yet: git answers: ${head.output}`,
+      };
+      return withReadme(next, target, productFolder, declared.name);
+    }
+    return {
+      ...entry,
+      state: 'unreadable',
+      problem: `the HEAD of the checkout ${JSON.stringify(target)} could not be read: git answers: ${head.output}`,
+    };
   }
+  const next: ProductRepoEntry = { ...entry, state: 'checked-out' };
   const [sha, subject, committedAt] = head.output.split('\u0000');
   return withReadme({
     ...next,
