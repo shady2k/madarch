@@ -24,17 +24,55 @@ import {
   ChevronDownIcon,
   FileTextIcon,
   FolderGit2Icon,
-  FocusIcon,
   MenuIcon,
   PanelRightIcon,
 } from 'lucide-react';
 import type { PageList, PageMeta, Product } from './api.js';
+import { useTranslation } from 'react-i18next';
+import { setWikiLanguage, type WikiLanguage } from './i18n.js';
 import { routeContext, statusContext } from './hold.js';
 import { PageLink } from './view.js';
 import { Button } from '@/components/ui/button.js';
 import { Toggle } from '@/components/ui/toggle.js';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip.js';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet.js';
+
+/** The mockup's drawn lowercase m mark and dot, kept as one crisp vector glyph. */
+function BrandMark(): ReactElement {
+  return (
+    <svg aria-hidden="true" className="size-[32px] shrink-0 text-ink" viewBox="0 0 40 32">
+      <text x="0" y="25" fill="currentColor" fontFamily="Inter, sans-serif" fontSize="28" fontWeight="750" letterSpacing="-4">m<tspan fill="var(--text)">·</tspan></text>
+    </svg>
+  );
+}
+
+/** The mockup's four-corner focus glyph. */
+function FocusGlyph(): ReactElement {
+  return (
+    <svg aria-hidden="true" className="size-[22px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M3 16v3a2 2 0 0 0 2 2h3" />
+    </svg>
+  );
+}
+
+/** The mockup's narrow striped context-panel glyph. */
+function StripedPanelGlyph(): ReactElement {
+  return (
+    <svg aria-hidden="true" className="size-[22px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <path d="M6 3.5v17M10 3.5v17M14 3.5v17M18 3.5v17" />
+    </svg>
+  );
+}
+
+/** Filled document glyph from the mockup, with its paper lines knocked out. */
+function FilledDocumentGlyph({ className }: { className: string }): ReactElement {
+  return (
+    <svg aria-hidden="true" className={className} viewBox="0 0 16 16">
+      <path fill="currentColor" d="M3 1.5h6.2L13 5.3v9.2H3z" />
+      <path fill="none" stroke="var(--bg-page)" strokeWidth=".8" d="M9 1.8v3.8h3.7M5 8h6M5 10.5h6M5 13h4" />
+    </svg>
+  );
+}
 
 /** One group of the navigation: its title and its pages in path order. */
 export type NavGroup = { name: string; pages: PageMeta[] };
@@ -159,6 +197,8 @@ function NavPanel({ product, groups, current, onNavigate }: {
   onNavigate?: MouseEventHandler;
 }): ReactElement {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const { t, i18n } = useTranslation();
+  const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   const toggleGroup = (name: string): void => {
     setCollapsed((held) => {
       const next = new Set(held);
@@ -169,10 +209,10 @@ function NavPanel({ product, groups, current, onNavigate }: {
   };
   return (
     <>
-      <div className="nav-brand flex items-center gap-1.5 px-2 py-5">
-        <span aria-hidden="true" className="text-[20px] font-semibold leading-none text-ink">m<span className="text-muted">&middot;</span></span>
-        <strong className="text-[20px] font-semibold leading-none text-ink">madarch</strong>
-        <small className="nav-concept ml-auto rounded-[4px] border border-line px-[5px] py-0.5 text-[11px] leading-4 text-muted">wiki</small>
+      <div className="nav-brand flex items-center gap-2.5 px-2 py-[18px]">
+        <BrandMark />
+        <strong className="text-[20px] font-bold leading-none tracking-[-0.8px] text-ink">madarch</strong>
+        <small className="nav-concept ml-auto rounded-[4px] border border-line px-[5px] py-0.5 text-[11px] leading-4 text-muted">{t('brand.concept')}</small>
       </div>
       <div
         className="mb-3 flex w-full items-start gap-2.5 px-[9px] py-2"
@@ -180,13 +220,13 @@ function NavPanel({ product, groups, current, onNavigate }: {
       >
         <span
           aria-hidden="true"
-          className="grid size-[36px] shrink-0 place-items-center rounded-[6px] bg-ink text-[16px] font-semibold text-page"
+          className="grid size-[40px] shrink-0 place-items-center rounded-[6px] bg-white font-serif text-[22px] font-medium text-[#252525]"
         >
           {product.name.charAt(0).toUpperCase()}
         </span>
         <span className="min-w-0 flex-1">
           <b className="block text-[13px] leading-5 text-ink">{product.name}</b>
-          <small className="block text-[11px] leading-4 text-muted">Product space</small>
+          <small className="block text-[11px] leading-4 text-muted">{t('product.space')}</small>
         </span>
         <ChevronDownIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
       </div>
@@ -195,15 +235,15 @@ function NavPanel({ product, groups, current, onNavigate }: {
         href="/"
         data-testid="nav-overview"
       >
-        <span className="flex items-center gap-2.5"><PanelRightIcon aria-hidden="true" className="size-4 shrink-0 text-muted" /> Product overview</span>
+        <span className="flex items-center gap-2.5"><PanelRightIcon aria-hidden="true" className="size-4 shrink-0 text-muted" /> {t('navigation.overview')}</span>
       </a>
       <div className="mb-1.5 mt-2 flex items-center justify-between px-2">
-        <h2 className="text-[12px] uppercase tracking-[0.08em] text-muted">Documents</h2>
+        <h2 className="text-[12px] uppercase tracking-[0.08em] text-muted">{t('navigation.documents')}</h2>
         <span className="text-small text-muted" data-testid="documents-count">
           {groups.reduce((n, g) => n + g.pages.length, 0)}
         </span>
       </div>
-      <nav aria-label="Documents" className="min-h-0 flex-1 overflow-y-auto pb-4">
+      <nav aria-label={t('navigation.documents')} className="min-h-0 flex-1 overflow-y-auto pb-4">
         {groups.map((group) => {
           const isOpen = !collapsed.has(group.name);
           return (
@@ -218,7 +258,7 @@ function NavPanel({ product, groups, current, onNavigate }: {
                   className={'size-4 shrink-0 text-muted transition-transform duration-150 ' + (isOpen ? '' : '-rotate-90')}
                 />
                 <span className="nav-group-title min-w-0 flex-1 truncate text-[13px] text-secondary">
-                  {wordLabel(group.name)}
+                  {t('groups.' + group.name, { defaultValue: wordLabel(group.name) })}
                 </span>
                 <span className="text-small text-muted">{group.pages.length}</span>
               </button>
@@ -233,10 +273,7 @@ function NavPanel({ product, groups, current, onNavigate }: {
                           className={navLinkClasses(isCurrent)}
                           ariaCurrent={isCurrent ? 'page' : undefined}
                         >
-                          <FileTextIcon
-                            aria-hidden="true"
-                            className={'mt-[3px] size-4 shrink-0 ' + (isCurrent ? 'text-secondary' : 'text-muted')}
-                          />
+                          <FilledDocumentGlyph className={'mt-[3px] size-4 shrink-0 ' + (isCurrent ? 'text-secondary' : 'text-muted')} />
                           <span className="min-w-0 whitespace-normal leading-snug">{page.title}</span>
                         </PageLink>
                       </li>
@@ -249,18 +286,26 @@ function NavPanel({ product, groups, current, onNavigate }: {
         })}
       </nav>
       <div className="mt-2 flex items-center gap-2.5 border-t border-line px-1 py-3">
-        <FolderGit2Icon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-        <Tooltip>
-          {/* The folder name is what a reader recognises on their machine; the
-            * product id stays reachable beneath it (the checkpoint's defect:
-            * a UUID is not a name). */}
-          <TooltipTrigger asChild>
-            <b className="min-w-0 cursor-help truncate text-[13px] font-medium text-ink">
-              {product.folder ?? product.name}
-            </b>
-          </TooltipTrigger>
-          <TooltipContent>Product id: {product.id}</TooltipContent>
-        </Tooltip>
+        <FolderGit2Icon aria-hidden="true" className="size-[18px] shrink-0 text-muted" />
+        <span className="min-w-0 flex-1">
+          <b className="block truncate text-[13px] font-medium text-ink">{product.folder ?? product.name}</b>
+          <small className="block truncate text-[11px] leading-4 text-muted">{t('product.local')}</small>
+        </span>
+        <div className="language-switch flex shrink-0 items-center gap-0.5 rounded-[5px] border border-line p-0.5" role="group" aria-label={t('navigation.language')}>
+          {(['en', 'ru'] as const).map((option: WikiLanguage) => (
+            <button
+              key={option}
+              type="button"
+              data-language={option}
+              className={'rounded-[3px] px-1.5 py-1 text-[10px] ' + (language === option ? 'bg-pill font-semibold text-ink' : 'text-muted hover:text-ink')}
+              aria-label={t('navigation.switchTo', { language: t(option === 'en' ? 'navigation.english' : 'navigation.russian') })}
+              aria-pressed={language === option}
+              onClick={() => void setWikiLanguage(option)}
+            >
+              {option.toUpperCase()}
+            </button>
+          ))}
+        </div>
       </div>
     </>
   );
@@ -269,11 +314,12 @@ function NavPanel({ product, groups, current, onNavigate }: {
 /** The shell's bottom status bar: what is open publishes its parts; nothing open shows nothing. */
 export function StatusBar(): ReactElement {
   const { parts, connection } = useContext(statusContext);
+  const { t } = useTranslation();
   return (
     <footer className="statusbar" role="contentinfo">
       <span className="status-connection" data-testid="connection-status" data-state={connection} aria-live="polite">
         <span className="status-dot" aria-hidden="true" />
-        {connection === 'live' ? 'Live' : 'Reconnecting'}
+        {connection === 'live' ? t('status.live') : t('status.reconnecting')}
       </span>
       <span className="status-details">
         {parts?.map((part, at) => (
@@ -294,6 +340,7 @@ export function StatusBar(): ReactElement {
  */
 export function Shell({ product, list, children }: { product: Product; list: PageList; children: ReactNode }): ReactElement {
   const route = useContext(routeContext);
+  const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
   const [focused, setFocused] = useState(false);
   const menuRef = useRef<HTMLButtonElement>(null);
@@ -324,19 +371,19 @@ export function Shell({ product, list, children }: { product: Product; list: Pag
         <aside
           id="app-nav"
           className={'app-nav hidden w-[250px] wide:w-[270px] shrink-0 flex-col border-r border-line bg-chrome px-[14px] wide:px-[18px] md:flex'}
-          aria-label="Document navigation"
+          aria-label={t('navigation.aria')}
           hidden={focused}
         >
           <NavPanel product={product} groups={groups} current={current} onNavigate={() => setMenuOpen(false)} />
         </aside>
         <div className="shell-main flex min-w-0 flex-1 flex-col">
-          <header className="shell-toolbar flex min-h-[54px] items-center justify-between gap-3 border-b border-line px-4 wide:px-[35px]">
+          <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line px-4 wide:px-[35px]">
             <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
               {openPage === undefined ? (
-                'Product overview'
+                t('navigation.overview')
               ) : (
                 <>
-                  <span className="text-muted">{wordLabel(groupOf(openPage.path))}</span>{' '}
+                  <span className="text-muted">{t('groups.' + groupOf(openPage.path), { defaultValue: wordLabel(groupOf(openPage.path)) })}</span>{' '}
                   <span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
                   <span className="text-ink">{openPage.title}</span>
                 </>
@@ -352,7 +399,7 @@ export function Shell({ product, list, children }: { product: Product; list: Pag
                   <Button
                     ref={menuRef}
                     className="shell-menu md:!hidden"
-                    aria-label="Document navigation"
+                    aria-label={t('navigation.aria')}
                     aria-controls="app-nav"
                     aria-expanded={menuOpen}
                   >
@@ -361,6 +408,8 @@ export function Shell({ product, list, children }: { product: Product; list: Pag
                 </SheetTrigger>
                 <SheetContent
                   side="left"
+                  title={t('navigation.aria')}
+                  closeLabel={t('navigation.close')}
                   data-testid="phone-nav"
                   className={'app-nav w-[min(280px,_82vw)] px-[14px] py-3 ' + (focused ? 'bg-chrome' : '')}
                 >
@@ -374,29 +423,29 @@ export function Shell({ product, list, children }: { product: Product; list: Pag
                   setMenuOpen(false);
                   setFocused(next);
                 }}
-                aria-label="Focus mode"
+                aria-label={t('navigation.focus')}
               >
-                <FocusIcon aria-hidden="true" className="size-[22px]" />
+                <FocusGlyph />
               </Toggle>
               <Tooltip>
                 {/* The context panel stays a closed, empty place until
                  * madarch-fe1 fills it; the toggle names that honestly. */}
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" aria-disabled="true" aria-label="Page context" className="pointer-events-auto">
-                    <PanelRightIcon aria-hidden="true" className="size-[22px]" />
+                  <Button variant="ghost" size="icon" aria-disabled="true" aria-label={t('navigation.context')} className="pointer-events-auto">
+                    <StripedPanelGlyph />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Page context arrives with madarch-fe1</TooltipContent>
+                <TooltipContent>{t('navigation.contextUnavailable')}</TooltipContent>
               </Tooltip>
             </span>
           </header>
           {/* The tab strip row under the top bar: the open file's name on its
            * tab. The mockup's view switch and history button stay out until
            * they work (madarch-j0a); the row's structure stands now. */}
-          <div className="document-bar flex min-h-[45px] items-stretch bg-ground wide:min-h-[53px]">
-            <div className="document-tab flex items-center gap-2 border-r border-line bg-page px-6 text-[13px] text-secondary" data-testid="document-tab">
+          <div className="document-bar flex min-h-[45px] items-stretch bg-ground">
+            <div className="document-tab flex min-w-[182px] items-center gap-2 border-r border-line bg-page px-[25px] text-[13px] text-secondary" data-testid="document-tab">
               <FileTextIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-              <span className="truncate">{openPage?.path.split('/').pop() ?? 'Product overview'}</span>
+              <span className="truncate">{openPage?.path.split('/').pop() ?? t('navigation.overview')}</span>
             </div>
           </div>
           {/* The window-height shell: every panel and bar stays in place and
@@ -406,7 +455,7 @@ export function Shell({ product, list, children }: { product: Product; list: Pag
             <div className="shell-scroll min-w-0 flex-1 overflow-y-auto">
               <div className="shell-document w-full">{children}</div>
             </div>
-            <aside className="context-panel" aria-label="Page context" hidden></aside>
+            <aside className="context-panel" aria-label={t('navigation.context')} hidden></aside>
           </div>
           <StatusBar />
         </div>

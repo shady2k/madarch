@@ -23,8 +23,8 @@ const sideClasses: Record<SheetSide, string> = {
 
 export const SheetContent = forwardRef<
   HTMLDivElement,
-  React.ComponentProps<typeof DialogPrimitive.Content> & { side?: SheetSide }
->(function SheetContent({ className, children, side = 'left', ...props }, ref): ReactElement {
+  React.ComponentProps<typeof DialogPrimitive.Content> & { side?: SheetSide; title?: string; closeLabel?: string }
+>(function SheetContent({ className, children, side = 'left', title = 'Navigation', closeLabel = 'Close', ...props }, ref): ReactElement {
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-ink/40" />
@@ -37,10 +37,10 @@ export const SheetContent = forwardRef<
         )}
         {...props}
       >
-        <DialogPrimitive.Title className="sr-only">Document navigation</DialogPrimitive.Title>
+        <DialogPrimitive.Title className="sr-only">{title}</DialogPrimitive.Title>
         <DialogPrimitive.Close className="absolute right-2 top-2 rounded-[5px] p-1 text-secondary hover:bg-pill hover:text-ink">
           <XIcon aria-hidden="true" size={16} />
-          <span className="sr-only">Close navigation</span>
+          <span className="sr-only">{closeLabel}</span>
         </DialogPrimitive.Close>
         {children}
       </DialogPrimitive.Content>

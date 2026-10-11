@@ -15,11 +15,13 @@ import { createRoot, type Root } from 'react-dom/client';
 import { createElement } from 'react';
 import { App, HomePage, PageReader, EVENTS_PATH } from './app.js';
 import { groupNav } from './shell.js';
+import { languageStorageKey, setWikiLanguage } from './i18n.js';
 import { addressOfPage } from './routes.js';
 import type { Product, PageList, Page } from './api.js';
 
-beforeAll(() => {
+beforeAll(async () => {
   GlobalRegistrator.register({ url: 'http://localhost/' });
+  await setWikiLanguage('en');
 });
 
 afterAll(async () => {
@@ -971,3 +973,60 @@ describe('groupNav', () => {
   });
  });
 
+
+
+describe('language switch', () => {
+  test('the footer control changes chrome strings and remembers the choice', async () => {
+    await setWikiLanguage('en');
+    install(answerFor(product, listWithPages, pagesAtR1));
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('[data-testid="nav-overview"]') !== null, 'the overview control');
+    expect(document.querySelector('[data-testid="nav-overview"]')?.textContent).toContain('Product overview');
+
+    const russian = document.querySelector('#app-nav .language-switch button:last-child') as HTMLButtonElement | null;
+    expect(russian).not.toBeNull();
+    russian?.click();
+    await until(() => document.querySelector('[data-testid="nav-overview"]')?.textContent?.includes('Обзор продукта'), 'Russian chrome');
+    await until(() => document.documentElement.lang === 'ru', 'Russian document language metadata');
+    expect(document.title).toBe('Draft Idea — вики продукта');
+    expect(document.querySelector('#app-nav .language-switch')?.getAttribute('aria-label')).toBe('Язык');
+    expect(window.localStorage.getItem(languageStorageKey)).toBe('ru');
+    expect(document.querySelector('.status-details')?.textContent).toContain('3 документа');
+
+    unmount();
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('[data-testid="nav-overview"]')?.textContent?.includes('Обзор продукта'), 'the saved Russian choice after reload');
+
+    const english = document.querySelector('#app-nav .language-switch button:first-child') as HTMLButtonElement | null;
+    english?.click();
+    await until(() => document.querySelector('[data-testid="nav-overview"]')?.textContent?.includes('Product overview'), 'English chrome');
+    await until(() => document.documentElement.lang === 'en', 'English document language metadata');
+    expect(document.title).toBe('Draft Idea — product wiki');
+    expect(window.localStorage.getItem(languageStorageKey)).toBe('en');
+  });
+});
+
+
+describe('real page metadata', () => {
+  test('the eyebrow formats the file mtime in the selected locale', async () => {
+    await setWikiLanguage('en');
+    const changedAt = new Date(Date.now() - 5 * 60_000).toISOString();
+    const pagesWithMtime: Record<string, Page> = {
+      ...pagesAtR1,
+      'docs/vision.md': { ...pagesAtR1['docs/vision.md']!, changedAt },
+    };
+    install(answerFor(product, listWithPages, pagesWithMtime));
+    goto('/p/docs/vision.md');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('.document-meta')?.textContent?.includes('changed 5 min. ago'), 'the English changed-time label');
+    expect(document.querySelector('.document-meta')?.textContent).toContain('Product vision');
+
+    const russian = document.querySelector('#app-nav .language-switch button[data-language="ru"]') as HTMLButtonElement | null;
+    russian?.click();
+    await until(() => document.querySelector('.document-meta')?.textContent?.includes('изменён 5 мин. назад'), 'the Russian changed-time label');
+    expect(document.querySelector('.document-meta')?.textContent).toContain('Видение продукта');
+    await setWikiLanguage('en');
+  });
+});

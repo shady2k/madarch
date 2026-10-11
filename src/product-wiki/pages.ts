@@ -60,6 +60,8 @@ export interface WikiPage {
   path: string;
   title: string;
   markdown: string;
+  /** The source file's last filesystem modification time, for honest UI metadata. */
+  changedAt?: string;
 }
 
 /** The wiki's pages as one ask found them. */
@@ -160,7 +162,13 @@ class FreshProductWiki implements ProductWiki {
     }
     const markdown = this.fileText(path);
     if (!markdown.ok) return markdown;
-    return { ok: true, page: { path, title: titleOf(path, markdown.markdown), markdown: markdown.markdown } };
+    let changedAt: string;
+    try {
+      changedAt = statSync(joinPath(this.product.folder, ...path.split('/'))).mtime.toISOString();
+    } catch (error) {
+      return { ok: false, message: `the page ${JSON.stringify(path)} modification time could not be read from ${JSON.stringify(this.product.folder)}: ${(error as Error).message}` };
+    }
+    return { ok: true, page: { path, title: titleOf(path, markdown.markdown), markdown: markdown.markdown, changedAt } };
   }
 
   /** One page's bytes, read from disk now — or the refusal that reading gave. */

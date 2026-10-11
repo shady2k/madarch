@@ -35,6 +35,7 @@ const SIZES: Record<string, { width: number; height: number; scheme: 'dark' | 'l
   '1440' : { width: 1440, height: 900, scheme: 'dark' },
   '1440-light': { width: 1440, height: 900, scheme: 'light' },
   '1150': { width: 1150, height: 900, scheme: 'light' },
+  '1110': { width: 1110, height: 900, scheme: 'light' },
   '390': { width: 390, height: 844, scheme: 'light' },
   'tall': { width: 1440, height: 1400, scheme: 'dark' },
   'tall-light' : { width: 1440, height: 1400, scheme: 'light' },
@@ -47,6 +48,11 @@ function argument(name: string, defaultValue: string): string {
 
 const outFolder = resolvePath(argument('out', '/tmp/madarch-wiki-shots'));
 const mockupFolder = argument('mockup', '');
+const uiLanguage = argument('language', 'en');
+if (uiLanguage !== 'en' && uiLanguage !== 'ru') {
+  console.error(`unknown UI language ${JSON.stringify(uiLanguage)}: choose en or ru`);
+  process.exit(2);
+}
 const mockupIndex = mockupFolder === '' ? undefined : join(mockupFolder, 'index.html');
 if (mockupIndex !== undefined && !existsSync(mockupIndex)) {
   console.error(`no mockup at ${mockupIndex}: give --mockup <the dist folder of the mockup>, or run without it for our shots only`);
@@ -67,6 +73,13 @@ try {
     args: ['--no-sandbox', '--disable-dev-shm-usage', '--hide-scrollbars'],
   });
   try {
+    const selectUiLanguage = async (page: import('puppeteer-core').Page): Promise<void> => {
+      await page.evaluate((language: string) => {
+        window.localStorage.setItem('madarch-wiki-language', language);
+      }, uiLanguage);
+      await page.reload({ waitUntil: 'load', timeout: 30_000 });
+      await page.waitForSelector('main', { timeout: 20_000 });
+    };
     const shotOf = async (address: string, size: string, sink: string): Promise<Shot | undefined> => {
       // A page per shot: every navigation closes its stream, and a page
       // that keeps nothing open keeps the shots deterministic.
@@ -80,6 +93,7 @@ try {
       await page.goto(address, { waitUntil: 'load', timeout: 30_000 });
       const ready = await page.waitForSelector('main', { timeout: 20_000 });
       if (ready === null) throw new Error(`no document renders at ${address}`);
+      if (sink.endsWith('-ours')) await selectUiLanguage(page);
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: scheme }]);
       await new Promise((step) => setTimeout(step, 400));
       const file = join(outFolder, `${sink}-${size}.png`);
@@ -105,6 +119,7 @@ try {
       await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
       await page.goto(ours + '/', { waitUntil: 'load', timeout: 30_000 });
       await page.waitForSelector('.shell-menu', { timeout: 15_000 });
+      await selectUiLanguage(page);
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
       await page.click('.shell-menu');
       await new Promise((step) => setTimeout(step, 600));
@@ -123,6 +138,7 @@ try {
       await page.setViewport({ width, height, deviceScaleFactor: 1 });
       await page.goto(ours + '/', { waitUntil: 'load', timeout: 30_000 });
       await page.waitForSelector('main', { timeout: 20_000 });
+      await selectUiLanguage(page);
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: scheme }]);
       await page.waitForSelector('main', { timeout: 15_000 });
       await page.evaluate(() => document.querySelector('.shell-scroll')?.scrollTo({ top: 1e6 }));

@@ -1,0 +1,91 @@
+{
+  "brand": {
+    "product": "Madarch",
+    "concept": "вики",
+    "title": "{{product}} — вики продукта"
+  },
+  "product": {
+    "space": "Пространство продукта",
+    "local": "Локально"
+  },
+  "navigation": {
+    "overview": "Обзор продукта",
+    "documents": "Документы",
+    "aria": "Навигация по документам",
+    "close": "Закрыть навигацию",
+    "menu": "Открыть навигацию",
+    "focus": "Режим фокуса",
+    "context": "Контекст страницы",
+    "contextUnavailable": "Контекст страницы пока недоступен",
+    "language": "Язык",
+    "english": "Английский",
+    "russian": "Русский",
+    "switchTo": "Переключить язык на {{language}}"
+  },
+  "groups": {
+    "product": "Продукт",
+    "requirements": "Требования",
+    "decisions": "Решения",
+    "research": "Исследования",
+    "prototypes": "Прототипы",
+    "results": "Результаты",
+    "stories": "Сценарии",
+    "sources": "Источники",
+    "hypotheses": "Гипотезы",
+    "questions": "Вопросы",
+    "use-cases": "Сценарии использования",
+    "other": "Другое"
+  },
+  "kinds": {
+    "readme": "О проекте",
+    "vision": "Видение продукта",
+    "requirement": "Требование",
+    "decision": "Решение",
+    "research": "Исследование",
+    "product": "Продукт",
+    "other": "Документ"
+  },
+  "home": {
+    "overview": "Обзор продукта",
+    "lead": "Пространство продукта {{product}}: {{count}} {{documentUnit}} в {{groupCount}} {{groupUnit}}.",
+    "noPages": "В {{product}} пока нет документов."
+  },
+  "document": {
+    "changed": "изменён {{when}}",
+    "local": "Локальный файл"
+  },
+  "status": {
+    "live": "В сети",
+    "reconnecting": "Переподключение",
+    "words": "{{count}} {{unit}}",
+    "formatMarkdown": "Markdown",
+    "formatUtf8": "UTF-8",
+    "documents": "{{count}} {{unit}}"
+  },
+  "units": {
+    "word_one": "слово",
+    "word_few": "слова",
+    "word_many": "слов",
+    "word_other": "слова",
+    "document_one": "документ",
+    "document_few": "документа",
+    "document_many": "документов",
+    "document_other": "документа",
+    "group_one": "группа",
+    "group_few": "группы",
+    "group_many": "групп",
+    "group_other": "группы"
+  },
+  "loading": {
+    "wiki": "Загрузка вики"
+  },
+  "errors": {
+    "prefix": "Не удалось загрузить содержимое вики.",
+    "details": "Подробности: {{message}}",
+    "retrying": "Повторная попытка…"
+  },
+  "tooltips": {
+    "productId": "ID продукта: {{id}}",
+    "contextUnavailable": "Контекст страницы пока недоступен"
+  }
+}

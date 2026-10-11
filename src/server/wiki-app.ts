@@ -181,7 +181,7 @@ export function createWikiPart(
           ? refused(404, { field: 'path', message: asked.message })
           : refused(500, { field: 'path', message: asked.message });
       }
-      return { response: json(200, { path: asked.page.path, title: asked.page.title, markdown: asked.page.markdown }) };
+      return { response: json(200, { path: asked.page.path, title: asked.page.title, markdown: asked.page.markdown, changedAt: asked.page.changedAt }) };
     },
     events: (request) => streamingEvents(wiki, request),
     app: appFolder === undefined ? (): Handled | undefined => undefined : (pathname): Handled | undefined => serveAppFiles(json, refused, appFolder, pathname),

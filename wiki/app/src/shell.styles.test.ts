@@ -18,6 +18,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { Shell } from './shell.js';
+import { setWikiLanguage } from './i18n.js';
 import { routeContext, statusContext } from './hold.js';
 import type { Product, PageList, PageMeta } from './api.js';
 
@@ -27,8 +28,9 @@ const tokensCss = readFileSync(join(here, 'styles/tokens.css'), 'utf8');
 const sheetTsx = readFileSync(join(here, 'components/ui/sheet.tsx'), 'utf8');
 const shellTsx = readFileSync(join(here, 'shell.tsx'), 'utf8');
 
-beforeAll(() => {
+beforeAll(async () => {
   GlobalRegistrator.register({ url: 'http://localhost/' });
+  await setWikiLanguage('en');
 });
 
 afterAll(async () => {
@@ -130,7 +132,7 @@ describe('the shell markup', () => {
     expect(block?.textContent).toContain('Draft Idea');
     expect(block?.textContent).toContain('Product space');
     expect(block?.textContent).not.toContain('the demo files live under docs/');
-    expect(block?.querySelector('span.grid')?.className).toContain('size-[36px]');
+    expect(block?.querySelector('span.grid')?.className).toContain('size-[40px]');
     const overview = container.querySelector('[data-testid="nav-overview"]');
     expect(overview).not.toBeNull();
     expect(overview?.textContent).toContain('Product overview');
@@ -191,6 +193,18 @@ describe('the shell markup', () => {
     // the carried state names itself: a bare shell (no app stream bound) is reconnecting
     expect(bar?.querySelector('[data-testid="connection-status"]')?.getAttribute('data-state')).toBe('reconnecting');
     expect(bar?.querySelector('.status-dot')).not.toBeNull();
+  });
+
+  test('the sidebar navigation scrolls between its fixed heading and footer', async () => {
+    const container = await intoShell();
+    const aside = container.querySelector('#app-nav');
+    const nav = aside?.querySelector('nav');
+    expect(aside?.className).toContain('flex-col');
+    expect(nav?.className).toContain('min-h-0 flex-1 overflow-y-auto');
+    expect(nav?.previousElementSibling?.textContent).toContain('Documents');
+    expect(nav?.nextElementSibling?.textContent).toContain('idea-2026-10-10');
+    expect(nav?.nextElementSibling?.textContent).toContain('Served locally');
+    expect(nav?.nextElementSibling?.className).toContain('border-t');
   });
 
   test('the shell fills the window and the only scrolling lives in the document column', () => {

@@ -14,7 +14,9 @@
  * while the retries run.
  */
 import { useContext, useEffect, useRef, useState, useCallback, type ReactElement, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FileTextIcon } from 'lucide-react';
+import { relativeTime } from './i18n.js';
 import { getProduct, getPages, getPage, type Product, type PageList, type Page } from './api.js';
 import { routeOf, addressOfPage } from './routes.js';
 import { Markdown, PageLink } from './view.js';
@@ -46,11 +48,17 @@ export type AppProps = {
 };
 
 export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, reconnectMs = defaultReconnectMs }: AppProps): ReactElement {
+  const { t, i18n } = useTranslation();
   const [route, setRoute] = useState<RouteSnapshot>(() => routeOf(window.location.pathname));
   const [data, setData] = useState<{ product: Product; list: PageList } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [streamConnected, setStreamConnected] = useState(false);
+  const productName = data?.product.name;
+  useEffect(() => {
+    document.documentElement.lang = i18n.resolvedLanguage ?? 'en';
+    document.title = t('brand.title', { product: productName ?? 'madarch' });
+  }, [i18n.resolvedLanguage, productName, t]);
 
   // The route follows the history bar: back and forward as much as the app's own moves.
   useEffect(() => {
@@ -180,7 +188,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
   }, [reconnectMs]);
 
   if (error !== null) return <ErrorLine message={error} />;
-  if (data === null) return <p className="loading">Waiting for the wiki</p>;
+  if (data === null) return <p className="loading">{t('loading.wiki')}</p>;
 
   const list = data.list;
   const heldPaths = new Set(list.pages.map((meta) => meta.path));
@@ -204,12 +212,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
   );
 }
 
-/** The home's facts, read again only when the document count changes. */
-export const homeStatus = (documents: number): readonly string[] | null =>
-  documents === 0
-    ? null
-    : [`${documents} ${documents === 1 ? 'document' : 'documents'}`, 'Markdown', 'UTF-8'];
-
+/** The home page's status is localized in its current UI language. */
 /** Whether two status lines name exactly the same parts; the same line is one state, not a new one. */
 function sameLine(held: readonly string[] | null, parts: readonly string[] | null): boolean {
   if (held === parts) return true;
@@ -247,16 +250,23 @@ export function HomePage({ product, list }: { product: Product; list: PageList }
   const groups = groupNav(list.pages);
   const documents = list.pages.length;
   const { publish } = useContext(statusContext);
+  const { t } = useTranslation();
+  const documentUnit = t('units.document', { count: documents });
+  const groupUnit = t('units.group', { count: groups.length });
   useEffect(() => {
-    publish(homeStatus(documents));
+    publish(documents === 0 ? null : [
+      t('status.documents', { count: documents, unit: documentUnit }),
+      t('status.formatMarkdown'),
+      t('status.formatUtf8'),
+    ]);
     return () => publish(null);
-  }, [publish, documents]);
+  }, [publish, documents, documentUnit, t]);
   const lead = documents === 0
-    ? `${product.name} has no pages yet.`
-    : `The reading space of ${product.name}: ${documents} ${documents === 1 ? 'document' : 'documents'} in ${groups.length} ${groups.length === 1 ? 'group' : 'groups'}.`;
+    ? t('home.noPages', { product: product.name })
+    : t('home.lead', { product: product.name, count: documents, documentUnit, groupCount: groups.length, groupUnit });
   return (
     <main id="home">
-      <p className="eyebrow">Product overview</p>
+      <p className="eyebrow">{t('home.overview')}</p>
       <h1 className="app-title">{product.name}</h1>
       <p className="home-lead" data-testid="home-lead">{lead}</p>
       {documents === 0 ? null : (
@@ -264,7 +274,7 @@ export function HomePage({ product, list }: { product: Product; list: PageList }
           {groups.map((group) => (
             <section key={group.name} data-kind={group.name} className="home-group mt-7 first:mt-0">
               <header className="home-group-head">
-                <h2 className="text-ink">{wordLabel(group.name)}</h2>
+                <h2 className="text-ink">{t('groups.' + group.name, { defaultValue: wordLabel(group.name) })}</h2>
                 <span className="home-count" data-testid="card-count">{group.pages.length}</span>
               </header>
               <ul className="home-rows">
@@ -301,6 +311,7 @@ export function PageReader({
   heldPaths: ReadonlySet<string>;
   retryMs?: number;
 }): ReactElement {
+  const { t, i18n } = useTranslation();
   const [page, setPage] = useState<Page | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tries, setTries] = useState(0);
@@ -327,11 +338,17 @@ export function PageReader({
   // count and its format facts. The facts leave when the page leaves, so a
   // home page is never shown a document's count.
   const { publish } = useContext(statusContext);
+  const words = page === null ? 0 : wordCount(page.markdown);
+  const wordUnit = t('units.word', { count: words });
   useEffect(() => {
     if (page === null) publish(null);
-    else publish([`${wordCount(page.markdown)} words`, 'Markdown', 'UTF-8']);
+    else publish([
+      t('status.words', { count: words, unit: wordUnit }),
+      t('status.formatMarkdown'),
+      t('status.formatUtf8'),
+    ]);
     return () => publish(null);
-  }, [page, publish]);
+  }, [page, publish, t, words, wordUnit]);
 
   useEffect(() => {
     let alive = true;
@@ -361,14 +378,18 @@ export function PageReader({
   if (error !== null && page === null && tries >= pageTriesLimit)
     return <ErrorLine message={error} />;
   if (error !== null) return <ErrorLine message={error} />;
-  if (page === null) return <p className="loading">Waiting for the wiki</p>;
+  if (page === null) return <p className="loading">{t('loading.wiki')}</p>;
   return (
     <main id="page" ref={pageRef}>
       {/* The mockup's document header: the kind as an eyebrow above the title.
        * Exactly one h1 per page: when the document renders its own
        * first-level heading, the fallback title above it is not rendered
        * (the checkpoint's doubled-title defect). */}
-      <p className="eyebrow">{kindOf(path, groupOf(path))}</p>
+      <div className="document-meta eyebrow">
+        <strong className="eyebrow-kind">{t('kinds.' + kindOf(path, groupOf(path)).toLowerCase(), { defaultValue: kindOf(path, groupOf(path)) })}</strong>
+        <span className="eyebrow-dot" aria-hidden="true">•</span>
+        <span className="eyebrow-secondary">{page.changedAt ? t('document.changed', { when: relativeTime(page.changedAt, i18n.resolvedLanguage) }) : t('document.local')}</span>
+      </div>
       {!ownTitle && <h1 className="app-title">{page.title}</h1>}
       <Markdown text={page.markdown} />
     </main>
@@ -382,5 +403,11 @@ function revisionKey(heldPaths: ReadonlySet<string>): string {
 
 /** A failed read, shown to the reader as a short message naming what was asked for. */
 export function ErrorLine({ message }: { message: string }): ReactElement {
-  return <p className="error">{message}</p>;
+  const { t } = useTranslation();
+  return (
+    <p className="error">
+      <strong>{t('errors.prefix')}</strong>{' '}
+      <span>{t('errors.details', { message })}</span>
+    </p>
+  );
 }

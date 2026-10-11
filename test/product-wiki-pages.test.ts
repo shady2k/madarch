@@ -112,6 +112,7 @@ describe('the pages a product holds', () => {
     const first = product.page('docs/vision.md');
     if (!first.ok) throw new Error(first.message);
     expect(first.page.markdown).toBe('# Vision\n\none\n');
+    expect(Number.isFinite(Date.parse(first.page.changedAt ?? ''))).toBe(true);
     write('docs/vision.md', '# Vision\n\ntwo\n');
     const second = product.page('docs/vision.md');
     if (!second.ok) throw new Error(second.message);

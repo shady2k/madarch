@@ -27,6 +27,7 @@ export type Page = {
   path: string;
   title: string;
   markdown: string;
+  changedAt?: string;
   revision?: string;
 };
 

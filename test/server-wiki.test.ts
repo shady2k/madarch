@@ -181,9 +181,10 @@ describe('the server\'s product mode', () => {
     const url = startProduct();
     const first = await fetch(`${url}/api/page?path=docs%2Fvision.md`);
     expect(first.status).toBe(200);
-    const body = (await first.json()) as { path: string; title: string; markdown: string };
+    const body = (await first.json()) as { path: string; title: string; markdown: string; changedAt: string };
     expect(body.title).toBe('Vision');
     expect(body.markdown).toBe('# Vision\n\nWhat it is for.\n');
+    expect(Number.isFinite(Date.parse(body.changedAt))).toBe(true);
     writeFileSync(join(folder!, 'docs', 'vision.md'), '# Vision\n\nWhat it is for, now twice.\n');
     const second = await fetch(`${url}/api/page?path=docs/vision.md`);
     const body2 = (await second.json()) as { markdown: string };

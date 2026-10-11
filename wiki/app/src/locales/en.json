@@ -1,0 +1,91 @@
+{
+  "brand": {
+    "product": "Madarch",
+    "concept": "wiki",
+    "title": "{{product}} — product wiki"
+  },
+  "product": {
+    "space": "Product space",
+    "local": "Served locally"
+  },
+  "navigation": {
+    "overview": "Product overview",
+    "documents": "Documents",
+    "aria": "Document navigation",
+    "close": "Close navigation",
+    "menu": "Open navigation",
+    "focus": "Focus mode",
+    "context": "Page context",
+    "contextUnavailable": "Page context is not available yet",
+    "language": "Language",
+    "english": "English",
+    "russian": "Russian",
+    "switchTo": "Switch language to {{language}}"
+  },
+  "groups": {
+    "product": "Product",
+    "requirements": "Requirements",
+    "decisions": "Decisions",
+    "research": "Research",
+    "prototypes": "Prototypes",
+    "results": "Results",
+    "stories": "Stories",
+    "sources": "Sources",
+    "hypotheses": "Hypotheses",
+    "questions": "Questions",
+    "use-cases": "Use cases",
+    "other": "Other"
+  },
+  "kinds": {
+    "readme": "README",
+    "vision": "Product vision",
+    "requirement": "Requirement",
+    "decision": "Decision",
+    "research": "Research",
+    "product": "Product",
+    "other": "Document"
+  },
+  "home": {
+    "overview": "Product overview",
+    "lead": "The reading space of {{product}}: {{count}} {{documentUnit}} in {{groupCount}} {{groupUnit}}.",
+    "noPages": "{{product}} has no pages yet."
+  },
+  "document": {
+    "changed": "changed {{when}}",
+    "local": "Local file"
+  },
+  "status": {
+    "live": "Live",
+    "reconnecting": "Reconnecting",
+    "words": "{{count}} {{unit}}",
+    "formatMarkdown": "Markdown",
+    "formatUtf8": "UTF-8",
+    "documents": "{{count}} {{unit}}"
+  },
+  "units": {
+    "word_one": "word",
+    "word_other": "words",
+    "document_one": "document",
+    "document_other": "documents",
+    "group_one": "group",
+    "group_other": "groups",
+    "word_few": "words",
+    "word_many": "words",
+    "document_few": "documents",
+    "document_many": "documents",
+    "group_few": "groups",
+    "group_many": "groups"
+  },
+  "loading": {
+    "wiki": "Waiting for the wiki"
+  },
+  "errors": {
+    "prefix": "The wiki could not load this content.",
+    "details": "Details: {{message}}",
+    "retrying": "Retrying…"
+  },
+  "tooltips": {
+    "productId": "Product id: {{id}}",
+    "contextUnavailable": "Page context is not available yet"
+  }
+}
