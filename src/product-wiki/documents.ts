@@ -237,6 +237,9 @@ export function resolveBodyLink(fromPath: string, target: string, held: Readonly
   if (/^[a-z][a-z0-9+.-]*:/i.test(wanted)) return undefined;
   if (wanted.startsWith('/p/')) {
     let path = wanted.slice('/p/'.length);
+    // The address may carry a fragment or a query ("#section", "?x"): the
+    // page is the path before them.
+    path = (path.split('#')[0] ?? '').split('?')[0] ?? '';
     try { path = decodeURIComponent(path); } catch { return undefined; }
     return held.has(path) ? path : undefined;
   }
@@ -287,13 +290,29 @@ function isIdOrVision(value: string): boolean {
 }
 
 /**
+ * The set's link fields, per form, as references/product.md names them: the
+ * only fields whose values the wiki reads as the document's links. A field
+ * outside this table is never a link field here, however id-shaped its
+ * value looks — the check owns what a form refuses; the wiki reads only
+ * the links the forms define.
+ */
+const LINK_FIELDS: { [name: string]: true } = {
+  'Grew from': true,
+  'Serves': true,
+  'Concerns': true,
+  'Tests': true,
+  'Of': true,
+  'Supersedes': true,
+};
+
+/**
  * Reads one page's Markdown as a document of the set, or as a plain page
  * (kind `undefined`): the identity line `# <ID> — <title>` gives the
  * chain's and the practice's documents their id and kind; the path's place
  * gives the project documents theirs. The fields stand one per line as
  * `Name: value` between the identity line and the first `## ` section;
- * every section records where it begins and what it holds. A link field is
- * any field whose value names ids or `VISION`; the mentions and the body's
+ * every section records where it begins and what it holds. Only the set's
+ * link fields (LINK_FIELDS) are read as links; the mentions and the body's
  * links are read outside code spans and fences, per structural line.
  */
 export function parseDocument(path: string, markdown: string, held: ReadonlySet<string>): ParsedDocument {
@@ -301,8 +320,11 @@ export function parseDocument(path: string, markdown: string, held: ReadonlySet<
   const first = all.find((line) => line.raw.trim());
   const head = first !== undefined && first.structural ? first.raw.match(/^# (\S+) — (.+)$/) : null;
   const idText = head !== null ? head[1] : undefined;
-  const id = idText !== undefined && ID_REGEX.test(idText) ? idText : undefined;
-  const kind = id !== undefined && id.indexOf('-') > 0 ? ID_PREFIX_KIND[id.slice(0, id.indexOf('-'))] : kindOfPath(path);
+  let id = idText !== undefined && ID_REGEX.test(idText) ? idText : undefined;
+  // The vision is a document of the chain whose id is the word VISION,
+  // whether its identity line names it or not: docs/vision.md is VISION,
+  // so `Grew from: VISION` resolves and id-based backlinks reach it.
+  if (id === undefined && path === 'docs/vision.md') id = 'VISION';
   const titleText = head !== null ? head[2] : undefined;
   const title = titleText !== undefined ? titleText.trim() : first !== undefined ? first.raw.replace(/^#\s*/, '').trim() : path.replace(/\.md$/, '');
 
@@ -342,6 +364,15 @@ export function parseDocument(path: string, markdown: string, held: ReadonlySet<
       .trim();
   }
 
+  // The kind: the identity line's prefix first (a chain document keeps its
+  // kind whatever folder it stands in), else the page's place; a practice
+  // retired by its own written status sorts into the retired group.
+  let kind = id !== undefined && id.indexOf('-') > 0 ? ID_PREFIX_KIND[id.slice(0, id.indexOf('-'))] : kindOfPath(path);
+  if (id === 'VISION') kind = 'vision';
+  if (kind === 'practices' && fields.some((field) => field.name === 'Status' && field.value.trim().toLowerCase() === 'retired')) {
+    kind = 'practices-retired';
+  }
+
   const mentions: string[] = [];
   const linkTargets: string[] = [];
   const content = first === undefined ? all : all.slice(all.indexOf(first));
@@ -353,6 +384,7 @@ export function parseDocument(path: string, markdown: string, held: ReadonlySet<
 
   const grewFromIds: GrownFromId[] = [];
   for (const field of fields) {
+    if (LINK_FIELDS[field.name] !== true) continue;
     for (const grown of grewFromOf(field.name, field.value)) {
       if (!grewFromIds.some((heldId) => heldId.id === grown.id && heldId.via === grown.via)) grewFromIds.push(grown);
     }
@@ -416,7 +448,7 @@ export function backlinksOf(doc: ParsedDocument, docs: ProductDocuments): Backli
   for (const other of docs.byPath.values()) {
     if (other === doc || other.path === doc.path) continue;
     const viaField = other.grewFromIds.some((grown) => grown.id === doc.id)
-      || other.fields.some((field) => field.value.split(',').some((part) => part.trim() === doc.id));
+      || other.fields.some((field) => LINK_FIELDS[field.name] === true && field.value.split(',').some((part) => part.trim() === doc.id));
     if (viaField) entries.push({ path: other.path, title: other.title, id: other.id });
   }
   for (const other of docs.byPath.values()) {

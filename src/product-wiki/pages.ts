@@ -161,6 +161,8 @@ export function openProductWiki(productFolder: string): OpenedProductWiki {
  */
 interface PageSetSnapshot {
   revision: string;
+  /** The check cache's key: the pages' revision plus the paths under prototypes/, which the set's check reads for `Code:`. */
+  checkKey: string;
   paths: string[];
   titles: Map<string, string>;
   /** The pages' Markdown as the walk read it, by path. */
@@ -202,7 +204,18 @@ class FreshProductWiki implements ProductWiki {
     hash.update(`model\u0000${modelSourceDigest(this.product)}\u0000`);
     hash.update(`stages\u0000${stagesSourceDigest(this.product.folder)}\u0000`);
     const docs = documentsOf(paths, (page) => texts.get(page) as string, pathsHeld);
-    return { ok: true, snapshot: { revision: hash.digest('hex'), paths, titles, texts, docs, held: pathsHeld } };
+    // The check's cache key digests what the check reads, not only what the
+    // wiki shows: a prototype's `Code:` folder is read by the set's check
+    // (it refuses a Code: naming no folder with files in it) and shown on
+    // no page, so a file added to or removed from prototypes/ changes the
+    // findings with no change in the pages' revision. The key is the
+    // pages' revision plus every path under prototypes/ — the check reads
+    // the folder's existence, never its bytes.
+    const revision = hash.digest('hex');
+    const prototypeKey = createHash('sha256');
+    for (const prototypePath of prototypePaths(this.product.folder)) prototypeKey.update(`${prototypePath}\u0000`);
+    const checkKey = `${revision}\u0000${prototypeKey.digest('hex')}`;
+    return { ok: true, snapshot: { revision, checkKey, paths, titles, texts, docs, held: pathsHeld } };
   }
 
   pages(): ProductWikiPages {
@@ -274,7 +287,7 @@ class FreshProductWiki implements ProductWiki {
     } catch (error) {
       return { ok: false, message: `the page ${JSON.stringify(path)} modification time could not be read from ${JSON.stringify(this.product.folder)}: ${(error as Error).message}` };
     }
-    const check = this.checkRuns.run(taken.snapshot.revision, () => runProductCheck(this.product.folder));
+    const check = this.checkRuns.run(taken.snapshot.checkKey, () => runProductCheck(this.product.folder));
     const findings = check.ran ? check.findings.filter((finding) => finding.file === path) : [];
     const grown = doc === undefined ? [] : grownFromOf(doc, taken.snapshot.docs);
     const linked = doc === undefined ? [] : backlinksOf(doc, taken.snapshot.docs);
@@ -333,6 +346,36 @@ class FreshProductWiki implements ProductWiki {
       return { ok: false, message: `the page ${JSON.stringify(path)} could not be read from ${JSON.stringify(this.product.folder)}: ${(error as Error).message}` };
     }
   }
+}
+
+/**
+ * Every path under the product's `prototypes/` folder, relative paths in
+ * code point order, or nothing when the folder is absent. The set's check
+ * reads these names (a prototype's `Code:` must name a folder that holds
+ * files); their bytes it never opens, so the names are all its cache key
+ * needs. A folder that cannot be read is the walk's own refusal the same
+ * way the pages' is — never a silently smaller key.
+ */
+function prototypePaths(productFolder: string): string[] {
+  const folder = joinPath(productFolder, 'prototypes');
+  if (lstatSyncQuiet(folder) === undefined) return [];
+  const out: string[] = [];
+  const walk = (path: string, within: string): void => {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(path, { withFileTypes: true });
+    } catch (error) {
+      throw new Error(`the folder ${path} cannot be read: ${(error as Error).message}`);
+    }
+    for (const entry of entries.sort((a, b) => byCodePoint(a.name, b.name))) {
+      const full = joinPath(path, entry.name);
+      const rel = within === '' ? entry.name : `${within}/${entry.name}`;
+      if (entry.isDirectory()) walk(full, rel);
+      else out.push(rel);
+    }
+  };
+  walk(folder, '');
+  return out;
 }
 
 /**

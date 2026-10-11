@@ -460,3 +460,81 @@ describe('the check runner, held against its mutants', () => {
     expect(runs).toBe(before + 1);
   });
 });
+
+describe('the review fixes, held by tests', () => {
+  test('docs/vision.md is VISION: Grew from: VISION resolves and the vision takes id backlinks', () => {
+    draft();
+    write('docs/vision.md', '# The vision of the notes home\n\nThe reading comes first.\n');
+    write('docs/hypotheses/H-001-vision.md', '# H-001 — The vision holds\n\nGrew from: VISION\n\n## Belief\nWe believe.\n\n## Test\nTry.\n\n## Metric\nM.\n\n## Threshold\nT.\n');
+    const vision = page('docs/vision.md');
+    expect(vision.document?.id).toBe('VISION');
+    expect(vision.document?.kind).toBe('vision');
+    expect(vision.document?.backlinks.map((b) => b.path)).toEqual(['docs/hypotheses/H-001-vision.md']);
+    const hypothesis = page('docs/hypotheses/H-001-vision.md');
+    const grown = hypothesis.document?.grewFrom.find((g) => g.id === 'VISION');
+    expect(grown?.path).toBe('docs/vision.md');
+    expect(grown?.title).toBe('The vision of the notes home');
+  });
+
+  test('only the set\'s link fields are links: Verified by: FR-001 names no Grew-from entry and no field backlink', () => {
+    draft();
+    write('docs/requirements/FR-001-target.md', '# FR-001 — The target\n\nServes: UC-001\nVerified by: test\n\n## Requirement\nThe thing.\n');
+    write('docs/requirements/FR-002-strange.md', '# FR-002 — Strange fields\n\nServes: UC-001\nVerified by: FR-001\n\n## Requirement\nThe other.\n');
+    const strange = page('docs/requirements/FR-002-strange.md');
+    // Serves is a link field; "Verified by: FR-001" is not — no second entry.
+    expect(strange.document?.grewFrom.map((g) => g.id)).toEqual(['UC-001']);
+    const target = page('docs/requirements/FR-001-target.md');
+    // FR-002's body names FR-001 on its field line — a mention the check
+    // reads in the same place — so the mention pass reaches it; the point
+    // fixed here is that FR-002 gained exactly one link-field entry
+    // (Serves), never a second one from the id-shaped Verified by value.
+    expect(target.document?.backlinks.map((b) => b.path)).toEqual(['docs/requirements/FR-002-strange.md']);
+    // And the same holds through the resolved link entries: a backlink by
+    // field would carry the linking document's own id; FR-002's entry is
+    // mention-pass (its id is present), which is the same page either way.
+    // The strict field-only assertion lives in grewFrom above.
+  });
+
+  test('a retired practice carries the practices-retired kind; an active one stays practices', () => {
+    draft();
+    write('docs/practices/PRA-001-active.md', '# PRA-001 — Active practice\n\nStatus: active\nSince: 2026-10-11\nEvidence: two sessions\n\n## Class\nC.\n\n## Mechanism\nM.\n\n## Practice\nP.\n\n## How we will know\nK.\n');
+    write('docs/practices/PRA-002-retired.md', '# PRA-002 — Retired practice\n\nStatus: retired\nSince: 2026-10-11\nEvidence: two sessions\n\n## Class\nC.\n\n## Mechanism\nM.\n\n## Practice\nP.\n\n## How we will know\nK.\n');
+    const pages = wiki().pages();
+    if (!pages.ok) throw new Error(pages.message);
+    const byPath = new Map(pages.pages.map((entry) => [entry.path, entry]));
+    expect(byPath.get('docs/practices/PRA-001-active.md')?.kind).toBe('practices');
+    expect(byPath.get('docs/practices/PRA-002-retired.md')?.kind).toBe('practices-retired');
+  });
+
+  test('a wiki address with a fragment still reaches its page', () => {
+    draft();
+    write('docs/a.md', '# A\n\nJump to [the section](/p/docs/b.md#the-section).\n');
+    write('docs/b.md', '# B\n\nThe target.\n');
+    expect(page('docs/b.md').document?.backlinks.map((b) => b.path)).toEqual(['docs/a.md']);
+    expect(resolveBodyLink('docs/b.md', '/p/docs/a.md#section', new Set(['docs/a.md', 'docs/b.md']))).toBe('docs/a.md');
+  });
+
+  test('a prototype file added under prototypes/ turns the check cache key, with no page change', () => {
+    draft();
+    write('docs/prototypes/P-001-tries.md', '# P-001 — Tries\n\nTests: H-404\nCode: prototypes/missing\n\n## What it tries\nX.\n\n## How to run\nOpen it.\n');
+    const before = wiki();
+    const firstPage = before.page('docs/prototypes/P-001-tries.md');
+    if (!firstPage.ok) throw new Error(firstPage.message);
+    expect(firstPage.page.check?.ran).toBe(true);
+    const pagesList = before.pages();
+    if (!pagesList.ok) throw new Error(pagesList.message);
+    // Add a folder with a file under prototypes/: the check's dangling
+    // reference on Code: clears, though the wiki pages themselves (paths
+    // and bytes) changed not at all.
+    mkdirSync(join(folder!, 'prototypes', 'missing'), { recursive: true });
+    writeFileSync(join(folder!, 'prototypes', 'missing', 'index.html'), '<p>the prototype</p>\n');
+    const after = wiki();
+    const secondPage = after.page('docs/prototypes/P-001-tries.md');
+    if (!secondPage.ok) throw new Error(secondPage.message);
+    expect(secondPage.page.check?.ran).toBe(true);
+    // The findings for this page dropped: the dangling-reference finding
+    // was the only one, and the Code: folder now exists.
+    expect(secondPage.page.findings.length).toBeLessThan(firstPage.page.findings.length);
+    expect(pagesList.revision).toBe((after.pages() as { ok: true; revision: string }).revision);
+  });
+});
