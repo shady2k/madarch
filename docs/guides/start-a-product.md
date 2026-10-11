@@ -193,19 +193,6 @@ answers. The agent writes the product's documents (`docs/vision.md` first,
 then sources, hypotheses, stories, use cases, requirements) and the wiki
 shows each one live as it is written and saved.
 
-## How the commands find the product
-
-The lifecycle commands (`rename`, `remote`, `repo add`, `bootstrap`) take
-the product from where you stand: the product the working folder is, or the
-product a checkout under its `repos/` is checked out from. Run a command
-where no product stands above, and it refuses with exit 2, naming the
-folder it looked from and the `--product` it would have taken:
-
-    no product was found above /home/you/somewhere: run the command in a product folder or in a checkout under its repos/, or name the product with --product <folder>
-
-Name a product explicitly when the command is run from elsewhere:
-`--product ~/madarch/products/gadgets`.
-
 ## Describe each repository you connected
 
 The repositories under `repos/` join the product as code; the product's wiki
