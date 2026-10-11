@@ -15,9 +15,17 @@ export type RouteData = { path?: string; heldPaths: ReadonlySet<string> };
 export const routeContext = createContext<RouteData>({ heldPaths: new Set() });
 
 /** The status line the shell's bottom edge shows: what is open publishes, the shell reads. `null` shows nothing. */
-export type StatusPublish = { publish: (parts: readonly string[] | null) => void; parts: readonly string[] | null };
+export type StatusPublish = {
+  publish: (parts: readonly string[] | null) => void;
+  parts: readonly string[] | null;
+  connection: 'live' | 'reconnecting';
+};
 
-export const statusContext = createContext<StatusPublish>({ publish: (): void => undefined, parts: null });
+export const statusContext = createContext<StatusPublish>({
+  publish: (): void => undefined,
+  parts: null,
+  connection: 'reconnecting',
+});
 
 /** Moves the app to an address without a full page load. */
 export function navigateTo(address: string): void {

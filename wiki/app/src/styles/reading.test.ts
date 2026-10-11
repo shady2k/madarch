@@ -69,8 +69,8 @@ describe('the entry stylesheet', () => {
 
   test('the tokens hold the agreed names the reading rules ride', () => {
     expect(tokensCss).toContain('--fs-body: 18px;');
-    expect(tokensCss).toContain('--leading: 1.55;');
-    expect(tokensCss).toContain('--measure: 36em;');
+    expect(tokensCss).toContain('--leading: 1.58;');
+    expect(tokensCss).toContain('--measure: 740px;');
     expect(tokensCss).toContain('--fs-h1: var(--fs-title);');
     for (const name of ['--bg-page', '--bg-chrome', '--text', '--text-secondary', '--code-bg', '--border', '--quote-border', '--selection']) {
       expect(tokensCss).toContain(name + ':');
@@ -89,7 +89,7 @@ describe('the entry stylesheet', () => {
     const block = indexCss.slice(indexCss.indexOf('.shell-document {'), indexCss.indexOf('}', indexCss.indexOf('.shell-document {')));
     expect(block).toContain('max-inline-size: var(--measure);');
     expect(block).toContain('overflow-wrap: break-word;');
-    expect(block).toContain('margin-block-start: 2em;');
+    expect(block).toContain('margin-block-start: 2.5em;');
     expect(indexCss).toMatch(/@media \(max-width: 700px\)[\s\S]*?\.shell-document[\s\S]*?padding-inline: 24px;/);
   });
 
@@ -101,7 +101,7 @@ describe('the entry stylesheet', () => {
     expect(indexCss).toContain('.reading > p:first-child,\n.reading > h1:first-child + p {');
     const block = indexCss.slice(indexCss.indexOf('.reading > p:first-child,\n.reading > h1:first-child + p {'));
     expect(block).toContain('color: var(--text-secondary);');
-    expect(block).toContain('font-size: 1.12em;');
+    expect(block).toContain('font-size: 1em;');
   });
 
   test('the app fallback title hides when the document renders its own first heading', () => {

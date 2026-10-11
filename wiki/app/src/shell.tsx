@@ -22,7 +22,6 @@
 import { useEffect, useRef, useState, useContext, type ReactElement, type ReactNode, type MouseEventHandler } from 'react';
 import {
   ChevronDownIcon,
-  ChevronRightIcon,
   FileTextIcon,
   FolderGit2Icon,
   FocusIcon,
@@ -170,9 +169,9 @@ function NavPanel({ product, groups, current, onNavigate }: {
   };
   return (
     <>
-      <div className="nav-brand flex items-center gap-1.5 px-2 py-3">
-        <span aria-hidden="true" className="text-[15px] text-ink">m<span className="text-muted">&middot;</span></span>
-        <strong className="text-[15px] font-normal text-ink">madarch</strong>
+      <div className="nav-brand flex items-center gap-1.5 px-2 py-5">
+        <span aria-hidden="true" className="text-[20px] font-semibold leading-none text-ink">m<span className="text-muted">&middot;</span></span>
+        <strong className="text-[20px] font-semibold leading-none text-ink">madarch</strong>
         <small className="nav-concept ml-auto rounded-[4px] border border-line px-[5px] py-0.5 text-[11px] leading-4 text-muted">wiki</small>
       </div>
       <div
@@ -181,14 +180,13 @@ function NavPanel({ product, groups, current, onNavigate }: {
       >
         <span
           aria-hidden="true"
-          className="grid size-[26px] shrink-0 place-items-center rounded-[6px] bg-ink text-[13px] font-semibold text-page"
+          className="grid size-[36px] shrink-0 place-items-center rounded-[6px] bg-ink text-[16px] font-semibold text-page"
         >
           {product.name.charAt(0).toUpperCase()}
         </span>
         <span className="min-w-0 flex-1">
           <b className="block text-[13px] leading-5 text-ink">{product.name}</b>
           <small className="block text-[11px] leading-4 text-muted">Product space</small>
-          <small className="block text-[11px] leading-4 text-muted">the demo files live under docs/</small>
         </span>
         <ChevronDownIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
       </div>
@@ -198,10 +196,9 @@ function NavPanel({ product, groups, current, onNavigate }: {
         data-testid="nav-overview"
       >
         <span className="flex items-center gap-2.5"><PanelRightIcon aria-hidden="true" className="size-4 shrink-0 text-muted" /> Product overview</span>
-        <ChevronRightIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
       </a>
       <div className="mb-1.5 mt-2 flex items-center justify-between px-2">
-        <h2 className="text-small text-muted">Documents</h2>
+        <h2 className="text-[12px] uppercase tracking-[0.08em] text-muted">Documents</h2>
         <span className="text-small text-muted" data-testid="documents-count">
           {groups.reduce((n, g) => n + g.pages.length, 0)}
         </span>
@@ -270,14 +267,19 @@ function NavPanel({ product, groups, current, onNavigate }: {
 }
 
 /** The shell's bottom status bar: what is open publishes its parts; nothing open shows nothing. */
-export function StatusBar(): ReactElement | null {
-  const { parts } = useContext(statusContext);
-  if (parts === null) return null;
+export function StatusBar(): ReactElement {
+  const { parts, connection } = useContext(statusContext);
   return (
     <footer className="statusbar" role="contentinfo">
-      {parts.map((part, at) => (
-        <span key={at} data-testid={at === 0 ? 'word-count' : undefined}>{part}</span>
-      ))}
+      <span className="status-connection" data-testid="connection-status" data-state={connection} aria-live="polite">
+        <span className="status-dot" aria-hidden="true" />
+        {connection === 'live' ? 'Live' : 'Reconnecting'}
+      </span>
+      <span className="status-details">
+        {parts?.map((part, at) => (
+          <span key={at} data-testid={at === 0 ? 'word-count' : undefined}>{part}</span>
+        ))}
+      </span>
     </footer>
   );
 }
@@ -313,10 +315,6 @@ export function Shell({ product, list, children }: { product: Product; list: Pag
   const current = route.path;
   const groups = groupNav(list.pages);
   const openPage = current === undefined ? undefined : list.pages.find((page) => page.path === current);
-  /* The breadcrumb names the reading: the page's kind, then its title — the
-   * truth the sidebar and the heading also carry; the home page just says the
-   * product. */
-  const crumb = openPage === undefined ? 'Product overview' : wordLabel(groupOf(openPage.path)) + ' / ' + openPage.title;
   const classes = ['shell'];
   if (menuOpen) classes.push('nav-open');
   if (focused) classes.push('doc-only');
@@ -332,9 +330,17 @@ export function Shell({ product, list, children }: { product: Product; list: Pag
           <NavPanel product={product} groups={groups} current={current} onNavigate={() => setMenuOpen(false)} />
         </aside>
         <div className="shell-main flex min-w-0 flex-1 flex-col">
-          <header className="shell-toolbar flex min-h-[66px] items-center justify-between gap-3 border-b border-line px-4 wide:px-[35px]">
+          <header className="shell-toolbar flex min-h-[54px] items-center justify-between gap-3 border-b border-line px-4 wide:px-[35px]">
             <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
-              {crumb}
+              {openPage === undefined ? (
+                'Product overview'
+              ) : (
+                <>
+                  <span className="text-muted">{wordLabel(groupOf(openPage.path))}</span>{' '}
+                  <span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
+                  <span className="text-ink">{openPage.title}</span>
+                </>
+              )}
             </span>
             <span className="flex shrink-0 items-center gap-1">
               {/*
@@ -390,7 +396,7 @@ export function Shell({ product, list, children }: { product: Product; list: Pag
           <div className="document-bar flex min-h-[45px] items-stretch bg-ground wide:min-h-[53px]">
             <div className="document-tab flex items-center gap-2 border-r border-line bg-page px-6 text-[13px] text-secondary" data-testid="document-tab">
               <FileTextIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-              <span className="truncate">{openPage?.path ?? 'Product overview'}</span>
+              <span className="truncate">{openPage?.path.split('/').pop() ?? 'Product overview'}</span>
             </div>
           </div>
           {/* The window-height shell: every panel and bar stays in place and

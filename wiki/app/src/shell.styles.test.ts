@@ -64,7 +64,7 @@ async function intoShell(): Promise<HTMLElement> {
   root.render(
     createElement(
       statusContext.Provider,
-      { value: { publish: (): void => undefined, parts: ['word count', 'Markdown', 'UTF-8'] } },
+      { value: { publish: (): void => undefined, parts: ['word count', 'Markdown', 'UTF-8'], connection: 'reconnecting' } },
       createElement(
       routeContext.Provider,
       { value: { path: 'docs/requirements/one.md', heldPaths: new Set<string>() } },
@@ -129,7 +129,15 @@ describe('the shell markup', () => {
     const block = container.querySelector('[data-testid="product-block"]');
     expect(block?.textContent).toContain('Draft Idea');
     expect(block?.textContent).toContain('Product space');
-    expect(container.querySelector('[data-testid="nav-overview"]')).not.toBeNull();
+    expect(block?.textContent).not.toContain('the demo files live under docs/');
+    expect(block?.querySelector('span.grid')?.className).toContain('size-[36px]');
+    const overview = container.querySelector('[data-testid="nav-overview"]');
+    expect(overview).not.toBeNull();
+    expect(overview?.textContent).toContain('Product overview');
+    expect(overview?.querySelector('svg')).not.toBeNull();
+    expect(overview?.querySelectorAll('svg').length).toBe(1);
+    const documentsHeading = [...container.querySelectorAll('#app-nav h2')].find((heading) => heading.textContent === 'Documents');
+    expect(documentsHeading?.className).toContain('uppercase');
     const groups = [...container.querySelectorAll('[data-nav-group]')];
     expect(groups.length).toBeGreaterThanOrEqual(2);
     const first = groups[0] as HTMLElement;
@@ -147,13 +155,15 @@ describe('the shell markup', () => {
     const container = await intoShell();
     const crumb = container.querySelector('.shell-breadcrumb');
     expect(crumb?.textContent).toBe('Requirements / Requirement one');
+    expect(crumb?.querySelector('.text-muted')?.textContent).toBe('Requirements');
+    expect(crumb?.querySelector('.text-ink')?.textContent).toBe('Requirement one');
   });
 
   test('the tab strip row stands under the top bar and carries the open file\'s name; no dead controls with it', async () => {
     const container = await intoShell();
     const tab = container.querySelector('[data-testid="document-tab"]');
     expect(tab).not.toBeNull();
-    expect(tab?.textContent).toContain('docs/requirements/one.md');
+    expect(tab?.textContent).toContain('one.md');
     // The strip is a row between the top bar and the document, and nothing
     // dead rides in it: no view switch, no history button, no search box.
     expect(container.querySelector('.document-bar')?.parentElement?.className).toContain('shell-main');
@@ -177,6 +187,8 @@ describe('the shell markup', () => {
     expect(container.querySelector('.shell-scroll footer.statusbar')).toBeNull();
     // the bar shows what the open document published
     expect(bar?.textContent).toContain('word count');
+    expect(bar?.querySelector('[data-testid="connection-status"]')?.textContent).toContain('Reconnecting');
+    expect(bar?.querySelector('.status-dot')).not.toBeNull();
   });
 
   test('the shell fills the window and the only scrolling lives in the document column', () => {

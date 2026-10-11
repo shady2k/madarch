@@ -79,16 +79,57 @@
 .shell-document {
   max-inline-size: var(--measure);
   margin-inline: auto;
-  margin-block-start: 2em;
+  margin-block-start: 2.5em;
   overflow-wrap: break-word;
   font-size: var(--fs-body);
   line-height: var(--leading);
 }
 
+@media (min-width: 701px) {
+  .shell-document {
+    margin-block-start: calc(2.5em + 14px);
+  }
+}
+
 @media (max-width: 700px) {
+  .shell-toolbar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    min-height: 58px;
+  }
+
+  .shell-toolbar > span:last-child {
+    display: contents;
+  }
+
+  .shell-breadcrumb {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .shell-menu {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .shell-focus {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .shell-toolbar button[aria-label="Page context"] {
+    grid-column: 4;
+    grid-row: 1;
+  }
+
   .shell-document {
     max-inline-size: none;
+    margin-block-start: calc(2.5em - 8px);
     padding-inline: 24px;
+  }
+
+  .eyebrow {
+    margin-block-end: 1em;
   }
 }
 
@@ -104,18 +145,12 @@
   display: none;
 }
 
-@media (max-width: 700px) {
-  .shell:has(.reading > h1:first-child) .shell-breadcrumb {
-    display: none;
-  }
-}
-
 .reading > h1 {
   font-size: var(--fs-h1);
   line-height: 1.25;
   /* the mockup's reading: a medium-weight title on its normal tracking */
-  font-weight: 650;
-  letter-spacing: -1.3px;
+  font-weight: 550;
+  letter-spacing: normal;
   margin-block: 0 0.75em;
   color: var(--text);
 }
@@ -123,8 +158,8 @@
 main h1 {
   font-size: var(--fs-h1);
   line-height: 1.25;
-  font-weight: 650;
-  letter-spacing: -1.3px;
+  font-weight: 550;
+  letter-spacing: normal;
   margin-block: 0 0.75em;
 }
 
@@ -134,8 +169,8 @@ main h1 {
 main h2 {
   font-size: var(--fs-h2);
   line-height: 1.35;
-  font-weight: 650;
-  letter-spacing: -1.3px;
+  font-weight: 550;
+  letter-spacing: normal;
   margin-block: 2em 0.6em;
 }
 
@@ -182,8 +217,8 @@ main p:first-child {
  * follows the document's own first heading (the title). */
 .reading > p:first-child,
 .reading > h1:first-child + p {
-  font-size: 1.12em;
-  line-height: 1.6;
+  font-size: 1em;
+  line-height: 1.58;
   color: var(--text-secondary);
   margin-block: 0 0.95em;
 }
@@ -430,7 +465,7 @@ main .footnotes {
    * the shell itself, the mockup's quiet bar; nothing open above shows it */
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 1.4em;
   min-height: 35px;
   background: var(--bg-ground);
@@ -438,6 +473,29 @@ main .footnotes {
   padding-inline: 1.4em;
   font-size: var(--fs-small);
   color: var(--text-muted);
+}
+
+.status-connection,
+.status-details {
+  display: inline-flex;
+  align-items: center;
+  gap: 1.4em;
+}
+
+.status-connection {
+  margin-inline-end: auto;
+  gap: 0.55em;
+}
+
+.status-dot {
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.status-connection[data-state="reconnecting"] .status-dot {
+  background: var(--quote-border);
 }
 
 /* The focus choice hides the side panels: the navigation and the context

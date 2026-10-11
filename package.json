@@ -9,7 +9,7 @@
     "schemas": "bun scripts/generate-schemas.ts",
     "views": "bun scripts/render-views.ts",
     "views:check": "bun scripts/check-views.ts",
-    "wiki:demo": "bun scripts/madarch.ts serve --product wiki/demo",
+    "wiki:demo": "cd wiki/app && bun install --frozen-lockfile && bun run build && cd ../.. && bun scripts/madarch.ts serve --product wiki/demo",
     "wiki:shots": "bun scripts/wiki-shots.ts"
   },
   "dependencies": {

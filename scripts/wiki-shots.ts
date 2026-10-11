@@ -15,7 +15,7 @@
  * machine's path (CHROME names another) drives every window through
  * puppeteer-core; this script writes nothing in the repository.
  */
-import { mkdirSync, existsSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, resolve as resolvePath } from 'node:path';
 import puppeteer from 'puppeteer-core';
 import { startServer, type StartedServer } from '../src/index.js';
@@ -85,7 +85,7 @@ try {
       const file = join(outFolder, `${sink}-${size}.png`);
       await page.screenshot({ path: file });
       await page.close();
-      return { file, width: width * 2, height: height * 2 };
+      return { file, width, height };
     };
 
     const pairs: Pair[] = [];
@@ -110,7 +110,7 @@ try {
       await new Promise((step) => setTimeout(step, 600));
       const file = join(outFolder, 'home-ours-390-menu-open.png');
       await page.screenshot({ path: file });
-      pairs.push({ name: 'home-phone-menu-390-light', ours: { file, width: 780, height: 1688 } });
+      pairs.push({ name: 'home-phone-menu-390-light', ours: { file, width: 390, height: 844 } });
       await page.close();
     } catch (error) {
       console.log('the phone menu shot failed: ' + (error as Error).message);
@@ -130,32 +130,49 @@ try {
       const file = join(outFolder, 'home-ours-scrolled-1440.png');
       await page.screenshot({ path: file });
       await page.close();
-      pairs.push({ name: 'home-scrolled-1440-dark', ours: { file, width: width * 2, height: height * 2 } });
+      pairs.push({ name: 'home-scrolled-1440-dark', ours: { file, width, height } });
     }
 
-    // One image per pair: the two shots side by side on one ground, labels
-    // naming which is which, a thin divider keeping the halves apart.
+    // One image per pair. Embed checked PNGs as data URLs: a data document
+    // cannot reliably load file:// images, which used to produce blank grey halves.
     const composed: string[] = [];
+    const pngSize = (buffer: Buffer): { width: number; height: number } => {
+      if (buffer.length < 24 || buffer.toString('ascii', 1, 4) !== 'PNG' || buffer.toString('ascii', 12, 16) !== 'IHDR') {
+        throw new Error('not a PNG with an IHDR');
+      }
+      return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+    };
+    const embedded = (shot: Shot, label: string): string => {
+      if (!existsSync(shot.file)) throw new Error(`cannot compose ${label}: missing half ${shot.file}`);
+      const bytes = readFileSync(shot.file);
+      const size = pngSize(bytes);
+      console.log(`compose ${label}: ${shot.file} ${size.width}x${size.height}`);
+      if (size.width !== shot.width || size.height !== shot.height) {
+        throw new Error(`cannot compose ${label}: ${shot.file} is ${size.width}x${size.height}, expected ${shot.width}x${shot.height}`);
+      }
+      const uri = `data:image/png;base64,${bytes.toString('base64')}`;
+      return `<div style="position:relative;flex:none;width:${size.width}px;height:${size.height}px"><img src="${uri}" width="${size.width}" height="${size.height}" style="display:block;width:${size.width}px;height:${size.height}px"><span style="position:absolute;top:6px;left:8px;font:16px system-ui;color:#fff;background:#0009;padding:2px 8px;border-radius:4px">${label}</span></div>`;
+    };
     for (const pair of pairs) {
-      const { ours: l, mockup: r, name } = pair;
-      if (l === undefined && r === undefined) continue;
-      const span = (shot: Shot, label: string): string =>
-        `<div style="position:relative"><img src="file://${shot.file}" style="display:block"><span style="position:absolute;top:6px;left:8px;font:16px system-ui;color:#fff;background:#0008;padding:2px 8px;border-radius:4px">${label}</span></div>`;
+      const { ours: left, mockup: right, name } = pair;
+      if (left === undefined && right === undefined) continue;
+      if (left === undefined || (mockupIndex !== undefined && right === undefined && !name.startsWith('home-phone-menu-') && !name.startsWith('home-scrolled-'))) {
+        throw new Error(`cannot compose ${name}: a required screenshot half is missing`);
+      }
       const halves: string[] = [];
-      if (l !== undefined) halves.push(span(l, 'OURS'));
-      if (r !== undefined) halves.push(span(r, 'MOCKUP'));
-      const totalWidth = (l?.width ?? 0) + (r?.width ?? 0) + 8;
-      const height = Math.max(l?.height ?? r?.height ?? 0);
-      const html = `<!doctype html><body style="margin:0;background:#333;height:${height}px;width:${totalWidth}px;display:flex;gap:8px">${halves.join('')}</body>`;
+      if (left !== undefined) halves.push(embedded(left, 'OURS'));
+      if (right !== undefined) halves.push(embedded(right, 'MOCKUP'));
+      const totalWidth = (left?.width ?? 0) + (right?.width ?? 0) + (halves.length - 1) * 8;
+      const height = Math.max(left?.height ?? 0, right?.height ?? 0);
+      const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#333;width:${totalWidth}px;height:${height}px;display:flex;gap:8px;overflow:hidden">${halves.join('')}</body></html>`;
       const page2 = await browser.newPage();
       await page2.setViewport({ width: totalWidth, height, deviceScaleFactor: 1 });
-      await page2.goto('data:text/html;charset=utf-8,' + encodeURIComponent(html), { waitUntil: 'networkidle0' });
-      await new Promise((step) => setTimeout(step, 200));
+      await page2.setContent(html, { waitUntil: 'load' });
       const target = join(outFolder, `${name}-sbs.png`);
       await page2.screenshot({ path: target, fullPage: true });
       await page2.close();
       composed.push(target);
-      console.log(`${r === undefined ? '(ours only; the mockup has no such shot) ' : '(pair) ' }${target}`);
+      console.log(`${right === undefined ? '(ours only; the mockup has no such shot) ' : '(pair) '}${target}`);
     }
     await browser.close();
     console.log(outFolder);

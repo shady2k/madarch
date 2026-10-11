@@ -50,6 +50,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
   const [data, setData] = useState<{ product: Product; list: PageList } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
+  const [streamConnected, setStreamConnected] = useState(false);
 
   // The route follows the history bar: back and forward as much as the app's own moves.
   useEffect(() => {
@@ -137,6 +138,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
         if (!response.ok || response.body === null) {
           throw new Error(String('the stream to ' + EVENTS_PATH + ' answered ' + response.status));
         }
+        setStreamConnected(true);
         // A stream that answers after a miss is asked with one resync: the
         // events the dead stream swallowed are read as a change now.
         if (misses > 0) {
@@ -161,6 +163,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
       } catch (caught: unknown) {
         const stop = !alive || (caught instanceof DOMException && caught.name === 'AbortError');
         if (!stop && alive) {
+          setStreamConnected(false);
           misses += 1;
           const wait = Math.min(maxReconnectMs, reconnectMs * 2 ** (misses - 1));
           timer = window.setTimeout(open, wait);
@@ -182,7 +185,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
   const list = data.list;
   const heldPaths = new Set(list.pages.map((meta) => meta.path));
   return (
-    <StatusBridge>
+    <StatusBridge streamConnected={streamConnected}>
       <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, heldPaths }}>
         <Shell product={data.product} list={list}>
         {route.name === 'home' ? (
@@ -219,13 +222,13 @@ function sameLine(held: readonly string[] | null, parts: readonly string[] | nul
  * shell's bottom edge reads it. The setter is stable and lets an
  * unchanged line through, so a publish never re-renders for nothing.
  */
-export function StatusBridge({ children }: { children: ReactNode }): ReactElement {
+export function StatusBridge({ children, streamConnected }: { children: ReactNode; streamConnected: boolean }): ReactElement {
   const [line, setLine] = useState<readonly string[] | null>(null);
   const publish = useCallback((parts: readonly string[] | null): void => {
     setLine((held) => (sameLine(held, parts) ? held : parts));
   }, []);
   return (
-    <statusContext.Provider value={{ publish, parts: line }}>
+    <statusContext.Provider value={{ publish, parts: line, connection: streamConnected ? 'live' : 'reconnecting' }}>
       {children}
     </statusContext.Provider>
   );
