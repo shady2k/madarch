@@ -24,6 +24,7 @@ import { routeContext, statusContext } from './hold.js';
 import { groupNav, groupOf, kindOf, wordLabel, Shell } from './shell.js';
 import { wordCount } from './text.js';
 import { useArchitecture, ArchitectureIndex, ViewPage, ElementPage, elementLinksFor } from './architecture.js';
+import { StagePage, useStages } from './stages.js';
 export type RouteSnapshot = Route;
 
 /** How many times one page read is tried before the app gives up on it. */
@@ -200,7 +201,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
   const heldPaths = new Set(list.pages.map((meta) => meta.path));
   return (
     <StatusBridge streamConnected={streamConnected}>
-      <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, heldPaths }}>
+      <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, stage: route.name === 'stage' ? route.stage : undefined, heldPaths }}>
         <Shell product={data.product} list={list} architecture={architecture}>
         {route.name === 'home' ? (
           <HomePage product={data.product} list={list} architecture={architecture} />
@@ -210,6 +211,9 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
           <ArchitectureReader key={'view:' + route.scope + ':' + list.revision} revision={list.revision} routeName="view" scope={route.scope} />
         ) : route.name === 'element' ? (
           <ArchitectureReader key={'element:' + route.id + ':' + list.revision} revision={list.revision} routeName="element" id={route.id} />
+        ) : route.name === 'stage' ? (
+          <StageRoute key={"stage:" + route.stage + ":" + list.revision} stage={route.stage} revision={list.revision} />
+
         ) : (
           <PageReader
             key={"page:" + route.path + ":" + list.revision}
@@ -223,6 +227,30 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
       </routeContext.Provider>
     </StatusBridge>
   );
+}
+
+/**
+ * One stage's page: the index asked for the revision the list was last told,
+ * so a changed product refetches the stages the way a page is refetched. The
+ * read is refetched on every revision change and a refusal shows as the
+ * stage's error line.
+ */
+function StageRoute({ stage, revision }: { stage: string; revision: string }): ReactElement {
+  const { t } = useTranslation();
+  const index = useStages(revision);
+  if (index === null) return <p className="loading">{t('loading.wiki')}</p>;
+  const section = index.stages.find((each) => each.id === stage);
+  if (section === undefined) {
+    return (
+      <main id="stage">
+        <p className="error">
+          <strong>{t('errors.prefix')}</strong>{' '}
+          <span>{t('stages.unknownStage', { stage })}</span>
+        </p>
+      </main>
+    );
+  }
+  return <StagePage stage={section} index={index} />;
 }
 
 /** The home page's status is localized in its current UI language. */

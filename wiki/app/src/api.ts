@@ -143,3 +143,47 @@ export const getPages = (signal?: AbortSignal): Promise<PageList> =>
 
 export const getPage = (path: string, signal?: AbortSignal): Promise<Page> =>
   readJson<Page>(`read the page ${path}`, `/api/page?path=${encodeURIComponent(path)}`, signal);
+
+/** The stage sections and task groups the stage index answers, the server's own shapes. */
+export type StageArtifact = {
+  path: string;
+  title: string;
+  kind: string;
+};
+
+export type TaskEntry = {
+  id: string;
+  title: string;
+  status: 'open' | 'in_progress' | 'done';
+};
+
+export type TaskFeature = {
+  id: string;
+  title: string;
+  open: number;
+  inProgress: number;
+  done: number;
+  tasks: TaskEntry[];
+};
+
+export type StageSectionLink = {
+  kind: 'architecture' | 'repositories';
+  present: boolean;
+};
+
+export type StageSection = {
+  id: string;
+  artifacts: StageArtifact[];
+  missing: { kind: string; skill: string }[];
+  tasks?: TaskFeature[];
+  sections?: StageSectionLink[];
+  empty: boolean;
+};
+
+export type StagesIndex = {
+  stages: StageSection[];
+  problems: { where: string; message: string }[];
+};
+
+export const getStages = (signal?: AbortSignal): Promise<StagesIndex> =>
+  readJson<StagesIndex>('read the stages', '/api/stages', signal);

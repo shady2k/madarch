@@ -75,7 +75,19 @@
     "document_few": "documents",
     "document_many": "documents",
     "group_few": "groups",
-    "group_many": "groups"
+    "group_many": "groups",
+    "taskOpen_one": "task",
+    "taskOpen_other": "tasks",
+    "taskProgress_one": "in progress",
+    "taskProgress_other": "in progress",
+    "taskDone_one": "done",
+    "taskDone_other": "done",
+    "taskOpen_few": "tasks",
+    "taskOpen_many": "tasks",
+    "taskProgress_few": "in progress",
+    "taskProgress_many": "in progress",
+    "taskDone_few": "done",
+    "taskDone_many": "done"
   },
   "loading": {
     "wiki": "Waiting for the wiki",
@@ -137,5 +149,58 @@
     "productId": "Product id: {{id}}",
     "contextUnavailable": "Page context is not available yet",
     "language": "Choose language"
+  },
+  "stages": {
+    "title": "Life cycle",
+    "eyebrow": "Life cycle",
+    "names": {
+      "idea": "Idea",
+      "requirements": "Requirements",
+      "design": "Design",
+      "build": "Build",
+      "verify": "Verify",
+      "release": "Release",
+      "operate": "Operate"
+    },
+    "leads": {
+      "idea": "Why the product is worth building: the vision, what is known and kept from conversations, the beliefs waiting on their tests.",
+      "requirements": "What the product must do, as its user sees it: the stories, the use cases and the requirements they grew into.",
+      "design": "How the system will do it: the architecture views, the decisions taken and the design notes written before code.",
+      "build": "What is being built and where it stands: the code repositories and the product tasks, grouped by feature, read from the tracker.",
+      "verify": "What was accepted and how it was proven: the stage acceptance records with their revisions and checks.",
+      "release": "What reached its users and when: the release records ship-release writes — the notes and the versions.",
+      "operate": "What failed in use and what it changed: the incident records handle-incident holds — the timeline, the cost, what was filed."
+    },
+    "missingLine": "Nothing of this stage is here yet — the {{skill}} skill writes {{kind}} when the product reaches it.",
+    "noTasks": "The tracker export .beads/issues.jsonl holds no task yet — tasks appear here when the tracker holds them.",
+    "counts": "{{open}} {{openUnit}} open · {{inProgress}} in progress · {{done}} done",
+    "tasksTitle": "Tasks by feature",
+    "taskStatus": {
+      "open": "open",
+      "in_progress": "in progress",
+      "done": "done"
+    },
+    "problem": "{{where}}: {{message}}",
+    "unknownStage": "The wiki holds no stage named “{{stage}}”: the stages are Idea, Requirements, Design, Build, Verify, Release and Operate.",
+    "architectureLink": "The architecture views are the Architecture section — served when the product holds an intended model (model/).",
+    "repositoriesLink": "The code repositories are the Repositories section — served from the repositories the product declares and has cloned.",
+    "kinds": {
+      "vision": "Vision",
+      "source": "Source",
+      "hypothesis": "Hypothesis",
+      "open question": "Open question",
+      "prototype": "Prototype",
+      "result": "Result",
+      "user story": "User story",
+      "use case": "Use case",
+      "product requirement": "Product requirement",
+      "decision": "Decision",
+      "design spec": "Design spec",
+      "acceptance record": "Acceptance record",
+      "release record": "Release record",
+      "release notes": "Release notes",
+      "incident record": "Incident record",
+      "architecture views": "Architecture views"
+    }
   }
 }

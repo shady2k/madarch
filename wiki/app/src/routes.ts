@@ -14,7 +14,8 @@ export type Route =
   | { name: 'page'; path: string }
   | { name: 'architecture' }
   | { name: 'view'; scope: string }
-  | { name: 'element'; id: string };
+  | { name: 'element'; id: string }
+  | { name: 'stage'; stage: string };
 
 /** The address prefix of the wiki's own (non-document) pages. */
 export const ARCHITECTURE_PREFIX = '/p/madarch/';
@@ -49,10 +50,22 @@ export function routeOf(pathname: string): Route {
   if (pathname.startsWith('/p/')) {
     return { name: 'page', path: decodeURIComponent(pathname.slice('/p/'.length)) };
   }
+  if (pathname.startsWith('/s/')) {
+    try {
+      return { name: 'stage', stage: decodeURIComponent(pathname.slice('/s/'.length)) };
+    } catch {
+      return { name: 'home' };
+    }
+  }
   return { name: 'home' };
 }
 
 /** The address of a page, `/p/` plus its path within the product. */
 export function addressOfPage(path: string): string {
   return '/p/' + path.split('/').map(encodeURIComponent).join('/');
+}
+
+/** The address of a stage page, `/s/` plus the stage's id. */
+export function addressOfStageRoute(stage: string): string {
+  return '/s/' + encodeURIComponent(stage);
 }

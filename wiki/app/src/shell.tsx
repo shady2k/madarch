@@ -31,12 +31,12 @@ import {
   PanelRightIcon,
 } from 'lucide-react';
 import type { PageList, PageMeta, Product } from './api.js';
-import { architectureAddress } from './routes.js';
+import { architectureAddress, addressOfStageRoute } from './routes.js';
 import type { Architecture } from './api.js';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { setWikiLanguage, type WikiLanguage } from './i18n.js';
-import { routeContext, statusContext } from './hold.js';
+import { navigateTo, routeContext, statusContext } from './hold.js';
 import { PageLink } from './view.js';
 import { Button } from '@/components/ui/button.js';
 import { Toggle } from '@/components/ui/toggle.js';
@@ -79,6 +79,9 @@ function FilledDocumentGlyph({ className }: { className: string }): ReactElement
     </svg>
   );
 }
+
+/** The stages, in the life cycle's own order — the order the navigator lists them in. */
+export const stageIds = ['idea', 'requirements', 'design', 'build', 'verify', 'release', 'operate'] as const;
 
 /** One group of the navigation: its title and its pages in path order. */
 export type NavGroup = { name: string; pages: PageMeta[] };
@@ -259,10 +262,80 @@ export function navLinkClasses(current: boolean): string {
 }
 
 /** The navigation content: the product's mark, its block, the tree, the footer. */
-function NavPanel({ product, groups, current, onNavigate, architectureCount }: {
+function StagesNav({ current, onNavigate }: { current: string | undefined; onNavigate?: MouseEventHandler }): ReactElement {
+  const { t } = useTranslation();
+  return (
+    <section data-testid="stages-nav" className="mb-1.5" aria-label={t('stages.title')}>
+      <div className="flex items-center justify-between px-2 py-1.5">
+        <h2 className="text-[12px] uppercase tracking-[0.08em] text-muted">{t('stages.title')}</h2>
+      </div>
+      <ul className="m-0 list-none p-0">
+        {stageIds.map((stage) => {
+          const isCurrent = current === stage;
+          return (
+            <li key={stage} onClick={onNavigate}>
+              <a
+                href={addressOfStageRoute(stage)}
+                className={navLinkClasses(isCurrent)}
+                aria-current={isCurrent ? 'page' : undefined}
+                data-stage-link={stage}
+                onClick={(event) => {
+                  if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
+                  event.preventDefault();
+                  navigateTo(addressOfStageRoute(stage));
+                }}
+              >
+                <span className="min-w-0 whitespace-normal leading-snug">{t(`stages.names.${stage}`)}</span>
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+function NavPanel({ product, groups, current, currentStage, onNavigate, architectureCount }: {
+/** The stages navigator: one row per stage, in the life cycle's order, the open stage marked. */
+function StagesNav({ current, onNavigate }: { current: string | undefined; onNavigate?: MouseEventHandler }): ReactElement {
+  const { t } = useTranslation();
+  return (
+    <section data-testid="stages-nav" className="mb-1.5" aria-label={t('stages.title')}>
+      <div className="flex items-center justify-between px-2 py-1.5">
+        <h2 className="text-[12px] uppercase tracking-[0.08em] text-muted">{t('stages.title')}</h2>
+      </div>
+      <ul className="m-0 list-none p-0">
+        {stageIds.map((stage) => {
+          const isCurrent = current === stage;
+          return (
+            <li key={stage} onClick={onNavigate}>
+              <a
+                href={addressOfStageRoute(stage)}
+                className={navLinkClasses(isCurrent)}
+                aria-current={isCurrent ? 'page' : undefined}
+                data-stage-link={stage}
+                onClick={(event) => {
+                  if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
+                  event.preventDefault();
+                  navigateTo(addressOfStageRoute(stage));
+                }}
+              >
+                <span className="min-w-0 whitespace-normal leading-snug">{t(`stages.names.${stage}`)}</span>
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+function NavPanel({ product, groups, current, currentStage, onNavigate }: {
   product: Product;
   groups: readonly NavGroup[];
   current: string | undefined;
+  /** The open stage's id, when the route is a stage's. */
+  currentStage?: string;
   onNavigate?: MouseEventHandler;
   /** The Architecture section's view count, when the model holds views. */
   architectureCount?: number;
@@ -307,6 +380,7 @@ function NavPanel({ product, groups, current, onNavigate, architectureCount }: {
       >
         <span className="flex items-center gap-2.5"><PanelRightIcon aria-hidden="true" className="size-4 shrink-0 text-muted" /> {t('navigation.overview')}</span>
       </a>
+      <StagesNav current={currentStage} onNavigate={onNavigate} />
       <div className="mb-1.5 mt-2 flex items-center justify-between px-2">
         <h2 className="text-[12px] uppercase tracking-[0.08em] text-muted">{t('navigation.documents')}</h2>
         <span className="text-small text-muted" data-testid="documents-count">
@@ -433,12 +507,18 @@ export function Shell({ product, list, children, architecture }: { product: Prod
           aria-label={t('navigation.aria')}
           hidden={focused}
         >
-          <NavPanel product={product} groups={groups} current={current} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} />
+          <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} />
         </aside>
         <div className="shell-main flex min-w-0 flex-1 flex-col">
           <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line px-4 wide:px-[35px]">
             <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
-              {openPage === undefined ? (
+              {openPage === undefined && route.stage !== undefined ? (
+                <>
+                  <span className="text-muted">{t('stages.title')}</span>{' '}
+                  <span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
+                  <span className="text-ink">{t(`stages.names.${route.stage}`)}</span>
+                </>
+              ) : openPage === undefined ? (
                 t('navigation.overview')
               ) : (
                 <>
@@ -472,7 +552,7 @@ export function Shell({ product, list, children, architecture }: { product: Prod
                   data-testid="phone-nav"
                   className={'app-nav w-[min(280px,_82vw)] px-[14px] py-3 ' + (focused ? 'bg-chrome' : '')}
                 >
-                  <NavPanel product={product} groups={groups} current={current} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} />
+                  <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} />
                 </SheetContent>
               </Sheet>
               <DropdownMenu.Root>
@@ -538,7 +618,7 @@ export function Shell({ product, list, children, architecture }: { product: Prod
           <div className="document-bar flex min-h-[45px] items-stretch bg-ground">
             <div className="document-tab flex min-w-[182px] items-center gap-2 border-r border-line bg-page px-[25px] text-[13px] text-secondary" data-testid="document-tab">
               <FileTextIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-              <span className="truncate">{openPage?.path.split('/').pop() ?? t('navigation.overview')}</span>
+              <span className="truncate">{openPage?.path.split('/').pop() ?? (route.stage !== undefined ? t(`stages.names.${route.stage}`) : t('navigation.overview'))}</span>
             </div>
           </div>
           {/* The window-height shell: every panel and bar stays in place and

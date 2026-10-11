@@ -22,6 +22,7 @@ import { readProductModel } from '../product-wiki/model.js';
 import { architectureBundle } from '../product-wiki/architecture.js';
 import { likec4Webcomponent } from '../product-wiki/likec4-webcomponent.js';
 import { renderModel } from '../render/prepare.js';
+import { readStagesIndex, type StagesIndex } from '../wiki/stages.js';
 import { readFileSync, statSync, watch } from 'node:fs';
 import { join as joinPath, normalize, resolve } from 'node:path';
 import type { Handled, Refusal, ReplyMaker } from './http.js';
@@ -152,6 +153,8 @@ export interface WikiPart {
   pages: () => Handled;
   /** `GET /api/page?path=...`: one page, whole. */
   page: (request: Request) => Promise<Handled>;
+  /** `GET /api/stages`: the SDLC stage index, read from the product's files now. */
+  stages: () => Handled;
   /** `GET /api/events`: the wiki's change stream, held open until the asker hangs up. */
   events: (request: Request) => Handled;
   /** The app's files: called for a path outside the route table, answering a file or index.html. */
@@ -234,6 +237,19 @@ export function createWikiPart(
       }
       return { response: json(200, { path: asked.page.path, title: asked.page.title, markdown: asked.page.markdown, changedAt: asked.page.changedAt }) };
     },
+    stages: (): Handled => {
+      let index: StagesIndex;
+      try {
+        index = readStagesIndex(wiki.product.folder);
+      } catch (error) {
+        // A product folder that cannot be read at all is the server failing:
+        // 500, the folder named, the cause kept for the log line.
+        return refused(500, {
+          message: `the stage index of the product ${JSON.stringify(wiki.product.folder)} could not be read: ${(error as Error).message}`,
+        });
+      }
+      return { response: json(200, index) };
+    },
     events: (request) => streamingEvents(wiki, request),
     app: appFolder === undefined ? (): Handled | undefined => undefined : (pathname): Handled | undefined => serveAppFiles(json, refused, appFolder, pathname),
   };
@@ -283,11 +299,11 @@ function serveAppFiles(json: ReplyMaker['json'], refused: ReplyMaker['refused'],
   }
 }
 
-/** The address prefixes the app itself answers: a page's route and the home page. */
-const APP_ROUTE_PREFIXES = ['/p/', '/'];
+/** The address prefixes the app itself answers: a page's route, a stage's route and the home page. */
+const APP_ROUTE_PREFIXES = ['/p/', '/s/', '/'];
 
 /** Whether the fallback to index.html may answer this path: only the app's own routes. */
 function isAppRoute(pathname: string): boolean {
-  return pathname === '/' || pathname.startsWith('/p/');
+  return pathname === '/' || pathname.startsWith('/p/') || pathname.startsWith('/s/');
 }
 

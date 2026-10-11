@@ -452,6 +452,104 @@ main tbody tr:nth-child(odd) {
   overflow-wrap: anywhere;
 }
 
+/* The SDLC stages view: the missing lines are quiet, the tasks read like the
+   documents' rows, and the linked sections are plain lines, not controls. */
+.stage-missing {
+  margin-block: 1.5em;
+}
+
+.stage-missing-line {
+  margin: 0.35em 0;
+  font-size: var(--fs-small);
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.stage-problems {
+  margin-block: 0 1.5em;
+}
+
+.stage-problem {
+  margin: 0.2em 0;
+  font-size: var(--fs-small);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.stage-section-link {
+  margin: 0.4em 0;
+  font-size: var(--fs-small);
+  color: var(--text-secondary);
+}
+
+.stage-tasks {
+  margin-block: 1.5em;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface-card);
+}
+
+.stage-tasks-title {
+  margin: 0 0 0.6em;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.stage-feature {
+  margin-block: 0.8em;
+}
+
+.stage-feature-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 0.25em;
+}
+
+.stage-feature-name {
+  font-weight: 550;
+  color: var(--text);
+}
+
+.stage-feature-counts {
+  font-size: var(--fs-small);
+  color: var(--text-muted);
+}
+
+.stage-task-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.stage-task-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 7px 10px;
+  margin: 1px 0;
+  border-radius: var(--radius-row);
+  font-size: var(--fs-small);
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.stage-task-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.stage-task-id {
+  margin-inline-start: auto;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: var(--fs-small);
+}
+
 /* 4.4 A rule between sections. */
 main hr {
   border: 0;

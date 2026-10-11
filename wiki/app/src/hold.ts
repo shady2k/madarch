@@ -9,8 +9,8 @@
 import { createContext } from 'react';
 import type { Route } from './routes.js';
 
-/** What a rendered document needs to know to answer a link: the page it is on. */
-export type RouteData = { path?: string; heldPaths: ReadonlySet<string> };
+/** What a rendered document needs to know to answer a link: the page it is on, and the open stage's id when the route is a stage's. */
+export type RouteData = { path?: string; stage?: string; heldPaths: ReadonlySet<string> };
 
 export const routeContext = createContext<RouteData>({ heldPaths: new Set() });
 
