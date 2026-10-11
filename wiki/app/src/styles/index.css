@@ -857,3 +857,20 @@ main section h2 {
 .arch-parent {
   color: var(--text-secondary);
 }
+
+/* The repositories' page (docs/changes/wiki-repos): the declared facts as
+   quiet rows on the home's rhythm, and the checkout's README rendered
+   beneath — the same reading styles, inside the card's own measure. */
+.repo-rows .home-row {
+  padding-block: 6px;
+}
+
+.repo-readme {
+  margin-block: 6px 0;
+  padding-block-start: 0.9em;
+  border-block-start: 1px solid var(--border-subtle);
+}
+
+.repo-readme .reading > :first-child {
+  margin-block-start: 0;
+}

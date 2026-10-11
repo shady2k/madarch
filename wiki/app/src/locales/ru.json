@@ -19,7 +19,8 @@
     "contextUnavailable": "Контекст страницы пока недоступен",
     "language": "Язык",
     "english": "English",
-    "russian": "Русский"
+    "russian": "Русский",
+    "repositories": "Репозитории"
   },
   "groups": {
     "product": "Продукт",
@@ -61,7 +62,8 @@
     "formatUtf8": "UTF-8",
     "documents": "{{count}} {{unit}}",
     "elements": "элементов: {{count}}",
-    "views": "диаграмм: {{count}}"
+    "views": "диаграмм: {{count}}",
+    "repos": "{{count}} {{unit}}"
   },
   "units": {
     "word_one": "слово",
@@ -87,7 +89,11 @@
     "taskDone_one": "задача",
     "taskDone_few": "задачи",
     "taskDone_many": "задач",
-    "taskDone_other": "задачи"
+    "taskDone_other": "задачи",
+    "repository_one": "репозиторий",
+    "repository_few": "репозитория",
+    "repository_many": "репозиториев",
+    "repository_other": "репозитория"
   },
   "loading": {
     "wiki": "Загрузка вики",
@@ -203,5 +209,16 @@
       "architecture views": "Виды архитектуры",
       "task": "Задача"
     }
+  },
+  "repos": {
+    "overview": "Репозитории кода",
+    "title": "Репозитории",
+    "lead": "Сторона кода продукта {{product}}: {{count}} {{unit}} объявлено в манифесте.",
+    "stateCheckedOut": "Склонирован",
+    "stateNotCheckedOut": "Не склонирован",
+    "stateUnreadable": "Не читается",
+    "branchValue": "ветка {{branch}}",
+    "lastCommit": "последний коммит {{when}}",
+    "noReadme": "README в корне нет"
   }
 }

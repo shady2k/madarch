@@ -19,7 +19,8 @@
     "contextUnavailable": "Page context is not available yet",
     "language": "Language",
     "english": "English",
-    "russian": "Russian"
+    "russian": "Russian",
+    "repositories": "Repositories"
   },
   "groups": {
     "product": "Product",
@@ -61,7 +62,8 @@
     "formatUtf8": "UTF-8",
     "documents": "{{count}} {{unit}}",
     "elements": "{{count}} elements",
-    "views": "{{count}} views"
+    "views": "{{count}} views",
+    "repos": "{{count}} {{unit}}"
   },
   "units": {
     "word_one": "word",
@@ -87,7 +89,11 @@
     "taskProgress_few": "in progress",
     "taskProgress_many": "in progress",
     "taskDone_few": "done",
-    "taskDone_many": "done"
+    "taskDone_many": "done",
+    "repository_one": "repository",
+    "repository_few": "repositories",
+    "repository_many": "repositories",
+    "repository_other": "repositories"
   },
   "loading": {
     "wiki": "Waiting for the wiki",
@@ -203,5 +209,16 @@
       "architecture views": "Architecture views",
       "task": "Task"
     }
+  },
+  "repos": {
+    "overview": "Code repositories",
+    "title": "Repositories",
+    "lead": "The code side of {{product}}: {{count}} {{unit}} the manifest declares.",
+    "stateCheckedOut": "Checked out",
+    "stateNotCheckedOut": "Not checked out",
+    "stateUnreadable": "Unreadable",
+    "branchValue": "branch {{branch}}",
+    "lastCommit": "last commit {{when}}",
+    "noReadme": "No README at its root"
   }
 }

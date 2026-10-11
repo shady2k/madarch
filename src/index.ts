@@ -114,3 +114,12 @@ export {
 } from './product-wiki/pages.js';
 
 export { loadAndCompileModel, type LoadAndCompileResult } from './model/load-and-compile.js';
+export {
+  REPOS_FOLDER,
+  readProductRepos,
+  type ProductRepoEntry,
+  type ProductRefsAnswer,
+  type RepoHead,
+  type RepoReadme,
+  type RepoState,
+} from './product-wiki/repos.js';

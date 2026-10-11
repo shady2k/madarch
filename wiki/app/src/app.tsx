@@ -15,9 +15,9 @@
  */
 import { useContext, useEffect, useRef, useState, useCallback, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FileTextIcon, NetworkIcon } from 'lucide-react';
+import { FileTextIcon, FolderGit2Icon, GitBranch, NetworkIcon } from 'lucide-react';
 import { relativeTime } from './i18n.js';
-import { getProduct, getPages, getPage, type Product, type PageList, type Page, type Architecture } from './api.js';
+import { getProduct, getPages, getPage, getRepos, type Product, type PageList, type Page, type Architecture, type RepoEntry, type ReposList } from './api.js';
 import { routeOf, addressOfPage, architectureAddress, type Route } from './routes.js';
 import { Markdown, PageLink } from './view.js';
 import { routeContext, statusContext } from './hold.js';
@@ -52,7 +52,7 @@ export type AppProps = {
 export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, reconnectMs = defaultReconnectMs }: AppProps): ReactElement {
   const { t, i18n } = useTranslation();
   const [route, setRoute] = useState<RouteSnapshot>(() => routeOf(window.location.pathname));
-  const [data, setData] = useState<{ product: Product; list: PageList } | null>(null);
+  const [data, setData] = useState<{ product: Product; list: PageList; repos: ReposList } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [streamConnected, setStreamConnected] = useState(false);
@@ -102,9 +102,11 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
         const nextList = await getPages(controller.signal);
         current = '/api/product';
         const nextProduct = await getProduct(controller.signal);
+        current = '/api/repos';
+        const nextRepos = await getRepos(controller.signal);
         if (!alive || lastAnsweredTurn > turn) return;
         lastAnsweredTurn = turn;
-        setData({ product: nextProduct, list: nextList });
+        setData({ product: nextProduct, list: nextList, repos: nextRepos });
         setError(null);
       } catch (caught: unknown) {
         const aborted = caught instanceof DOMException && caught.name === 'AbortError';
@@ -202,9 +204,11 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
   return (
     <StatusBridge streamConnected={streamConnected}>
       <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, stage: route.name === 'stage' ? route.stage : undefined, heldPaths }}>
-        <Shell product={data.product} list={list} architecture={architecture}>
+        <Shell product={data.product} list={list} architecture={architecture} reposCount={data.repos.repos.length} reposOpen={route.name === 'repos'}>
         {route.name === 'home' ? (
           <HomePage product={data.product} list={list} architecture={architecture} />
+        ) : route.name === 'repos' ? (
+          <RepositoriesPage product={data.product} repos={data.repos.repos} />
         ) : route.name === 'architecture' ? (
           <ArchitectureReader key={'architecture:' + list.revision} revision={list.revision} routeName="index" />
         ) : route.name === 'view' ? (
@@ -495,5 +499,96 @@ export function ErrorLine({ message }: { message: string }): ReactElement {
       <strong>{t('errors.prefix')}</strong>{' '}
       <span>{t('errors.details', { message })}</span>
     </p>
+  );
+}
+
+/**
+ * The repositories' page (docs/changes/wiki-repos, requirement
+ * `repositories`): the code repositories the product's manifest declares,
+ * one card each — its name, its url, its branch when declared, the checkout
+ * state, its last commit (the short sha, the subject, the age through the
+ * same relative-time machinery the pages use), and its README rendered as
+ * markdown through the same pipeline the pages use. The section exists only
+ * where the manifest declares repositories: the app never renders an empty
+ * stub, and the sidebar entry is the shell's to hold.
+ */
+export function RepositoriesPage({ product, repos }: { product: Product; repos: readonly RepoEntry[] }): ReactElement {
+  const { publish } = useContext(statusContext);
+  const { t } = useTranslation();
+  const count = repos.length;
+  const unit = t('units.repository', { count });
+  useEffect(() => {
+    publish([t('status.repos', { count, unit }), t('status.formatMarkdown'), t('status.formatUtf8')]);
+    return () => publish(null);
+  }, [publish, count, unit, t]);
+  return (
+    <main id="repos">
+      <p className="eyebrow">{t('repos.overview')}</p>
+      <h1 className="app-title">{t('repos.title')}</h1>
+      <p className="home-lead" data-testid="repos-lead">{t('repos.lead', { product: product.name, count, unit })}</p>
+      {count === 0 ? null : (
+        <div className="home-groups">
+          {repos.map((entry) => <RepoCard key={entry.name} entry={entry} />)}
+        </div>
+      )}
+    </main>
+  );
+}
+
+/** The state labels the card shows, by the entry's state. */
+function stateLabelOf(entry: RepoEntry, t: (key: string) => string): string {
+  if (entry.state === 'checked-out') return t('repos.stateCheckedOut');
+  if (entry.state === 'not-checked-out') return t('repos.stateNotCheckedOut');
+  return t('repos.stateUnreadable');
+}
+
+/** One repository's card: the declared facts on quiet rows, the rendered README beneath. */
+export function RepoCard({ entry }: { entry: RepoEntry }): ReactElement {
+  const { t, i18n } = useTranslation();
+  const state = stateLabelOf(entry, t);
+  return (
+    <section key={entry.name} data-repo={entry.name} data-state={entry.state} className="home-group mt-7 first:mt-0">
+      <header className="home-group-head">
+        <h2 className="text-ink" data-testid="repo-name">{entry.name}</h2>
+        <span className="home-count" data-testid="repo-state">{state}</span>
+      </header>
+      <ul className="home-rows repo-rows">
+        <li className="home-row as-line" data-testid="repo-url" title={entry.url}>
+          <FolderGit2Icon aria-hidden="true" className="home-row-icon" />
+          <span className="home-row-title">{entry.url}</span>
+        </li>
+        {entry.branch !== undefined && (
+          <li className="home-row as-line" data-testid="repo-branch">
+            <GitBranch aria-hidden="true" className="home-row-icon" />
+            <span className="home-row-title">{t('repos.branchValue', { branch: entry.branch })}</span>
+          </li>
+        )}
+        {entry.state === 'checked-out' && entry.head !== undefined && (
+          <li className="home-row as-line" data-testid="repo-commit">
+            <FileTextIcon aria-hidden="true" className="home-row-icon" />
+            <span className="home-row-title">
+              {entry.head.sha} {entry.head.subject} · {t('repos.lastCommit', { when: relativeTime(entry.head.committedAt, i18n.resolvedLanguage) })}
+            </span>
+          </li>
+        )}
+        {entry.problem !== undefined && (
+          <li className="home-row as-line" data-testid="repo-problem">
+            <FileTextIcon aria-hidden="true" className="home-row-icon" />
+            <span className="home-row-title">{t('errors.details', { message: entry.problem })}</span>
+          </li>
+        )}
+        {entry.readme === undefined && entry.state !== 'unreadable' && (
+          <li className="home-row as-line" data-testid="repo-no-readme">
+            <FileTextIcon aria-hidden="true" className="home-row-icon" />
+            <span className="home-row-title">{t('repos.noReadme')}</span>
+          </li>
+        )}
+      </ul>
+      {entry.readme !== undefined && (
+        <div className="repo-readme">
+          <Markdown text={entry.readme.markdown} />
+        </div>
+      )}
+    </section>
   );
 }

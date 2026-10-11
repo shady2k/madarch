@@ -18,6 +18,7 @@
  */
 import { basename as nameOf } from 'node:path';
 import type { ProductWiki } from '../product-wiki/pages.js';
+import { readProductRepos } from '../product-wiki/repos.js';
 import { readProductModel } from '../product-wiki/model.js';
 import { architectureBundle } from '../product-wiki/architecture.js';
 import { likec4Webcomponent } from '../product-wiki/likec4-webcomponent.js';
@@ -157,6 +158,8 @@ export interface WikiPart {
   stages: () => Handled;
   /** `GET /api/events`: the wiki's change stream, held open until the asker hangs up. */
   events: (request: Request) => Handled;
+  /** `GET /api/repos`: the declared code repositories, their checkouts, HEADs and READMEs. */
+  repos: () => Handled;
   /** The app's files: called for a path outside the route table, answering a file or index.html. */
   app: (pathname: string) => Handled | undefined;
 }
@@ -251,6 +254,10 @@ export function createWikiPart(
       return { response: json(200, index) };
     },
     events: (request) => streamingEvents(wiki, request),
+    repos: (): Handled => {
+      const asked = readProductRepos(wiki.product);
+      return { response: json(200, { repos: asked.repos }) };
+    },
     app: appFolder === undefined ? (): Handled | undefined => undefined : (pathname): Handled | undefined => serveAppFiles(json, refused, appFolder, pathname),
   };
 }
@@ -300,10 +307,10 @@ function serveAppFiles(json: ReplyMaker['json'], refused: ReplyMaker['refused'],
 }
 
 /** The address prefixes the app itself answers: a page's route, a stage's route and the home page. */
-const APP_ROUTE_PREFIXES = ['/p/', '/s/', '/'];
+const APP_ROUTE_PREFIXES = ['/p/', '/r', '/s/', '/'];
 
 /** Whether the fallback to index.html may answer this path: only the app's own routes. */
 function isAppRoute(pathname: string): boolean {
-  return pathname === '/' || pathname.startsWith('/p/') || pathname.startsWith('/s/');
+  return pathname === '/' || pathname.startsWith('/p/') || pathname === '/r' || pathname.startsWith('/s/');
 }
 

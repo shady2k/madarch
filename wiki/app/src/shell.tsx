@@ -31,7 +31,7 @@ import {
   PanelRightIcon,
 } from 'lucide-react';
 import type { PageList, PageMeta, Product } from './api.js';
-import { architectureAddress, addressOfStageRoute } from './routes.js';
+import { architectureAddress, addressOfStageRoute, REPOS_ADDRESS } from './routes.js';
 import type { Architecture } from './api.js';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
@@ -295,7 +295,7 @@ function StagesNav({ current, onNavigate }: { current: string | undefined; onNav
   );
 }
 
-function NavPanel({ product, groups, current, currentStage, onNavigate, architectureCount }: {
+function NavPanel({ product, groups, current, currentStage, onNavigate, architectureCount, reposCount }: {
   product: Product;
   groups: readonly NavGroup[];
   current: string | undefined;
@@ -304,6 +304,8 @@ function NavPanel({ product, groups, current, currentStage, onNavigate, architec
   onNavigate?: MouseEventHandler;
   /** The Architecture section's view count, when the model holds views. */
   architectureCount?: number;
+  /** The repositories the manifest declares, when the product declares any: the entry shows with its count. */
+  reposCount?: number;
 }): ReactElement {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const { t } = useTranslation();
@@ -345,6 +347,23 @@ function NavPanel({ product, groups, current, currentStage, onNavigate, architec
       >
         <span className="flex items-center gap-2.5"><PanelRightIcon aria-hidden="true" className="size-4 shrink-0 text-muted" /> {t('navigation.overview')}</span>
       </a>
+      {reposCount !== undefined && reposCount > 0 && (
+        <a
+          className="mb-3 flex items-center justify-between rounded-[var(--radius-row)] px-2.5 py-2 text-[13px] text-ink no-underline hover:bg-[var(--surface-hover)] focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+          href="/r"
+          data-testid="nav-repositories"
+          onClick={(event) => {
+            if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
+            event.preventDefault();
+            navigateTo(REPOS_ADDRESS);
+          }}
+        >
+          <span className="flex items-center gap-2.5">
+            <FolderGit2Icon aria-hidden="true" className="size-4 shrink-0 text-muted" /> {t('navigation.repositories')}
+          </span>
+          <span className="text-small text-muted">{reposCount}</span>
+        </a>
+      )}
       <StagesNav current={currentStage} onNavigate={onNavigate} />
       <div className="mb-1.5 mt-2 flex items-center justify-between px-2">
         <h2 className="text-[12px] uppercase tracking-[0.08em] text-muted">{t('navigation.documents')}</h2>
@@ -435,7 +454,16 @@ export function StatusBar(): ReactElement {
  * own scrolling column (the only scrolling part at any window height), and
  * the status bar along the window's bottom edge.
  */
-export function Shell({ product, list, children, architecture }: { product: Product; list: PageList; children: ReactNode; architecture?: Architecture | null }): ReactElement {
+export function Shell({ product, list, children, architecture, reposCount, reposOpen }: {
+  product: Product;
+  list: PageList;
+  children: ReactNode;
+  architecture?: Architecture | null;
+  /** The repositories the manifest declares, when any: the sidebar entry shows only then. */
+  reposCount?: number;
+  /** Whether the repositories' page is the one open, for the breadcrumb and the tab strip. */
+  reposOpen?: boolean;
+}): ReactElement {
   const route = useContext(routeContext);
   const { t, i18n } = useTranslation();
   const language: WikiLanguage = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
@@ -472,7 +500,7 @@ export function Shell({ product, list, children, architecture }: { product: Prod
           aria-label={t('navigation.aria')}
           hidden={focused}
         >
-          <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} />
+          <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} />
         </aside>
         <div className="shell-main flex min-w-0 flex-1 flex-col">
           <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line px-4 wide:px-[35px]">
@@ -484,7 +512,7 @@ export function Shell({ product, list, children, architecture }: { product: Prod
                   <span className="text-ink">{t(`stages.names.${route.stage}`)}</span>
                 </>
               ) : openPage === undefined ? (
-                t('navigation.overview')
+                reposOpen === true ? t('navigation.repositories') : t('navigation.overview')
               ) : (
                 <>
                   <span className="text-muted">{t('groups.' + groupOf(openPage.path), { defaultValue: wordLabel(groupOf(openPage.path)) })}</span>{' '}
@@ -517,7 +545,7 @@ export function Shell({ product, list, children, architecture }: { product: Prod
                   data-testid="phone-nav"
                   className={'app-nav w-[min(280px,_82vw)] px-[14px] py-3 ' + (focused ? 'bg-chrome' : '')}
                 >
-                  <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} />
+                  <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} />
                 </SheetContent>
               </Sheet>
               <DropdownMenu.Root>
@@ -583,7 +611,7 @@ export function Shell({ product, list, children, architecture }: { product: Prod
           <div className="document-bar flex min-h-[45px] items-stretch bg-ground">
             <div className="document-tab flex min-w-[182px] items-center gap-2 border-r border-line bg-page px-[25px] text-[13px] text-secondary" data-testid="document-tab">
               <FileTextIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-              <span className="truncate">{openPage?.path.split('/').pop() ?? (route.stage !== undefined ? t(`stages.names.${route.stage}`) : t('navigation.overview'))}</span>
+              <span className="truncate">{openPage?.path.split('/').pop() ?? (route.stage !== undefined ? t(`stages.names.${route.stage}`) : (reposOpen === true ? t('navigation.repositories') : t('navigation.overview')))}</span>
             </div>
           </div>
           {/* The window-height shell: every panel and bar stays in place and

@@ -6,6 +6,27 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { startServer, type StartedServer } from '../src/index.js';
+import { gitEnv } from './git-env.js';
+
+/** One real git repository checked out under the product's repos/, committed with a sealed identity. */
+function fixtureCheckout(product: string, name: string, subject: string): string {
+  const target = join(product, 'repos', name);
+  mkdirSync(target, { recursive: true });
+  const env = {
+    ...gitEnv(),
+    GIT_AUTHOR_NAME: 'Repos Test', GIT_AUTHOR_EMAIL: 'repos-test@example.com',
+    GIT_COMMITTER_NAME: 'Repos Test', GIT_COMMITTER_EMAIL: 'repos-test@example.com',
+  };
+  const run = (args: string[]): void => {
+    const done = spawnSync('git', args, { cwd: target, encoding: 'utf8', env });
+    if (done.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${done.stderr}${done.stdout}`);
+  };
+  run(['init', '--quiet', '--initial-branch=main']);
+  writeFileSync(join(target, 'README.md'), `# ${name}\n`);
+  run(['add', '-A']);
+  run(['commit', '--quiet', '-m', subject]);
+  return target;
+}
 
 /** Renames one folder, failing loudly when the move did not happen. */
 function renameOrThrow(from: string, to: string): void {
@@ -102,6 +123,53 @@ describe('the server\'s product mode', () => {
       { path: 'docs/vision.md', title: 'Vision', address: '/p/docs/vision.md' },
     ]);
     expect(body.revision).toBe((await (await fetch(`${url}/api/pages`)).json() as typeof body).revision);
+  });
+
+  test('GET /api/repos answers the declared repositories: not-checked-out without a checkout, checked-out with its HEAD and README', async () => {
+    draft();
+    builtApp();
+    writeFileSync(
+      join(folder!, 'workspace.yaml'),
+      'schemaVersion: 1\nid: demo\nname: Demo\nrepos:\n  - name: core\n    url: https://example.com/core.git\n  - name: web\n    url: https://example.com/web.git\n    branch: main\n',
+    );
+    fixtureCheckout(folder!, 'core', 'Make the core');
+    const url = startProduct();
+    const answer = await fetch(`${url}/api/repos`);
+    expect(answer.status).toBe(200);
+    const body = (await answer.json()) as {
+      repos: { name: string; url: string; branch?: string; state: string; head?: { sha: string; subject: string; committedAt: string }; readme?: { file: string; markdown: string } }[];
+    };
+    expect(body.repos).toHaveLength(2);
+    expect(body.repos[1]).toEqual({
+      name: 'web', url: 'https://example.com/web.git', branch: 'main', state: 'not-checked-out',
+    });
+    const core = body.repos[0]!;
+    expect(core.name).toBe('core');
+    expect(core.state).toBe('checked-out');
+    expect(core.head?.subject).toBe('Make the core');
+    expect(core.head?.committedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(core.readme?.markdown).toBe('# core\n');
+  });
+
+  test('GET /api/repos names an unreadable checkout instead of failing, and answers empty when the manifest declares none', async () => {
+    draft();
+    builtApp();
+    const url = startProduct();
+    const empty = await (await fetch(`${url}/api/repos`)).json();
+    expect((empty as { repos: unknown[] }).repos).toEqual([]);
+    server?.stop();
+    writeFileSync(
+      join(folder!, 'workspace.yaml'),
+      'schemaVersion: 1\nid: demo\nname: Demo\nrepos:\n  - name: broken\n    url: https://example.com/broken.git\n',
+    );
+    mkdirSync(join(folder!, 'repos', 'broken'), { recursive: true });
+    writeFileSync(join(folder!, 'repos', 'broken', 'note.txt'), 'plain folder\n');
+    const url2 = startProduct();
+    const answer = await fetch(`${url2}/api/repos`);
+    expect(answer.status).toBe(200);
+    const body = (await answer.json()) as { repos: { name: string; state: string; problem?: string }[] };
+    expect(body.repos[0]?.state).toBe('unreadable');
+    expect(body.repos[0]?.problem).toContain(join(folder!, 'repos', 'broken'));
   });
 
   test('GET /api/events answers a text/event-stream whose `retry` comes first', async () => {

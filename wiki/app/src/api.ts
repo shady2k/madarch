@@ -196,3 +196,37 @@ export type StagesIndex = {
 
 export const getStages = (signal?: AbortSignal): Promise<StagesIndex> =>
   readJson<StagesIndex>('read the stages', '/api/stages', signal);
+
+/** The checkout's last commit, as the server's git read reported it. */
+export type RepoHead = {
+  /** The short sha HEAD answers. */
+  sha: string;
+  /** The commit's subject line. */
+  subject: string;
+  /** The commit's time, ISO 8601 with an offset. */
+  committedAt: string;
+};
+
+/** One declared code repository, as `GET /api/repos` answers it. */
+export type RepoEntry = {
+  /** The repository's name in the manifest. */
+  name: string;
+  /** The url the manifest declares. */
+  url: string;
+  /** The branch the manifest declares, when it declares one. */
+  branch?: string;
+  /** The checkout's state under `repos/`. */
+  state: 'checked-out' | 'not-checked-out' | 'unreadable';
+  /** The checkout's HEAD, when a checkout is there and git could read a commit of it. */
+  head?: RepoHead;
+  /** The README at the checkout's root, when it has one and its bytes could be read. */
+  readme?: { file: string; markdown: string };
+  /** Why the row is not the ordinary one, naming the path — carried for `unreadable`. */
+  problem?: string;
+};
+
+export type ReposList = {
+  repos: RepoEntry[];
+};
+
+export const getRepos = (signal?: AbortSignal): Promise<ReposList> => readJson<ReposList>('read the repositories', '/api/repos', signal);

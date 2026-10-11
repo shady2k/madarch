@@ -15,7 +15,8 @@
  * machine's path (CHROME names another) drives every window through
  * puppeteer-core; this script writes nothing in the repository.
  */
-import { mkdirSync, existsSync, readFileSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join, resolve as resolvePath } from 'node:path';
 import puppeteer from 'puppeteer-core';
 import { startServer, type StartedServer } from '../src/index.js';
@@ -29,6 +30,46 @@ const SCREENS = [
   { name: 'document', address: '/p/docs/vision.md' },
   { name: 'home', address: '/' },
 ] as const;
+
+/** The repositories' screens: the declared ones with a checkout built, the pristine manifest's declared-not-checked-out state. */
+const REPOS_SCREENS = [
+  { name: 'repositories', address: '/r' },
+  { name: 'repositories-declared', address: '/r' },
+] as const;
+
+/**
+ * Builds the demo product's own checkout fixture under wiki/demo/repos/ with
+ * the machine's git in a sealed environment: one real repository, one
+ * commit, a README with the elements the section renders. Writes only inside
+ * the gitignored repos/ folder, and never inside anyone else's repository.
+ */
+function buildDemoCheckout(product: string): string {
+  const target = join(product, 'repos', 'fieldnote-core');
+  mkdirSync(join(target, 'src'), { recursive: true });
+  const env = {
+    ...process.env,
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_AUTHOR_NAME: 'Fieldnote Fixture',
+    GIT_AUTHOR_EMAIL: 'fieldnote-fixture@example.com',
+    GIT_COMMITTER_NAME: 'Fieldnote Fixture',
+    GIT_COMMITTER_EMAIL: 'fieldnote-fixture@example.com',
+  };
+  const run = (args: string[]): string => {
+    const done = spawnSync('git', args, { cwd: target, encoding: 'utf8', env });
+    if (done.status !== 0) throw new Error(`git ${args.join(' ')} failed at the demo checkout: ${done.stderr}${done.stdout}`);
+    return done.stdout;
+  };
+  // A checkout a previous run built stands as it is: already a repository
+  // with the seeded commit, so rebuilding would commit nothing.
+  if (existsSync(join(target, '.git'))) return target;
+  run(['init', '--quiet', '--initial-branch=main']);
+  writeFileSync(join(target, 'README.md'), '# fieldnote-core\n\nThe demo product\'s core library, a checkout the wiki reads as it stands.\n\n## What lives here\n\n- the notes store and its formats\n- the reader\'s own sync, none for now\n');
+  writeFileSync(join(target, 'src', 'store.ts'), 'export const store = 1;\n');
+  run(['add', '-A']);
+  run(['commit', '--quiet', '-m', 'Seed the demo checkout: the store and its README']);
+  return target;
+}
 
 /** One window size, as the acceptance names them. */
 const SIZES: Record<string, { width: number; height: number; scheme: 'dark' | 'light' }> = {
@@ -66,9 +107,17 @@ type Shot = { file: string; width: number; height: number };
 type Pair = { name: string; ours?: Shot; mockup?: Shot };
 
 let server: StartedServer | undefined;
+let reposServer: StartedServer | undefined;
 try {
   server = startServer({ productFolder: join(repo, 'wiki', 'demo'), port: 0 });
   const ours = server.url;
+  // The repositories' own server: the demo product with its declared
+  // checkout built under repos/, checked out, so the section shows the
+  // checked-out state and the rendered README beside the row that stays
+  // declared only.
+  buildDemoCheckout(join(repo, 'wiki', 'demo'));
+  reposServer = startServer({ productFolder: join(repo, 'wiki', 'demo'), port: 0 });
+  const reposOurs = reposServer.url;
   const browser = await puppeteer.launch({
     executablePath: CHROME,
     headless: true,
@@ -119,7 +168,24 @@ try {
         });
       }
     }
-    // The phone menu: the navigation drawer opened over the 390 screen.
+    // The repositories' pairs: the checked-out state with its rendered README
+  // from the server whose demo holds the checkout, and the
+  // declared-not-checked-out state from the pristine server, both themes at
+  // 1000 and 1440.
+  for (const size of ['1000', '1000-light', '1440', '1440-light']) {
+    pairs.push({
+      name: `repositories-${size}`,
+      ours: await shotOf(reposOurs + '/r', size, 'repositories-ours'),
+      mockup: mockupIndex === undefined ? undefined : await shotOf('file://' + mockupIndex, size, 'repositories-mockup'),
+    });
+    pairs.push({
+      name: `repositories-declared-${size}`,
+      ours: await shotOf(ours + '/r', size, 'repositories-declared-ours'),
+      mockup: mockupIndex === undefined ? undefined : await shotOf('file://' + mockupIndex, size, 'repositories-declared-mockup'),
+    });
+  }
+
+  // The phone menu: the navigation drawer opened over the 390 screen.
     try {
       const page = await browser.newPage();
       await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
@@ -240,4 +306,5 @@ try {
   }
 } finally {
   server?.stop();
+  reposServer?.stop();
 }

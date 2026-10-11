@@ -6,3 +6,5 @@ build/
 
 # The wiki app build output, rebuilt on first use by madarch serve
 /wiki/app/dist/
+# The demo product's declared checkouts: the product leaves repos/ untracked
+/wiki/demo/repos/

@@ -15,7 +15,8 @@ export type Route =
   | { name: 'architecture' }
   | { name: 'view'; scope: string }
   | { name: 'element'; id: string }
-  | { name: 'stage'; stage: string };
+  | { name: 'stage'; stage: string }
+  | { name: 'repos' };
 
 /** The address prefix of the wiki's own (non-document) pages. */
 export const ARCHITECTURE_PREFIX = '/p/madarch/';
@@ -50,6 +51,9 @@ export function routeOf(pathname: string): Route {
   if (pathname.startsWith('/p/')) {
     return { name: 'page', path: decodeURIComponent(pathname.slice('/p/'.length)) };
   }
+  if (pathname === REPOS_ADDRESS) {
+    return { name: 'repos' };
+  }
   if (pathname.startsWith('/s/')) {
     try {
       return { name: 'stage', stage: decodeURIComponent(pathname.slice('/s/'.length)) };
@@ -64,6 +68,9 @@ export function routeOf(pathname: string): Route {
 export function addressOfPage(path: string): string {
   return '/p/' + path.split('/').map(encodeURIComponent).join('/');
 }
+
+/** The address of the repositories' page. */
+export const REPOS_ADDRESS = '/r';
 
 /** The address of a stage page, `/s/` plus the stage's id. */
 export function addressOfStageRoute(stage: string): string {
