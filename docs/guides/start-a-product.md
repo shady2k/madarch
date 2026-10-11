@@ -54,10 +54,14 @@ app in the madarch checkout and serves it from there, saying so while it
 builds, and does not build again while the built files stand. The other lines name the draft and its id —
 the identifier the product keeps for its whole life, whatever the folder
 is later called. The command
-serves until you stop it; leave it running, open another terminal, and keep
-reading. Later serves open immediately unless the port is taken (`the port
-4180 is already in use: nothing else can serve there — name another with
---port <n>`).
+The command serves in the foreground until you stop it with Ctrl-C — that
+is the whole session ending, not a fault. Without a browser (a headless
+machine, or `--no-open`) it prints the `address:` line and keeps serving the
+same way; for a bounded look, run it under a timeout (`timeout 60 madarch
+new --no-open`) and the serve ends with the timeout. Leave it running, open
+another terminal, and keep reading. Later serves open immediately unless the
+port is taken (`the port 4180 is already in use: nothing else can serve
+there — name another with --port <n>`).
 
 A products home is a folder of products; move it for real life with
 `MADARCH_HOME`, for a single command with `--home <folder>`.
@@ -170,7 +174,9 @@ prints the address and opens the browser:
 
 The wiki is served out of the product's files, reading them fresh at every
 ask: save a document under `docs/`, refresh, and the page shows it. The
-command serves until it is stopped.
+command serves in the foreground until you stop it with Ctrl-C; with
+`--no-open` it prints the address and serves the same way, and
+`timeout 60 madarch serve --no-open` gives a bounded look.
 
 ## Start the work with your agent
 
