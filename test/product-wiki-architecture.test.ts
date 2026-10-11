@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { readProduct } from '../src/product/manifest.js';
+import { openProductWiki } from '../src/product-wiki/pages.js';
 import { readProductModel } from '../src/product-wiki/model.js';
 import { architectureBundle, pagesNamingElement, textNamesElement } from '../src/product-wiki/architecture.js';
 import { startServer, type StartedServer } from '../src/index.js';
@@ -34,6 +35,13 @@ function requireProduct(at: string): ReturnType<typeof readProduct> extends { ok
   const read = readProduct(at);
   if (!read.ok) throw new Error(read.message);
   return read.product as never;
+}
+
+/** The opened product wiki of a folder, for the revision tests. */
+function requireProduct2(at: string): import('../src/product-wiki/pages.js').ProductWiki {
+  const opened = openProductWiki(at);
+  if (!opened.ok) throw new Error(opened.message);
+  return opened.wiki;
 }
 
 const DRILL_DOWN = `version: 1
@@ -317,6 +325,23 @@ describe('the conservative name rule', () => {
     expect(textNamesElement('', 'checkout-web')).toBe(false);
   });
 
+  test('a hyphen before or after the id is part of another word: not-shop never names shop', () => {
+    expect(textNamesElement('the not-shop serves', 'shop')).toBe(false);
+    expect(textNamesElement('the shop-item serves', 'shop')).toBe(false);
+    expect(textNamesElement('the shop, however, serves', 'shop')).toBe(true);
+    expect(textNamesElement('a-b/c names c', 'c')).toBe(true);
+    expect(textNamesElement('a.b stands alone', 'b')).toBe(false);
+    expect(textNamesElement('a.b stands alone', 'a.b')).toBe(true);
+  });
+
+  test('fences, inline code spans and link targets are not matches', () => {
+    expect(textNamesElement('```\nshop\n```', 'shop')).toBe(false);
+    expect(textNamesElement('see `shop` here', 'shop')).toBe(false);
+    expect(textNamesElement('see [x](shop) here', 'shop')).toBe(false);
+    expect(textNamesElement('~~shop~~ names it', 'shop')).toBe(true);
+    expect(textNamesElement('read [the shop docs](x.md) now', 'shop')).toBe(true);
+  });
+
   test('pagesNamingElement sorts by code point and answers every matching page', () => {
     const pages = new Map([
       ['docs/b.md', 'sees shop'],
@@ -324,6 +349,31 @@ describe('the conservative name rule', () => {
       ['docs/c.md', 'sees nothing'],
     ]);
     expect(pagesNamingElement(pages, 'shop')).toEqual(['docs/a.md', 'docs/b.md']);
+  });
+});
+
+describe('the model rides the wiki revision', () => {
+  test('a saved model file changes the pages revision, so the stream reports a change', () => {
+    product();
+    write('model/system.yaml', DRILL_DOWN);
+    const wiki = requireProduct2(folder!);
+    const before = wiki.pages();
+    if (!before.ok) throw new Error(before.message);
+    write('model/system.yaml', DRILL_DOWN + '\n\nelements:\n  - id: extra\n    kind: service\n    parent: shop\n');
+    const after = wiki.pages();
+    if (!after.ok) throw new Error(after.message);
+    expect(after.revision).not.toBe(before.revision);
+    expect(after.pages.map((page) => page.path)).toEqual(before.pages.map((page) => page.path));
+  });
+
+  test('an unchanged model keeps the same revision', () => {
+    product();
+    write('model/system.yaml', DRILL_DOWN);
+    const wiki = requireProduct2(folder!);
+    const first = wiki.pages();
+    const second = wiki.pages();
+    if (!first.ok || !second.ok) throw new Error('pages failed');
+    expect(second.revision).toBe(first.revision);
   });
 });
 

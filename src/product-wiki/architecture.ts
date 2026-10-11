@@ -93,17 +93,50 @@ export function elementTitle(element: CompiledElement): string {
 }
 
 /**
- * Whether a page's line names the element: the same conservative rule the
- * backlinks' id mentions use — the id bounded by non-word characters, read
- * outside code spans and fences is the reader's match, and here the plain
- * whole-text form answers (a code span holding an id still names it to a
- * reader who copied it there; the conservative direction is no match, and
- * a whole-text word-boundary match of a dotted id stays strict).
+ * Whether a page's Markdown names the element — the same conservative rule
+ * the client's document links follow (wiki/app/src/view.tsx linkElements),
+ * one rule on both sides, plain character comparison: the id as written,
+ * with no word character, dot or hyphen on either side (a hyphen and a dot
+ * are part of an id, so `not-shop` never names `shop` and `a.b` never
+ * names `b`), read outside fenced blocks, inline code spans and the
+ * targets of existing links. A mention inside a code span is no match: the
+ * conservative direction is no match.
  */
 export function textNamesElement(text: string, id: string): boolean {
   if (text.length === 0 || id.length === 0) return false;
-  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(^|[^\\w-])${escaped}([^\\w-]|$)`).test(text);
+  let fence = '';
+  for (const line of text.split('\n')) {
+    const mark = /^\s*(`{3,}|~{3,})/.exec(line);
+    if (mark !== null) {
+      const run = mark[1]!;
+      if (fence === '') fence = run[0]!;
+      else if (fence === run[0] && line.trim() === run[0]!.repeat(run.length)) fence = '';
+      continue;
+    }
+    if (fence !== '') continue;
+    const clean = maskCodeAndLinks(line);
+    let at = clean.indexOf(id);
+    while (at >= 0) {
+      const before = at === 0 ? '' : clean[at - 1]!;
+      const after = at + id.length >= clean.length ? '' : clean[at + id.length]!;
+      if (!isIdChar(before) && !isIdChar(after)) return true;
+      at = clean.indexOf(id, at + 1);
+    }
+  }
+  return false;
+}
+
+/** Whether the character keeps an id bound to a larger word: word characters, dots and hyphens do. */
+function isIdChar(char: string): boolean {
+  return char !== '' && /\w|[.-]/.test(char);
+}
+
+
+/** One line with its inline code spans and its link destinations masked out. */
+function maskCodeAndLinks(line: string): string {
+  return line
+    .replace(/\]\([^()\s]*\)/g, ']( )')
+    .replace(/`[^`]*`/g, '``');
 }
 
 /** The relation rows of one element, one end at a time. */

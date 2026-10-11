@@ -144,6 +144,7 @@ export function LikeC4Diagram({ viewId, title }: { viewId: string; title?: strin
   const state = useLikec4State();
   const scheme = useColorScheme();
   const [defined, setDefined] = useState(likec4Defined);
+  const [timedOut, setTimedOut] = useState(false);
   const box = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     ensureLikec4();
@@ -156,7 +157,11 @@ export function LikeC4Diagram({ viewId, title }: { viewId: string; title?: strin
         setDefined(true);
         return;
       }
-      if (tries++ > 100) return;
+      // The element never defined: say so, never spin on Loading forever.
+      if (tries++ > 100) {
+        setTimedOut(true);
+        return;
+      }
       window.setTimeout(wait, 50);
     };
     wait();
@@ -168,7 +173,7 @@ export function LikeC4Diagram({ viewId, title }: { viewId: string; title?: strin
     const timer = window.setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
     return () => window.clearTimeout(timer);
   }, [defined, viewId]);
-  if (state === 'failed') {
+  if (state === 'failed' || timedOut) {
     return <p className="diagram-error" data-testid="likec4-error">{t('diagram.likec4Failed', { title: title ?? '' })}</p>;
   }
   return (

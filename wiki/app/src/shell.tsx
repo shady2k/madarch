@@ -244,18 +244,6 @@ function NavPanel({ product, groups, current, onNavigate, architectureCount }: {
       >
         <span className="flex items-center gap-2.5"><PanelRightIcon aria-hidden="true" className="size-4 shrink-0 text-muted" /> {t('navigation.overview')}</span>
       </a>
-      {/* The Architecture section (feature E): the Design stage's part of the
-       * life cycle, the views' index and the model's elements behind it. The
-       * entry stands even where the model is missing or refuses to compile —
-       * the page says what is wrong, never an empty box. */}
-      <a
-        className="mb-3 flex items-center justify-between rounded-[var(--radius-row)] px-2.5 py-2 text-[13px] text-ink no-underline hover:bg-[var(--surface-hover)] focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
-        href={architectureAddress()}
-        data-testid="nav-architecture"
-      >
-        <span className="flex items-center gap-2.5"><NetworkIcon aria-hidden="true" className="size-4 shrink-0 text-muted" /> {t('architecture.title')}</span>
-        {architectureCount !== undefined && <span className="text-small text-muted">{architectureCount}</span>}
-      </a>
       <div className="mb-1.5 mt-2 flex items-center justify-between px-2">
         <h2 className="text-[12px] uppercase tracking-[0.08em] text-muted">{t('navigation.documents')}</h2>
         <span className="text-small text-muted" data-testid="documents-count">
@@ -263,9 +251,9 @@ function NavPanel({ product, groups, current, onNavigate, architectureCount }: {
         </span>
       </div>
       <nav aria-label={t('navigation.documents')} className="min-h-0 flex-1 overflow-y-auto pb-4">
-        {groups.map((group) => {
+        {groups.flatMap((group) => {
           const isOpen = !collapsed.has(group.name);
-          return (
+          const section = (
             <section key={group.name} data-nav-group={group.name} className="mb-1.5">
               <button
                 className="flex min-w-0 w-full items-center gap-1.5 rounded-[var(--radius-row)] px-2 py-1.5 text-left text-small text-secondary hover:bg-[var(--surface-hover)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
@@ -302,6 +290,24 @@ function NavPanel({ product, groups, current, onNavigate, architectureCount }: {
               )}
             </section>
           );
+          // The Architecture entry (feature E) stands in the life-cycle order:
+          // the Design stage's part, right after the Design stage's decision
+          // records. It stands even where the model is missing or refuses to
+          // compile — the page says what is wrong, never an empty box.
+          const architecture = group.name === 'decisions' ? (
+            <section key="architecture" data-nav-group="architecture" className="mb-1.5" data-testid="nav-architecture-group">
+              <a
+                className="flex min-w-0 w-full items-center gap-1.5 rounded-[var(--radius-row)] px-2 py-1.5 text-left text-small text-secondary hover:bg-[var(--surface-hover)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+                href={architectureAddress()}
+                data-testid="nav-architecture"
+              >
+                <NetworkIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
+                <span className="nav-group-title min-w-0 flex-1 truncate text-[13px] text-secondary">{t('architecture.title')}</span>
+                {architectureCount !== undefined && <span className="text-small text-muted">{architectureCount}</span>}
+              </a>
+            </section>
+          ) : null;
+          return architecture ? [section, architecture] : [section];
         })}
       </nav>
       <div className="mt-2 flex items-center gap-2.5 border-t border-line px-1 py-3">

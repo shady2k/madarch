@@ -1,7 +1,10 @@
 # The Fieldnote demo's intended model: what the demo product is meant to
-# have, so the Architecture section of its wiki shows real views. Two views
-# stand behind it: the landscape (the overview) and the view of the reading
-# domain (the flow a note takes from the reader to the library).
+# have, so the Architecture section of its wiki shows real views. Four
+# views render: the landscape (the architecture overview), the view of
+# fieldnote (the system with its two domains), and the views of reading
+# (the flow a note takes from the reader to the library) and of sync (the
+# flow a note takes between devices) — one view per element with children,
+# the renderer's own rule.
 version: 1
 
 elements:

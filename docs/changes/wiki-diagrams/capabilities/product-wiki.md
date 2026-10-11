@@ -158,10 +158,17 @@ tree then, never from a copy kept from an earlier read. When a file of the
 wiki is created, changed or removed while the wiki is open, every open page
 shall show what the working tree holds within two seconds, with the server
 still running and without the reader reloading the page. The same pages shall
-give the same revision, so an unchanged wiki is never shown as changed.
+give the same revision, so an unchanged wiki is never shown as changed. The
+revision shall cover the model's sources too — the product's `model/` and
+every declared repository's `madarch/` — so a saved model file is a wiki
+change: the stream reports it and the Architecture section is asked again.
 
 The server watches the product working tree and answers one Server-Sent Events stream (one long-lived request per open wiki, debounced as a tree change arrives); an open page refetches what it shows when its stream carries an event, and reconnects with backoff when the stream drops. A loaded tab the reader leaves alone makes no per-second requests beyond its open stream. The app shows the stream's actual state on its own (Live when open, Reconnecting while it is not); no save events outside the product's own files are claimed.
 
+### Scenario: saved-model-becomes-a-change
+- Given: a served product whose model compiles, open in a browser at the Architecture section
+- When: a model file is saved with a new element
+- Then: the section shows the new element within two seconds, without a reload, and an unchanged model never changes the revision
 ### Scenario: saved-file-becomes-a-page
 - Given: a served draft with no pages, open in a browser
 - When: `docs/vision.md` is written in the product root

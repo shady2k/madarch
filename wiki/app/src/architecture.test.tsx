@@ -164,6 +164,15 @@ describe('the document-to-element links', () => {
     expect((linked.match(/\/p\/madarch\/element\/shop/g) ?? []).length).toBe(1);
   });
 
+  test('the same conservative rule as the server: hyphen is part of a word, code spans and fences never wrap', () => {
+    const links = new Map([['shop', '/p/madarch/element/shop']]);
+    expect(linkElements('the not-shop serves.', links)).not.toContain('[shop]');
+    expect(linkElements('the shop-item serves.', links)).not.toContain('[shop]');
+    expect(linkElements('the shop, however, serves.', links)).toContain('[shop](/p/madarch/element/shop)');
+    expect(linkElements('see `shop` and [x](shop) here.', links)).not.toContain('[shop](/p/madarch/element/shop)');
+    expect(linkElements('a.b stands alone.', new Map([['b', '/p/madarch/element/b']]))).not.toContain('[b]');
+  });
+
   test('a link to an element page opens it as the app\'s own address', async () => {
     into(createElement(Markdown, { text: 'The [shop](/p/madarch/element/shop) serves.' }));
     for (let i = 0; i < 200 && document.querySelector('.reading a') === null; i++) await new Promise((r) => setTimeout(r, 10));

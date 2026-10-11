@@ -50,10 +50,11 @@ export function PageLink(props: {
 
 /**
  * The first standalone mention of each element id, wrapped as a link to
- * the element's page (feature E, madarch-iuc.15; the conservative rule the
- * backlinks use: the id, bounded by non-word characters — a name is never
- * matched, only the id as written). Fences, inline code spans and existing
- * links' own brackets are never rewritten.
+ * the element's page (feature E, madarch-iuc.15) — the same conservative
+ * rule the server's named-by list follows (src/product-wiki/architecture.ts
+ * textNamesElement), one rule on both sides: the id as written, a word
+ * character or a hyphen on neither side, never inside a fence, a code span
+ * or an existing link's target.
  */
 export function linkElements(text: string, links: ReadonlyMap<string, string>): string {
   if (links.size === 0 || text === '') return text;
@@ -95,15 +96,30 @@ export function linkElements(text: string, links: ReadonlyMap<string, string>): 
     });
     let result = masked;
     for (const id of [...pending].sort(byCodePoint)) {
-      const pattern = new RegExp(`(^|[^\\w\`[])(${escapeRegExp(id)})(?=[^\\w-]|$)`);
-      const found = pattern.exec(result);
-      if (found === null) continue;
-      const address = links.get(id)!;
-      result = `${result.slice(0, found.index)}${found[1]}[${found[2]}](${address})${result.slice(found.index + found[0].length)}`;
-      pending.delete(id);
+      // The boundary check is plain character comparison, not a regex
+      // class: the id must not be preceded or followed by a word character,
+      // a dot or a hyphen (both are part of an id), so `not-shop` never
+      // names `shop` and `a.b` never names `b`.
+      let at = result.indexOf(id);
+      while (at >= 0) {
+        const before = at === 0 ? '' : result[at - 1]!;
+        const after = at + id.length >= result.length ? '' : result[at + id.length]!;
+        if (!isIdChar(before) && !isIdChar(after)) {
+          const address = links.get(id)!;
+          result = `${result.slice(0, at)}[${id}](${address})${result.slice(at + id.length)}`;
+          pending.delete(id);
+          break;
+        }
+        at = result.indexOf(id, at + 1);
+      }
     }
     return result.replace(/\u0000(\d+)\u0000/g, (whole, at: string) => masks[Number(at)] ?? whole);
   }
+}
+
+/** Whether the character keeps an id bound to a larger word: word characters, dots and hyphens do. */
+function isIdChar(char: string): boolean {
+  return char !== '' && /[\w.-]/.test(char);
 }
 
 function escapeRegExp(text: string): string {

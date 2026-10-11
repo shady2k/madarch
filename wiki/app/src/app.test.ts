@@ -742,7 +742,8 @@ describe('the reading shell', () => {
     await intoApp(createElement(App));
     await until(() => document.querySelector('.app-nav nav') !== null, 'the navigation');
     const titles = [...document.querySelectorAll('.nav-group-title')].map((node) => node.textContent);
-    expect(titles).toEqual(['Product', 'Requirements', 'Decisions', 'Research', 'Other']);
+    // The Architecture entry (feature E) stands in the life-cycle order: the Design stage's part, after the decisions.
+    expect(titles).toEqual(['Product', 'Requirements', 'Decisions', 'Architecture', 'Research', 'Other']);
     const productGroup = [...document.querySelectorAll('[data-nav-group="product"] .nav-link')].map(
       (node) => node.textContent,
     );

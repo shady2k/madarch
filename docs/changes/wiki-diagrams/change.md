@@ -56,13 +56,16 @@ note), and the model's compile errors on the section's page with file,
 line and path while the rest of the wiki keeps working. Every app-owned
 string is in the catalogues; the diagram theme follows the reader's colour
 scheme.
+- product-wiki/live: the wiki's revision covers the model's sources — the
+product's `model/` and every declared repository's `madarch/` — so a saved
+model file is a wiki change: the stream reports it and the Architecture
+section is asked again within the same two-second rule.
 - product-wiki/shell: the sidebar carries the Architecture entry in the
-life-cycle order (after the decisions, before the research kinds), with
+life-cycle order (the Design stage's part, right after the decisions), with
 the views' count; the entry stands even where the model is missing.
 
 ## Preserved contracts
 - product-wiki/pages: unchanged; document pages and their routes stay.
-- product-wiki/live: unchanged; the stream and the revision refetch rule stay, the Architecture bundle riding the same revision key.
 - product-wiki/serve: unchanged; the command and its exits stay.
 - product-wiki/app: unchanged; the app is still built from wiki/app by the madarch build.
 - product-wiki/result: unchanged; the serve command's exits and refusals stay.
@@ -102,8 +105,9 @@ pairs (both themes at 1000 and 1440) for the view pages, an element page,
 the section's index and the model-error page.
 
 ## DONE WHEN
-On a served product whose `model/` holds two views (an overview and a
-flow) and whose documents name model elements: the sidebar carries the
+On a served product whose `model/` holds the landscape plus one view per
+element with children (for the demo: the overview, the system, and two
+flows) and whose documents name model elements: the sidebar carries the
 Architecture entry with the views' count; the section's index lists the
 views and the elements; a view page draws its Mermaid diagram and carries
 the LikeC4 webcomponent of the same view; an element page shows its

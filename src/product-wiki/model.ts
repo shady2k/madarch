@@ -24,6 +24,7 @@
  * Determinism: a merged model renders at the fixed moment
  * (`NO_REPO_TIME`), never the clock.
  */
+import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseModel, type LoadResult, type ModelSourceFile } from '../model/load.js';
@@ -58,6 +59,34 @@ export interface ProductModelResult {
   readonly warnings: readonly ModelProblem[];
   /** The folders read, in reading order. */
   readonly sources: readonly string[];
+}
+
+/**
+ * The raw bytes of every model source, digested: the freshness key the
+ * wiki's revision rides (feature E) — a saved model file changes the
+ * digest, so the wiki's stream reports a change and the section is asked
+ * again, exactly like a saved document. The bytes only: no parse, no
+ * compile — this runs at every pages ask.
+ */
+export function modelSourceDigest(product: ProductIdentity): string {
+  const hash = createHash('sha256');
+  const digestFolder = (prefix: string, folder: string): void => {
+    for (const name of yamlFiles(folder)) {
+      const path = prefix + name;
+      try {
+        hash.update(`${path}\u0000`);
+        hash.update(readFileSync(join(folder, name)));
+        hash.update('\u0000');
+      } catch {
+        hash.update(`${path}\u0000unreadable\u0000`);
+      }
+    }
+  };
+  digestFolder(`${PRODUCT_MODEL_FOLDER}/`, join(product.folder, PRODUCT_MODEL_FOLDER));
+  for (const repo of product.repos) {
+    digestFolder(`repos/${repo.name}/${REPO_MODEL_FOLDER}/`, join(product.folder, 'repos', repo.name, REPO_MODEL_FOLDER));
+  }
+  return hash.digest('hex');
 }
 
 /** Lists a folder's `*.yaml` files in name order; `[]` when the folder is absent. */
