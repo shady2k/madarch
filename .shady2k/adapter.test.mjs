@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { claimPlan, normalize } from './adapter.mjs';
+import { backlog, claimPlan, normalize } from './adapter.mjs';
 
 const leaf = (id, extra = {}) => ({ id, type: 'task', status: 'open', parent: 'stage', blockedBy: [], holder: null, ...extra });
 const done = (id, extra = {}) => leaf(id, { status: 'implemented', integration: { revision: 'r1', evidence: 'x' }, ...extra });
@@ -183,4 +183,15 @@ test('claim: through br, atomic and exclusive, keeping the edge', { skip: !hasBr
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('an at-revision read of an export above the old 1 MiB default buffer still yields the tracker (madarch-qgld)', () => {
+  // Any recent commit of the lived-in tracker carries an export larger than
+  // execFileSync's default 1 MiB buffer; the read used to die on ENOBUFS
+  // inside readExport's bare catch and come back as an empty tracker, so a
+  // pre-push commit-link check judged every task as missing.
+  const rev = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: join(dirname(fileURLToPath(import.meta.url)), '..'), encoding: 'utf8' }).toString().trim();
+  const { issues } = backlog(rev);
+  assert.ok(issues.length > 0, 'an at-revision read of a real export yields the tracker');
+  assert.ok(issues.some((i) => i.id === 'madarch-iuc.17'));
 });

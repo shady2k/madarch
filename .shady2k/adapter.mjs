@@ -18,7 +18,11 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const EXPORT = '.beads/issues.jsonl';
-const git = (...args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+// maxBuffer above the default 1 MiB: an export of a lived-in tracker crosses it, and
+// an at-revision read that dies on ENOBUFS is swallowed by readExport's bare catch
+// and reported as an empty tracker (madarch-qgld).
+const GIT_MAX_BUFFER = 1 << 28;
+const git = (...args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', maxBuffer: GIT_MAX_BUFFER, stdio: ['ignore', 'pipe', 'pipe'] });
 
 // Task links: one or more trailer lines "Task: <id>[, <id>...]".
 export const TASK_LINE = /^Task:\s*(.+)$/gim;
