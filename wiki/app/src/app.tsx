@@ -15,15 +15,16 @@
  */
 import { useContext, useEffect, useRef, useState, useCallback, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FileTextIcon } from 'lucide-react';
+import { FileTextIcon, NetworkIcon } from 'lucide-react';
 import { relativeTime } from './i18n.js';
-import { getProduct, getPages, getPage, type Product, type PageList, type Page } from './api.js';
-import { routeOf, addressOfPage } from './routes.js';
+import { getProduct, getPages, getPage, type Product, type PageList, type Page, type Architecture } from './api.js';
+import { routeOf, addressOfPage, architectureAddress, type Route } from './routes.js';
 import { Markdown, PageLink } from './view.js';
 import { routeContext, statusContext } from './hold.js';
 import { groupNav, groupOf, kindOf, wordLabel, Shell } from './shell.js';
 import { wordCount } from './text.js';
-export type RouteSnapshot = { name: 'home' } | { name: 'page'; path: string };
+import { useArchitecture, ArchitectureIndex, ViewPage, ElementPage, elementLinksFor } from './architecture.js';
+export type RouteSnapshot = Route;
 
 /** How many times one page read is tried before the app gives up on it. */
 export const pageTriesLimit = 3;
@@ -187,6 +188,11 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
     };
   }, [reconnectMs]);
 
+  // The Architecture bundle of the page list's revision: the sidebar's
+  // entry and count, the section's pages and the documents' element links
+  // all read the one shared ask (useArchitecture memoizes per revision).
+  // Called before the early returns, as hooks must be.
+  const architecture = useArchitecture(data?.list.revision ?? '').bundle;
   if (error !== null) return <ErrorLine message={error} />;
   if (data === null) return <p className="loading">{t('loading.wiki')}</p>;
 
@@ -195,15 +201,22 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
   return (
     <StatusBridge streamConnected={streamConnected}>
       <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, heldPaths }}>
-        <Shell product={data.product} list={list}>
+        <Shell product={data.product} list={list} architecture={architecture}>
         {route.name === 'home' ? (
-          <HomePage product={data.product} list={list} />
+          <HomePage product={data.product} list={list} architecture={architecture} />
+        ) : route.name === 'architecture' ? (
+          <ArchitectureReader key={'architecture:' + list.revision} revision={list.revision} routeName="index" />
+        ) : route.name === 'view' ? (
+          <ArchitectureReader key={'view:' + route.scope + ':' + list.revision} revision={list.revision} routeName="view" scope={route.scope} />
+        ) : route.name === 'element' ? (
+          <ArchitectureReader key={'element:' + route.id + ':' + list.revision} revision={list.revision} routeName="element" id={route.id} />
         ) : (
           <PageReader
             key={"page:" + route.path + ":" + list.revision}
             path={route.path}
             heldPaths={heldPaths}
             retryMs={pageRetryMs}
+            revision={list.revision}
           />
         )}
         </Shell>
@@ -246,7 +259,7 @@ export function StatusBridge({ children, streamConnected }: { children: ReactNod
  * choosing between, the rows read like the sidebar's. A product with no
  * pages yet says so plainly in the lead.
  */
-export function HomePage({ product, list }: { product: Product; list: PageList }): ReactElement {
+export function HomePage({ product, list, architecture }: { product: Product; list: PageList; architecture?: Architecture | null }): ReactElement {
   const groups = groupNav(list.pages);
   const documents = list.pages.length;
   const { publish } = useContext(statusContext);
@@ -269,28 +282,43 @@ export function HomePage({ product, list }: { product: Product; list: PageList }
       <p className="eyebrow">{t('home.overview')}</p>
       <h1 className="app-title">{product.name}</h1>
       <p className="home-lead" data-testid="home-lead">{lead}</p>
-      {documents === 0 ? null : (
-        <div className="home-groups">
-          {groups.map((group) => (
-            <section key={group.name} data-kind={group.name} className="home-group mt-7 first:mt-0">
-              <header className="home-group-head">
-                <h2 className="text-ink">{t('groups.' + group.name, { defaultValue: wordLabel(group.name) })}</h2>
-                <span className="home-count" data-testid="card-count">{group.pages.length}</span>
-              </header>
-              <ul className="home-rows">
-                {group.pages.map((meta) => (
-                  <li key={meta.path}>
-                    <PageLink path={meta.path} className="home-row">
-                      <FileTextIcon aria-hidden="true" className="home-row-icon" />
-                      <span className="home-row-title">{meta.title}</span>
-                    </PageLink>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
-        </div>
-      )}
+      <div className="home-groups">
+        {documents === 0 ? null : groups.map((group) => (
+          <section key={group.name} data-kind={group.name} className="home-group mt-7 first:mt-0">
+            <header className="home-group-head">
+              <h2 className="text-ink">{t('groups.' + group.name, { defaultValue: wordLabel(group.name) })}</h2>
+              <span className="home-count" data-testid="card-count">{group.pages.length}</span>
+            </header>
+            <ul className="home-rows">
+              {group.pages.map((meta) => (
+                <li key={meta.path}>
+                  <PageLink path={meta.path} className="home-row">
+                    <FileTextIcon aria-hidden="true" className="home-row-icon" />
+                    <span className="home-row-title">{meta.title}</span>
+                  </PageLink>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
+        {/* The Architecture group (feature E): the Design stage's part, the
+         * views of the product's model — or, where the model is missing or
+         * refuses to compile, the entry to the page that says so. */}
+        <section data-kind="architecture" className="home-group mt-7" data-testid="home-architecture">
+          <header className="home-group-head">
+            <h2 className="text-ink">{t('architecture.title')}</h2>
+            <span className="home-count" data-testid="architecture-count">{architecture?.model?.views.length ?? 0}</span>
+          </header>
+          <ul className="home-rows">
+            <li>
+              <a className="home-row" href={architectureAddress()}>
+                <NetworkIcon aria-hidden="true" className="home-row-icon" />
+                <span className="home-row-title">{t('architecture.openIndex')}</span>
+              </a>
+            </li>
+          </ul>
+        </section>
+      </div>
     </main>
   );
 }
@@ -306,11 +334,15 @@ export function PageReader({
   path,
   heldPaths,
   retryMs = 1000,
+  revision,
 }: {
   path: string;
   heldPaths: ReadonlySet<string>;
   retryMs?: number;
+  /** The wiki revision the page was read at; the Architecture bundle of the same revision links documents to elements. */
+  revision?: string;
 }): ReactElement {
+  const { bundle } = useArchitecture(revision ?? '');
   const { t, i18n } = useTranslation();
   const [page, setPage] = useState<Page | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -391,7 +423,7 @@ export function PageReader({
         <span className="eyebrow-secondary">{page.changedAt ? t('document.changed', { when: relativeTime(page.changedAt, i18n.resolvedLanguage) }) : t('document.local')}</span>
       </div>
       {!ownTitle && <h1 className="app-title">{page.title}</h1>}
-      <Markdown text={page.markdown} />
+      <Markdown text={page.markdown} elementLinks={elementLinksFor(bundle, path)} />
     </main>
   );
 }
@@ -399,6 +431,32 @@ export function PageReader({
 /** The revision of the list the app was last told, so a changed wiki refetches the open page. */
 function revisionKey(heldPaths: ReadonlySet<string>): string {
   return [...heldPaths].sort().join('\u0000');
+}
+
+/**
+ * The Architecture section's reader (feature E): the bundle asked fresh per
+ * revision, the section's three page kinds routed off it. A bundle read
+ * that fails shows the failure; an uncompilable model is the section's own
+ * error page (never the wiki's failure).
+ */
+export function ArchitectureReader({
+  revision,
+  routeName,
+  scope,
+  id,
+}: {
+  revision: string;
+  routeName: 'index' | 'view' | 'element';
+  scope?: string;
+  id?: string;
+}): ReactElement {
+  const { t } = useTranslation();
+  const { bundle, error } = useArchitecture(revision);
+  if (error !== null) return <ErrorLine message={error} />;
+  if (bundle === null) return <p className="loading">{t('loading.architecture')}</p>;
+  if (routeName === 'view') return <ViewPage bundle={bundle} scope={scope ?? ''} />;
+  if (routeName === 'element') return <ElementPage bundle={bundle} id={id ?? ''} />;
+  return <ArchitectureIndex bundle={bundle} />;
 }
 
 /** A failed read, shown to the reader as a short message naming what was asked for. */

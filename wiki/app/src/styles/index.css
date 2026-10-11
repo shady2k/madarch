@@ -688,3 +688,74 @@ main .footnotes {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Feature E (madarch-iuc.15): the Architecture section. The diagrams draw
+ * at the reading measure; a wide diagram scrolls in its own box, never the
+ * page. LikeC4 sizes its view to the box when it is revealed (the same
+ * nudge the static wiki's module gives it). */
+.diagram-mermaid,
+.diagram-likec4 {
+  margin-block: 1em;
+  overflow-x: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface-page);
+  padding: 0.75em;
+}
+
+.diagram-mermaid svg {
+  display: block;
+  margin-inline: auto;
+  max-width: 100%;
+  height: auto;
+}
+
+likec4-view {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 320px;
+}
+
+.diagram-loading {
+  margin: 0;
+  padding: 1.5em 0;
+  color: var(--text-muted);
+  font-size: var(--fs-small);
+}
+
+.diagram-error,
+.model-errors {
+  margin-block: 1em;
+  padding: 0.9em 1em;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-quote);
+  color: var(--text-secondary);
+}
+
+.model-errors ul {
+  margin-block: 0.5em;
+}
+
+.model-errors code,
+.model-error-place {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+}
+
+.arch-links {
+  color: var(--text-secondary);
+  font-size: var(--fs-small);
+}
+
+.arch-views h2,
+.arch-elements h2,
+main section h2 {
+  font-size: var(--fs-h2);
+}
+
+.arch-technology,
+.arch-parent {
+  color: var(--text-secondary);
+}

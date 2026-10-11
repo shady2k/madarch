@@ -18,6 +18,10 @@
  */
 import { basename as nameOf } from 'node:path';
 import type { ProductWiki } from '../product-wiki/pages.js';
+import { readProductModel } from '../product-wiki/model.js';
+import { architectureBundle } from '../product-wiki/architecture.js';
+import { likec4Webcomponent } from '../product-wiki/likec4-webcomponent.js';
+import { renderModel } from '../render/prepare.js';
 import { readFileSync, statSync, watch } from 'node:fs';
 import { join as joinPath, normalize, resolve } from 'node:path';
 import type { Handled, Refusal, ReplyMaker } from './http.js';
@@ -140,6 +144,10 @@ const CONTENT_TYPES: Record<string, string> = {
 export interface WikiPart {
   /** `GET /api/product`: the product's id and name. */
   product: () => Handled;
+  /** `GET /api/architecture`: the whole Architecture bundle, read fresh. */
+  architecture: () => Handled;
+  /** `GET /api/architecture/likec4.js`: the LikeC4 webcomponent bundle of the rendered workspace. */
+  likec4Script: () => Handled;
   /** `GET /api/pages`: the pages with the wiki's revision. */
   pages: () => Handled;
   /** `GET /api/page?path=...`: one page, whole. */
@@ -159,6 +167,49 @@ export function createWikiPart(
 ): WikiPart {
   return {
     product: (): Handled => ({ response: json(200, { id: wiki.product.id, name: wiki.product.name, folder: nameOf(wiki.product.folder) }) }),
+    architecture: (): Handled => {
+      const product = readProductModel(wiki.product);
+      const pages = new Map<string, string>();
+      const listed = wiki.pages();
+      if (listed.ok) {
+        for (const entry of listed.pages) {
+          const asked = wiki.page(entry.path);
+          if (asked.ok) pages.set(entry.path, asked.page.markdown);
+        }
+      }
+      const bundle = product.model === undefined
+        ? { notes: product.notes, errors: product.errors, warnings: product.warnings, sources: product.sources }
+        : architectureBundle(product.model, product.notes, product.warnings, product.sources, pages);
+      return { response: json(200, bundle) };
+    },
+    likec4Script: (): Handled => {
+      const product = readProductModel(wiki.product);
+      if (product.model === undefined) {
+        return refused(200, {
+          message: [
+            'the product model does not compile, so there is no LikeC4 workspace to serve',
+            ...product.errors.map((error) => `${error.file}:${error.line}: ${error.path}: ${error.message}`),
+          ].join('\n'),
+        });
+      }
+      const rendering = renderModel(product.model, { source: 'product-model', commit: 'product', at: 0 });
+      if (rendering.workspace === undefined) {
+        return refused(200, {
+          message: [
+            'the product model does not render, so there is no LikeC4 workspace to serve',
+            ...rendering.errors.map((message) => `model: ${message}`),
+          ].join('\n'),
+        });
+      }
+      const bundle = likec4Webcomponent(rendering.workspace);
+      if (!bundle.ok) return refused(500, { message: bundle.message });
+      return {
+        response: new Response(bundle.script, {
+          status: 200,
+          headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache' },
+        }),
+      };
+    },
     pages: (): Handled => {
       const asked = wiki.pages();
       if (!asked.ok) return refused(500, { message: `the pages of the product ${JSON.stringify(wiki.product.folder)} could not be read: ${asked.message}` });

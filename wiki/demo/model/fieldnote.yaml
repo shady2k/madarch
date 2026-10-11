@@ -1,0 +1,54 @@
+# The Fieldnote demo's intended model: what the demo product is meant to
+# have, so the Architecture section of its wiki shows real views. Two views
+# stand behind it: the landscape (the overview) and the view of the reading
+# domain (the flow a note takes from the reader to the library).
+version: 1
+
+elements:
+  - id: fieldnote
+    kind: system
+    name: Fieldnote
+
+  - id: reading
+    kind: domain
+    name: Reading
+    parent: fieldnote
+  - id: reader-app
+    kind: module
+    name: Reader app
+    parent: reading
+    technology: React
+  - id: library
+    kind: module
+    name: Library
+    parent: reading
+    technology: TypeScript
+
+  - id: sync
+    kind: domain
+    name: Sync
+    parent: fieldnote
+  - id: sync-engine
+    kind: module
+    name: Sync engine
+    parent: sync
+    technology: TypeScript
+  - id: note-store
+    kind: store
+    name: Note store
+    parent: sync
+    technology: SQLite
+
+relations:
+  - id: reader-edits
+    name: edits notes in
+    from: reader-app
+    to: library
+  - id: library-syncs
+    name: syncs through
+    from: library
+    to: sync-engine
+  - id: engine-stores
+    name: writes notes to
+    from: sync-engine
+    to: note-store

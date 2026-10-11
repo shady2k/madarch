@@ -27,9 +27,12 @@ import {
   FolderGit2Icon,
   GlobeIcon,
   MenuIcon,
+  NetworkIcon,
   PanelRightIcon,
 } from 'lucide-react';
 import type { PageList, PageMeta, Product } from './api.js';
+import { architectureAddress } from './routes.js';
+import type { Architecture } from './api.js';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { setWikiLanguage, type WikiLanguage } from './i18n.js';
@@ -80,7 +83,7 @@ function FilledDocumentGlyph({ className }: { className: string }): ReactElement
 /** One group of the navigation: its title and its pages in path order. */
 export type NavGroup = { name: string; pages: PageMeta[] };
 
-/** The kinds that keep their order before the remaining names sort alphabetically. */
+/** The kinds that keep their order before the remaining names sort alphabetically. The architecture entry rides the same life-cycle order: the Design stage's part, after the decisions. */
 const fixedGroupOrder = ['product', 'requirements', 'decisions', 'research'] as const;
 
 /** The group a page's path belongs to, by the grouping rule. */
@@ -193,11 +196,13 @@ export function navLinkClasses(current: boolean): string {
 }
 
 /** The navigation content: the product's mark, its block, the tree, the footer. */
-function NavPanel({ product, groups, current, onNavigate }: {
+function NavPanel({ product, groups, current, onNavigate, architectureCount }: {
   product: Product;
   groups: readonly NavGroup[];
   current: string | undefined;
   onNavigate?: MouseEventHandler;
+  /** The Architecture section's view count, when the model holds views. */
+  architectureCount?: number;
 }): ReactElement {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const { t } = useTranslation();
@@ -238,6 +243,18 @@ function NavPanel({ product, groups, current, onNavigate }: {
         data-testid="nav-overview"
       >
         <span className="flex items-center gap-2.5"><PanelRightIcon aria-hidden="true" className="size-4 shrink-0 text-muted" /> {t('navigation.overview')}</span>
+      </a>
+      {/* The Architecture section (feature E): the Design stage's part of the
+       * life cycle, the views' index and the model's elements behind it. The
+       * entry stands even where the model is missing or refuses to compile —
+       * the page says what is wrong, never an empty box. */}
+      <a
+        className="mb-3 flex items-center justify-between rounded-[var(--radius-row)] px-2.5 py-2 text-[13px] text-ink no-underline hover:bg-[var(--surface-hover)] focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+        href={architectureAddress()}
+        data-testid="nav-architecture"
+      >
+        <span className="flex items-center gap-2.5"><NetworkIcon aria-hidden="true" className="size-4 shrink-0 text-muted" /> {t('architecture.title')}</span>
+        {architectureCount !== undefined && <span className="text-small text-muted">{architectureCount}</span>}
       </a>
       <div className="mb-1.5 mt-2 flex items-center justify-between px-2">
         <h2 className="text-[12px] uppercase tracking-[0.08em] text-muted">{t('navigation.documents')}</h2>
@@ -325,7 +342,7 @@ export function StatusBar(): ReactElement {
  * own scrolling column (the only scrolling part at any window height), and
  * the status bar along the window's bottom edge.
  */
-export function Shell({ product, list, children }: { product: Product; list: PageList; children: ReactNode }): ReactElement {
+export function Shell({ product, list, children, architecture }: { product: Product; list: PageList; children: ReactNode; architecture?: Architecture | null }): ReactElement {
   const route = useContext(routeContext);
   const { t, i18n } = useTranslation();
   const language: WikiLanguage = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
@@ -362,7 +379,7 @@ export function Shell({ product, list, children }: { product: Product; list: Pag
           aria-label={t('navigation.aria')}
           hidden={focused}
         >
-          <NavPanel product={product} groups={groups} current={current} onNavigate={() => setMenuOpen(false)} />
+          <NavPanel product={product} groups={groups} current={current} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} />
         </aside>
         <div className="shell-main flex min-w-0 flex-1 flex-col">
           <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line px-4 wide:px-[35px]">
@@ -401,7 +418,7 @@ export function Shell({ product, list, children }: { product: Product; list: Pag
                   data-testid="phone-nav"
                   className={'app-nav w-[min(280px,_82vw)] px-[14px] py-3 ' + (focused ? 'bg-chrome' : '')}
                 >
-                  <NavPanel product={product} groups={groups} current={current} onNavigate={() => setMenuOpen(false)} />
+                  <NavPanel product={product} groups={groups} current={current} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} />
                 </SheetContent>
               </Sheet>
               <DropdownMenu.Root>

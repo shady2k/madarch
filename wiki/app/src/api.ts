@@ -81,8 +81,62 @@ export async function readJson<T>(what: string, url: string, signal?: AbortSigna
   }
 }
 
+/** One view of the Architecture section, as /api/architecture names it. */
+export type ArchitectureView = {
+  scope: string;
+  title: string;
+  mermaid: string;
+  table: { columns: string[]; rows: string[][] };
+  opens: string[];
+  up?: string;
+};
+
+/** One relation row of an element page. */
+export type ElementRelation = {
+  relationId: string;
+  other: string;
+  name?: string;
+  interface?: string;
+  action?: string;
+};
+
+/** One element of the model, with its relations and the pages naming it. */
+export type ArchitectureElement = {
+  id: string;
+  name: string;
+  kind: string;
+  technology?: string;
+  parent?: string;
+  ancestors: string[];
+  outgoing: ElementRelation[];
+  incoming: ElementRelation[];
+  provides: string[];
+  namedBy: string[];
+};
+
+/** One compile problem of the model, as the Architecture section shows it. */
+export type ArchitectureError = {
+  file: string;
+  line: number;
+  path: string;
+  message: string;
+};
+
+/** The whole Architecture answer of /api/architecture. */
+export type Architecture = {
+  /** What the shown model was built from less than the whole input, each named at its place. */
+  notes: ArchitectureError[];
+  model?: { elements: ArchitectureElement[]; views: ArchitectureView[] };
+  errors: ArchitectureError[];
+  warnings: ArchitectureError[];
+  sources: string[];
+};
+
 export const getProduct = (signal?: AbortSignal): Promise<Product> =>
   readJson<Product>('read the product', '/api/product', signal);
+
+export const getArchitecture = (signal?: AbortSignal): Promise<Architecture> =>
+  readJson<Architecture>('read the architecture', '/api/architecture', signal);
 
 export const getPages = (signal?: AbortSignal): Promise<PageList> =>
   readJson<PageList>('read the page list', '/api/pages', signal);

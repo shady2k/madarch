@@ -59,7 +59,9 @@
     "words": "{{count}} {{unit}}",
     "formatMarkdown": "Markdown",
     "formatUtf8": "UTF-8",
-    "documents": "{{count}} {{unit}}"
+    "documents": "{{count}} {{unit}}",
+    "elements": "элементов: {{count}}",
+    "views": "диаграмм: {{count}}"
   },
   "units": {
     "word_one": "слово",
@@ -76,7 +78,55 @@
     "group_other": "группы"
   },
   "loading": {
-    "wiki": "Загрузка вики"
+    "wiki": "Загрузка вики",
+    "architecture": "Чтение модели"
+  },
+  "architecture": {
+    "title": "Архитектура",
+    "openIndex": "Диаграммы и элементы модели продукта",
+    "viewsHeading": "Диаграммы",
+    "elementsHeading": "Элементы",
+    "landscape": "Общая схема",
+    "viewKind": "диаграмма",
+    "element": "Элемент",
+    "col": {
+      "#": "#",
+      "From": "Откуда",
+      "To": "Куда",
+      "Relations": "Связи"
+    },
+    "kind": "Тип",
+    "technology": "Технология",
+    "out": "Исходящие",
+    "in": "Входящие",
+    "otherEnd": "Другой конец",
+    "relation": "Связь",
+    "interface": "Интерфейс",
+    "action": "Действие",
+    "noAction": "—",
+    "none": "—",
+    "outgoing": "Исходящие связи",
+    "incoming": "Входящие связи",
+    "provides": "Предоставляет",
+    "namedBy": "Упоминается в документах",
+    "parent": "Часть",
+    "up": "Наверх",
+    "open": "Открыть",
+    "noView": "В модели нет диаграммы для этой области.",
+    "noElement": "В модели нет элемента с таким идентификатором.",
+    "notesLead_one": "Модель показана не полностью: одна заметка.",
+    "notesLead_few": "Модель показана не полностью: {{count}} заметки.",
+    "notesLead_many": "Модель показана не полностью: {{count}} заметок.",
+    "notesLead_other": "Модель показана не полностью: {{count}} заметок.",
+    "errorsLead_one": "Модель не компилируется: одна проблема.",
+    "errorsLead_few": "Модель не компилируется: {{count}} проблемы.",
+    "errorsLead_many": "Модель не компилируется: {{count}} проблем.",
+    "errorsLead_other": "Модель не компилируется: {{count}} проблемы."
+  },
+  "diagram": {
+    "mermaidFailed": "Диаграмму {{title}} не удалось нарисовать как Mermaid: {{message}}",
+    "likec4Failed": "Диаграмму LikeC4 для {{title}} не удалось получить: не загрузился модуль веб-компонента.",
+    "likec4Loading": "Загрузка диаграммы LikeC4…"
   },
   "errors": {
     "prefix": "Не удалось загрузить содержимое вики.",

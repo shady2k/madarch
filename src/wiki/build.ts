@@ -43,6 +43,7 @@ import { renderModel, type RenderedVersion } from '../render/prepare.js';
 import { brokenLinks, readSiteFiles } from './links.js';
 import { documentImages, documentLinkWarnings, documentPages, refusedDocumentLinks, type DocumentHost } from './documents.js';
 import { archifyDocument, archifyPageLinks, componentId, type ArchifyDocument, type ArchifyLayoutedView, type LayoutPoint } from './archify.js';
+import { mermaidOfPageText } from '../product-wiki/mermaid-page.js';
 import { wikiPages, type AnyWikiPage, type WikiDocumentPage } from './pages.js';
 import type { WikiDiagramAsset } from './render.js';
 import { ensureWikiCacheRoot } from './cache.js';
@@ -150,38 +151,10 @@ function diagramAssets(mermaidPages: readonly MermaidPage[], workspace: string):
   return assets;
 }
 
-/**
- * One Mermaid page's diagram source and relation table, exactly as
- * madarch's page carries them: the lines of its mermaid fence, and the
- * `|`-lines after it — a header row, a separator, one row per arrow. A
- * view with no arrows has no table, and the table stays empty then.
- */
-function mermaidOfPage(content: string): { mermaid: string; table: { columns: string[]; rows: string[][] } } {
-  const open = content.indexOf('```mermaid\n');
-  const from = open + '```mermaid\n'.length;
-  const close = content.indexOf('\n```', from);
-  if (open < 0 || close < 0) throw new Error('a rendered Mermaid page carries no mermaid fence');
-  const tableLines: string[] = [];
-  for (const line of content.slice(close + 4).split('\n')) {
-    if (!line.startsWith('|')) {
-      if (tableLines.length > 0) break;
-      continue;
-    }
-    tableLines.push(line);
-  }
-  const cells = (line: string): string[] =>
-    line
-      .split(/(?<!\\)\|/)
-      .slice(1, -1)
-      .map((value) => value.replace(/\\([\\`*_[\]<>|])/g, '$1').trim());
-  return {
-    mermaid: content.slice(from, close),
-    table:
-      tableLines.length < 2
-        ? { columns: [], rows: [] }
-        : { columns: cells(tableLines[0]!), rows: tableLines.slice(2).map(cells) },
-  };
-}
+// One Mermaid page's diagram source and relation table: the shared reader
+// (src/product-wiki/mermaid-page.ts), the same split the server's
+// architecture bundle reads.
+const mermaidOfPage = mermaidOfPageText;
 
 /** The vendored renderer the archify pages are made with, pinned at 3.0.1 (vendor/archify/README.md). */
 const ARCHIFY_RENDERER = join(PACKAGE_ROOT, 'vendor', 'archify', 'renderers', 'architecture', 'render-architecture.mjs');

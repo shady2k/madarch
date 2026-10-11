@@ -264,6 +264,8 @@ function createHandler(dependencies: {
       { method: 'GET', path: '/api/pages', handle: () => wiki.pages() },
       { method: 'GET', path: '/api/page', handle: wiki.page },
       { method: 'GET', path: '/api/events', handle: wiki.events },
+      { method: 'GET', path: '/api/architecture', handle: () => wiki.architecture() },
+      { method: 'GET', path: '/api/architecture/likec4.js', handle: () => wiki.likec4Script() },
     ] as Route[]) : []),
   ];
 

@@ -59,7 +59,9 @@
     "words": "{{count}} {{unit}}",
     "formatMarkdown": "Markdown",
     "formatUtf8": "UTF-8",
-    "documents": "{{count}} {{unit}}"
+    "documents": "{{count}} {{unit}}",
+    "elements": "{{count}} elements",
+    "views": "{{count}} views"
   },
   "units": {
     "word_one": "word",
@@ -76,7 +78,55 @@
     "group_many": "groups"
   },
   "loading": {
-    "wiki": "Waiting for the wiki"
+    "wiki": "Waiting for the wiki",
+    "architecture": "Reading the model"
+  },
+  "architecture": {
+    "title": "Architecture",
+    "openIndex": "Views and elements of the product's model",
+    "viewsHeading": "Views",
+    "elementsHeading": "Elements",
+    "landscape": "Landscape",
+    "viewKind": "view",
+    "element": "Element",
+    "col": {
+      "#": "#",
+      "From": "From",
+      "To": "To",
+      "Relations": "Relations"
+    },
+    "kind": "Kind",
+    "technology": "Technology",
+    "out": "Out",
+    "in": "In",
+    "otherEnd": "Other end",
+    "relation": "Relation",
+    "interface": "Interface",
+    "action": "Action",
+    "noAction": "—",
+    "none": "—",
+    "outgoing": "Outgoing relations",
+    "incoming": "Incoming relations",
+    "provides": "Provides",
+    "namedBy": "Named by pages",
+    "parent": "Part of",
+    "up": "Up",
+    "open": "Open",
+    "noView": "The model holds no view of this scope.",
+    "noElement": "The model holds no element with this id.",
+    "notesLead_one": "The model shows less than the whole input: one note.",
+    "notesLead_few": "The model shows less than the whole input: {{count}} notes.",
+    "notesLead_many": "The model shows less than the whole input: {{count}} notes.",
+    "notesLead_other": "The model shows less than the whole input: {{count}} notes.",
+    "errorsLead_one": "The model does not compile: one problem.",
+    "errorsLead_few": "The model does not compile: {{count}} problems.",
+    "errorsLead_many": "The model does not compile: {{count}} problems.",
+    "errorsLead_other": "The model does not compile: {{count}} problems."
+  },
+  "diagram": {
+    "mermaidFailed": "The view {{title}} could not be drawn as a Mermaid diagram: {{message}}",
+    "likec4Failed": "The LikeC4 diagram of {{title}} could not be served: the webcomponent bundle failed to load.",
+    "likec4Loading": "Loading the LikeC4 diagram…"
   },
   "errors": {
     "prefix": "The wiki could not load this content.",
