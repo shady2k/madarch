@@ -79,14 +79,15 @@ quoted here as decided.
   does not implement as an honest "not supported by this engine version"
   finding and never drops the entity.
 - **One event stream of every change.** An accepted write keeps the order the
-  house has: the git content (0017) that is the truth takes the write —
-  nothing madarch keeps is more authoritative than it; madarch appends the
-  change to its bitemporal fact log (0009), the server's record of what it
-  knows, rebuilt from the sources rather than a ruler over them; and the
-  change's fact is published on one stream. The stream is a current of
-  notifications over accepted writes, not a source: reading it tells what
-  changed; the truth is the git content, the log serves the queries. The wiki
-  app, agents and later consumers subscribe
+  house has: the git content of the product takes the write (0017: nothing
+  madarch keeps is more authoritative than git); madarch appends the change
+  to its bitemporal fact log (0009), the server's append-only record of what
+  it knew and when — the query engine 0009 pairs with it reads that record;
+  and the change's fact is published on one stream. The stream is a current
+  of notifications over accepted writes, not a source: reading it tells what
+  changed; the truth of the product's content is the git content, and the
+  log carries what madarch knew of everything else. The wiki app, agents and
+  later consumers subscribe
   to this one stream instead of watching the filesystem, polling pages or
   each keeping its own store. This is where "agents work with the wiki and
   their status is visible live" comes from: agents are subscribers to the
