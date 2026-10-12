@@ -12,8 +12,29 @@ import { spawnSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-/** The subset of the environment git must not inherit from a caller. */
-const GIT_LEAKS = ['GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE'];
+/**
+ * The subset of the environment git must not inherit from a caller: the
+ * variables git itself calls its local environment vars — the ones that
+ * point a git process at a caller's repository instead of the folder it is
+ * run in (`git rev-parse --local-env-vars` names them; the list here is the
+ * repository-targeting set of that). A command run inside another
+ * checkout's run script, with GIT_COMMON_DIR or its companions set, would
+ * otherwise make every git call here answer that checkout instead.
+ */
+const GIT_LEAKS = [
+  'GIT_DIR',
+  'GIT_INDEX_FILE',
+  'GIT_WORK_TREE',
+  'GIT_IMPLICIT_WORK_TREE',
+  'GIT_COMMON_DIR',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  'GIT_NAMESPACE',
+  'GIT_CEILING_DIRECTORIES',
+  'GIT_CONFIG',
+  'GIT_CONFIG_PARAMETERS',
+  'GIT_CONFIG_COUNT',
+];
 
 /** How one git run ended: its whole output, whatever stream that came on. */
 export type GitResult = { ok: true; output: string } | { ok: false; output: string };

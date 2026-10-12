@@ -29,7 +29,7 @@ interface ContractCase {
   message?: string;
 }
 
-const USAGE = 'usage: bun run contract:check [--cases <file>] [--documents <file>] [--products <folder>] [--src <file>]';
+const USAGE = 'usage: bun run contract:check [--cases <file>] [--documents <file>] [--manifest-cases <file>] [--products <folder>] [--src <file>]';
 const DEFAULT_CASES = fileURLToPath(new URL('../examples/contract/registry-cases.json', import.meta.url));
 const DEFAULT_MANIFEST_CASES = fileURLToPath(new URL('../examples/contract/manifest-cases.json', import.meta.url));
 const DEFAULT_DOCUMENT_CASES = fileURLToPath(new URL('../examples/contract/document-cases.json', import.meta.url));

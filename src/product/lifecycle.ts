@@ -23,7 +23,6 @@
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { ownRepository, runGit, type GitEnv } from './git.js';
 import {
   lineOf,
@@ -414,6 +413,18 @@ export interface LifecycleOutcome {
 }
 
 const refused2 = (prints: string[], message: string): LifecycleOutcome => ({ prints, errors: [message], exit: 2 });
+
+/**
+ * The reader's refusal printed whole: its manifest's file, its line, and its
+ * words — the place a person looks at, the way `madarch list` names a
+ * manifest it could not read. A refusal the operation made itself (a name, a
+ * url, a taken folder) carries no manifest place and prints whole.
+ */
+function refusalText(refusal: { message: string; file?: string; line?: number }): string {
+  return refusal.file !== undefined && refusal.line !== undefined
+    ? `${refusal.file}:${refusal.line}: ${refusal.message}`
+    : refusal.message;
+}
 const failed1 = (prints: string[], message: string): LifecycleOutcome => ({ prints, errors: [message], exit: 1 });
 const done = (prints: string[]): LifecycleOutcome => ({ prints, errors: [], exit: 0 });
 
@@ -430,7 +441,7 @@ export function productFolder(
   if (given !== undefined && given !== '') return { folder: given };
   const found = whereAmI({ folder: cwd });
   if (found.outcome === 'product' || found.outcome === 'code') return { folder: found.product };
-  if (found.outcome === 'refused') return { refused: found.message };
+  if (found.outcome === 'refused') return { refused: refusalText(found) };
   return {
     refused:
       `no product was found above ${resolve(cwd)}: run the command in a product folder ` +
@@ -467,7 +478,7 @@ export function renameLife(options: { name?: string; folder?: string; cwd: strin
   if ('refused' in place) return refused2([], place.refused);
   const result = renameProduct({ folder: place.folder, name: options.name });
   if (result.outcome === 'renamed') return done([`folder: ${result.folder}`, `id: ${result.id}`, `name: ${result.name}`]);
-  if (result.outcome === 'refused') return refused2([], result.message);
+  if (result.outcome === 'refused') return refused2([], refusalText(result));
   return failed1([], result.message);
 }
 
@@ -483,7 +494,7 @@ export function remoteLife(options: { url?: string; folder?: string; cwd: string
       `url: ${result.url}`,
     ]);
   }
-  if (result.outcome === 'refused') return refused2([], result.message);
+  if (result.outcome === 'refused') return refused2([], refusalText(result));
   return failed1([], result.message);
 }
 
@@ -505,12 +516,12 @@ export function repoAddLife(options: {
     url: urlGiven,
     ...(options.branch === undefined ? {} : { branch: options.branch }),
   });
-  if (entered.outcome === 'refused') return refused2([`folder: ${options.folder ?? resolve(options.cwd)}`], entered.message);
+  if (entered.outcome === 'refused') return refused2([`folder: ${options.folder ?? resolve(options.cwd)}`], refusalText(entered));
   if (entered.outcome === 'failed') return failed1([`folder: ${place.folder}`], entered.message);
   const prints = [`folder: ${entered.folder}`, `repo: ${entered.name}`, `url: ${entered.url}`];
   if (entered.branch !== undefined) prints.push(`branch: ${entered.branch}`);
   const bootstrapped = bootstrapProduct({ folder: place.folder });
-  if (bootstrapped.outcome === 'refused') return refused2(prints, bootstrapped.message);
+  if (bootstrapped.outcome === 'refused') return refused2(prints, refusalText(bootstrapped));
   const reported = reportLines(entered.folder, bootstrapped.repos, 'clone');
   return withFailures([...prints, ...reported.prints], reported.failures);
 }
@@ -520,7 +531,7 @@ export function bootstrapLife(options: { folder?: string; cwd: string }): Lifecy
   const place = productFolder(options.folder, options.cwd);
   if ('refused' in place) return refused2([], place.refused);
   const result = bootstrapProduct({ folder: place.folder });
-  if (result.outcome === 'refused') return refused2([], result.message);
+  if (result.outcome === 'refused') return refused2([], refusalText(result));
   const reported = reportLines(result.folder, result.repos, 'bootstrap');
   // Nothing declared is no facts at all: an empty home reads the same way.
   const prints = result.repos.length === 0 ? [] : [`folder: ${result.folder}`, ...reported.prints];
@@ -555,16 +566,20 @@ export function cloneLife(options: { url?: string; home?: string; env: DraftEnv 
     return refused2([], `the folder ${target} is in the way: a product's name is the folder it lives in, and that name is taken`);
   }
   mkdirSync(home, { recursive: true });
-  const clone = spawnSync('git', ['clone', '--quiet', wanted, target], { encoding: 'utf8' });
-  if (clone.status !== 0) {
+  // The clone is a git run like the lifecycle's others (the loader variables
+  // stripped, this module's own git being the runner): a clone made inside
+  // another repository's environment reaches the products home, never that
+  // repository.
+  const clone = runGit(home, ['clone', '--quiet', wanted, target]);
+  if (!clone.ok) {
     // A refused clone leaves nothing: git's own partial copies are cleared.
     rmSync(target, { recursive: true, force: true });
-    return failed1([], `git clone failed for ${wanted} into ${target}: ${(clone.stderr || clone.stdout || '').trim()}`);
+    return failed1([], `git clone failed for ${wanted} into ${target}: ${clone.output}`);
   }
   const read = readProduct(target);
   if (!read.ok) {
     rmSync(target, { recursive: true, force: true });
-    return refused2([], read.message);
+    return refused2([], refusalText(read));
   }
   const prints = [`folder: ${target}`, `id: ${read.product.id}`, `name: ${read.product.name}`];
   if (read.product.repos.length > 0) {
@@ -573,7 +588,7 @@ export function cloneLife(options: { url?: string; home?: string; env: DraftEnv 
       // A refused clone leaves nothing behind, whoever refused: the folder was
       // this command's to make, so it is this command's to take away.
       rmSync(target, { recursive: true, force: true });
-      return refused2([], bootstrapped.message);
+      return refused2([], refusalText(bootstrapped));
     }
     const reported = reportLines(target, bootstrapped.repos, 'clone');
     const withReports = withFailures([...prints, ...reported.prints, `wiki: madarch serve --product ${target}`], reported.failures);

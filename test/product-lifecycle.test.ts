@@ -15,11 +15,14 @@ import {
   addCodeRepository,
   addRemote,
   bootstrapProduct,
+  cloneLife,
   renameProduct,
   whereAmI,
 } from '../src/product/lifecycle.js';
-import { createDraft } from '../src/product/draft.js';
+import { ownRepository } from '../src/product/git.js';
 import { readProduct } from '../src/product/manifest.js';
+import { createDraft } from '../src/product/draft.js';
+import { type DraftEnv } from '../src/product/draft.js';
 import { gitEnv } from './git-env.js';
 import { GIT_ENV } from './model-check-repo.js';
 import { ISOLATED_HOME, noStrayDrafts } from './scratch-home.js';
@@ -278,5 +281,54 @@ describe('whereAmI walking up', () => {
       .toMatchObject({ outcome: 'product', product: draft.folder });
     expect(whereAmI({ folder: base, gitEnv: gitEnv(GIT_ENV) }).outcome).toBe('none');
     expect(whereAmI({ folder: join(base, 'no-such-folder') }).outcome).toBe('refused');
+  });
+});
+
+describe("the git runs keep the caller's environment to themselves", () => {
+  test('a loader variable the caller carries never redirects a git call made here', () => {
+    const base = tempFolder();
+    const home = join(base, 'home');
+    mkdirSync(home, { recursive: true });
+    const draft = draftIn(home);
+    // The repository-targeting variables of `git rev-parse
+    // --local-env-vars`, each pointed at a path that is no repository: a git
+    // call that inherited any of them would answer that path or fail, and
+    // the product's own repository is the one that must answer.
+    const leaks = ['GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE', 'GIT_IMPLICIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_NAMESPACE', 'GIT_CEILING_DIRECTORIES', 'GIT_CONFIG', 'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT'];
+    const before = new Map(leaks.map((name) => [name, process.env[name]]));
+    try {
+      for (const name of leaks) process.env[name] = join(base, 'not-a-repo');
+      expect(ownRepository(draft.folder, gitEnv(GIT_ENV))).toBe(true);
+      expect(renameProduct({ folder: draft.folder, name: 'gadgets', gitEnv: gitEnv(GIT_ENV) }))
+        .toMatchObject({ outcome: 'renamed', folder: join(home, 'gadgets') });
+      expect(addRemote({ folder: join(home, 'gadgets'), url: join(base, 'origin.git'), gitEnv: gitEnv(GIT_ENV) }))
+        .toMatchObject({ outcome: 'added', url: join(base, 'origin.git') });
+    } finally {
+      for (const [name, value] of before) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  });
+
+  test("the clone a url makes runs as this module's own git run, the loader variables stripped", () => {
+    const base = tempFolder();
+    const home = join(base, 'home');
+    mkdirSync(home, { recursive: true });
+    // The url names a product repository of its own: a draft the helper made
+    // and committed. Cloning it without the loader variables' isolation would
+    // let GIT_COMMON_DIR point the child git somewhere else entirely.
+    const origin = draftIn(base);
+    const before = process.env.GIT_COMMON_DIR;
+    try {
+      process.env.GIT_COMMON_DIR = join(base, 'not-a-repo');
+      const outcome = cloneLife({ url: origin.folder, home, env: process.env as unknown as DraftEnv });
+      expect(outcome).toMatchObject({ exit: 0 });
+      const read = readProduct(join(home, 'idea-2026-10-09'));
+      expect(read).toMatchObject({ ok: true, product: { name: 'idea-2026-10-09' } });
+    } finally {
+      if (before === undefined) delete process.env.GIT_COMMON_DIR;
+      else process.env.GIT_COMMON_DIR = before;
+    }
   });
 });

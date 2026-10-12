@@ -100,6 +100,17 @@ describe("the manifest reader against the contract's manifest cases", () => {
     if (read.ok) expect(read.product.folder).toBe(join(EXAMPLES, 'set-made-product'));
   });
 
+  test('a plain name holding an apostrophe reads as YAML reads it: the comment is no part of the name', () => {
+    // The reader reads the value the YAML parser reads: an apostrophe after a
+    // plain character began is the value's own, and a `#` after whitespace
+    // starts the comment the walk's commands print beside it.
+    const folder = join(tempFolder('madarch-manifest-apos-'), 'written-by-hand');
+    mkdirSync(folder);
+    writeFileSync(join(folder, 'workspace.yaml'), "schemaVersion: 1\nid: 3f6d2dc8-b16e-4bf0-9d3a-2c9c00b5287d\nname: O'Reilly # owner\n");
+    const read = readProduct(folder);
+    expect(read).toMatchObject({ ok: true, product: { name: "O'Reilly" } });
+  });
+
   test('a folder written by hand reads the same way, its name falling back to the folder\'s', () => {
     const folder = join(tempFolder('madarch-manifest-hand-'), 'written-by-hand');
     mkdirSync(folder);
@@ -159,6 +170,10 @@ describe("the manifest's written side (decision 0021: the lifecycle commands are
     expect(manifestNamed(manifest, 'gadgets')).toBe('schemaVersion: 1\nid: x\nname: gadgets # the draft\n');
     const quoted = 'schemaVersion: 1\nid: x\n"name": idea\n';
     expect(manifestNamed(quoted, 'gadgets')).toBe('schemaVersion: 1\nid: x\n"name": gadgets\n');
+    // An apostrophe inside a plain name is the name's own character, not a
+    // quoted reading's start: the comment stands where the person wrote it.
+    const plain = 'schemaVersion: 1\nid: x\nname: O\u0027Reilly # owner\n';
+    expect(manifestNamed(plain, 'gadgets')).toBe('schemaVersion: 1\nid: x\nname: gadgets # owner\n');
   });
 
   test("manifestNamed appends the name field where the manifest names none, keeping the file ending", () => {
@@ -243,6 +258,10 @@ describe('the manifest subset mechanics (decision 0021: the reader is madarch ow
     expect(cutComment(`'a # b'`)).toBe(`'a # b'`);
     expect(cutComment(`"a' # b"`)).toBe(`"a' # b"`);
     expect(cutComment('v # tail')).toBe('v ');
+    // An apostrophe after a plain character has begun is the character it is,
+    // never a quoted reading's start: the comment after it is cut.
+    expect(cutComment(`O'Reilly # owner`)).toBe(`O'Reilly `);
+    expect(cutComment(`it "is" fine # tail`)).toBe('it "is" fine ');
     expect(cutComment('v#tail')).toBe('v#tail');
     expect(cutComment(`"a # x" t # y`)).toBe(`"a # x" t `);
   });
@@ -278,5 +297,19 @@ describe('the manifest subset mechanics (decision 0021: the reader is madarch ow
   test('item shapes: a bare dash opens an item, a field twice in an item is refused at its line', () => {
     expect(mech('schemaVersion: 1\nid: x\nrepos:\n  -\n    name: api\n    url: /u\n')).toEqual({ refused: false });
     wantRefused('schemaVersion: 1\nid: x\nrepos:\n  - name: api\n    name: api\n    url: /u\n', 5, '"name" twice, again on line 5');
+  });
+
+  test('the dash and its spacing, and a comment on the dash line', () => {
+    expect(mech('schemaVersion: 1\nid: x\nrepos:\n  -   name: api\n      url: /u\n')).toEqual({ refused: false });
+    expect(mech('schemaVersion: 1\nid: x\nrepos:\n  - # repository\n    name: api\n    url: /u\n')).toEqual({ refused: false });
+    wantRefused('schemaVersion: 1\nid: x\nrepos:\n  -   name: api\n      url: /u\n      url: /v\n', 6, '"url" twice, again on line 6');
+  });
+
+  test('a complex mapping key, a block scalar literal and a block scalar folded are refused', () => {
+    wantRefused('schemaVersion: 1\nid: x\n? name: sample\n', 3, 'complex mapping key');
+    wantRefused('schemaVersion: 1\nid: x\n? &k name: sample\n', 3, 'complex mapping key');
+    wantRefused('schemaVersion: 1\nid: x\n? !!str name: sample\n', 3, 'complex mapping key');
+    wantRefused('schemaVersion: 1\nid: x\nname: |\n', 3, 'block scalar literal');
+    wantRefused('schemaVersion: 1\nid: x\nname: >\n', 3, 'block scalar folded');
   });
 });

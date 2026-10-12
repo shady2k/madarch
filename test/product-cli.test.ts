@@ -455,6 +455,26 @@ describe('madarch list', () => {
     expect(at(`idea-${todayName()}`)).toBeGreaterThan(at('hand-written'));
   });
 
+  test('the folders order by code point: a name above the basic plane falls after U+E000, not before', () => {
+    const home = scratchFolder('madarch-cli-list-plane-');
+    // U+E000, a private-use code point, against U+10000 written as its
+    // surrogate pair: UTF-16 order puts the pair's high half first and the
+    // list would answer that; the code point order the capability names is
+    // the reverse.
+    const planeE = '\uE000';
+    const plane15 = '\u{10000}';
+    for (const folder of [join(home, planeE), join(home, plane15)]) {
+      mkdirSync(folder);
+      writeFileSync(join(folder, 'workspace.yaml'), ['schemaVersion: 1', 'id: 3f6d2dc8-b16e-4bf0-9d3a-2c9c00b5287d'].join('\n'));
+    }
+    const { stdout, stderr, status } = runCommand(['list', '--home', home]);
+    expect(stderr).toBe('');
+    expect(status).toBe(0);
+    expect(stdout.indexOf(planeE)).toBeGreaterThan(-1);
+    expect(stdout.indexOf(plane15)).toBeGreaterThan(-1);
+    expect(stdout.indexOf(plane15)).toBeGreaterThan(stdout.indexOf(planeE));
+  });
+
   test('the products home MADARCH_HOME names is listed with no --home, as a draft\'s home is', () => {
     const madarchHome = scratchFolder('madarch-cli-list-home-');
     const products = join(madarchHome, 'products');
@@ -711,6 +731,18 @@ describe('madarch rename', () => {
     const run = runCommand(['rename'], {}, scratchFolder('madarch-cli-lc-'));
     expect(run.status).toBe(2);
     expect(run.stdout).toBe('');
+  });
+
+  test('a manifest the rename cannot read is refused at its file and line: exit 2 with workspace.yaml:3: and the words', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    writeFileSync(join(draft.folder, 'workspace.yaml'), ['schemaVersion: 1', 'id: 3f6d2dc8-b16e-4bf0-9d3a-2c9c00b5287d', 'name: 5', ''].join('\n'));
+    const run = runCommand(['rename', 'gadgets', '--product', draft.folder], {});
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain(`${join(draft.folder, 'workspace.yaml')}:3:`);
+    expect(run.stderr).toContain('not a name, which is a word');
+    expect(readProduct(draft.folder).ok).toBe(false);
   });
 
   test("a git that refuses to commit: exit 1 with git's own words, and the folder is not renamed", () => {

@@ -137,12 +137,24 @@ function readLines(text: string, file: string): { ok: true; tokens: { indent: nu
 }
 
 /**
+ * A quotation mark opens a quoted scalar where the scalar's text begins, and
+ * nowhere else: an apostrophe or a double quote after a plain character has
+ * begun is the plain character it is — the name O'Reilly — and it never
+ * opens or closes a quoted reading. A quote standing in the token's opening
+ * place starts a quoted reading that walks to its own close, escapes and
+ * doubled quotes in it, and a `#` inside that reading is the value's own
+ * character. Anywhere else a `#` after whitespace or the line's start is
+ * where a comment begins.
+ */
+
+/**
  * The end of a scalar's text where a comment starts, or the whole of it. A
  * `#` inside a quoted value is the value's own character — a product called
  * `Draft # part` is called that — so quotes are walked, escapes and all.
  */
 export function cutComment(text: string): string {
   let quote: string | null = null;
+  let tokenStarted = false;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]!;
     if (quote !== null) {
@@ -153,10 +165,23 @@ export function cutComment(text: string): string {
       }
       continue;
     }
-    if (ch === "'" || ch === '"') { quote = ch; continue; }
+    if (ch !== ' ' && ch !== '\t') tokenStarted = true;
+    if ((ch === "'" || ch === '"') && onlySpacesBefore(text, i)) { quote = ch; continue; }
     if (ch === '#' && (i === 0 || /\s/.test(text[i - 1]!))) return text.slice(0, i);
   }
   return text;
+}
+
+/**
+ * Whether everything before index i is spaces and tabs: only there does a
+ * quote stand in the token's opening place — after any plain character it is
+ * that plain character's own, and the token stays plain.
+ */
+function onlySpacesBefore(text: string, i: number): boolean {
+  for (let k = i - 1; k >= 0; k--) {
+    if (text[k] !== ' ' && text[k] !== '\t') return false;
+  }
+  return true;
 }
 
 /** The `name: value` split of one line: the part before the first field colon, and after it. */
@@ -172,7 +197,7 @@ function splitPair(content: string): { key: string; rest: string } | null {
       }
       continue;
     }
-    if (ch === "'" || ch === '"') { quote = ch; continue; }
+    if ((ch === "'" || ch === '"') && onlySpacesBefore(content, i)) { quote = ch; continue; }
     if (ch === '#' && (i === 0 || /\s/.test(content[i - 1]!))) return null;
     if (ch === ':' && (i + 1 === content.length || /\s/.test(content[i + 1]!)))
       return { key: content.slice(0, i), rest: content.slice(i + 1).trim() };
@@ -222,7 +247,33 @@ function unquote(text: string, file: string, line: number): Parsed<unknown> {
 }
 
 /** The indicators this subset does not take, and what each is called. */
-const INDICATORS: Record<string, string> = { '&': 'anchor', '*': 'alias', '!': 'tag' };
+const INDICATORS: Record<string, string> = {
+  '&': 'anchor',
+  '*': 'alias',
+  '!': 'tag',
+  // A block scalar holds its value on the lines under it; a `?` key names
+  // its field anywhere but "name: value"'s own place. Both are outside the
+  // subset: a manifest reads the same to a person and to a tool, one value
+  // per field, written plainly.
+  '|': 'block scalar literal',
+  '>': 'block scalar folded',
+  '?': 'complex mapping key',
+};
+
+/**
+ * What each refused indicator is called, and why the subset refuses it: an
+ * anchor, an alias and a tag stand for data elsewhere; a block scalar holds
+ * its value on many lines; a complex key names its field anywhere but at
+ * "name: value"'s own place.
+ */
+const INDICATOR_WHY: Record<string, string> = {
+  '&': 'an anchor, an alias and a tag are not part of the subset this reader takes',
+  '*': 'an anchor, an alias and a tag are not part of the subset this reader takes',
+  '!': 'an anchor, an alias and a tag are not part of the subset this reader takes',
+  '|': 'a value is written plain or quoted on its own line',
+  '>': 'a value is written plain or quoted on its own line',
+  '?': 'a field is written "name: value", its key its own plain or quoted word',
+};
 
 /** A scalar: plain, quoted, and nothing else this subset takes. */
 export function parseScalar(text: string, file: string, line: number): Parsed<unknown> {
@@ -230,7 +281,7 @@ export function parseScalar(text: string, file: string, line: number): Parsed<un
   if (trimmed === '') return { ok: true, value: null };
   const first = trimmed[0]!;
   if (INDICATORS[first] !== undefined)
-    return refusal(file, line, `the manifest ${file} writes the ${INDICATORS[first]} "${trimmed}" on line ${line}: an anchor, an alias and a tag are not part of the subset this reader takes`);
+    return refusal(file, line, `the manifest ${file} writes the ${INDICATORS[first]} "${trimmed}" on line ${line}: ${INDICATOR_WHY[first]}`);
   if (first === '{' || first === '[' || first === ']' || first === '}')
     return refusal(file, line, `the manifest ${file} writes the flow collection "${trimmed}" on line ${line}: fields are block mappings and block sequences of mappings, one per line`);
   if (first === "'" || first === '"') return unquote(trimmed, file, line);
@@ -324,8 +375,17 @@ function parseSequence(tokens: Token[], i: number, indent: number, file: string)
   const lines: number[] = [];
   while (i < tokens.length && tokens[i]!.indent === indent && isItemLine(tokens[i]!.content)) {
     const token = tokens[i]!;
-    const rest = token.content.replace(/^-(\s|$)/, '');
-    if (rest === '') {
+    // What follows the dash, every one of its own spaces and tabs taken off:
+    // those spaces are the item's own deeper indentation, the column the
+    // item's first word stands at — `-   name: api` writes its fields under
+    // that same column, and the item's block reads from there.
+    const afterDash = token.content.slice(1);
+    const itemIndent = indent + 1 + (afterDash.length - afterDash.replace(/^[ \t]*/, '').length);
+    const onDash = afterDash.replace(/^[ \t]*/, '');
+    const visible = cutComment(onDash).trim();
+    if (visible === '') {
+      // A bare dash, or one whose line carries only a comment: the item is
+      // what stands indented under it, or nothing.
       if (i + 1 < tokens.length && tokens[i + 1]!.indent > indent) {
         const sub = parseBlock(tokens, i + 1, tokens[i + 1]!.indent, file);
         if (!sub.ok) return sub;
@@ -336,11 +396,10 @@ function parseSequence(tokens: Token[], i: number, indent: number, file: string)
         i++;
       }
     } else {
-      const inner = indent + (token.content.length - rest.length);
-      const sub: Token[] = [{ indent: inner, content: rest, line: token.line }];
+      const sub: Token[] = [{ indent: itemIndent, content: onDash, line: token.line }];
       let j = i + 1;
       while (j < tokens.length && tokens[j]!.indent > indent) { sub.push(tokens[j]!); j++; }
-      const parsed = parseBlock(sub, 0, inner, file);
+      const parsed = parseBlock(sub, 0, itemIndent, file);
       if (!parsed.ok) return parsed;
       if (parsed.i < sub.length)
         return refusal(file, sub[parsed.i]!.line, `the manifest ${file} indents line ${sub[parsed.i]!.line} under an item that already holds a value: a list item holds one value`);
