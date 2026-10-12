@@ -28,7 +28,7 @@ import { homeOfCommand, noStrayDrafts, ISOLATED_HOME, sealedHome } from './scrat
 // account's real home (the command tests seal their children besides this).
 process.env.MADARCH_HOME = ISOLATED_HOME;
 
-const CLI = fileURLToPath(new URL('../scripts/madarch.ts', import.meta.url));
+export const CLI = fileURLToPath(new URL('../scripts/madarch.ts', import.meta.url));
 
 /**
  * The machine's real git, resolved once: a stub placed on PATH in a test
@@ -77,7 +77,7 @@ const SEALED_CLOCK: Record<string, string> = process.env.TZ === undefined && new
 /** Every temporary folder this file makes, removed after each test and on exit. */
 const made: string[] = [];
 
-function scratchFolder(prefix = 'madarch-cli-'): string {
+export function scratchFolder(prefix = 'madarch-cli-'): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   made.push(dir);
   return dir;
@@ -121,7 +121,7 @@ interface LiveNew {
   readonly exitCode: number | null;
   finish(): Promise<{ stdout: string }>;
 }
-function serveNew(args: string[], overrides: Record<string, string> = {}, program: readonly string[] = ['bun', CLI]): LiveNew {
+export function serveNew(args: string[], overrides: Record<string, string> = {}, program: readonly string[] = ['bun', CLI]): LiveNew {
   const env = { ...process.env, ...SEALED_GIT, ...SEALED_CLOCK, ...sealedHome(overrides), ...overrides };
   if (args[0] === 'new') homeOfCommand(args, env);
   const proc = Bun.spawn([...program, ...args], {
@@ -157,7 +157,7 @@ function serveNew(args: string[], overrides: Record<string, string> = {}, progra
 }
 
 /** An app folder with its dist already there: the serving builds nothing. */
-function builtApp(base: string): string {
+export function builtApp(base: string): string {
   const app = join(base, 'wiki-app');
   mkdirSync(join(app, 'dist', 'assets'), { recursive: true });
   writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'app', private: true, scripts: { build: 'true' } }, null, 2));
@@ -167,7 +167,7 @@ function builtApp(base: string): string {
 }
 
 /** The draft's two printed facts, once both lines have arrived. */
-async function printedLiveFacts(serve: LiveNew): Promise<{ folder: string; id: string }> {
+export async function printedLiveFacts(serve: LiveNew): Promise<{ folder: string; id: string }> {
   const start = Date.now();
   for (;;) {
     const lines = serve.stdout.split('\n').filter((line) => line !== '');
@@ -298,10 +298,11 @@ describe('madarch new', () => {
     expect(stderr).toContain('new');
   });
 
-  test('no arguments at all exits 2 naming what is accepted', () => {
+  test('no arguments at all exits 2 naming the missing subcommand by name', () => {
     const { status, stderr } = runCommand([], {});
     expect(status).toBe(2);
-    expect(stderr).toContain('new');
+    expect(stderr).toContain('no subcommand given: the subcommands are');
+    expect(stderr).toContain('"version"');
   });
 
   test('a stray argument to new exits 2 naming it', () => {
@@ -418,30 +419,6 @@ describe('madarch new: --home values a person cannot mean', () => {
     expect(stderr).toContain('--home');
     expect(stderr).toContain('--no-open');
     expect(readdirSync(home)).toEqual([]);
-  });
-});
-
-describe('the madarch command as an executable', () => {
-  test('spawning the committed script itself answers --help: it carries an interpreter directive and the exec bit', () => {
-    // Not through `bun <file>`: the way `bun link`'s shim runs it — the
-    // file itself, executed, which needs its own directive and mode.
-    const run = spawnSync(CLI, ['--help'], { encoding: 'utf8', timeout: 120_000 });
-    expect(run.status).toBe(0);
-    expect(run.stderr ?? '').toBe('');
-    expect((run.stdout ?? '').length).toBeGreaterThan(0);
-  });
-
-  test('spawning the script itself creates a draft with MADARCH_HOME at a scratch folder, then serves it', async () => {
-    const base = scratchFolder('madarch-cli-app-');
-    const home = scratchFolder();
-    const app = builtApp(base);
-    // Not through `bun <file>`: the way `bun link`'s shim runs it — the
-    // executed script itself.
-    const serve = serveNew(['new', '--port', '0', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app }, [CLI]);
-    const printed = await printedLiveFacts(serve);
-    expect(statSync(printed.folder).isDirectory()).toBe(true);
-    expect(printed.id).toMatch(/^[0-9a-f-]+$/);
-    await serve.finish();
   });
 });
 
@@ -1026,5 +1003,54 @@ describe('the lifecycle surface', () => {
     const run = runCommand(['repo', 'clone', 'name', join(base, 'x.git')], {}, base);
     expect(run.status).toBe(2);
     expect(run.stderr).toContain('add');
+  });
+});
+
+
+describe('the release surface (madarch-lfhu)', () => {
+  test('version names the version and exits 0 with no other facts', () => {
+    const { status, stdout, stderr } = runCommand(['version'], {});
+    expect(status).toBe(0);
+    expect(stderr).toBe('');
+    expect(stdout).toBe('version: dev\n');
+  });
+
+  test('upgrade in a checkout refuses naming why, before any network', () => {
+    const { status, stderr, stdout } = runCommand(['upgrade'], {});
+    expect(status).toBe(2);
+    expect(stdout).toBe('');
+    expect(stderr).toContain('source checkout');
+  });
+
+  test('version and upgrade take none of the lifecycle options (an unknown option is named)', () => {
+    for (const [sub, flag] of [['version', '--home'], ['upgrade', '--product'], ['version', '--port'], ['upgrade', '--no-open'], ['version', '--branch']] as const) {
+      const { status, stderr } = runCommand([sub, flag, 'x' + String(Math.random()).slice(2)], {});
+      expect(status).toBe(2);
+      expect(stderr).toContain('unknown option');
+      expect(stderr).toContain(flag);
+    }
+  });
+
+  test('the --yes flag is the upgrade own answer flag, with no value and no other command', () => {
+    const { status, stdout, stderr } = runCommand(['upgrade', '--yes'], {});
+    expect(status).toBe(2);
+    expect(stdout).toBe('');
+    expect(stderr).toContain('source checkout');
+    const run = runCommand(['version', '--yes'], {});
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('unknown option');
+    const run2 = runCommand(['upgrade', '--yes=true'], {});
+    expect(run2.status).toBe(2);
+    expect(run2.stderr).toContain('takes no value');
+  });
+
+  test('a stray word to version or upgrade is refused like any other subcommand word', () => {
+    const run = runCommand(['version', 'extra'], {});
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('unexpected argument');
+    expect(run.stderr).toContain('takes no words');
+    const run2 = runCommand(['upgrade', 'now'], {});
+    expect(run2.status).toBe(2);
+    expect(run2.stderr).toContain('unexpected argument');
   });
 });

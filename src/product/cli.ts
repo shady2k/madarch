@@ -12,6 +12,8 @@
  */
 import { createDraft } from './draft.js';
 import { listProducts, type ProductList } from './list.js';
+import { runningVersion } from './version.js';
+import { upgrade, type UpgradeOptions } from './upgrade.js';
 import { serveWiki, type Opener, type ServeOptions } from '../product-wiki/serve.js';
 import {
   cloneLife,
@@ -32,8 +34,11 @@ export const USAGE = [
   '   or: bun scripts/madarch.ts repo add <name> <url> [--branch <b>] [--product <folder>]',
   '   or: bun scripts/madarch.ts bootstrap [--product <folder>]',
   '   or: bun scripts/madarch.ts clone <url> [--home <folder>]',
+  '   or: bun scripts/madarch.ts version',
+  '   or: bun scripts/madarch.ts upgrade [--yes]',
   '   (the same commands after `bun link` in a checkout: madarch new, madarch serve, madarch list,',
-  '    madarch rename, madarch remote, madarch repo add, madarch bootstrap, madarch clone)',
+  '    madarch rename, madarch remote, madarch repo add, madarch bootstrap, madarch clone,',
+  '    madarch version, madarch upgrade)',
 ].join('\n');
 
 /** The text `--help` prints: the subcommands and the options each does what. */
@@ -46,7 +51,8 @@ export const HELP = [
   '   or: bun scripts/madarch.ts repo add <name> <url> [--branch <b>] [--product <folder>]',
   '   or: bun scripts/madarch.ts bootstrap [--product <folder>]',
   '   or: bun scripts/madarch.ts clone <url> [--home <folder>]',
-  '   or: madarch serve|new|list|rename|remote|repo add|bootstrap|clone — the same commands after `bun link` in a checkout',
+  '   or: madarch serve|new|list|rename|remote|repo add|bootstrap|clone|version|upgrade — the same', 
+  '   commands after `bun link` in a checkout',
   '',
   'new creates a draft product repository under the products home, then serves',
   "its wiki: the draft's folder and id, the address of the wiki, one fact per",
@@ -114,19 +120,21 @@ interface CommandSpec {
   /** The positional words it takes, in order, by their label for the refusals. */
   positionals: readonly string[];
   /** The flags it takes, beside the ones they both share. */
-  flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean };
+  flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean; yes: boolean };
 }
 
 /** The specs the subcommands answer to, whole. */
 export const COMMANDS: Record<string, CommandSpec> = {
-  new: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false } },
-  serve: { positionals: [], flags: { home: false, product: true, port: true, open: true, branch: false } },
-  list: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false } },
-  rename: { positionals: ['name'], flags: { home: false, product: true, port: false, open: false, branch: false } },
-  remote: { positionals: ['url'], flags: { home: false, product: true, port: false, open: false, branch: false } },
-  repo: { positionals: ['verb', 'name', 'url'], flags: { home: false, product: true, port: false, open: false, branch: true } },
-  bootstrap: { positionals: [], flags: { home: false, product: true, port: false, open: false, branch: false } },
-  clone: { positionals: ['url'], flags: { home: true, product: false, port: false, open: false, branch: false } },
+  new: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
+  serve: { positionals: [], flags: { home: false, product: true, port: true, open: true, branch: false, yes: false } },
+  list: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
+  rename: { positionals: ['name'], flags: { home: false, product: true, port: false, open: false, branch: false, yes: false } },
+  remote: { positionals: ['url'], flags: { home: false, product: true, port: false, open: false, branch: false, yes: false } },
+  repo: { positionals: ['verb', 'name', 'url'], flags: { home: false, product: true, port: false, open: false, branch: true, yes: false } },
+  bootstrap: { positionals: [], flags: { home: false, product: true, port: false, open: false, branch: false, yes: false } },
+  clone: { positionals: ['url'], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
+  version: { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
+  upgrade: { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: true } },
 };
 
 /** One subcommand's parsed words and options. */
@@ -138,6 +146,7 @@ interface Parsed {
   port: number | undefined;
   open: boolean;
   branch: string | undefined;
+  yes: boolean;
 }
 
 /** The flags one subcommand takes, for the refusals to name them. */
@@ -148,6 +157,7 @@ function flagNamesFor(flags: CommandSpec['flags']): readonly string[] {
     ...(flags.port ? ['--port'] : []),
     ...(flags.open ? ['--no-open'] : []),
     ...(flags.branch ? ['--branch'] : []),
+  ...(flags.yes ? ['--yes'] : []),
   ];
 }
 
@@ -159,7 +169,7 @@ function flagNamesFor(flags: CommandSpec['flags']): readonly string[] {
  * Returns the parse, or the number of the exit a refusal needs.
  */
 function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
-  const parsed: Parsed = { words: [], home: undefined, product: undefined, port: undefined, open: true, branch: undefined };
+  const parsed: Parsed = { words: [], home: undefined, product: undefined, port: undefined, open: true, branch: undefined, yes: false };
   const seen = new Set<string>();
   const flags = flagNamesFor(spec.flags).map((name) => `${name}${name === '--no-open' ? '' : ' <value>'}`).join(', ');
   for (let i = 0; i < given.length; i++) {
@@ -209,6 +219,16 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
       return next === undefined ? undefined : next; // an option there: refused below by valueProblem
     };
 
+    if (name === '--yes') {
+      if (!spec.flags.yes) return unknownOption(arg, flags);
+      if (arg.includes('=')) {
+        console.error(`the --yes flag takes no value: it answers the prompt the command would ask`);
+        console.error(USAGE);
+        return 2;
+      }
+      parsed.yes = true;
+      continue;
+    }
     if (name === '--no-open') {
       if (!spec.flags.open) return unknownOption(arg, flags);
       if (arg.includes('=')) {
@@ -327,13 +347,15 @@ function runClone(parsed: Parsed): number {
 export interface CliDeps {
   /** The app folder and build the serving is pointed at, over the process's environment. */
   app?: { appFolder?: string; buildCommand?: string; env?: Readonly<Record<string, string | undefined>> };
+  /** The upgrade's injected pieces: the releases API and its fetch, the yes, the replace target. */
+  upgrade?: UpgradeOptions;
   /** The opener the serving uses, over the machine's own. */
   opener?: Opener;
 }
 
-export function main(args: readonly string[], deps: CliDeps = {}): number {
+export async function main(args: readonly string[], deps: CliDeps = {}): Promise<number> {
   if (args.length === 0) {
-    console.error('no subcommand given: the subcommands are "new", "serve", "list", "rename", "remote", "repo add", "bootstrap" and "clone"');
+    console.error('no subcommand given: the subcommands are "new", "serve", "list", "rename", "remote", "repo add", "bootstrap", "version" and "upgrade"');
     console.error(USAGE);
     return 2;
   }
@@ -343,12 +365,12 @@ export function main(args: readonly string[], deps: CliDeps = {}): number {
     return 0;
   }
   if (command.startsWith('--')) {
-    console.error(`unknown option "${command}" before the subcommand: the subcommands are "new", "serve", "list", "rename", "remote", "repo add", "bootstrap" and "clone"`);
+    console.error(`unknown option "${command}" before the subcommand: the subcommands are "new", "serve", "list", "rename", "remote", "repo add", "bootstrap", "version" and "upgrade"`);
     console.error(USAGE);
     return 2;
   }
   if (!(command in COMMANDS)) {
-    console.error(`unknown subcommand "${command}": the subcommands are "new", "serve", "list", "rename", "remote", "repo add", "bootstrap" and "clone"`);
+    console.error(`unknown subcommand "${command}": the subcommands are "new", "serve", "list", "rename", "remote", "repo add", "bootstrap", "version" and "upgrade"`);
     console.error(USAGE);
     return 2;
   }
@@ -359,6 +381,13 @@ export function main(args: readonly string[], deps: CliDeps = {}): number {
   const { home, product, port, open } = parsed;
 
   if (command === 'list') return list(home);
+  if (command === 'version') return versionCommand();
+  if (command === 'upgrade') {
+    const result = await upgrade({ ...(deps.upgrade ?? {}), skipPrompt: parsed.yes });
+    for (const fact of result.prints) console.log(fact);
+    for (const error of result.errors) console.error(error);
+    return result.exit;
+  }
   if (command === 'serve') {
     return serve(serveOptions(parsed, deps), product);
   }
@@ -376,6 +405,12 @@ export function main(args: readonly string[], deps: CliDeps = {}): number {
   console.log(`folder: ${draft.folder}`);
   console.log(`id: ${draft.id}`);
   return serve(serveOptions(parsed, deps), draft.folder);
+}
+
+/** `madarch version`: one fact the release answers with (or `dev` in a checkout); 0, always. */
+function versionCommand(): number {
+  console.log(`version: ${runningVersion()}`);
+  return 0;
 }
 
 /** The serve options one subcommand's flags parsed into. */
