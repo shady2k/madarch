@@ -105,6 +105,65 @@ The document typography reads like the mockup: the body rides the mockup's 18 px
 - When: the page's rendered text is inspected
 - Then: the page's text renders in the shipped Inter and its code in the shipped monospace face, not in a fallback the system chose
 
+## Requirement: front-matter — A page shows the set's document it is, linked both ways, with the set's check on it
+When a page's text carries the set's document form — the identity line, the
+fields, the sections — or stands where one of the set's kinds lives, the
+wiki shall read that form and show, on the page: its kind, named in the
+reader's language; a calm block of the form's fields beside the identity
+ones (the id, the status the set computes from the document's own text, the
+dates and the people a kind carries); the pages it grew from, resolved from
+the form's link fields; and a "Linked from" section naming every document
+of the product whose link fields, ids or wiki addresses reach this page —
+link fields first. A page the set names not at all shall keep the plain
+page behaviour, and no kind shall be invented for it.
+
+The set's product check shall run over the product's folder once per
+product revision while the wiki serves — a revision that asked once shall
+not run it again until the pages change — and each finding that names this
+page's file shall show on the page with the rule, the file's path within
+the product, the line and the words. A page the check says nothing about
+shall show nothing, and where the check cannot run at all the page shall
+say so, naming the script and the cause, instead of passing the product as
+checked.
+
+The navigation shall group the product's documents by the set's kinds in
+the set's life-cycle order — the chain vision, source, hypothesis, user
+story, use case, product requirement, open question, prototype, result,
+with the planning documents after the vision, the design-side records
+between the product requirements and the questions, and the practices last,
+active first and retired apart — and a group of no set kind shall keep its
+place after them.
+
+### Scenario: a-requirement-shows-its-chain
+- Given: the fixture product whose product requirement serves a use case and a user story
+- When: the requirement's page is read
+- Then: the page names its kind, carries the form's fields in its header block, and the "Grew from" row opens the use case and the story pages
+
+### Scenario: backlinks-across-kinds
+- Given: the fixture product whose source is cited by the hypothesis, the story, the use case, the requirements and the vision
+- When: the source's page is read
+- Then: the "Linked from" section names every one of them, whatever their kinds
+
+### Scenario: findings-on-the-failing-page
+- Given: the fixture product whose `docs/requirements/FR-999-a-failing-example.md` fails the set's check
+- When: its page is read
+- Then: the page carries the findings block, each finding naming the rule, the file's path, the line and the words, and no other page carries a findings block
+
+### Scenario: check-runs-once-per-revision
+- Given: a served fixture product and a way to count the check's runs
+- When: three pages are asked for with no change between them, then a file is saved and a page is asked again
+- Then: the check ran once for the three asks and once again after the save
+
+### Scenario: sidebar-groups-in-life-cycle-order
+- Given: the fixture product holding documents of every kind, active and retired practices included
+- When: the navigation is read
+- Then: the groups stand in the set's life-cycle order — vision through results, practices active before retired — and pages of no set kind group after them
+
+### Scenario: plain-page-stays-plain
+- Given: a page of no set kind (no identity line, no kind's place)
+- When: its page is read
+- Then: the page shows no kind, no fields and no findings, as before this requirement
+
 ## Requirement: architecture — The model's views and elements are the Architecture section
 When a product's wiki is served, it shall have an Architecture section — the
 Design stage's part of the life cycle — computed from the product's model:
