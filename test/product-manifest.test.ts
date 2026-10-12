@@ -208,4 +208,75 @@ describe("the manifest's written side (decision 0021: the lifecycle commands are
     const read = readProductRoundtrip(withRepo);
     expect(read).toMatchObject({ ok: true, product: { repos: [{ name: 'api', url: '.5' }] } });
   });
+
+  test('a quoted or gap-spaced repos field is cleared, its key spelling and comment kept', () => {
+    // The key's spelling and the gap stand; the value that stood between the
+    // colon and the comment goes, and the items are written under it.
+    expect(manifestWithRepo(`schemaVersion: 1\nid: x\n'repos':  # the code\n`, { name: 'api', url: 'u' }))
+      .toBe(`schemaVersion: 1\nid: x\n'repos':  # the code\n  - name: api\n    url: u\n`);
+    expect(manifestWithRepo(`schemaVersion: 1\nid: x\nrepos:   ~  # pinned later\n`, { name: 'api', url: 'u' }))
+      .toBe(`schemaVersion: 1\nid: x\nrepos: # pinned later\n  - name: api\n    url: u\n`);
+    const read = readProductRoundtrip(manifestWithRepo(`schemaVersion: 1\nid: x\nrepos: # c\n`, { name: 'api', url: 'u' }));
+    expect(read).toMatchObject({ ok: true, product: { repos: [{ name: 'api' }] } });
+  });
+});
+
+describe('the manifest subset mechanics (decision 0021: the reader is madarch own)', () => {
+  /** Reads one manifest's text; a refusal is shown whole, at its file and line. */
+  const mech = (text: string) => {
+    const dir = mkdtempSync(join(tmpdir(), 'madarch-manifest-mech-'));
+    made.push(dir);
+    mkdirSync(join(dir, 'mech'));
+    writeFileSync(join(dir, 'mech', 'workspace.yaml'), text);
+    const read = readProduct(join(dir, 'mech'));
+    if (read.ok) return { refused: false as const };
+    return { refused: true as const, line: read.line, message: read.message };
+  };
+  const wantRefused = (text: string, line: number, words: string) => {
+    const got = mech(text);
+    if (!got.refused) throw new Error(`expected a refusal, got ok`);
+    expect(got.line).toBe(line);
+    expect(got.message).toContain(words);
+  };
+
+  test('cutComment keeps a # inside quotes and cuts one standing in the open', () => {
+    expect(cutComment(`'a # b'`)).toBe(`'a # b'`);
+    expect(cutComment(`"a' # b"`)).toBe(`"a' # b"`);
+    expect(cutComment('v # tail')).toBe('v ');
+    expect(cutComment('v#tail')).toBe('v#tail');
+    expect(cutComment(`"a # x" t # y`)).toBe(`"a # x" t `);
+  });
+
+  test('quoted values read back whole, escapes included, and refuse closed incompletely or continued', () => {
+    expect(mech('schemaVersion: 1\nid: x\nname: "a\\nb"\n')).toEqual({ refused: false });
+    expect(mech(`schemaVersion: 1\nid: x\nname: 'a''b'\n`)).toEqual({ refused: false });
+    expect(mech(`schemaVersion: 1\nid: x\nname: "\\u0041bc"\n`)).toEqual({ refused: false });
+    wantRefused(`schemaVersion: 1\nid: x\nname: "a\\X9"\n`, 3, 'only the usual escapes are written');
+    wantRefused(`schemaVersion: 1\nid: x\nname: "a\\u00zz"\n`, 3, 'not \\uXXXX');
+    wantRefused(`schemaVersion: 1\nid: x\nname: "abc" uvw\n`, 3, 'after the quoted value');
+    wantRefused(`schemaVersion: 1\nid: x\nname: "abc\n`, 3, 'never closes it');
+    const good = readProductRoundtrip('schemaVersion: 1\nid: x\nname: "a\\nb"\n');
+    expect(good).toMatchObject({ ok: true, product: { name: 'a\nb' } });
+  });
+
+  test('a quoted key names the field, an anchor, a tag or a flow collection in its place is refused', () => {
+    expect(mech(`schemaVersion: 1\nid: x\n"name": gadgets\n`)).toEqual({ refused: false });
+    wantRefused(`schemaVersion: 1\nid: x\n&anchor: gadgets\n`, 3, 'anchor');
+    wantRefused(`schemaVersion: 1\nid: x\n!tag: gadgets\n`, 3, 'tag');
+    wantRefused(`schemaVersion: 1\nid: x\n{a: b}\n`, 3, 'flow collection');
+    // A quoted key with no word inside is refused too.
+    wantRefused(`schemaVersion: 1\nid: x\n"": gadgets\n`, 3, 'named by a word');
+  });
+
+  test('a line standing alone is refused, a second document and a tab indent are refused', () => {
+    wantRefused('schemaVersion: 1\nid: x\nname: v\n---\nid: y\n', 4, 'one document');
+    wantRefused('schemaVersion: 1\n\tid: x\n', 2, 'indents with a tab');
+    wantRefused('schemaVersion: 1\nid: x\nname: v\n  id: y\n', 4, 'a field holds one value');
+    wantRefused('schemaVersion: 1\nid: x\n: v\n', 3, 'with no name');
+  });
+
+  test('item shapes: a bare dash opens an item, a field twice in an item is refused at its line', () => {
+    expect(mech('schemaVersion: 1\nid: x\nrepos:\n  -\n    name: api\n    url: /u\n')).toEqual({ refused: false });
+    wantRefused('schemaVersion: 1\nid: x\nrepos:\n  - name: api\n    name: api\n    url: /u\n', 5, '"name" twice, again on line 5');
+  });
 });
