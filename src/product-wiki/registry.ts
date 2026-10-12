@@ -37,8 +37,17 @@ export interface RegistryServing {
   digest: string;
 }
 
-function digestOf(input: string): string {
+function digestOfText(input: string): string {
   return createHash('sha256').update(input).digest('hex');
+}
+
+/**
+ * The file's bytes, digested raw: the revision must move with every byte
+ * the file carries, and a decoded text cannot be trusted to name a byte
+ * change (two invalid sequences decode to the same replacement character).
+ */
+function digestOfBytes(bytes: Buffer): string {
+  return createHash('sha256').update(bytes).digest('hex');
 }
 
 /** The notice the wiki serves under the reading's refusals, every one named where it stands. */
@@ -60,31 +69,34 @@ export function readRegistryServing(productFolder: string): RegistryServing {
     stat = statSync(file);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return { contract: { state: 'absent' }, digest: digestOf(`${REGISTRY_FILE}\u0000absent`) };
+      return { contract: { state: 'absent' }, digest: digestOfText(`${REGISTRY_FILE}\u0000absent`) };
     }
     return {
       contract: { state: 'unknown', message: `${REGISTRY_FILE} could not be read: ${(error as Error).message} — the wiki serves these pages as plain documents` },
-      digest: digestOf(`${REGISTRY_FILE}\u0000unreadable`),
+      digest: digestOfText(`${REGISTRY_FILE}\u0000unreadable`),
     };
   }
-  if (stat.isDirectory()) {
+  if (!stat.isFile()) {
+    const message = stat.isDirectory()
+      ? `${REGISTRY_FILE} is a folder, not a registry file — the wiki serves these pages as plain documents`
+      : `${REGISTRY_FILE} is not a regular file, so the wiki does not open it — the wiki serves these pages as plain documents`;
     return {
-      contract: { state: 'unknown', message: `${REGISTRY_FILE} is a folder, not a registry file — the wiki serves these pages as plain documents` },
-      digest: digestOf(`${REGISTRY_FILE}\u0000folder`),
+      contract: { state: 'unknown', message },
+      digest: digestOfText(`${REGISTRY_FILE}\u0000irregular`),
     };
   }
-  let text: string;
+  let bytes: Buffer;
   try {
-    text = readFileSync(file, 'utf8');
+    bytes = readFileSync(file);
   } catch (error) {
     return {
       contract: { state: 'unknown', message: `${REGISTRY_FILE} could not be read: ${(error as Error).message} — the wiki serves these pages as plain documents` },
-      digest: digestOf(`${REGISTRY_FILE}\u0000unreadable`),
+      digest: digestOfText(`${REGISTRY_FILE}\u0000unreadable`),
     };
   }
-  const read = parseContractText(REGISTRY_FILE, text);
+  const read = parseContractText(REGISTRY_FILE, bytes.toString('utf8'));
   if (read.ok) {
-    return { contract: { state: 'known', version: read.contract }, digest: digestOf(text) };
+    return { contract: { state: 'known', version: read.contract }, digest: digestOfBytes(bytes) };
   }
   const withVersion = read.errors.find((error) => error.version !== undefined);
   return {
@@ -93,6 +105,6 @@ export function readRegistryServing(productFolder: string): RegistryServing {
       version: withVersion?.version,
       message: noticeOf(read),
     },
-    digest: digestOf(text),
+    digest: digestOfBytes(bytes),
   };
 }

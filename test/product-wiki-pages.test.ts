@@ -32,6 +32,13 @@ function write(path: string, content: string): void {
   writeFileSync(full, content);
 }
 
+function writeBytes(path: string, bytes: Buffer): void {
+  const full = join(folder!, path);
+  const dir = full.slice(0, full.lastIndexOf('/'));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(full, bytes);
+}
+
 function requireProduct(wiki: ReturnType<typeof openProductWiki>): import('../src/product-wiki/pages.js').ProductWiki {
   if (!wiki.ok) throw new Error(wiki.message);
   return wiki.wiki;
@@ -366,6 +373,45 @@ describe('the kinds registry the wiki serves', () => {
     expect(after.revision).not.toBe(revisionBefore);
     expect(after.contract).toEqual({ known: true, version: 1 });
     expect(pageKinds(after)).toEqual(['decisions']);
+  });
+
+  test('the revision digests the registry\'s bytes, not the decoded text: two byte-distinct files the decoder flattens to the same text are two revisions', () => {
+    const unused = withRegistry('contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n');
+    const file = join(folder!, 'docs', 'kinds.yaml');
+    const product = requireProduct(openProductWiki(folder!));
+    const before = product.pages();
+    if (!before.ok) throw new Error(before.message);
+    expect(before.contract).toEqual({ known: true, version: 1 });
+    // A stray continuation byte (0xA0) and another one (0xBE) decode to the
+    // same replacement character, so a revision over the decoded text would
+    // see no change; the bytes themselves must move it. The byte rides
+    // inside the last scalar (before the final newline), so the file still
+    // reads whole as YAML - the answer must not depend on a broken file.
+    const raw = readFileSync(file);
+    const spine = raw.subarray(0, raw.length - 1);
+    writeBytes('docs/kinds.yaml', Buffer.concat([spine, Buffer.from([0xA0, 10])]));
+    const strayOne = product.pages();
+    if (!strayOne.ok) throw new Error(strayOne.message);
+    expect(strayOne.contract).toEqual({ known: true, version: 1 });
+    writeBytes('docs/kinds.yaml', Buffer.concat([spine, Buffer.from([0xBE])]));
+  });
+
+  test('a registry that is not a regular file is named and degrades the wiki, and the ask never blocks on it', () => {
+    const unused = withRegistry('');
+    rmSync(join(folder!, 'docs', 'kinds.yaml'));
+    const made = spawnSync('mkfifo', [join(folder!, 'docs', 'kinds.yaml')]);
+    if (made.status !== 0) throw new Error(`mkfifo is not available here: ${made.stderr?.toString() ?? made.status}`);
+    const product = requireProduct(openProductWiki(folder!));
+    const pages = product.pages();
+    if (!pages.ok) throw new Error(pages.message);
+    if (pages.contract === undefined || pages.contract.known !== false) throw new Error('the irregular file degrades');
+    expect(pages.contract.message).toContain('docs/kinds.yaml is not a regular file');
+    expect(pages.contract.message).toContain('the wiki serves these pages as plain documents');
+    expect(pages.contract.version).toBeUndefined();
+    const asked = product.page('docs/decisions/D-001.md');
+    if (!asked.ok) throw new Error(asked.message);
+    expect(asked.page.document).toBeUndefined();
+    expect(asked.page.markdown).toContain('recorded here');
   });
 });
 

@@ -11,12 +11,14 @@ with a temporary name, a stable id and a complete but empty skeleton, which
 the person and their agent fill in.
 
 The format itself is madarch's published, versioned contract (decision
-0021, refined by 0022 into contract v1): the registry file carries the
+0021, amended 2026-10-12 as contract v1): the registry file carries the
 contract version it is written against, and at contract v1 each kind
 declares its allowed statuses and its link fields — the field name, the
 allowed target kinds, the backlink label, the cardinality and whether the
-link is required — as data the wiki draws links, backlinks, grouping and
-findings from.
+link is required — as data. Declaring them is this change's work; drawing
+the links, backlinks and structural findings from the declarations onto the
+served pages is the registry lane's (madarch-d7v3), on the shapes and
+refusals this change lands.
 
 The product repository's lifecycle — its layout, its manifest's schema,
 creating a draft, renaming it into a product and bootstrapping its code
