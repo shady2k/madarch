@@ -47,6 +47,16 @@ graph, accepting changes and so on".
   door for a person without an agent, and it serves and lists any folder with
   a valid `workspace.yaml`, whoever made it. One owner of the structure, more
   than one way in, like a project creator and its runtime.
+
+  *(Revised by 0021, 2026-10-12: "the lifecycle commands are madarch's code
+  (revising the clause of 0019 that gave them to the set and pinned the
+  vendored program): `madarch new`, `rename`, `repo add`, `bootstrap`,
+  `remote`, `clone` and `list` read and write the contract's own files; the
+  vendored folder leaves the repository, and the contract's schema and
+  conformance examples take the manifest-shape tests' place" —
+  docs/decisions/0021-product-repository-contract.md. This clause's other
+  sentences — madarch serves and lists any folder with a valid manifest,
+  whoever made it — stand.)*
 - **madarch installs locally and centrally** as the same program. A local
   product reaches the central server through git: the product repository gets
   a remote, `madarch connect` tells the central madarch its address once, and
