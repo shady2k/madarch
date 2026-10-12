@@ -19,7 +19,8 @@
  * never from a kind's name.
  */
 import { dirname as dirOf, isAbsolute, join as joinPath } from 'node:path';
-import { registryKit, kindOfId, kindOfPath, type RegistryKit } from '../product/registry.js';
+import { byCodePoint } from '../model/order.js';
+import { registryKit, kindLinksOf, kindOfId, kindOfPath, type RegistryKit } from '../product/registry.js';
 import type { RegistryKind } from '../product/contract.js';
 
 /** A product document's kind, as the registry that names it spells it. */
@@ -235,22 +236,17 @@ function isAddressOf(value: string, kit: RegistryKit | undefined): boolean {
   return /^[A-Za-z][A-Za-z0-9_-]*-\d+$/.test(value);
 }
 
-/**
- * The link fields the reading shell has read since its first landing, the
- * forms' own vocabulary of "grew from" rows unchanged by the registry: the
- * only fields whose values the wiki reads as the document's links. A field
- * outside this table is never a link field here, however id-shaped its
- * value looks — the check owns what a form refuses; the wiki reads only
- * the links it defined before the registry came.
- */
-const LINK_FIELDS: { [name: string]: true } = {
-  'Grew from': true,
-  'Serves': true,
-  'Concerns': true,
-  'Tests': true,
-  'Of': true,
-  'Supersedes': true,
-};
+/** One structural finding the registry's reads report on a page: where it stands and the words. */
+export interface StructuralFinding {
+  /** The rule the finding answers to, like `structural.broken-link`. */
+  rule: string;
+  /** The page's path within the product, as every check finding names its file. */
+  file: string;
+  /** The 1-based line the finding stands on. */
+  line: number;
+  /** The words the reader reads. */
+  what: string;
+}
 
 /**
  * Reads one page's Markdown as a document the registry names, or as a plain
@@ -343,9 +339,15 @@ export function parseDocument(path: string, markdown: string, held: ReadonlySet<
     for (const target of linkTargetsOf(line.raw, path, held)) if (!linkTargets.includes(target)) linkTargets.push(target);
   }
 
+  // The document's links: the fields its kind's registry data declares, and
+  // no other — no field name of any set is hard-coded here. A document with
+  // no kind carries no links; a link-like value in an undeclared field is
+  // the structural read's finding, not a silent row.
+  const declared = kit !== undefined ? kindLinksOf(kit, kind) : undefined;
   const grewFromIds: GrownFromId[] = [];
   for (const field of fields) {
-    if (LINK_FIELDS[field.name] !== true) continue;
+    const link = declared?.links.find((heldLink) => heldLink.key === field.name.toLowerCase());
+    if (link === undefined) continue;
     for (const grown of grewFromOf(field.name, field.value, kit)) {
       if (!grewFromIds.some((heldEntry) => heldEntry.id === grown.id && heldEntry.via === grown.via)) grewFromIds.push(grown);
     }
@@ -423,14 +425,20 @@ export interface GrownFromEntry {
   kind?: DocumentKind;
 }
 
-/** Who links to a document: link fields first, then the ids its body names, then the addresses it spells. */
-export function backlinksOf(doc: ParsedDocument, docs: ProductDocuments): BacklinkEntry[] {
+/**
+ * Who links to a document: the fields its kind's peers declare as links to
+ * it (named by their ids), then the ids its body names, then the addresses
+ * it spells. A backlink through a declared link field carries that
+ * declaration's backlink label; the body's mentions and links carry none —
+ * the wiki words them by the shell's own.
+ */
+export function backlinksOf(doc: ParsedDocument, docs: ProductDocuments, kit: RegistryKit | undefined = undefined): BacklinkEntry[] {
   const entries: BacklinkEntry[] = [];
   for (const other of docs.byPath.values()) {
     if (other === doc || other.path === doc.path) continue;
-    const viaField = other.grewFromIds.some((grown) => grown.id === doc.id)
-      || other.fields.some((field) => LINK_FIELDS[field.name] === true && field.value.split(',').some((part) => part.trim() === doc.id));
-    if (viaField) entries.push({ path: other.path, title: other.title, id: other.id });
+    const named = other.grewFromIds.find((grown) => grown.id === doc.id);
+    if (named === undefined) continue;
+    entries.push({ path: other.path, title: other.title, id: other.id, label: backlinkLabelOf(other, named.via, doc.kind, kit) });
   }
   for (const other of docs.byPath.values()) {
     if (doc.id !== undefined && other.path !== doc.path && other.mentions.includes(doc.id)
@@ -447,9 +455,123 @@ export function backlinksOf(doc: ParsedDocument, docs: ProductDocuments): Backli
   return entries;
 }
 
-/** One backlink as the page's "Linked from" shows it. */
+/**
+ * The label a parent page's kind declared for one link back to the document
+ * its field named: the declaration whose field's key matches the naming
+ * field and whose targets hold the document's kind. `undefined` when the
+ * kind declares no such link or labels it none — the wiki's own words then
+ * head the rows.
+ */
+function backlinkLabelOf(from: ParsedDocument, viaField: string, toKind: DocumentKind | undefined, kit: RegistryKit | undefined): string | undefined {
+  if (kit === undefined || from.kind === undefined) return undefined;
+  const declared = kindLinksOf(kit, from.kind);
+  if (declared === undefined) return undefined;
+  const link = declared.links.find((held) => held.key === viaField.toLowerCase());
+  if (link === undefined) return undefined;
+  if (toKind !== undefined && !link.declared.targets.some((target) => target.toLowerCase() === toKind.toLowerCase())) return undefined;
+  return link.declared.backlink;
+}
+
+/** One backlink as the page's "Linked from" shows it, under its declared label where one is. */
 export interface BacklinkEntry {
   path: string;
   title: string;
   id?: string;
+  /** The declaring kind's backlink label for the field that named this document; `undefined` words the rows the wiki's way. */
+  label?: string;
+}
+
+/**
+ * The structural findings the registry's data computes over a product's
+ * documents (the contract v1's brief, the manifest's shape): a broken link,
+ * a link to an undeclared kind or field, a missing required link, and a
+ * status outside the kind's allowed list. A document the registry names not
+ * at all is never judged — the plain page keeps its plain behaviour; the
+ * finding is the wiki's own words, never the set's check's.
+ *
+ * Deterministic: the findings sort by the page's file, the line, the rule
+ * and the words, all by code point — never the locale's. Pure: nothing is
+ * read from the disk here and nothing is written.
+ */
+export function structuralFindings(docs: ProductDocuments, kit: RegistryKit | undefined): Map<string, StructuralFinding[]> {
+  const byPath = new Map<string, StructuralFinding[]>();
+  if (kit === undefined) return byPath;
+  for (const doc of docs.byPath.values()) {
+    if (doc.kind === undefined) continue; // The plain page: nothing declared judges it.
+    const declared = kindLinksOf(kit, doc.kind);
+    if (declared === undefined) continue; // Not a name the registry holds; not judged.
+    const found: StructuralFinding[] = [];
+    const add = (rule: string, line: number, what: string): void => {
+      found.push({ rule, file: doc.path, line, what });
+    };
+    // The written status against the kind's allowed list, where the kind
+    // names one: the match is the words' own, never the case's.
+    const statusField = doc.fields.find((field) => field.name.toLowerCase() === 'status');
+    if (statusField !== undefined && declared.statuses.length > 0
+        && !declared.statuses.includes(statusField.value.toLowerCase())) {
+      add(
+        'structural.status',
+        statusField.line,
+        `"${statusField.value}" is not a status of the "${declared.kind.name}" kind: a status is one of ${declared.statuses.join(', ')}`,
+      );
+    }
+    // The fields: the kind's link declarations decide what a link is and
+    // what the findings say about the rest.
+    for (const field of doc.fields) {
+      const values = field.value.split(',').map((part) => part.trim()).filter((part) => part !== '');
+      const addressable = values.filter((value) => isAddressOf(value, kit));
+      if (addressable.length === 0) continue;
+      const link = declared.links.find((held) => held.key === field.name.toLowerCase());
+      if (link === undefined) {
+        add(
+          'structural.undeclared-field',
+          field.line,
+          `the field "${field.name}" names ${addressable.join(', ')} like a link, but the "${declared.kind.name}" kind declares no links for it`,
+        );
+        continue;
+      }
+      const resolved = addressable.filter((value) => docs.byId.has(value));
+      if (link.declared.required && resolved.length === 0) {
+        add(
+          'structural.required-link',
+          field.line,
+          `a document of the "${declared.kind.name}" kind carries its "${link.declared.field}" link: the wiki found none`,
+        );
+      }
+      if (link.declared.cardinality === 'one' && resolved.length > 1) {
+        add(
+          'structural.cardinality',
+          field.line,
+          `the field "${field.name}" names one document, the kind's link says: rename one or declare it many`,
+        );
+      }
+      for (const value of addressable) {
+        const target = docs.byId.get(value);
+        if (target === undefined) {
+          add(
+            'structural.broken-link',
+            field.line,
+            `the link "${field.name}: ${value}" names no document the wiki holds`,
+          );
+          continue;
+        }
+        if (target.kind === undefined
+            || !link.declared.targets.some((named) => named.toLowerCase() === target.kind!.toLowerCase())) {
+          add(
+            'structural.undeclared-kind',
+            field.line,
+            `the field "${field.name}" names ${value}, a document of ${target.kind === undefined ? 'no kind the registry names' : `the kind "${target.kind}"`}, which the link does not go to: its targets are ${link.declared.targets.join(', ')}`,
+          );
+        }
+      }
+    }
+    if (found.length > 0) {
+      found.sort((a, b) =>
+        a.line < b.line ? -1 : a.line > b.line ? 1
+          : a.rule < b.rule ? -1 : a.rule > b.rule ? 1
+            : byCodePoint(a.what, b.what));
+      byPath.set(doc.path, found);
+    }
+  }
+  return byPath;
 }

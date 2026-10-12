@@ -42,41 +42,86 @@ const FIXTURE_REGISTRY = [
   '    folder: docs/hypotheses',
   '    stage: idea',
   '    hint: turn a source into one checkable sentence',
+  '    links:',
+  '      - field: Grew from',
+  '        targets:',
+  '          - Product vision',
+  '          - Sources',
+  '        backlink: Grew into',
   '  - name: Prototypes',
   '    prefix: P',
   '    folder: docs/prototypes',
   '    stage: idea',
   '    hint: build the smallest thing that tests the belief',
+  '    links:',
+  '      - field: Tests',
+  '        targets:',
+  '          - Hypotheses',
+  '        backlink: Tested by',
   '  - name: Results',
   '    prefix: R',
   '    folder: docs/results',
   '    stage: idea',
   '    hint: measure what happened and say what it proves',
+  '    links:',
+  '      - field: Of',
+  '        targets:',
+  '          - Prototypes',
+  '        backlink: Measured',
   '  - name: Open questions',
   '    prefix: Q',
   '    folder: docs/questions',
   '    stage: idea',
   '    hint: write what is not known and who can answer it',
+  '    links:',
+  '      - field: Concerns',
+  '        targets:',
+  '          - Product vision',
+  '          - Use cases',
+  '        backlink: Concerned by',
   '  - name: User stories',
   '    prefix: US',
   '    folder: docs/stories',
   '    stage: requirements',
   '    hint: write what one user does with the product in their own words',
+  '    links:',
+  '      - field: Grew from',
+  '        targets:',
+  '          - Hypotheses',
+  '          - Sources',
+  '        backlink: Grew into',
   '  - name: Use cases',
   '    prefix: UC',
   '    folder: docs/use-cases',
   '    stage: requirements',
   '    hint: walk one story from start to finish',
+  '    links:',
+  '      - field: Serves',
+  '        targets:',
+  '          - User stories',
+  '        backlink: Served by',
   '  - name: Product requirements',
   '    prefix: FR',
   '    folder: docs/requirements',
   '    stage: requirements',
   '    hint: write what the product does, one requirement at a time',
+  '    links:',
+  '      - field: Serves',
+  '        targets:',
+  '          - Use cases',
+  '          - User stories',
+  '      - field: Supersedes',
+  '        targets:',
+  '          - Product requirements',
   '  - name: Decisions',
   '    prefix: D',
   '    folder: docs/decisions',
   '    stage: design',
   '    hint: record the choice between the options on the table',
+  '    links:',
+  '      - field: Supersedes',
+  '        targets:',
+  '          - Decisions',
   '  - name: Change records',
   '    prefix: CH',
   '    folder: docs/changes',
@@ -471,7 +516,8 @@ describe('the forms' + "'" + ' reading, held against its mutants', () => {
 
   test('the same id may grow through two different fields, and one field twice does not double', () => {
     const doc = parseDocument('docs/r.md', '# R-001 — A result\n\nOf: P-001\nDate: 2026-10-11\n\n## Prediction\nX.\n\n## Observed\nY.\n\n## Verdict\nConfirmed.\n', new Set(['docs/r.md']), kit);
-    const linked = parseDocument('docs/l.md', '# L — links\n\nOf: P-001, P-001\n', new Set(['docs/l.md']), kit);
+    expect(doc.grewFromIds).toEqual([{ id: 'P-001', via: 'Of' }]);
+    const linked = parseDocument('docs/r.md', '# R-002 — links\n\nOf: P-001, P-001\n', new Set(['docs/r.md']), kit);
     expect(linked.grewFromIds).toEqual([{ id: 'P-001', via: 'Of' }]);
   });
 
@@ -504,9 +550,12 @@ describe('backlink deduplication and the order of its passes', () => {
   });
 
   test('two link fields naming one id through different fields both show in grewFrom', () => {
-    const held = new Set(['docs/l.md']);
-    const linked = parseDocument('docs/l.md', '# L — links\n\nOf: P-001\nServes: P-001\n', held, kit);
-    expect(linked.grewFromIds).toEqual([{ id: 'P-001', via: 'Of' }, { id: 'P-001', via: 'Serves' }]);
+    // The two fields must be two the same kind declares: a document names
+    // one kind, its field rows are that kind's declared links. Product
+    // requirements declares both Serves and Supersedes.
+    const held = new Set(['docs/requirements/l.md']);
+    const linked = parseDocument('docs/requirements/l.md', '# FR-001 — links\n\nServes: UC-001\nSupersedes: UC-001\n', held, kit);
+    expect(linked.grewFromIds).toEqual([{ id: 'UC-001', via: 'Serves' }, { id: 'UC-001', via: 'Supersedes' }]);
   });
 
   test('field links stand first, a page that names nothing is absent, each path once, field entry carries its id', () => {

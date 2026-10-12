@@ -31,6 +31,8 @@ export type BacklinkEntry = {
   path: string;
   title: string;
   id?: string;
+  /** The declaring kind's backlink label for the field that named this document. */
+  label?: string;
 };
 
 /** The set's document a page is, as the server read its form. */
@@ -41,6 +43,14 @@ export type PageDocument = {
   fields: DocumentField[];
   grewFrom: GrownFromEntry[];
   backlinks: BacklinkEntry[];
+};
+
+/** One structural finding the registry's reads computed: at file, line and path. */
+export type PageStructuralFinding = {
+  rule: string;
+  file: string;
+  line: number;
+  what: string;
 };
 
 /** One finding of the set's product check, at file, line and path. */
@@ -114,6 +124,8 @@ export type Page = {
   document?: PageDocument;
   /** This page's findings of the set's product check; absent where an older server sent none. */
   findings?: PageFinding[];
+  /** This page's structural findings the registry's reads computed; absent where an older server sent none. */
+  structural?: PageStructuralFinding[];
   check?: PageCheck;
 };
 
@@ -289,6 +301,20 @@ export type StagesIndex = {
 export const getStages = (signal?: AbortSignal): Promise<StagesIndex> =>
   readJson<StagesIndex>('read the stages', '/api/stages', signal);
 
+/** One link field a kind's documents may carry, as the registry declares it. */
+export type RegistryKindLink = {
+  /** The form field's name the documents of the kind write the link under. */
+  field: string;
+  /** The kinds the field's link may name. */
+  targets: string[];
+  /** The label the linked page shows its backlinks under; left out, the wiki words them. */
+  backlink?: string;
+  /** Whether the field names one document or many. */
+  cardinality?: 'one' | 'many';
+  /** Whether a document of the kind must carry the link at all. */
+  required?: boolean;
+};
+
 /** One kind as the product's registry names it. */
 export type RegistryKindEntry = {
   name: string;
@@ -296,6 +322,10 @@ export type RegistryKindEntry = {
   folder: string;
   stage: string;
   hint: string;
+  /** The statuses a document of the kind may carry in its `Status` field. */
+  statuses?: string[];
+  /** The link fields the kind's documents may carry. */
+  links?: RegistryKindLink[];
 };
 
 /** One stage of the registry's life cycle, in its own order. */

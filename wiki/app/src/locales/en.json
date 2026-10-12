@@ -62,7 +62,11 @@
     "findingsNote": "The set's product check (rules {{version}}) ran over the product; these findings name this page by path and line.",
     "checkNote": "The set's product check could not run:",
     "findings_few": "The set's check reports {{count}} findings on this page",
-    "findings_many": "The set's check reports {{count}} findings on this page"
+    "findings_many": "The set's check reports {{count}} findings on this page",
+    "structural_one": "The registry’s structural reads report {{count}} finding on this page",
+    "structural_other": "The registry’s structural reads report {{count}} findings on this page",
+    "structural_few": "The registry’s structural reads report {{count}} findings on this page",
+    "structural_many": "The registry’s structural reads report {{count}} findings on this page"
   },
   "status": {
     "live": "Live",

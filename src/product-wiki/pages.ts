@@ -38,12 +38,14 @@ import {
   documentsOf,
   grownFromOf,
   statusOf,
+  structuralFindings,
   type BacklinkEntry,
   type ComputedStatus,
   type DocumentField,
   type DocumentKind,
   type GrownFromEntry,
   type ProductDocuments,
+  type StructuralFinding,
 } from './documents.js';
 import { CheckRunCache, runProductCheck, type ProductCheckRun, type ProductFinding } from './checking.js';
 import { readProductRegistry, registryKit, type RegistryKit } from '../product/registry.js';
@@ -109,6 +111,8 @@ export interface WikiPage {
   document?: WikiPageDocument;
   /** This page's findings of the set's product check, each with file, line and full path. */
   findings: ProductFinding[];
+  /** This page's structural findings the registry's reads computed: the broken links, the undeclared kinds and fields, the missing required links and the statuses outside the kind's list. */
+  structural: StructuralFinding[];
   /** Whether the set's check ran against the product this ask was answered from. */
   check?: { ran: true; version: string } | { ran: false; message: string };
 }
@@ -178,6 +182,8 @@ interface PageSetSnapshot {
   texts: Map<string, string>;
   docs: ProductDocuments;
   held: Set<string>;
+  /** The structural findings per page's path, from the registry's reads over one product walk. */
+  structural: Map<string, StructuralFinding[]>;
 }
 
 class FreshProductWiki implements ProductWiki {
@@ -213,6 +219,7 @@ class FreshProductWiki implements ProductWiki {
     hash.update(`model\u0000${modelSourceDigest(this.product)}\u0000`);
     hash.update(`stages\u0000${stagesSourceDigest(this.product.folder)}\u0000`);
     const docs = documentsOf(paths, (page) => texts.get(page) as string, pathsHeld, kitOf(this.product.folder));
+    const structural = structuralFindings(docs, kitOf(this.product.folder));
     // The check's cache key digests what the check reads, not only what the
     // wiki shows: a prototype's `Code:` folder is read by the set's check
     // (it refuses a Code: naming no folder with files in it) and shown on
@@ -229,12 +236,12 @@ class FreshProductWiki implements ProductWiki {
       prototypeList = prototypePaths(this.product.folder);
     } catch (error) {
       const message = `the prototypes of the product ${JSON.stringify(this.product.folder)} could not be listed: ${(error as Error).message}`;
-      return { ok: true, snapshot: { revision, checkKey: `${revision}\u0000unreadable-prototypes`, paths, titles, texts, docs, held: pathsHeld, prototypeProblem: message } };
+      return { ok: true, snapshot: { revision, checkKey: `${revision}\u0000unreadable-prototypes`, paths, titles, texts, docs, held: pathsHeld, structural, prototypeProblem: message } };
     }
     const prototypeKey = createHash('sha256');
     for (const prototypePath of prototypeList) prototypeKey.update(`${prototypePath}\u0000`);
     const checkKey = `${revision}\u0000${prototypeKey.digest('hex')}`;
-    return { ok: true, snapshot: { revision, checkKey, paths, titles, texts, docs, held: pathsHeld } };
+    return { ok: true, snapshot: { revision, checkKey, paths, titles, texts, docs, held: pathsHeld, structural } };
   }
 
   pages(): ProductWikiPages {
@@ -311,7 +318,8 @@ class FreshProductWiki implements ProductWiki {
       : this.checkRuns.run(taken.snapshot.checkKey, () => runProductCheck(this.product.folder));
     const findings = check.ran ? check.findings.filter((finding) => finding.file === path) : [];
     const grown = doc === undefined ? [] : grownFromOf(doc, taken.snapshot.docs);
-    const linked = doc === undefined ? [] : backlinksOf(doc, taken.snapshot.docs);
+    const linked = doc === undefined ? [] : backlinksOf(doc, taken.snapshot.docs, kitOf(this.product.folder));
+    const structural = taken.snapshot.structural.get(path) ?? [];
     const status = doc === undefined ? undefined : statusOf(doc);
     // A plain page — no kind, no id, no fields, no links either
     // way — carries no document at all: the plain page behaviour stands.
@@ -334,6 +342,7 @@ class FreshProductWiki implements ProductWiki {
         changedAt,
         document,
         findings,
+        structural,
         check: check.ran ? { ran: true, version: check.version } : { ran: false, message: check.message },
       },
     };

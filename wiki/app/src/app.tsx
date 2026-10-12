@@ -540,6 +540,7 @@ export function PageReader({
       {doc !== undefined && <DocumentHeader document={doc} />}
       <Markdown text={page.markdown} elementLinks={elementLinksFor(bundle, path)} />
       <DocumentLinks page={page} />
+      <StructuralBlock page={page} />
       <FindingsBlock page={page} />
     </main>
   );
@@ -595,10 +596,12 @@ function DocumentHeader({ document: doc }: { document: PageDocument }): ReactEle
 }
 
 /**
- * What the document grew from, and who links to it: the set's link fields
- * first, then the pages whose body names this one. Both stand as quiet
- * rows of page links after the document, the form's own way of walking the
- * chain up and down. A plain page, and one with neither, shows
+ * The link rows after the document: the fields the kind's registry data
+ * declares (each row's head is the naming field's own word, data, never the
+ * shell's), then the pages that name this one back — each under the
+ * declaring kind's label where one is written, and every undeclared one
+ * under the shell's own generic wording. The rows are the form's way of
+ * walking the chain up and down; a plain page, and one with neither, shows
  * neither.
  */
 function DocumentLinks({ page }: { page: Page }): ReactElement {
@@ -608,13 +611,36 @@ function DocumentLinks({ page }: { page: Page }): ReactElement {
   const grew = document.grewFrom ?? [];
   const backlinks = document.backlinks ?? [];
   if (grew.length === 0 && backlinks.length === 0) return <></>;
+  // Each naming field's own word heads its rows; the fields' first-seen
+  // order the document read kept.
+  const viaNames: string[] = [];
+  const byVia = new Map<string, typeof grew>();
+  for (const entry of grew) {
+    if (!byVia.has(entry.via)) {
+      viaNames.push(entry.via);
+      byVia.set(entry.via, []);
+    }
+    byVia.get(entry.via)!.push(entry);
+  }
+  // The backlinks' labels: a declared one first, the shell's generic word
+  // for the rest, every label's first-seen order kept.
+  const labels: string[] = [];
+  const byLabel = new Map<string, typeof backlinks>();
+  for (const entry of backlinks) {
+    const label = entry.label ?? t('document.linkedFrom');
+    if (!byLabel.has(label)) {
+      labels.push(label);
+      byLabel.set(label, []);
+    }
+    byLabel.get(label)!.push(entry);
+  }
   return (
     <div className="doc-links" data-testid="doc-links">
-      {grew.length > 0 && (
-        <section className="doc-links-row" data-testid="grown-from">
-          <h2 className="doc-links-head">{t('document.grewFrom')}</h2>
+      {viaNames.map((via) => (
+        <section className="doc-links-row" data-testid={`grown-from-${via.toLowerCase().replaceAll(' ', '-')}`} key={via}>
+          <h2 className="doc-links-head">{via}</h2>
           <ul className="doc-links-list">
-            {grew.map((entry) => (
+            {(byVia.get(via) as typeof grew).map((entry) => (
               <li key={entry.id} className="doc-links-item">
                 {entry.path !== undefined ? (
                   <PageLink path={entry.path} className="doc-links-link">
@@ -630,13 +656,13 @@ function DocumentLinks({ page }: { page: Page }): ReactElement {
             ))}
           </ul>
         </section>
-      )}
-      {backlinks.length > 0 && (
-        <section className="doc-links-row" data-testid="linked-from">
-          <h2 className="doc-links-head">{t('document.linkedFrom')}</h2>
+      ))}
+      {labels.map((label) => (
+        <section className="doc-links-row" data-testid="linked-from" key={label}>
+          <h2 className="doc-links-head">{label}</h2>
           <ul className="doc-links-list">
-            {backlinks.map((entry) => (
-              <li key={entry.path} className="doc-links-item">
+            {(byLabel.get(label) as typeof backlinks).map((entry, at) => (
+              <li key={`${entry.path}-${at}`} className="doc-links-item">
                 <PageLink path={entry.path} className="doc-links-link">
                   {entry.id !== undefined ? <span className="doc-links-id">{entry.id}</span> : null}
                   <span className="doc-links-title">{entry.title}</span>
@@ -645,7 +671,7 @@ function DocumentLinks({ page }: { page: Page }): ReactElement {
             ))}
           </ul>
         </section>
-      )}
+      ))}
     </div>
   );
 }
@@ -686,6 +712,33 @@ export function FindingsBlock({ page }: { page: Page }): ReactElement | null {
     );
   }
   return null;
+}
+
+/**
+ * The registry's structural findings, on the page that carries one: the
+ * broken link, the link to an undeclared kind or field, the missing
+ * required link, the status outside the kind's list — the engine's own
+ * reads, each at the line it stands on. A page the reads say nothing
+ * about shows nothing.
+ */
+export function StructuralBlock({ page }: { page: Page }): ReactElement | null {
+  const { t } = useTranslation();
+  const findings = page.structural ?? [];
+  if (findings.length === 0) return null;
+  return (
+    <section className="doc-findings" data-testid="doc-structural" aria-live="polite">
+      <h2 className="doc-findings-head">{t('document.structural', { count: findings.length })}</h2>
+      <ul className="doc-findings-list">
+        {findings.map((finding, at) => (
+          <li key={at} className="doc-finding" data-rule={finding.rule}>
+            <span className="doc-finding-place">{finding.file}:{finding.line}</span>
+            <span className="doc-finding-rule">{finding.rule}</span>
+            <span className="doc-finding-what">{finding.what}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 /** The revision of the list the app was last told, so a changed wiki refetches the open page. */

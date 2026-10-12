@@ -39,41 +39,89 @@ kinds:
     folder: docs/hypotheses
     stage: idea
     hint: turn a source into one checkable sentence
+    links:
+      - field: Grew from
+        targets:
+          - Product vision
+          - Sources
+        backlink: Grew into
+    statuses:
+      - open
+      - confirmed
+      - refuted
+      - unclear
   - name: Prototypes
     prefix: P
     folder: docs/prototypes
     stage: idea
     hint: build the smallest thing that tests the belief
+    links:
+      - field: Tests
+        targets:
+          - Hypotheses
+        backlink: Tested by
   - name: Results
     prefix: R
     folder: docs/results
     stage: idea
     hint: measure what happened and say what it proves
+    links:
+      - field: Of
+        targets:
+          - Prototypes
+        backlink: Measured
   - name: Open questions
     prefix: Q
     folder: docs/questions
     stage: idea
     hint: write what is not known and who can answer it
+    links:
+      - field: Concerns
+        targets:
+          - Product vision
+          - Use cases
+        backlink: Concerned by
   - name: User stories
     prefix: US
     folder: docs/stories
     stage: requirements
     hint: write what one user does with the product in their own words
+    links:
+      - field: Grew from
+        targets:
+          - Hypotheses
+          - Sources
+        backlink: Grew into
   - name: Use cases
     prefix: UC
     folder: docs/use-cases
     stage: requirements
     hint: walk one story's steps from start to finish
+    links:
+      - field: Serves
+        targets:
+          - User stories
+        backlink: Served by
+        required: true
   - name: Product requirements
     prefix: FR
     folder: docs/requirements
     stage: requirements
     hint: write what the product does, one requirement at a time
+    links:
+      - field: Serves
+        targets:
+          - Use cases
+          - User stories
   - name: Decisions
     prefix: D
     folder: docs/decisions
     stage: design
     hint: record the choice between the options on the table
+    statuses:
+      - accepted
+      - superseded
+      - deferred
   - name: Design specs
     prefix: SP
     folder: docs/specs
@@ -104,3 +152,6 @@ kinds:
     folder: docs/practices
     stage: operate
     hint: write the rule a session learned, so the next one reads it
+    statuses:
+      - active
+      - retired

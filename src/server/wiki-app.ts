@@ -268,6 +268,7 @@ export function createWikiPart(
           changedAt: asked.page.changedAt,
           document: asked.page.document,
           findings: asked.page.findings,
+          structural: asked.page.structural,
           check: asked.page.check,
         }),
       };
@@ -287,7 +288,21 @@ export function createWikiPart(
         response: json(200, {
           present: true,
           stages: read.stages.map((stage) => (stage.name === undefined ? { id: stage.id } : { id: stage.id, name: stage.name })),
-          kinds: read.kinds.map((kind) => ({ name: kind.name, prefix: kind.prefix, folder: kind.folder, stage: kind.stage, hint: kind.hint })),
+          kinds: read.kinds.map((kind) => ({
+            name: kind.name,
+            prefix: kind.prefix,
+            folder: kind.folder,
+            stage: kind.stage,
+            hint: kind.hint,
+            statuses: kind.statuses === undefined ? undefined : [...kind.statuses],
+            links: kind.links === undefined ? undefined : kind.links.map((link) => ({
+              field: link.field,
+              targets: [...link.targets],
+              backlink: link.backlink,
+              cardinality: link.cardinality,
+              required: link.required,
+            })),
+          })),
         }),
       };
     },
