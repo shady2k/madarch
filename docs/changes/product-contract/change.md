@@ -48,12 +48,15 @@ package.json and CI because both stand after the tests as whole-product
 readings of shipped data.
 
 ## Changes to requirements
-- product-repository/contract (new): the published, versioned JSON schema of
-  the product kinds registry and its stage list, the registry's reading with
-  its own refusals (each naming the file, the line and the field's path),
-  and `bun run contract:check` running the repository's conformance
-  examples — two conforming examples and every refusal case, each with its
-  printed words — in CI.
+- product-repository/contract (new): the published, versioned JSON schemas
+  of the product kinds registry and its stage list
+  (`schema/product-registry.schema.json`) and of the generic document
+  fields (`schema/product-document.schema.json`), generated beside the
+  model schemas' sources; the readings with their own refusals (each naming
+  the file, the line and the field's path); and `bun run contract:check`
+  running the repository's conformance examples — two conforming example
+  products (one without a registry, one with it), every registry refusal
+  case and every document-field case, each with its printed words — in CI.
 
 ## Preserved contracts
 - product-repository/draft: test

@@ -69,6 +69,22 @@ const DOCS_PREFIX = 'docs/';
 /** The id-prefix shape a registry's prefix carries: two to four capitals A-Z. */
 const PREFIX_PATTERN = /^[A-Z]{1,4}$/;
 
+/**
+ * What a kind's folder is refused for, or `undefined` when the folder is a
+ * plain place under `docs/`: it starts `docs/`, climbs no segment (`..`) and
+ * holds no absolute or empty leg, so a value like `docs/../../outside`
+ * cannot name a place outside the documents.
+ */
+function folderProblemOf(folder: string): string | undefined {
+  if (!folder.startsWith(DOCS_PREFIX)) return `"${folder}" is not a place under the documents: a kind lives inside docs/`;
+  const legs = folder.slice(DOCS_PREFIX.length).split('/');
+  for (const leg of legs) {
+    if (leg === '..') return `"${folder}" climbs out of the documents: a kind lives inside docs/`;
+    if (leg === '') return `"${folder}" holds an empty segment: a kind lives inside docs/`;
+  }
+  return undefined;
+}
+
 /** Reads one kinds registry file's text: strict YAML, the schema, then the fields' own checks. */
 export function parseContractText(file: string, text: string): RegistryRead {
   const errors: ContractError[] = [];
@@ -140,12 +156,13 @@ export function parseContractText(file: string, text: string): RegistryRead {
     } else {
       seenPrefixes.set(kind.prefix, lines.at(['kinds', index, 'prefix']));
     }
-    if (!kind.folder.startsWith(DOCS_PREFIX)) {
+    const folderProblem = folderProblemOf(kind.folder);
+    if (folderProblem !== undefined) {
       errors.push({
         file,
         line: lines.at(['kinds', index, 'folder']),
         path: `kinds[${index}].folder`,
-        message: `"${kind.folder}" is not a place under the documents: a kind lives inside docs/`,
+        message: folderProblem,
       });
     }
     if (!seenStages.has(kind.stage)) {
@@ -170,4 +187,64 @@ export function parseContractText(file: string, text: string): RegistryRead {
   // kinds but no stage list at all is the schema's refusal, not this one's.
   if (errors.length > 0) return { ok: false, errors };
   return { ok: true, kinds: parsed.kinds ?? [], stages: parsed.stages };
+}
+
+
+/** The generic field names a document may carry (decision 0021). */
+const DOCUMENT_FIELD_NAMES = ['id', 'kind', 'status', 'links'] as const;
+
+/** How one document's generic fields read: the fields, or the refusals. */
+export type DocumentFieldsRead =
+  | { ok: true; fields: DocumentFields }
+  | { ok: false; errors: ContractError[] };
+
+/**
+ * Reads one document's generic fields from its Markdown: the block above
+ * the first `## ` heading, outside code spans (a heading with `#` starting
+ * the line never carries a field), one field a line as `Name: value`. The four generic names are read; an unknown name is ignored, the
+ * way a manifest grows by fields a later version adds. Refusals name the
+ * file, the line and the field the problem stands on.
+ */
+export function parseDocumentFields(file: string, markdown: string): DocumentFieldsRead {
+  const errors: ContractError[] = [];
+  const fields: DocumentFields = {};
+  let sectionOpened = false;
+  markdown.replace(/\r\n/g, '\n').split('\n').forEach((raw, index) => {
+    const line = index + 1;
+    if (typeof raw !== 'string') return;
+    if (index > 0 && raw.match(/^#/)) sectionOpened = true;
+    if (sectionOpened || raw.trim() === '' || raw.trimStart().startsWith('#')) return;
+    const field = raw.match(/^([A-Za-z][A-Za-z0-9 ]*?):\s*(.*)$/);
+    if (field === null) return;
+    const name = field[1]!;
+    const value = field[2]!.trim();
+    if (value === '') return;
+    const generic = DOCUMENT_FIELD_NAMES.find((carry) => carry.toLowerCase() === name.toLowerCase());
+    if (generic === undefined) return;
+    if (generic === 'links') {
+      const links = value.split(',').map((part) => part.trim()).filter((part) => part !== '');
+      if (links.length === 0) {
+        errors.push({ file, line, path: 'links', message: `"${value}" names no link target: links is a list of ids, comma-separated` });
+        return;
+      }
+      if (fields.links === undefined) fields.links = [];
+      fields.links!.push(...links);
+      return;
+    }
+    if (fields[generic] !== undefined) {
+      errors.push({ file, line, path: generic, message: `"${name}" is written twice: a field is given once` });
+      return;
+    }
+    if (generic === 'kind' || generic === 'status') {
+      // A plain word: the sharp shapes of each are the registry's own forms' business.
+      const word = value.match(/^[A-Za-z][A-Za-z0-9 _-]*$/);
+      if (word === null) {
+        errors.push({ file, line, path: generic, message: `"${name}: ${value}" is not a word: write a name the reader recognises` });
+        return;
+      }
+    }
+    fields[generic] = value;
+  });
+  if (errors.length > 0) return { ok: false, errors };
+  return { ok: true, fields };
 }

@@ -274,15 +274,23 @@ from the code. A kinds registry is one file under the product's `docs/`
 the plain page behaviour it had and nothing of a kind is computed. The
 reading (`parseContractText` in `src/product/contract.ts`) refuses in
 values, never thrown: strict YAML, then the schema, then each field's own
-check — the prefix's shape, the folder starting `docs/`, the stage naming a
-stage of the list, the hint carrying words, a prefix named once and a stage
-id named once — every refusal naming the file, the line the field stands on,
-the field's path from the registry's top, and the words a reader prints. The
-check command (`bun run contract:check`, beside `bun run views:check`) runs
-the repository's conformance examples — two conforming examples and every
-refusal case, each carrying the printed words — and exits 0 when every case
-reads the way its words say and 1 naming the file, the line and the words of
-every mismatch; CI runs it.
+check — the prefix's shape, the folder under `docs/` (no leg climbing out),
+the stage naming a stage of the list, the hint carrying words, a prefix
+named once and a stage id named once — every refusal naming the file, the
+line the field stands on, the field's path from the registry's top, and the
+words a reader prints. The generic document fields are read from every
+Markdown under the layout (`parseDocumentFields`), with their own published
+schema (`schema/product-document.schema.json`): `id`, `kind`, `status` and
+`links` between the identity line and the first `## ` section, a field
+case-insensitively spelled (`Kind:` read as `kind`), an unknown field
+ignored the way a manifest grows by fields, `links` a comma-separated list
+of ids, and a field given once. The check command (`bun run contract:check`,
+beside `bun run views:check`) walks the conformance examples — two example
+product folders, one without a registry and one with it, read as the
+layout, the documents' fields and the registry naming no refusal — and the
+registry and document-field refusal cases, each carrying the printed
+words — and exits 0 when every case reads the way its words say and 1
+naming the file, the line and the words of every mismatch; CI runs it.
 
 ### Scenario: registry-reads
 - Given: a product whose `docs/kinds.yaml` names the stages `idea` through `operate` in order and the kinds `source` (prefix `S`, `docs/sources`), `hypothesis` (prefix `H`), `product requirement` (prefix `FR`, `docs/requirements`) and `decision` (prefix `D`)
@@ -298,3 +306,13 @@ every mismatch; CI runs it.
 - Given: a product whose `docs/` holds no registry file
 - When: the product is read
 - Then: no refusal is raised and no field of no kind is computed
+
+### Scenario: document-fields-read
+- Given: a document whose header carries `Id: FR-001`, `Status: open`, `Kind: product requirement` and `Links: S-001, H-001`
+- When: its fields are read
+- Then: all four are read with those values, an unknown field beside them is ignored, and the published document-fields schema matches the TypeBox source byte for byte
+
+### Scenario: document-fields-refusals
+- Given: the document-field cases the contract's examples carry (a field written twice, a kind that is not a word, a links value that names no id)
+- When: the check command runs
+- Then: each is refused naming its file and line with the words the case records

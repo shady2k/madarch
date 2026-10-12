@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseContractText } from '../src/product/contract.js';
 import { renderSchema } from '../scripts/generate-schemas.js';
-import { KindsRegistry } from '../src/product/schema.js';
+import { KindsRegistry, DocumentFields } from '../src/product/schema.js';
+import { parseDocumentFields } from '../src/product/contract.js';
 
 /**
  * The contract of a product repository's kinds registry (decision 0021,
@@ -68,9 +69,35 @@ describe('the contract of a product repository kinds registry', () => {
     expect(parsed!.path).toBe('');
   });
 
-  test('the published product-registry schema matches the TypeBox source', () => {
+  test('the published product-registry and product-document schemas match the TypeBox sources', () => {
     const published = readFileSync(fileURLToPath(new URL('../schema/product-registry.schema.json', import.meta.url)), 'utf8');
     expect(published).toBe(renderSchema(KindsRegistry));
+    const docPublished = readFileSync(fileURLToPath(new URL('../schema/product-document.schema.json', import.meta.url)), 'utf8');
+    expect(docPublished).toBe(renderSchema(DocumentFields));
+  });
+
+  test('the check command runs the whole examples folder and exits 0', () => {
+    const run = Bun.spawnSync(['bun', 'scripts/check-contract.ts'], { cwd: fileURLToPath(new URL('..', import.meta.url)) });
+    expect(run.exitCode).toBe(0);
+    expect(new TextDecoder().decode(run.stdout)).toContain('0 misread');
+  });
+
+  test("a document header's generic fields read through the examples' own readings", () => {
+    const read = parseDocumentFields('docs/FR-001.md', '# FR-001 — List\n\nId: FR-001\nStatus: open\nKind: product requirement\nLinks: S-001, H-001\n\n## Record\nthe cafe throws away ten portions.\n');
+    expect(read).toEqual({ ok: true, fields: { id: 'FR-001', status: 'open', kind: 'product requirement', links: ['S-001', 'H-001'] } });
+    const refused = parseDocumentFields('docs/FR-001.md', '# FR-001 — List\n\nId: FR-001\nId: FR-002\n\n## Record\nthe cafe throws away ten portions.\n');
+    expect(refused.ok).toBe(false);
+    if (refused.ok) return;
+    expect(refused.errors[0]).toMatchObject({ line: 4, path: 'id' });
+    expect(refused.errors[0]!.message).toContain('a field is given once');
+  });
+
+  test('a status and a kind are words', () => {
+    const refused = parseDocumentFields('docs/S-001.md', '# S-001 — Talk\n\nStatus: 2026-10-09\nKind: conversation\n\n## Record\nthe cafe.\n');
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.errors[0]).toMatchObject({ line: 3, path: 'status' });
+    const read = parseDocumentFields('docs/S-001.md', '# S-001 — Talk\n\nStatus: open\nKind: conversation\nLinks: S-001\nLinks: H-001\n\n## Record\nthe cafe.\n');
+    expect(read).toEqual({ ok: true, fields: { status: 'open', kind: 'conversation', links: ['S-001', 'H-001'] } });
   });
 
   test('the example product folders parse as the schema expects them whole', () => {

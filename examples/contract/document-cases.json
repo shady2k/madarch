@@ -1,0 +1,58 @@
+{
+ "about": "The generic document fields' cases the contract examples run through parseDocumentFields.",
+ "cases": [
+  {
+   "name": "fields-read",
+   "text": "# S-001 \u2014 First conversation\n\nKind: conversation\nDate: 2026-10-09\n\n## Record\n\n[00:00] Owner: Every evening we throw away about ten portions.\n",
+   "ok": {
+    "kind": "conversation"
+   }
+  },
+  {
+   "name": "id-and-status",
+   "text": "# FR-001 \u2014 List in a minute\n\nId: FR-001\nStatus: open\nKind: product requirement\nLinks: S-001, H-001\n\n## Record\nThe cafe throws away ten portions.\n",
+   "ok": {
+    "id": "FR-001",
+    "status": "open",
+    "kind": "product requirement",
+    "links": [
+     "S-001",
+     "H-001"
+    ]
+   }
+  },
+  {
+   "name": "field-twice",
+   "text": "# FR-001 \u2014 List\n\nId: FR-001\nId: FR-002\n\n## Record\n\nthe cafe throws away ten portions.\n",
+   "line": 4,
+   "path": "id",
+   "message": "a field is given once"
+  },
+  {
+   "name": "kind-not-a-word",
+   "text": "# FR-001 \u2014 List\n\nKind: \"two words \"quoted\"\"\n\n## Record\n\nthe cafe throws away ten portions.\n",
+   "line": 3,
+   "path": "kind",
+   "message": "is not a word"
+  },
+  {
+   "name": "links-empty",
+   "text": "# FR-001 \u2014 List\n\nLinks: , ,\n\n## Record\n\nthe cafe throws away ten portions.\n",
+   "line": 3,
+   "path": "links",
+   "message": "names no link target"
+  },
+  {
+   "name": "fields-below-the-first-section-are-not-fields",
+   "text": "# FR-001 \u2014 List\n\n## Record\n\nKind: conversation\n",
+   "ok": {}
+  },
+  {
+   "name": "unknown-field-ignored",
+   "text": "# FR-001 \u2014 List\n\nOwner: the cafe owner\nKind: product requirement\n\n## Record\n\nthe cafe throws away ten portions.\n",
+   "ok": {
+    "kind": "product requirement"
+   }
+  }
+ ]
+}

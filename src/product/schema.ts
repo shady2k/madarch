@@ -68,3 +68,31 @@ export const KindsRegistry = Type.Object(
   },
 );
 export type KindsRegistry = Static<typeof KindsRegistry>;
+
+
+/**
+ * The generic document fields a document under the layout may carry for
+ * madarch to link it and place it (decision 0021). A field this madarch
+ * does not know is ignored, so a later version adds beside them.
+ */
+export const DocumentFields = Type.Object(
+  {
+    /** The document's id in its kind's own prefix's shape, like `FR-001`. */
+    id: Type.Optional(Type.String({ minLength: 1, description: "The document's own id, like FR-001; checked against the registry's prefix of the field kind names." })),
+    /** The kind the document carries, one name of the registry. */
+    kind: Type.Optional(RegistryName),
+    /** The document's written status, as its kind's form says it. */
+    status: Type.Optional(Type.String({ minLength: 1 })),
+    /** The documents this one links to, by their ids. */
+    links: Type.Optional(Type.Array(Type.String(), { description: "The ids this document links to, as its fields' values name them." })),
+  },
+  {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $id: 'https://github.com/shady2k/madarch/schema/product-document.schema.json',
+    title: 'Madarch product document fields',
+    description:
+      "The generic fields a product's Markdown document may carry for madarch to link it and place it: id, kind, status, links. A field this madarch does not know is ignored. The kinds themselves (and with them the field's meaning of status) are the registry's data.",
+    additionalProperties: false,
+  },
+);
+export type DocumentFieldsSchema = Static<typeof DocumentFields>;

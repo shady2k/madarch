@@ -162,6 +162,13 @@
    "line": 15,
    "path": "kinds[2].prefix",
    "message": "first on line 5: each kind is given one prefix"
+  },
+  {
+   "name": "folder-escapes-docs",
+   "text": "stages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/../../outside\n    stage: idea\n    hint: talk to a customer\n",
+   "line": 6,
+   "path": "kinds[0].folder",
+   "message": "climbs out of the documents"
   }
  ]
 }
