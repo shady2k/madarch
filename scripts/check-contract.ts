@@ -9,10 +9,12 @@
  * not understand. Never throws: a broken input is a refusal named like the
  * others.
  */
-import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseContractText, parseDocumentFields } from '../src/product/contract.js';
+import { readProduct } from '../src/product/manifest.js';
 
 /** The case file the examples answer, like the set's own fixture cases. */
 interface ContractCase {
@@ -29,8 +31,61 @@ interface ContractCase {
 
 const USAGE = 'usage: bun run contract:check [--cases <file>] [--documents <file>] [--products <folder>] [--src <file>]';
 const DEFAULT_CASES = fileURLToPath(new URL('../examples/contract/registry-cases.json', import.meta.url));
+const DEFAULT_MANIFEST_CASES = fileURLToPath(new URL('../examples/contract/manifest-cases.json', import.meta.url));
 const DEFAULT_DOCUMENT_CASES = fileURLToPath(new URL('../examples/contract/document-cases.json', import.meta.url));
 const DEFAULT_PRODUCTS = fileURLToPath(new URL('../examples/contract/', import.meta.url));
+
+/** One manifest case as the examples hold it: a manifest's text, the identity it reads as or the refusal with the line and the words. */
+interface ManifestCase {
+  name: string;
+  text: string | null;
+  folder?: string;
+  ok?: Record<string, unknown>;
+  line?: number;
+  message?: string;
+}
+
+interface ManifestCaseSuite {
+  folder: string;
+  cases: ManifestCase[];
+}
+
+/** Runs every manifest case in the scratch folder the run makes itself, and records the verdicts. */
+function checkManifestCases(suite: ManifestCaseSuite, verdicts: CaseVerdict[]): void {
+  const root = mkdtempSync(join(tmpdir(), 'contract-manifest-'));
+  for (const one of suite.cases) {
+    const problems: string[] = [];
+    try {
+      if (one.text === undefined) {
+        problems.push('the case carries no text: every example holds the manifest file\'s whole text, or null for a folder holding none');
+      } else {
+        const folder = join(root, one.folder ?? suite.folder ?? 'idea-2026-10-09');
+        mkdirSync(folder, { recursive: true });
+        if (one.text !== null) writeFileSync(join(folder, 'workspace.yaml'), one.text);
+        const read = readProduct(folder);
+        if (one.ok !== undefined && one.ok !== null) {
+          if (!read.ok) {
+            problems.push(`expected to read, got refused at ${read.file}:${read.line}: ${read.message}`);
+          } else {
+            const product = read.product as unknown as Record<string, unknown>;
+            for (const [field, expected] of Object.entries(one.ok)) {
+              if (JSON.stringify(product[field]) !== JSON.stringify(expected)) {
+                problems.push(`field ${field} expected ${JSON.stringify(expected)}, got ${JSON.stringify(product[field])}`);
+              }
+            }
+          }
+        } else if (read.ok) {
+          problems.push(`expected a refusal naming ${one.message ?? ''}, got read as ok`);
+        } else if (read.line !== (one.line ?? 1) || !read.message.includes(one.message ?? '')) {
+          problems.push(`expected a refusal on line ${one.line ?? 1} naming ${JSON.stringify(one.message ?? '')}, got ${read.file}:${read.line}: ${read.message}`);
+        }
+      }
+    } finally {
+      for (const entry of readdirSync(root)) rmSync(join(root, entry), { recursive: true, force: true });
+    }
+    verdicts.push({ case: `manifest ${one.name}`, problems });
+  }
+}
 
 /** One check: whether one case agrees with the reading, and the words either way. */
 interface CaseVerdict {
@@ -99,6 +154,10 @@ function checkProductFolder(root: string, name: string, verdicts: CaseVerdict[])
   if (existsSync(manifest)) {
     const first = readFileSync(manifest, 'utf8').split('\n')[0]?.trim();
     if (first !== 'schemaVersion: 1') problems.push(`${name}/workspace.yaml: the first line is ${JSON.stringify(first)}, not "schemaVersion: 1"`);
+    // The example's manifest is the manifest reader's input, whoever made
+    // the folder: the same reading `madarch serve` and `madarch list` sit on.
+    const read = readProduct(folder);
+    if (!read.ok) problems.push(`${name}/workspace.yaml: refused at ${read.file}:${read.line}: ${read.message}`);
   }
   for (const path of markdownUnder(join(folder, 'docs'))) {
     const read = parseDocumentFields(`${name}/docs/${path}`, readFileSync(join(folder, 'docs', path), 'utf8'));
@@ -156,7 +215,7 @@ function checkDocCase(one: DocumentCase, verdicts: CaseVerdict[]): void {
   }
 }
 
-function run(casesPath: string, documentCasesPath: string, productsRoot: string, sourcePath: string | undefined): number {
+function run(casesPath: string, documentCasesPath: string, manifestCasesPath: string, productsRoot: string, sourcePath: string | undefined): number {
   if (sourcePath !== undefined) {
     const text = readFileSync(sourcePath, 'utf8');
     const read = parseContractText(sourcePath, text);
@@ -173,6 +232,8 @@ function run(casesPath: string, documentCasesPath: string, productsRoot: string,
     checkProductFolder(productsRoot, name, verdicts);
   }
   for (const one of file.cases) checkCase(one);
+  const manifestSuite = JSON.parse(readFileSync(manifestCasesPath, 'utf8')) as ManifestCaseSuite;
+  checkManifestCases(manifestSuite, verdicts);
   const docFile = JSON.parse(readFileSync(documentCasesPath, 'utf8')) as { cases: DocumentCase[] };
   for (const one of docFile.cases) checkDocCase(one, verdicts);
   let failed = 0;
@@ -182,12 +243,14 @@ function run(casesPath: string, documentCasesPath: string, productsRoot: string,
     for (const problem of verdict.problems) console.error(`error: case ${verdict.case}: ${problem}`);
   }
   const products = verdicts.filter((v) => v.case.startsWith('product ')).length;
-  console.log(`contract: ${file.cases.length} registry cases, ${docFile.cases.length} document cases, ${products} products, ${failed} misread`);
+  const manifestCases = verdicts.filter((v) => v.case.startsWith('manifest ')).length;
+  console.log(`contract: ${file.cases.length} registry cases, ${docFile.cases.length} document cases, ${manifestCases} manifest cases, ${products} products, ${failed} misread`);
   return failed > 0 ? 1 : 0;
 }
 
 let casesPath = DEFAULT_CASES;
 let documentCasesPath = DEFAULT_DOCUMENT_CASES;
+let manifestCasesPath = DEFAULT_MANIFEST_CASES;
 let productsRoot = DEFAULT_PRODUCTS;
 let sourcePath: string | undefined;
 const args = process.argv.slice(2);
@@ -196,6 +259,10 @@ for (let i = 0; i < args.length; i += 2) {
   const value = args[i + 1];
   if (flag === '--cases') {
     casesPath = value!;
+    continue;
+  }
+  if (flag === '--manifest-cases') {
+    manifestCasesPath = value!;
     continue;
   }
   if (flag === '--documents') {
@@ -213,4 +280,4 @@ for (let i = 0; i < args.length; i += 2) {
   console.error(`error: ${USAGE}`);
   process.exit(2);
 }
-process.exitCode = run(casesPath, documentCasesPath, productsRoot, sourcePath);
+process.exitCode = run(casesPath, documentCasesPath, manifestCasesPath, productsRoot, sourcePath);

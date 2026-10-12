@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { readProduct } from '../src/product/manifest.js';
-import { addCodeRepository, bootstrapProduct } from '../src/product/program.js';
+import { addCodeRepository, bootstrapProduct } from '../src/product/lifecycle.js';
 import { createDraft } from '../src/product/draft.js';
 import { listProducts } from '../src/product/list.js';
 import { gitEnv } from './git-env.js';
@@ -446,8 +446,8 @@ describe('the madarch command as an executable', () => {
 });
 
 describe('madarch list', () => {
-  /** The set's example product folder, vendored with the pinned program. */
-  const SET_MADE = fileURLToPath(new URL('../vendor/shady2k-skills/0.94.0/fixtures/product/good', import.meta.url));
+  /** The contract's set-made example product folder (examples/contract). */
+  const SET_MADE = fileURLToPath(new URL('../examples/contract/set-made-product', import.meta.url));
 
   test('names every product the home holds, one fact per line, in code point order, and serves nothing', () => {
     const home = scratchFolder('madarch-cli-list-');

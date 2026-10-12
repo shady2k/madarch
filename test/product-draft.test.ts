@@ -228,7 +228,7 @@ describe('createDraft', () => {
     expect(git(['grep', '-I', '--fixed-strings', '-e', home, 'HEAD'], draft.folder)).toMatchObject({ ok: false });
   });
 
-  test('the loader variables the caller carries never reach the draft\'s git', () => {
+  test('the loader variables the caller carries never reach the draft\'s git: the draft keeps its own history', () => {
     const home = tempFolder('madarch-products-');
     const saved = { GIT_DIR: process.env.GIT_DIR, GIT_INDEX_FILE: process.env.GIT_INDEX_FILE, GIT_WORK_TREE: process.env.GIT_WORK_TREE };
     process.env.GIT_DIR = '/nowhere';
@@ -237,6 +237,12 @@ describe('createDraft', () => {
     try {
       const draft = draftIn(home);
       expect(draft).toMatchObject({ outcome: 'created' });
+      // A leaked loader variable would point a git call anywhere else: the
+      // skeleton commit must still be the draft's own repository's history.
+      const draft2 = draft as Extract<typeof draft, { outcome: 'created' }>;
+      const log = spawnSync(Bun.which('git')!, ['log', '--oneline'], { cwd: draft2.folder, encoding: 'utf8', env: gitEnv() });
+      expect(log.status).toBe(0);
+      expect(log.stdout).toContain('Create the draft product');
     } finally {
       for (const [name, value] of Object.entries(saved)) {
         if (value === undefined) delete process.env[name];

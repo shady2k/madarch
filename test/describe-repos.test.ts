@@ -48,8 +48,8 @@ function draftIn(home: string) {
 /** The repository files this change owns, read from the checkout itself. */
 const repoRoot = join(import.meta.dir, '..');
 
-/** The pinned skeleton's constitution: the part this change must not move. */
-const PINNED_AGENTS = readFileSync(join(repoRoot, 'vendor', 'shady2k-skills', '0.94.0', 'fixtures', 'product', 'good', 'AGENTS.md'), 'utf8');
+/** The constitution madarch's own creation writes: the part the commands must not move. */
+import { CONSTITUTION as PINNED_AGENTS } from '../src/product/draft.js';
 
 /** The describing section, carried beside the skill it names. */
 const SECTION = readFileSync(join(repoRoot, 'skills', 'describe-repository', 'AGENTS-section.md'), 'utf8');
