@@ -19,7 +19,7 @@ import {
   renameProduct,
   whereAmI,
 } from '../src/product/lifecycle.js';
-import { ownRepository } from '../src/product/git.js';
+import { ownRepository, runGit } from '../src/product/git.js';
 import { readProduct } from '../src/product/manifest.js';
 import { createDraft } from '../src/product/draft.js';
 import { type DraftEnv } from '../src/product/draft.js';
@@ -294,7 +294,7 @@ describe("the git runs keep the caller's environment to themselves", () => {
     // --local-env-vars`, each pointed at a path that is no repository: a git
     // call that inherited any of them would answer that path or fail, and
     // the product's own repository is the one that must answer.
-    const leaks = ['GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE', 'GIT_IMPLICIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_NAMESPACE', 'GIT_CEILING_DIRECTORIES', 'GIT_CONFIG', 'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT'];
+    const leaks = ['GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE', 'GIT_IMPLICIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_SHALLOW_FILE', 'GIT_NAMESPACE', 'GIT_CEILING_DIRECTORIES', 'GIT_CONFIG', 'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT'];
     const before = new Map(leaks.map((name) => [name, process.env[name]]));
     try {
       for (const name of leaks) process.env[name] = join(base, 'not-a-repo');
@@ -303,6 +303,12 @@ describe("the git runs keep the caller's environment to themselves", () => {
         .toMatchObject({ outcome: 'renamed', folder: join(home, 'gadgets') });
       expect(addRemote({ folder: join(home, 'gadgets'), url: join(base, 'origin.git'), gitEnv: gitEnv(GIT_ENV) }))
         .toMatchObject({ outcome: 'added', url: join(base, 'origin.git') });
+      // The shallow pointer a re-indexed checkout's caller carries must not
+      // make the product's own history read shallow: the history is the
+      // product's, whoever runs the command beside it.
+      writeFileSync(join(base, 'shallow'), '0000000000000000000000000000000000000000\n');
+      const shallow = runGit(join(home, 'gadgets'), ['rev-parse', '--is-shallow-repository']);
+      expect(shallow).toMatchObject({ ok: true, output: 'false' });
     } finally {
       for (const [name, value] of before) {
         if (value === undefined) delete process.env[name];
