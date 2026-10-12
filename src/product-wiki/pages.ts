@@ -46,6 +46,12 @@ import {
   type ProductDocuments,
 } from './documents.js';
 import { CheckRunCache, runProductCheck, type ProductCheckRun, type ProductFinding } from './checking.js';
+import { readProductRegistry, registryKit, type RegistryKit } from '../product/registry.js';
+
+/** The kinds kit of one product folder, read fresh: `undefined` when the product holds no registry that reads. */
+function kitOf(productFolder: string): RegistryKit | undefined {
+  return registryKit(readProductRegistry(productFolder));
+}
 
 /** The address prefix of a page's route within the app. */
 export const PAGE_ADDRESS_PREFIX = '/p/';
@@ -70,19 +76,19 @@ export interface WikiPageEntry {
   title: string;
   /** The address the app answers the page at, like `/p/docs/vision.md`. */
   address: string;
-  /** The set's kind the page's form or place names, when the set names one. */
+  /** The kind the product's registry names the page, when one stands and names it. */
   kind?: DocumentKind;
-  /** The status the set computes for the kind, when one is derivable. */
+  /** The status the document's own text computes, when one is derivable. */
   status?: ComputedStatus;
 }
 
 /** One page as the document's forms read it: the fields, whom it grew from, who links to it. */
 export interface WikiPageDocument {
-  /** The set's kind, when the form or the place names one; `undefined` keeps the plain page. */
+  /** The kind the product's registry names the page, when one stands and names it; `undefined` keeps the plain page. */
   kind?: DocumentKind;
-  /** The document's id (`FR-001`, `VISION`, `PRA-001`), when the identity line gives one. */
+  /** The document's id as the registry's id shapes read it, when the identity line gives one. */
   id?: string;
-  /** The status the set computes, when one is derivable from this document's own text. */
+  /** The status the document's own text computes, when one is derivable. */
   status?: ComputedStatus;
   /** The form's fields, at the lines the set's check names. */
   fields: DocumentField[];
@@ -99,7 +105,7 @@ export interface WikiPage {
   markdown: string;
   /** The source file's last filesystem modification time, for honest UI metadata. */
   changedAt?: string;
-  /** The set's document the page is, read from its form; `undefined` for a page of no set kind. */
+  /** The document the page is, read through the registry; `undefined` for a plain page. */
   document?: WikiPageDocument;
   /** This page's findings of the set's product check, each with file, line and full path. */
   findings: ProductFinding[];
@@ -206,7 +212,7 @@ class FreshProductWiki implements ProductWiki {
     // section asks again, the same live rule as a page.
     hash.update(`model\u0000${modelSourceDigest(this.product)}\u0000`);
     hash.update(`stages\u0000${stagesSourceDigest(this.product.folder)}\u0000`);
-    const docs = documentsOf(paths, (page) => texts.get(page) as string, pathsHeld);
+    const docs = documentsOf(paths, (page) => texts.get(page) as string, pathsHeld, kitOf(this.product.folder));
     // The check's cache key digests what the check reads, not only what the
     // wiki shows: a prototype's `Code:` folder is read by the set's check
     // (it refuses a Code: naming no folder with files in it) and shown on
@@ -307,7 +313,7 @@ class FreshProductWiki implements ProductWiki {
     const grown = doc === undefined ? [] : grownFromOf(doc, taken.snapshot.docs);
     const linked = doc === undefined ? [] : backlinksOf(doc, taken.snapshot.docs);
     const status = doc === undefined ? undefined : statusOf(doc);
-    // A page of no set kind — no kind, no id, no fields, no links either
+    // A plain page — no kind, no id, no fields, no links either
     // way — carries no document at all: the plain page behaviour stands.
     const document = doc === undefined || (doc.kind === undefined && doc.id === undefined && doc.fields.length === 0 && grown.length === 0 && linked.length === 0 && status === undefined)
       ? undefined

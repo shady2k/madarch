@@ -1,46 +1,48 @@
 /**
- * The SDLC stage index (docs/changes/wiki-sdlc/capabilities/product-wiki.md,
- * requirement `stages`): one computed view over the product folder that names,
- * for every stage of the skill set's life cycle, what the product holds there
- * now, what kind holds it, and — when the stage holds nothing — which skill of
- * the set fills it. The stages and the kinds they hold:
+ * The stage index (docs/changes/wiki-sdlc/capabilities/product-wiki.md,
+ * requirement `stages`; the places the registry reads sit in the
+ * product-repository contract's capability): one computed view over the
+ * product folder that names every stage of the life cycle what the product
+ * holds there now and — when the stage holds nothing of a kind — what the
+ * registry says comes next. The stages are the product's own life cycle:
+ * where the product holds a kinds registry (`docs/kinds.yaml`, the file the
+ * skill set writes at setup), the stage list and the order stand in that
+ * file, and every document kind names its stage; where the product holds
+ * none, the list is the reading shell's own generic life cycle (idea
+ * through operate, the same stages as before this change) and no document
+ * kind is computed anywhere.
  *
- *   idea        vision, sources, hypotheses, open questions, prototypes, results
- *   requirements  user stories, use cases, product requirements (FR-…)
- *   design      the intended model's views (feature E's Architecture section;
- *               linked, not built here), decision records, design specs
- *   build       the code repositories (feature D's Repositories section) and
- *               the product's own tasks, read-only from .beads/issues.jsonl
- *   verify      acceptance records: `accepted:` / `implemented:` comments
- *   release     ship-release's release notes (docs/releases/, CHANGELOG)
- *   operate     handle-incident's incident records (docs/incidents/)
+ * The stage page's own words are the reading shell's: what the stage holds
+ * of the mechanism's own material — the tracker's tasks on the Build stage,
+ * the stage acceptance records on the Verify stage, the release notes, and
+ * the link rows to the Architecture and Repositories sections — is read
+ * here whatever the registry says; the document kinds are the registry's
+ * data alone. Every next-step hint is the registry's hint where the kind
+ * came from it; the mechanism's own material is hinted generically, and
+ * no skill of any set is named anywhere in code.
  *
  * Pure and deterministic over one reading of the product folder: the same
- * folder gives the same index, sorted by code point, never by locale; nothing
- * here reads the clock and nothing writes. The idea and requirements stages
- * hold document kinds the wiki already serves as pages, so their artifacts
- * carry the page paths the app navigates to — the stage sections navigate,
- * they never duplicate the pages.
+ * folder gives the same index, sorted by code point, never by locale;
+ * nothing here reads the clock and nothing writes. The document kinds the
+ * wiki serves as pages put their artifacts on the page paths the app
+ * navigates to — the stage sections navigate, they never duplicate the
+ * pages.
  */
 import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { join as joinPath } from 'node:path';
+import { join as joinPath, relative, sep } from 'node:path';
 import { byCodePoint } from '../model/order.js';
+import { REGISTRY_FILE, readProductRegistry, registryKit, type RegistryKit } from '../product/registry.js';
 
-/** The stages in the life cycle's own order (the set's lifecycle.md table). */
+/**
+ * The life cycle the reading shell shows when the product holds no registry:
+ * the same stage list in the order it has always shown. It is the
+ * mechanism's own generic list, not a kind word anywhere; where the product
+ * holds a registry, the registry's stage list and order replace it.
+ */
 export const STAGE_IDS = ['idea', 'requirements', 'design', 'build', 'verify', 'release', 'operate'] as const;
 export type StageId = (typeof STAGE_IDS)[number];
 
-/** One skill named as filling an empty stage, keyed by the stage it fills. */
-export const STAGE_SKILLS: Record<StageId, string> = {
-  idea: 'define-product',
-  requirements: 'to-spec',
-  design: 'to-design',
-  build: 'take-task',
-  verify: 'take-task',
-  release: 'ship-release',
-  operate: 'handle-incident',
-};
 
 /** One product-document artifact a stage holds, pointing at the page that shows it. */
 export interface StageArtifact {
@@ -48,7 +50,7 @@ export interface StageArtifact {
   readonly path: string;
   /** The document's title: its identity line's title, else its first heading, else the file name. */
   readonly title: string;
-  /** The set's kind of this document, like `vision`, `hypothesis`, `story`, `requirement`, `use case`. */
+  /** The kind of the product's registry this document carries, by the registry's own word; the index reads no kind of its own. */
   readonly kind: string;
   /**
    * Whether the wiki's page reader serves this path (every Markdown under
@@ -108,14 +110,22 @@ export interface StageNote {
 
 /** One stage as one ask of the index found it. */
 export interface StageSection {
-  readonly id: StageId;
+  /** The stage's id: the registry's or the generic life cycle's. */
+  readonly id: string;
+  /** The stage's name the registry gives it, when the registry names one; the app reads the generic list's names without one. */
+  readonly name?: string;
   /**
    * What the stage holds, read from the real files: document artifacts with
-   * their page paths, and — on the Build stage — the tasks grouped by feature.
+   * their page paths, and the mechanism's own material — the Build stage's
+   * tasks among them.
    */
   readonly artifacts: readonly StageArtifact[];
-  /** The document kinds the stage holds nothing of, each with the skill that fills it. */
-  readonly missing: readonly { kind: string; skill: string }[];
+  /**
+   * What the stage holds nothing of yet: a kind the registry names carries
+   * the registry's own next-step hint; the mechanism's own material carries
+   * only its kind, and the app words it generically.
+   */
+  readonly missing: readonly { kind: string; hint?: string }[];
   /** The Build stage's tasks, grouped by feature; other stages hold none. */
   readonly tasks?: readonly TaskFeature[];
   /** The Build stage's mended and dropped rows, each at its full path and line; other stages hold none. */
@@ -132,21 +142,6 @@ export interface StagesIndex {
   /** How the reads went: a tracker export or records folder that exists but cannot be parsed is named here, never dropped in silence. */
   readonly problems: readonly { where: string; message: string }[];
 }
-
-/** The set's document kinds each stage holds, with the folder or file the kind lives in. */
-const KIND_FOLDERS: ReadonlyArray<{ stage: StageId; kind: string; folder: string; plural: boolean }> = [
-  { stage: 'idea', kind: 'vision', folder: 'docs/vision.md', plural: false },
-  { stage: 'idea', kind: 'source', folder: 'docs/sources', plural: true },
-  { stage: 'idea', kind: 'hypothesis', folder: 'docs/hypotheses', plural: true },
-  { stage: 'idea', kind: 'open question', folder: 'docs/questions', plural: true },
-  { stage: 'idea', kind: 'prototype', folder: 'docs/prototypes', plural: true },
-  { stage: 'idea', kind: 'result', folder: 'docs/results', plural: true },
-  { stage: 'requirements', kind: 'user story', folder: 'docs/stories', plural: true },
-  { stage: 'requirements', kind: 'use case', folder: 'docs/use-cases', plural: true },
-  { stage: 'requirements', kind: 'product requirement', folder: 'docs/requirements', plural: true },
-  { stage: 'design', kind: 'decision', folder: 'docs/decisions', plural: true },
-  { stage: 'design', kind: 'design spec', folder: 'docs/specs', plural: true },
-];
 
 /** The tracker export the Build stage reads its tasks from. */
 const TRACKER_EXPORT = '.beads/issues.jsonl';
@@ -180,102 +175,149 @@ const IMPLEMENTED_MARK = 'implemented: {"revision"';
  */
 export function readStagesIndex(productFolder: string): StagesIndex {
   const problems: { where: string; message: string }[] = [];
-  const stageOf = new Map<StageId, StageSectionBuilder>();
-  for (const id of STAGE_IDS) stageOf.set(id, { id, artifacts: [], missing: [] });
+  // The product registry: the stage list and the kinds the document
+  // artifacts are read through. A registry file that stands but does not
+  // read keeps the plain reading and names the contract's refusals as the
+  // index's problems, the file and the line each one stands on.
+  const registry = readProductRegistry(productFolder);
+  if (registry.present && 'refused' in registry) {
+    for (const error of registry.refused) {
+      problems.push({
+        where: error.file,
+        message: (error.line === 0 ? '' : `line ${String(error.line)}: `) + (error.path === '' ? '' : `${error.path}: `) + error.message,
+      });
+    }
+  }
+  const kit = registryKit(registry);
+  const list: { id: string; name?: string }[] = kit !== undefined
+    ? kit.stages.map((stage) => ({ id: stage.id, name: stage.name }))
+    : STAGE_IDS.map((id) => ({ id }));
+  const stageOf = new Map<string, StageSectionBuilder>();
+  for (const stage of list) stageOf.set(stage.id, { id: stage.id, name: stage.name, artifacts: [], missing: [] });
+  // The stage each piece of the mechanism's own material rides on: the
+  // stage ids are the generic life cycle's ids; where the registry's list
+  // carries the same id the material reads onto that stage, and where it
+  // names none the stage page skips that material.
+  const holderOf = (id: StageId): StageSectionBuilder | undefined => stageOf.get(id);
+  const build = holderOf('build')!;
   // A stage's tasks field is set only where tasks are read, so the app never
   // waits for a tasks table a stage does not hold.
-  stageOf.get('build')!.tasks = [];
-  // The sections other features own: the Design stage navigates to the
-  // Architecture section when the product holds a model/ for it to compile;
-  // the Build stage navigates to the Repositories section when the manifest
-  // declares repositories or a repos/ folder stands in the product. The
-  // stages name them; whether the serving app holds those sections is that
-  // app's build, so the index carries `present` and the app decides between
-  // a link and the named placeholder.
+  build.tasks = [];
+  // The sections other features own: the stage named design navigates to
+  // the Architecture section when the product holds a model/ for it to
+  // compile; the stage named build navigates to the Repositories section
+  // when the manifest declares repositories or a repos/ folder stands in
+  // the product. The stages name them; whether the serving app holds those
+  // sections is that app's build, so the index carries `present` and the
+  // app decides between a link and the named placeholder.
+  const design = holderOf('design');
   const modelFolder = joinPath(productFolder, 'model');
-  if (existsSync(modelFolder) && lstatSync(modelFolder).isDirectory()) {
-    stageOf.get('design')!.sections = [{ kind: 'architecture', present: true }];
-  } else {
-    stageOf.get('design')!.sections = [];
-    // Recorded as the builder's own flag: the final pass fills `missing`
-    // from the artifacts, and the architecture views are missing only then.
-    stageOf.get('design')!.wantsArchitecture = true;
+  if (design !== undefined) {
+    if (existsSync(modelFolder) && lstatSync(modelFolder).isDirectory()) {
+      design.sections = [{ kind: 'architecture', present: true }];
+    } else {
+      design.sections = [];
+      // Recorded as the section's own flag: the final pass fills `missing`
+      // from the artifacts, and the architecture views are missing only then.
+      design.wantsArchitecture = true;
+    }
   }
   const manifestText = readManifestText(productFolder);
   const reposDeclared = manifestText !== undefined && /(^|\n)repos:/.test(manifestText);
   const reposFolder = joinPath(productFolder, 'repos');
   if (reposDeclared || (existsSync(reposFolder) && lstatSync(reposFolder).isDirectory())) {
-    stageOf.get('build')!.sections = [{ kind: 'repositories', present: true }];
+    build.sections = [{ kind: 'repositories', present: true }];
   }
 
-  // The document kinds: every set-form document under its kind's folder.
-  for (const entry of KIND_FOLDERS) {
-    const builder = stageOf.get(entry.stage)!;
-    const full = joinPath(productFolder, ...entry.folder.split('/'));
-    for (const artifact of documentsOf(full, entry.kind, entry.plural, problems)) builder.artifacts.push(artifact);
-  }
+  // The document kinds: every kind's folder the registry names, its one
+  // file or the documents inside its folder, under the kind the registry
+  // gives it. With no registry there are no document kinds at all — the
+  // product's pages are plain pages, and the stage pages show the
+  // mechanism's own material beside the generic hints.
+  if (kit !== undefined) {
+    for (const kind of kit.kinds) {
+      const kindHolder = stageOf.get(kind.stage);
+      if (kindHolder === undefined) continue;
+      const full = joinPath(productFolder, ...kind.folder.split('/'));
+      if (kind.folder.endsWith('.md')) {
+        for (const artifact of documentsOf(full, kind.name, false, problems)) kindHolder.artifacts.push(artifact);
+        continue;
+      }
+      // A kind's folder holds the kind's documents at any depth: the walk
+      // is the reading shell's own (fences and dot-folders the pages walk
+      // skips), so a record kept a level down is still the kind's.
+      for (const artifact of documentsUnder(full, kind.name, productFolder, problems)) kindHolder.artifacts.push(artifact);
+    }
 
-  // The described repositories (the describe-repository skill's own layout):
-  // what the skill derived from each repository's code stands under
-  // docs/repositories/<name>/ in the set's kind folders, and its architecture
-  // page beside them. Those are the Requirements and Design stages' material
-  // as much as the product's own documents — the stages read them too, named
-  // by their full path, which the page reader serves.
-  const reposDocs = joinPath(productFolder, ...REPOSITORY_DOCS.split('/'));
-  for (const name of fileNames(reposDocs, undefined, problems)) {
-    const repoFolder = joinPath(reposDocs, name);
-    const architecturePage = joinPath(repoFolder, 'architecture.md');
-    if (existsSync(architecturePage)) {
-      try {
-        stageOf.get('design')!.artifacts.push({
-          path: `${REPOSITORY_DOCS}/${name}/architecture.md`,
-          title: titleOf(readFileSync(architecturePage, 'utf8'), name),
-          kind: 'repository architecture',
-          served: true,
-        });
-      } catch (error) {
-        problems.push({ where: architecturePage, message: (error as Error).message });
+    // The described repositories (the describe-repository step's own
+    // layout): what that step derived from each repository's code stands
+    // under docs/repositories/<name>/ in the same kind folders the
+    // registry names for the product, and the described repository's
+    // architecture page beside them. Those are the kinds' stages' material
+    // as much as the product's own documents — the stages read them too,
+    // named by their full path, which the page reader serves.
+    const reposDocs = joinPath(productFolder, ...REPOSITORY_DOCS.split('/'));
+    for (const name of fileNames(reposDocs, undefined, problems)) {
+      const repoFolder = joinPath(reposDocs, name);
+      const architecturePage = joinPath(repoFolder, 'architecture.md');
+      const architectureHolder = stageOf.get('design');
+      if (architectureHolder !== undefined && existsSync(architecturePage)) {
+        try {
+          architectureHolder.artifacts.push({
+            path: `${REPOSITORY_DOCS}/${name}/architecture.md`,
+            title: titleOf(readFileSync(architecturePage, 'utf8'), name),
+            kind: 'repository architecture',
+            served: true,
+          });
+        } catch (error) {
+          problems.push({ where: architecturePage, message: (error as Error).message });
+        }
+      }
+      for (const kind of kit.kinds) {
+        if (!kind.folder.startsWith('docs/') || kind.folder.endsWith('.md')) continue;
+        const within = kind.folder.slice('docs/'.length);
+        const kindFolder = joinPath(repoFolder, ...within.split('/'));
+        if (!existsSync(kindFolder) || !lstatSync(kindFolder).isDirectory()) continue;
+        const kindHolder = stageOf.get(kind.stage);
+        if (kindHolder === undefined) continue;
+        for (const artifact of documentsOf(kindFolder, kind.name, true, problems)) kindHolder.artifacts.push(artifact);
       }
     }
-    for (const entry of KIND_FOLDERS) {
-      if (entry.stage !== 'requirements' && entry.stage !== 'design') continue;
-      if (!entry.plural) continue;
-      const kindFolder = joinPath(repoFolder, ...entry.folder.split('/').slice(1));
-      for (const artifact of documentsOf(kindFolder, entry.kind, true, problems)) builderOf(stageOf, entry.stage).push(artifact);
-    }
-  }
 
-  // The identity sweep: a set-form document is its id, wherever it sits.
-  // Every page under docs/ the kind folders did not already claim is read
-  // for its identity line, and a known id prefix puts it on its stage — a
-  // derived FR the describe-repository skill left in any folder still stands
-  // on the Requirements stage, a decision record in any repository's
-  // subtrees still stands on Design. Duplicates by path are impossible (the
-  // sweep skips every path the folders already claimed); the artifacts are
-  // deduplicated by path at the end.
-  const claimed = new Set<string>([...stageOf.values()].flatMap((b) => b.artifacts.map((a) => a.path)));
-  for (const page of markdownPagesUnder(joinPath(productFolder, 'docs'), problems)) {
-    if (claimed.has(page.path)) continue;
-    let text: string;
-    try {
-      text = readFileSync(joinPath(productFolder, ...page.path.split('/')), 'utf8');
-    } catch (error) {
-      problems.push({ where: joinPath(productFolder, ...page.path.split('/')), message: (error as Error).message });
-      continue;
+    // The identity sweep: a document of a prefix the registry names is its
+    // id, wherever it sits. Every page under docs/ the kind folders did
+    // not already claim is read for its identity line, and a shape the
+    // registry's prefixes carry puts it on its kind's stage — a derived
+    // document the describing step left in any folder still stands on its
+    // kind's stage. Duplicate paths are impossible (the sweep skips every
+    // path the folders already claimed); the artifacts are deduplicated by
+    // path at the end.
+    const claimed = new Set<string>([...stageOf.values()].flatMap((builder) => builder.artifacts.map((artifact) => artifact.path)));
+    for (const page of markdownPagesUnder(joinPath(productFolder, 'docs'), problems)) {
+      if (claimed.has(page.path)) continue;
+      let text: string;
+      try {
+        text = readFileSync(joinPath(productFolder, ...page.path.split('/')), 'utf8');
+      } catch (error) {
+        problems.push({ where: joinPath(productFolder, ...page.path.split('/')), message: (error as Error).message });
+        continue;
+      }
+      const identity = /^#\s+(\S+)\b/.exec(text);
+      if (identity === null || !kit.idShape.test(identity[1]!)) continue;
+      const word = identity[1]!;
+      const kind = kit.byPrefix.get(word.slice(0, word.indexOf('-')));
+      if (kind === undefined) continue;
+      const kindHolder = stageOf.get(kind.stage);
+      if (kindHolder === undefined) continue;
+      kindHolder.artifacts.push({ path: page.path, title: titleOf(text, page.path.split('/').pop()!), kind: kind.name, served: true });
     }
-    const identity = /^#\s+([A-Z]+-\d{3,})\b/.exec(text);
-    if (identity === null) continue;
-    const where = KIND_BY_PREFIX.get(identity[1]!.slice(0, identity[1]!.indexOf('-')));
-    if (where === undefined) continue;
-    stageOf.get(where.stage)!.artifacts.push({ path: page.path, title: titleOf(text, page.path.split('/').pop()!), kind: where.kind, served: true });
-  }
-  for (const builder of stageOf.values()) {
-    const seen = new Set<string>();
-    builder.artifacts = builder.artifacts.filter((a) => (seen.has(a.path) ? false : seen.add(a.path)));
+    for (const builder of stageOf.values()) {
+      const seen = new Set<string>();
+      builder.artifacts = builder.artifacts.filter((artifact) => (seen.has(artifact.path) ? false : seen.add(artifact.path)));
+    }
   }
 
   // The Build stage's tasks: read-only from the same export the tracker writes.
-  const build = stageOf.get('build')!;
   let exported = false;
   const trackerFull = joinPath(productFolder, TRACKER_EXPORT);
   if (existsSync(trackerFull)) {
@@ -290,58 +332,59 @@ export function readStagesIndex(productFolder: string): StagesIndex {
     }
   }
 
-  // The Verify stage's acceptance records: files the set's records folder
-  // holds. They stand outside the wiki's served pages, so the artifacts are
-  // named, never linked.
-  const verify = stageOf.get('verify')!;
-  const recordsFull = joinPath(productFolder, RECORDS_FOLDER);
-  for (const name of fileNames(recordsFull, '.md', problems)) {
-    const full = joinPath(recordsFull, name);
-    try {
-      const text = readFileSync(full, 'utf8');
-      const accepted = text.includes(ACCEPTED_MARK) || /Final: [0-9a-f]{7,}/.test(text);
-      const implemented = text.includes(IMPLEMENTED_MARK);
-      if (accepted || implemented) {
-        verify.artifacts.push({ path: `${RECORDS_FOLDER}/${name}`, title: titleOf(text, name), kind: 'acceptance record', served: false });
+  // The Verify stage's acceptance records: files kept in a records folder
+  // beside its checks. They stand outside the wiki's served pages, so the
+  // artifacts are named, never linked.
+  const verify = stageOf.get('verify');
+  if (verify !== undefined) {
+    const recordsFull = joinPath(productFolder, RECORDS_FOLDER);
+    for (const name of fileNames(recordsFull, '.md', problems)) {
+      const full = joinPath(recordsFull, name);
+      try {
+        const text = readFileSync(full, 'utf8');
+        const accepted = text.includes(ACCEPTED_MARK) || /Final: [0-9a-f]{7,}/.test(text);
+        const implemented = text.includes(IMPLEMENTED_MARK);
+        if (accepted || implemented) {
+          verify.artifacts.push({ path: `${RECORDS_FOLDER}/${name}`, title: titleOf(text, name), kind: 'acceptance record', served: false });
+        }
+      } catch (error) {
+        problems.push({ where: full, message: (error as Error).message });
       }
-    } catch (error) {
-      problems.push({ where: full, message: (error as Error).message });
     }
   }
 
   // The Release stage: the project's changelog — the FIRST spot that
   // exists is the release notes, never both. The change records under
-  // docs/changes/ are proposals until they land, so they are never shown
-  // as releases; where the product keeps no release form at all, the
-  // stage's missing line says what fills it.
-  const release = stageOf.get('release')!;
-  for (const place of RELEASE_NOTE_PLACES) {
-    const full = joinPath(productFolder, ...place.split('/'));
-    if (!existsSync(full)) continue;
-    try {
-      release.artifacts.push({
-        path: place,
-        title: titleOf(readFileSync(full, 'utf8'), place.split('/').pop()!),
-        kind: 'release notes',
-        served: true,
-      });
-      break;
-    } catch (error) {
-      problems.push({ where: full, message: (error as Error).message });
+  // docs/changes/ are never shown as releases — a proposal is not a
+  // release until it lands. Where the product keeps no release form at
+  // all, the stage's missing line says what comes next, in the generic
+  // wording the mechanism hints with.
+  const release = stageOf.get('release');
+  if (release !== undefined) {
+    for (const place of RELEASE_NOTE_PLACES) {
+      const full = joinPath(productFolder, ...place.split('/'));
+      if (!existsSync(full)) continue;
+      try {
+        release.artifacts.push({
+          path: place,
+          title: titleOf(readFileSync(full, 'utf8'), place.split('/').pop()!),
+          kind: 'release notes',
+          served: true,
+        });
+        break;
+      } catch (error) {
+        problems.push({ where: full, message: (error as Error).message });
+      }
     }
   }
 
-  const stages = STAGE_IDS.map((id) => {
-    const builder = stageOf.get(id)!;
+  const stages = list.map((stage) => {
+    const builder = stageOf.get(stage.id)!;
     builder.artifacts.sort((a, b) => byCodePoint(a.path, b.path));
-    builder.missing = missingOf(id, builder.artifacts, builder.tasks === undefined ? 0 : countTasks(builder.tasks));
-    if (builder.wantsArchitecture) {
-      builder.missing.push({ kind: 'architecture views', skill: 'write-intended-model' });
-    }
+    builder.missing = missingOf(stage.id, builder, kit);
     // A product with no export at all carries no tasks table; where an
-    // export stands but holds no grouped task, the empty table stays so the
-    // app can say the tracker holds none. Either way the missing line names
-    // take-task.
+    // export stands but holds no grouped task, the empty table stays so
+    // the app can say the tracker holds none.
     if (builder.tasks !== undefined && builder.tasks.length === 0 && !exported) {
       delete builder.tasks;
     }
@@ -349,18 +392,6 @@ export function readStagesIndex(productFolder: string): StagesIndex {
   });
   return { stages, problems };
 }
-
-/** The set's id prefixes and the stage and kind each names. */
-const KIND_BY_PREFIX = new Map<string, { stage: StageId; kind: string }>([
-  ['S', { stage: 'idea', kind: 'source' }],
-  ['H', { stage: 'idea', kind: 'hypothesis' }],
-  ['Q', { stage: 'idea', kind: 'open question' }],
-  ['P', { stage: 'idea', kind: 'prototype' }],
-  ['R', { stage: 'idea', kind: 'result' }],
-  ['US', { stage: 'requirements', kind: 'user story' }],
-  ['UC', { stage: 'requirements', kind: 'use case' }],
-  ['FR', { stage: 'requirements', kind: 'product requirement' }],
-]);
 
 /** Every Markdown page under one folder, at any depth, in code point order of their paths. */
 function markdownPagesUnder(folder: string, problems: { where: string; message: string }[]): { path: string }[] {
@@ -390,9 +421,11 @@ function countTasks(groups: readonly TaskFeature[]): number {
 
 /** A stage section under construction. */
 interface StageSectionBuilder {
-  id: StageId;
+  id: string;
+  /** The stage's own name from the registry, when the registry names one. */
+  name?: string;
   artifacts: StageArtifact[];
-  missing: { kind: string; skill: string }[];
+  missing: { kind: string; hint?: string }[];
   tasks?: TaskFeature[];
   notes?: StageNote[];
   sections?: StageSectionLink[];
@@ -404,6 +437,7 @@ function buildSection(builder: StageSectionBuilder): StageSection {
   const empty = builder.artifacts.length === 0 && (builder.tasks === undefined || builder.tasks.length === 0);
   return {
     id: builder.id,
+    ...(builder.name !== undefined ? { name: builder.name } : {}),
     artifacts: builder.artifacts,
     missing: builder.missing,
     ...(builder.tasks !== undefined ? { tasks: builder.tasks } : {}),
@@ -430,10 +464,10 @@ function relativeDocsPathOf(full: string): string | undefined {
 }
 
 /**
- * The set-form documents one folder holds (or the one vision file). The
- * folder walk and the file reads report their failures into `problems` —
- * a folder that exists but cannot be read, a document that cannot be read —
- * never a silently smaller stage.
+ * The documents of one kind: one file, or every Markdown file directly
+ * inside the kind's folder. The folder walk and the file reads report
+ * their failures into `problems` — a folder that exists but cannot be
+ * read, a document that cannot be read — never a silently smaller stage.
  */
 function documentsOf(full: string, kind: string, plural: boolean, problems: { where: string; message: string }[]): StageArtifact[] {
   const artifacts: StageArtifact[] = [];
@@ -460,6 +494,30 @@ function documentsOf(full: string, kind: string, plural: boolean, problems: { wh
       problems.push({ where: file, message: (error as Error).message });
     }
   }
+  return artifacts;
+}
+/**
+ * The documents of one kind's folder, at any depth, each named by its path
+ * within the product. The walk skips dot-folders and never leaves the
+ * folder; a folder or a file it cannot read is a problem named with its
+ * full path, never a silently smaller stage.
+ */
+function documentsUnder(full: string, kind: string, productFolder: string, problems: { where: string; message: string }[]): StageArtifact[] {
+  const artifacts: StageArtifact[] = [];
+  const walk = (folder: string): void => {
+    for (const name of fileNames(folder, '.md', problems)) {
+      const file = joinPath(folder, name);
+      try {
+        const text = readFileSync(file, 'utf8');
+        const within = relative(productFolder, file).split(sep).join('/');
+        artifacts.push({ path: within, title: titleOf(text, name), kind, served: true });
+      } catch (error) {
+        problems.push({ where: file, message: (error as Error).message });
+      }
+    }
+    for (const name of fileNames(folder, undefined, problems)) walk(joinPath(folder, name));
+  };
+  walk(full);
   return artifacts;
 }
 
@@ -491,10 +549,10 @@ function fileNames(folder: string, extension: string | undefined, problems: { wh
 }
 
 /**
- * A document's title: its first level-one heading's text without the set's
- * identity id (`FR-001 — The title` reads "The title"), else the file's name.
- * The heading rules are the page titles' own: the first `# ` line, nothing
- * parsed inside fences.
+ * A document's title: its first level-one heading's text, with an
+ * identity line's id out (`<ID> — The title` reads "The title"), else the
+ * file's name. The heading rules are the page titles' own: the first `# `
+ * line, nothing parsed inside fences.
  */
 function titleOf(markdown: string, fallback: string): string {
   let fence = false;
@@ -511,23 +569,38 @@ function titleOf(markdown: string, fallback: string): string {
 }
 
 /**
- * The kinds a stage holds nothing of, each with the skill that fills it. The
- * Build stage's own kind is the task: no grouped task at all names take-task.
+ * What a stage holds nothing of, each row the app shows as its quiet
+ * next-step line. The kinds the registry names show the registry's own
+ * hint — what to do next as the product's data says it; the mechanism's
+ * own material (the Build stage's tasks, the Verify stage's acceptance
+ * records, the release notes, the incident records on the Operate stage
+ * and the Architecture views when the product holds no model) is hinted by
+ * the entry's kind alone, with no skill named anywhere. The rows carry no
+ * skill field: the hint is data or the app's own generic wording.
  */
-function missingOf(id: StageId, artifacts: readonly StageArtifact[], taskCount: number): { kind: string; skill: string }[] {
-  const held = new Set(artifacts.map((artifact) => artifact.kind));
-  const missing: { kind: string; skill: string }[] = [];
-  for (const entry of KIND_FOLDERS) {
-    if (entry.stage !== id || held.has(entry.kind)) continue;
-    if (missing.some((m) => m.kind === entry.kind)) continue;
-    missing.push({ kind: entry.kind, skill: STAGE_SKILLS[id] });
+function missingOf(id: string, builder: StageSectionBuilder, kit: RegistryKit | undefined): { kind: string; hint?: string }[] {
+  const missing: { kind: string; hint?: string }[] = [];
+  const held = new Set(builder.artifacts.map((artifact) => artifact.kind));
+  if (kit !== undefined) {
+    for (const kind of kit.kinds) {
+      if (kind.stage !== id || held.has(kind.name)) continue;
+      if (missing.some((entry) => entry.kind === kind.name)) continue;
+      missing.push({ kind: kind.name, hint: kind.hint });
+    }
   }
-  if (id === 'verify' && !held.has('acceptance record')) missing.push({ kind: 'acceptance record', skill: STAGE_SKILLS[id] });
-  if (id === 'release' && !held.has('release notes')) missing.push({ kind: 'release record', skill: STAGE_SKILLS[id] });
-  if (id === 'build' && taskCount === 0) missing.push({ kind: 'task', skill: STAGE_SKILLS[id] });
-  // The Operate stage's material is what handle-incident records — the
-  // review's timeline, cost and filed work — and none of it is held here.
-  if (id === 'operate') missing.push({ kind: 'incident record', skill: STAGE_SKILLS[id] });
+  const mechanism = (kindWord: string, holds: boolean): void => {
+    if (holds) return;
+    if (missing.some((entry) => entry.kind.toLowerCase() === kindWord)) return;
+    missing.push({ kind: kindWord });
+  };
+  if (id === 'build') mechanism('task', builder.tasks === undefined ? false : countTasks(builder.tasks) > 0);
+  if (id === 'verify') mechanism('acceptance record', held.has('acceptance record'));
+  if (id === 'release') mechanism('release record', held.has('release notes'));
+  // The Operate stage's material is what the incidents' reader records —
+  // the timeline, the cost and what was filed — and none of it is read
+  // from these documents' pages: the row stands.
+  if (id === 'operate') mechanism('incident record', false);
+  if (id === 'design' && builder.wantsArchitecture === true) mechanism('architecture views', false);
   return missing;
 }
 
@@ -724,6 +797,9 @@ export function stagesSourceDigest(productFolder: string): string {
     file(joinPath(productFolder, RECORDS_FOLDER, name));
   }
   file(joinPath(productFolder, 'workspace.yaml'));
+  // The kinds registry is a stage input and a page input alike: a saved
+  // registry is a wiki change the stream reports.
+  file(joinPath(productFolder, ...REGISTRY_FILE.split('/')));
   // The release notes are stage inputs: both spellings hash, the read bytes
   // only when the path exists, so an edit of the notes the stage shows moves
   // the wiki revision and the open stage page asks again.

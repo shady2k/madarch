@@ -1,116 +1,29 @@
 /**
- * The set's product documents, as the wiki reads them — the reading half of
- * the set's forms (references/product.md in the set's own text): this
- * module only reads, the set's check-product check (run by `checking.ts`)
- * refuses one out of form. What a page's kind is, which fields its form
- * carries and whom its link fields name, so a wiki page shows its form's
- * truth beside its text. A page whose first line is not the set's identity
- * line and whose path names no kind of the set is no document of the set:
- * it keeps the plain page behaviour it had before this module
- * (requirement `front-matter` reads the set's kinds only).
+ * The product's documents, as the wiki reads them (decision 0021, outcome 3
+ * of the standalone charter): the fields a document carries are read the
+ * way the reading shell has always read them `Name: value` between the
+ * identity line and the first section, and the kind a page is comes from
+ * the product's kinds registry — the file the skill set writes at setup —
+ * through the kit this module is handed: the document's explicit generic
+ * field first, then its identity line's id prefix, then the place its path
+ * names. A page the registry names not at all keeps the plain page
+ * behaviour it had before the registry read it: no kind, no invented
+ * category. Where the product holds no registry, nothing is a kind anywhere
+ * and the module still reads the fields as plain text lines.
  *
- * The kinds are the set's own, read from the set at its HEAD (cea86a2,
- * 2026-10-11): the chain of the forms' table — vision, source, hypothesis,
- * user story, use case, product requirement, open question, prototype,
- * result — the practice kind (PRA-, docs/practices/, statuses active and
- * retired), and the project documents the set's templates write: roadmap,
- * milestone, change and design records, decision records, the architecture
- * document, capability documents and the exploration note.
+ * What the registry is and how it refuses is the contract's own reading
+ * (`src/product/contract.ts`); this module consumes it, and names nothing
+ * of any set vocabulary: the prefixes and folders come from the registry's
+ * own fields, and a status is computed from the document's own text — the
+ * sections `Answer` and `Verdict` stand in the document or they do not —
+ * never from a kind's name.
  */
 import { dirname as dirOf, isAbsolute, join as joinPath } from 'node:path';
+import { registryKit, kindOfId, kindOfPath, type RegistryKit } from '../product/registry.js';
+import type { RegistryKind } from '../product/contract.js';
 
-/** A product document's kind, as a slug for the i18n catalogues. */
-export type DocumentKind =
-  | 'vision'
-  | 'roadmap'
-  | 'milestone'
-  | 'sources'
-  | 'hypotheses'
-  | 'stories'
-  | 'use-cases'
-  | 'requirements'
-  | 'decisions'
-  | 'design'
-  | 'architecture'
-  | 'capability'
-  | 'change'
-  | 'exploration'
-  | 'questions'
-  | 'prototypes'
-  | 'results'
-  | 'practices'
-  | 'practices-retired';
-
-/**
- * The sidebar's kind groups, in the set's life-cycle order, stated: the
- * chain of the forms' table (vision, source, hypothesis, user story, use
- * case, product requirement, open question, prototype, result) with the
- * planning documents right after the vision, the project's design-side
- * records between the product requirements and the questions (decision,
- * design, architecture, capability, change record, exploration note), and
- * the practices last — rules learned as the work went on, active first and
- * retired apart. Pages of no set kind keep their path groups after.
- */
-export const KIND_ORDER: readonly DocumentKind[] = [
-  'vision',
-  'roadmap',
-  'milestone',
-  'sources',
-  'hypotheses',
-  'stories',
-  'use-cases',
-  'requirements',
-  'decisions',
-  'design',
-  'architecture',
-  'capability',
-  'change',
-  'exploration',
-  'questions',
-  'prototypes',
-  'results',
-  'practices',
-  'practices-retired',
-];
-
-/** The id prefixes the set's forms recognize, chain and practice alike. */
-const ID_REGEX = /^(PRA|S|H|US|UC|FR|Q|P|R)-\d{3,}$/;
-const MENTION_REGEX = /(?<![\w-])(?:PRA|S|H|US|UC|FR|Q|P|R)-\d{3,}(?![\w-])/g;
-const VISION_REGEX = /(?<![\w-])VISION(?![\w-])/;
-
-/** The kind each id prefix names. */
-const ID_PREFIX_KIND: Record<string, DocumentKind> = {
-  S: 'sources',
-  H: 'hypotheses',
-  US: 'stories',
-  UC: 'use-cases',
-  FR: 'requirements',
-  Q: 'questions',
-  P: 'prototypes',
-  R: 'results',
-  PRA: 'practices',
-};
-
-/**
- * The kind a page's PATH names, when the set's places give it one: the
- * vision at docs/vision.md, the project documents the set's templates
- * write at their places, and the practices. A chain document's id wins
- * over the folder it stands in; these place kinds settle the pages that
- * carry no chain id.
- */
-export function kindOfPath(path: string): DocumentKind | undefined {
-  if (path === 'docs/vision.md') return 'vision';
-  if (path === 'docs/roadmap.md') return 'roadmap';
-  if (path.startsWith('docs/milestones/')) return 'milestone';
-  if (path.startsWith('docs/explorations/')) return 'exploration';
-  if (path.startsWith('docs/changes/') && path.endsWith('/change.md')) return 'change';
-  if (path.startsWith('docs/changes/') && path.endsWith('/design.md')) return 'design';
-  if (path.startsWith('docs/decisions/')) return 'decisions';
-  if (path === 'docs/system/architecture.md') return 'architecture';
-  if (path.startsWith('docs/system/capabilities/')) return 'capability';
-  if (path.startsWith('docs/practices/')) return 'practices';
-  return undefined;
-}
+/** A product document's kind, as the registry that names it spells it. */
+export type DocumentKind = string;
 
 /** One field as the form's `Name: value` line holds it, at its line. */
 export interface DocumentField {
@@ -138,7 +51,7 @@ export function blankFieldLines(markdown: string, fields: readonly DocumentField
   return lines.join('\n');
 }
 
-/** One link-field target: an id, or `VISION`, and the field that named it. */
+/** One link-field target: an id, or the file-stem address a whole document's kind is read by, and the field that named it. */
 export interface GrownFromId {
   id: string;
   via: string;
@@ -155,9 +68,9 @@ export interface DocumentSection {
 /** What one page's Markdown holds as a document of the set, read only. */
 export interface ParsedDocument {
   path: string;
-  /** The kind the identity line or the path's place gives; `undefined` for a page of no set kind. */
+  /** The kind the product's registry names the page, when it names it; `undefined` for a plain page. */
   kind: DocumentKind | undefined;
-  /** The identity line's id (`FR-001`, `VISION`, `PRA-001`), when the page carries one. */
+  /** The identity line's id when the shapes read one; a document of a file kind may carry the file stem's word as its address. */
   id?: string;
   title: string;
   fields: DocumentField[];
@@ -170,31 +83,31 @@ export interface ParsedDocument {
 }
 
 /**
- * The status the forms say is computed, never written, read a page's own
- * text: an open question is open until its `## Answer` holds content, and
- * a result carries its verdict's first word. The other kinds derive
- * nothing here, so a status stands on the page only where the set's
- * computation can say one from the document's own links.
+ * The status the document's own text computes, never written: a document
+ * whose sections hold a question's material (the sections its form gathers,
+ * `Question` and `What settles it`) is answered when its `Answer` section
+ * carries text and stands open while it does not, and one whose sections
+ * hold a `Verdict` stands in the first word the verdict says. A document
+ * the text carries none of this in computes no status; the words are the
+ * document's own, never a kind's data in code.
  */
 export type ComputedStatus = 'answered' | 'open' | 'confirmed' | 'refuted' | 'unclear';
 
 export function statusOf(doc: ParsedDocument): ComputedStatus | undefined {
   if (doc.id === undefined) return undefined;
-  const prefix = doc.id.split('-')[0];
-  if (prefix === 'Q') {
+  const question = doc.sections.find((s) => s.name === 'Question' || s.name === 'What settles it');
+  if (question !== undefined) {
     const answer = doc.sections.find((s) => s.name === 'Answer');
     return answer !== undefined && answer.text.trim() !== '' ? 'answered' : 'open';
   }
-  if (prefix === 'R') {
-    const verdict = doc.sections.find((s) => s.name === 'Verdict');
-    if (verdict === undefined) return undefined;
-    const word = verdict.text.trim().match(/^(confirmed|refuted|unclear)\b/i);
-    if (word === null) return undefined;
-    const said = word[1];
-    return said === undefined ? undefined : (said.toLowerCase() as ComputedStatus);
-  }
-  return undefined;
+  const verdict = doc.sections.find((s) => s.name === 'Verdict');
+  if (verdict === undefined) return undefined;
+  const word = verdict.text.trim().match(/^(confirmed|refuted|unclear)\b/i);
+  if (word === null) return undefined;
+  const said = word[1];
+  return said === undefined ? undefined : (said.toLowerCase() as ComputedStatus);
 }
+
 
 // ---- one Markdown body's lines, examples marked ---------------------------
 
@@ -236,10 +149,13 @@ function linesOf(body: string): BodyLine[] {
 }
 
 /** One Markdown line's ids, its code spans removed, as the set's check mentions them. */
-function mentionsOf(raw: string): string[] {
+function mentionsOf(raw: string, kit: RegistryKit | undefined): string[] {
   const bare = raw.replace(/`[^`]*`/g, '');
-  const ids = [...bare.matchAll(MENTION_REGEX)].map((match) => match[0]);
-  if (VISION_REGEX.test(bare)) ids.push('VISION');
+  if (kit === undefined) return [];
+  const ids = [...bare.matchAll(kit.mentionShape)].map((match) => match[0]);
+  for (const address of kit.fileAddresses.keys()) {
+    if (new RegExp(`(?<![\\w-])${address}(?![\\w-])`).test(bare)) ids.push(address);
+  }
   return ids;
 }
 
@@ -296,23 +212,36 @@ function linkTargetsOf(raw: string, fromPath: string, held: ReadonlySet<string>)
   return resolved;
 }
 
-/** A link field's targets: the ids, and `VISION`, its value names. */
-function grewFromOf(name: string, value: string): GrownFromId[] {
-  const named = value.split(',').map((part) => part.trim()).filter(isIdOrVision);
+/** A link field's targets: the addresses of a product's documents, as its ids are spelled. */
+function grewFromOf(name: string, value: string, kit: RegistryKit | undefined): GrownFromId[] {
+  const named = value.split(',').map((part) => part.trim()).filter((part) => isAddressOf(part, kit));
   return named.map((id) => ({ id, via: name }));
 }
 
-/** Whether a field's value names a link target of the set: an id or VISION. */
-function isIdOrVision(value: string): boolean {
-  return ID_REGEX.test(value) || value === 'VISION';
+/**
+ * Whether a field's value names a link target the wiki resolves: a
+ * well-formed id the registry's prefixes can read with no registry — the
+ * shapes the set's own link lines carry is a plain word-dash-number id —
+ * else a whole product document's file-stem address (`VISION` for the
+ * document a single-file kind's folder names), which the registry's data
+ * names. The values' resolution to pages is the wiki's later; the filter
+ * keeps every addressable word the form wrote.
+ */
+function isAddressOf(value: string, kit: RegistryKit | undefined): boolean {
+  if (kit !== undefined) {
+    if (kit.idShape.test(value)) return true;
+    return kit.fileAddresses.has(value) && value.length > 0;
+  }
+  return /^[A-Za-z][A-Za-z0-9_-]*-\d+$/.test(value);
 }
 
 /**
- * The set's link fields, per form, as references/product.md names them: the
+ * The link fields the reading shell has read since its first landing, the
+ * forms' own vocabulary of "grew from" rows unchanged by the registry: the
  * only fields whose values the wiki reads as the document's links. A field
  * outside this table is never a link field here, however id-shaped its
  * value looks — the check owns what a form refuses; the wiki reads only
- * the links the forms define.
+ * the links it defined before the registry came.
  */
 const LINK_FIELDS: { [name: string]: true } = {
   'Grew from': true,
@@ -324,25 +253,25 @@ const LINK_FIELDS: { [name: string]: true } = {
 };
 
 /**
- * Reads one page's Markdown as a document of the set, or as a plain page
- * (kind `undefined`): the identity line `# <ID> — <title>` gives the
- * chain's and the practice's documents their id and kind; the path's place
- * gives the project documents theirs. The fields stand one per line as
- * `Name: value` between the identity line and the first `## ` section;
- * every section records where it begins and what it holds. Only the set's
- * link fields (LINK_FIELDS) are read as links; the mentions and the body's
- * links are read outside code spans and fences, per structural line.
+ * Reads one page's Markdown as a document the registry names, or as a plain
+ * page (kind `undefined`): the identity line `# <ID> — <title>` gives the
+ * document its id when the id carries a prefix one of the registry's kinds
+ * names — with no registry, when it carries a plain word-dash-number shape
+ * — and an `Id:` field line does the same where the identity line carries
+ * none. The fields stand one per line as `Name: value` between the identity
+ * line and the first `## ` section; every section records where it begins
+ * and what it holds. The kind: the document's own generic `Kind:` field
+ * first, then the id's prefix, then the place its path finds — each naming
+ * a kind of the registry, and nothing invented where none names. The link
+ * fields (LINK_FIELDS) are read as the document's links; the mentions and
+ * the body's links are read outside code spans and fences, per structural
+ * line.
  */
-export function parseDocument(path: string, markdown: string, held: ReadonlySet<string>): ParsedDocument {
+export function parseDocument(path: string, markdown: string, held: ReadonlySet<string>, kit: RegistryKit | undefined = undefined): ParsedDocument {
   const all = linesOf(markdown);
   const first = all.find((line) => line.raw.trim());
   const head = first !== undefined && first.structural ? first.raw.match(/^# (\S+) — (.+)$/) : null;
-  const idText = head !== null ? head[1] : undefined;
-  let id = idText !== undefined && ID_REGEX.test(idText) ? idText : undefined;
-  // The vision is a document of the chain whose id is the word VISION,
-  // whether its identity line names it or not: docs/vision.md is VISION,
-  // so `Grew from: VISION` resolves and id-based backlinks reach it.
-  if (id === undefined && path === 'docs/vision.md') id = 'VISION';
+  const identityWord = head !== null ? head[1] : undefined;
   const titleText = head !== null ? head[2] : undefined;
   const title = titleText !== undefined ? titleText.trim() : first !== undefined ? first.raw.replace(/^#\s*/, '').trim() : path.replace(/\.md$/, '');
 
@@ -382,13 +311,27 @@ export function parseDocument(path: string, markdown: string, held: ReadonlySet<
       .trim();
   }
 
-  // The kind: the identity line's prefix first (a chain document keeps its
-  // kind whatever folder it stands in), else the page's place; a practice
-  // retired by its own written status sorts into the retired group.
-  let kind = id !== undefined && id.indexOf('-') > 0 ? ID_PREFIX_KIND[id.slice(0, id.indexOf('-'))] : kindOfPath(path);
-  if (id === 'VISION') kind = 'vision';
-  if (kind === 'practices' && fields.some((field) => field.name === 'Status' && field.value.trim().toLowerCase() === 'retired')) {
-    kind = 'practices-retired';
+  // The id: the identity line's word when the shapes read one, else an `Id:`
+  // field whose value does. The shapes are the registry's prefixes with a
+  // registry, a plain word-dash-number id without one.
+  const idShape = kit !== undefined ? kit.idShape : /^[A-Za-z][A-Za-z0-9_-]*-\d+$/;
+  let id = identityWord !== undefined && idShape.test(identityWord) ? identityWord : undefined;
+  if (id === undefined) {
+    const named = fields.find((field) => field.name.toLowerCase() === 'id');
+    if (named !== undefined && idShape.test(named!.value)) id = named!.value;
+  }
+
+  // The kind: the explicit generic `Kind:` field when it names a kind of
+  // the registry, then the id's prefix, then the place the path sits in —
+  // all of them registry reads, never anything inferred without one.
+  let kind: DocumentKind | undefined;
+  if (kit !== undefined) {
+    const named = fields.find((field) => field.name.toLowerCase() === 'kind');
+    if (named !== undefined) {
+      kind = kit.kinds.find((candidate) => candidate.name.toLowerCase() === named!.value.toLowerCase())?.name;
+    }
+    if (kind === undefined && id !== undefined) kind = kit.byPrefix.get(id.slice(0, id.indexOf('-')))?.name;
+    if (kind === undefined) kind = kindOfPath(kit, path)?.name;
   }
 
   const mentions: string[] = [];
@@ -396,15 +339,15 @@ export function parseDocument(path: string, markdown: string, held: ReadonlySet<
   const content = first === undefined ? all : all.slice(all.indexOf(first));
   for (const line of content) {
     if (!line.structural) continue;
-    for (const named of mentionsOf(line.raw)) if (!mentions.includes(named)) mentions.push(named);
+    for (const named of mentionsOf(line.raw, kit)) if (!mentions.includes(named)) mentions.push(named);
     for (const target of linkTargetsOf(line.raw, path, held)) if (!linkTargets.includes(target)) linkTargets.push(target);
   }
 
   const grewFromIds: GrownFromId[] = [];
   for (const field of fields) {
     if (LINK_FIELDS[field.name] !== true) continue;
-    for (const grown of grewFromOf(field.name, field.value)) {
-      if (!grewFromIds.some((heldId) => heldId.id === grown.id && heldId.via === grown.via)) grewFromIds.push(grown);
+    for (const grown of grewFromOf(field.name, field.value, kit)) {
+      if (!grewFromIds.some((heldEntry) => heldEntry.id === grown.id && heldEntry.via === grown.via)) grewFromIds.push(grown);
     }
   }
 
@@ -417,22 +360,42 @@ export function parseDocument(path: string, markdown: string, held: ReadonlySet<
 export interface ProductDocuments {
   /** By the page's path within the product. */
   byPath: Map<string, ParsedDocument>;
-  /** By the document's id (`FR-001`, `VISION`, `PRA-001`); a page without an id is not here. */
+  /** By the document's id as the id shapes read it; a page without an id is not here. */
   byId: Map<string, ParsedDocument>;
 }
 
 /**
- * Reads the set's documents out of every page's Markdown: none cached —
- * the caller re-reads the pages fresh and calls this again with what they
- * hold.
+ * Reads the documents out of every page's Markdown, so a registry's data
+ * puts each page of a kind under its kind, and rebuilds the by-id index.
+ * None cached — the caller re-reads the pages fresh and calls this again
+ * with what they hold. One addition the index makes itself: a document of
+ * a file kind (a kind whose folder is one file) that the product's
+ * documents address by the file stem's capitals — the way the form link
+ * lines spell the whole document's address — carries that word as its id,
+ * so those links resolve and the backlinks both ways reach it; the address
+ * is used where the product's own documents wrote it, nowhere else.
  */
-export function documentsOf(paths: readonly string[], read: (path: string) => string, held: ReadonlySet<string>): ProductDocuments {
+export function documentsOf(paths: readonly string[], read: (path: string) => string, held: ReadonlySet<string>, kit: RegistryKit | undefined = undefined): ProductDocuments {
   const byPath = new Map<string, ParsedDocument>();
   const byId = new Map<string, ParsedDocument>();
   for (const path of paths) {
-    const doc = parseDocument(path, read(path), held);
+    const doc = parseDocument(path, read(path), held, kit);
     byPath.set(path, doc);
     if (doc.id !== undefined && !byId.has(doc.id)) byId.set(doc.id, doc);
+  }
+  if (kit !== undefined) {
+    const named = new Set<string>();
+    for (const doc of byPath.values()) {
+      for (const grown of doc.grewFromIds) named.add(grown.id);
+      for (const mentioned of doc.mentions) named.add(mentioned);
+    }
+    for (const [address, folder] of kit.fileAddresses) {
+      if (!named.has(address) || byId.has(address)) continue;
+      const doc = byPath.get(folder);
+      if (doc === undefined || doc.id !== undefined) continue;
+      doc.id = address;
+      byId.set(address, doc);
+    }
   }
   return { byPath, byId };
 }
