@@ -120,6 +120,24 @@ export interface DocumentField {
   line: number;
 }
 
+/**
+ * The page's Markdown with the field lines the header block already shows
+ * blanked: every field's own line is emptied, nothing else moves, so the
+ * file's line numbers — the check's findings, every pointer the page
+ * names — stay true while the page shows the fields once. The identity
+ * line, the sections and every line the block did not read stand as
+ * before.
+ */
+export function blankFieldLines(markdown: string, fields: readonly DocumentField[]): string {
+  if (fields.length === 0) return markdown;
+  const lines = markdown.split('\n');
+  for (const field of fields) {
+    const index = field.line - 1;
+    if (index >= 0 && index < lines.length) lines[index] = '';
+  }
+  return lines.join('\n');
+}
+
 /** One link-field target: an id, or `VISION`, and the field that named it. */
 export interface GrownFromId {
   id: string;

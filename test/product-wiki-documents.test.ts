@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { openProductWiki } from '../src/product-wiki/pages.js';
-import { parseDocument, resolveBodyLink, statusOf, KIND_ORDER, backlinksOf } from '../src/product-wiki/documents.js';
+import { parseDocument, resolveBodyLink, statusOf, KIND_ORDER, backlinksOf, blankFieldLines } from '../src/product-wiki/documents.js';
 import { runProductCheck, productCheckScript, CheckRunCache, type ProductCheckRun } from '../src/product-wiki/checking.js';
 
 let folder: string | undefined;
@@ -45,6 +45,61 @@ function page(path: string) {
 afterEach(() => {
   if (folder !== undefined) rmSync(folder, { recursive: true, force: true });
   folder = undefined;
+});
+
+describe('the served body hides the field lines the header block shows', () => {
+  test('blankFieldLines blanks every field line at its own line, nothing else', () => {
+    const markdown = '# H-001 — The title\n\nGrew from: VISION\nBelief: returning is cheap\nFieldNope: \n\n## Sections\n\nText.\n';
+    const parsed = parseDocument('docs/hypotheses/H-001-reader.md', markdown, new Set());
+    const blanked = blankFieldLines(markdown, parsed.fields);
+    const raw = markdown.split('\n');
+    const got = blanked.split('\n');
+    expect(got.length).toBe(raw.length);
+    expect(got[2]).toBe('');
+    expect(got[3]).toBe('');
+    expect(got[4]).toBe('FieldNope: '); // an empty value is not a field; the line stands
+    expect(got[0]).toBe('# H-001 — The title');
+    expect(got[6]).toBe('## Sections');
+    expect(got[8]).toBe('Text.');
+  });
+
+  test('a fields block on the page leaves nothing of the block in the served body, for every kind with a block', () => {
+    draft();
+    const cases: [string, string, string, string][] = [
+      ['docs/hypotheses/H-001-reader.md', 'H-001', 'Grew from: VISION', 'Grew from: VISION'],
+      ['docs/prototypes/P-001-column.md', 'P-001', 'Tests: H-001', 'Tests: H-001'],
+      ['docs/results/R-001-returns.md', 'R-001', 'Of: P-001', 'Of: P-001'],
+      ['docs/practices/PRA-001-rule.md', 'PRA-001', 'Status: active', 'Status: active'],
+      ['docs/requirements/FR-001-old-note.md', 'FR-001', 'Serves: UC-001', 'Serves: UC-001'],
+      ['docs/stories/US-001-return.md', 'US-001', 'Grew from: H-001', 'Grew from: H-001'],
+      ['docs/use-cases/UC-001-return.md', 'UC-001', 'Serves: US-001', 'Serves: US-001'],
+      ['docs/questions/Q-001-rename.md', 'Q-001', 'Concerns: UC-001', 'Concerns: UC-001'],
+      ['docs/decisions/0001-reading-view.md', '0001', 'Status: accepted', 'Status: accepted'],
+    ];
+    for (const [path, id, fieldLine, shown] of cases) {
+      write(path, `# ${id} — The page of the kind\n\n${fieldLine}\n\n## Body\n\nThe body text.\n`);
+      const served = page(path);
+      const fields = served.document?.fields ?? [];
+      const carried = fields.find((field) => field.value === shown.split(': ')[1]);
+      expect(carried, `${path}: the field stays in the document`).toBeDefined();
+      const lines = served.markdown.split('\n');
+      expect(lines.some((line) => line.includes(fieldLine)), `${path}: the field line is out of the served body`).toBe(false);
+      expect(lines).toContain('## Body');
+      expect(lines.filter((line) => line !== '')).toContain('The body text.');
+      // A plain-page body is untouched: the bar does not reach the check's line numbers.
+      const f = served.findings ?? [];
+      expect(Array.isArray(f)).toBe(true);
+    }
+  });
+
+  test('a page of no set kind is served byte-for-byte as the file holds it', () => {
+    draft();
+    write('docs/README.txt', 'not a page');
+    write('docs/notes.md', '# Notes — Just a page\n\nNothing of the set here.\n\n## Section\n\nBody text.\n');
+    const served = page('docs/notes.md');
+    expect(served.document).toBeUndefined();
+    expect(served.markdown).toBe('# Notes — Just a page\n\nNothing of the set here.\n\n## Section\n\nBody text.\n');
+  });
 });
 
 describe('the kinds the forms name', () => {

@@ -1,7 +1,7 @@
 # The product's documents in the set's forms, linked both ways, with the check's findings on the page
 
 Change: docs-pages
-Base: 36aeb263c60c918c0364f810b0f8a6d63d240867
+Base: 1d1b45c256271b075a481380a2a22d76970b6f54
 Tasks: madarch-fe1.1
 Kind: behavior
 
@@ -21,7 +21,7 @@ server; the static Starlight export; validating any form of the set's own
 (the check belongs to the set; the wiki only runs it).
 
 ## Changes to requirements
-- product-wiki/front-matter (new requirement): the documents view — the set's document kinds read from the pages' forms, the header block with the form's fields, the grown-from and "Linked from" rows, the set's check's findings on the failing page, and the navigation's kind groups in the set's life-cycle order (the shell's grouping wording and the reading blocks this requirement carries are part of it).
+- product-wiki/front-matter (changed requirement): the documents view — the set's document kinds read from the pages' forms, the header block with the form's fields, the grown-from and "Linked from" rows, the set's check's findings on the failing page, and the navigation's kind groups in the set's life-cycle order (the shell's grouping wording and the reading blocks this requirement carries are part of it). At the close of the first landing (Base 1d1b45c2) the requirement gains its fields-once rule: where the header block shows a field, the raw `Name: value` line the block is read from is out of the served body, blanked at its own line, so the file's line numbers stay true (the eye-check defect /tmp/madarch-run-iuc/note-dup-fields.md; scenario `fields-show-once`).
 
 ## Preserved contracts
 - product-wiki/pages: the pages are the same files as before

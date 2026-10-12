@@ -34,6 +34,7 @@ import { readProduct, type ProductIdentity } from '../product/manifest.js';
 import { byCodePoint } from '../model/order.js';
 import {
   backlinksOf,
+  blankFieldLines,
   documentsOf,
   grownFromOf,
   statusOf,
@@ -311,12 +312,19 @@ class FreshProductWiki implements ProductWiki {
     const document = doc === undefined || (doc.kind === undefined && doc.id === undefined && doc.fields.length === 0 && grown.length === 0 && linked.length === 0 && status === undefined)
       ? undefined
       : { kind: doc.kind, id: doc.id, status, fields: doc.fields, grewFrom: grown, backlinks: linked };
+    // Where the header block shows the form's fields, the body does not
+    // render the raw `Name: value` lines again: the served text blanks
+    // exactly those lines, so the block is the one place they show and
+    // every line number stays true.
+    const shown = doc === undefined
+      ? markdown
+      : blankFieldLines(markdown, doc.fields);
     return {
       ok: true,
       page: {
         path,
         title: titleOf(path, markdown),
-        markdown,
+        markdown: shown,
         changedAt,
         document,
         findings,
