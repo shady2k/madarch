@@ -1,6 +1,6 @@
 {
   "strength": "block",
-  "currentMilestone": "idea-to-wiki",
+  "currentMilestone": "standalone",
   "milestoneLabels": [
     "knowledge-base",
     "registry",
@@ -8,7 +8,8 @@
     "answers",
     "idea-to-wiki",
     "agent-access",
-    "work-from-wiki"
+    "work-from-wiki",
+    "standalone"
   ],
   "areaLabels": [
     "model",
