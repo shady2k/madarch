@@ -4,9 +4,16 @@ madarch keeps a product's knowledge as a graph: what people intend (its
 vision, requirements, use cases, decisions and architecture), joined with what
 madarch finds in its code, configuration and deployments, across every
 repository the product spans. Its wiki is the product's single source of
-truth and place of work: ideas, hypotheses, requirements, use cases and the
-work itself are written there, kept as Markdown in the product's own git
-repository, and work is launched from it (decisions 0017, 0018). It is
+truth and place of work — the product management system: everything about the
+product lives in it, from ideas and the hypotheses that worked or failed,
+through requirements, user journeys and customer-journey maps, architecture,
+data-flow and sequence diagrams, design (wireframes dictated in the chat, then
+React components from the product's UI kit in place of a separate design
+tool), testing, deployment, information-security requirements, the tracker
+(beads), milestones and plans, to the as-is and to-be of the architecture with
+removals kept. The work itself is written there and launched from it:
+agents take work from the wiki and their status shows live, and the main chat
+is Lifemodel's (decisions 0017, 0018, 0021, 0022). It is
 agent-first: an agent does most of the reading and writing, people decide and
 make the occasional edit by hand. A reader goes from the product's purpose down
 to the line of code that implements one step of one use case, and every claim
@@ -74,6 +81,15 @@ folder of documents nobody can trace.
   running system part ways, and nothing says where, or what is still missing.
 - **History is lost.** Nobody can answer "what did the integration look like on
   the day of the incident" or "what did we believe then".
+- **Design lives outside the product's knowledge.** The designers draw in a
+  separate tool, so a control on a screen cannot be asked in which scenarios,
+  services and code it takes part — and the design drifts from both the
+  requirements and the code without anyone saying where.
+- **The work starts outside the system.** Tasks go through messenger chats
+  and separate trackers, so nobody sees in one place which agent works on
+  which feature and in what status; a test stand is gathered by hand for
+  every change, and the same shared stand is booked by arrangement, not by a
+  queue.
 - **Agents cannot use diagrams.** An agent needs to ask "which use cases does
   this function serve" or "where does personal data end up" and get a chain
   with evidence, not a picture.
@@ -89,6 +105,7 @@ folder of documents nobody can trace.
 | Requirements traceability (sphinx-needs, Doorstop) | Requirements linked to requirements and tests, not to the architecture or the code's evidence |
 | Archi / ArchiMate | Manual layout and editing; no link to code |
 | Wikis (Confluence, Notion, the GitHub and GitLab wikis), with or without AI | Their pages are free text: unchecked, unlinked to the architecture, the code or the work, and wrong a few months after they are written; an AI that edits them edits text, not a product's checked knowledge |
+| Design tools outside the wiki (Figma and its kind), to be replaced per the owner's plan | The design is not part of the product's checked knowledge: a change of a control cannot be traced to the requirements, scenarios, services and code through the same backlinks, and the mockups drift from the code they depict |
 
 The difference: a **product corpus in git**, in one product repository and
 under one contract that madarch checks on every write and commit
@@ -140,6 +157,19 @@ frontends.
    transitively, on the event bus in production, which use cases that touches,
    and what it looked like at 14:00 yesterday, and gets a chain with evidence
    instead of reading twenty repositories.
+8. **A business person dictates a screen.** She opens the wiki, talks the
+   screen through with her agent, and walks away with requirements and a
+   wireframe. A designer then composes the same screen from React components
+   of the product's UI kit inside the wiki — to a pixel-perfect mockup the
+   front end implements — and the button on the mockup answers where it takes
+   part: its scenarios, its services, its code, and what removing it would
+   break. The design tool that used to hold this is replaced by the wiki, per
+   the owner's 2026-10-12 vision.
+9. **A product engineer asks for a test stand.** From the affected features
+   madarch computes which services and versions are involved, proposes the
+   preparation steps, and the stand is assembled with exactly these versions
+   at the time asked for. The shared one serves agents and people through one
+   queue, and the run's report comes back where the request was written.
 
 ## Outcome
 
@@ -155,18 +185,47 @@ frontends.
   created, stored and consumed, and every flow that carries it.
 - Open questions: what is missing before the picture is complete, who can
   answer, and how complete it is for each role.
+- Role perspectives computed on demand: the same graph read as the business
+  side, the product engineer, the tester, the security engineer each needs it,
+  not copies to keep apart.
+- Approvals as a simple e-signature by role: the roles and their members live
+  in the product; a rule names a role, never a person, any member may sign,
+  and the signature keeps the person, the role and a digest of the approved
+  revision. A change to someone else's requirement becomes a proposal for a
+  role's approval before it lands.
+- Agents and the work taken from the wiki: a task leaves through the wiki, the
+  agent's status shows live in it, and the record of what was done links back
+  to the requirement it served.
 - Checks: dangling cross-repository references, contracts without providers,
   rule violations, drift between intent and code, broken scenarios, the corpus
   against its contract.
-- One product repository per product: the wiki and the work, a manifest of
-  its code repositories, the team's skills and its constitution for agents;
-  cloning it and running its bootstrap prepares the whole workspace.
+- One product repository per product as the one source of everything: the wiki
+  and the work, a manifest of its code repositories, the team's skills and its
+  constitution for agents; cloning it and running its bootstrap prepares the
+  whole workspace. Each type of entity declares its storage form inside the
+  product — a document under `docs/`, a task in the beads tracker, a model
+  element, a React component with its story — and madarch shows an
+  unimplemented form as a named finding, never drops it. The lifecycle of
+  every entity keeps planned, active, retiring and retired against a
+  milestone, so the to-be covers additions, changes and removals: a removed
+  button or section stays in the record as retired at its milestone.
+- Information-security requirements per repository, aggregated over the
+  product: each repository keeps the checklist it must satisfy and where it
+  stands, and the product's pages answer how the whole complies, so talking
+  to security happens from the same wiki.
+- Test stands assembled on request: the services and versions a change
+  involves come from the graph, the stand is prepared for them, and the
+  shared stand is taken through a queue, agents included.
 - The same madarch locally and centrally: a local one serves a workspace, the
   central one serves the company and federates products; they sync through
   git, and the graph in LadybugDB is derived and rebuildable from it.
 - Answers for people and agents over HTTP and MCP; diagrams through frontend
   plugins (Mermaid for documents, LikeC4 for navigation, graph databases for
-  ad-hoc queries).
+  ad-hoc queries); impact analysis along the links, from a component to the
+  scenarios, services and code behind it and back.
+- The main chat is Lifemodel's (the owner's agent platform): work requests,
+  statuses and page chat go through one chat, and madarch stays the graph,
+  the write path and the store that chat reads.
 
 ## Success signal
 
@@ -174,7 +233,10 @@ A newcomer answers "what is this product for, how does a use case run through
 it, and where is that in the code" from madarch without opening the
 repositories; an architect answers "who talks to whom, carrying what, and since
 when"; and a pull request that breaks a use case or another repository's
-interaction is reported before merge. Counter-metric: the effort to keep the
+interaction is reported before merge. The same wiki then holds the plans, the design and
+the stand requests: a change runs from its requirement to its merged code
+without leaving the product's own space.
+Counter-metric: the effort to keep the
 corpus current must not grow with the number of repositories; if people stop
 updating it, the product failed even if the wiki looks good.
 
@@ -188,6 +250,10 @@ updating it, the product failed even if the wiki looks good.
   work): it lives in the shady2k-skills set; madarch is the store, the checks,
   the graph, the wiki and the interfaces agents use.
 - In the current milestone: see its charter, `docs/milestones/idea-to-wiki.md`.
+- The later milestones the Direction names as hypotheses (the tracker and the
+  agents, the chat through Lifemodel, roles and approvals, information
+  security, test stands, the design and UI kit, federation): named, not opened
+  — each still needs the owner's decision before it becomes tracked work.
 
 ## Constraints and assumptions
 
@@ -199,6 +265,12 @@ Known:
   the first webhook sources.
 - A product's knowledge is kept in its own git repository, apart from its code:
   nearly everyone may write to it, while write access to code stays narrow.
+
+Contract v1's work (dated 2026-10-12, recorded as decision 0022) reserves
+without implementing yet: the storage form per entity type, product-scoped
+global ids, a lifecycle with milestones on every entity, and a roles section
+in the manifest. The v1 engine implements documents only, and reads the rest
+in.
 
 Hypotheses to test:
 - Use cases written as scenarios over the model are cheap enough to keep
@@ -241,8 +313,31 @@ Next, as milestones:
 - Work launched from the wiki: code repositories, tasks and runs, feedback
   from madarch's own code index.
 - The team and the central server: bootstrap, sign-in, single sign-on, roles.
-- Federation of products at their contract boundaries, then company-wide
-  abstractions.
+
+Later, as hypothesis milestones — named, not opened; each becomes a
+milestone only when the owner takes it up:
+
+- Tracker and agents: the beads tracker read and written through the wiki,
+  work taken by agents from it, their status live on the item, over one event
+  stream of every change (decision 0022).
+- The chat through Lifemodel: madarch's agent API as the published contract;
+  Lifemodel joins as a channel plugin to carry the main chat, the work
+  requests and the executions.
+- Roles, approvals and signatures: the roles section, approval rules by role,
+  e-signatures on the one write path, change proposals for edits to another's
+  requirement.
+- Information security: per-repository requirements in the product, the
+  product aggregation, and the security engineer's reading of the same graph.
+- Test stands: stands assembled on request from the affected services'
+  versions, through a queue for the shared stand, with a report back.
+- Design and the UI kit: wireframes from dictation in the wiki, then React
+  components from the product's UI kit for the pixel-perfect mockup, the
+  design embedded where the requirements and the code live.
+- Federation: products linked at their contract boundaries, cross-product
+  links shown as external links, then company-wide abstractions.
+
+The owner's verbatim picture of these, recorded 2026-10-12:
+`docs/vision/owner-vision-2026-10-12.md`.
 
 Later hypotheses:
 - Data flow inside code (which value reaches which topic); history queries and
