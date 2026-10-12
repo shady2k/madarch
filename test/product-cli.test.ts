@@ -475,6 +475,30 @@ describe('madarch list', () => {
     expect(stdout.indexOf(plane15)).toBeGreaterThan(stdout.indexOf(planeE));
   });
 
+  test('the order compares code points pairwise from the first difference, and a prefix falls first', () => {
+    const home = scratchFolder('madarch-cli-list-ord2-');
+    // Two names that differ only past their shared prefix, at a character
+    // whose code points order opposite their UTF-16 halves, and one name a
+    // prefix of the other: a comparator that stops early, reads a wrong
+    // character, or lets a prefix compare as longer, answers in another
+    // order than the capability names.
+    const names = ['a\uE000b', 'a\u{10000}b', 'a', 'ab', 'a\uE000c'];
+    for (const name of names) {
+      mkdirSync(join(home, name));
+      writeFileSync(join(home, name, 'workspace.yaml'), ['schemaVersion: 1', 'id: 3f6d2dc8-b16e-4bf0-9d3a-2c9c00b5287d'].join('\n'));
+    }
+    const { stdout, stderr, status } = runCommand(['list', '--home', home]);
+    expect(stderr).toBe('');
+    expect(status).toBe(0);
+    // a (shortest) < ab < a\uE000b < a\uE000c < a\u{10000}b — the plane-15
+    // character after the private-use one, and equal prefixes settled at
+    // the first difference or the length.
+    const at = (name: string) => stdout.indexOf(`folder: ${join(home, name)}`);
+    const ordered = ['a', 'ab', 'a\uE000b', 'a\uE000c', 'a\u{10000}b'].map(at);
+    expect(ordered.every((v) => v > -1)).toBe(true);
+    expect([...ordered].sort((x, y) => x - y)).toEqual(ordered);
+  });
+
   test('the products home MADARCH_HOME names is listed with no --home, as a draft\'s home is', () => {
     const madarchHome = scratchFolder('madarch-cli-list-home-');
     const products = join(madarchHome, 'products');
