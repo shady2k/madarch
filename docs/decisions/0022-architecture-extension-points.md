@@ -78,12 +78,17 @@ quoted here as decided.
   plus its story, for screens and the UI kit). The engine reports a form it
   does not implement as an honest "not supported by this engine version"
   finding and never drops the entity.
-- **One event stream of every change.** Every accepted write is appended to
-  the bitemporal fact log (0009) and published on one stream; the wiki app,
-  agents and later consumers subscribe to that one stream instead of
-  watching the filesystem, polling pages or each keeping its own store. This
-  is where "agents work with the wiki and their status is visible live"
-  comes from: agents are subscribers to the same events other readers get.
+- **One event stream of every change.** An accepted write keeps the order the
+  house has: it is committed to the product repository, the git content
+  (0017) that is the truth; it is appended to the bitemporal fact log (0009),
+  the record the queries run over; and its fact is published on one stream.
+  The stream is a current of notifications over accepted writes, not a
+  second source: reading it tells what changed, reading the repository or the
+  log tells what is true. The wiki app, agents and later consumers subscribe
+  to this one stream instead of watching the filesystem, polling pages or
+  each keeping its own store. This is where "agents work with the wiki and
+  their status is visible live" comes from: agents are subscribers to the
+  same events other readers get.
 - **A lifecycle on every entity.** The generic fields carry planned, active,
   retiring and retired, each state tied to a milestone. 0015's chain of
   architecture states becomes this lifecycle: to-be covers additions, changes
@@ -94,7 +99,7 @@ quoted here as decided.
   what the reader or agent sees is computed at the moment it is asked for
   (0001's computed views), because a saved slice goes stale against the event
   stream and forks the graph. Between requests, the wiki app and agents hold
-  nothing but their own subscription to the stream.
+  their subscription to the stream and the disposable local state it filled.
 - **One write path with later pluggable hooks.** The server's write path
   (0017: check, write, commit as the author) is the seam every later
   permission mechanism plugs into: roles, approvals by role, e-signatures
@@ -112,9 +117,11 @@ quoted here as decided.
   chat, work requests and task statuses go through it as signals, and its
   outgoing actions — a task to take from the wiki, a run to ask for,
   a message into the chat — arrive as Lifemodel intents its channel and
-  Motor Cortex carry out. Lifemodel is not in madarch's code and madarch is
-  not in Lifemodel's; either runs alone, and the contract keeps them
-  replacable.
+  Motor Cortex carry out. The queue of agent work lives on the Lifemodel side
+  too, with the shared test stand's queue as its first user; madarch names
+  what the work needs and hears what became of it, through the same
+  contract. Lifemodel is not in madarch's code and madarch is not in
+  Lifemodel's; either runs alone, and the contract keeps them replaceable.
 
 ## Consequences
 - The features named in the vision record arrive as work at these seams, not
@@ -131,10 +138,11 @@ quoted here as decided.
   naming the contract version range the schema accepts, the way the existing
   contract's version check behaves, and never silently parsed away.
 - Unsaved views mean the wiki app builds its pages on request even in the
-  server mode; nothing in madarch saves a rendered graph or a view; nothing
-  but a consumer's own local cache is derived from the graph and nothing is
-  recorded ever from the event stream. Time-travel queries stay queries over
-  the fact log (0009), never a stored slice.
+  server mode; nothing in madarch saves a rendered graph or a view. A
+  subscriber's local state stays what it is: a disposable cache the stream
+  filled, thrown away and rebuilt from the graph, never a saved slice that
+  stands in for one. Time-travel queries stay queries over the fact log
+  (0009), never a stored slice.
 - The lifecycle states and the roles section land in the manifest before the
   engine implements anything over them, so a product's git history carries
   the vocabulary from the day it starts.
