@@ -48,7 +48,7 @@ by hiding it or failing.
   docs/ structure and the template override path with its precedence, and
   the move of the structural rules out of the set's check — the set's lane
   (the registry and t3yt work in the set's repository); the record of the
-  decisions is 0022.
+  decisions is 0021, as amended.
 - The lifecycle commands and `madarch list`: the manifest's own schema
   version has its own gate; the registry is not read by `madarch list`,
   and nothing there changes.
