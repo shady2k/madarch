@@ -1188,8 +1188,8 @@ describe('the documents view', () => {
     expect(fields).toContain('FR-999');
     expect(fields).toContain('Serves');
     expect(fields).toContain('UC-001');
-    const grown = document.querySelector('[data-testid="grown-from"]')?.textContent ?? '';
-    expect(grown).toContain('Grew from');
+    const grown = document.querySelector('[data-testid="grown-from-serves"]')?.textContent ?? '';
+    expect(grown).toContain('Serves');
     expect(grown).toContain('UC-001');
     const linked = document.querySelector('[data-testid="linked-from"]')?.textContent ?? '';
     expect(linked).toContain('Linked from');
