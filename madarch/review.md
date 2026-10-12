@@ -101,6 +101,7 @@ glossary's Scenario entry) were re-read and re-pinned there.
 
 | Path | Element | Reason |
 | --- | --- | --- |
+| `README.md` | product-docs | the repository's front page; read for claims |
 | `madarch/` | excluded | the model and its review |
 | `docs/` | product-docs | the product's own documents; read for claims |
 | `examples/` | reference-system | the invented reference system, its model and its committed views |

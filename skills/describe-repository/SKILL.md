@@ -89,6 +89,20 @@ The forms are the skill set's (decision 0019) and its check reads the
 documents field by field, so the provenance lives in the `Sources` section,
 never in the field zone a `Source:` field there would refuse.
 
+Two refusals the check writes most often on the documents this step
+produces, avoided form-first:
+
+- a field or a citation line holding a placeholder rather than a thing —
+  `<name>`-shaped values read as unfinished text (`unfinished-content`);
+  write the concrete example the document walks (`runs repo add
+  fieldnote-core https://example.com/fieldnote/fieldnote-core.git`), the
+  parameter's name belongs to the code citation beside the sentence;
+- a requirement or a use case whose prose names code — files, commands,
+  classes, technology names (`system-part-in-requirement`); the behaviour
+  stands in the reader's words, and the code it rests on lives only in the
+  per-sentence citations and the `## Sources` section.
+
+
 Every statement in the document is traceable: each sentence of a scenario
 or a requirement carries its own citation — `(notes.py:8-9)` beside the
 sentence — and the `Evidence:` line gathers the document's citations into

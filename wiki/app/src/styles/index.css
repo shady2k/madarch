@@ -822,8 +822,18 @@ main .footnotes {
 
 .diagram-mermaid .edgeLabel span,
 .diagram-mermaid .edgeLabel p {
-  background-color: var(--surface-page);
+  background-color: var(--surface-page) !important;
+  color: var(--text) !important;
   padding-inline: 3px;
+}
+
+/* Mermaid's own svg-mode labels when they are not the html label above:
+ * the theme's token text, never the renderer's dark-on-dark default. The
+ * !important answers the style block the renderer injects inside the
+ * svg, which would otherwise keep the dark theme's unreadable chip. */
+.diagram-mermaid .edgeLabel text,
+.diagram-mermaid .edgeLabel span text {
+  fill: var(--text) !important;
 }
 
 likec4-view {
