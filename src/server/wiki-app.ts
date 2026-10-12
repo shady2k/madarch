@@ -24,7 +24,7 @@ import { architectureBundle } from '../product-wiki/architecture.js';
 import { likec4Webcomponent } from '../product-wiki/likec4-webcomponent.js';
 import { renderModel } from '../render/prepare.js';
 import { readStagesIndex, type StagesIndex } from '../wiki/stages.js';
-import { readProductRegistry } from '../product/registry.js';
+import { readProductRegistry, registryKit } from '../product/registry.js';
 import { readFileSync, statSync, watch } from 'node:fs';
 import { join as joinPath, normalize, resolve } from 'node:path';
 import type { Handled, Refusal, ReplyMaker } from './http.js';
@@ -284,11 +284,16 @@ export function createWikiPart(
           }),
         };
       }
+      // The kit's own normalization applies (a left-out cardinality reads
+      // as many), so the answer carries the same defaults the page reader
+      // walked the kinds by — and readProductRegistry reads fresh per ask.
+      const kit = registryKit(read);
+      if (kit === undefined) return { response: json(200, { present: true, refused: [] }) };
       return {
         response: json(200, {
           present: true,
-          stages: read.stages.map((stage) => (stage.name === undefined ? { id: stage.id } : { id: stage.id, name: stage.name })),
-          kinds: read.kinds.map((kind) => ({
+          stages: kit.stages.map((stage) => (stage.name === undefined ? { id: stage.id } : { id: stage.id, name: stage.name })),
+          kinds: kit.kinds.map((kind) => ({
             name: kind.name,
             prefix: kind.prefix,
             folder: kind.folder,

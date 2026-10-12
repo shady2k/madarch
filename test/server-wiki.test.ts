@@ -197,6 +197,100 @@ describe('the server\'s product mode', () => {
     expect(body.revision).toBe((await (await fetch(`${url}/api/pages`)).json() as typeof body).revision);
   });
 
+  test('GET /api/registry answers a kind\'s statuses and link declarations beside the rest', async () => {
+    draft(true);
+    builtApp();
+    writeFileSync(join(folder!, 'docs', 'kinds.yaml'), [
+      'stages:',
+      '  - id: idea',
+      '    name: Idea',
+      '  - id: requirements',
+      '    name: Requirements',
+      'kinds:',
+      '  - name: Product vision',
+      '    prefix: V',
+      '    folder: docs/vision.md',
+      '    stage: idea',
+      '    hint: write why the product is worth building',
+      '  - name: User story',
+      '    prefix: US',
+      '    folder: docs/stories',
+      '    stage: requirements',
+      '    hint: write what one user does',
+      '    statuses: [draft, ready]',
+      '  - name: Use case',
+      '    prefix: UC',
+      '    folder: docs/use-cases',
+      '    stage: requirements',
+      '    hint: walk one story from start to finish',
+      '    links:',
+      '      - field: Serves',
+      '        targets:',
+      '          - User story',
+      '        backlink: Served by',
+      '        required: true',
+      ''].join('\n'));
+    const url = startProduct();
+    const answer = await fetch(`${url}/api/registry`);
+    expect(answer.status).toBe(200);
+    const body = await answer.json() as { present: boolean; kinds?: { name: string; statuses?: string[]; links?: { field: string; targets: string[]; backlink?: string; cardinality?: string; required?: boolean }[] }[] };
+    expect(body.present).toBe(true);
+    const story = body.kinds?.find((kind) => kind.name === 'User story');
+    expect(story?.statuses).toEqual(['draft', 'ready']);
+    expect(story?.links).toEqual([]);
+    const uc = body.kinds?.find((kind) => kind.name === 'Use case');
+    expect(uc?.links).toEqual([{ field: 'Serves', targets: ['User story'], backlink: 'Served by', cardinality: 'many', required: true }]);
+    server!.stop();
+    server = undefined;
+  });
+
+  test('GET /api/page carries the structural findings the registry\'s reads computed', async () => {
+    draft(true);
+    builtApp();
+    writeFileSync(join(folder!, 'docs', 'kinds.yaml'), [
+      'stages:',
+      '  - id: idea',
+      '    name: Idea',
+      '  - id: requirements',
+      '    name: Requirements',
+      'kinds:',
+      '  - name: Sources',
+      '    prefix: S',
+      '    folder: docs/sources',
+      '    stage: idea',
+      '    hint: have the first conversation',
+      '  - name: User story',
+      '    prefix: US',
+      '    folder: docs/stories',
+      '    stage: requirements',
+      '    hint: write what one user does',
+      '    statuses: [draft, ready]',
+      '  - name: Use case',
+      '    prefix: UC',
+      '    folder: docs/use-cases',
+      '    stage: requirements',
+      '    hint: walk one story from start to finish',
+      '    links:',
+      '      - field: Serves',
+      '        targets:',
+      '          - User story',
+      '        backlink: Served by',
+      ''].join('\n'));
+    const stories = join(folder!, 'docs', 'stories');
+    mkdirSync(stories, { recursive: true });
+    writeFileSync(join(stories, 'US-001-return.md'), '# US-001 — Return\n\nStatus: archived\nGrew from: S-099\n\n## Story\nI return.\n');
+    const url = startProduct();
+    const asked = await fetch(`${url}/api/page?path=docs%2Fstories%2FUS-001-return.md`);
+    expect(asked.status).toBe(200);
+    const body = await asked.json() as { structural: { rule: string; file: string; line: number }[] };
+    expect(body.structural.map((f) => [f.rule, f.line])).toEqual([
+      ['structural.status', 3],
+      ['structural.undeclared-field', 4],
+    ]);
+    server!.stop();
+    server = undefined;
+  });
+
   test('GET /api/registry answers the kinds registry whole, refused, or absent', async () => {
     draft(true);
     builtApp();
@@ -359,6 +453,138 @@ describe('the server\'s product mode', () => {
     expect(afterBurst).toBeLessThanOrEqual(1);
     expect(held).not.toContain('# Vision'); // the event carries no document bytes
     asking.abort();
+  });
+
+  test('the live walk: US joins the registry, the finding comes and clears, the backlinks stand, no restart', async () => {
+    // A product with a use case and no user story: the registry and the
+    // use case document are the only material.
+    draft();
+    builtApp();
+    writeFileSync(join(folder!, 'docs', 'kinds.yaml'), [
+      'stages:',
+      '  - id: idea',
+      '  - id: requirements',
+      'kinds:',
+      '  - name: Use case',
+      '    prefix: UC',
+      '    folder: docs/use-cases',
+      '    stage: requirements',
+      '    hint: walk one story from start to finish',
+      ''].join('\n'));
+    const cases = join(folder!, 'docs', 'use-cases');
+    mkdirSync(cases, { recursive: true });
+    writeFileSync(join(cases, 'UC-001-return.md'), '# UC-001 — Return\n\n## Story\nThe note opens where it was left.\n');
+    const url = startProduct();
+    const streamOn = new AbortController();
+    const response = await fetch(`${url}/api/events`, { signal: streamOn.signal });
+    expect(response.headers.get('content-type')).toContain('text/event-stream');
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let held = '';
+    let eventsSeen = 0;
+    // Waits for the next `event: change` on the stream, inside the seconds
+    // named: the chunk reads run to the deadline with the change count as
+    // the marker, so a burst of tree events still counts what came.
+    const waitEvent = async (seconds: number): Promise<boolean> => {
+      const start = eventsSeen;
+      const deadline = Date.now() + seconds * 1000;
+      for (;;) {
+        const left = deadline - Date.now();
+        if (left <= 0) {
+          eventsSeen = held.split('event: change').length - 1;
+          return eventsSeen > start;
+        }
+        const chunk = (async (): Promise<boolean> => {
+          const next = await reader.read();
+          if (next.done) return false;
+          held += decoder.decode(next.value, { stream: true });
+          return true;
+        })();
+        const got = await Promise.race([chunk, new Promise<boolean>((done) => setTimeout(() => done(false), left))]);
+        if (held.includes('event: change')) {
+          eventsSeen = held.split('event: change').length - 1;
+          return eventsSeen > start;
+        }
+        if (got === false) {
+          eventsSeen = held.split('event: change').length - 1;
+          return eventsSeen > start;
+        }
+      }
+    };
+
+    // The manifest edit joins the US kind WITH its required link — one
+    // publication, the new kind and the rc-typed link together — and the
+    // running stream says it inside two seconds, with no restart.
+    const kindsPath = join(folder!, 'docs', 'kinds.yaml');
+    const manifestWith = (us: string, storyBody?: string): void => {
+      writeFileSync(kindsPath, [
+        'stages:',
+        '  - id: idea',
+        '  - id: requirements',
+        'kinds:',
+        '  - name: Use case',
+        '    prefix: UC',
+        '    folder: docs/use-cases',
+        '    stage: requirements',
+        '    hint: walk one story from start to finish',
+        '    links:',
+        '      - field: Serves',
+        '        targets:',
+        '          - User story',
+        '        backlink: Served by',
+        us,
+        ''].join('\n'));
+      const stories = join(folder!, 'docs', 'stories');
+      mkdirSync(stories, { recursive: true });
+      if (storyBody !== undefined) writeFileSync(join(stories, 'US-001-return.md'), storyBody);
+    };
+    const usKind = [
+      '  - name: User story',
+      '    prefix: US',
+      '    folder: docs/stories',
+      '    stage: requirements',
+      '    hint: write what one user does',
+      '    links:',
+      '      - field: Serves',
+      '        targets:',
+      '          - Use case',
+      '        backlink: Served by',
+      '        required: true',
+    ].join('\n');
+    const usDocument = (serves: string | undefined): string => (serves === undefined
+      ? '# US-001 — Return to a note\n\n## Story\nI return to the note.\n'
+      : `# US-001 — Return to a note\n\nServes: ${serves}\n\n## Story\nI return to the note.\n`);
+    const walk = async (_body: string): Promise<{ structural: { rule: string }[]; document?: { backlinks: { path: string; label?: string; title?: string }[] } }> => {
+      const asked = await fetch(`${url}/api/page?path=docs%2Fstories%2FUS-001-return.md`);
+      expect(asked.status).toBe(200);
+      return await asked.json() as { structural: { rule: string }[]; document?: { backlinks: { path: string; label?: string; title?: string }[] } };
+    };
+
+    // One: the story joins without its link — the manifest publication
+    // carries the new kind WITH its required link, the stream says it
+    // inside two seconds, and the page regroups with no restart.
+    manifestWith(usKind, usDocument(undefined));
+    const eventCame = await waitEvent(2);
+    expect(eventCame).toBe(true);
+    const registryAnswer = await (await fetch(`${url}/api/registry`)).json() as { kinds?: { name: string }[] };
+    expect(registryAnswer.kinds?.some((kind) => kind.name === 'User story')).toBe(true);
+    const before = await (await fetch(`${url}/api/pages`)).json() as { revision: string; pages: { path: string; kind?: string }[] };
+    expect(before.pages.find((page) => page.path === 'docs/stories/US-001-return.md')?.kind).toBe('User story');
+    expect((await walk('')).structural.map((f) => f.rule)).toEqual(['structural.required-link']);
+
+    // Two: the story names its use case and the use case names the story
+    // back — the finding clears, both pages carry the other's link under
+    // the declared label, and the whole answer came from a running server
+    // that was never restarted.
+    writeFileSync(join(folder!, 'docs', 'stories', 'US-001-return.md'), usDocument('UC-001'));
+    writeFileSync(join(folder!, 'docs', 'use-cases', 'UC-001-return.md'), '# UC-001 — Return\n\nServes: US-001\n\n## Story\nThe note opens where it was left.\n');
+    expect(await waitEvent(2)).toBe(true);
+    const after = await walk('');
+    expect(after.structural).toEqual([]);
+    expect(after.document?.backlinks.map((entry) => [entry.path, entry.label])).toEqual([['docs/use-cases/UC-001-return.md', 'Served by']]);
+    const ucPage = await (await fetch(`${url}/api/page?path=docs%2Fuse-cases%2FUC-001-return.md`)).json() as { document?: { backlinks: { path: string; label?: string; title?: string; id?: string }[] } };
+    expect(ucPage.document?.backlinks).toEqual([{ path: 'docs/stories/US-001-return.md', label: 'Served by', title: 'Return to a note', id: 'US-001' }]);
+    streamOn.abort();
   });
 
   test('GET /api/page gives one page whole; asking twice after a save gives the new bytes', async () => {
