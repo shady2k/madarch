@@ -1056,6 +1056,23 @@ describe('the structural findings, from the declared links and statuses', () => 
     expect(found[0]!.line).toBe(3);
   });
 
+  test('the findings sort by their line, then rule, then words', () => {
+    const bb = draft();
+    // The undeclared field's finding is written after the declared links'
+    // in the read's order but stands one line above them: the sort must
+    // put the findings by the line they stand on, the rule and the words
+    // inside one line.
+    write('docs/requirements/FR-001-tool.md', '# FR-001 — Tool\n\nVerified by: FR-002\nServes: UC-099, D-001\nSummary: the tool reads\n\n## Requirement\nThe thing.\n');
+    write('docs/requirements/FR-002-tool.md', '# FR-002 — Tool\n\n## Requirement\nThe other.\n');
+    write('docs/decisions/0001-own-view.md', '# D-001 — Own view\n\nDate: 2026-10-11\n\n## Choice\nThe reading view.\n');
+    const found = structuralOf(bb, 'docs/requirements/FR-001-tool.md');
+    expect(found.map((f) => [f.line, f.rule])).toEqual([
+      [3, 'structural.undeclared-field'],
+      [4, 'structural.broken-link'],
+      [4, 'structural.undeclared-kind'],
+    ]);
+  });
+
   test('a document of a kind the registry holds none for, and one of no kind, is judged by nothing; with no registry the whole read stays silent', () => {
     const bb = draft();
     write('docs/notes/free.md', '# Notes — Free\n\nStatus: any old word\nGrew from: WHATEVER-9\n\n## Notes\nPlain.\n');
