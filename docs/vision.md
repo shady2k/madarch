@@ -301,12 +301,22 @@ Done:
 - knowledge-base (`docs/milestones/knowledge-base.md`), ended early by decision
   0017: use cases and data entities in the model.
 
-Near (`idea-to-wiki`, `docs/milestones/idea-to-wiki.md`):
-- From an idea to a living wiki, for one person and their agent on their own
-  machine: a draft product, the wiki updating as files are saved, the check on
-  write and commit, linked vision, hypotheses, sources, user stories, use cases
-  and requirements, prototypes, open questions, and the draft turned into a
-  named product.
+- idea-to-wiki (`docs/milestones/idea-to-wiki.md`), closed 2026-10-12: from an
+  idea to a living wiki, for one person and their agent on their own machine —
+  a draft product, the wiki updating as files are saved, the check on write and
+  commit, linked vision, hypotheses, sources, user stories, use cases and
+  requirements, prototypes, open questions, and the draft turned into a named
+  product.
+
+Near (`standalone`, `docs/milestones/standalone.md`):
+- madarch is the standalone engine: the product repository's versioned contract
+  v1 with the reserved storage forms and manifest sections, the wiki reading the
+  product's registry and declaring its links, the lifecycle commands as
+  madarch's own code, one binary and the offline image. The data storage
+  boundary stands as decision 0023: four kinds of data, one home each — authored
+  in the product's git, code in its own repositories, imported facts in the
+  systems' own truth behind the bitemporal fact log, derived indexes rebuilt
+  locally and never transferred.
 
 Next, as milestones:
 - Agents through MCP and an API, and editing by hand in the wiki.
