@@ -394,6 +394,10 @@ describe('the kinds registry the wiki serves', () => {
     if (!strayOne.ok) throw new Error(strayOne.message);
     expect(strayOne.contract).toEqual({ known: true, version: 1 });
     writeBytes('docs/kinds.yaml', Buffer.concat([spine, Buffer.from([0xBE])]));
+    const strayTwo = product.pages();
+    if (!strayTwo.ok) throw new Error(strayTwo.message);
+    expect(strayTwo.revision).not.toBe(strayOne.revision);
+    expect(strayTwo.contract).toEqual({ known: true, version: 1 });
   });
 
   test('a registry that is not a regular file is named and degrades the wiki, and the ask never blocks on it', () => {
