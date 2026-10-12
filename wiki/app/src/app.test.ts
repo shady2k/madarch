@@ -683,7 +683,12 @@ describe('a failed page read that is retried', () => {
       });
     }) as unknown as typeof fetch;
     goto('/p/docs/vision.md');
-    await intoApp(createElement(App, { pageRetryMs: 5 }));
+    // The retry gap must be wider than the poll that looks for the shown
+    // failure: at 5 ms the two failures can slip between two 10 ms polls on
+    // a loaded runner and the failure is never observed (the CI red of
+    // f8a64b5f). 40 ms keeps each failure window observable and the whole
+    // walk inside the poll budget.
+    await intoApp(createElement(App, { pageRetryMs: 40 }));
     await until(() => text().includes('Could not read the page docs/vision.md'), 'the shown failure');
     await until(() => document.querySelector('main .reading > h1')?.textContent === 'Vision extra', 'the recovered page');
     // The two failures plus the one recovery: a stream held open and quiet
