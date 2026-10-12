@@ -58,6 +58,105 @@ describe('the contract of a product repository kinds registry', () => {
     expect(p!.hint.trim().length).toBeGreaterThan(0);
   });
 
+  test("a link's targets name kinds of the registry: the unknown one is refused at its line", () => {
+    const read = parseContractText('docs/kinds.yaml', [
+      'stages:',
+      '  - id: idea',
+      '  - id: requirements',
+      'kinds:',
+      '  - name: product requirement',
+      '    prefix: FR',
+      '    folder: docs/requirements',
+      '    stage: requirements',
+      '    hint: write what the product does',
+      '    links:',
+      '      - field: Serves',
+      '        targets:',
+      '          - no such kind',
+      ''].join('\n'));
+    expect(read.ok).toBe(false);
+    if (read.ok) return;
+    const named = read.errors.find((error) => error.line === 13 && error.path === 'kinds[0].links[0].targets[0]' && error.message.includes('"no such kind" names no kind of the registry'));
+    expect(named).toBeDefined();
+  });
+
+  test('a kind declares one link a field: the second is refused, the first line named', () => {
+    const read = parseContractText('docs/kinds.yaml', [
+      'stages:',
+      '  - id: requirements',
+      'kinds:',
+      '  - name: product requirement',
+      '    prefix: FR',
+      '    folder: docs/requirements',
+      '    stage: requirements',
+      '    hint: write what the product does',
+      '    links:',
+      '      - field: Serves',
+      '        targets: [user story]',
+      '      - field: serves',
+      '        targets: [user story]',
+      '  - name: user story',
+      '    prefix: US',
+      '    folder: docs/stories',
+      '    stage: requirements',
+      '    hint: write what one user does',
+      ''].join('\n'));
+    expect(read.ok).toBe(false);
+    if (read.ok) return;
+    const named = read.errors.find((error) => error.line === 12 && error.path === 'kinds[0].links[1].field' && error.message.includes('is declared twice, first on line 10'));
+    expect(named).toBeDefined();
+  });
+
+  test('an allowed status is named once: the second is refused at its line', () => {
+    const read = parseContractText('docs/kinds.yaml', [
+      'stages:',
+      '  - id: design',
+      'kinds:',
+      '  - name: decision',
+      '    prefix: D',
+      '    folder: docs/decisions',
+      '    stage: design',
+      '    hint: record the choice',
+      '    statuses:',
+      '      - accepted',
+      '      - Accepted',
+      ''].join('\n'));
+    expect(read.ok).toBe(false);
+    if (read.ok) return;
+    const named = read.errors.find((error) => error.line === 11 && error.path === 'kinds[0].statuses[1]' && error.message.includes('the status "Accepted" is named twice'));
+    expect(named).toBeDefined();
+  });
+
+  test('a kind\'s declared links and statuses read whole: field, targets, backlink label, cardinality and required', () => {
+    const read = parseContractText('docs/kinds.yaml', [
+      'stages:',
+      '  - id: requirements',
+      'kinds:',
+      '  - name: product requirement',
+      '    prefix: FR',
+      '    folder: docs/requirements',
+      '    stage: requirements',
+      '    hint: write what the product does',
+      '    statuses: [draft, accepted]',
+      '    links:',
+      '      - field: Serves',
+      '        targets: [user story]',
+      '        backlink: Served by',
+      '        cardinality: one',
+      '        required: true',
+      '  - name: user story',
+      '    prefix: US',
+      '    folder: docs/stories',
+      '    stage: requirements',
+      '    hint: write what one user does',
+      ''].join('\n'));
+    expect(read.ok).toBe(true);
+    if (!read.ok) return;
+    const fr = read.kinds.find((kind) => kind.prefix === 'FR');
+    expect(fr?.statuses).toEqual(['draft', 'accepted']);
+    expect(fr?.links).toEqual([{ field: 'Serves', targets: ['user story'], backlink: 'Served by', cardinality: 'one', required: true }]);
+  });
+
   test("a document that cannot be parsed is refused with the parser's own words, before the schema is asked", () => {
     const read = parseContractText('docs/kinds.yaml', 'stages:\n  - id: idea\nkinds: [unclosed\n');
     expect(read.ok).toBe(false);

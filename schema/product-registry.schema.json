@@ -62,6 +62,64 @@
           "hint": {
             "type": "string",
             "minLength": 1
+          },
+          "statuses": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+              "minLength": 1
+            },
+            "description": "The allowed statuses of the kind, as the documents write them."
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "field",
+                "targets"
+              ],
+              "properties": {
+                "field": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The field name as the document's form writes it, like Grew from, Serves."
+                },
+                "targets": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+                    "minLength": 1
+                  },
+                  "minItems": 1,
+                  "description": "The kinds this link may go to, each a kind of the registry."
+                },
+                "backlink": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+                  "minLength": 1
+                },
+                "cardinality": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "const": "one"
+                    },
+                    {
+                      "type": "string",
+                      "const": "many"
+                    }
+                  ]
+                },
+                "required": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "The links the kind declares: field name, allowed target kinds, the backlink's label, the cardinality and whether the link is required."
           }
         },
         "additionalProperties": false

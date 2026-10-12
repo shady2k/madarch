@@ -31,6 +31,20 @@ export interface ContractError {
   message: string;
 }
 
+/** One link field a kind's documents may carry, as the registry declares it. */
+export interface RegistryLink {
+  /** The form field's name the documents of the kind write the link under, like `Serves`. */
+  field: string;
+  /** The kinds the field's link may name, by the kinds' own names. */
+  targets: readonly string[];
+  /** The label the linked page shows its backlinks under; `undefined`, the wiki words the backlink generically. */
+  backlink?: string;
+  /** Whether the field names one document or many: `many` where the registry left it out. */
+  cardinality: 'one' | 'many';
+  /** Whether a document of the kind must carry the link at all. */
+  required: boolean;
+}
+
 /** One document kind as a registry names it, at the place its fields stand. */
 export interface RegistryKind {
   name: string;
@@ -42,6 +56,10 @@ export interface RegistryKind {
   stage: string;
   /** The next-step hint the wiki shows where the stage holds nothing of the kind. */
   hint: string;
+  /** The statuses a document of the kind may carry in its `Status` field; where the kind names none, no status is judged. */
+  statuses?: readonly string[];
+  /** The link fields the kind's documents may carry, each naming its target kinds; where the kind names none, it carries no links. */
+  links?: readonly RegistryLink[];
 }
 
 /** One stage of the registry's stage list, in the list's own order. */
@@ -135,6 +153,9 @@ export function parseContractText(file: string, text: string): RegistryRead {
   });
 
   // The kinds: every field the check owns, each on the line it was written.
+  // A link's target may name a kind declared later in the file, so the
+  // names are collected before the kinds are judged one by one.
+  const kindNames = new Set<string>(parsed.kinds.map((kind) => kind.name));
   const seenPrefixes = new Map<string, number>();
   parsed.kinds.forEach((kind, index) => {
     if (!PREFIX_PATTERN.test(kind.prefix)) {
@@ -180,6 +201,47 @@ export function parseContractText(file: string, text: string): RegistryRead {
         path: `kinds[${index}].hint`,
         message: 'the hint is empty: a reader stands where no word is',
       });
+    }
+    // The kind's allowed statuses: names, each given once (their case does
+    // not make two statuses of one).
+    const seenStatuses = new Set<string>();
+    for (const [statusIndex, status] of (kind.statuses ?? []).entries()) {
+      const key = status.toLowerCase();
+      if (seenStatuses.has(key)) {
+        errors.push({
+          file,
+          line: lines.at(['kinds', index, 'statuses', statusIndex]),
+          path: `kinds[${index}].statuses[${statusIndex}]`,
+          message: `the status "${status}" is named twice: each allowed status is given once`,
+        });
+      }
+      seenStatuses.add(key);
+    }
+    // The kind's declared links: one field a time, each target naming a kind
+    // of the registry, the reader's words standing at the line they are on.
+    const seenLinkFields = new Map<string, number>();
+    for (const [linkIndex, link] of (kind.links ?? []).entries()) {
+      const key = link.field.toLowerCase();
+      const first = seenLinkFields.get(key);
+      if (first !== undefined) {
+        errors.push({
+          file,
+          line: lines.at(['kinds', index, 'links', linkIndex, 'field']),
+          path: `kinds[${index}].links[${linkIndex}].field`,
+          message: `the field "${link.field}" is declared twice, first on line ${first}: a kind declares one link a field`,
+        });
+      } else {
+        seenLinkFields.set(key, lines.at(['kinds', index, 'links', linkIndex, 'field']));
+      }
+      for (const [targetIndex, target] of link.targets.entries()) {
+        if (kindNames.has(target)) continue;
+        errors.push({
+          file,
+          line: lines.at(['kinds', index, 'links', linkIndex, 'targets', targetIndex]),
+          path: `kinds[${index}].links[${linkIndex}].targets[${targetIndex}]`,
+          message: `"${target}" names no kind of the registry: a link goes to a kind the registry declares`,
+        });
+      }
     }
   });
 

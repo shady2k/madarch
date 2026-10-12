@@ -24,6 +24,7 @@ import { architectureBundle } from '../product-wiki/architecture.js';
 import { likec4Webcomponent } from '../product-wiki/likec4-webcomponent.js';
 import { renderModel } from '../render/prepare.js';
 import { readStagesIndex, type StagesIndex } from '../wiki/stages.js';
+import { readProductRegistry, registryKit } from '../product/registry.js';
 import { readFileSync, statSync, watch } from 'node:fs';
 import { join as joinPath, normalize, resolve } from 'node:path';
 import type { Handled, Refusal, ReplyMaker } from './http.js';
@@ -156,8 +157,10 @@ export interface WikiPart {
   pages: () => Handled;
   /** `GET /api/page?path=...`: one page, whole. */
   page: (request: Request) => Promise<Handled>;
-  /** `GET /api/stages`: the SDLC stage index, read from the product's files now. */
+  /** `GET /api/stages`: the stage index, read from the product's files now. */
   stages: () => Handled;
+  /** `GET /api/registry`: the product's kinds registry as the wiki reads it — the kinds and stages, or the refusals, or absence. */
+  registry: () => Handled;
   /** `GET /api/events`: the wiki's change stream, held open until the asker hangs up. */
   events: (request: Request) => Handled;
   /** `GET /api/repos`: the declared code repositories, their checkouts, HEADs and READMEs. */
@@ -265,7 +268,46 @@ export function createWikiPart(
           changedAt: asked.page.changedAt,
           document: asked.page.document,
           findings: asked.page.findings,
+          structural: asked.page.structural,
           check: asked.page.check,
+        }),
+      };
+    },
+    registry: (): Handled => {
+      const read = readProductRegistry(wiki.product.folder);
+      if (!read.present) return { response: json(200, { present: false }) };
+      if ('refused' in read) {
+        return {
+          response: json(200, {
+            present: true,
+            refused: read.refused.map((error) => ({ file: error.file, line: error.line, path: error.path, message: error.message })),
+          }),
+        };
+      }
+      // The kit's own normalization applies (a left-out cardinality reads
+      // as many), so the answer carries the same defaults the page reader
+      // walked the kinds by — and readProductRegistry reads fresh per ask.
+      const kit = registryKit(read);
+      if (kit === undefined) return { response: json(200, { present: true, refused: [] }) };
+      return {
+        response: json(200, {
+          present: true,
+          stages: kit.stages.map((stage) => (stage.name === undefined ? { id: stage.id } : { id: stage.id, name: stage.name })),
+          kinds: kit.kinds.map((kind) => ({
+            name: kind.name,
+            prefix: kind.prefix,
+            folder: kind.folder,
+            stage: kind.stage,
+            hint: kind.hint,
+            statuses: kind.statuses === undefined ? undefined : [...kind.statuses],
+            links: kind.links === undefined ? undefined : kind.links.map((link) => ({
+              field: link.field,
+              targets: [...link.targets],
+              backlink: link.backlink,
+              cardinality: link.cardinality,
+              required: link.required,
+            })),
+          })),
         }),
       };
     },

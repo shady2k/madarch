@@ -1,25 +1,155 @@
 /**
- * The set's documents as the wiki reads them (docs/changes/docs-pages/
- * capabilities/product-wiki.md, requirement `front-matter`): a page's kind
- * from its identity line or the set's places, the form's fields, the grown-
- * from entries resolved, the backlinks across kinds, the check run per
- * product revision and its findings on the failing page, and the plain
- * page that stays plain.
+ * The product's documents as the wiki reads them (docs/changes/docs-pages/
+ * capabilities/product-wiki.md, requirement `front-matter`; the kinds
+ * registry reading is the product-repository contract's): a page's kind
+ * from the kinds registry the product holds — its identity line's prefix,
+ * its own place, its explicit field — the form's fields, the grown-from
+ * entries resolved, the backlinks across kinds, the check run per product
+ * revision and its findings on the failing page, and the plain page that
+ * stays plain where no kind names it.
  */
 import { mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { openProductWiki } from '../src/product-wiki/pages.js';
-import { parseDocument, resolveBodyLink, statusOf, KIND_ORDER, backlinksOf, blankFieldLines } from '../src/product-wiki/documents.js';
+import { parseDocument, resolveBodyLink, statusOf, backlinksOf, blankFieldLines } from '../src/product-wiki/documents.js';
 import { runProductCheck, productCheckScript, CheckRunCache, type ProductCheckRun } from '../src/product-wiki/checking.js';
+import { parseContractText } from '../src/product/contract.js';
+import { registryKit } from '../src/product/registry.js';
 
 let folder: string | undefined;
 
-function draft(): string {
+/** The kinds registry the fixtures read: the set-up shape, one file. */
+const FIXTURE_REGISTRY = [
+  'stages:',
+  '  - id: idea',
+  '  - id: requirements',
+  '  - id: design',
+  'kinds:',
+  '  - name: Product vision',
+  '    prefix: V',
+  '    folder: docs/vision.md',
+  '    stage: idea',
+  '    hint: write why the product is worth building',
+  '  - name: Sources',
+  '    prefix: S',
+  '    folder: docs/sources',
+  '    stage: idea',
+  '    hint: have the first conversation with a customer, write it down',
+  '  - name: Hypotheses',
+  '    prefix: H',
+  '    folder: docs/hypotheses',
+  '    stage: idea',
+  '    hint: turn a source into one checkable sentence',
+  '    links:',
+  '      - field: Grew from',
+  '        targets:',
+  '          - Product vision',
+  '          - Sources',
+  '        backlink: Grew into',
+  '  - name: Prototypes',
+  '    prefix: P',
+  '    folder: docs/prototypes',
+  '    stage: idea',
+  '    hint: build the smallest thing that tests the belief',
+  '    links:',
+  '      - field: Tests',
+  '        targets:',
+  '          - Hypotheses',
+  '        backlink: Tested by',
+  '  - name: Results',
+  '    prefix: R',
+  '    folder: docs/results',
+  '    stage: idea',
+  '    hint: measure what happened and say what it proves',
+  '    links:',
+  '      - field: Of',
+  '        targets:',
+  '          - Prototypes',
+  '        backlink: Measured',
+  '  - name: Open questions',
+  '    prefix: Q',
+  '    folder: docs/questions',
+  '    stage: idea',
+  '    hint: write what is not known and who can answer it',
+  '    links:',
+  '      - field: Concerns',
+  '        targets:',
+  '          - Product vision',
+  '          - Use cases',
+  '        backlink: Concerned by',
+  '  - name: User stories',
+  '    prefix: US',
+  '    folder: docs/stories',
+  '    stage: requirements',
+  '    hint: write what one user does with the product in their own words',
+  '    links:',
+  '      - field: Grew from',
+  '        targets:',
+  '          - Hypotheses',
+  '          - Sources',
+  '        backlink: Grew into',
+  '  - name: Use cases',
+  '    prefix: UC',
+  '    folder: docs/use-cases',
+  '    stage: requirements',
+  '    hint: walk one story from start to finish',
+  '    links:',
+  '      - field: Serves',
+  '        targets:',
+  '          - User stories',
+  '        backlink: Served by',
+  '        cardinality: one',
+  '        required: true',
+  '  - name: Product requirements',
+  '    prefix: FR',
+  '    folder: docs/requirements',
+  '    stage: requirements',
+  '    hint: write what the product does, one requirement at a time',
+  '    links:',
+  '      - field: Serves',
+  '        targets:',
+  '          - Use cases',
+  '          - User stories',
+  '      - field: Supersedes',
+  '        targets:',
+  '          - Product requirements',
+  '  - name: Decisions',
+  '    prefix: D',
+  '    folder: docs/decisions',
+  '    stage: design',
+  '    hint: record the choice between the options on the table',
+  '    statuses:',
+  '      - accepted',
+  '      - superseded',
+  '      - deferred',
+  '    links:',
+  '      - field: Supersedes',
+  '        targets:',
+  '          - Decisions',
+  '  - name: Change records',
+  '    prefix: CH',
+  '    folder: docs/changes',
+  '    stage: design',
+  '    hint: propose every behaviour change beside its capability',
+  '  - name: Capabilities',
+  '    prefix: C',
+  '    folder: docs/system/capabilities',
+  '    stage: design',
+  '    hint: name each behaviour requirement and scenario',
+  '  - name: Milestone',
+  '    prefix: M',
+  '    folder: docs/milestones',
+  '    stage: idea',
+  '    hint: write the next milestone outcomes and what is out',
+  ''].join('\n');
+
+function draft(withRegistry: boolean = true): string {
   folder = mkdtempSync(join(tmpdir(), 'madarch-docs-'));
   mkdirSync(join(folder, 'docs'), { recursive: true });
   writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: demo\nname: Demo\n');
+  if (withRegistry) writeFileSync(join(folder, 'docs', 'kinds.yaml'), FIXTURE_REGISTRY);
   return folder;
 }
 
@@ -46,6 +176,14 @@ afterEach(() => {
   if (folder !== undefined) rmSync(folder, { recursive: true, force: true });
   folder = undefined;
 });
+
+// The kit the direct parseDocument reads use, built from the same fixture
+// file draft() writes — a registry read the page reader's own way.
+const kit = (() => {
+  const read = parseContractText('docs/kinds.yaml', FIXTURE_REGISTRY);
+  if (!read.ok) throw new Error('the fixture registry must read');
+  return registryKit({ present: true, kinds: read.kinds, stages: read.stages });
+})();
 
 describe('the served body hides the field lines the header block shows', () => {
   test('blankFieldLines blanks every field line at its own line, nothing else', () => {
@@ -103,11 +241,11 @@ describe('the served body hides the field lines the header block shows', () => {
 });
 
 describe('the kinds the forms name', () => {
-  test('an identity line gives a chain document its id and kind, whatever folder it stands in', () => {
+  test('an identity line gives a document its id and kind through the registry prefix, whatever folder it stands in', () => {
     draft();
     write('docs/off/F-odd.md', '# FR-009 — Off its folder\n\nServes: UC-001\nVerified by: test\n\n## Requirement\nSomething a user can observe.\n');
     const entry = page('docs/off/F-odd.md');
-    expect(entry.document?.kind).toBe('requirements');
+    expect(entry.document?.kind).toBe('Product requirements');
     expect(entry.document?.id).toBe('FR-009');
   });
 
@@ -117,10 +255,10 @@ describe('the kinds the forms name', () => {
     write('docs/changes/x/change.md', '# A change\n\nChange: x\nTasks: t\nKind: behavior\n\n## Intent\nWhy.\n');
     write('docs/system/capabilities/reading.md', '# Reading\n\nCapability: reading\n\n## Purpose\nWhy.\n');
     write('docs/milestones/0001-first.md', '# The first milestone\n\n## Outcomes and acceptance\nWhat holds.\n');
-    expect(page('docs/decisions/0001-own.md').document?.kind).toBe('decisions');
-    expect(page('docs/changes/x/change.md').document?.kind).toBe('change');
-    expect(page('docs/system/capabilities/reading.md').document?.kind).toBe('capability');
-    expect(page('docs/milestones/0001-first.md').document?.kind).toBe('milestone');
+    expect(page('docs/decisions/0001-own.md').document?.kind).toBe('Decisions');
+    expect(page('docs/changes/x/change.md').document?.kind).toBe('Change records');
+    expect(page('docs/system/capabilities/reading.md').document?.kind).toBe('Capabilities');
+    expect(page('docs/milestones/0001-first.md').document?.kind).toBe('Milestone');
   });
 
   test('a page of no set kind carries no kind and no fields', () => {
@@ -139,18 +277,6 @@ describe('the kinds the forms name', () => {
     expect(doc.mentions).toEqual([]);
   });
 
-  test('KIND_ORDER is the life-cycle order, practices last with retired apart', () => {
-    expect(KIND_ORDER[0]).toBe('vision');
-    expect(KIND_ORDER.indexOf('sources')).toBeLessThan(KIND_ORDER.indexOf('hypotheses'));
-    expect(KIND_ORDER.indexOf('hypotheses')).toBeLessThan(KIND_ORDER.indexOf('stories'));
-    expect(KIND_ORDER.indexOf('stories')).toBeLessThan(KIND_ORDER.indexOf('use-cases'));
-    expect(KIND_ORDER.indexOf('use-cases')).toBeLessThan(KIND_ORDER.indexOf('requirements'));
-    expect(KIND_ORDER.indexOf('requirements')).toBeLessThan(KIND_ORDER.indexOf('questions'));
-    expect(KIND_ORDER.indexOf('questions')).toBeLessThan(KIND_ORDER.indexOf('prototypes'));
-    expect(KIND_ORDER.indexOf('prototypes')).toBeLessThan(KIND_ORDER.indexOf('results'));
-    expect(KIND_ORDER.indexOf('practices')).toBe(KIND_ORDER.length - 2);
-    expect(KIND_ORDER[KIND_ORDER.length - 1]).toBe('practices-retired');
-  });
 });
 
 describe('the form a page carries', () => {
@@ -165,7 +291,7 @@ describe('the form a page carries', () => {
     expect(doc.fields[0]!.line).toBe(3);
     expect(doc.grewFrom.map((g) => g.id)).toEqual(['H-001']);
     expect(doc.grewFrom[0]!.path).toBe('docs/hypotheses/H-001-return.md');
-    expect(doc.grewFrom[0]!.kind).toBe('hypotheses');
+    expect(doc.grewFrom[0]!.kind).toBe('Hypotheses');
     const useCase = page('docs/use-cases/UC-001-return.md');
     expect(useCase.document?.grewFrom.map((g) => g.id)).toEqual(['US-001']);
   });
@@ -189,13 +315,13 @@ describe('the form a page carries', () => {
     expect(byPath.get('docs/results/R-001-week.md')?.status).toBe('confirmed');
   });
 
-  test('the practice kind separates retired from active by its Status field', () => {
+  test('a practice carries its kind from the registry folder, with no retired group the registry would have to name twice', () => {
     draft();
     write('docs/practices/PRA-001-active.md', '# PRA-001 — Read the page first\n\nStatus: active\nSince: 2026-10-11\nEvidence: two sessions\n\n## Class\nA change nobody read.\n\n## Mechanism\nThe green check answered first.\n\n## Practice\nRead the page rendered.\n\n## How we will know\nNo checkpoint finds it.\n');
     const entry = wiki().pages();
     if (!entry.ok) throw new Error(entry.message);
     const held = entry.pages.find((p) => p.path === 'docs/practices/PRA-001-active.md');
-    expect(held?.kind).toBe('practices');
+    expect(held?.kind).toBeUndefined();
   });
 });
 
@@ -336,7 +462,7 @@ describe('the set check at serve time', () => {
 
 describe('the forms' + "'" + ' reading, held against its mutants', () => {
   test('an empty page derives nothing at all', () => {
-    const doc = parseDocument('docs/empty.md', '', new Set(['docs/empty.md']));
+    const doc = parseDocument('docs/empty.md', '', new Set(['docs/empty.md']), kit);
     expect(doc.id).toBeUndefined();
     expect(doc.kind).toBeUndefined();
     expect(doc.title).toBe('docs/empty');
@@ -348,7 +474,7 @@ describe('the forms' + "'" + ' reading, held against its mutants', () => {
   });
 
   test('a heading that is not the identity line names the file, not an id', () => {
-    const doc = parseDocument('docs/notes.md', '# FR-12 — too short to be an id\n\nServes: VISION\n', new Set(['docs/notes.md']));
+    const doc = parseDocument('docs/notes.md', '# FR-12 — too short to be an id\n\nServes: VISION\n', new Set(['docs/notes.md']), kit);
     // FR-12 has two digits: no identity, no id, no kind; VISION still stands as the body's mention.
     expect(doc.id).toBeUndefined();
     expect(doc.kind).toBeUndefined();
@@ -356,47 +482,48 @@ describe('the forms' + "'" + ' reading, held against its mutants', () => {
   });
 
   test('a heading inside a fence is not the identity line', () => {
-    const doc = parseDocument('docs/x.md', '```\n# FR-001 — inside\n```\n', new Set(['docs/x.md']));
+    const doc = parseDocument('docs/x.md', '```\n# FR-001 — inside\n```\n', new Set(['docs/x.md']), kit);
     expect(doc.id).toBeUndefined();
   });
 
   test('the identity line of a chain id beats the place, and VISION is docs/vision.md', () => {
-    const doc = parseDocument('docs/deep/H-500-relocated.md', '# H-500 — Relocated\n\nGrew from: VISION\n\n## Belief\nWe believe.\n\n## Test\nTry.\n\n## Metric\nM.\n\n## Threshold\nT.\n', new Set(['docs/deep/H-500-relocated.md']));
-    expect(doc.kind).toBe('hypotheses');
+    const doc = parseDocument('docs/deep/H-500-relocated.md', '# H-500 — Relocated\n\nGrew from: VISION\n\n## Belief\nWe believe.\n\n## Test\nTry.\n\n## Metric\nM.\n\n## Threshold\nT.\n', new Set(['docs/deep/H-500-relocated.md']), kit);
+    expect(doc.kind).toBe('Hypotheses');
     expect(doc.grewFromIds).toEqual([{ id: 'VISION', via: 'Grew from' }]);
   });
 
   test('fields end at the first section: a line after a section is never a field', () => {
-    const doc = parseDocument('docs/q.md', '# Q-001 — A question\n\nConcerns: VISION\nWho can answer: the owner\n\n## Question\nWhat?\n\nServes: not-a-field-here\n', new Set(['docs/q.md']));
+    const doc = parseDocument('docs/q.md', '# Q-001 — A question\n\nConcerns: VISION\nWho can answer: the owner\n\n## Question\nWhat?\n\nServes: not-a-field-here\n', new Set(['docs/q.md']), kit);
     expect(doc.fields.map((f) => f.name)).toEqual(['Concerns', 'Who can answer']);
   });
 
   test('a field with an empty value is not a field', () => {
-    const doc = parseDocument('docs/q.md', '# Q-001 — A question\n\nConcerns:\nWho can answer: the owner\n\n## Question\nWhat?\n', new Set(['docs/q.md']));
+    const doc = parseDocument('docs/q.md', '# Q-001 — A question\n\nConcerns:\nWho can answer: the owner\n\n## Question\nWhat?\n', new Set(['docs/q.md']), kit);
     expect(doc.fields.map((f) => f.name)).toEqual(['Who can answer']);
   });
 
   test('a repeated section keeps the first and drops the rest', () => {
-    const doc = parseDocument('docs/q.md', '# Q-001 — A question\n\nConcerns: VISION\nWho can answer: the owner\n\n## Question\nFirst.\n\n## Question\nSecond.\n', new Set(['docs/q.md']));
+    const doc = parseDocument('docs/q.md', '# Q-001 — A question\n\nConcerns: VISION\nWho can answer: the owner\n\n## Question\nFirst.\n\n## Question\nSecond.\n', new Set(['docs/q.md']), kit);
     expect(doc.sections.map((s) => s.name)).toEqual(['Question']);
     expect(doc.sections[0]!.text).toBe('First.');
     expect(statusOf(doc)).toBe('open');
   });
 
   test('a section gathers its lines and drops the fence lines and empty ones', () => {
-    const doc = parseDocument('docs/q.md', '# Q-001 — A question\n\nConcerns: VISION\nWho can answer: the owner\n\n## Question\nWhat?\n\n```\nFR-001 in a fence\n```\n<!-- a comment -->\nAfter.\n', new Set(['docs/q.md']));
+    const doc = parseDocument('docs/q.md', '# Q-001 — A question\n\nConcerns: VISION\nWho can answer: the owner\n\n## Question\nWhat?\n\n```\nFR-001 in a fence\n```\n<!-- a comment -->\nAfter.\n', new Set(['docs/q.md']), kit);
     expect(doc.sections[0]!.text).toBe('What?\nAfter.');
   });
 
   test('mentions and links are read once each, per document, deduplicated', () => {
-    const doc = parseDocument('docs/a.md', '# A\n\nS-001 and S-001 again; [x](b.md) and [y](b.md).\n', new Set(['docs/a.md', 'docs/b.md']));
+    const doc = parseDocument('docs/a.md', '# A\n\nS-001 and S-001 again; [x](b.md) and [y](b.md).\n', new Set(['docs/a.md', 'docs/b.md']), kit);
     expect(doc.mentions).toEqual(['S-001']);
     expect(doc.linkTargets).toEqual(['docs/b.md']);
   });
 
   test('the same id may grow through two different fields, and one field twice does not double', () => {
-    const doc = parseDocument('docs/r.md', '# R-001 — A result\n\nOf: P-001\nDate: 2026-10-11\n\n## Prediction\nX.\n\n## Observed\nY.\n\n## Verdict\nConfirmed.\n', new Set(['docs/r.md']));
-    const linked = parseDocument('docs/l.md', '# L — links\n\nOf: P-001, P-001\n', new Set(['docs/l.md']));
+    const doc = parseDocument('docs/r.md', '# R-001 — A result\n\nOf: P-001\nDate: 2026-10-11\n\n## Prediction\nX.\n\n## Observed\nY.\n\n## Verdict\nConfirmed.\n', new Set(['docs/r.md']), kit);
+    expect(doc.grewFromIds).toEqual([{ id: 'P-001', via: 'Of' }]);
+    const linked = parseDocument('docs/r.md', '# R-002 — links\n\nOf: P-001, P-001\n', new Set(['docs/r.md']), kit);
     expect(linked.grewFromIds).toEqual([{ id: 'P-001', via: 'Of' }]);
   });
 
@@ -412,8 +539,8 @@ describe('the forms' + "'" + ' reading, held against its mutants', () => {
 describe('backlink deduplication and the order of its passes', () => {
   test('a page linked by both a field and a body id appears once', () => {
     const held = new Set(['docs/a.md', 'docs/b.md']);
-    const a = parseDocument('docs/a.md', '# FR-001 — A\n\n## Requirement\nThe thing.\n', held);
-    const b = parseDocument('docs/b.md', '# FR-011 — B\n\nServes: FR-001\nVerified by: test\n\n## Requirement\nThe other names FR-001 again in its body.\n', held);
+    const a = parseDocument('docs/a.md', '# FR-001 — A\n\n## Requirement\nThe thing.\n', held, kit);
+    const b = parseDocument('docs/b.md', '# FR-011 — B\n\nServes: FR-001\nVerified by: test\n\n## Requirement\nThe other names FR-001 again in its body.\n', held, kit);
     const docs = { byPath: new Map([[ 'docs/a.md', a ], [ 'docs/b.md', b ]]), byId: new Map([[ 'FR-001', a ], [ 'FR-011', b ]]) };
     const backlinks = backlinksOf(a, docs);
     expect(backlinks.map((entry) => entry.path)).toEqual(['docs/b.md']);
@@ -421,25 +548,28 @@ describe('backlink deduplication and the order of its passes', () => {
 
   test('a page of no id can still be linked to by address, and never to itself', () => {
     const held = new Set(['docs/a.md', 'docs/b.md']);
-    const a = parseDocument('docs/a.md', '# Notes — A\n\nThe notes.\n', held);
-    const b = parseDocument('docs/b.md', '# B — links back\n\n[back](/p/docs/a.md)\n', held);
+    const a = parseDocument('docs/a.md', '# Notes — A\n\nThe notes.\n', held, kit);
+    const b = parseDocument('docs/b.md', '# B — links back\n\n[back](/p/docs/a.md)\n', held, kit);
     const docs = { byPath: new Map([[ 'docs/a.md', a ], [ 'docs/b.md', b ]]), byId: new Map() };
     const backlinks = backlinksOf(a, docs);
     expect(backlinks.map((entry) => entry.path)).toEqual(['docs/b.md']);
   });
 
   test('two link fields naming one id through different fields both show in grewFrom', () => {
-    const held = new Set(['docs/l.md']);
-    const linked = parseDocument('docs/l.md', '# L — links\n\nOf: P-001\nServes: P-001\n', held);
-    expect(linked.grewFromIds).toEqual([{ id: 'P-001', via: 'Of' }, { id: 'P-001', via: 'Serves' }]);
+    // The two fields must be two the same kind declares: a document names
+    // one kind, its field rows are that kind's declared links. Product
+    // requirements declares both Serves and Supersedes.
+    const held = new Set(['docs/requirements/l.md']);
+    const linked = parseDocument('docs/requirements/l.md', '# FR-001 — links\n\nServes: UC-001\nSupersedes: UC-001\n', held, kit);
+    expect(linked.grewFromIds).toEqual([{ id: 'UC-001', via: 'Serves' }, { id: 'UC-001', via: 'Supersedes' }]);
   });
 
   test('field links stand first, a page that names nothing is absent, each path once, field entry carries its id', () => {
     const held = new Set(['docs/m.md', 'docs/b.md', 'docs/c.md', 'docs/d.md']);
-    const doc = parseDocument('docs/m.md', '# FR-001 — The requirement\n\n## Requirement\nThe thing.\n', held);
-    const field = parseDocument('docs/b.md', '# FR-011 — Serves it\n\nServes: FR-001\nVerified by: test\n\n## Requirement\nThe other.\n', held);
-    const mention = parseDocument('docs/c.md', '# C — names it in prose\n\nThe chain reads FR-001 and moves on.\n', held);
-    const other = parseDocument('docs/d.md', '# FR-012 — Serves another\n\nServes: FR-999\nVerified by: test\n\n## Requirement\nElsewhere.\n', held);
+    const doc = parseDocument('docs/m.md', '# FR-001 — The requirement\n\n## Requirement\nThe thing.\n', held, kit);
+    const field = parseDocument('docs/b.md', '# FR-011 — Serves it\n\nServes: FR-001\nVerified by: test\n\n## Requirement\nThe other.\n', held, kit);
+    const mention = parseDocument('docs/c.md', '# C — names it in prose\n\nThe chain reads FR-001 and moves on.\n', held, kit);
+    const other = parseDocument('docs/d.md', '# FR-012 — Serves another\n\nServes: FR-999\nVerified by: test\n\n## Requirement\nElsewhere.\n', held, kit);
     const docs = {
       byPath: new Map([[ 'docs/m.md', doc ], [ 'docs/b.md', field ], [ 'docs/c.md', mention ], [ 'docs/d.md', other ]]),
       byId: new Map([[ 'FR-001', doc ], [ 'FR-011', field ], [ 'FR-012', other ]]),
@@ -452,9 +582,9 @@ describe('backlink deduplication and the order of its passes', () => {
 
   test('the dedup check sees the whole list, not its first entry', () => {
     const held = new Set(['docs/m.md', 'docs/a.md', 'docs/z.md']);
-    const doc = parseDocument('docs/m.md', '# FR-001 — The requirement\n\n## Requirement\nThe thing.\n', held);
-    const early = parseDocument('docs/a.md', '# A — names it in prose\n\nFR-001 stands here.\n', held);
-    const late = parseDocument('docs/z.md', '# FR-011 — Serves it\n\nServes: FR-001\nVerified by: test\n\n## Requirement\nThe other.\n', held);
+    const doc = parseDocument('docs/m.md', '# FR-001 — The requirement\n\n## Requirement\nThe thing.\n', held, kit);
+    const early = parseDocument('docs/a.md', '# A — names it in prose\n\nFR-001 stands here.\n', held, kit);
+    const late = parseDocument('docs/z.md', '# FR-011 — Serves it\n\nServes: FR-001\nVerified by: test\n\n## Requirement\nThe other.\n', held, kit);
     const docs = {
       byPath: new Map([[ 'docs/m.md', doc ], [ 'docs/a.md', early ], [ 'docs/z.md', late ]]),
       byId: new Map([[ 'FR-001', doc ], [ 'FR-011', late ]]),
@@ -522,8 +652,10 @@ describe('the review fixes, held by tests', () => {
     write('docs/vision.md', '# The vision of the notes home\n\nThe reading comes first.\n');
     write('docs/hypotheses/H-001-vision.md', '# H-001 — The vision holds\n\nGrew from: VISION\n\n## Belief\nWe believe.\n\n## Test\nTry.\n\n## Metric\nM.\n\n## Threshold\nT.\n');
     const vision = page('docs/vision.md');
+    // The file-stem address comes from the product's own documents naming
+    // it; the kind is the registry's.
     expect(vision.document?.id).toBe('VISION');
-    expect(vision.document?.kind).toBe('vision');
+    expect(vision.document?.kind).toBe('Product vision');
     expect(vision.document?.backlinks.map((b) => b.path)).toEqual(['docs/hypotheses/H-001-vision.md']);
     const hypothesis = page('docs/hypotheses/H-001-vision.md');
     const grown = hypothesis.document?.grewFrom.find((g) => g.id === 'VISION');
@@ -557,8 +689,12 @@ describe('the review fixes, held by tests', () => {
     const pages = wiki().pages();
     if (!pages.ok) throw new Error(pages.message);
     const byPath = new Map(pages.pages.map((entry) => [entry.path, entry]));
-    expect(byPath.get('docs/practices/PRA-001-active.md')?.kind).toBe('practices');
-    expect(byPath.get('docs/practices/PRA-002-retired.md')?.kind).toBe('practices-retired');
+    // The registry's data cannot split a kind's two statuses (one prefix,
+    // one folder): both practices read as the plain documents their fields
+    // show; the retired group was the set's status rule, not the
+    // registry's.
+    expect(byPath.get('docs/practices/PRA-001-active.md')?.kind).toBeUndefined();
+    expect(byPath.get('docs/practices/PRA-002-retired.md')?.kind).toBeUndefined();
   });
 
   test('a wiki address with a fragment still reaches its page', () => {
@@ -822,5 +958,170 @@ describe('the convergence round two, held by tests', () => {
     if (!asked.ok) throw new Error(asked.message);
     expect(asked.page.check?.ran).toBe(true);
     expect(asked.page.findings).toEqual([]); // keeper.html counts; the cycle ended
+  });
+});
+
+/** One page's structural findings, as one ask of the wiki answered them. */
+function structuralOf(bb: string, path: string): { rule: string; file: string; line: number; what: string }[] {
+  const opened = openProductWiki(bb);
+  if (!opened.ok) throw new Error(opened.message);
+  const asked = opened.wiki.page(path);
+  if (!asked.ok) throw new Error(asked.message);
+  return asked.page.structural;
+}
+
+/** One page's document backlinks with their declaring labels. */
+function backlinksOfPage(bb: string, path: string): { path: string; title: string; id?: string; label?: string }[] {
+  const opened = openProductWiki(bb);
+  if (!opened.ok) throw new Error(opened.message);
+  const asked = opened.wiki.page(path);
+  if (!asked.ok) throw new Error(asked.message);
+  return asked.page.document?.backlinks ?? [];
+}
+
+describe('the structural findings, from the declared links and statuses', () => {
+  test('a broken link names the id, the field and the line, and the held target stays untouched', () => {
+    const bb = draft();
+    write('docs/vision.md', '# The vision\n\nThe reading comes first.\n');
+    write('docs/hypotheses/H-001-held.md', '# H-001 — Held\n\nGrew from: VISION, S-099\n\n## Belief\nWe believe.\n');
+    expect(structuralOf(bb, 'docs/hypotheses/H-001-held.md')).toEqual([
+      { rule: 'structural.broken-link', file: 'docs/hypotheses/H-001-held.md', line: 3, what: 'the link "Grew from: S-099" names no document the wiki holds' },
+    ]);
+  });
+
+  test('a resolved target of a kind the link does not go to is a finding', () => {
+    const bb = draft();
+    write('docs/hypotheses/H-001-held.md', '# H-001 — Held\n\nGrew from: D-001\n\n## Belief\nWe believe.\n');
+    write('docs/decisions/0001-own-view.md', '# D-001 — Own view\n\nDate: 2026-10-11\n\n## Choice\nThe reading view.\n');
+    expect(structuralOf(bb, 'docs/hypotheses/H-001-held.md')).toEqual([
+      { rule: 'structural.undeclared-kind', file: 'docs/hypotheses/H-001-held.md', line: 3, what: 'the field "Grew from" names D-001, a document of the kind "Decisions", which the link does not go to: its targets are Product vision, Sources' },
+    ]);
+  });
+
+  test('a required link: no field at all is a finding at the document\'s top; prose values are one at the field\'s line', () => {
+    const bb = draft();
+    write('docs/use-cases/UC-001-return.md', '# UC-001 — Return\n\n## Story\nThe note opens where it was left.\n');
+    expect(structuralOf(bb, 'docs/use-cases/UC-001-return.md')).toEqual([
+      { rule: 'structural.required-link', file: 'docs/use-cases/UC-001-return.md', line: 1, what: 'a document of the "Use cases" kind carries its "Serves" link: the wiki found none' },
+    ]);
+    write('docs/use-cases/UC-001-return.md', '# UC-001 — Return\n\nServes: later\n\n## Story\nThe note opens where it was left.\n');
+    expect(structuralOf(bb, 'docs/use-cases/UC-001-return.md')).toEqual([
+      { rule: 'structural.required-link', file: 'docs/use-cases/UC-001-return.md', line: 3, what: 'a document of the "Use cases" kind carries its "Serves" link: the wiki found none' },
+    ]);
+  });
+
+  test('required holds only while no addressable value names a held document', () => {
+    const bb = draft();
+    write('docs/use-cases/UC-001-return.md', '# UC-001 — Return\n\nServes: US-099\n\n## Story\nThe note opens where it was left.\n');
+    expect(structuralOf(bb, 'docs/use-cases/UC-001-return.md').map((f) => [f.rule, f.line])).toEqual([
+      ['structural.broken-link', 3],
+      ['structural.required-link', 3],
+    ]);
+    write('docs/stories/US-001-return.md', '# US-001 — Return to a note\n\nGrew from: H-001\n\n## Story\nI return.\n');
+    // The value names only US-099, which holds nothing: the required link
+    // still stands beside its broken link.
+    expect(structuralOf(bb, 'docs/use-cases/UC-001-return.md').map((f) => f.rule)).toEqual(['structural.broken-link', 'structural.required-link']);
+    write('docs/use-cases/UC-001-return.md', '# UC-001 — Return\n\nServes: US-001\n\n## Story\nThe note opens where it was left.\n');
+    expect(structuralOf(bb, 'docs/use-cases/UC-001-return.md')).toEqual([]);
+  });
+
+  test('a written status outside the kind\'s list is a finding; a listed one is not; the loose words of a held list are no link fields', () => {
+    const bb = draft();
+    write('docs/decisions/0001-own-view.md', '# D-001 — Own view\n\nStatus: archived\nDate: 2026-10-11\n\n## Choice\nThe reading view.\n');
+    write('docs/decisions/0002-plainer.md', '# D-002 — Plainer\n\nStatus: accepted\nDate: 2026-10-11\n\n## Choice\nThe words plainer.\n');
+    expect(structuralOf(bb, 'docs/decisions/0001-own-view.md')).toEqual([
+      { rule: 'structural.status', file: 'docs/decisions/0001-own-view.md', line: 3, what: '"archived" is not a status of the "Decisions" kind: a status is one of accepted, superseded, deferred' },
+    ]);
+    expect(structuralOf(bb, 'docs/decisions/0002-plainer.md')).toEqual([]);
+  });
+
+  test('an addressable value in an undeclared field is a finding; prose values are not', () => {
+    const bb = draft();
+    write('docs/requirements/FR-001-tool.md', '# FR-001 — Tool\n\nServes: UC-001\nVerified by: FR-002\nSummary: the tool reads\nReviewed: the FR-003 path stands\n\n## Requirement\nThe thing.\n');
+    write('docs/use-cases/UC-001-return.md', '# UC-001 — Return\n\nServes: US-001\n\n## Story\nThe note opens.\n');
+    write('docs/requirements/FR-002-tool.md', '# FR-002 — Tool\n\n## Requirement\nThe other.\n');
+    expect(structuralOf(bb, 'docs/requirements/FR-001-tool.md')).toEqual([
+      { rule: 'structural.undeclared-field', file: 'docs/requirements/FR-001-tool.md', line: 4, what: 'the field "Verified by" names FR-002 like a link, but the "Product requirements" kind declares no links for it' },
+    ]);
+  });
+
+  test('a link the kind declares as one names at most one held document', () => {
+    const bb = draft();
+    write('docs/use-cases/UC-001-return.md', '# UC-001 — Return\n\nServes: US-001, US-002\n\n## Story\nThe note opens.\n');
+    write('docs/stories/US-001-return.md', '# US-001 — Return to a note\n\nGrew from: H-001\n\n## Story\nI return.\n');
+    write('docs/stories/US-002-open.md', '# US-002 — Open where left\n\nGrew from: H-001\n\n## Story\nI open.\n');
+    const found = structuralOf(bb, 'docs/use-cases/UC-001-return.md');
+    expect(found).toHaveLength(1);
+    expect(found[0]!.rule).toBe('structural.cardinality');
+    expect(found[0]!.line).toBe(3);
+  });
+
+  test('the findings sort by their line, then rule, then words', () => {
+    const bb = draft();
+    // The undeclared field's finding is written after the declared links'
+    // in the read's order but stands one line above them: the sort must
+    // put the findings by the line they stand on, the rule and the words
+    // inside one line.
+    write('docs/requirements/FR-001-tool.md', '# FR-001 — Tool\n\nVerified by: FR-002\nServes: UC-099, D-001\nSummary: the tool reads\n\n## Requirement\nThe thing.\n');
+    write('docs/requirements/FR-002-tool.md', '# FR-002 — Tool\n\n## Requirement\nThe other.\n');
+    write('docs/decisions/0001-own-view.md', '# D-001 — Own view\n\nDate: 2026-10-11\n\n## Choice\nThe reading view.\n');
+    const found = structuralOf(bb, 'docs/requirements/FR-001-tool.md');
+    expect(found.map((f) => [f.line, f.rule])).toEqual([
+      [3, 'structural.undeclared-field'],
+      [4, 'structural.broken-link'],
+      [4, 'structural.undeclared-kind'],
+    ]);
+  });
+
+  test('a document of a kind the registry holds none for, and one of no kind, is judged by nothing; with no registry the whole read stays silent', () => {
+    const bb = draft();
+    write('docs/notes/free.md', '# Notes — Free\n\nStatus: any old word\nGrew from: WHATEVER-9\n\n## Notes\nPlain.\n');
+    expect(structuralOf(bb, 'docs/notes/free.md')).toEqual([]);
+    const plain = draft(false);
+    write('docs/notes/free.md', '# Notes — Free\n\nStatus: any old word\nGrew from: WHATEVER-9\n\n## Notes\nPlain.\n');
+    expect(structuralOf(plain, 'docs/notes/free.md')).toEqual([]);
+  });
+});
+
+describe('the backlinks carry the declaring kind\'s label', () => {
+  test('the story\'s backlink through the declared Serves says the label, a kind\'s own without one stays wordless', () => {
+    const bb = draft();
+    write('docs/stories/US-001-return.md', '# US-001 — Return to a note\n\nGrew from: H-001\n\n## Story\nI return.\n');
+    write('docs/use-cases/UC-001-return.md', '# UC-001 — Return\n\nServes: US-001\n\n## Story\nThe note opens.\n');
+    write('docs/requirements/FR-001-tool.md', '# FR-001 — Tool\n\nServes: US-001\n\n## Requirement\nThe thing.\n');
+    const entries = backlinksOfPage(bb, 'docs/stories/US-001-return.md');
+    expect(entries.map((entry) => entry.path)).toEqual(['docs/requirements/FR-001-tool.md', 'docs/use-cases/UC-001-return.md']);
+    expect(entries.map((entry) => entry.label)).toEqual([undefined, 'Served by']);
+  });
+
+  test('a label names the kind\'s declaration: the naming kind without its kind matched stays unlabeled', () => {
+    // Use cases' Serves targets User stories; an FR naming a use case takes
+    // the FR's own declaration, which carries no label — the entry stands
+    // unlabeled, the shells' generic words head it.
+    const bb = draft();
+    write('docs/use-cases/UC-001-return.md', '# UC-001 — Return\n\n## Story\nThe note opens.\n');
+    write('docs/requirements/FR-001-tool.md', '# FR-001 — Tool\n\nServes: UC-001\n\n## Requirement\nThe thing.\n');
+    expect(backlinksOfPage(bb, 'docs/use-cases/UC-001-return.md')).toEqual([
+      { path: 'docs/requirements/FR-001-tool.md', title: 'Tool', id: 'FR-001', label: undefined },
+    ]);
+  });
+
+  test('with no registry the backlinks read plain: the page without kind or fields carries no document at all', () => {
+    const bb = draft(false);
+    write('docs/vision.md', '# The vision\n\nThe reading comes first.\n');
+    write('docs/stories/US-001-return.md', '# US-001 — Return\n\nGrew from: VISION\n\n## Story\nI return.\n');
+    const opened = openProductWiki(bb);
+    if (!opened.ok) throw new Error(opened.message);
+    const asked = opened.wiki.page('docs/vision.md');
+    if (!asked.ok) throw new Error(asked.message);
+    expect(asked.page.document).toEqual(undefined);
+  });
+
+  test('the structural findings land on the pages that carry them and nowhere else', () => {
+    const bb = draft();
+    write('docs/hypotheses/H-001-held.md', '# H-001 — Held\n\nGrew from: S-099\n\n## Belief\nWe believe.\n');
+    write('docs/vision.md', '# Vision\n\nThe reading comes first.\n');
+    expect(structuralOf(bb, 'docs/vision.md')).toEqual([]);
+    expect(structuralOf(bb, 'docs/hypotheses/H-001-held.md')).toHaveLength(1);
   });
 });

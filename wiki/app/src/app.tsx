@@ -17,7 +17,7 @@ import { useContext, useEffect, useRef, useState, useCallback, type ReactElement
 import { useTranslation } from 'react-i18next';
 import { FileTextIcon, FolderGit2Icon, GitBranch, NetworkIcon } from 'lucide-react';
 import { relativeTime } from './i18n.js';
-import { getProduct, getPages, getPage, getQuestions, getRepos, type Product, type ProductWithAudience, type PageList, type Page, type QuestionList, type QuestionEntry, type PageDocument, type Architecture, type RepoEntry, type ReposList } from './api.js';
+import { getProduct, getPages, getPage, getQuestions, getRepos, getRegistry, type Product, type ProductWithAudience, type PageList, type Page, type QuestionList, type QuestionEntry, type PageDocument, type Architecture, type RepoEntry, type ReposList, type RegistryOffer } from './api.js';
 import { routeOf, addressOfPage, architectureAddress, type Route } from './routes.js';
 import { Markdown, PageLink } from './view.js';
 import { routeContext, statusContext } from './hold.js';
@@ -57,7 +57,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
   // product whose manifest declares no repositories has no `/api/repos` at
   // all — the server refuses it — and the wiki loads all the same, the
   // section simply absent.
-  const [data, setData] = useState<{ product: ProductWithAudience; list: PageList; repos: ReposList | null; questions?: QuestionList } | null>(null);
+  const [data, setData] = useState<{ product: ProductWithAudience; list: PageList; repos: ReposList | null; questions?: QuestionList; registry: RegistryOffer | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [streamConnected, setStreamConnected] = useState(false);
@@ -114,6 +114,18 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
         } catch {
           if (!alive || lastAnsweredTurn > turn) return;
         }
+        // The kinds registry's ask is the other optional read: a server
+        // without the route (or a product without a registry file) reads
+        // the plain way. A registry file standing but refused comes whole
+        // as its refusal: the app reads the plain way the same offer says.
+        current = '/api/registry';
+        let nextRegistry: RegistryOffer | null = null;
+        try {
+          nextRegistry = await getRegistry(controller.signal);
+        } catch {
+          if (!alive || lastAnsweredTurn > turn) return;
+          nextRegistry = null;
+        }
         // The repositories' ask is the one optional read: its refusal (the
         // server's 404 for an undeclared product, or any other failure) is
         // the section's absence, never the wiki's failure.
@@ -121,7 +133,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
         const nextRepos = await getRepos(controller.signal).catch(() => null);
         if (!alive || lastAnsweredTurn > turn) return;
         lastAnsweredTurn = turn;
-        setData({ product: nextProduct, list: nextList, repos: nextRepos, questions: nextQuestions });
+        setData({ product: nextProduct, list: nextList, repos: nextRepos, questions: nextQuestions, registry: nextRegistry });
         setError(null);
       } catch (caught: unknown) {
         const aborted = caught instanceof DOMException && caught.name === 'AbortError';
@@ -231,7 +243,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
   return (
     <StatusBridge streamConnected={streamConnected}>
       <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, stage: route.name === 'stage' ? route.stage : undefined, architecture: architectureCrumb, heldPaths }}>
-        <Shell product={data.product} list={list} architecture={architecture} reposCount={data.repos?.repos.length} reposOpen={route.name === 'repos'} openQuestions={data.questions}>
+        <Shell product={data.product} list={list} architecture={architecture} reposCount={data.repos?.repos.length} reposOpen={route.name === 'repos'} openQuestions={data.questions} offer={data.registry}>
         {route.name === 'home' ? (
           <HomePage product={data.product} list={list} architecture={architecture} />
         ) : route.name === 'repos' && (data.repos?.repos.length ?? 0) > 0 ? (
@@ -324,8 +336,9 @@ export function StatusBridge({ children, streamConnected }: { children: ReactNod
  * choosing between, the rows read like the sidebar's. A product with no
  * pages yet says so plainly in the lead.
  */
-export function HomePage({ product, list, architecture }: { product: ProductWithAudience; list: PageList; architecture?: Architecture | null }): ReactElement {
-  const groups = groupNav(list.pages);
+export function HomePage({ product, list, architecture, offer }: { product: ProductWithAudience; list: PageList; architecture?: Architecture | null; offer?: RegistryOffer | null }): ReactElement {
+  const registryOffer = offer ?? null;
+  const groups = groupNav(list.pages, registryOffer);
   const documents = list.pages.length;
   const { publish } = useContext(statusContext);
   const { t } = useTranslation();
@@ -503,18 +516,18 @@ export function PageReader({
     return <ErrorLine message={error} />;
   if (error !== null) return <ErrorLine message={error} />;
   if (page === null) return <p className="loading">{t('loading.wiki')}</p>;
-  // The set's document this page is, or a plain page of no set kind: the
-  // header block reads the form's fields where the set names the document,
+  // The document this page is, or a plain page no kind names: the
+  // header block reads the form's fields where the registry names the document,
   // and keeps the mockup's plain eyebrow where it does not.
   const doc = page.document;
   const setKind = doc?.kind;
   const kindLabel = setKind !== undefined
-    ? t('kinds.' + setKind, { defaultValue: setKind })
-    : t('kinds.' + kindOf(path, groupOf(path)).toLowerCase(), { defaultValue: kindOf(path, groupOf(path)) });
+    ? wordLabel(setKind)
+    : wordLabel(kindOf(path, groupOf(path)));
   return (
     <main id="page" ref={pageRef}>
       {/* The document's header: the kind as an eyebrow above the title, then
-       * the set's calm field block for a document the set names. Exactly one
+       * the calm field block for a document the registry names. Exactly one
        * h1 per page: when the document renders its own first-level heading,
        * the fallback title above it is not rendered (the checkpoint's
        * doubled-title defect). */}
@@ -527,17 +540,18 @@ export function PageReader({
       {doc !== undefined && <DocumentHeader document={doc} />}
       <Markdown text={page.markdown} elementLinks={elementLinksFor(bundle, path)} />
       <DocumentLinks page={page} />
+      <StructuralBlock page={page} />
       <FindingsBlock page={page} />
     </main>
   );
 }
 
 /**
- * The set's document fields, shown calm: the identity fields the form
- * names — the id, the status the set computes, the dates and the people a
- * kind carries — then the rest of the form's fields, one quiet row each,
- * values as written. A form the set computes nothing for shows its fields
- * and nothing invented.
+ * The document's fields, shown calm: the identity fields the form
+ * names — the id, the status the document's own text computes, the dates
+ * and the people a kind carries — then the rest of the form's fields, one
+ * quiet row each, values as written. A form the text computes nothing for
+ * shows its fields and nothing invented.
  */
 function DocumentHeader({ document: doc }: { document: PageDocument }): ReactElement | null {
   const { t } = useTranslation();
@@ -582,10 +596,12 @@ function DocumentHeader({ document: doc }: { document: PageDocument }): ReactEle
 }
 
 /**
- * What the document grew from, and who links to it: the set's link fields
- * first, then the pages whose body names this one. Both stand as quiet
- * rows of page links after the document, the form's own way of walking the
- * chain up and down. A page of no set kind, and one with neither, shows
+ * The link rows after the document: the fields the kind's registry data
+ * declares (each row's head is the naming field's own word, data, never the
+ * shell's), then the pages that name this one back — each under the
+ * declaring kind's label where one is written, and every undeclared one
+ * under the shell's own generic wording. The rows are the form's way of
+ * walking the chain up and down; a plain page, and one with neither, shows
  * neither.
  */
 function DocumentLinks({ page }: { page: Page }): ReactElement {
@@ -595,13 +611,36 @@ function DocumentLinks({ page }: { page: Page }): ReactElement {
   const grew = document.grewFrom ?? [];
   const backlinks = document.backlinks ?? [];
   if (grew.length === 0 && backlinks.length === 0) return <></>;
+  // Each naming field's own word heads its rows; the fields' first-seen
+  // order the document read kept.
+  const viaNames: string[] = [];
+  const byVia = new Map<string, typeof grew>();
+  for (const entry of grew) {
+    if (!byVia.has(entry.via)) {
+      viaNames.push(entry.via);
+      byVia.set(entry.via, []);
+    }
+    byVia.get(entry.via)!.push(entry);
+  }
+  // The backlinks' labels: a declared one first, the shell's generic word
+  // for the rest, every label's first-seen order kept.
+  const labels: string[] = [];
+  const byLabel = new Map<string, typeof backlinks>();
+  for (const entry of backlinks) {
+    const label = entry.label ?? t('document.linkedFrom');
+    if (!byLabel.has(label)) {
+      labels.push(label);
+      byLabel.set(label, []);
+    }
+    byLabel.get(label)!.push(entry);
+  }
   return (
     <div className="doc-links" data-testid="doc-links">
-      {grew.length > 0 && (
-        <section className="doc-links-row" data-testid="grown-from">
-          <h2 className="doc-links-head">{t('document.grewFrom')}</h2>
+      {viaNames.map((via) => (
+        <section className="doc-links-row" data-testid={`grown-from-${via.toLowerCase().replaceAll(' ', '-')}`} key={via}>
+          <h2 className="doc-links-head">{via}</h2>
           <ul className="doc-links-list">
-            {grew.map((entry) => (
+            {(byVia.get(via) as typeof grew).map((entry) => (
               <li key={entry.id} className="doc-links-item">
                 {entry.path !== undefined ? (
                   <PageLink path={entry.path} className="doc-links-link">
@@ -617,13 +656,13 @@ function DocumentLinks({ page }: { page: Page }): ReactElement {
             ))}
           </ul>
         </section>
-      )}
-      {backlinks.length > 0 && (
-        <section className="doc-links-row" data-testid="linked-from">
-          <h2 className="doc-links-head">{t('document.linkedFrom')}</h2>
+      ))}
+      {labels.map((label) => (
+        <section className="doc-links-row" data-testid="linked-from" key={label}>
+          <h2 className="doc-links-head">{label}</h2>
           <ul className="doc-links-list">
-            {backlinks.map((entry) => (
-              <li key={entry.path} className="doc-links-item">
+            {(byLabel.get(label) as typeof backlinks).map((entry, at) => (
+              <li key={`${entry.path}-${at}`} className="doc-links-item">
                 <PageLink path={entry.path} className="doc-links-link">
                   {entry.id !== undefined ? <span className="doc-links-id">{entry.id}</span> : null}
                   <span className="doc-links-title">{entry.title}</span>
@@ -632,7 +671,7 @@ function DocumentLinks({ page }: { page: Page }): ReactElement {
             ))}
           </ul>
         </section>
-      )}
+      ))}
     </div>
   );
 }
@@ -673,6 +712,33 @@ export function FindingsBlock({ page }: { page: Page }): ReactElement | null {
     );
   }
   return null;
+}
+
+/**
+ * The registry's structural findings, on the page that carries one: the
+ * broken link, the link to an undeclared kind or field, the missing
+ * required link, the status outside the kind's list — the engine's own
+ * reads, each at the line it stands on. A page the reads say nothing
+ * about shows nothing.
+ */
+export function StructuralBlock({ page }: { page: Page }): ReactElement | null {
+  const { t } = useTranslation();
+  const findings = page.structural ?? [];
+  if (findings.length === 0) return null;
+  return (
+    <section className="doc-findings" data-testid="doc-structural" aria-live="polite">
+      <h2 className="doc-findings-head">{t('document.structural', { count: findings.length })}</h2>
+      <ul className="doc-findings-list">
+        {findings.map((finding, at) => (
+          <li key={at} className="doc-finding" data-rule={finding.rule}>
+            <span className="doc-finding-place">{finding.file}:{finding.line}</span>
+            <span className="doc-finding-rule">{finding.rule}</span>
+            <span className="doc-finding-what">{finding.what}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 /** The revision of the list the app was last told, so a changed wiki refetches the open page. */

@@ -18,6 +18,24 @@ const NAME_PATTERN_SOURCE = '^[A-Za-z][A-Za-z0-9 _-]*$';
 const RegistryId = Type.String({ pattern: ID_PATTERN_SOURCE });
 const RegistryName = Type.String({ pattern: NAME_PATTERN_SOURCE, minLength: 1 });
 
+/** One link field a kind's documents may carry, as a kind declares it. */
+export const KindLinkEntry = Type.Object(
+  {
+    /** The form field's name the documents of the kind write the link under, like `Serves`. */
+    field: Type.String({ minLength: 1, description: 'The field name as the document\'s form writes it, like Grew from, Serves.' }),
+    /** The kinds the field's link may name, by the kinds' own names in this registry. */
+    targets: Type.Array(RegistryName, { minItems: 1, description: 'The kinds this link may go to, each a kind of the registry.' }),
+    /** The label the linked page shows its backlinks under; left out, the wiki words the backlink generically. */
+    backlink: Type.Optional(RegistryName),
+    /** Whether the field names one document or many: `many` is the shape a left-out cardinality reads as. */
+    cardinality: Type.Optional(Type.Union([Type.Literal('one'), Type.Literal('many')])),
+    /** Whether a document of the kind must carry the link at all. */
+    required: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
+export type KindLinkEntry = Static<typeof KindLinkEntry>;
+
 /** One kind of document the product holds, as the registry names it. */
 export const KindEntry = Type.Object(
   {
@@ -31,6 +49,10 @@ export const KindEntry = Type.Object(
     stage: RegistryId,
     /** The next-step hint the wiki shows where the stage holds nothing of the kind. */
     hint: Type.String({ minLength: 1 }),
+    /** The statuses a document of the kind may carry in its `Status` field; a written status outside the list is the wiki's finding. */
+    statuses: Type.Optional(Type.Array(RegistryName, { description: 'The allowed statuses of the kind, as the documents write them.' })),
+    /** The link fields the kind's documents may carry, each naming its target kinds. */
+    links: Type.Optional(Type.Array(KindLinkEntry, { description: 'The links the kind declares: field name, allowed target kinds, the backlink\'s label, the cardinality and whether the link is required.' })),
   },
   { additionalProperties: false },
 );

@@ -31,6 +31,8 @@ export type BacklinkEntry = {
   path: string;
   title: string;
   id?: string;
+  /** The declaring kind's backlink label for the field that named this document. */
+  label?: string;
 };
 
 /** The set's document a page is, as the server read its form. */
@@ -41,6 +43,14 @@ export type PageDocument = {
   fields: DocumentField[];
   grewFrom: GrownFromEntry[];
   backlinks: BacklinkEntry[];
+};
+
+/** One structural finding the registry's reads computed: at file, line and path. */
+export type PageStructuralFinding = {
+  rule: string;
+  file: string;
+  line: number;
+  what: string;
 };
 
 /** One finding of the set's product check, at file, line and path. */
@@ -59,9 +69,9 @@ export type PageMeta = {
   path: string;
   title: string;
   url: string;
-  /** The set's kind the page's form or place names, when the set names one. */
+  /** The kind the page's registry names it, when the product holds a registry that names it. */
   kind?: string;
-  /** The status the set computes for the kind, when one is derivable. */
+  /** The status the document's own text computes, when one is derivable. */
   status?: string;
 };
 
@@ -114,6 +124,8 @@ export type Page = {
   document?: PageDocument;
   /** This page's findings of the set's product check; absent where an older server sent none. */
   findings?: PageFinding[];
+  /** This page's structural findings the registry's reads computed; absent where an older server sent none. */
+  structural?: PageStructuralFinding[];
   check?: PageCheck;
 };
 
@@ -271,10 +283,13 @@ export type StageNote = {
 export type StageSection = {
   id: string;
   artifacts: StageArtifact[];
-  missing: { kind: string; skill: string }[];
+  /** What the stage holds nothing of yet: a kind the registry names carries its own next-step hint, the mechanism's material carries its kind alone. */
+  missing: { kind: string; hint?: string }[];
   tasks?: TaskFeature[];
   notes?: StageNote[];
   sections?: StageSectionLink[];
+  /** The stage's name as the product's registry gives it, when one stands. */
+  name?: string;
   empty: boolean;
 };
 
@@ -285,6 +300,56 @@ export type StagesIndex = {
 
 export const getStages = (signal?: AbortSignal): Promise<StagesIndex> =>
   readJson<StagesIndex>('read the stages', '/api/stages', signal);
+
+/** One link field a kind's documents may carry, as the registry declares it. */
+export type RegistryKindLink = {
+  /** The form field's name the documents of the kind write the link under. */
+  field: string;
+  /** The kinds the field's link may name. */
+  targets: string[];
+  /** The label the linked page shows its backlinks under; left out, the wiki words them. */
+  backlink?: string;
+  /** Whether the field names one document or many. */
+  cardinality?: 'one' | 'many';
+  /** Whether a document of the kind must carry the link at all. */
+  required?: boolean;
+};
+
+/** One kind as the product's registry names it. */
+export type RegistryKindEntry = {
+  name: string;
+  prefix: string;
+  folder: string;
+  stage: string;
+  hint: string;
+  /** The statuses a document of the kind may carry in its `Status` field. */
+  statuses?: string[];
+  /** The link fields the kind's documents may carry. */
+  links?: RegistryKindLink[];
+};
+
+/** One stage of the registry's life cycle, in its own order. */
+export type RegistryStageEntry = {
+  id: string;
+  /** The stage's name as a reader sees it; the id stands in where it is left out. */
+  name?: string;
+};
+
+export type RegistryRefusal = {
+  file: string;
+  line: number;
+  path: string;
+  message: string;
+};
+
+/** The kinds registry as the server answers it: whole, refused, or absent. */
+export type RegistryOffer =
+  | { present: false }
+  | { present: true; stages: RegistryStageEntry[]; kinds: RegistryKindEntry[] }
+  | { present: true; refused: RegistryRefusal[] };
+
+export const getRegistry = (signal?: AbortSignal): Promise<RegistryOffer> =>
+  readJson<RegistryOffer>('read the product kinds registry', '/api/registry', signal);
 
 /** The checkout's last commit, as the server's git read reported it. */
 export type RepoHead = {

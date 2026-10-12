@@ -6,14 +6,19 @@ import { readStagesIndex, stagesSourceDigest } from '../src/wiki/stages.js';
 import { startServer, type StartedServer } from '../src/index.js';
 
 /**
- * The SDLC stage index (docs/changes/wiki-sdlc/capabilities/product-wiki.md,
- * requirement `stages`): every stage of the set's life cycle in order, each
- * holding the artifacts the product really has — the set-form documents under
- * their folders, the Build stage's tasks read from the tracker's own export,
- * the acceptance, release and incident records from the places the skills
- * write — and, where a stage holds nothing, the skill that fills it. The
- * index never writes and never throws on a folder it can read: an export
- * that cannot be parsed is a problem named with its path, the rest stands.
+ * The stage index (docs/changes/wiki-sdlc/capabilities/product-wiki.md,
+ * requirement `stages`; the kinds registry reading is the product-repository
+ * contract's): every stage of the product's life cycle in order, each
+ * holding the artifacts the product really has — the documents of the
+ * kinds registry's kinds under their folders, the Build stage's tasks read
+ * from the tracker's own export, the acceptance, release and incident
+ * records from their places — and, where a stage holds nothing of a kind,
+ * that kind's next-step hint from the registry; the mechanism's own
+ * material is hinted generically. A product with no registry keeps the
+ * plain reading: no document kind computed anywhere, the generic life
+ * cycle's order. The index never writes and never throws on a folder it
+ * can read: an export that cannot be parsed is a problem named with its
+ * path, the rest stands.
  */
 
 let folder: string | undefined;
@@ -32,10 +37,85 @@ function thisFolder(): string {
   return folder!;
 }
 
-function draft(): string {
+const DEMO_REGISTRY = [
+  'stages:',
+  '  - id: idea',
+  '    name: Idea',
+  '  - id: requirements',
+  '    name: Requirements',
+  '  - id: design',
+  '    name: Design',
+  '  - id: build',
+  '    name: Build',
+  '  - id: verify',
+  '    name: Verify',
+  '  - id: release',
+  '    name: Release',
+  '  - id: operate',
+  '    name: Operate',
+  'kinds:',
+  '  - name: Product vision',
+  '    prefix: V',
+  '    folder: docs/vision.md',
+  '    stage: idea',
+  '    hint: write why the product is worth building',
+  '  - name: Sources',
+  '    prefix: S',
+  '    folder: docs/sources',
+  '    stage: idea',
+  '    hint: have the first conversation with a customer, write it down',
+  '  - name: Hypotheses',
+  '    prefix: H',
+  '    folder: docs/hypotheses',
+  '    stage: idea',
+  '    hint: turn a source into one checkable sentence',
+  '  - name: Prototypes',
+  '    prefix: P',
+  '    folder: docs/prototypes',
+  '    stage: idea',
+  '    hint: build the smallest thing that tests the belief',
+  '  - name: Results',
+  '    prefix: R',
+  '    folder: docs/results',
+  '    stage: idea',
+  '    hint: measure what happened and say what it proves',
+  '  - name: Open questions',
+  '    prefix: Q',
+  '    folder: docs/questions',
+  '    stage: idea',
+  '    hint: write what is not known and who can answer it',
+  '  - name: User stories',
+  '    prefix: US',
+  '    folder: docs/stories',
+  '    stage: requirements',
+  '    hint: write what one user does with the product in their own words',
+  '  - name: Use cases',
+  '    prefix: UC',
+  '    folder: docs/use-cases',
+  '    stage: requirements',
+  '    hint: walk one story\'s steps from start to finish',
+  '  - name: Product requirements',
+  '    prefix: FR',
+  '    folder: docs/requirements',
+  '    stage: requirements',
+  '    hint: write what the product does, one requirement at a time',
+  '  - name: Decisions',
+  '    prefix: D',
+  '    folder: docs/decisions',
+  '    stage: design',
+  '    hint: record the choice between the options on the table',
+  '  - name: Design specs',
+  '    prefix: SP',
+  '    folder: docs/specs',
+  '    stage: design',
+  '    hint: write the design behaviour before code',
+  ''].join('\n');
+
+function draft(withRegistry: boolean = true): string {
   folder = mkdtempSync(join(tmpdir(), 'madarch-stages-'));
-  mkdirSync(folder, { recursive: true });
+  mkdirSync(join(folder, 'docs'), { recursive: true });
   writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: demo\nname: Demo\n');
+  if (withRegistry) writeFileSync(join(folder, 'docs', 'kinds.yaml'), DEMO_REGISTRY);
   return folder;
 }
 
@@ -57,22 +137,47 @@ function tracker(lines: unknown[]): void {
 }
 
 describe('the stage index of a product', () => {
-  test('every stage of the life cycle answers, in the set\'s order, an empty product all missing', () => {
+  test("a registry product's empty stages answer every kind's own hint, the mechanism's material by kind alone", () => {
     draft();
     const index = readStagesIndex(folder!);
     expect(index.stages.map((stage) => stage.id)).toEqual(['idea', 'requirements', 'design', 'build', 'verify', 'release', 'operate']);
     expect(index.stages.every((stage) => stage.empty)).toBe(true);
-    // The skills the missing lines name: the set's own, one per stage.
-    const skills = Object.fromEntries(index.stages.map((stage) => [stage.id, stage.missing.map((m) => m.skill)]));
-    expect(skills['idea']).toContain('define-product');
-    expect([...new Set(skills['requirements'])]).toEqual(['to-spec']);
-    expect(skills['design']).toContain('to-design');
-    expect([...new Set(skills['verify'])]).toEqual(['take-task']);
-    expect([...new Set(skills['release'])]).toEqual(['ship-release']);
-    expect([...new Set(skills['operate'])]).toEqual(['handle-incident']);
-    expect([...new Set(skills['build'])]).toEqual(['take-task']);
-    // The design stage of a model-less product also names the missing views.
-    expect(skills['design']).toContain('write-intended-model');
+    expect(index.stages.map((stage) => stage.name)).toEqual(['Idea', 'Requirements', 'Design', 'Build', 'Verify', 'Release', 'Operate']);
+    // A kind the stage holds nothing of names the registry's own hint —
+    // what to do next as the product's data says it, no skill named.
+    const idea = index.stages.find((stage) => stage.id === 'idea')!;
+    expect(idea.missing.map((m) => m.kind)).toEqual(['Product vision', 'Sources', 'Hypotheses', 'Prototypes', 'Results', 'Open questions']);
+    expect(idea.missing.find((m) => m.kind === 'Sources')!.hint).toBe('have the first conversation with a customer, write it down');
+    const requirements = index.stages.find((stage) => stage.id === 'requirements')!;
+    expect(requirements.missing.map((m) => [m.kind, m.hint])).toEqual([
+      ['User stories', 'write what one user does with the product in their own words'],
+      ['Use cases', "walk one story's steps from start to finish"],
+      ['Product requirements', 'write what the product does, one requirement at a time'],
+    ]);
+    const design = index.stages.find((stage) => stage.id === 'design')!;
+    // The model-less product's missing views stand beside the kinds' hints.
+    expect(design.missing.map((m) => [m.kind, m.hint ?? null])).toEqual([
+      ['Decisions', 'record the choice between the options on the table'],
+      ['Design specs', 'write the design behaviour before code'],
+      ['architecture views', null],
+    ]);
+    expect(index.stages.find((stage) => stage.id === 'verify')!.missing).toEqual([{ kind: 'acceptance record' }]);
+    expect(index.stages.find((stage) => stage.id === 'release')!.missing).toEqual([{ kind: 'release record' }]);
+    expect(index.stages.find((stage) => stage.id === 'build')!.missing).toEqual([{ kind: 'task' }]);
+    // The registry's own kind of the Operate stage shows its hint; the mechanism's records row follows.
+    expect(index.stages.find((stage) => stage.id === 'operate')!.missing).toEqual([{ kind: 'incident record' }]);
+    expect(index.problems).toEqual([]);
+  });
+
+  test('a product with no registry keeps the generic life cycle, with no kind computed anywhere and generic hints', () => {
+    draft(false);
+    const index = readStagesIndex(folder!);
+    expect(index.stages.map((stage) => stage.id)).toEqual(['idea', 'requirements', 'design', 'build', 'verify', 'release', 'operate']);
+    expect(index.stages.every((stage) => stage.empty)).toBe(true);
+    expect(index.stages.every((stage) => stage.name === undefined)).toBe(true);
+    const kinds = index.stages.flatMap((stage) => stage.missing.map((m) => m.kind));
+    expect(kinds).toEqual(['architecture views', 'task', 'acceptance record', 'release record', 'incident record']);
+    expect(index.stages.find((stage) => stage.id === 'idea')!.missing).toEqual([]);
     expect(index.problems).toEqual([]);
   });
 
@@ -95,18 +200,23 @@ describe('the stage index of a product', () => {
       'docs/sources/S-001-first-talk.md',
       'docs/vision.md',
     ]);
-    expect(idea.artifacts.find((a) => a.kind === 'vision')!.title).toBe('A cafe lists its leftovers');
-    expect(idea.artifacts.find((a) => a.kind === 'source')!.title).toBe('First talk');
+    expect(idea.artifacts.find((a) => a.kind === 'Product vision')!.title).toBe('A cafe lists its leftovers');
+    expect(idea.artifacts.find((a) => a.kind === 'Sources')!.title).toBe('First talk');
     const requirements = index.stages.find((stage) => stage.id === 'requirements')!;
-    expect(requirements.artifacts.map((a) => a.kind)).toEqual(['product requirement', 'user story', 'use case']);
-    expect(requirements.artifacts.find((a) => a.kind === 'product requirement')!.title).toBe('Under a minute');
+    expect(requirements.artifacts.map((a) => a.kind)).toEqual(['Product requirements', 'User stories', 'Use cases']);
+    expect(requirements.artifacts.find((a) => a.kind === 'Product requirements')!.title).toBe('Under a minute');
     const design = index.stages.find((stage) => stage.id === 'design')!;
-    expect(design.artifacts.map((a) => a.kind)).toEqual(['decision']);
+    expect(design.artifacts.map((a) => a.kind)).toEqual(['Decisions']);
     expect(design.artifacts[0]!.title).toBe('Own the reader');
-    // The idea stage holds no prototype and no result in this product: the two missing kinds name the skill that writes them.
-    expect(index.stages.find((stage) => stage.id === 'idea')!.missing.map((m) => m.kind)).toEqual(['prototype', 'result']);
-    expect(index.stages.find((stage) => stage.id === 'idea')!.missing.every((m) => m.skill === 'define-product')).toBe(true);
-    expect(index.stages.find((stage) => stage.id === 'requirements')!.missing).toEqual([]);
+    // The idea stage holds no prototype and no result in this product: the
+    // two missing kinds carry the registry's own hints.
+    expect(index.stages.find((stage) => stage.id === 'idea')!.missing.map((m) => [m.kind, m.hint])).toEqual([
+      ['Prototypes', 'build the smallest thing that tests the belief'],
+      ['Results', 'measure what happened and say what it proves'],
+    ]);
+    const productRequirements = index.stages.find((stage) => stage.id === 'requirements')!.missing;
+    expect(productRequirements.every((m) => ['User stories', 'Use cases'].includes(m.kind))).toBe(true);
+    expect(productRequirements.every((m) => m.hint !== undefined)).toBe(true);
   });
 
   test('a design spec lands on the Design stage beside the decisions', () => {
@@ -115,10 +225,10 @@ describe('the stage index of a product', () => {
     write('docs/decisions/0001-own-reader.md', '# Own the reader\n');
     const design = readStagesIndex(folder!).stages.find((stage) => stage.id === 'design')!;
     expect(design.artifacts.map((a) => a.path)).toEqual(['docs/decisions/0001-own-reader.md', 'docs/specs/2026-10-01-reading.md']);
-    expect(design.artifacts[1]!.kind).toBe('design spec');
+    expect(design.artifacts[1]!.kind).toBe('Design specs');
     // The decisions and specs are both held; the product has no model, so the
-    // views are still named as missing, with the skill that writes them.
-    expect(design.missing).toEqual([{ kind: 'architecture views', skill: 'write-intended-model' }]);
+    // views are still named as missing, generically.
+    expect(design.missing).toEqual([{ kind: 'architecture views' }]);
   });
 
   test("the Build stage's tasks are read from the tracker export, grouped by feature, counts carried", () => {
@@ -207,8 +317,8 @@ describe('the stage index of a product', () => {
     expect(build.notes![0]!.where).toBe(join(folder!, '.beads', 'issues.jsonl'));
     expect(build.notes![0]!.line).toBe(1);
     expect(build.notes![0]!.message).toContain('deferred');
-    // The missing line names take-task all the same.
-    expect(build.missing.map((m) => m.skill)).toEqual(['take-task']);
+    // The empty Build stage names its missing task generically.
+    expect(build.missing).toEqual([{ kind: 'task' }]);
   });
 
   test('a status the tracker spells differently is still a stage status', () => {
@@ -237,12 +347,12 @@ describe('the stage index of a product', () => {
     // Unshipped change proposals are never presented as releases.
     const release = index.stages.find((stage) => stage.id === 'release')!;
     expect(release.artifacts).toEqual([]);
-    expect(release.missing.map((m) => m.skill)).toEqual(['ship-release']);
-    // Operate: the skills hold no incident folder; the stage says what fills it.
+    expect(release.missing).toEqual([{ kind: 'release record' }]);
+    // Operate: the records folder holds no incident record; the stage says what fills it, beside the registry's own kind.
     const operate = index.stages.find((stage) => stage.id === 'operate')!;
     expect(operate.artifacts).toEqual([]);
     expect(operate.empty).toBe(true);
-    expect(operate.missing.map((m) => m.skill)).toEqual(['handle-incident']);
+    expect(operate.missing).toEqual([{ kind: 'incident record' }]);
   });
 
   test('the release notes are the FIRST changelog that exists, never both, and proposals are not releases', () => {
@@ -273,7 +383,8 @@ describe('the stage index of a product', () => {
     expect(index.problems).toHaveLength(1);
     expect(index.problems[0]!.where).toBe(changelog);
     expect(index.problems[0]!.message).toContain('EACCES');
-    expect(index.stages.find((stage) => stage.id === 'release')!.missing.map((m) => m.skill)).toEqual(['ship-release']);
+    expect(index.stages.find((stage) => stage.id === 'release')!.missing.map((m) => m.kind)).toEqual(['release record']);
+    expect(index.stages.find((stage) => stage.id === 'release')!.missing[0]!.hint).toBeUndefined();
   });
 
   test('an unreadable kind folder is a problem naming the folder, never a silently empty stage', () => {
@@ -346,9 +457,9 @@ describe('the stage index of a product', () => {
     const idea = readStagesIndex(folder!).stages.find((stage) => stage.id === 'idea')!;
     // Code point order of the paths: prototypes < results < vision.md.
     expect(idea.artifacts.map((a) => [a.path, a.kind])).toEqual([
-      ['docs/prototypes/P-001-map.md', 'prototype'],
-      ['docs/results/R-001-week.md', 'result'],
-      ['docs/vision.md', 'vision'],
+      ['docs/prototypes/P-001-map.md', 'Prototypes'],
+      ['docs/results/R-001-week.md', 'Results'],
+      ['docs/vision.md', 'Product vision'],
     ]);
   });
 
@@ -485,8 +596,10 @@ describe('the stage index of a product', () => {
       'docs/repositories/library/architecture.md',
       'docs/repositories/library/decisions/0002-refine.md',
     ]);
-    expect(design.artifacts.find((a) => a.kind === 'repository architecture')).toBeDefined();
-    expect(design.artifacts.find((a) => a.path === 'docs/repositories/library/decisions/0002-refine.md')!.kind).toBe('decision');
+    const architecture = design.artifacts.find((a) => a.kind === 'repository architecture');
+    expect(architecture).toBeDefined();
+    expect(architecture!.served).toBe(true);
+    expect(design.artifacts.find((a) => a.path === 'docs/repositories/library/decisions/0002-refine.md')!.kind).toBe('Decisions');
   });
 
   test('a repository subtree that cannot be read is a problem naming the folder, never silence', () => {
@@ -515,7 +628,7 @@ describe('the stage index of a product', () => {
     ]);
     const idea = index.stages.find((stage) => stage.id === 'idea')!;
     expect(idea.artifacts.map((a) => a.path)).toEqual(['docs/elsewhere/Q-003-unowned.md']);
-    expect(idea.artifacts[0]!.kind).toBe('open question');
+    expect(idea.artifacts[0]!.kind).toBe('Open questions');
   });
 
   test('reading the stages changes nothing in the product', () => {

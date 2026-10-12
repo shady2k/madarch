@@ -25,44 +25,7 @@
   },
   "groups": {
     "product": "Product",
-    "requirements": "Requirements",
-    "decisions": "Decisions",
-    "research": "Research",
-    "prototypes": "Prototypes",
-    "results": "Results",
-    "stories": "Stories",
-    "sources": "Sources",
-    "hypotheses": "Hypotheses",
-    "questions": "Questions",
-    "use-cases": "Use cases",
     "other": "Other"
-  },
-  "kinds": {
-    "readme": "README",
-    "vision": "Product vision",
-    "requirement": "Requirement",
-    "decision": "Decision",
-    "research": "Research",
-    "product": "Product",
-    "other": "Document",
-    "roadmap": "Roadmap",
-    "milestone": "Milestone",
-    "sources": "Sources",
-    "hypotheses": "Hypotheses",
-    "stories": "User stories",
-    "use-cases": "Use cases",
-    "requirements": "Product requirements",
-    "decisions": "Decisions",
-    "design": "Design records",
-    "architecture": "Architecture",
-    "capability": "Capabilities",
-    "change": "Change records",
-    "exploration": "Explorations",
-    "questions": "Open questions",
-    "prototypes": "Prototypes",
-    "results": "Results",
-    "practices": "Practices",
-    "practices-retired": "Retired practices"
   },
   "home": {
     "overview": "Product overview",
@@ -99,7 +62,11 @@
     "findingsNote": "The set's product check (rules {{version}}) ran over the product; these findings name this page by path and line.",
     "checkNote": "The set's product check could not run:",
     "findings_few": "The set's check reports {{count}} findings on this page",
-    "findings_many": "The set's check reports {{count}} findings on this page"
+    "findings_many": "The set's check reports {{count}} findings on this page",
+    "structural_one": "The registry’s structural reads report {{count}} finding on this page",
+    "structural_other": "The registry’s structural reads report {{count}} findings on this page",
+    "structural_few": "The registry’s structural reads report {{count}} findings on this page",
+    "structural_many": "The registry’s structural reads report {{count}} findings on this page"
   },
   "status": {
     "live": "Live",
@@ -226,15 +193,14 @@
       "operate": "Operate"
     },
     "leads": {
-      "idea": "Why the product is worth building: the vision, what is known and kept from conversations, the beliefs waiting on their tests.",
-      "requirements": "What the product must do, as its user sees it: the stories, the use cases and the requirements they grew into.",
-      "design": "How the system will do it: the architecture views, the decisions taken and the design notes written before code.",
+      "idea": "Why the product is worth building: what is known, what is believed and what is waiting to settle.",
+      "requirements": "What the product must do, as its user sees it: the statements the product is held to.",
+      "design": "How the system will do it: the intent drawn before code and the choices taken about why.",
       "build": "What is being built and where it stands: the code repositories and the product tasks, grouped by feature, read from the tracker.",
-      "verify": "What was accepted and how it was proven: the stage acceptance records with their revisions and checks.",
-      "release": "What reached its users and when: the release records ship-release writes — the notes and the versions.",
-      "operate": "What failed in use and what it changed: the incident records handle-incident holds — the timeline, the cost, what was filed."
+      "verify": "What was accepted and how it was proven: the stage records with their revisions and checks.",
+      "release": "What reached its users and when: the release notes and the versions.",
+      "operate": "What failed in use and what it changed: the incidents’ timeline, the cost, what was filed."
     },
-    "missingLine": "Nothing of this stage is here yet — the {{skill}} skill writes {{kind}} when the product reaches it.",
     "noTasks": "The tracker export .beads/issues.jsonl holds no task yet — tasks appear here when the tracker holds them.",
     "counts": "{{open}} {{openUnit}} open · {{inProgress}} in progress · {{done}} done",
     "tasksTitle": "Tasks by feature",
@@ -244,21 +210,10 @@
       "done": "done"
     },
     "problem": "{{where}}: {{message}}",
-    "unknownStage": "The wiki holds no stage named “{{stage}}”: the stages are Idea, Requirements, Design, Build, Verify, Release and Operate.",
+    "unknownStage": "The wiki holds no stage named “{{stage}}”.",
     "architectureLink": "The architecture views belong to the Architecture section — the diagrams change serves it at /p/madarch/architecture when it lands; this build names it, it does not link it.",
     "repositoriesLink": "The code repositories belong to the Repositories section — the repositories change serves it at /r when it lands; this build names it, it does not link it.",
     "kinds": {
-      "vision": "Vision",
-      "source": "Source",
-      "hypothesis": "Hypothesis",
-      "open question": "Open question",
-      "prototype": "Prototype",
-      "result": "Result",
-      "user story": "User story",
-      "use case": "Use case",
-      "product requirement": "Product requirement",
-      "decision": "Decision",
-      "design spec": "Design spec",
       "acceptance record": "Acceptance record",
       "release record": "Release record",
       "release notes": "Release notes",
@@ -266,7 +221,9 @@
       "architecture views": "Architecture views",
       "task": "Task",
       "repository architecture": "Repository architecture"
-    }
+    },
+    "missingKind": "Nothing of this stage is here yet — {{kind}} lands here when the product reaches it.",
+    "nothingYet": "Nothing of this stage is here yet."
   },
   "repos": {
     "overview": "Code repositories",

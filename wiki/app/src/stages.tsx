@@ -19,6 +19,7 @@ import { useTranslation } from 'react-i18next';
 import { CircleDashedIcon, CircleIcon, CircleCheckBigIcon, ListTodoIcon } from 'lucide-react';
 import { getStages, type StagesIndex, type TaskFeature, type StageSection, type StageSectionLink, type StageNote } from './api.js';
 import { PageLink } from './view.js';
+import { wordLabel } from './shell.js';
 
 /** Reads the stages once for the open wiki; the caller rerenders it on the wiki's revision. */
 export function useStages(revision: string): StagesIndex | null {
@@ -94,15 +95,28 @@ export function TaskGroups({ groups }: { groups: readonly TaskFeature[] }): Reac
   );
 }
 
-/** The line an empty stage carries: which skill fills the stage, and for what. */
+/**
+ * The lines an empty stage carries: a kind the registry names shows the
+ * registry's own next-step hint — what to do next, as the product's data
+ * says it; the mechanism's own material is hinted generically, naming what
+ * the stage holds nothing of, no skill of any set named anywhere.
+ */
 function MissingLines({ section }: { section: StageSection }): ReactElement | null {
   const { t } = useTranslation();
-  if (section.missing.length === 0) return null;
+  if (section.missing.length === 0) {
+    return section.empty ? (
+      <div className="stage-missing" data-testid="stage-missing">
+        <p className="stage-missing-line">{t('stages.nothingYet')}</p>
+      </div>
+    ) : null;
+  }
   return (
     <div className="stage-missing" data-testid="stage-missing">
       {section.missing.map((entry) => (
         <p key={entry.kind} className="stage-missing-line">
-          {t('stages.missingLine', { kind: t(`stages.kinds.${entry.kind}`, { defaultValue: entry.kind }), skill: entry.skill })}
+          {entry.hint !== undefined && entry.hint !== ''
+            ? `${wordLabel(entry.kind)} — ${entry.hint}`
+            : t('stages.missingKind', { kind: t(`stages.kinds.${entry.kind}`, { defaultValue: wordLabel(entry.kind) }) })}
         </p>
       ))}
     </div>
@@ -171,8 +185,10 @@ export function StagePage({ stage, index }: { stage: StageSection; index: Stages
   return (
     <main id="stage" data-stage={stage.id}>
       <p className="eyebrow">{t('stages.eyebrow')}</p>
-      <h1 className="app-title">{t(`stages.names.${stage.id}`)}</h1>
-      <p className="home-lead">{t(`stages.leads.${stage.id}`)}</p>
+      <h1 className="app-title">{stage.name ?? t(`stages.names.${stage.id}`, { defaultValue: wordLabel(stage.id) })}</h1>
+      {t(`stages.leads.${stage.id}`, { defaultValue: '' }) !== '' && (
+        <p className="home-lead">{t(`stages.leads.${stage.id}`)}</p>
+      )}
       {index.problems.length > 0 && (
         <div className="stage-problems" data-testid="stage-problems">
           {index.problems.map((problem) => (
@@ -190,12 +206,12 @@ export function StagePage({ stage, index }: { stage: StageSection; index: Stages
               {artifact.served ? (
                 <PageLink path={artifact.path} className="home-row">
                   <span className="home-row-title">{artifact.title}</span>
-                  <span className="home-count">{t(`stages.kinds.${artifact.kind}`, { defaultValue: artifact.kind })}</span>
+                  <span className="home-count">{t(`stages.kinds.${artifact.kind}`, { defaultValue: wordLabel(artifact.kind) })}</span>
                 </PageLink>
               ) : (
                 <div className="home-row" data-testid="stage-artifact-text">
                   <span className="home-row-title">{artifact.title}</span>
-                  <span className="home-count">{t(`stages.kinds.${artifact.kind}`, { defaultValue: artifact.kind })}</span>
+                  <span className="home-count">{t(`stages.kinds.${artifact.kind}`, { defaultValue: wordLabel(artifact.kind) })}</span>
                 </div>
               )}
             </div>
