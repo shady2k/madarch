@@ -416,9 +416,25 @@ describe('the kinds registry the wiki serves', () => {
     }
   });
 
+  test('a registry whose bytes refuse to be read is the named unknown state, never a throw of the ask', () => {
+    withRegistry('contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n');
+    const file = join(folder!, 'docs', 'kinds.yaml');
+    chmodSync(file, 0o000);
+    try {
+      const serving = readRegistryServing(folder!);
+      expect(serving.contract.state).toBe('unknown');
+      if (serving.contract.state !== 'unknown') return;
+      expect(serving.contract.message).toContain('docs/kinds.yaml could not be read');
+      expect(serving.contract.message).toContain('plain documents');
+    } finally {
+      chmodSync(file, 0o644);
+    }
+  });
+
   test('a registry the wiki cannot serve degrades the open questions the way it degrades the pages', () => {
     const product = requireProduct(openProductWiki(withRegistry('contract: 99\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n')));
     write('docs/decisions/D-001.md', '# D-001 — One decision\n\nrecorded here\n');
+    write('docs/decisions/Q-009-late.md', '\n# Q-009 — Serving late?\n\n## Question\nA question the degradation must not answer.\n\n## Answer\n');
     const asked = product.questions();
     if (!asked.ok) throw new Error(asked.message);
     expect(asked.questions).toEqual([]);

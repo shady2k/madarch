@@ -207,13 +207,21 @@ describe('the contract of a product repository kinds registry', () => {
     expect(word.errors.some((error) => /object/.test(error.message))).toBe(true);
   });
 
-  test('the version gate names the whole number only at the field\'s own line', () => {
+  test('the version gate names the whole number only at the field\'s own line, not the document\'s first', () => {
     const refused = parseContractText('docs/kinds.yaml', '# the kinds registry\ncontract: "one"\n');
     expect(refused.ok).toBe(false);
     if (refused.ok) return;
     const missing = refused.errors[0];
     expect(missing!.line).toBe(2);
     expect(missing!.path).toBe('contract');
+    // The field's own line, wherever it stands: a version carried late in the
+    // file is refused at that line, not at the document's first content line.
+    const late = parseContractText('docs/kinds.yaml', 'stages:\n  - id: idea\nkinds: []\ncontract: 99\n');
+    expect(late.ok).toBe(false);
+    if (late.ok) return;
+    const unknown = late.errors.find((error) => error.version !== undefined);
+    expect(unknown!.line).toBe(4);
+    expect(unknown!.version).toBe(99);
   });
 
   test('the published product-registry and product-document schemas match the TypeBox sources', () => {

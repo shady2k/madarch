@@ -32,6 +32,20 @@ afterEach(() => {
 });
 
 describe('the served wiki and the product registry', () => {
+  test('a product with no registry keeps the answer it had before registries', async () => {
+    folder = mkdtempSync(join(tmpdir(), 'madarch-contract-serve-'));
+    writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: demo\nname: Demo\n');
+    mkdirSync(join(folder, 'docs', 'decisions'), { recursive: true });
+    mkdirSync(join(folder, 'app'), { recursive: true });
+    writeFileSync(join(folder, 'docs', 'decisions', 'D-001.md'), '# D-001 — One decision\n\nrecorded here\n');
+    writeFileSync(join(folder, 'app', 'index.html'), '<!doctype html><title>t</title>');
+    server = startServer({ productFolder: folder, port: 0, appFolder: join(folder, 'app'), log: () => {}, errorLog: () => {} });
+    const listed = (await (await fetch(`${server.url}/api/pages`)).json()) as Record<string, unknown>;
+    expect('contract' in listed).toBe(false);
+    expect(Array.isArray(listed.pages)).toBe(true);
+    expect((listed.pages as unknown[]).length).toBe(1);
+  });
+
   test('a registry of contract 99 is named by the served pages answer, and the pages serve plain', async () => {
     productWithRegistry('contract: 99\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n');
     server = startServer({ productFolder: folder!, port: 0, appFolder: join(folder!, 'app'), log: () => {}, errorLog: () => {} });
