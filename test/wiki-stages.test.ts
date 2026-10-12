@@ -596,7 +596,9 @@ describe('the stage index of a product', () => {
       'docs/repositories/library/architecture.md',
       'docs/repositories/library/decisions/0002-refine.md',
     ]);
-    expect(design.artifacts.find((a) => a.kind === 'repository architecture')).toBeDefined();
+    const architecture = design.artifacts.find((a) => a.kind === 'repository architecture');
+    expect(architecture).toBeDefined();
+    expect(architecture!.served).toBe(true);
     expect(design.artifacts.find((a) => a.path === 'docs/repositories/library/decisions/0002-refine.md')!.kind).toBe('Decisions');
   });
 
