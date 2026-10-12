@@ -1,5 +1,11 @@
 schemaVersion: 1
-id: b7c3f2a1-4e8d-4a6b-9c0f-1d2e3f4a5b6c
+id: 5f0e0d2c-7b1a-4c2e-9d3f-8a4c6e2b1d10
 name: Fieldnote
 skills:
   shady2k: 0.100.0
+repos:
+  - name: fieldnote-core
+    url: https://example.com/fieldnote/fieldnote-core.git
+  - name: fieldnote-web
+    url: https://example.com/fieldnote/fieldnote-web.git
+    branch: main
