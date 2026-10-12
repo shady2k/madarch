@@ -200,7 +200,8 @@ function removeDraftFolder(folder: string): string | undefined {
 export function createDraft(options: DraftOptions = {}): DraftResult {
   // The home is madarch's own decision: the `--home` the command was given,
   // over `MADARCH_HOME`, over the machine's default (productsHome).
-  const products = resolve(productsHome(process.env as DraftEnv, options.home).trim());
+  // productsHome itself trims: the home it names is the folder, never shell whitespace.
+  const products = resolve(productsHome(process.env as DraftEnv, options.home));
 
   // The day is judged before anything at all is made: a command refused for
   // its arguments leaves no folder behind, not even the home.

@@ -380,8 +380,10 @@ test('the constitution is byte for byte the one the contract example product car
     const draft = createDraft({ home: refuseNonScratchHome(`${home}\n`, 'the trimmed home test'), today: EXAMPLE_DAY, gitEnv: gitEnv(GIT_ENV) });
     expect(draft.outcome).toBe('created');
     if (draft.outcome !== 'created') return;
-    expect(draft.folder.startsWith(home)).toBe(true);
-    expect(readFileSync(join(draft.folder, 'workspace.yaml'), 'utf8')).toContain('name: idea-2026-10-09');
+    // The draft sits under the trimmed folder itself: an untrimmed name
+    // would build the folder under one named with the artifact.
+    expect(draft.folder).toBe(join(home, 'idea-2026-10-09'));
+    expect(readdirSync(base)).toEqual(['products']);
   });
 
 describe('whyNotADay', () => {
@@ -394,7 +396,8 @@ describe('whyNotADay', () => {
     expect(whyNotADay('2026-13-01')).toBe('is not a day of the calendar');
     expect(whyNotADay('2026-00-10')).toBe('is not a day of the calendar');
     expect(whyNotADay('2026-02-29')).toBe('is not a day of the calendar');
-    // A leap day a leap year has, and an ordinary day of this charter's work.
+    // A year 0 never happened, and a leap day a leap year has.
+    expect(whyNotADay('0000-01-01')).toBe('is not a day of the calendar');
     expect(whyNotADay('2024-02-29')).toBeNull();
     expect(whyNotADay('2026-10-09')).toBeNull();
   });
