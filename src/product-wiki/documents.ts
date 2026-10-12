@@ -517,53 +517,72 @@ export function structuralFindings(docs: ProductDocuments, kit: RegistryKit | un
     }
     // The fields: the kind's link declarations decide what a link is and
     // what the findings say about the rest.
-    for (const field of doc.fields) {
-      const values = field.value.split(',').map((part) => part.trim()).filter((part) => part !== '');
-      const addressable = values.filter((value) => isAddressOf(value, kit));
-      if (addressable.length === 0) continue;
-      const link = declared.links.find((held) => held.key === field.name.toLowerCase());
-      if (link === undefined) {
-        add(
-          'structural.undeclared-field',
-          field.line,
-          `the field "${field.name}" names ${addressable.join(', ')} like a link, but the "${declared.kind.name}" kind declares no links for it`,
-        );
-        continue;
+    // Each declared link is judged over every field occurrence the document
+    // writes: the pair (id, field) is one link, the findings stand where the
+    // field stands, and a required link is judged whole — a document that
+    // carries the field with no held target is as much without its link as
+    // one that carries no field at all.
+    for (const declaredLink of declared.links) {
+      const occurrences = doc.fields.filter((field) => field.name.toLowerCase() === declaredLink.key);
+      const addressableAll: { value: string; line: number; field: string }[] = [];
+      let resolvedCount = 0;
+      for (const field of occurrences) {
+        const values = field.value.split(',').map((part) => part.trim()).filter((part) => part !== '');
+        const addressable = values.filter((value) => isAddressOf(value, kit));
+        if (addressable.length === 0) continue;
+        const resolved = addressable.filter((value) => docs.byId.has(value));
+        resolvedCount += resolved.length;
+        for (const value of addressable) addressableAll.push({ value, line: field.line, field: field.name });
+        if (declaredLink.declared.cardinality === 'one' && resolved.length > 1) {
+          add(
+            'structural.cardinality',
+            field.line,
+            `the field "${field.name}" names one document, the kind's link says: rename one or declare it many`,
+          );
+        }
       }
-      const resolved = addressable.filter((value) => docs.byId.has(value));
-      if (link.declared.required && resolved.length === 0) {
+      // A required link the document holds none of: the field's first
+      // occurrence's line where one is written, the document's own first
+      // line where none is.
+      if (declaredLink.declared.required && resolvedCount === 0) {
         add(
           'structural.required-link',
-          field.line,
-          `a document of the "${declared.kind.name}" kind carries its "${link.declared.field}" link: the wiki found none`,
+          occurrences[0]?.line ?? 1,
+          `a document of the "${declared.kind.name}" kind carries its "${declaredLink.declared.field}" link: the wiki found none`,
         );
       }
-      if (link.declared.cardinality === 'one' && resolved.length > 1) {
-        add(
-          'structural.cardinality',
-          field.line,
-          `the field "${field.name}" names one document, the kind's link says: rename one or declare it many`,
-        );
-      }
-      for (const value of addressable) {
-        const target = docs.byId.get(value);
+      for (const occurrence of addressableAll) {
+        const target = docs.byId.get(occurrence.value);
         if (target === undefined) {
           add(
             'structural.broken-link',
-            field.line,
-            `the link "${field.name}: ${value}" names no document the wiki holds`,
+            occurrence.line,
+            `the link "${occurrence.field}: ${occurrence.value}" names no document the wiki holds`,
           );
           continue;
         }
         if (target.kind === undefined
-            || !link.declared.targets.some((named) => named.toLowerCase() === target.kind!.toLowerCase())) {
+            || !declaredLink.declared.targets.some((named) => named.toLowerCase() === target.kind!.toLowerCase())) {
           add(
             'structural.undeclared-kind',
-            field.line,
-            `the field "${field.name}" names ${value}, a document of ${target.kind === undefined ? 'no kind the registry names' : `the kind "${target.kind}"`}, which the link does not go to: its targets are ${link.declared.targets.join(', ')}`,
+            occurrence.line,
+            `the field "${occurrence.field}" names ${occurrence.value}, a document of ${target.kind === undefined ? 'no kind the registry names' : `the kind "${target.kind}"`}, which the link does not go to: its targets are ${declaredLink.declared.targets.join(', ')}`,
           );
         }
       }
+    }
+    // A field the kind declares no links for, whose values read like links:
+    // the finding names what is written and what the kind declares none of.
+    for (const field of doc.fields) {
+      const values = field.value.split(',').map((part) => part.trim()).filter((part) => part !== '');
+      const addressable = values.filter((value) => isAddressOf(value, kit));
+      if (addressable.length === 0) continue;
+      if (declared.links.some((held) => held.key === field.name.toLowerCase())) continue;
+      add(
+        'structural.undeclared-field',
+        field.line,
+        `the field "${field.name}" names ${addressable.join(', ')} like a link, but the "${declared.kind.name}" kind declares no links for it`,
+      );
     }
     if (found.length > 0) {
       found.sort((a, b) =>

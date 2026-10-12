@@ -100,6 +100,8 @@ const FIXTURE_REGISTRY = [
   '        targets:',
   '          - User stories',
   '        backlink: Served by',
+  '        cardinality: one',
+  '        required: true',
   '  - name: Product requirements',
   '    prefix: FR',
   '    folder: docs/requirements',
@@ -118,6 +120,10 @@ const FIXTURE_REGISTRY = [
   '    folder: docs/decisions',
   '    stage: design',
   '    hint: record the choice between the options on the table',
+  '    statuses:',
+  '      - accepted',
+  '      - superseded',
+  '      - deferred',
   '    links:',
   '      - field: Supersedes',
   '        targets:',
@@ -952,5 +958,153 @@ describe('the convergence round two, held by tests', () => {
     if (!asked.ok) throw new Error(asked.message);
     expect(asked.page.check?.ran).toBe(true);
     expect(asked.page.findings).toEqual([]); // keeper.html counts; the cycle ended
+  });
+});
+
+/** One page's structural findings, as one ask of the wiki answered them. */
+function structuralOf(bb: string, path: string): { rule: string; file: string; line: number; what: string }[] {
+  const opened = openProductWiki(bb);
+  if (!opened.ok) throw new Error(opened.message);
+  const asked = opened.wiki.page(path);
+  if (!asked.ok) throw new Error(asked.message);
+  return asked.page.structural;
+}
+
+/** One page's document backlinks with their declaring labels. */
+function backlinksOfPage(bb: string, path: string): { path: string; title: string; id?: string; label?: string }[] {
+  const opened = openProductWiki(bb);
+  if (!opened.ok) throw new Error(opened.message);
+  const asked = opened.wiki.page(path);
+  if (!asked.ok) throw new Error(asked.message);
+  return asked.page.document?.backlinks ?? [];
+}
+
+describe('the structural findings, from the declared links and statuses', () => {
+  test('a broken link names the id, the field and the line, and the held target stays untouched', () => {
+    const bb = draft();
+    write('docs/vision.md', '# The vision\n\nThe reading comes first.\n');
+    write('docs/hypotheses/H-001-held.md', '# H-001 — Held\n\nGrew from: VISION, S-099\n\n## Belief\nWe believe.\n');
+    expect(structuralOf(bb, 'docs/hypotheses/H-001-held.md')).toEqual([
+      { rule: 'structural.broken-link', file: 'docs/hypotheses/H-001-held.md', line: 3, what: 'the link "Grew from: S-099" names no document the wiki holds' },
+    ]);
+  });
+
+  test('a resolved target of a kind the link does not go to is a finding', () => {
+    const bb = draft();
+    write('docs/hypotheses/H-001-held.md', '# H-001 — Held\n\nGrew from: D-001\n\n## Belief\nWe believe.\n');
+    write('docs/decisions/0001-own-view.md', '# D-001 — Own view\n\nDate: 2026-10-11\n\n## Choice\nThe reading view.\n');
+    expect(structuralOf(bb, 'docs/hypotheses/H-001-held.md')).toEqual([
+      { rule: 'structural.undeclared-kind', file: 'docs/hypotheses/H-001-held.md', line: 3, what: 'the field "Grew from" names D-001, a document of the kind "Decisions", which the link does not go to: its targets are Product vision, Sources' },
+    ]);
+  });
+
+  test('a required link: no field at all is a finding at the document\'s top; prose values are one at the field\'s line', () => {
+    const bb = draft();
+    write('docs/use-cases/UC-001-return.md', '# UC-001 — Return\n\n## Story\nThe note opens where it was left.\n');
+    expect(structuralOf(bb, 'docs/use-cases/UC-001-return.md')).toEqual([
+      { rule: 'structural.required-link', file: 'docs/use-cases/UC-001-return.md', line: 1, what: 'a document of the "Use cases" kind carries its "Serves" link: the wiki found none' },
+    ]);
+    write('docs/use-cases/UC-001-return.md', '# UC-001 — Return\n\nServes: later\n\n## Story\nThe note opens where it was left.\n');
+    expect(structuralOf(bb, 'docs/use-cases/UC-001-return.md')).toEqual([
+      { rule: 'structural.required-link', file: 'docs/use-cases/UC-001-return.md', line: 3, what: 'a document of the "Use cases" kind carries its "Serves" link: the wiki found none' },
+    ]);
+  });
+
+  test('required holds only while no addressable value names a held document', () => {
+    const bb = draft();
+    write('docs/use-cases/UC-001-return.md', '# UC-001 — Return\n\nServes: US-099\n\n## Story\nThe note opens where it was left.\n');
+    expect(structuralOf(bb, 'docs/use-cases/UC-001-return.md').map((f) => [f.rule, f.line])).toEqual([
+      ['structural.broken-link', 3],
+      ['structural.required-link', 3],
+    ]);
+    write('docs/stories/US-001-return.md', '# US-001 — Return to a note\n\nGrew from: H-001\n\n## Story\nI return.\n');
+    // The value names only US-099, which holds nothing: the required link
+    // still stands beside its broken link.
+    expect(structuralOf(bb, 'docs/use-cases/UC-001-return.md').map((f) => f.rule)).toEqual(['structural.broken-link', 'structural.required-link']);
+    write('docs/use-cases/UC-001-return.md', '# UC-001 — Return\n\nServes: US-001\n\n## Story\nThe note opens where it was left.\n');
+    expect(structuralOf(bb, 'docs/use-cases/UC-001-return.md')).toEqual([]);
+  });
+
+  test('a written status outside the kind\'s list is a finding; a listed one is not; the loose words of a held list are no link fields', () => {
+    const bb = draft();
+    write('docs/decisions/0001-own-view.md', '# D-001 — Own view\n\nStatus: archived\nDate: 2026-10-11\n\n## Choice\nThe reading view.\n');
+    write('docs/decisions/0002-plainer.md', '# D-002 — Plainer\n\nStatus: accepted\nDate: 2026-10-11\n\n## Choice\nThe words plainer.\n');
+    expect(structuralOf(bb, 'docs/decisions/0001-own-view.md')).toEqual([
+      { rule: 'structural.status', file: 'docs/decisions/0001-own-view.md', line: 3, what: '"archived" is not a status of the "Decisions" kind: a status is one of accepted, superseded, deferred' },
+    ]);
+    expect(structuralOf(bb, 'docs/decisions/0002-plainer.md')).toEqual([]);
+  });
+
+  test('an addressable value in an undeclared field is a finding; prose values are not', () => {
+    const bb = draft();
+    write('docs/requirements/FR-001-tool.md', '# FR-001 — Tool\n\nServes: UC-001\nVerified by: FR-002\nSummary: the tool reads\nReviewed: the FR-003 path stands\n\n## Requirement\nThe thing.\n');
+    write('docs/use-cases/UC-001-return.md', '# UC-001 — Return\n\nServes: US-001\n\n## Story\nThe note opens.\n');
+    write('docs/requirements/FR-002-tool.md', '# FR-002 — Tool\n\n## Requirement\nThe other.\n');
+    expect(structuralOf(bb, 'docs/requirements/FR-001-tool.md')).toEqual([
+      { rule: 'structural.undeclared-field', file: 'docs/requirements/FR-001-tool.md', line: 4, what: 'the field "Verified by" names FR-002 like a link, but the "Product requirements" kind declares no links for it' },
+    ]);
+  });
+
+  test('a link the kind declares as one names at most one held document', () => {
+    const bb = draft();
+    write('docs/use-cases/UC-001-return.md', '# UC-001 — Return\n\nServes: US-001, US-002\n\n## Story\nThe note opens.\n');
+    write('docs/stories/US-001-return.md', '# US-001 — Return to a note\n\nGrew from: H-001\n\n## Story\nI return.\n');
+    write('docs/stories/US-002-open.md', '# US-002 — Open where left\n\nGrew from: H-001\n\n## Story\nI open.\n');
+    const found = structuralOf(bb, 'docs/use-cases/UC-001-return.md');
+    expect(found).toHaveLength(1);
+    expect(found[0]!.rule).toBe('structural.cardinality');
+    expect(found[0]!.line).toBe(3);
+  });
+
+  test('a document of a kind the registry holds none for, and one of no kind, is judged by nothing; with no registry the whole read stays silent', () => {
+    const bb = draft();
+    write('docs/notes/free.md', '# Notes — Free\n\nStatus: any old word\nGrew from: WHATEVER-9\n\n## Notes\nPlain.\n');
+    expect(structuralOf(bb, 'docs/notes/free.md')).toEqual([]);
+    const plain = draft(false);
+    write('docs/notes/free.md', '# Notes — Free\n\nStatus: any old word\nGrew from: WHATEVER-9\n\n## Notes\nPlain.\n');
+    expect(structuralOf(plain, 'docs/notes/free.md')).toEqual([]);
+  });
+});
+
+describe('the backlinks carry the declaring kind\'s label', () => {
+  test('the story\'s backlink through the declared Serves says the label, a kind\'s own without one stays wordless', () => {
+    const bb = draft();
+    write('docs/stories/US-001-return.md', '# US-001 — Return to a note\n\nGrew from: H-001\n\n## Story\nI return.\n');
+    write('docs/use-cases/UC-001-return.md', '# UC-001 — Return\n\nServes: US-001\n\n## Story\nThe note opens.\n');
+    write('docs/requirements/FR-001-tool.md', '# FR-001 — Tool\n\nServes: US-001\n\n## Requirement\nThe thing.\n');
+    const entries = backlinksOfPage(bb, 'docs/stories/US-001-return.md');
+    expect(entries.map((entry) => entry.path)).toEqual(['docs/requirements/FR-001-tool.md', 'docs/use-cases/UC-001-return.md']);
+    expect(entries.map((entry) => entry.label)).toEqual([undefined, 'Served by']);
+  });
+
+  test('a label names the kind\'s declaration: the naming kind without its kind matched stays unlabeled', () => {
+    // Use cases' Serves targets User stories; an FR naming a use case takes
+    // the FR's own declaration, which carries no label — the entry stands
+    // unlabeled, the shells' generic words head it.
+    const bb = draft();
+    write('docs/use-cases/UC-001-return.md', '# UC-001 — Return\n\n## Story\nThe note opens.\n');
+    write('docs/requirements/FR-001-tool.md', '# FR-001 — Tool\n\nServes: UC-001\n\n## Requirement\nThe thing.\n');
+    expect(backlinksOfPage(bb, 'docs/use-cases/UC-001-return.md')).toEqual([
+      { path: 'docs/requirements/FR-001-tool.md', title: 'Tool', id: 'FR-001', label: undefined },
+    ]);
+  });
+
+  test('with no registry the backlinks read plain: the page without kind or fields carries no document at all', () => {
+    const bb = draft(false);
+    write('docs/vision.md', '# The vision\n\nThe reading comes first.\n');
+    write('docs/stories/US-001-return.md', '# US-001 — Return\n\nGrew from: VISION\n\n## Story\nI return.\n');
+    const opened = openProductWiki(bb);
+    if (!opened.ok) throw new Error(opened.message);
+    const asked = opened.wiki.page('docs/vision.md');
+    if (!asked.ok) throw new Error(asked.message);
+    expect(asked.page.document).toEqual(undefined);
+  });
+
+  test('the structural findings land on the pages that carry them and nowhere else', () => {
+    const bb = draft();
+    write('docs/hypotheses/H-001-held.md', '# H-001 — Held\n\nGrew from: S-099\n\n## Belief\nWe believe.\n');
+    write('docs/vision.md', '# Vision\n\nThe reading comes first.\n');
+    expect(structuralOf(bb, 'docs/vision.md')).toEqual([]);
+    expect(structuralOf(bb, 'docs/hypotheses/H-001-held.md')).toHaveLength(1);
   });
 });
