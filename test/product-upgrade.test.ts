@@ -206,14 +206,27 @@ describe('the whole upgrade run, on a local release', () => {
     }
   });
 
-  test('a yes with a matching checksum replaces the target, mode bits kept and named', async () => {
+  test('a yes with a matching checksum replaces the target, mode bits keep it runnable', async () => {
     const target = scratchBinary();
     const r = fakeRelease('v1.3.0', 'the replacement binary bytes');
-    const result = await upgrade({ fetch: r.fetch, releasesUrl: 'releases', answer: () => 'y', targetPath: target, currentVersion: '1.2.3' });
+    const asked: string[] = [];
+    const result = await upgrade({ fetch: r.fetch, releasesUrl: 'releases', answer: () => 'y', targetPath: target, currentVersion: '1.2.3', promptOut: (line) => asked.push(line) });
     expect(result.exit).toBe(0);
     expect(result.prints.join('')).toContain('upgraded to v1.3.0');
     expect(readFileSync(target, 'utf8')).toBe('the replacement binary bytes');
-    expect((readFileSync(target, { mode: 0o111 } as never) ? 0o755 : 0) >= 0).toBe(true);
+    expect(statSync(target).mode & 0o111).not.toBe(0);
+    // the question is asked before the read: it names both versions and the replace target
+    expect(asked.length).toBe(1);
+    expect(asked[0]).toContain('from 1.2.3 to v1.3.0');
+    expect(asked[0]).toContain('[y/N]');
+  });
+
+  test('the --yes answer asks no question and proceeds like a typed yes', async () => {
+    const target = scratchBinary();
+    const r = fakeRelease('v1.3.0', 'the replacement binary bytes');
+    const result = await upgrade({ fetch: r.fetch, releasesUrl: 'releases', answer: () => { throw new Error('no prompt was asked'); }, skipPrompt: true, targetPath: target, currentVersion: '1.2.3', promptOut: () => { throw new Error('no question was printed'); } });
+    expect(result.exit).toBe(0);
+    expect(readFileSync(target, 'utf8')).toBe('the replacement binary bytes');
   });
 
   test('a checksum mismatch fails the run and leaves the binary alone', async () => {
