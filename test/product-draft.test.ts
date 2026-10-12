@@ -2,8 +2,9 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, test } from 'bun:test';
-import { createDraft, productsHome } from '../src/product/draft.js';
+import { CONSTITUTION, createDraft, productsHome, whyNotADay } from '../src/product/draft.js';
 
 /**
  * The machine's real git, resolved once: a stub placed on PATH in a test
@@ -351,6 +352,51 @@ describe('createDraft', () => {
     expect(draft.message).toContain(home);
     expect(draft.message).toContain('cannot be created');
     expect(readdirSync(base)).toEqual(['blocker']);
+  });
+});
+
+test('the constitution is byte for byte the one the contract example product carries', () => {
+    // The scenario `constitution-is-written-once` (decision 0021): what
+    // `madarch new` writes is what the contract's example product carries,
+    // byte for byte, so a folder the set made and a folder madarch made
+    // carry the same constitution.
+    const example = readFileSync(
+      fileURLToPath(new URL('../examples/contract/set-made-product/AGENTS.md', import.meta.url)),
+      'utf8',
+    );
+    expect(CONSTITUTION).toBe(example);
+    const home = tempFolder('madarch-products-const-');
+    const draft = draftIn(home);
+    if (draft.outcome !== 'created') throw new Error('the draft was not created');
+    expect(readFileSync(join(draft.folder, 'AGENTS.md'), 'utf8')).toBe(example);
+  });
+
+  test('a home named with a shell artifact at its end is trimmed to the folder itself', () => {
+    // MADARCH_HOME and --home arrive from a shell or an environment file; a
+    // trailing newline or spaces name the same folder, and the creation
+    // reports the trimmed folder, never a folder named with the artifact.
+    const base = tempFolder('madarch-products-trim-');
+    const home = join(base, 'products');
+    const draft = createDraft({ home: refuseNonScratchHome(`${home}\n`, 'the trimmed home test'), today: EXAMPLE_DAY, gitEnv: gitEnv(GIT_ENV) });
+    expect(draft.outcome).toBe('created');
+    if (draft.outcome !== 'created') return;
+    expect(draft.folder.startsWith(home)).toBe(true);
+    expect(readFileSync(join(draft.folder, 'workspace.yaml'), 'utf8')).toContain('name: idea-2026-10-09');
+  });
+
+describe('whyNotADay', () => {
+  test('the words each bad day is refused with, and the days the calendar has', () => {
+    expect(whyNotADay('2026-10-9')).toBe('is not written YYYY-MM-DD');
+    expect(whyNotADay('2026-10-09x')).toBe('is not written YYYY-MM-DD');
+    expect(whyNotADay('2026-2-30')).toBe('is not written YYYY-MM-DD');
+    // Days the calendar does not have, one per field: the day, the month, the year.
+    expect(whyNotADay('2026-02-30')).toBe('is not a day of the calendar');
+    expect(whyNotADay('2026-13-01')).toBe('is not a day of the calendar');
+    expect(whyNotADay('2026-00-10')).toBe('is not a day of the calendar');
+    expect(whyNotADay('2026-02-29')).toBe('is not a day of the calendar');
+    // A leap day a leap year has, and an ordinary day of this charter's work.
+    expect(whyNotADay('2024-02-29')).toBeNull();
+    expect(whyNotADay('2026-10-09')).toBeNull();
   });
 });
 

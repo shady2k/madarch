@@ -4,11 +4,11 @@
  * `skills/describe-repository/` folder, the skill's SKILL.md beside the
  * AGENTS-section.md text — and the engineer's guide names the copy that lays
  * them into a product. The skeleton's byte-for-byte pin is
- * `product-pin.test.ts` and stands (decision 0019: the constitution is the
- * pinned program's, so nothing is written into it); these tests prove both
- * the checkout's own texts and what a REAL draft made by `madarch new`
- * holds — the honest absence until the copy is made — and what the copy
- * lays.
+ * `test/product-draft.test.ts` (decision 0021: the constitution is what
+ * madarch's own creation writes, held byte for byte against the contract
+ * example product's `examples/contract/set-made-product/AGENTS.md`); these
+ * tests prove the checkout's own texts and what the copy lays into a real
+ * draft.
  */
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, appendFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
