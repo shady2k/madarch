@@ -221,6 +221,21 @@ describe('the whole upgrade run, on a local release', () => {
     expect(asked[0]).toContain('[y/N]');
   });
 
+  test('without an injected prompt reader the question goes on standard error', async () => {
+    const target = scratchBinary();
+    const r = fakeRelease('v1.3.0', 'the replacement binary bytes');
+    const said: string[] = [];
+    const originalError = console.error;
+    console.error = (line: unknown) => { said.push(String(line)); };
+    try {
+      const result = await upgrade({ fetch: r.fetch, releasesUrl: 'releases', answer: () => 'y', targetPath: target, currentVersion: '1.2.3' });
+      expect(result.exit).toBe(0);
+    } finally {
+      console.error = originalError;
+    }
+    expect(said.some((line) => line.includes('from 1.2.3 to v1.3.0') && line.includes('[y/N]'))).toBe(true);
+  });
+
   test('the --yes answer asks no question and proceeds like a typed yes', async () => {
     const target = scratchBinary();
     const r = fakeRelease('v1.3.0', 'the replacement binary bytes');
