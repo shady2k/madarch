@@ -225,8 +225,9 @@ over the graph and the perspective it is granted for. A storage form this
 engine version does not implement, an imported fact's evidence and the goals
 section are kept as data and named by the engine's honest reservations —
 "not supported by this engine version" — never silently dropped, never a
-silent unknown section; their words are `reservationFindingsOf` over the
-reading, covered by the contract's own cases. Product-scoped global ids,
+silent unknown section; their words ride the reading's own answer
+(`read.reservations`, the words at the field lines) and are covered by the
+contract's own cases. Product-scoped global ids,
 the lifecycle's milestones and the roles section are the amendment's
 reservations in prose; their shape arrives with the milestone that
 implements them.
