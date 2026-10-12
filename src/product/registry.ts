@@ -14,7 +14,7 @@
  */
 import { lstatSync, readFileSync } from 'node:fs';
 import { realpathSync } from 'node:fs';
-import { parseContractText, type ContractError, type RegistryKind, type RegistryStage } from './contract.js';
+import { parseContractText, type ContractError, type RegistryKind, type RegistryLink, type RegistryStage } from './contract.js';
 
 /** The file the kinds registry is read from, relative to the product folder. */
 export const REGISTRY_FILE = 'docs/kinds.yaml';
@@ -115,10 +115,51 @@ export interface RegistryKit {
   readonly fileAddresses: Map<string, string>;
 }
 
+/**
+ * One kind's declared links and allowed statuses, as the page reader walks
+ * them: the links in the file's own order, the targets as the file named
+ * them, and the kind's name beside them — a link's resolution needs the
+ * target document's kind, not the declaring kind's.
+ */
+export interface KindLinks {
+  /** The kind the links belong to. */
+  kind: RegistryKind;
+  /** The kind's declared links, in the file's order; the field names lowercased beside the written ones. */
+  readonly links: readonly { declared: RegistryLink; key: string }[];
+  /** The kind's allowed statuses, lowercased, in the file's order; empty when the kind names none. */
+  readonly statuses: readonly string[];
+}
+
+/**
+ * The declared links of one kind, by the kind's own name (case does not
+ * matter here — the documents name their kind by any casing the header or
+ * the path gave it). A kind with no declared links reads as one with none.
+ */
+export function kindLinksOf(kit: RegistryKit, kindName: string | undefined): KindLinks | undefined {
+  if (kindName === undefined) return undefined;
+  const kind = kit.kinds.find((entry) => entry.name.toLowerCase() === kindName.toLowerCase());
+  if (kind === undefined) return undefined;
+  return {
+    kind,
+    links: (kind.links ?? []).map((declared) => ({ declared, key: declared.field.toLowerCase() })),
+    statuses: (kind.statuses ?? []).map((status) => status.toLowerCase()),
+  };
+}
+
 /** Builds the page reader's kit from one read registry (or none). */
 export function registryKit(registry: ProductRegistry): RegistryKit | undefined {
   if (!registry.present) return undefined;
   if ('refused' in registry) return undefined;
+  for (const kind of registry.kinds) {
+    kind.links = [...(kind.links ?? [])].map((link) => ({
+      field: link.field,
+      targets: [...link.targets],
+      backlink: link.backlink,
+      cardinality: link.cardinality ?? 'many',
+      required: link.required ?? false,
+    }));
+    kind.statuses = kind.statuses === undefined ? undefined : [...kind.statuses];
+  }
   const kinds: RegistryKind[] = registry.kinds;
   const prefixes = [...new Set(kinds.map((kind) => kind.prefix))].sort((a, b) => a.length > b.length ? -1 : a.length < b.length ? 1 : byCodePoint(a, b));
   const byPrefix = new Map<string, RegistryKind>();
