@@ -56,7 +56,7 @@ export function MermaidDiagram({ source, title }: { source: string; title?: stri
           startOnLoad: false,
           securityLevel: 'strict',
           theme: mermaidThemeOf(scheme),
-          flowchart: { curve: 'linear', useMaxWidth: true },
+          flowchart: { curve: 'linear', useMaxWidth: true, htmlLabels: false },
         });
         const id = `wiki-mermaid-${Math.random().toString(36).slice(2)}`;
         const drawn = await mermaid.render(id, source);
