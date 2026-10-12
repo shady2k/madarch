@@ -95,3 +95,29 @@ kinds:
       - proposed
       - accepted
       - superseded
+  - name: configuration item
+    prefix: CI
+    folder: docs/configuration
+    stage: operate
+    hint: keep what the system already holds, read and read again
+    # The reserved fact storage form (the 0021 amendment): the record's truth
+    # stays with the system it was imported from, read-only in the wiki.
+    storage: fact
+    evidence:
+      source: Source
+      ref: Ref
+      record: Record
+
+# The reserved goals section (the 0021 amendment, 2026-10-12): the shape's
+# place, one level per perspective; this engine version keeps the section as
+# data and names it as reserved-but-unimplemented when it renders.
+goals:
+  - name: grounded
+    perspective: business
+    rules:
+      - every use case links a user story
+      - every product requirement serves a use case or a user story
+  - name: true-to-the-systems
+    perspective: ops
+    rules:
+      - every imported fact names its source system and record

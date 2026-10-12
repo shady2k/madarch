@@ -211,6 +211,26 @@ the backlink under, whether the field holds one target or many (`many`
 stands where it is left out), and whether a document of the kind without
 the link is a finding (`false` stands where it is left out).
 
+The manifest also reserves what contract v1 does not implement (the 0021
+amendment as the owner refined it): each kind may name the storage form it is
+kept in — `document` (the only form this engine version implements), `task`,
+`model-element`, `component`, and `fact`, an entity imported from a system,
+carrying its evidence as the field names the fact's document carries (source
+system, ref or commit, record id), its truth held by the system it came from,
+read-only in the wiki, in one graph with the authored entities and their
+links; the evidence shape rides the `fact` form, and a kind carrying it
+without naming the form is refused. The manifest may carry the reserved
+`goals` section, an optional list of maturity levels, each naming its rules
+over the graph and the perspective it is granted for. A storage form this
+engine version does not implement, an imported fact's evidence and the goals
+section are kept as data and named by the engine's honest reservations —
+"not supported by this engine version" — never silently dropped, never a
+silent unknown section; their words are `reservationFindingsOf` over the
+reading, covered by the contract's own cases. Product-scoped global ids,
+the lifecycle's milestones and the roles section are the amendment's
+reservations in prose; their shape arrives with the milestone that
+implements them.
+
 The reading (`parseContractText` in `src/product/contract.ts`) refuses in
 values, never thrown: strict YAML, then the schema, then the fields' own
 checks — the contract version gate (a registry that is no mapping at all
@@ -292,6 +312,16 @@ stream reports and the next answer carries, with no restart.
 - Given: a served product whose `docs/kinds.yaml` carries a reading refusal (a prefix that is not a prefix, an unparseable file)
 - When: the wiki is asked for its pages
 - Then: the answer names every refusal with file, line and words, the wiki serves the pages plain under the banner, and an edit that makes the registry read again restores the served kinds with no restart
+
+### Scenario: reserved-storage-forms-kept-and-named
+- Given: a registry whose `configuration item` kind declares `storage: fact` with its evidence field names, and a `goals` section naming one level per perspective
+- When: the registry is read
+- Then: it reads at version 1 with the fact kind and its evidence kept as data, and the engine's reservations name the fact's form, the evidence and the goals section at their lines — never a refusal, never a drop
+
+### Scenario: evidence-without-the-fact-form
+- Given: a registry whose kind carries an `evidence` shape without declaring `storage: fact`
+- When: the registry is read
+- Then: it is refused at the evidence field's line, naming the fact storage form the evidence rides
 
 ### Scenario: registry-edit-is-a-live-change
 - Given: a served product whose registry reads and whose reader holds the pages answer

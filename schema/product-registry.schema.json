@@ -11,6 +11,40 @@
       "const": 1,
       "description": "The contract version the registry is written against; this schema publishes version 1."
     },
+    "goals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "rules"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+            "minLength": 1
+          },
+          "perspective": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+            "minLength": 1
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "description": "The rules the level holds; a rule names a count, a coverage, a provenance agreement or an approval by role."
+          }
+        },
+        "additionalProperties": false
+      },
+      "minItems": 1,
+      "description": "The reserved goals section: maturity levels over the graph, per perspective (the 0021 amendment, 2026-10-12). This engine version keeps the section and names it as reserved-but-unimplemented when it renders; never a silent unknown section."
+    },
     "stages": {
       "type": "array",
       "items": {

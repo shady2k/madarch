@@ -158,6 +158,7 @@ export type StageEntry = Static<typeof StageEntry>;
  */
 const REGISTRY_SCHEMA_ID = 'https://github.com/shady2k/madarch/schema/v1/product-registry.schema.json';
 
+
 export const KindsRegistry = Type.Object(
   {
     /** The contract version the registry is written against; this schema is version 1. */

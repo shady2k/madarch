@@ -70,6 +70,18 @@ export interface RegistryLink {
 }
 
 /** One document kind as a registry names it, at the place its fields stand. */
+/**
+ * One reservation the engine names instead of dropping: what contract v1
+ * reserves (the 0021 amendment) beside what this engine version implements,
+ * at the field line it stands on.
+ */
+export interface ReservationFinding {
+  file: string;
+  line: number;
+  path: string;
+  message: string;
+}
+
 export interface RegistryKind {
   name: string;
   /** The document's id prefix, like `FR`. */
@@ -111,19 +123,6 @@ export type RegistryRead =
   | { ok: true; contract: number; kinds: RegistryKind[]; stages: RegistryStage[]; goals?: GoalLevel[]; reservations: ReservationFinding[] }
   | { ok: false; errors: ContractError[] };
 
-/**
- * One reservation the engine names instead of dropping: what contract v1
- * reserves (the 0021 amendment, the owner's refinement of 2026-10-12
- * ~22:15 MSK) beside what this engine version implements, at the field
- * line it stands on. A reservation is never a refusal and never a drop:
- * the serving side shows the kind and its words, honest about the version.
- */
-export interface ReservationFinding {
-  file: string;
-  line: number;
-  path: string;
-  message: string;
-}
 
 /**
  * The contract versions this madarch reads (contract v1, the owner's
