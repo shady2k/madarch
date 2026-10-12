@@ -787,7 +787,6 @@ main .footnotes {
   }
 }
 
-<<<<<<< HEAD
 /* Feature E (madarch-iuc.15): the Architecture section. The diagrams draw
  * at the reading measure; a wide diagram scrolls in its own box, never the
  * page. LikeC4 sizes its view to the box when it is revealed (the same
@@ -892,7 +891,8 @@ main section h2 {
 
 .repo-readme .reading > :first-child {
   margin-block-start: 0;
-=======
+}
+
 /* The set's document header block: the identity fields and the form's own
  * fields as one calm list under the title — names muted, values in the
  * secondary colour, the whole block quiet against the document text. */
