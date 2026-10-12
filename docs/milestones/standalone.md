@@ -55,18 +55,22 @@ script; releases on GitHub with checksums; `madarch upgrade`.
    *Check:* a fresh machine walk where a bare `./madarch new` serves a
 product (no bun installed); each installer proves one product served; the
 release's own workflow green.
-6. **One image, offline.** The same binary in the Docker image; `madarch
-server` answers with no outbound call; a Helm chart and the docker/k8s
-guide.
-   *Check:* `docker run ... madarch server` on a network-isolated container;
-a product connects, its wiki and MCP answer; `helm install` by the guide's
-own steps; the image serves a skillless product.
-7. **The skill set writes its kinds registry into a product at setup**, with
+7. (the number stands after outcome 6's move to the "Left out" section). **The
+skill set writes its kinds registry into a product at setup**, with
 a stage and a next-step hint for every kind it owns, and its CI tests that
 registry against madarch's contract schema and examples.
    *Check:* a product set up by the skills shows today's groups, eyebrows
 and hints in the wiki through the registry alone; the set's CI runs the
 written example against the schema and the examples on every run.
+
+**Left out** (moved from the outcomes on 2026-10-12, by the owner's
+decision of ~23:30 MSK): the Docker image (`madarch server` verified
+offline, a Helm chart, the docker/k8s guide) is deferred to the server
+milestone (the team and the central server, together with the data storage
+boundary's PostgreSQL, decision 0023). The tracked work (madarch-uaq8) is
+deferred with the branch kept (feature/standalone-image): the whole
+implementation stands there and the arm64 image already builds; nothing is
+discarded.
 
 **The milestone's walk** (the owner, with Claude Code and the shady2k skills
 or with the bare madarch binary): the contract's check command accepted; one
