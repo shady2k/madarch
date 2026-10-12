@@ -304,9 +304,14 @@ describe("the git runs keep the caller's environment to themselves", () => {
       expect(addRemote({ folder: join(home, 'gadgets'), url: join(base, 'origin.git'), gitEnv: gitEnv(GIT_ENV) }))
         .toMatchObject({ outcome: 'added', url: join(base, 'origin.git') });
       // The shallow pointer a re-indexed checkout's caller carries must not
-      // make the product's own history read shallow: the history is the
-      // product's, whoever runs the command beside it.
-      writeFileSync(join(base, 'shallow'), '0000000000000000000000000000000000000000\n');
+      // make the product's own history read shallow — its file is written in
+      // the shape git reads it, and it is the value this environment's
+      // GIT_SHALLOW_FILE carries while the others are stripped: a git call
+      // that inherited it would read the product's own history shallow at a
+      // commit the product's repository does not hold.
+      const shallowFile = join(base, 'shallow');
+      writeFileSync(shallowFile, '0000000000000000000000000000000000000000\n');
+      process.env.GIT_SHALLOW_FILE = shallowFile;
       const shallow = runGit(join(home, 'gadgets'), ['rev-parse', '--is-shallow-repository']);
       expect(shallow).toMatchObject({ ok: true, output: 'false' });
     } finally {
