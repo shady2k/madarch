@@ -1,0 +1,106 @@
+stages:
+  - id: idea
+    name: Idea
+  - id: requirements
+    name: Requirements
+  - id: design
+    name: Design
+  - id: build
+    name: Build
+  - id: verify
+    name: Verify
+  - id: release
+    name: Release
+  - id: operate
+    name: Operate
+kinds:
+  - name: Product vision
+    prefix: V
+    folder: docs/vision.md
+    stage: idea
+    hint: write why the product is worth building, for one reader to hold
+  - name: Roadmap
+    prefix: RM
+    folder: docs/roadmap.md
+    stage: idea
+    hint: lay out the milestones the idea walks in order
+  - name: Milestone
+    prefix: M
+    folder: docs/milestones
+    stage: idea
+    hint: write the next milestone's outcomes and what is out
+  - name: Sources
+    prefix: S
+    folder: docs/sources
+    stage: idea
+    hint: have the first conversation with a customer, write it down
+  - name: Hypotheses
+    prefix: H
+    folder: docs/hypotheses
+    stage: idea
+    hint: turn a source into one checkable sentence
+  - name: Prototypes
+    prefix: P
+    folder: docs/prototypes
+    stage: idea
+    hint: build the smallest thing that tests the belief
+  - name: Results
+    prefix: R
+    folder: docs/results
+    stage: idea
+    hint: measure what happened and say what it proves
+  - name: Open questions
+    prefix: Q
+    folder: docs/questions
+    stage: idea
+    hint: write what is not known and who can answer it
+  - name: User stories
+    prefix: US
+    folder: docs/stories
+    stage: requirements
+    hint: write what one user does with the product in their own words
+  - name: Use cases
+    prefix: UC
+    folder: docs/use-cases
+    stage: requirements
+    hint: walk one story's steps from start to finish
+  - name: Product requirements
+    prefix: FR
+    folder: docs/requirements
+    stage: requirements
+    hint: write what the product does, one requirement at a time
+  - name: Decisions
+    prefix: D
+    folder: docs/decisions
+    stage: design
+    hint: record the choice between the options on the table
+  - name: Design specs
+    prefix: SP
+    folder: docs/specs
+    stage: design
+    hint: write the design's behaviour before code
+  - name: Architecture
+    prefix: A
+    folder: docs/system/architecture.md
+    stage: design
+    hint: keep the architecture document beside the system's views
+  - name: Capabilities
+    prefix: C
+    folder: docs/system/capabilities
+    stage: design
+    hint: name each behaviour's requirement and scenario
+  - name: Change records
+    prefix: CH
+    folder: docs/changes
+    stage: design
+    hint: propose every behaviour change beside its capability
+  - name: Explorations
+    prefix: E
+    folder: docs/explorations
+    stage: design
+    hint: keep what a look around taught, when holding it is asked for
+  - name: Practices
+    prefix: PRA
+    folder: docs/practices
+    stage: operate
+    hint: write the rule a session learned, so the next one reads it
