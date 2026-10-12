@@ -7,9 +7,10 @@ Amends 0009: the server's fact log starts on PostgreSQL directly, with SQLite
 kept for the local mode. Refines 0017 (the product repository as the one
 source, synchronisation by git), 0007 (the server as the target and its
 ingest), 0011 (repository access by plain git, read-only) and 0022 (the
-architecture's extension points); 0010's closed network holds, 0005's and
-0004's fact layers and 0003's normalized contract ids carry the imported
-facts' provenance.
+architecture's extension points); 0010's closed network holds; 0004's
+sources and 0005's layers carry the imported facts' provenance, 0006's
+deployment facts arrive among them, and 0003's normalized contract ids stay
+the rendezvous point the facts name.
 
 ## Context and problem
 
@@ -41,7 +42,7 @@ or toward shipping derived indexes around as if they were data.
 
 ## Decision
 
-Option 3. Four kinds of data, each with one home:
+Option 3, decided by the owner on 2026-10-12. Four kinds of data, each with one home:
 
 1. **Authored by people.** Markdown documents, the manifest, the model YAML,
    beads tasks, components, approval and signature records — the signatures
