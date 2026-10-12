@@ -241,7 +241,12 @@ export function createWikiPart(
     pages: (): Handled => {
       const asked = wiki.pages();
       if (!asked.ok) return refused(500, { message: `the pages of the product ${JSON.stringify(wiki.product.folder)} could not be read: ${asked.message}` });
-      return { response: json(200, { revision: asked.revision, pages: asked.pages }) };
+      // The registry's serving state rides the answer only when the
+      // product holds a registry: without one the answer keeps its shape
+      // before registries, and the app's banner has nothing to say.
+      return asked.contract === undefined
+        ? { response: json(200, { revision: asked.revision, pages: asked.pages }) }
+        : { response: json(200, { revision: asked.revision, pages: asked.pages, contract: asked.contract }) };
     },
     page: async (request: Request): Promise<Handled> => {
       const askedFor = new URL(request.url).searchParams.get('path');

@@ -649,6 +649,15 @@ export function Shell({ product, list, children, architecture, reposCount, repos
               </Tooltip>
             </span>
           </header>
+          {/* The registry's banner (the owner's refinement of decision 0021):
+           * a contract version the wiki does not know, or a registry it
+           * cannot read, is named here in the reading's own words; the
+           * pages stand as plain documents until the registry reads again. */}
+          {list.contract !== undefined && list.contract.known === false && (
+            <div role="note" data-testid="contract-banner" className="border-b border-line bg-chrome px-4 py-2 text-small text-secondary">
+              {list.contract.message}
+            </div>
+          )}
           {/* The tab strip row under the top bar: the open file's name on its
            * tab. The mockup's view switch and history button stay out until
            * they work (madarch-j0a); the row's structure stands now. */}

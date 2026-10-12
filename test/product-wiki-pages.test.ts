@@ -304,6 +304,71 @@ describe('the pages a product holds', () => {
   });
 });
 
+describe('the kinds registry the wiki serves', () => {
+  function withRegistry(text: string): string {
+    draft();
+    write('docs/kinds.yaml', text);
+    write('docs/decisions/D-001.md', '# D-001 — One decision\n\nrecorded here\n');
+    return folder!;
+  }
+
+  function pageKinds(pages: { ok: boolean; pages?: { kind?: string }[] }): string[] {
+    return pages.pages?.map((page) => page.kind ?? '') ?? [];
+  }
+
+  test('a registry at a version the wiki does not know names the version and serves plain pages', () => {
+    const product = requireProduct(openProductWiki(withRegistry('contract: 99\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n')));
+    const pages = product.pages();
+    if (!pages.ok) throw new Error(pages.message);
+    expect(pages.contract).toEqual({ known: false, version: 99, message: 'docs/kinds.yaml:1: the registry declares contract 99; this madarch reads contract 1 — the wiki serves these pages as plain documents' });
+    expect(pageKinds(pages)).toEqual(['']);
+
+    const asked = product.page('docs/decisions/D-001.md');
+    if (!asked.ok) throw new Error(asked.message);
+    expect(asked.page.document).toBeUndefined();
+    expect(asked.page.markdown).toContain('recorded here');
+  });
+
+  test('a registry the wiki cannot read degrades with the reading refusal as the banner', () => {
+    const product = requireProduct(openProductWiki(withRegistry('contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: d\n    folder: docs/decisions\n    stage: idea\n    hint: one\n')));
+    const pages = product.pages();
+    if (!pages.ok) throw new Error(pages.message);
+    const banner = pages.contract;
+    if (banner === undefined || banner.known !== false) throw new Error('the registry refused its reading, so the wiki degrades');
+    expect(banner.message).toContain('docs/kinds.yaml:6: "d" is not an id prefix');
+    expect(banner.message).toContain('the wiki serves these pages as plain documents');
+    expect(banner.version).toBeUndefined();
+  });
+
+  test('a registry at contract 1 the wiki serves reads as before, and no registry means no banner', () => {
+    const product = requireProduct(openProductWiki(withRegistry('contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n')));
+    const pages = product.pages();
+    if (!pages.ok) throw new Error(pages.message);
+    expect(pages.contract).toEqual({ known: true, version: 1 });
+    expect(pageKinds(pages)).toEqual(['decisions']);
+
+    const bare = requireProduct(openProductWiki(draft()));
+    const fresh = bare.pages();
+    if (!fresh.ok) throw new Error(fresh.message);
+    expect(fresh.contract).toBeUndefined();
+  });
+
+  test('an edit to the registry is a change the wiki revises on its own ask', () => {
+    const unused = withRegistry('contract: 99\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n');
+    const product = requireProduct(openProductWiki(unused));
+    const before = product.pages();
+    if (!before.ok) throw new Error(before.message);
+    const revisionBefore = before.revision;
+    if (before.contract === undefined || before.contract.known !== false) throw new Error('the unknown contract degrades');
+    write('docs/kinds.yaml', 'contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n');
+    const after = product.pages();
+    if (!after.ok) throw new Error(after.message);
+    expect(after.revision).not.toBe(revisionBefore);
+    expect(after.contract).toEqual({ known: true, version: 1 });
+    expect(pageKinds(after)).toEqual(['decisions']);
+  });
+});
+
 describe('the product\'s open questions', () => {
   const OPEN = [
     '# Q-004 — Who collects the unclaimed portions?',

@@ -16,7 +16,7 @@
  */
 import { LineCounter, parseDocument } from 'yaml';
 import { Value } from 'typebox/value';
-import { KindsRegistry } from './schema.js';
+import { KindsRegistry, type EvidenceFields, type GoalLevel, type StorageForm } from './schema.js';
 import { checkStrictYaml } from '../model/strict-yaml.js';
 import { jsonPointerToSegments, lineForPath, segmentsToPath } from '../model/yaml-position.js';
 
@@ -29,6 +29,30 @@ export interface ContractError {
   /** Path from the file's top, like `kinds[0].prefix`. Empty for whole-file problems. */
   path: string;
   message: string;
+  /**
+   * The contract version the refusal names, when the refusal is about the
+   * version itself (a version this madarch does not know): the wiki names
+   * it in the banner it serves instead of the registry.
+   */
+  version?: number;
+}
+
+/** One link type a kind declares (the owner's refinement of 2026-10-12): the
+ * field the kind's documents carry the link in, the kinds the field's
+ * targets may name, and how the link reads. The drawing of links and
+ * backlinks from these declarations is the wiki's; nothing here reads a
+ * kind or a field by name. */
+export interface RegistryLink {
+  /** The field's name as the document writes it, like `Grew from`, `Serves`. */
+  field: string;
+  /** The kinds the field's targets may name, each by its id prefix, like `S`, `H`. */
+  targets: string[];
+  /** The words the target's page shows the backlink under, like `Served by`; absent, no backlink is shown for the link. */
+  backlink?: string;
+  /** Whether the field holds one target or many; `many` stands where it is left out. */
+  cardinality?: 'one' | 'many';
+  /** Whether a document of the kind without this link is a finding on its page; `false` stands where it is left out. */
+  required?: boolean;
 }
 
 /** One link field a kind's documents may carry, as the registry declares it. */
@@ -60,6 +84,20 @@ export interface RegistryKind {
   statuses?: readonly string[];
   /** The link fields the kind's documents may carry, each naming its target kinds; where the kind names none, it carries no links. */
   links?: readonly RegistryLink[];
+  /**
+   * The storage form the kind is kept in (the 0021 amendment, the owner's
+   * refinement of 2026-10-12 ~22:15 MSK); `document` stands where it is
+   * left out. A form this engine version does not implement is kept in the
+   * declaration and named by a reservation finding, never dropped.
+   */
+  storage?: StorageForm;
+  /**
+   * The field names the kind's fact carries its evidence in, reserved for
+   * the `fact` storage form: the source system, the ref or commit, the
+   * record id. The fact's truth stays with the system it came from,
+   * read-only in the wiki.
+   */
+  evidence?: EvidenceFields;
 }
 
 /** One stage of the registry's stage list, in the list's own order. */
@@ -68,10 +106,33 @@ export interface RegistryStage {
   name?: string;
 }
 
-/** What reading a registry file gave: the kinds and the stages of the file, or the refusals. */
+/** What reading a registry file gave: the contract version it declares, the kinds and the stages of the file, or the refusals. */
 export type RegistryRead =
-  | { ok: true; kinds: RegistryKind[]; stages: RegistryStage[] }
+  | { ok: true; contract: number; kinds: RegistryKind[]; stages: RegistryStage[]; goals?: GoalLevel[]; reservations: ReservationFinding[] }
   | { ok: false; errors: ContractError[] };
+
+/**
+ * One reservation the engine names instead of dropping: what contract v1
+ * reserves (the 0021 amendment, the owner's refinement of 2026-10-12
+ * ~22:15 MSK) beside what this engine version implements, at the field
+ * line it stands on. A reservation is never a refusal and never a drop:
+ * the serving side shows the kind and its words, honest about the version.
+ */
+export interface ReservationFinding {
+  file: string;
+  line: number;
+  path: string;
+  message: string;
+}
+
+/**
+ * The contract versions this madarch reads (contract v1, the owner's
+ * refinement of 0021, 2026-10-12). The registry file carries the version
+ * in its `contract` field and the published schema carries it in its
+ * `$id`; moving either side to a new version is a deliberate change on
+ * each side, never a silent reinterpretation.
+ */
+export const KNOWN_CONTRACT_VERSIONS: readonly number[] = [1];
 
 /** A document's generic fields, as a document may carry them for madarch. */
 export interface DocumentFields {
@@ -119,6 +180,38 @@ export function parseContractText(file: string, text: string): RegistryRead {
   }
 
   const value: unknown = doc.toJS();
+
+  // The contract version gate: the version is the registry's own word
+  // (contract v1 carries `contract: 1`). A file that is no mapping at all
+  // is the schema's refusal (`must be object`), so no version is asked of
+  // it here; a mapping that names a version this madarch does not know is
+  // refused for the version it names — the wiki serves such a product
+  // with plain pages under these words, never failing silently.
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+    const carried = (value as Record<string, unknown>)['contract'];
+    if (typeof carried !== 'number' || !Number.isInteger(carried)) {
+      errors.push({
+        file,
+        line: lineForPath(doc, lineCounter, ['contract']),
+        path: 'contract',
+        message: carried === undefined
+          ? 'the registry carries no contract version: write "contract: 1" on the file'
+          : `${JSON.stringify(carried)} is not a contract version: the version is a whole number`,
+      });
+      return { ok: false, errors };
+    }
+    if (!KNOWN_CONTRACT_VERSIONS.includes(carried)) {
+      errors.push({
+        file,
+        line: lineForPath(doc, lineCounter, ['contract']),
+        path: 'contract',
+        version: carried,
+        message: `the registry declares contract ${carried}; this madarch reads contract ${KNOWN_CONTRACT_VERSIONS.join(' and ')}`,
+      });
+      return { ok: false, errors };
+    }
+  }
+
   const schemaErrors = Value.Errors(KindsRegistry, value)
     .map((schemaError) => ({
       file,
@@ -131,7 +224,7 @@ export function parseContractText(file: string, text: string): RegistryRead {
   }
   if (schemaErrors.length > 0) return { ok: false, errors };
 
-  const parsed = value as { stages: RegistryStage[]; kinds: RegistryKind[] };
+  const parsed = value as { contract: number; stages: RegistryStage[]; kinds: RegistryKind[]; goals?: GoalLevel[] };
   const lines = {
     at: (segments: (string | number)[]) => lineForPath(doc, lineCounter, segments),
   };
@@ -247,8 +340,53 @@ export function parseContractText(file: string, text: string): RegistryRead {
 
   // The stage list is never empty from the schema; a registry that carries
   // kinds but no stage list at all is the schema's refusal, not this one's.
+  // The evidence shape rides the fact storage form (the 0021 amendment):
+  // a kind carrying its evidence field names declares how it is stored first.
+  parsed.kinds.forEach((kind, index) => {
+    if (kind.evidence !== undefined && (kind.storage ?? 'document') !== 'fact') {
+      errors.push({
+        file,
+        line: lines.at(['kinds', index, 'evidence']),
+        path: `kinds[${index}].evidence`,
+        message: 'the evidence shape rides the fact storage form: a kind carrying its evidence fields declares "storage: fact"',
+      });
+    }
+  });
   if (errors.length > 0) return { ok: false, errors };
-  return { ok: true, kinds: parsed.kinds ?? [], stages: parsed.stages };
+
+  // The reservations the engine keeps on contract v1 (the 0021 amendment):
+  // a kind stored in a form this engine version does not implement, an
+  // imported fact's evidence shape beside the authored documents, and the
+  // goals section the wiki does not compute. Each is a named finding for
+  // the serving side, never a refusal and never a drop.
+  const reservations: ReservationFinding[] = [];
+  parsed.kinds.forEach((kind, index) => {
+    const form = kind.storage ?? 'document';
+    if (form === 'document') return;
+    reservations.push({
+      file,
+      line: lines.at(['kinds', index, 'storage']),
+      path: `kinds[${index}].storage`,
+      message: `the kind "${kind.name}" declares the storage form "${form}"; this engine version serves documents only — the kind and its records are kept and named, never dropped`,
+    });
+    if (kind.evidence !== undefined) {
+      reservations.push({
+        file,
+        line: lines.at(['kinds', index, 'evidence']),
+        path: `kinds[${index}].evidence`,
+        message: `the kind "${kind.name}" carries its evidence (source, ref, record); this engine version does not read imported graphs — the shape is kept as data, never dropped`,
+      });
+    }
+  });
+  if (parsed.goals !== undefined) {
+    reservations.push({
+      file,
+      line: lines.at(['goals']),
+      path: 'goals',
+      message: 'the manifest carries the reserved goals section; this engine version does not compute maturity levels — the section is kept as data, never dropped',
+    });
+  }
+  return { ok: true, contract: parsed.contract, kinds: parsed.kinds as RegistryKind[], stages: parsed.stages, goals: parsed.goals, reservations };
 }
 
 

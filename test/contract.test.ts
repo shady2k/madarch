@@ -51,11 +51,39 @@ describe('the contract of a product repository kinds registry', () => {
     expect(read).toMatchObject({ ok: true });
     if (!read.ok) return;
     expect(read.stages.map((s) => s.id)).toEqual(['idea', 'requirements', 'design', 'build', 'verify', 'release', 'operate']);
-    expect(read.kinds).toHaveLength(4);
+    expect(read.contract).toBe(1);
+    expect(read.kinds).toHaveLength(6);
     const p = read.kinds.find((k) => k.prefix === 'FR');
     expect(p).toMatchObject({ name: 'product requirement', folder: 'docs/requirements', stage: 'requirements' });
     expect(typeof p!.hint).toBe('string');
     expect(p!.hint.trim().length).toBeGreaterThan(0);
+    // The owner's example, declared as data (the refinement of 2026-10-12):
+    // a user story serves a use case and grew from a source or a
+    // hypothesis, with the backlink the target's page shows.
+    const us = read.kinds.find((k) => k.prefix === 'US');
+    expect(us).toMatchObject({ name: 'user story', stage: 'requirements' });
+    expect(us!.statuses).toEqual(['draft', 'ready']);
+    expect(us!.links).toEqual([
+      { field: 'Grew from', targets: ['S', 'H'], backlink: 'Grew into', cardinality: 'many', required: false },
+      { field: 'Serves', targets: ['UC'], backlink: 'Served by', cardinality: 'one', required: true },
+    ]);
+  });
+
+  test('the contract version gate names the version it does not know, for the wiki to serve', () => {
+    const refused = parseContractText('docs/kinds.yaml', 'contract: 99\nstages:\n  - id: idea\nkinds: []\n');
+    expect(refused.ok).toBe(false);
+    if (refused.ok) return;
+    const version = refused.errors.find((error) => error.version !== undefined);
+    expect(version).toBeDefined();
+    expect(version!.version).toBe(99);
+    expect(version!.line).toBe(1);
+    expect(version!.path).toBe('contract');
+    expect(version!.message).toContain('declares contract 99');
+    expect(version!.message).toContain('this madarch reads contract 1');
+    const carried = parseContractText('docs/kinds.yaml', 'contract: 1\nstages:\n  - id: idea\nkinds: []\n');
+    expect(carried.ok).toBe(true);
+    if (!carried.ok) return;
+    expect(carried.contract).toBe(1);
   });
 
   test("a link's targets name kinds of the registry: the unknown one is refused at its line", () => {

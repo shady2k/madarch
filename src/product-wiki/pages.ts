@@ -117,9 +117,22 @@ export interface WikiPage {
   check?: { ran: true; version: string } | { ran: false; message: string };
 }
 
-/** The wiki's pages as one ask found them. */
+/**
+ * How the product's kinds registry is served on one ask (the owner's
+ * refinement of 0021, 2026-10-12): the version and the state, and on a
+ * registry the wiki cannot serve — a contract version it does not know, a
+ * file it cannot read — the notice whose words the wiki shows instead of
+ * the registry, with the pages degraded to plain ones. There is no
+ * registry at all: the state is left out, the ask's answer keeps its
+ * shape before registries.
+ */
+export type ProductWikiContract =
+  | { known: true; version: number }
+  | { known: false; version?: number; message: string };
+
+/** The wiki's pages as one ask found them, and how the registry is served. */
 export type ProductWikiPages =
-  | { ok: true; revision: string; pages: WikiPageEntry[] }
+  | { ok: true; revision: string; pages: WikiPageEntry[]; contract?: ProductWikiContract }
   | { ok: false; message: string };
 
 /** The wiki's open questions and the answered ones, as one ask found them. */
@@ -151,6 +164,13 @@ export interface ProductWiki {
   questions(): ProductWikiQuestions;
   /** The audience the product's vision names, when one is written. */
   audience(): string | undefined;
+}
+
+/** The registry's state as one ask serves it: absent stays out of the answer, known names the version, unknown carries the notice. */
+function servedContract(state: RegistryContract): ProductWikiContract | undefined {
+  if (state.state === 'absent') return undefined;
+  if (state.state === 'known') return { known: true, version: state.version };
+  return { known: false, version: state.version, message: state.message };
 }
 
 /** Opens a product folder as a wiki; a folder whose manifest cannot be read is refused by `readProduct`. */
@@ -260,7 +280,7 @@ class FreshProductWiki implements ProductWiki {
         status,
       });
     }
-    return { ok: true, revision, pages };
+    return { ok: true, revision, pages, contract: servedContract(taken.snapshot.contract) };
   }
 
   page(asked: string): ProductWikiPage {
@@ -349,6 +369,11 @@ class FreshProductWiki implements ProductWiki {
   }
 
   questions(): ProductWikiQuestions {
+    // A registry the wiki cannot serve degrades the set's computed
+    // sections with the pages: the open questions are the set's Q- forms
+    // read from its ids, and the pages they sit on are plain here.
+    const registry = readRegistryServing(this.product.folder);
+    if (registry.contract.state === 'unknown') return { ok: true, questions: [], openCount: 0 };
     let held: string[];
     try {
       held = markdownPaths(this.product.folder);

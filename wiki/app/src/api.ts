@@ -75,9 +75,20 @@ export type PageMeta = {
   status?: string;
 };
 
+/**
+ * How the wiki serves the product's kinds registry (the owner's refinement
+ * of decision 0021, contract v1): known names the version the wiki reads;
+ * unknown carries the notice whose words the wiki shows as a banner, with
+ * the pages degraded to plain ones. A product with no registry carries no
+ * `contract` at all.
+ */
+export type PageContract = { known: true; version: number } | { known: false; version?: number; message: string };
+
 export type PageList = {
   pages: PageMeta[];
   revision: string;
+  /** The registry's serving state, when the product holds a kinds registry. */
+  contract?: PageContract;
 };
 
 /** The states an open question stands in, the set's own three (computed, never written). */

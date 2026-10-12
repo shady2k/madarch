@@ -1,3 +1,4 @@
+contract: 1
 stages:
   - id: idea
   - id: requirements
@@ -12,18 +13,85 @@ kinds:
     folder: docs/sources
     stage: idea
     hint: have the first conversation with a customer, write it down
+    statuses:
+      - draft
+      - heard
   - name: hypothesis
     prefix: H
     folder: docs/hypotheses
     stage: idea
     hint: turn a source into one checkable sentence
+    statuses:
+      - draft
+      - confirmed
+      - refuted
+      - unclear
+    links:
+      - field: Grew from
+        targets:
+          - S
+        backlink: Grew into
+        cardinality: one
+        required: true
+  - name: user story
+    prefix: US
+    folder: docs/stories
+    stage: requirements
+    hint: write one user's step in the product's words
+    statuses:
+      - draft
+      - ready
+    links:
+      - field: Grew from
+        targets:
+          - S
+          - H
+        backlink: Grew into
+        cardinality: many
+        required: false
+      - field: Serves
+        targets:
+          - UC
+        backlink: Served by
+        cardinality: one
+        required: true
+  - name: use case
+    prefix: UC
+    folder: docs/use-cases
+    stage: design
+    hint: walk one story through the product
+    statuses:
+      - draft
+      - ready
+    links:
+      - field: Serves
+        targets:
+          - US
+        backlink: Served by
+        cardinality: many
+        required: false
   - name: product requirement
     prefix: FR
     folder: docs/requirements
     stage: requirements
     hint: write what the product does, one requirement at a time
+    statuses:
+      - draft
+      - ready
+    links:
+      - field: Serves
+        targets:
+          - UC
+          - US
+        backlink: Served by
+        cardinality: many
+        required: false
   - name: decision
     prefix: D
     folder: docs/decisions
     stage: design
     hint: record the choice between the options on the table
+    statuses:
+      - proposed
+      - accepted
+      - superseded
