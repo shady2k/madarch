@@ -59,11 +59,26 @@ let server: StartedServer | undefined;
 let lines: string[] = [];
 let errors: string[] = [];
 
-function draft(): string {
+function draft(registry: boolean = false): string {
   folder = mkdtempSync(join(tmpdir(), 'madarch-wiki-server-'));
   mkdirSync(join(folder, 'docs'), { recursive: true });
   writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: demo\nname: Demo\n');
   writeFileSync(join(folder, 'docs', 'vision.md'), '# Vision\n\nWhat it is for.\n');
+  if (registry) {
+    writeFileSync(join(folder, 'docs', 'kinds.yaml'), [
+      'stages:',
+      '  - id: idea',
+      '    name: Idea',
+      '  - id: requirements',
+      '    name: Requirements',
+      'kinds:',
+      '  - name: Product vision',
+      "    prefix: V",
+      '    folder: docs/vision.md',
+      '    stage: idea',
+      '    hint: write why the product is worth building',
+      ''].join('\n'));
+  }
   return folder;
 }
 
@@ -166,20 +181,57 @@ describe('the server\'s product mode', () => {
   });
 
   test('GET /api/pages lists the pages with paths, titles, addresses and the revision', async () => {
-    draft();
+    draft(true);
     builtApp();
     writeFileSync(join(folder!, 'docs', 'a-notes.md'), 'no heading\n');
     const url = startProduct();
     const answer = await fetch(`${url}/api/pages`);
     expect(answer.status).toBe(200);
     const body = (await answer.json()) as { revision: string; pages: { path: string; title: string; address: string; kind?: string }[] };
-    // A page the set's forms recognize carries its kind (requirement
-    // `front-matter`); a page of no set kind carries none.
+    // A page the registry names carries its kind's name (requirement
+    // `front-matter`); a page of no registry kind carries none.
     expect(body.pages).toEqual([
       { path: 'docs/a-notes.md', title: 'a-notes', address: '/p/docs/a-notes.md' },
-      { path: 'docs/vision.md', title: 'Vision', address: '/p/docs/vision.md', kind: 'vision' },
+      { path: 'docs/vision.md', title: 'Vision', address: '/p/docs/vision.md', kind: 'Product vision' },
     ]);
     expect(body.revision).toBe((await (await fetch(`${url}/api/pages`)).json() as typeof body).revision);
+  });
+
+  test('GET /api/registry answers the kinds registry whole, refused, or absent', async () => {
+    draft(true);
+    builtApp();
+    const url = startProduct();
+    const answer = await fetch(`${url}/api/registry`);
+    expect(answer.status).toBe(200);
+    const body = (await answer.json()) as { present: boolean; stages?: { id: string; name?: string }[]; kinds?: { name: string; prefix: string; folder: string; stage: string; hint: string }[]; refused?: { file: string; line: number; path: string; message: string }[] };
+    expect(body.present).toBe(true);
+    expect(body.stages).toEqual([{ id: 'idea', name: 'Idea' }, { id: 'requirements', name: 'Requirements' }]);
+    expect(body.kinds?.map((kind) => kind.name)).toEqual(['Product vision']);
+    server!.stop();
+    server = undefined;
+
+    // The file stands but does not read: the contract's refusals, the file
+    // and the line each, and the pages keep the plain behaviour.
+    draft();
+    builtApp();
+    writeFileSync(join(folder!, 'docs', 'kinds.yaml'), 'stages:\n  - id: idea\nkinds:\n  - name: broken kind\n    prefix: X\n    folder: no\n    stage: idea\n    hint: x\n');
+    const refusedUrl = startProduct();
+    const refusedAnswer = await fetch(`${refusedUrl}/api/registry`);
+    expect(refusedAnswer.status).toBe(200);
+    const refusedBody = (await refusedAnswer.json()) as typeof body;
+    expect(refusedBody.present).toBe(true);
+    expect(refusedBody.refused?.some((error) => error.file === 'docs/kinds.yaml' && error.message.includes('is not a place under the documents'))).toBe(true);
+    const refusedPages = (await (await fetch(`${refusedUrl}/api/pages`)).json()) as { pages: { path: string; kind?: string }[] };
+    expect(refusedPages.pages.every((page) => page.kind === undefined)).toBe(true);
+    server!.stop();
+    server = undefined;
+
+    draft();
+    builtApp();
+    const plainUrl = startProduct();
+    const plainAnswer = await fetch(`${plainUrl}/api/registry`);
+    expect(plainAnswer.status).toBe(200);
+    expect(await plainAnswer.json()).toEqual({ present: false });
   });
 
   test('GET /api/repos answers the declared repositories: not-checked-out without a checkout, checked-out with its HEAD and README', async () => {

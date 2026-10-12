@@ -34,7 +34,7 @@ import {
 import type { PageList, PageMeta, Product, QuestionList } from './api.js';
 import type { Architecture } from './api.js';
 import { architectureAddress, addressOfStageRoute, QUESTIONS_ADDRESS, REPOS_ADDRESS } from './routes.js';
-import { KIND_ORDER } from './kinds.js';
+import { DEFAULT_STAGES, kindEntry, kindOrder, stageList, stagePosition, type RegistryOffer } from './registry.js';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { setWikiLanguage, type WikiLanguage } from './i18n.js';
@@ -82,14 +82,11 @@ function FilledDocumentGlyph({ className }: { className: string }): ReactElement
   );
 }
 
-/** The stages, in the life cycle's own order — the order the navigator lists them in. */
-export const stageIds = ['idea', 'requirements', 'design', 'build', 'verify', 'release', 'operate'] as const;
+/** The stages, in the life cycle's own order when no registry names the product's own — the app's generic list, re-read from the registry module. */
+export const stageIds = DEFAULT_STAGES;
 
 /** One group of the navigation: its title and its pages in path order. */
 export type NavGroup = { name: string; pages: PageMeta[] };
-
-/** The kinds that keep their order before the remaining names sort alphabetically. The architecture entry rides the same life-cycle order: the Design stage's part, after the decisions. */
-const fixedGroupOrder = ['product', 'requirements', 'decisions', 'research'] as const;
 
 /** The group a page's path belongs to, by the grouping rule: the first folder under `docs/` names the kind at any depth, so a described repository's pages (docs/repositories/<name>/architecture.md) stand in the repository group instead of falling out of every kind (walk 2, finding 3). */
 export function groupOf(path: string): string {
@@ -104,37 +101,22 @@ export function groupOf(path: string): string {
 }
 
 /**
- * The page's kind word for the eyebrow and the breadcrumb: its group's kind,
- * with the mockup's two special readings - the README page names itself, a
- * product-group page that is not the README carries the file stem
- * (docs/vision.md reads VISION). The group names come from real paths, so the
- * eyebrow never invents a kind the product does not hold.
+ * The page's kind word for the eyebrow and the breadcrumb: a page of a
+ * registry kind reads the registry's name as data; a plain page reads its
+ * group's own word — the README names itself, a product-group page carries
+ * the file stem. The group names come from real paths, so the eyebrow
+ * never invents a kind the product does not hold.
  */
 /**
  * The group's word for a reader: the labels the sidebar, the home page and
  * the breadcrumb use, sentence case (the checkpoint's defect: slugs are for
- * paths, not for people).
+ * paths, not for people). The word comes from the path itself — the app
+ * invents nothing, and every catalogue word it may show next to it is the
+ * shell's own fixed wording.
  */
 export function wordLabel(group: string): string {
-  const words: Record<string, string> = {
-    product: 'Product',
-    requirements: 'Requirements',
-    decisions: 'Decisions',
-    research: 'Research',
-    prototypes: 'Prototypes',
-    results: 'Results',
-    stories: 'Stories',
-    sources: 'Sources',
-    hypotheses: 'Hypotheses',
-    questions: 'Questions',
-    repositories: 'Repositories',
-    'use-cases': 'Use cases',
-    other: 'Other',
-  };
-  const word = words[group];
-  if (word !== undefined) return word;
   if (group === '') return 'Other';
-  return group.charAt(0).toUpperCase() + group.slice(1);
+  return group.charAt(0).toUpperCase() + group.slice(1).replace(/-([a-z])/g, (_hit, word: string) => (' ' + word.toUpperCase()));
 }
 
 export function kindOf(path: string, group: string): string {
@@ -168,30 +150,27 @@ export function byCodePoint(a: string, b: string): number {
 }
 
 /**
- * The kind a page is grouped by: the set's own kind when the server read
- * one from the page's form or place, else the path's group as before —
- * the wiki of a product the set's forms have not reached still groups the
- * way it did.
+ * The kind a page is grouped by: the registry's kind when the server read
+ * one from the page's registry kind, else the path's group as before —
+ * the plain wiki of a product without a registry still groups the way it
+ * did.
  */
 export function kindGroupOf(page: PageMeta): string {
   return page.kind ?? groupOf(page.path);
 }
 
 /**
- * The navigation groups for a page list: the set's kinds first, in the
- * life-cycle order the forms read (vision, sources, hypotheses, stories,
- * use cases, requirements, decisions, design, architecture, capability,
- * change records, explorations, questions, prototypes, results, practices
- * active, practices retired); then the plain path groups — README and the
- * docs root as the product group, the old requirements, decisions and
- * research folders before the rest alphabetically. Pages inside a group
- * stand in their path's code point order.
+ * The navigation groups for a page list: the registry's kind groups
+ * first, in the order its stage list and kind list give — each group
+ * carrying its stage, the stage list's order standing; then the plain
+ * path groups, the product group first and the rest in code point order.
+ * Pages inside a group stand in their path's code point order.
  */
-export function groupNav(pages: readonly PageMeta[]): NavGroup[] {
-  // A group is a set-kind group when at least one page in it carries the
-  // server's kind; the same word from a plain path (a docs/requirements/
-  // folder of non-set notes) stays a plain path group. A name both carry
-  // merges into the one set-kind group, pages in path order inside.
+export function groupNav(pages: readonly PageMeta[], offer: RegistryOffer | null = null): NavGroup[] {
+  // A group is a kind-group when at least one page in it carries the
+  // server's kind; the same word from a plain path (a folder of pages no
+  // kind names) stays a plain path group. A name both carry merges into
+  // the one kind group, pages in path order inside.
   const byGroup = new Map<string, { fromKind: boolean; pages: PageMeta[] }>();
   for (const page of pages) {
     const fromKind = page.kind !== undefined;
@@ -203,12 +182,18 @@ export function groupNav(pages: readonly PageMeta[]): NavGroup[] {
       held.pages.push(page);
     }
   }
-  const kindNames = KIND_ORDER.filter((name) => byGroup.get(name)?.fromKind === true);
+  const kindNames = [...byGroup.keys()].filter((name) => byGroup.get(name)?.fromKind === true).sort((a, b) => {
+    const one = kindOrder(offer, a);
+    const two = kindOrder(offer, b);
+    if (one.stage !== two.stage) return one.stage - two.stage;
+    if (one.at !== two.at) return one.at - two.at;
+    return byCodePoint(a, b);
+  });
   const names = [...byGroup.keys()].sort((a, b) => byCodePoint(a, b));
   const plainNames = names.filter((name) => !kindNames.includes(name));
   const plainOrdered = [
-    ...fixedGroupOrder.filter((name) => plainNames.includes(name)),
-    ...plainNames.filter((name) => !(fixedGroupOrder as readonly string[]).includes(name)),
+    ...plainNames.filter((name) => name === 'product'),
+    ...plainNames.filter((name) => name !== 'product'),
   ];
   const ordered = [...kindNames, ...plainOrdered];
   return ordered.map((name) => {
@@ -219,26 +204,22 @@ export function groupNav(pages: readonly PageMeta[]): NavGroup[] {
 }
 
 /**
- * The Design stage's rank in the life cycle, per group name (the set's
- * reading): Idea-stage kinds rank 0, Requirements-stage kinds 1, the
- * Design stage's records 2; every other group — Build, Verify, Release,
- * Operate and the unknown folder names — ranks after the Design stage.
+ * The group's stage rank in the life cycle, for the Architecture entry's
+ * place: a kind group ranks at its kind's stage's position in the active
+ * stage list (the registry's own, else the generic list); a plain path
+ * group ranks before every kind's stage when no registry stands — today's
+ * reading, the entry then after the last of them — and after them all
+ * where a registry stands, so the entry keeps the stage's own place and a
+ * plain group's name never schedules it.
  */
-function stageRank(group: string): 0 | 1 | 2 | 3 {
-  if (group === 'product' || group === 'research' || group === 'sources' || group === 'hypotheses' || group === 'questions' || group === 'prototypes' || group === 'results') return 0;
-  if (group === 'requirements' || group === 'stories' || group === 'use-cases') return 1;
-  if (group === 'decisions' || group === 'design' || group === 'specs' || group === 'architecture') return 2;
-  return 3;
+function stageRank(group: string, offer: RegistryOffer | null): number {
+  if (offer !== null && offer.present && 'kinds' in offer) {
+    if (kindEntry(offer, group) !== undefined) return kindOrder(offer, group).stage;
+    return kindOrder(offer, group).stage; // plain group: the order of nothing, past every stage
+  }
+  return 0; // the plain world: every path group stands at the life cycle's first stage
 }
 
-/**
- * The nav's entries with the Architecture section (feature E) at its
- * stage position: the Design stage's part, after the last present group
- * of the Idea, Requirements or Design stages — and after the decisions
- * when they are there. A product with none of those groups (or no groups
- * at all) still carries the entry: it stands before whatever follows, so
- * the Design stage's place in the life cycle is never empty of it.
- */
 /** One nav entry: a kind group, or the Architecture section at its stage position. */
 export type NavEntry = { kind: 'group'; group: NavGroup } | { kind: 'architecture'; node: ReactElement };
 
@@ -247,7 +228,7 @@ export function isGroupEntry(entry: NavEntry): entry is { kind: 'group'; group: 
   return entry.kind === 'group';
 }
 
-export function withArchitectureEntry(groups: readonly NavGroup[], architectureCount: number | undefined, translate: (key: string) => string): readonly NavEntry[] {
+export function withArchitectureEntry(groups: readonly NavGroup[], architectureCount: number | undefined, translate: (key: string) => string, offer: RegistryOffer | null = null): readonly NavEntry[] {
   const entries: NavEntry[] = groups.map((group) => ({ kind: 'group', group }));
   const node = (
     <section key="architecture" data-nav-group="architecture" className="mb-1.5" data-testid="nav-architecture-group">
@@ -262,15 +243,17 @@ export function withArchitectureEntry(groups: readonly NavGroup[], architectureC
       </a>
     </section>
   );
-  // The entry stands at the Design stage's position: after the last
-  // present group OF the Design stage; where none is, after the last
-  // Requirements-stage group; where none is, after the last Idea-stage
-  // group; where no group stands at all, first — the stage position of
-  // the entry never depends on one group's presence.
+  // The entry stands at the stage named design's position: after the last
+  // present group of that stage; where none is, at the stage named
+  // requirements's next place; where none is, of the stage named idea's;
+  // where no group stands at all, first — the stage position of the entry
+  // never depends on one group's presence. The ranks come from the active
+  // stage list (the registry's own where one stands), so a registry's
+  // order schedules the entry, no name does.
   let insertAt = 0;
-  for (const want of [2, 1, 0] as const) {
+  for (const want of ['design', 'requirements', 'idea'].map((id) => stagePosition(offer, id))) {
     for (let at = groups.length - 1; at >= 0; at--) {
-      if (stageRank(groups[at]!.name) === want) {
+      if (stageRank(groups[at]!.name, offer) === want && stageRank(groups[at]!.name, offer) < Number.MAX_SAFE_INTEGER) {
         insertAt = at + 1;
         break;
       }
@@ -291,8 +274,13 @@ export function navLinkClasses(current: boolean): string {
   ].join(' ');
 }
 
-/** The stages navigator: one row per stage, in the life cycle's order, the open stage marked. */
-function StagesNav({ current, onNavigate }: { current: string | undefined; onNavigate?: MouseEventHandler }): ReactElement {
+/**
+ * The stages navigator: one row per stage, in the life cycle's order — the
+ * registry's own where the product holds one, the generic list where not —
+ * the open stage marked. A stage name is the registry's name where the
+ * registry gave one; the fixed list's names stay the app's own wording.
+ */
+function StagesNav({ current, onNavigate, offer }: { current: string | undefined; onNavigate?: MouseEventHandler; offer: RegistryOffer | null }): ReactElement {
   const { t } = useTranslation();
   return (
     <section data-testid="stages-nav" className="mb-1.5" aria-label={t('stages.title')}>
@@ -300,22 +288,23 @@ function StagesNav({ current, onNavigate }: { current: string | undefined; onNav
         <h2 className="text-[12px] uppercase tracking-[0.08em] text-muted">{t('stages.title')}</h2>
       </div>
       <ul className="m-0 list-none p-0">
-        {stageIds.map((stage) => {
-          const isCurrent = current === stage;
+        {stageList(offer).map((stage) => {
+          const isCurrent = current === stage.id;
+          const label = stage.name ?? t(`stages.names.${stage.id}`, { defaultValue: wordLabel(stage.id) });
           return (
-            <li key={stage} onClick={onNavigate}>
+            <li key={stage.id} onClick={onNavigate}>
               <a
-                href={addressOfStageRoute(stage)}
+                href={addressOfStageRoute(stage.id)}
                 className={navLinkClasses(isCurrent)}
                 aria-current={isCurrent ? 'page' : undefined}
-                data-stage-link={stage}
+                data-stage-link={stage.id}
                 onClick={(event) => {
                   if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
                   event.preventDefault();
-                  navigateTo(addressOfStageRoute(stage));
+                  navigateTo(addressOfStageRoute(stage.id));
                 }}
               >
-                <span className="min-w-0 whitespace-normal leading-snug">{t(`stages.names.${stage}`)}</span>
+                <span className="min-w-0 whitespace-normal leading-snug">{label}</span>
               </a>
             </li>
           );
@@ -325,7 +314,7 @@ function StagesNav({ current, onNavigate }: { current: string | undefined; onNav
   );
 }
 
-function NavPanel({ product, groups, current, currentStage, openQuestions, onNavigate, architectureCount, reposCount }: {
+function NavPanel({ product, groups, current, currentStage, openQuestions, onNavigate, architectureCount, reposCount, offer }: {
   product: Product;
   groups: readonly NavGroup[];
   current: string | undefined;
@@ -338,6 +327,8 @@ function NavPanel({ product, groups, current, currentStage, openQuestions, onNav
   architectureCount?: number;
   /** The repositories the manifest declares, when the product declares any: the entry shows with its count. */
   reposCount?: number;
+  /** The kinds registry the server answered, or none; the stage rows and the group order read it. */
+  offer: RegistryOffer | null;
 }): ReactElement {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const { t } = useTranslation();
@@ -406,7 +397,7 @@ function NavPanel({ product, groups, current, currentStage, openQuestions, onNav
           <span className="text-small text-muted">{reposCount}</span>
         </a>
       )}
-      <StagesNav current={currentStage} onNavigate={onNavigate} />
+      <StagesNav current={currentStage} onNavigate={onNavigate} offer={offer} />
       <div className="mb-1.5 mt-2 flex items-center justify-between px-2">
         <h2 className="text-[12px] uppercase tracking-[0.08em] text-muted">{t('navigation.documents')}</h2>
         <span className="text-small text-muted" data-testid="documents-count">
@@ -414,7 +405,7 @@ function NavPanel({ product, groups, current, currentStage, openQuestions, onNav
         </span>
       </div>
       <nav aria-label={t('navigation.documents')} className="min-h-0 flex-1 overflow-y-auto pb-4">
-        {withArchitectureEntry(groups, architectureCount, t).map((entry): ReactNode => {
+        {withArchitectureEntry(groups, architectureCount, t, offer).map((entry): ReactNode => {
           if (!isGroupEntry(entry)) return entry.node;
           const group = entry.group;
           const isOpen = !collapsed.has(group.name);
@@ -496,7 +487,7 @@ export function StatusBar(): ReactElement {
  * own scrolling column (the only scrolling part at any window height), and
  * the status bar along the window's bottom edge.
  */
-export function Shell({ product, list, children, architecture, reposCount, reposOpen, openQuestions }: {
+export function Shell({ product, list, children, architecture, reposCount, reposOpen, openQuestions, offer }: {
   product: Product;
   list: PageList;
   children: ReactNode;
@@ -507,6 +498,8 @@ export function Shell({ product, list, children, architecture, reposCount, repos
   reposOpen?: boolean;
   /** The product's open questions, when the questions view is wired. */
   openQuestions?: QuestionList;
+  /** The kinds registry the server answered, or none: the groups, their order and the stage rows read it. */
+  offer?: RegistryOffer | null;
 }): ReactElement {
   const route = useContext(routeContext);
   const { t, i18n } = useTranslation();
@@ -530,7 +523,8 @@ export function Shell({ product, list, children, architecture, reposCount, repos
     return () => document.removeEventListener('keydown', press);
   }, [menuOpen]);
   const current = route.path;
-  const groups = groupNav(list.pages);
+  const registryOffer = offer ?? null;
+  const groups = groupNav(list.pages, registryOffer);
   const openPage = current === undefined ? undefined : list.pages.find((page) => page.path === current);
   const classes = ['shell'];
   if (menuOpen) classes.push('nav-open');
@@ -544,7 +538,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
           aria-label={t('navigation.aria')}
           hidden={focused}
         >
-          <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} openQuestions={openQuestions} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} />
+          <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} openQuestions={openQuestions} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} offer={registryOffer} />
         </aside>
         <div className="shell-main flex min-w-0 flex-1 flex-col">
           <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line px-4 wide:px-[35px]">
@@ -565,9 +559,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
                 reposOpen === true ? t('navigation.repositories') : t('navigation.overview')
               ) : (
                 <>
-                  <span className="text-muted">{openPage.kind !== undefined
-                  ? t('kinds.' + openPage.kind, { defaultValue: wordLabel(openPage.kind) })
-                  : t('groups.' + groupOf(openPage.path), { defaultValue: wordLabel(groupOf(openPage.path)) })}</span>{' '}
+                  <span className="text-muted">{wordLabel(openPage.kind ?? groupOf(openPage.path))}</span>{' '}
                   <span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
                   <span className="text-ink">{openPage.title}</span>
                 </>
@@ -597,7 +589,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
                   data-testid="phone-nav"
                   className={'app-nav w-[min(280px,_82vw)] px-[14px] py-3 ' + (focused ? 'bg-chrome' : '')}
                 >
-                  <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} openQuestions={openQuestions} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} />
+                  <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} openQuestions={openQuestions} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} offer={registryOffer} />
                 </SheetContent>
               </Sheet>
               <DropdownMenu.Root>

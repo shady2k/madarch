@@ -103,6 +103,7 @@ const pagesAtR1: Record<string, Page> = {
     path: 'docs/vision.md',
     title: 'Vision',
     markdown: '# Vision extra\n\nIt holds [a note](notes.md) and [an outside link](https://example.com/x) and [a missing target](../AGENTS.md).',
+    document: { kind: 'Product vision', id: 'VISION', fields: [], grewFrom: [], backlinks: [] },
   },
   'docs/notes.md': { path: 'docs/notes.md', title: 'notes', markdown: '# notes' },
 };
@@ -804,8 +805,10 @@ describe('the reading shell', () => {
     await intoApp(createElement(App));
     await until(() => document.querySelector('.app-nav nav') !== null, 'the navigation');
     const titles = [...document.querySelectorAll('.nav-group-title')].map((node) => node.textContent);
-    // The Architecture entry (feature E) stands in the life-cycle order: the Design stage's part, after the decisions.
-    expect(titles).toEqual(['Product', 'Requirements', 'Decisions', 'Architecture', 'Research', 'Other']);
+    // No registry stands: every path group ranks at the life cycle's first
+    // stage, so the entry stands after the last of them, and the groups
+    // after the product group stand in code point order.
+    expect(titles).toEqual(['Product', 'Decisions', 'Other', 'Requirements', 'Research', 'Architecture']);
     const productGroup = [...document.querySelectorAll('[data-nav-group="product"] .nav-link')].map(
       (node) => node.textContent,
     );
@@ -829,9 +832,10 @@ describe('the reading shell', () => {
     await intoApp(createElement(App));
     await until(() => document.querySelector('.app-nav nav') !== null, 'the navigation');
     const titles = [...document.querySelectorAll('.nav-group-title')].map((node) => node.textContent);
-    // The Design stage's part stands after the last present group of the
-    // stages before it (requirements here), never omitted for an absent group.
-    expect(titles).toEqual(['Product', 'Requirements', 'Architecture', 'Research', 'Other']);
+    // No registry stands: every path group ranks at the life cycle's
+    // first stage, so the entry stands after the last of them, and the
+    // groups after the product group stand in code point order.
+    expect(titles).toEqual(['Product', 'Other', 'Requirements', 'Research', 'Architecture']);
   });
   test('an architecture view page reads Architecture / the view in the breadcrumb and the tab', async () => {
     install(answerFor(product, shellList, shellPages));
@@ -919,7 +923,7 @@ describe('the reading shell', () => {
 });
 
 describe('groupNav', () => {
-  test('fixed kinds first, then the remaining group names in code point order, pages within a group by path', () => {
+  test('a plain product groups its paths: the product group first, the rest in code point order', () => {
     const grouped = groupNav([
       { path: 'prototypes/boards.md', title: 'B', url: '' },
       { path: 'AGENTS.md', title: 'A', url: '' },
@@ -933,17 +937,17 @@ describe('groupNav', () => {
       { path: 'docs/repositories/library/architecture.md', title: '6', url: '' },
     ]);
     expect(grouped.map((group) => group.name)).toEqual([
-      'product', 'requirements', 'decisions', 'research', 'a', 'nested', 'other', 'repositories',
+      'product', 'a', 'decisions', 'nested', 'other', 'repositories', 'requirements', 'research',
     ]);
     expect(grouped[0]?.pages.map((page) => page.path)).toEqual(['README.md', 'docs/vision.md']);
     // The first folder under docs/ names the group at any depth: a deeper
     // docs/ path stands in its folder's group (the described repository's
     // pages, walk 2 finding 3), never in "Other". A path outside docs/ and
     // prototypes/boards.md are any other path.
-    expect(grouped[6]?.pages.map((page) => page.path)).toEqual([
+    expect(grouped[4]?.pages.map((page) => page.path)).toEqual([
       'AGENTS.md', 'prototypes/boards.md',
     ]);
-    expect(grouped[7]?.pages.map((page) => page.path)).toEqual([
+    expect(grouped[5]?.pages.map((page) => page.path)).toEqual([
       'docs/repositories/library/architecture.md',
     ]);
   });
@@ -1124,10 +1128,14 @@ describe('real page metadata', () => {
     expect(document.querySelector('.document-meta')?.textContent).toContain('Product vision');
     expect(document.querySelector('main .reading > h1')?.textContent).toContain('Vision');
 
+    // The kind name is the registry's data in one string: it does not
+    // translate with the chrome; the changed-time wording does.
     await setWikiLanguage('ru');
     await until(() => document.querySelector('.document-meta')?.textContent?.includes('изменён 5 мин. назад'), 'the Russian changed-time label');
-    expect(document.querySelector('.document-meta')?.textContent).toContain('Видение');
+    expect(document.querySelector('.document-meta')?.textContent).toContain('Product vision');
     await setWikiLanguage('en');
+    await until(() => document.querySelector('.document-meta')?.textContent?.includes('changed 5 min. ago'), 'the English changed-time label after ru');
+    expect(document.querySelector('.document-meta')?.textContent).toContain('Product vision');
   });
 });
 
@@ -1137,7 +1145,7 @@ describe('the documents view', () => {
     revision: 'r9',
     pages: [
       { path: 'README.md', title: 'Fieldnote', url: '/p/README.md' },
-      { path: failingPath, title: 'FR-999 — The failing example', url: '/p/' + failingPath, kind: 'requirements' },
+      { path: failingPath, title: 'FR-999 — The failing example', url: '/p/' + failingPath, kind: 'Product requirements' },
     ],
   };
   const FR999_MARKDOWN = '# FR-999 — The failing example\n\nA break stands here.\n';
@@ -1154,7 +1162,7 @@ describe('the documents view', () => {
       ],
       check: { ran: true, version: '0.44.0' },
       document: {
-        kind: 'requirements',
+        kind: 'Product requirements',
         id: 'FR-999',
         status: undefined,
         fields: [
@@ -1200,7 +1208,7 @@ describe('the documents view', () => {
     expect(block).toContain('S-001 has no lines 99');
   });
 
-  test('a clean page shows no findings block; a page of no set kind shows neither block nor fields', async () => {
+  test('a clean page shows no findings block; a plain page shows neither block nor fields', async () => {
     const clean = pageWithDocument({ findings: [], document: undefined });
     install(answerFor(product, failingList, { [failingPath]: clean }));
     goto('/p/' + failingPath);

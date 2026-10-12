@@ -59,9 +59,9 @@ export type PageMeta = {
   path: string;
   title: string;
   url: string;
-  /** The set's kind the page's form or place names, when the set names one. */
+  /** The kind the page's registry names it, when the product holds a registry that names it. */
   kind?: string;
-  /** The status the set computes for the kind, when one is derivable. */
+  /** The status the document's own text computes, when one is derivable. */
   status?: string;
 };
 
@@ -271,10 +271,13 @@ export type StageNote = {
 export type StageSection = {
   id: string;
   artifacts: StageArtifact[];
-  missing: { kind: string; skill: string }[];
+  /** What the stage holds nothing of yet: a kind the registry names carries its own next-step hint, the mechanism's material carries its kind alone. */
+  missing: { kind: string; hint?: string }[];
   tasks?: TaskFeature[];
   notes?: StageNote[];
   sections?: StageSectionLink[];
+  /** The stage's name as the product's registry gives it, when one stands. */
+  name?: string;
   empty: boolean;
 };
 
@@ -285,6 +288,38 @@ export type StagesIndex = {
 
 export const getStages = (signal?: AbortSignal): Promise<StagesIndex> =>
   readJson<StagesIndex>('read the stages', '/api/stages', signal);
+
+/** One kind as the product's registry names it. */
+export type RegistryKindEntry = {
+  name: string;
+  prefix: string;
+  folder: string;
+  stage: string;
+  hint: string;
+};
+
+/** One stage of the registry's life cycle, in its own order. */
+export type RegistryStageEntry = {
+  id: string;
+  /** The stage's name as a reader sees it; the id stands in where it is left out. */
+  name?: string;
+};
+
+export type RegistryRefusal = {
+  file: string;
+  line: number;
+  path: string;
+  message: string;
+};
+
+/** The kinds registry as the server answers it: whole, refused, or absent. */
+export type RegistryOffer =
+  | { present: false }
+  | { present: true; stages: RegistryStageEntry[]; kinds: RegistryKindEntry[] }
+  | { present: true; refused: RegistryRefusal[] };
+
+export const getRegistry = (signal?: AbortSignal): Promise<RegistryOffer> =>
+  readJson<RegistryOffer>('read the product kinds registry', '/api/registry', signal);
 
 /** The checkout's last commit, as the server's git read reported it. */
 export type RepoHead = {

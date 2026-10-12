@@ -31,8 +31,8 @@ const index: StagesIndex = {
     {
       id: 'idea',
       artifacts: [
-        { path: 'docs/vision.md', title: 'A cafe lists its leftovers', kind: 'vision', served: true },
-        { path: 'docs/sources/S-001-first-talk.md', title: 'First talk', kind: 'source', served: true },
+        { path: 'docs/describing/the-brief.md', title: 'A brief on the wall', kind: 'Brief', served: true },
+        { path: 'docs/sources/S-001-first-talk.md', title: 'First talk', kind: 'Note', served: true },
       ],
       missing: [],
       empty: false,
@@ -61,7 +61,7 @@ const index: StagesIndex = {
     {
       id: 'release',
       artifacts: [],
-      missing: [{ kind: 'release record', skill: 'ship-release' }],
+      missing: [{ kind: 'release record' }],
       empty: true,
     },
   ],
@@ -118,7 +118,7 @@ describe('the stages view', () => {
     into(createElement(StagePage, { stage: idea, index }));
     await until(() => document.querySelectorAll('a').length >= 2, 'the artifact links');
     const links = [...document.querySelectorAll('a')].map((a) => ({ href: a.getAttribute('href'), title: a.textContent }));
-    expect(links.some((link) => link.href === '/p/docs/vision.md' && (link.title ?? '').includes('A cafe lists its leftovers'))).toBe(true);
+    expect(links.some((link) => link.href === '/p/docs/describing/the-brief.md' && (link.title ?? '').includes('A brief on the wall'))).toBe(true);
     expect(links.some((link) => link.href === '/p/docs/sources/S-001-first-talk.md')).toBe(true);
   });
 
@@ -133,14 +133,40 @@ describe('the stages view', () => {
     expect(document.querySelectorAll('button')).toHaveLength(0);
   });
 
-  test('an empty stage names the skill that fills it, and no dead control stands', async () => {
+  test('an empty stage names its missing material generically, and no dead control stands', async () => {
     const release = index.stages.find((stage) => stage.id === 'release')!;
     into(createElement(StagePage, { stage: release, index }));
     await until(() => document.querySelector('[data-testid="stage-missing"]') !== null, 'the missing lines');
     const line = document.querySelector('[data-testid="stage-missing"]')?.textContent ?? '';
-    expect(line).toContain('ship-release');
+    expect(line).toContain('Release record');
+    expect(line).toContain('lands here when the product reaches it');
     expect(document.querySelectorAll('button')).toHaveLength(0);
     expect(document.querySelectorAll('a[href=""]')).toHaveLength(0);
+  });
+
+  test('a registry kind\'s missing row reads the registry\'s own next-step hint', async () => {
+    const withRegistryHint: StagesIndex = {
+      stages: [
+        {
+          id: 'design',
+          missing: [{ kind: 'Design specs', hint: 'write the design behaviour before code' }],
+          artifacts: [],
+          empty: true,
+        },
+      ],
+      problems: [],
+    };
+    into(createElement(StagePage, { stage: withRegistryHint.stages[0]!, index: withRegistryHint }));
+    await until(() => document.querySelector('[data-testid="stage-missing"]') !== null, 'the hint line');
+    const line = document.querySelector('[data-testid="stage-missing"]')?.textContent ?? '';
+    expect(line).toBe('Design specs — write the design behaviour before code');
+  });
+
+  test('a stage the registry leaves empty with no missing kind names nothing but the generic line', async () => {
+    const emptyIdeas: StagesIndex = { stages: [{ id: 'idea', missing: [], artifacts: [], empty: true }], problems: [] };
+    into(createElement(StagePage, { stage: emptyIdeas.stages[0]!, index: emptyIdeas }));
+    await until(() => document.querySelector('[data-testid="stage-missing"]') !== null, 'the generic line');
+    expect(document.querySelector('[data-testid="stage-missing"]')?.textContent ?? '').toBe('Nothing of this stage is here yet.');
   });
 
   test('the Russian chrome names the stages in Russian', async () => {
@@ -149,7 +175,8 @@ describe('the stages view', () => {
     const i18n = (await import('./i18n.js')).default;
     expect(i18n.t('stages.names.idea')).toBe('Идея');
     expect(i18n.t('stages.names.build')).toBe('Сборка');
-    expect(i18n.t('stages.missingLine', { kind: 'запись о выпуске', skill: 'ship-release' })).toContain('ship-release');
+    expect(i18n.t('stages.missingKind', { kind: 'запись о выпуске' })).toContain('запись о выпуске');
+    expect(i18n.t('stages.nothingYet')).toBe('Здесь пока ничего нет.');
     await setWikiLanguage('en');
     document.documentElement.lang = held;
   });
@@ -198,7 +225,7 @@ describe('the stages view', () => {
         {
           id: 'build',
           artifacts: [],
-          missing: [{ kind: 'task', skill: 'take-task' }],
+          missing: [{ kind: 'task' }],
           tasks: [],
           notes: [{ where: '/tmp/x/.beads/issues.jsonl', line: 4, message: 'the issue "t-1" holds the status "deferred": the stages group open, in-progress and done, so it is left out' }],
           empty: true,
@@ -210,8 +237,8 @@ describe('the stages view', () => {
     await until(() => document.querySelector('[data-testid="stage-notes"]') !== null, 'the notes');
     expect(text()).toContain('line 4');
     expect(text()).toContain('deferred');
-    // The empty Build stage still names take-task.
-    expect(text()).toContain('take-task');
+    // The empty Build stage names its missing material generically.
+    expect(text()).toContain('Task lands here when the product reaches it');
   });
 
   test('the task groups render alone with their statuses', async () => {
