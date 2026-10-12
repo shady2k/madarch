@@ -3,6 +3,13 @@
 Status: accepted
 Date: 2026-10-12
 
+Amended 2026-10-12 (owner decisions of ~22:15 MSK): the storage forms gain a
+fifth form `fact` — an entity imported from a system, carrying its evidence
+and read-only in the wiki — reserved in v1; and the manifest gains a reserved
+section for goals and maturity levels, whose engine work stands deferred
+(madarch-wkne), not opened. Both folds are in the sections below; the status
+stays accepted.
+
 Refines 0017 (the product wiki as the source of truth and the one write path)
 and its boundary record 0021 (the product repository contract); builds the
 seams the graph-as-product record 0001 kept open, extends the id scheme of
@@ -75,7 +82,16 @@ quoted here as decided.
   it is stored inside the product: `document` (Markdown under `docs/` —
   the only form v1 implements), `task` (the product's tracker, beads in
   `.beads/`), `model-element` (model YAML), `component` (a React component
-  plus its story, for screens and the UI kit). The engine reports a form it
+  plus its story, for screens and the UI kit), and `fact`: an entity
+  imported from a system — a code index, GitOps/IaC, a CMDB, a cloud
+  inventory, a broker, tracing — carrying its evidence (the source system,
+  its ref or commit, the record id). A fact is read-only in the wiki: the
+  system it came from holds its truth. Authored entities and imported facts
+  live in one graph, with the same ids and links, told apart by provenance
+  (0005). CMDB-like configuration items (0006's deployment layer:
+  environments, clusters, hosts, endpoints, ports, topics) are entity types
+  of this graph, declared by people (a planned stand) or imported (a
+  discovered host). v1 reserves the form only. The engine reports a form it
   does not implement as an honest "not supported by this engine version"
   finding and never drops the entity.
 - **One event stream of every change.** An accepted write keeps the order the
@@ -112,6 +128,14 @@ quoted here as decided.
   person, the role and a digest of the approved revision. A person editing
   another's requirement produces a change proposal for a role's approval.
   v1 validates only the roles section's shape in the manifest.
+- **Goals and maturity levels are manifest data, reserved.** Rules over the
+  graph — counts by type and status, required-link coverage, provenance
+  agreement, approvals by role — grouped into levels, per product and per
+  role perspective (business, architecture, security, testing, ops). A
+  product carries the section before the engine understands it: the engine
+  reads the manifest without failing on the reserved section. Progress is
+  computed on demand in a later milestone (tracked in the tracker as
+  madarch-wkne, deferred; not opened).
 - **Actions and executors through Lifemodel, joined by the contract.**
   madarch provides the graph, the write path, the event stream and the
   agent API; the agent API is a published, versioned contract with a schema
@@ -135,20 +159,26 @@ quoted here as decided.
   signatures as hooks on the write path;
   test stands as an executor atop the same contract, queued because the
   shared stand is one machine with one queue.
-- The contract gains this record's four reserved pieces first (the task
-  storage form, product-scoped ids, lifecycle fields, the roles section), each
+- The contract gains this record's reserved pieces first (the task storage
+  form, product-scoped ids, lifecycle fields, the roles section, and, from
+  the 2026-10-12 amendment, the `fact` storage form and the goals-and-
+  maturity manifest section), each
   declared in the schema so products written by older engines are refused by
   naming the contract version range the schema accepts, the way the existing
-  contract's version check behaves, and never silently parsed away.
+  contract's version check behaves, and never silently parsed away. A
+  reserved piece the engine does not implement yet shows itself, never
+  vanishes: an unimplemented storage form is the honest not-supported finding
+  the one-source bullet keeps, and the goals section is read by name and
+  carried without a failure.
 - Unsaved views mean the wiki app builds its pages on request even in the
   server mode; nothing in madarch saves a rendered graph or a view. A
   subscriber's local state stays what it is: a disposable cache the stream
   filled, thrown away and rebuilt from the graph, never a saved slice that
   stands in for one. Time-travel queries stay queries over the fact log
   (0009), never a stored slice.
-- The lifecycle states and the roles section land in the manifest before the
-  engine implements anything over them, so a product's git history carries
-  the vocabulary from the day it starts.
+- The lifecycle states, the roles section and the goals-and-maturity levels
+  land in the manifest before the engine implements anything over them, so a
+  product's git history carries the vocabulary from the day it starts.
 - Revisit if madarch needs a second write path for a feature (a bulk import,
   a migration tool): such a tool goes through the same write path under a
   distinct author, or the seam must be widened rather than bypassed.
