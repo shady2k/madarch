@@ -170,3 +170,52 @@ describe('ensureBuilt: the sources hash and its scope', () => {
     expect(sourcesHash(moved)).not.toBe(before);
   });
 });
+
+describe('ensureBuilt: the app folder it decides from', () => {
+  function prebuilt(app: string): string {
+    mkdirSync(join(app, 'dist'), { recursive: true });
+    writeFileSync(join(app, 'dist', 'index.html'), '<!doctype html>');
+    return app;
+  }
+
+  test('MADARCH_APP in the environment decides over the checkout default, in place of a named folder', () => {
+    const base = scratch();
+    const app = prebuilt(injectableApp(base));
+    mkdirSync(join(app, 'dist'), { recursive: true });
+    const run = ensureBuilt({ env: { MADARCH_APP: app } });
+    expect(run).toEqual({ ok: true, dist: join(app, 'dist'), appFolder: app, built: false });
+  });
+
+  test('a named app folder of only spaces counts as unset, the next answer decides', () => {
+    const base = scratch();
+    const app = prebuilt(injectableApp(base));
+    const runFromEnv = ensureBuilt({ appFolder: '   ', env: { MADARCH_APP: app } });
+    if (!runFromEnv.ok) throw new Error(runFromEnv.message);
+    expect(runFromEnv.appFolder).toBe(app);
+    // the process env carries no MADARCH_APP here: a chain-less read of it would throw, and the flow answers
+    const unsetEnv = ensureBuilt({ appFolder: app, env: {} });
+    if (!unsetEnv.ok) throw new Error(unsetEnv.message);
+    expect(unsetEnv.appFolder).toBe(app);
+  });
+
+  test('an environment with no MADARCH_APP leaves the chain whole: the option decides', () => {
+    const base = scratch();
+    const app = prebuilt(injectableApp(base));
+    const run = ensureBuilt({ appFolder: app, env: {} });
+    if (!run.ok) throw new Error(run.message);
+    expect(run.appFolder).toBe(app);
+  });
+
+  test('an env value that is only spaces counts as unset too, and never builds the checkout', () => {
+    const base = scratch();
+    const app = prebuilt(injectableApp(base));
+    const run = ensureBuilt({ appFolder: app, env: { MADARCH_APP: '   ' } });
+    if (!run.ok) throw new Error(run.message);
+    expect(run.appFolder).toBe(app);
+    // only spaces in the env with no folder above: the trim decides the folder — a mutant that keeps the
+    // spaces names it in the answer's folder, never the checkout's own app folder.
+    const built = ensureBuilt({ env: { MADARCH_APP: '   ' } });
+    if (!built.ok) throw new Error(built.message);
+    expect(built.appFolder).not.toBe('   ');
+  });
+});

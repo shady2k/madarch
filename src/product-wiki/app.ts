@@ -24,6 +24,7 @@ import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { embeddedWikiApp } from './release-assets.js';
 
 /** The checkout's own app folder: `wiki/app` from a module two folders below the root. */
 const CHECKOUT_APP: string = join(dirname(dirname(dirname(fileURLToPath(import.meta.url)))), 'wiki', 'app');
@@ -84,7 +85,11 @@ export function sourcesHash(appFolder: string): string {
  */
 export function ensureBuilt(options: AppBuildOptions = {}, say: (line: string) => void = (line) => void line): EnsureBuilt {
   const env = options.env ?? process.env;
-  const appFolder = options.appFolder?.trim() || env.MADARCH_APP?.trim() || CHECKOUT_APP;
+  // The compiled binary carries the wiki app inside itself (the release
+  // build's asset): it answers before the checkout's folder, which the
+  // binary has none of. A named app folder or `MADARCH_APP` still wins for
+  // a deployment that lays the app on disk itself.
+  const appFolder = options.appFolder?.trim() || env.MADARCH_APP?.trim() || embeddedWikiApp() || CHECKOUT_APP;
   const dist = join(appFolder, 'dist');
   const buildCommand = options.buildCommand?.trim() || env.MADARCH_APP_BUILD?.trim() || DEFAULT_BUILD_COMMAND;
   const stampPath = join(dist, STAMP);
