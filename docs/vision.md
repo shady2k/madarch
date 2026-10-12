@@ -224,8 +224,8 @@ frontends.
   ad-hoc queries); impact analysis along the links, from a component to the
   scenarios, services and code behind it and back.
 - The main chat is Lifemodel's (the owner's agent platform): work requests,
-  statuses and page chat go through one chat that costs nothing to reach, and
-  madarch stays the graph, the write path and the store that chat reads.
+  statuses and page chat go through one chat, and madarch stays the graph,
+  the write path and the store that chat reads.
 
 ## Success signal
 
@@ -266,10 +266,11 @@ Known:
 - A product's knowledge is kept in its own git repository, apart from its code:
   nearly everyone may write to it, while write access to code stays narrow.
 
-Contract v1 (decisions 0021, 0022) reserves without implementing yet: the
-storage form per entity type, product-scoped global ids, a lifecycle with
-milestones on every entity, and a roles section in the manifest. The v1 engine
-implements documents only, and reads the rest in.
+Contract v1's work (dated 2026-10-12, recorded as decision 0022) reserves
+without implementing yet: the storage form per entity type, product-scoped
+global ids, a lifecycle with milestones on every entity, and a roles section
+in the manifest. The v1 engine implements documents only, and reads the rest
+in.
 
 Hypotheses to test:
 - Use cases written as scenarios over the model are cheap enough to keep
@@ -312,8 +313,6 @@ Next, as milestones:
 - Work launched from the wiki: code repositories, tasks and runs, feedback
   from madarch's own code index.
 - The team and the central server: bootstrap, sign-in, single sign-on, roles.
-- Federation of products at their contract boundaries, then company-wide
-  abstractions.
 
 Later, as hypothesis milestones — named, not opened; each becomes a
 milestone only when the owner takes it up:
