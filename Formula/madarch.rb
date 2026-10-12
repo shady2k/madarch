@@ -15,26 +15,26 @@ class Madarch < Formula
   version "0.1.0"
 
   if OS.mac? && Hardware::CPU.arm?
-    artifact = "madarch-darwin-arm64"
+    @artifact = "madarch-darwin-arm64"
     sha256sum = "RELEASE_SHA256_DARWIN_ARM64"
   elsif OS.mac?
-    artifact = "madarch-darwin-x64"
+    @artifact = "madarch-darwin-x64"
     sha256sum = "RELEASE_SHA256_DARWIN_X64"
   elsif Hardware::CPU.arm?
-    artifact = "madarch-linux-arm64"
+    @artifact = "madarch-linux-arm64"
     sha256sum = "RELEASE_SHA256_LINUX_ARM64"
   else
-    artifact = "madarch-linux-x64"
+    @artifact = "madarch-linux-x64"
     sha256sum = "RELEASE_SHA256_LINUX_X64"
   end
 
-  url "https://github.com/shady2k/madarch/releases/download/v#{version}/#{artifact}"
+  url "https://github.com/shady2k/madarch/releases/download/v#{version}/#{@artifact}"
   sha256 sha256sum
 
   # One binary, nothing else to lay: the wiki app rides inside it, and the
   # release's SHA256 sums are checked by brew when it downloads.
   def install
-    bin.install artifact
+    bin.install @artifact => "madarch"
   end
 
   test do
