@@ -115,8 +115,10 @@ dates and the people a kind carries); the pages it grew from, resolved from
 the form's link fields; and a "Linked from" section naming every document
 of the product whose link fields, ids or wiki addresses reach this page —
 link fields first. A page the set names not at all shall keep the plain
-page behaviour, and no kind shall be invented for it.
-
+page behaviour, and no kind shall be invented for it. The lines the
+fields block is read from shall not stand in the body again beneath the
+title: where the block shows a field, its raw `Name: value` line is out of
+the served body, and the file's line numbers stay true.
 The set's product check shall run over the product's folder once per
 product revision while the wiki serves — a revision that asked once shall
 not run it again until the pages change — and each finding that names this
@@ -163,6 +165,11 @@ place after them.
 - Given: a page of no set kind (no identity line, no kind's place)
 - When: its page is read
 - Then: the page shows no kind, no fields and no findings, as before this requirement
+
+### Scenario: fields-show-once
+- Given: a set-form page whose fields block carries a field
+- When: the page is read
+- Then: the block names the field once, the body holds no line of it beneath the title, and the file's line numbers match what the page names
 
 ## Requirement: architecture — The model's views and elements are the Architecture section
 When a product's wiki is served, it shall have an Architecture section — the
