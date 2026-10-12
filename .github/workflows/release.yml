@@ -1,0 +1,137 @@
+name: release
+
+# The release build (madarch-lfhu, decision 0021 item (e)): a tag push of
+# `vX.Y.Z` builds one madarch binary per platform (linux and macOS, amd64
+# and arm64), smoke-runs each, checks the wikis, and publishes them to the
+# GitHub release with their SHA256 sums, the npm packages and the Homebrew
+# formula. The run's own steps carry their exit statuses through Actions'
+# check UI; this workflow publishes nothing by itself to npm: the packed
+# tarballs ride the release, and registry publishing needs the owner's
+# npm token (see the publish job's `npm publish` step, skipped when the
+# token is unset).
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  binary:
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runs-on: ubuntu-latest
+            os: linux
+            arch: x64
+          - runs-on: ubuntu-24.04-arm
+            os: linux
+            arch: arm64
+          - runs-on: macos-15
+            os: darwin
+            arch: arm64
+          - runs-on: macos-13
+            os: darwin
+            arch: x64
+    env:
+      VERSION: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      # The product's dependencies; @ladybugdb/core's postinstall lays the
+      # platform's native module the compiled binary embeds.
+      - name: install
+        run: bun install --frozen-lockfile
+      - name: check
+        run: bun run check
+      - name: test
+        run: MADARCH_SKIP_PERF=1 bun test test/
+      # The wiki app is embedded into the binary: its build must be done
+      # first, then its files ride with the build script's staging.
+      - name: build the wiki app
+        run: |
+          cd wiki/app
+          bun install --frozen-lockfile
+          bun run build
+      - name: build the binary
+        run: bun scripts/build-binary.ts --version "${VERSION#v}" --os ${{ matrix.os }} --arch ${{ matrix.arch }} --out dist
+      - name: prove the binary (version, list, new, serve)
+        env:
+          BINARY: ./dist/madarch-${{ matrix.os }}-${{ matrix.arch }}
+        run: |
+          tmp=$(mktemp -d)
+          "$BINARY" version
+          "$BINARY" list --home "$tmp/home"
+          # a real product: the draft is created and its wiki is served on a port of this run's own
+          port=$((10000 + RANDOM % 20000))
+          "$BINARY" new --home "$tmp/home" --port $port --no-open &
+          pid=$!
+          sleep 12
+          curl -fsS "http://127.0.0.1:$port/" >/dev/null
+          curl -fsS "http://127.0.0.1:$port/api/product" | grep '"id"'
+          kill $pid 2>/dev/null || true
+          wait "$pid" 2>/dev/null || true
+          rm -rf "$tmp"
+      - name: checksum
+        run: |
+          cd dist
+          { sha256sum madarch-${{ matrix.os }}-${{ matrix.arch }} || shasum -a 256 madarch-${{ matrix.os }}-${{ matrix.arch }}; } > madarch-${{ matrix.os }}-${{ matrix.arch }}.sha256
+          cat madarch-${{ matrix.os }}-${{ matrix.arch }}.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: madarch-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            dist/madarch-${{ matrix.os }}-${{ matrix.arch }}
+            dist/madarch-${{ matrix.os }}-${{ matrix.arch }}.sha256
+
+
+  publish:
+    needs: binary
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: gather the binaries and their sums
+        run: |
+          set -e
+          mkdir release
+          cp artifacts/madarch-*/madarch-* release/
+          cd release
+          cat madarch-*.sha256 > SHA256SUMS.txt
+          rm madarch-*.sha256
+          chmod 0755 madarch-linux-x64 madarch-linux-arm64 madarch-darwin-arm64 madarch-darwin-x64
+      - name: the npm packages
+        run: |
+          set -e
+          bun install --frozen-lockfile
+          bun scripts/build-npm-package.ts --version "${VERSION#v}" --wrapper --packages-dir npm
+          for pair in "linux x64" "linux arm64" "darwin arm64" "darwin x64"; do
+            set -- $pair
+            bun scripts/build-npm-package.ts --version "${VERSION#v}" --os "$1" --arch "$2" --packages-dir npm --binary "release/madarch-$1-$2"
+          done
+          ( cd npm/madarch && npm pack --silent --pack-destination ../.. )
+          ( cd npm/@madarch-linux-x64 && npm pack --silent --pack-destination ../.. )
+          ( cd npm/@madarch-linux-arm64 && npm pack --silent --pack-destination ../.. )
+          ( cd npm/@madarch-darwin-arm64 && npm pack --silent --pack-destination ../.. )
+          ( cd npm/@madarch-darwin-x64 && npm pack --silent --pack-destination ../.. )
+      - name: the install script
+        run: cp scripts/install.sh release/
+      - name: the formula of the sums
+        run: bun scripts/build-formula.ts --version "${VERSION#v}" --sums-file release/SHA256SUMS.txt --out tap && cp tap/Formula/madarch.rb release/madarch.rb
+      - name: publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$VERSION" release/* --title "$VERSION" --generate-notes

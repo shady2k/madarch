@@ -1,0 +1,188 @@
+/**
+ * Assembles the npm packages of one madarch release (madarch-lfhu): one
+ * package per platform binary under the `@madarch` scope, and the `madarch`
+ * package that wraps them — its `bin/madarch.js` refuses the platforms no
+ * binary was built for, starts the binary the running platform names, and
+ * forwards its exit. The packages stay wheels of the binary: they carry no
+ * JavaScript from the project, and nothing in them reads a skill set.
+ *
+ *   bun scripts/build-npm-package.ts --version 0.1.0 --os linux --arch x64 [--packages-dir npm]
+ *   bun scripts/build-npm-package.ts --version 0.1.0 --wrapper [--packages-dir npm]
+ *
+ * The result under `--packages-dir` is one npm-packable folder per run;
+ * `npm pack` inside each folder makes the tarball the release carries.
+ * Registry publishing needs the owner's npm token and is not part of the
+ * build; the walk installs the packed tarballs directly.
+ *
+ * Exit 0 written, 2 when an argument or the input (the binary) is not
+ * there, every refusal naming what is wrong.
+ */
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const USAGE = 'usage: bun scripts/build-npm-package.ts --version <x.y.z> (--os <linux|darwin> --arch <x64|arm64> | --wrapper) [--packages-dir <folder>] [--binary <the built artifact>]';
+
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+interface NpmOptions {
+  version: string;
+  os: string;
+  arch: string;
+  wrapper: boolean;
+  packagesDir: string;
+  binary: string;
+}
+
+function parseArgs(argv: readonly string[]): NpmOptions | number {
+  const parsed: NpmOptions = { version: '', os: '', arch: '', wrapper: false, packagesDir: 'npm', binary: '' };
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!;
+    const takes = (name: string): string | undefined => {
+      if (arg === `--${name}`) return argv[i + 1] ?? '';
+      if (arg.startsWith(`--${name}=`)) return arg.slice(name.length + 3);
+      return undefined;
+    };
+    const version = takes('version');
+    if (version !== undefined) {
+      parsed.version = version;
+      if (arg === '--version') i++;
+      continue;
+    }
+    const os = takes('os');
+    if (os !== undefined) {
+      parsed.os = os;
+      if (arg === '--os') i++;
+      continue;
+    }
+    const arch = takes('arch');
+    if (arch !== undefined) {
+      parsed.arch = arch;
+      if (arg === '--arch') i++;
+      continue;
+    }
+    const dir = takes('packages-dir');
+    if (dir !== undefined) {
+      parsed.packagesDir = dir;
+      if (arg === '--packages-dir') i++;
+      continue;
+    }
+    if (arg === '--wrapper') {
+      parsed.wrapper = true;
+      continue;
+    }
+    const binary = takes('binary');
+    if (binary !== undefined) {
+      parsed.binary = binary;
+      if (arg === '--binary') i++;
+      continue;
+    }
+    console.error(`unknown option "${arg}"`);
+    console.error(USAGE);
+    return 2;
+  }
+  if (!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(parsed.version)) {
+    console.error(`--version ${JSON.stringify(parsed.version)} is no release version`);
+    return 2;
+  }
+  if (!parsed.wrapper && (parsed.os === '' || parsed.arch === '')) {
+    console.error('give either --wrapper or --os/--arch for its platform package');
+    console.error(USAGE);
+    return 2;
+  }
+  return parsed;
+}
+
+const PLATFORM_HINT = 'madarch publishes binaries for linux and macOS, amd64 and arm64 (https://github.com/shady2k/madarch/releases)';
+
+/** The wrapper's one job: start the running platform's binary, forward its exit. */
+const WRAPPER = [
+  '#!/usr/bin/env node',
+  '/**',
+  " * The \\`madarch\\` bin of the release's npm package: one thin launcher over the",
+  ' * platform package\'s compiled binary (@madarch/linux-x64 and friends; the',
+  ' * npm registry installs the running platform\'s package). It adds nothing to',
+  ' * the command: the same arguments go in, the same facts come out, the same',
+  ' * exit code is returned, and a platform no binary was built for is refused',
+  ' * with what to do instead.',
+  ' */',
+  'const { platform, arch } = process;',
+  "const osName = { linux: 'linux', darwin: 'darwin' }[platform];",
+  'if (osName === undefined) {',
+  '  console.error(`madarch publishes no binary for ${platform}/${arch}:`);',
+  '  console.error(' + JSON.stringify(PLATFORM_HINT) + ');',
+  '  process.exit(2);',
+  '}',
+  'const packageName = `@madarch/${osName}-${arch}`;',
+  'let binaryPath;',
+  'try {',
+  '  binaryPath = require.resolve(packageName, { paths: [__dirname] });',
+  '} catch {',
+  '  console.error(`madarch ${packageName} is not installed (this npm install carries it as an optional dependency):`);',
+  '  console.error(' + JSON.stringify(PLATFORM_HINT) + ');',
+  '  process.exit(2);',
+  '}',
+  "const child = require('node:child_process').spawn(binaryPath, process.argv.slice(2), { stdio: 'inherit' });",
+  "child.on('exit', (code, signal) => {",
+  '  if (signal !== null) process.exit(1);',
+  '  process.exit(code ?? 1);',
+  '});',
+  '',
+].join('\n');
+
+
+function main(argv: readonly string[]): number {
+  const options = parseArgs(argv);
+  if (typeof options === 'number') return options;
+  const out = resolve(options.packagesDir);
+  const platforms = [
+    'linux-x64',
+    'linux-arm64',
+    'darwin-arm64',
+    'darwin-x64',
+  ];
+  if (options.wrapper) {
+    const wrapperDir = join(out, 'madarch');
+    rmSync(wrapperDir, { recursive: true, force: true });
+    mkdirSync(join(wrapperDir, 'bin'), { recursive: true });
+    writeFileSync(join(wrapperDir, 'bin', 'madarch.js'), WRAPPER);
+    const optionalDependencies = Object.fromEntries(platforms.map((one) => [`@madarch/${one}`, options.version]));
+    writeFileSync(join(wrapperDir, 'package.json'), JSON.stringify({
+      name: 'madarch',
+      version: options.version,
+      description: 'The madarch command as one release binary: create, rename, clone, serve and upgrade products, wiki included.',
+      license: 'MIT',
+      bin: { madarch: 'bin/madarch.js' },
+      files: ['bin'],
+      engines: { node: '>=18' },
+      optionalDependencies,
+    }, null, 2) + '\n');
+    console.log(`wrote ${join(wrapperDir)}`);
+    return 0;
+  }
+  const name = `${options.os}-${options.arch}`;
+  const short = options.os === 'darwin' ? 'darwin' : 'linux';
+  const artifact = resolve(options.binary || join(REPO_ROOT, 'dist', `madarch-${options.os}-${options.arch}`));
+  if (!existsSync(artifact)) {
+    console.error(`the binary ${artifact} is not there: build it first ("bun scripts/build-binary.ts --version ${options.version} --os ${options.os} --arch ${options.arch}")`);
+    return 2;
+  }
+  const dir = join(out, `@madarch-${name}`);
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(join(dir, 'bin'), { recursive: true });
+  cpSync(artifact, join(dir, 'bin', 'madarch'));
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({
+    name: `@madarch/${name}`,
+    version: options.version,
+    description: `The madarch release binary for ${short} on ${options.arch}.`,
+    license: 'MIT',
+    main: 'bin/madarch',
+    files: ['bin'],
+    os: [options.os],
+    cpu: [options.arch],
+  }, null, 2) + '\n');
+  console.log(`wrote ${join(dir)}`);
+  return 0;
+}
+
+process.exitCode = main(process.argv.slice(2));
