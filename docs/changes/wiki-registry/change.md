@@ -62,6 +62,13 @@ without a madarch change; a registryless product reads plain.
   kind's statuses) on the pages they name; the product's registry drives the
   navigation's groups and their order; without a registry no kind is computed
   anywhere and no link field is read.
+- product-wiki/live: replaced. The kinds registry file joins the sources the
+  revision digest covers, so a saved registry — a kind added, its link
+  declarations published, a document naming a new kind — is a wiki change the
+  stream reports; the regroup, the eyebrow kind and the declared links answer
+  inside two seconds with no restart, and the required link's finding stands
+  on the new kind's page until its document carries it. The live rules stand
+  otherwise, as the requirement has always run them.
 - product-wiki/stages: replaced. The stage list, its order and its names are
   the registry's; each kind rides the stage the registry gives it; the
   next-step lines carry the registry's hint where a kind has one and the
@@ -73,7 +80,7 @@ without a madarch change; a registryless product reads plain.
 - product-wiki/shell: test — the reading shell's chrome, its fixed wordings and the document panel stay; only the kind and group words that come from the registry change their source.
 - product-wiki/architecture: test — unchanged.
 - product-wiki/repositories: test — unchanged.
-- product-wiki/live: test — the registry file joins the sources the revision digest covers, so a saved registry is a wiki change the stream reports; all live rules unchanged.
+
 - product-wiki/serve: test — serving, refusals and read-only answers unchanged; the new /api/registry read answers the same offers the app asks for.
 - product-wiki/app: test — the build and serving of the app's files unchanged.
 - product-wiki/result: test — exit statuses and silent serving unchanged.
