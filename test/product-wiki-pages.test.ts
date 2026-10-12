@@ -416,6 +416,31 @@ describe('the kinds registry the wiki serves', () => {
     }
   });
 
+  test('each state of the registry carries its own digest, so a change of state is never lost under a shared one', () => {
+    withRegistry('contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n');
+    const file = join(folder!, 'docs', 'kinds.yaml');
+    const known = readRegistryServing(folder!).digest;
+    rmSync(file);
+    const absent = readRegistryServing(folder!).digest;
+    mkdirSync(file);
+    const served = readRegistryServing(folder!);
+    expect(served.contract).toMatchObject({ state: 'unknown' });
+    if (served.contract.state !== 'unknown') throw new Error('the folder degrades');
+    expect(served.contract.message).toContain('docs/kinds.yaml is a folder, not a registry file');
+    expect(served.contract.message).toContain('plain documents');
+    const folderState = served.digest;
+    rmSync(file, { recursive: true });
+    chmodSync(join(folder!, 'docs'), 0o000);
+    let unreadable: string;
+    try {
+      unreadable = readRegistryServing(folder!).digest;
+    } finally {
+      chmodSync(join(folder!, 'docs'), 0o755);
+    }
+    const taken = new Set([known, absent, folderState, unreadable]);
+    expect(taken.size).toBe(4);
+  });
+
   test('a registry whose bytes refuse to be read is the named unknown state, never a throw of the ask', () => {
     withRegistry('contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n');
     const file = join(folder!, 'docs', 'kinds.yaml');
