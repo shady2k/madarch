@@ -28,8 +28,8 @@ import { homeOfCommand, noStrayDrafts, sealedHome } from './scratch-home.js';
  */
 const CLI = fileURLToPath(new URL('../scripts/madarch.ts', import.meta.url));
 
-/** The set's example product folder, vendored with the pinned program. */
-const SET_MADE_FIXTURE = fileURLToPath(new URL('../vendor/shady2k-skills/0.94.0/fixtures/product/good', import.meta.url));
+/** The contract's set-made example product folder (examples/contract). */
+const SET_MADE_FIXTURE = fileURLToPath(new URL('../examples/contract/set-made-product', import.meta.url));
 
 const SEALED_GIT = {
   GIT_CONFIG_GLOBAL: '/dev/null',
@@ -332,8 +332,8 @@ describe('madarch serve: an existing product served', () => {
   }, 30_000);
 
   test('a folder the set made serves the same way: its identity and its pages come from its manifest and docs', async () => {
-    // The set's example product folder (decision 0019: madarch serves a
-    // set-made, a madarch-made and a hand-made folder alike).
+    // The contract's set-made example product folder (decision 0021:
+    // madarch serves a set-made, a madarch-made and a hand-made folder alike).
     const base = scratchFolder();
     const built = builtApp(base);
     const setMade = join(base, 'leftover-listings');

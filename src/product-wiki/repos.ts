@@ -4,14 +4,14 @@
  * with its name, url and optional branch as the manifest holds them, and the
  * state of its checkout under the product's `repos/` folder.
  *
- * The manifest's own reading is the pinned program's (`./manifest.ts`): a
+ * The manifest's own reading is madarch's own (`./manifest.ts` of ../product): a
  * `repos` item the program refuses was refused before anything here ran, and
  * this module reads the list that reading gave back.
  *
  * A checkout is a folder `repos/<name>` holding a git repository of its own.
  * Asking about it runs real git at the checkout — read-only git (`rev-parse`
  * and `log`), never a command that writes — and the environment the runs get
- * drops the same loader variables the pinned program's own runs drop, so a
+ * drops the same loader variables madarch's own git runs (src/product/git.ts) drop, so a
  * call here can never reach into another repository's worktree.
  *
  * Every ask reads from disk now, like the pages do: a commit made inside a
@@ -24,7 +24,7 @@
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join as joinPath, resolve as resolvePath } from 'node:path';
-import type { ProgramGitEnv } from '../product/program.js';
+import type { GitEnv } from '../product/git.js';
 import type { ProductIdentity, ProductRepo } from '../product/manifest.js';
 import { byCodePoint } from '../model/order.js';
 
@@ -77,7 +77,7 @@ export interface ProductRepoEntry {
   problem?: string;
 }
 
-/** The loader variables a git call here strips, exactly the pinned program's own list. */
+/** The loader variables a git call here strips, exactly madarch's own git module's list. */
 const GIT_LEAKS = ['GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE'] as const;
 
 /** How long one read-only git call may run before the checkout is reported unreadable. */
@@ -92,7 +92,7 @@ type GitRead = { ok: true; output: string } | { ok: false; output: string };
  * and the loader variables stripped again, so no override can re-add the
  * one leak the strip exists for.
  */
-function gitEnvironment(extra: ProgramGitEnv): Record<string, string> {
+function gitEnvironment(extra: GitEnv): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [name, value] of Object.entries(process.env)) {
     if (value !== undefined && !(GIT_LEAKS as readonly string[]).includes(name)) env[name] = value;
@@ -104,12 +104,12 @@ function gitEnvironment(extra: ProgramGitEnv): Record<string, string> {
 
 /**
  * One read-only git call at a folder, with everything around it stripped the
- * way the pinned program's own runs are: no loader variable reaches the
+ * way madarch's own git runs are: no loader variable reaches the
  * call, and an identity a test passes is merged over what is left. The
  * failure carries git's own output when git said anything, else the cause of
  * the silence — never an empty refusal.
  */
-function gitRead(folder: string, args: readonly string[], extra: ProgramGitEnv): GitRead {
+function gitRead(folder: string, args: readonly string[], extra: GitEnv): GitRead {
   const run = spawnSync('git', ['--no-pager', ...args], { cwd: folder, encoding: 'utf8', env: gitEnvironment(extra), timeout: GIT_TIMEOUT_MS });
   const said = `${run.stderr ?? ''}${run.stdout ?? ''}`.trim();
   if (run.status === 0 && said !== '') return { ok: true, output: said };
@@ -134,12 +134,12 @@ type OwnRepository =
 
 /**
  * Whether a checkout holds a git repository of its own: the same question
- * the pinned program's `ownRepository` answers, by `rev-parse
+ * madarch's `ownRepository` answers, by `rev-parse
  * --show-toplevel` against the folder's real path — a folder with no
  * repository of its own would answer for the repository above it, and a
  * report about that repository's HEAD would be someone else's.
  */
-function ownRepository(checkout: string, gitEnv: ProgramGitEnv): OwnRepository {
+function ownRepository(checkout: string, gitEnv: GitEnv): OwnRepository {
   const top = gitRead(checkout, ['rev-parse', '--show-toplevel'], gitEnv);
   if (!top.ok) return { kind: 'unknown', cause: top.output };
   // git answers with the real path, so the checkout is its own only when the
@@ -173,7 +173,7 @@ function readmeAt(checkout: string): RepoReadme | undefined {
 }
 
 /** One declared repository, asked whole: its checkout state, HEAD and README. */
-function readOne(productFolder: string, declared: ProductRepo, gitEnv: ProgramGitEnv): ProductRepoEntry {
+function readOne(productFolder: string, declared: ProductRepo, gitEnv: GitEnv): ProductRepoEntry {
   const entry: Omit<ProductRepoEntry, 'state'> = { name: declared.name, url: declared.url };
   if (declared.branch !== undefined) entry.branch = declared.branch;
   const target = joinPath(productFolder, REPOS_FOLDER, declared.name);
@@ -270,7 +270,7 @@ function withReadme(entry: ProductRepoEntry, target: string, productFolder: stri
  * finished before this runs, and a checkout that answers wrong is reported,
  * with the cause named, in its own row.
  */
-export function readProductRepos(product: ProductIdentity, gitEnv: ProgramGitEnv = {}): ProductRefsAnswer {
+export function readProductRepos(product: ProductIdentity, gitEnv: GitEnv = {}): ProductRefsAnswer {
   const repos = product.repos
     .map((declared) => readOne(product.folder, declared, gitEnv))
     .sort((one, other) => byCodePoint(one.name, other.name));

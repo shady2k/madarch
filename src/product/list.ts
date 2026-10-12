@@ -19,7 +19,31 @@ import { join, resolve } from 'node:path';
 import { readProduct, MANIFEST_FILE } from './manifest.js';
 import type { ProductIdentity } from './manifest.js';
 import { productsHome, type DraftEnv } from './draft.js';
-import { byCodePoint } from '../model/order.js';
+/**
+ * The folders' own order: code point by code point, not by UTF-16 code unit.
+ * A name holding a character above the Basic Multilingual Plane (U+10000
+ * and up, written as a surrogate pair in a JavaScript string) must fall
+ * where its code point falls — between the private-use U+F8FF and U+FFFD —
+ * and the plain `<`/`>` comparison reads the pair's high half first and
+ * puts it before U+E000. The list's order is the reader's, and it is the
+ * one the capability names.
+ */
+function folderCodePoints(a: string, b: string): number {
+  const left = [...a];
+  const right = [...b];
+  const n = Math.min(left.length, right.length);
+  for (let i = 0; i < n; i++) {
+    // The characters' code points, as numbers: comparing the one-character
+    // strings with `<` would compare their UTF-16 units again, and a
+    // character above the basic plane is a surrogate pair in them.
+    if (left[i] !== right[i]) {
+      const lp = left[i]!.codePointAt(0)!;
+      const rp = right[i]!.codePointAt(0)!;
+      return lp < rp ? -1 : 1;
+    }
+  }
+  return left.length === right.length ? 0 : left.length < right.length ? -1 : 1;
+}
 
 /** A manifest that stands but cannot be read, named so the list hides nothing. */
 export interface UnreadableProduct {
@@ -67,7 +91,7 @@ export function listProducts(options: ListOptions = {}): ProductList {
     return { outcome: 'refused', message: `the products home ${home} could not be listed: ${(error as Error).message}` };
   }
 
-  const folders = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort(byCodePoint);
+  const folders = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort(folderCodePoints);
   const products: ProductIdentity[] = [];
   const unreadable: UnreadableProduct[] = [];
   for (const name of folders) {

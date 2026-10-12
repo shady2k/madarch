@@ -3,8 +3,8 @@
  * entry point; docs/changes/draft-product/capabilities/product-repository.md
  * and the lifecycle commands of feature madarch-525o). This module parses the
  * arguments the way the project's other command scripts parse
- * (`scripts/serve.ts`), calls the draft library or the wrapper module for the
- * lifecycle, and decides only the exit code and the stream: 0 when the work
+ * (`scripts/serve.ts`), calls the draft library or the lifecycle module for
+ * the lifecycle, and decides only the exit code and the stream: 0 when the work
  * is done, 2 when an argument, a product folder, a manifest or the products
  * home cannot be used, 1 when a step failed (git refused) — the library's
  * `refused` and `failed` carry the message, printed whole on standard error.
@@ -396,7 +396,7 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
   // The lifecycle subcommands do not serve: their own outcomes decide.
   if (command !== 'new') return report(runWrapper(command, parsed));
 
-  // new: the draft is created through the pinned set program, then its wiki is served.
+  // new: the draft is created by madarch's own creation code (decision 0021), then its wiki is served.
   const draft = createDraft(home === undefined ? {} : { home });
   if (draft.outcome !== 'created') {
     console.error(draft.message);

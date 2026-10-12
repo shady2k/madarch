@@ -54,16 +54,15 @@ read-only, as the wiki's working tree.
 
 **Product repository** (`src/product/`, `scripts/madarch.ts`): one product's
 knowledge as Markdown and YAML in a git repository of its own. The
-repository's lifecycle is the skill set's product-repository program
-(decision 0019): its creation is the release pinned in
-`vendor/shady2k-skills/`, which `src/product/program.ts` names once;
-`madarch new` is the thin wrapper that resolves the products home
-(`~/madarch/products`, moved by `MADARCH_HOME` or `--home`) and hands the
-work to it, and `madarch list` names the products that home holds. The
-product's identity — its id and name — is read from its manifest,
-`workspace.yaml`, by the pinned release's reader behind
-`src/product/manifest.ts`; the consumer tests hold that reader to the set's
-own manifest cases and example folder.
+repository's lifecycle is madarch's own code (decision 0021, revising the
+clause of 0019 that took the set's program: the commands
+`madarch new`, `rename`, `repo add`, `bootstrap`, `remote` and `clone` sit
+on `src/product/draft.ts`, `src/product/lifecycle.ts` and
+`src/product/git.ts`), with the products home `~/madarch/products`, moved by
+`MADARCH_HOME` or `--home`. The product's identity — its id and name — is
+read from its manifest, `workspace.yaml`, by the contract's own reader
+behind `src/product/manifest.ts`; the consumer tests hold that reader to the
+contract's manifest cases and example products (`examples/contract/`).
 
 **Served wiki** (`src/product-wiki/`, `wiki/app/`): a product's pages, read
 fresh from the working tree at every ask (`src/product-wiki/pages.ts`) — every
