@@ -54,8 +54,14 @@ without a madarch change; a registryless product reads plain.
 - product-wiki/front-matter: replaced. The kind a page shows is the product
   registry's kind, matched by the document's explicit `Kind:` field, its
   identity line's id prefix or its path's place, in that order, and nothing is
-  invented; the product's registry drives the navigation's groups and their
-  order; without a registry no kind is computed anywhere.
+  invented; the document's link fields are the kind's declared links, each
+  naming its target kinds, its backlink label, its cardinality and whether it
+  is required, and the backlink rows carry the declaring kinds' labels; the
+  registry's reads report the structural findings (a broken link, a link to an
+  undeclared kind or field, a missing required link, a status outside the
+  kind's statuses) on the pages they name; the product's registry drives the
+  navigation's groups and their order; without a registry no kind is computed
+  anywhere and no link field is read.
 - product-wiki/stages: replaced. The stage list, its order and its names are
   the registry's; each kind rides the stage the registry gives it; the
   next-step lines carry the registry's hint where a kind has one and the
@@ -125,8 +131,15 @@ receipts at the revisions they read.
   kind word anywhere;
 - the demo product (wiki/demo, Fieldnote) keeps today's groups, hints and
   eyebrow kinds through its committed kinds.yaml in the set's writer shape;
+- the document's links are the kinds' declared links with their backlink
+  labels, cardinalities and required flags, and the structural findings show
+  on the pages they name;
+- the live walk holds: a story kind joins the registry with its required
+  link, the stream says it inside two seconds, the finding stands and
+  clears, the backlinks stand both ways, no restart;
 - `grep -rn "PRA-" src/ wiki/app/src/` and a search for the set's kind names in
   those trees name no kind;
 - the registry-reading tests (valid read, bad refused by file and line, missing
-  renders simply) and the kind fixtures replace the hardcoded-kind tests;
+  renders simply), the declared-link and structural-findings tests and the
+  kind fixtures replace the hardcoded-kind tests;
 - root checks and wiki/app checks green at the landing.

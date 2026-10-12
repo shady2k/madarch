@@ -118,18 +118,39 @@ prefix or its path's place names a kind of the product's registry, the wiki
 shall read that form and show, on the page: its kind, as the registry's kind
 word names it; a calm block of the form's fields beside the identity ones (the
 id, the status the document's own text computes, the dates and the people the
-form carries); the pages it grew from, resolved from the form's link fields;
-and a "Linked from" section naming every document of the product whose link
-fields, ids or wiki addresses reach this page — link fields first. A kind of a
-folder kind whose folder is one whole document is addressed the way the
-product's own link lines spell it: by the file stem's capitals (the product's
-`docs/vision.md` reads as its stem's word), used where the product's documents
-name it and nowhere invented. A page no kind of the registry names shall keep
-the plain page behaviour, and no kind shall be invented for it: a product
-without a registry (or whose registry does not read) shows no kind anywhere.
-The lines the fields block is read from shall not stand in the body again
-beneath the title: where the block shows a field, its raw `Name: value` line is
-out of the served body, and the file's line numbers stay true.
+form carries); the pages it grew from, resolved from the kind's declared link
+fields; and a backlink section naming every document of the product whose
+declared link fields, ids or wiki addresses reach this page — link fields
+first.
+
+The document's link fields shall be the kind's own declared links, read from
+the registry: each declaration names the form field, the kinds its link may go
+to, the label the linked page shows its backlinks under, whether the field
+names one document or many, and whether the link is required. The link rows on
+the page shall be headed by the naming field's own words, and the backlink
+rows by the declaring kind's label where one is written. No field name of any
+set shall stand in madarch's code: a document of a kind the registry names not
+at all carries no link rows. A link whose field the kind declares no links for
+shall be shown as the page's structural finding, never a dropped row, and so
+shall a link to a kind the declaration does not go to and a broken link that
+names no document the wiki holds. The structural findings shall also judge a
+required link by the whole document — a document carrying the field with no
+held target is as much without its link as one carrying no field at all — a
+field the declaration names as one, and a written status outside the kind's
+declared statuses. The findings shall show on the page they name (rule, file
+within the product, line, words), in the same shape the set's check findings
+take, and a page the reads say nothing about shall show none.
+
+A kind of a folder kind whose folder is one whole document is addressed the
+way the product's own link lines spell it: by the file stem's capitals (the
+product's `docs/vision.md` reads as its stem's word), used where the product's
+documents name it and nowhere invented. A page no kind of the registry names
+shall keep the plain page behaviour, and no kind shall be invented for it: a
+product without a registry (or whose registry does not read) shows no kind
+anywhere, and its documents carry no structural findings. The lines the fields
+block is read from shall not stand in the body again beneath the title: where
+the block shows a field, its raw `Name: value` line is out of the served body,
+and the file's line numbers stay true.
 
 The navigation shall group the product's documents by the registry's kinds, in
 the registry's own order — the kind's stage of the registry's stage list, the
@@ -185,6 +206,16 @@ checked.
 - Given: a page no kind of the registry names, or a product whose `docs/` holds no registry file
 - When: its page is read
 - Then: the page shows no kind, no fields and no findings, as before this requirement, and no kind word is computed anywhere on the page or in the groups
+
+### Scenario: links-are-the-kinds-declarations
+- Given: a product whose registry declares the requirement kind's `Serves` link to the use case and the story kinds, with the backlink label, and whose use case kind declares its own link
+- When: the requirement's page, the story's page and the use case's page are read
+- Then: the rows carry the declared links resolved to pages, the naming field heads the rows on the naming pages, the backlink rows head under the declaring kinds' labels, and no field word of any set stands in madarch's trees
+
+### Scenario: the-structural-findings-answer-the-declarations
+- Given: a product whose registry declares a required `Serves` link and a one-document card, and whose documents carry a broken link, a link to a kind the declaration does not go to, an addressable value in an undeclared field, one link where the kind says one, and a status outside the kind's statuses
+- When: those pages are read
+- Then: each page carries its structural findings at the lines they stand on, the required link is judged by the whole document, and a document of a kind the registry names not at all carries none
 
 ### Scenario: fields-show-once
 - Given: a registry-named page whose fields block carries a field
@@ -416,6 +447,10 @@ The server watches the product working tree and answers one Server-Sent Events s
 - Given: a served draft whose page `/p/docs/vision.md` holds `# Vision`, open in a browser
 - When: the file is saved with `# Vision` and the sentence `What it is for.` below it
 - Then: the open page shows the new text within two seconds, without a reload
+### Scenario: saved-registry-becomes-a-regroup
+- Given: a served product whose registry names the use case kind and whose use case carries no links, with no story kind anywhere
+- When: the registry is saved with the story kind and the links both kinds' documents write, and a story document is written without its required link, and then with it
+- Then: each save's stream event comes inside two seconds, the sidebar regroups and the page names its kind with no restart, the required link's finding stands on the story page first and clears with the link, and the story and the use case carry each other back under the declared label
 ### Scenario: no-cache
 - Given: a served draft
 - When: one page is asked for before and after its file is saved
