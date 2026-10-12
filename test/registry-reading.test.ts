@@ -9,11 +9,12 @@
  * fixture product of the fixed reference — wiki/demo, the set-up case —
  * reads through the registry it carries.
  */
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
-import { readProductRegistry, registryKit, kindOfPath, REGISTRY_FILE } from '../src/product/registry.js';
+import { readProductRegistry, registryKit, kindOfPath, kindOfId, REGISTRY_FILE } from '../src/product/registry.js';
+import { parseDocument } from '../src/product-wiki/documents.js';
 import { parseContractText } from '../src/product/contract.js';
 import { openProductWiki } from '../src/product-wiki/pages.js';
 import { readStagesIndex } from '../src/wiki/stages.js';
@@ -212,5 +213,62 @@ describe('the fixed reference: the set-up demo product reads through the registr
     }
     expect(pages.pages.find((page) => page.kind === 'Change records')).toBeDefined();
     expect(pages.pages.every((page) => page.path !== 'docs/vision.md' || page.kind === 'Product vision')).toBe(true);
+  });
+
+  test('a place that cannot hold a registry file reads as one without: not an absence invented', () => {
+    const moved = mkdtempSync(join(tmpdir(), 'madarch-registry-enotdir-'));
+    writeFileSync(join(moved, 'docs'), 'planted: docs itself is a file, so docs/kinds.yaml cannot exist\n');
+    folder = moved;
+    const read = readProductRegistry(folder!);
+    expect(read).toEqual({ present: false });
+  });
+
+  test('a kind behind the longer folder wins the place’s match, and id prefixes pin the longest first', () => {
+    draft(['stages:',
+      '  - id: idea',
+      '  - id: requirements',
+      '  - id: design',
+      'kinds:',
+      '  - name: Change records',
+      '    prefix: CH',
+      '    folder: docs/changes',
+      '    stage: design',
+      '    hint: propose the change',
+      '  - name: Decision records',
+      '    prefix: D',
+      '    folder: docs/changes/decisions',
+      '    stage: design',
+      '    hint: record the decision',
+      '  - name: Notes',
+      '    prefix: N',
+      '    folder: docs/notes',
+      '    stage: idea',
+      '    hint: write the note',
+      '    ',
+      ''].join('\n').replace('    \n', ''));
+    write('docs/changes/decisions/0001-own.md', '# 0001. A decision inside another kind\'s walk\n');
+    write('docs/changes/0001-mine.md', '# 0001. A change record at the walk\'s root\n');
+    const read = readProductRegistry(folder!);
+    if (!read.present || !('stages' in read)) throw new Error('the registry must read');
+    const kit = registryKit(read);
+    if (kit === undefined) throw new Error('the kit must build');
+    expect(kindOfPath(kit, 'docs/changes/decisions/0001-own.md')?.name).toBe('Decision records');
+    expect(kindOfPath(kit, 'docs/changes/0001-mine.md')?.name).toBe('Change records');
+    expect(kindOfId(kit, 'D-001')?.name).toBe('Decision records');
+    expect(kindOfId(kit, 'CH-001')?.name).toBe('Change records');
+  });
+
+  test('the id shape carries three digits: two-digit or no-number ids are no id of any kind', () => {
+    draft();
+    const read = readProductRegistry(folder!);
+    if (!read.present || !('stages' in read)) throw new Error('the registry must read');
+    const kit = registryKit(read);
+    if (kit === undefined) throw new Error('the kit must build');
+    expect(kit.idShape.test('FR-001')).toBe(true);
+    expect(kit.idShape.test('FR-01')).toBe(false);
+    expect(kit.idShape.test('FR-1')).toBe(false);
+    expect(kit.idShape.test('VISION')).toBe(false);
+    const parsed = parseDocument('docs/requirements/FR-01-two.md', '# FR-01 — Two digits\n\nplain\n', new Set(), kit);
+    expect(parsed.id).toBeUndefined();
   });
 });
