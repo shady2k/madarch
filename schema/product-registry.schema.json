@@ -1,0 +1,77 @@
+{
+  "type": "object",
+  "required": [
+    "stages",
+    "kinds"
+  ],
+  "properties": {
+    "stages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "minItems": 1,
+      "description": "The life cycle in the order the reader walks it; every kind names one of these."
+    },
+    "kinds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "prefix",
+          "folder",
+          "stage",
+          "hint"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+            "minLength": 1
+          },
+          "prefix": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Two to four capitals (A-Z), checked when the registry is read."
+          },
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A place under docs/, like docs/requirements; checked when the registry is read."
+          },
+          "stage": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "hint": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "The kinds the product holds, each naming its stage of the list."
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/shady2k/madarch/schema/product-registry.schema.json",
+  "title": "Madarch product kinds registry",
+  "description": "The shape of one product repository kinds registry file: the stages as an ordered list with no fixed kinds, and the kinds the product holds, each with its name, id prefix, folder, stage and next-step hint. The mechanism is madarch's; the kinds (usually written at setup by the skill set) are the product's data.",
+  "additionalProperties": false
+}

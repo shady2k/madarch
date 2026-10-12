@@ -1,0 +1,167 @@
+{
+ "about": "The kinds registry's own cases: the file the contract examples run through parseContractText, with every refusal and the line it was raised, in the set's fixture-cases style.",
+ "cases": [
+  {
+   "name": "the set-out stages and kinds",
+   "text": "stages:\n  - id: idea\n  - id: requirements\n  - id: design\n  - id: build\n  - id: verify\n  - id: release\n  - id: operate\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: have the first conversation with a customer, write it down\n  - name: hypothesis\n    prefix: H\n    folder: docs/hypotheses\n    stage: idea\n    hint: turn a source into one checkable sentence\n  - name: product requirement\n    prefix: FR\n    folder: docs/requirements\n    stage: requirements\n    hint: write what the product does, one requirement at a time\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: design\n    hint: record the choice between the options on the table\n"
+  },
+  {
+   "name": "nothing registered yet",
+   "text": "stages:\n  - id: idea\nkinds: []\n"
+  },
+  {
+   "name": "not-a-mapping",
+   "text": "- a\n- b\n",
+   "line": 1,
+   "message": "must be object",
+   "path": ""
+  },
+  {
+   "name": "no-stages",
+   "text": "kinds: []\n",
+   "line": 1,
+   "message": "",
+   "path": ""
+  },
+  {
+   "name": "stage-list-empty",
+   "text": "stages: []\nkinds: []\n",
+   "line": 1,
+   "message": "must not have fewer than 1 items",
+   "path": "stages"
+  },
+  {
+   "name": "stage-id-empty",
+   "text": "stages:\n  - id: \"\"\nkinds: []\n",
+   "line": 2,
+   "message": "",
+   "path": "stages[0].id"
+  },
+  {
+   "name": "kind-without-a-name",
+   "text": "stages:\n  - id: idea\nkinds:\n  - prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n",
+   "line": 4,
+   "message": "",
+   "path": "kinds[0]"
+  },
+  {
+   "name": "prefix-lowercase",
+   "text": "stages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: s\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n",
+   "line": 5,
+   "message": "is not an id prefix",
+   "path": "kinds[0].prefix"
+  },
+  {
+   "name": "prefix-named-twice",
+   "text": "stages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n  - name: second\n    prefix: S\n    folder: docs/other\n    stage: idea\n    hint: another\n",
+   "line": 10,
+   "message": "first on line 5: each kind is given one prefix",
+   "path": "kinds[1].prefix"
+  },
+  {
+   "name": "folder-outside-docs",
+   "text": "stages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: sources\n    stage: idea\n    hint: talk to a customer\n",
+   "line": 6,
+   "message": "not a place under the documents",
+   "path": "kinds[0].folder"
+  },
+  {
+   "name": "folder-absolute",
+   "text": "stages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: /etc/sources\n    stage: idea\n    hint: talk to a customer\n",
+   "line": 6,
+   "message": "not a place under the documents",
+   "path": "kinds[0].folder"
+  },
+  {
+   "name": "stage-unknown",
+   "text": "stages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: build\n    hint: talk to a customer\n",
+   "line": 7,
+   "message": "is not a stage of the list",
+   "path": "kinds[0].stage"
+  },
+  {
+   "name": "hint-empty",
+   "text": "stages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: \"\"\n",
+   "line": 8,
+   "message": "must not have fewer than 1 characters",
+   "path": "kinds[0].hint"
+  },
+  {
+   "name": "stage-named-twice",
+   "text": "stages:\n  - id: idea\n  - id: idea\nkinds: []\n",
+   "line": 3,
+   "message": "first on line 2: each stage is given once",
+   "path": "stages[1].id"
+  },
+  {
+   "name": "unknown-field",
+   "text": "stages:\n  - id: idea\nkinds: []\nregistry: 7\n",
+   "line": 1,
+   "message": "must not have additional properties",
+   "path": ""
+  },
+  {
+   "name": "anchor",
+   "text": "stages:\n  - id: &same idea\nkinds: []\n",
+   "line": 2,
+   "message": "is not allowed",
+   "path": "stages[0].id"
+  },
+  {
+   "name": "flow-collection",
+   "text": "stages: {x: y}\nkinds: []\n",
+   "line": 1,
+   "message": "",
+   "path": "stages"
+  },
+  {
+   "name": "parse-error",
+   "text": "stages:\n  - id: idea\nkinds: [unclosed\n",
+   "line": 4,
+   "message": "at line 4",
+   "path": ""
+  },
+  {
+   "name": "kind-name-with-a-digit",
+   "text": "stages:\n  - id: idea\nkinds:\n  - name: 2source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n",
+   "line": 4,
+   "message": "must match pattern",
+   "path": "kinds[0].name"
+  },
+  {
+   "name": "prefix-too-long",
+   "text": "stages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: ABCDE\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n",
+   "line": 5,
+   "message": "is not an id prefix",
+   "path": "kinds[0].prefix"
+  },
+  {
+   "name": "prefix-with-a-digit",
+   "text": "stages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: A1\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n",
+   "line": 5,
+   "message": "is not an id prefix",
+   "path": "kinds[0].prefix"
+  },
+  {
+   "name": "hint-only-spaces",
+   "text": "stages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: \"   \"\n",
+   "line": 8,
+   "message": "the hint is empty",
+   "path": "kinds[0].hint"
+  },
+  {
+   "name": "stage-named-third",
+   "text": "stages:\n  - id: idea\n  - id: idea\n  - id: idea\nkinds: []\n",
+   "line": 4,
+   "path": "stages[2].id",
+   "message": "first on line 2: each stage is given once"
+  },
+  {
+   "name": "prefix-named-third",
+   "text": "stages:\n  - id: idea\nkinds:\n  - name: a\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n  - name: b\n    prefix: S\n    folder: docs/other\n    stage: idea\n    hint: two\n  - name: c\n    prefix: S\n    folder: docs/more\n    stage: idea\n    hint: three\n",
+   "line": 15,
+   "path": "kinds[2].prefix",
+   "message": "first on line 5: each kind is given one prefix"
+  }
+ ]
+}

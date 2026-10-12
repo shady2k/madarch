@@ -32,6 +32,8 @@ jobs:
       # install step below — the root job must not run its tests before that.
       - run: bun run test
       - run: bun run views:check
+      # The product repository's contract cases (decision 0021): every example and every refusal.
+      - run: bun run contract:check
       # The wiki app has its own package and lockfile, so its checks run beside
       # the product's: a broken app fails CI.
       - run: bun install --frozen-lockfile && bun run check && bun test && bun run build
