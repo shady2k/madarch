@@ -78,8 +78,11 @@ quoted here as decided.
   federation (0003) needs no second id scheme. v1 resolves local links and
   shows a cross-product link as an external link, with no finding.
 - **The product repository is the one source**; there are no external
-  catalogs for any kind of fact (0017). Each entity type declares how
-  it is stored inside the product: `document` (Markdown under `docs/` —
+  catalogs for any kind of fact (0017): what a source system knows reaches
+  the graph as a stored fact with its evidence, never as a live lookup into
+  that system. An imported fact's truth stays with the system, the wiki
+  carries the copy read-only, and no second authority is merged in. Each
+  entity type declares how it is stored inside the product: `document` (Markdown under `docs/` —
   the only form v1 implements), `task` (the product's tracker, beads in
   `.beads/`), `model-element` (model YAML), `component` (a React component
   plus its story, for screens and the UI kit), and `fact`: an entity
