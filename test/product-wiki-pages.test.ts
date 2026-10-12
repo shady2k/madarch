@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { openProductWiki } from '../src/product-wiki/pages.js';
+import { readRegistryServing } from '../src/product-wiki/registry.js';
 
 /**
  * A product's pages read from the working tree (docs/changes/draft-product/
@@ -398,6 +399,30 @@ describe('the kinds registry the wiki serves', () => {
     if (!strayTwo.ok) throw new Error(strayTwo.message);
     expect(strayTwo.revision).not.toBe(strayOne.revision);
     expect(strayTwo.contract).toEqual({ known: true, version: 1 });
+  });
+
+  test('a registry the file system refuses to stat is the named unknown state, not the absent state', () => {
+    withRegistry('contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n');
+    chmodSync(join(folder!, 'docs'), 0o000);
+    try {
+      const serving = readRegistryServing(folder!);
+      expect(serving.contract.state).toBe('unknown');
+      if (serving.contract.state !== 'unknown') return;
+      expect(serving.contract.message).toContain('docs/kinds.yaml could not be read');
+      expect(serving.contract.message).toContain('plain documents');
+      expect(serving.contract.version).toBeUndefined();
+    } finally {
+      chmodSync(join(folder!, 'docs'), 0o755);
+    }
+  });
+
+  test('a registry the wiki cannot serve degrades the open questions the way it degrades the pages', () => {
+    const product = requireProduct(openProductWiki(withRegistry('contract: 99\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n')));
+    write('docs/decisions/D-001.md', '# D-001 — One decision\n\nrecorded here\n');
+    const asked = product.questions();
+    if (!asked.ok) throw new Error(asked.message);
+    expect(asked.questions).toEqual([]);
+    expect(asked.openCount).toBe(0);
   });
 
   test('a registry that is not a regular file is named and degrades the wiki, and the ask never blocks on it', () => {

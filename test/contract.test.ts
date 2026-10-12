@@ -196,6 +196,26 @@ describe('the contract of a product repository kinds registry', () => {
     expect(parsed!.path).toBe('');
   });
 
+  test('a registry that is no mapping at all is the schema refusal, not the version gate', () => {
+    const nothing = parseContractText('docs/kinds.yaml', 'null\n');
+    expect(nothing.ok).toBe(false);
+    if (nothing.ok) return;
+    expect(nothing.errors.some((error) => /object/.test(error.message))).toBe(true);
+    const word = parseContractText('docs/kinds.yaml', 'just a word\n');
+    expect(word.ok).toBe(false);
+    if (word.ok) return;
+    expect(word.errors.some((error) => /object/.test(error.message))).toBe(true);
+  });
+
+  test('the version gate names the whole number only at the field\'s own line', () => {
+    const refused = parseContractText('docs/kinds.yaml', '# the kinds registry\ncontract: "one"\n');
+    expect(refused.ok).toBe(false);
+    if (refused.ok) return;
+    const missing = refused.errors[0];
+    expect(missing!.line).toBe(2);
+    expect(missing!.path).toBe('contract');
+  });
+
   test('the published product-registry and product-document schemas match the TypeBox sources', () => {
     const published = readFileSync(fileURLToPath(new URL('../schema/product-registry.schema.json', import.meta.url)), 'utf8');
     expect(published).toBe(renderSchema(KindsRegistry));
