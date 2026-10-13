@@ -52,7 +52,7 @@ function digestOfBytes(bytes: Buffer): string {
 
 /** The notice the wiki serves under the reading's refusals, every one named where it stands. */
 function noticeOf(read: { ok: false; errors: ContractError[] }): string {
-  const named = read.errors.map((error) => `${error.file}:${error.line}: ${error.message}`).join('; ');
+  const named = read.errors.map((error) => `${error.file}:${error.line}: ${error.path === '' ? '' : `${error.path}: `}${error.message}`).join('; ');
   return `${named} — the wiki serves these pages as plain documents`;
 }
 

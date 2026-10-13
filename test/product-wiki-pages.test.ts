@@ -329,7 +329,7 @@ describe('the kinds registry the wiki serves', () => {
     const product = requireProduct(openProductWiki(withRegistry('contract: 99\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n')));
     const pages = product.pages();
     if (!pages.ok) throw new Error(pages.message);
-    expect(pages.contract).toEqual({ known: false, version: 99, message: 'docs/kinds.yaml:1: the registry declares contract 99; this madarch reads contract 1 — the wiki serves these pages as plain documents' });
+    expect(pages.contract).toEqual({ known: false, version: 99, message: 'docs/kinds.yaml:1: contract: the registry declares contract 99; this madarch reads contract 1 — the wiki serves these pages as plain documents' });
     expect(pageKinds(pages)).toEqual(['']);
 
     const asked = product.page('docs/decisions/D-001.md');
@@ -344,7 +344,7 @@ describe('the kinds registry the wiki serves', () => {
     if (!pages.ok) throw new Error(pages.message);
     const banner = pages.contract;
     if (banner === undefined || banner.known !== false) throw new Error('the registry refused its reading, so the wiki degrades');
-    expect(banner.message).toContain('docs/kinds.yaml:6: "d" is not an id prefix');
+    expect(banner.message).toContain('docs/kinds.yaml:6: kinds[0].prefix: "d" is not an id prefix');
     expect(banner.message).toContain('the wiki serves these pages as plain documents');
     expect(banner.version).toBeUndefined();
   });
@@ -440,6 +440,26 @@ describe('the kinds registry the wiki serves', () => {
     }
     const taken = new Set([known, absent, folderState, unreadable]);
     expect(taken.size).toBe(4);
+  });
+
+  test('the refusal banner names each refusal with its file, line, path and words', () => {
+    const product = requireProduct(openProductWiki(withRegistry('contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: d\n    folder: docs/decisions\n    stage: idea\n    hint: one\n  - name: source\n    prefix: s\n    folder: docs/sources\n    stage: idea\n    hint: one\n')));
+    const pages = product.pages();
+    if (!pages.ok) throw new Error(pages.message);
+    const banner = pages.contract;
+    if (banner === undefined || banner.known !== false) throw new Error('the registry refused its reading, so the wiki degrades');
+    expect(banner.message).toBe('docs/kinds.yaml:6: kinds[0].prefix: "d" is not an id prefix: one to four capitals (A-Z); docs/kinds.yaml:11: kinds[1].prefix: "s" is not an id prefix: one to four capitals (A-Z) — the wiki serves these pages as plain documents');
+  });
+
+  test('a whole-file refusal names the file and line with no path between', () => {
+    const product = requireProduct(openProductWiki(withRegistry('contract: 1\nstages:\n\t- id: idea\nkinds: []\n')));
+    const pages = product.pages();
+    if (!pages.ok) throw new Error(pages.message);
+    const banner = pages.contract;
+    if (banner === undefined || banner.known !== false) throw new Error('the registry refused its reading, so the wiki degrades');
+    expect(banner.message).toContain('docs/kinds.yaml:3: Tabs are not allowed as indentation');
+    expect(banner.message).not.toContain(': :');
+    expect(banner.message).toContain('the wiki serves these pages as plain documents');
   });
 
   test('a registry whose bytes refuse to be read is the named unknown state, never a throw of the ask', () => {

@@ -111,7 +111,7 @@ describe('the contract of a product repository kinds registry', () => {
       expect(refused.ok).toBe(false);
       if (refused.ok) continue;
       const named = refused.errors.find((error) =>
-        error.line === one!.line && error.path === one!.path &&
+        error.file === 'docs/kinds.yaml' && error.line === one!.line && error.path === one!.path &&
         error.message.includes(`"${generic}" is one of the generic fields madarch reads itself (id, kind, status, links)`));
       expect(named).toBeDefined();
     }
