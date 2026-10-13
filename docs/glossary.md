@@ -213,9 +213,9 @@ element, or excludes it with a reason; the deepest row covering a file decides.
 
 **The model-writing skill**:
 The agent skill that writes and updates a repository's intended model and review
-report, documents first and confirmed in the code. It lives in the skill set —
-shady2k-skills 0.106.0 or later, the release that carries the moved skills
-(decision 0021 (d)) — not in this repository.
+report, documents first and confirmed in the code. It lives in the skill set,
+installed under the guide's install contract (decision 0021 (d)), never in this
+repository.
 
 **Layer**:
 A module element grouping a core's groups of modules when one page would hold

@@ -48,8 +48,9 @@ shady2k-skills; a skillless product still serves its described repository
 wiki.
    *Note (2026-10-13, set side confirmed):* the install contract is
    shady2k-skills 0.106.0 or later (set main 5030227), which carries the
-   skills 0021 (d) moved; the engine's checkout ships none, and the
-   engine's documents name the set release only in this line.
+   skills 0021 (d) moved; the engine's checkout ships none, and this line
+   and the guide's install-contract line are the only places the
+   repository pins the set release.
    *Check:* the set names the moved skills and carries them green under the
 set's own rules (it does not reach the set's main without the owner's own
 yes); madarch's repository names them only in the install contract.
