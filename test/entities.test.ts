@@ -708,7 +708,7 @@ relations:
 
 describe('the writers\' reference documents data entities', () => {
   test('the Data entity section names every field the schema defines, and the Relation section names a transfer\'s entities', () => {
-    const reference = readFileSync(fileURLToPath(new URL('../skills/write-intended-model/reference.md', import.meta.url)), 'utf8');
+    const reference = readFileSync(fileURLToPath(new URL('./fixtures/model-skill-example/model/madarch/model-format-reference.md', import.meta.url)), 'utf8');
     const section = reference.slice(reference.indexOf('## Data entity'), reference.indexOf('## The review report'));
     for (const field of ['id', 'name', 'description', 'categories', 'evidence']) {
       expect(section.includes(`\`${field}\``), `the Data entity section does not document \`${field}\``).toBe(true);

@@ -28,7 +28,7 @@ its corpus and prints its version; a broken corpus fixture is refused naming
 the file, the line and what is wrong; a fixture whose documents live at other
 paths passes through its mapping; a citation whose quote is not at the place
 it names in a source kept in the repository is refused naming both, and one to
-a source kept outside is reported as not verified; `skills/write-intended-model` is gone from
+a source kept outside is reported as not verified; the model-writing skill is gone from
 madarch and madarch's model is checked by the contract file installed from the
 skill set.
 2. **Describe use cases and data entities in the model, traced to

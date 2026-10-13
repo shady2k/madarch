@@ -1,11 +1,11 @@
 # Review: the receipts repository at commit BRANCH_COMMIT
 
-This model was written the way `write-intended-model` prescribes and
-updated on the branch the way its update mode prescribes: the documents
-read first, each claim checked in the code, every element, interface and
-relation evidenced at the commit it was read from. The placeholders
-COMMIT and BLOB:<file> stand for the first run's values; BRANCH_COMMIT
-and BRANCH_BLOB:<file> stand for the branch's. The skill's test
+This model was written the way the set's model-writing procedure
+prescribes and updated on the branch the way its update mode prescribes:
+the documents read first, each claim checked in the code, every element,
+interface and relation evidenced at the commit it was read from. The
+placeholders COMMIT and BLOB:<file> stand for the first run's values;
+BRANCH_COMMIT and BRANCH_BLOB:<file> stand for the branch's. The test
 substitutes them; a real run computes them.
 
 ## Claims

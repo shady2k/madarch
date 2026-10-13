@@ -202,25 +202,22 @@ shows each one live as it is written and saved.
 ## Describe each repository you connected
 
 The repositories under `repos/` join the product as code; the product's wiki
-shows documents. Before describing, give the product the describing step —
-`madarch new` creates the product's `skills/` empty, so copy the describing
-skill from the madarch checkout into the product and lay its AGENTS section
-below the maintained markers of the product's `AGENTS.md` (ask your agent to
-do it, or run, from the madarch checkout, with the product folder in
-`$PRODUCT`):
-
-    cp -r skills/describe-repository "$PRODUCT/skills/"
-    cat skills/describe-repository/AGENTS-section.md >> "$PRODUCT/AGENTS.md"
+shows documents. Before describing, give the product the describing step:
+it comes with the skill set, shady2k-skills 0.106.0 or later — not with the
+madarch checkout, which ships no skills. Start the product's agent in the
+product folder and install the set into the product if you have not already
+(the step above, `run setup-shady2k-skills`); the installation lays the
+describing section below the maintained markers of the product's
+`AGENTS.md`.
 
 Then ask the agent that runs in the product folder to describe a repository:
 
     describe the library repository for this product
 
-The agent follows the product's own skill, `skills/describe-repository/`,
-and for each repository:
+The agent follows the set's describing skill, and for each repository:
 
 1. writes the repository's intended model into the repository's own
-   `madarch/` folder with the model-writing skill and the model check —
+   `madarch/` folder with the set's model-writing skill and the model check —
    every element, interface and relation carrying the file, the lines, the
    commit and the blob it was read from;
 2. writes the repository's architecture page under the product's

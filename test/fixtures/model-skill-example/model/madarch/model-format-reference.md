@@ -1,9 +1,9 @@
 # Intended model: format reference for writers
 
-This is the format a writer of a madarch intended model needs: the field
+This is the format a writer of an intended model needs: the field
 names of every construct, one short YAML example per construct, and the
 review report's tables exactly as the model check parses them. The full
-specification is `docs/system/capabilities/intended-model.md` in the madarch
+specification is `docs/system/capabilities/intended-model.md` in the engine's
 checkout; the published schema is `schema/intended-model.schema.json` there.
 
 A model is every `*.yaml` file in the repository's `madarch/` folder, read as
@@ -235,7 +235,7 @@ categories:
 
 Environments (deployment-specific bindings and zones) and architecture
 states (`since`/`until` chains) exist in the format; see the spec in the
-madarch checkout before using them — a first model rarely needs either.
+engine checkout before using them — a first model rarely needs either.
 
 ## Data entity
 

@@ -1,11 +1,11 @@
-# The intended model of the receipts repository after the branch that
-# added the export folder, as the skill's update mode would write it.
-# COMMIT and BLOB:<file> stand for what the first run computed — the
-# commit every item the branch does not concern still pins.
-# BRANCH_COMMIT and BRANCH_BLOB:<file> stand for the branch's HEAD and
-# the file's blob there, pinned by the items the update added or
-# re-pinned. The skill's test substitutes them all after committing the
-# branch; a real run computes them.
+# The intended model of the receipts repository, as a model writer would
+# leave it after the documents were read and every claim checked in the
+# code: every element, interface and relation carries evidence, and the
+# review report beside this file (review.md) tells each document claim's
+# verdict. The placeholders COMMIT and BLOB:<file> stand for the values a
+# real run computes (evidence names the commit and the blob it was read
+# from); the test substitutes the real ids after committing the example
+# repository, the way a run computes them.
 version: 1
 
 zones:
@@ -56,8 +56,6 @@ elements:
         commit: COMMIT
         blob: BLOB:package.json
 
-  # The entry point changed on the branch: the element's evidence is
-  # re-pinned to the branch's HEAD, the range now covering the new lines.
   - id: importer
     kind: service
     name: Receipt importer
@@ -66,26 +64,14 @@ elements:
     evidence:
       - file: src/index.ts
         line: 1
-        endLine: 18
-        commit: BRANCH_COMMIT
-        blob: BRANCH_BLOB:src/index.ts
+        endLine: 15
+        commit: COMMIT
+        blob: BLOB:src/index.ts
       - file: src/importer.ts
         line: 1
         endLine: 11
         commit: COMMIT
         blob: BLOB:src/importer.ts
-
-  # Added by the branch: a folder the entry point imports.
-  - id: export
-    kind: module
-    name: Receipt export
-    parent: receipts
-    evidence:
-      - file: src/export/writer.ts
-        line: 1
-        endLine: 7
-        commit: BRANCH_COMMIT
-        blob: BRANCH_BLOB:src/export/writer.ts
 
   - id: webhook
     kind: module
@@ -121,18 +107,16 @@ interfaces:
         blob: BLOB:src/notify/webhook.ts
 
 relations:
-  # Re-pinned: the lines the relations name moved with the branch's new
-  # import and the new call in the entry point.
   - id: clerk-scans
     name: scans receipts into the inbox
     from: clerk
     to: importer
     evidence:
       - file: src/index.ts
-        line: 12
-        endLine: 14
-        commit: BRANCH_COMMIT
-        blob: BRANCH_BLOB:src/index.ts
+        line: 10
+        endLine: 12
+        commit: COMMIT
+        blob: BLOB:src/index.ts
 
   - id: clerk-looks-up
     name: looks one receipt up again
@@ -151,40 +135,26 @@ relations:
     to: archive
     evidence:
       - file: src/index.ts
-        line: 15
-        commit: BRANCH_COMMIT
-        blob: BRANCH_BLOB:src/index.ts
+        line: 13
+        commit: COMMIT
+        blob: BLOB:src/index.ts
 
+  # A dependency found in imports is evidenced by the import line, an
+  # interaction at run time by the call site: this relation carries both,
+  # never the import alone.
   - id: importer-notifies
     name: hands each receipt to the webhook
     from: importer
     to: webhook
     evidence:
       - file: src/index.ts
-        line: 6
-        commit: BRANCH_COMMIT
-        blob: BRANCH_BLOB:src/index.ts
+        line: 5
+        commit: COMMIT
+        blob: BLOB:src/index.ts
       - file: src/index.ts
-        line: 17
-        commit: BRANCH_COMMIT
-        blob: BRANCH_BLOB:src/index.ts
-
-  # Added by the branch: a dependency found in imports is evidenced by
-  # the import line, an interaction at run time by the call site — never
-  # the import alone (see SKILL.md, step 8).
-  - id: importer-exports
-    name: writes each receipt to the export file
-    from: importer
-    to: export
-    evidence:
-      - file: src/index.ts
-        line: 4
-        commit: BRANCH_COMMIT
-        blob: BRANCH_BLOB:src/index.ts
-      - file: src/index.ts
-        line: 16
-        commit: BRANCH_COMMIT
-        blob: BRANCH_BLOB:src/index.ts
+        line: 14
+        commit: COMMIT
+        blob: BLOB:src/index.ts
 
   - id: webhook-posts
     name: posts the receipt to accounting

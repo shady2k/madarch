@@ -70,7 +70,8 @@ Option 3, decided by the owner in conversation on 2026-10-08.
   milestones are reworked through `to-milestone`; live-graph's outcome 2
   (madarch-bwt, the "thin portal") is replanned against this direction before
   it starts.
-- The skill `skills/write-intended-model` moves to shady2k-skills; the model
+- The model-writing skill moves to shady2k-skills (the set's 0.106.0 or
+  later carries it; the engine ships none); the model
   check stays in madarch and becomes part of the contract file.
 - A contract release in madarch means a skill-set release carrying the new
   file; the skill set's CI runs the contract's conformance examples.

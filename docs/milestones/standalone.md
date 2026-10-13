@@ -42,13 +42,17 @@ themselves and the hints are generic.
 registryless product: the groups, hints and eyebrow kinds equal today's when
 the registry (written at setup) stands, and degrade to the generic behaviour
 without one.
-4. **The skills' home is the skill set.** describe-repository and
-write-intended-model live in shady2k-skills (0021 (d)); a skillless product
-still serves its described repository wiki.
-   *Check:* the set's branch names the moved skills and carries them green
-under the set's own rules (it does not reach the set's main without the
-owner's own yes); madarch's repository names them only in the install
-contract.
+4. **The skills' home is the skill set.** The skills 0021 (d) moved — the
+repository-describing skill and the model-writing skill — live in
+shady2k-skills; a skillless product still serves its described repository
+wiki.
+   *Note (2026-10-13, set side confirmed):* the install contract is
+   shady2k-skills 0.106.0 or later (set main 5030227), which carries the
+   skills 0021 (d) moved; the engine's checkout ships none, and the
+   engine's documents name the set release only in this line.
+   *Check:* the set names the moved skills and carries them green under the
+set's own rules (it does not reach the set's main without the owner's own
+yes); madarch's repository names them only in the install contract.
 5. **One binary, distributed.** `bun build --compile`: one `madarch` binary
 per platform that starts with no bun/node present; installs by npm, brew and
 script; releases on GitHub with checksums; `madarch upgrade`.

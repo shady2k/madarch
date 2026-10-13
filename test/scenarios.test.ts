@@ -853,7 +853,7 @@ describe('compatibility: a model written before this change', () => {
 
 describe('the writers\' reference documents scenarios', () => {
   test('the Scenario section names every field the schema defines, and the model file section names scenarios', () => {
-    const reference = readFileSync(fileURLToPath(new URL('../skills/write-intended-model/reference.md', import.meta.url)), 'utf8');
+    const reference = readFileSync(fileURLToPath(new URL('./fixtures/model-skill-example/model/madarch/model-format-reference.md', import.meta.url)), 'utf8');
     const section = reference.slice(reference.indexOf('## Scenario'), reference.indexOf('## The review report'));
     for (const field of ['id', 'name', 'description', 'actor', 'requirements', 'steps', 'alternatives']) {
       expect(section.includes(`\`${field}\``), `the Scenario section does not document \`${field}\``).toBe(true);

@@ -44,7 +44,7 @@ dependency.
    compiles and shows three levels (context, the application's parts, the
    modules of its core), with evidence on every element and relation.
 4. **Show a repository's model as views from madarch's server** (madarch-ti6).
-   After the model check passes, the `write-intended-model` skill (or a command
+   After the model check passes, the model-writing skill (or a command
    beside the check) sends one repository's compiled model with its commit and
    commit time to the server. The server never clones or reads a repository: it
    stores the model in the history and answers a view request (the source, the

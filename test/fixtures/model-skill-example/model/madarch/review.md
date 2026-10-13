@@ -1,9 +1,10 @@
 # Review: the receipts repository at commit COMMIT
 
-This model was written the way `write-intended-model` prescribes: the
-documents first, each claim checked in the code at COMMIT, every element,
-interface and relation evidenced at that commit. The placeholders COMMIT and
-BLOB:<file> are filled by the skill's test; a real run computes them.
+This model was written the way the set's model-writing procedure
+prescribes: the documents first, each claim checked in the code at
+COMMIT, every element, interface and relation evidenced at that commit.
+The placeholders COMMIT and BLOB:<file> are filled by the test; a real
+run computes them.
 
 ## Claims
 

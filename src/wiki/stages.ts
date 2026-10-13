@@ -147,7 +147,7 @@ export interface StagesIndex {
 /** The tracker export the Build stage reads its tasks from. */
 const TRACKER_EXPORT = '.beads/issues.jsonl';
 
-/** The folder the describe-repository skill writes each repository's derived documents under. */
+/** The folder a described repository's derived documents are written under (the describing step's own layout). */
 const REPOSITORY_DOCS = 'docs/repositories';
 
 /**
@@ -250,8 +250,8 @@ export function readStagesIndex(productFolder: string): StagesIndex {
       for (const artifact of documentsUnder(full, kind.name, productFolder, problems)) kindHolder.artifacts.push(artifact);
     }
 
-    // The described repositories (the describe-repository step's own
-    // layout): what that step derived from each repository's code stands
+    // The described repositories (the describing step's own layout):
+    // what that step derived from each repository's code stands
     // under docs/repositories/<name>/ in the same kind folders the
     // registry names for the product, and the described repository's
     // architecture page beside them. Those are the kinds' stages' material

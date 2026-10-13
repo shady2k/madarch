@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test';
-import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
@@ -7,17 +6,18 @@ import { checkModel, CLAIMS_COLUMNS, ASSIGNMENT_COLUMNS } from '../src/check/mod
 import { GIT_ENV, Repo, withRepo } from './model-check-repo.js';
 
 /**
- * The write-intended-model skill (madarch-utk.2.1): its instructions
- * name themselves in the Agent Skills frontmatter, its format reference
- * documents every field the published schema defines for evidence,
- * elements, interfaces and relations, and its worked example is a real
- * model — the test commits the example repository, substitutes the
+ * The model-writing machinery the describing step runs (the skill set's
+ * model-writing procedure and madarch's model check) on the project-owned
+ * example the tests build (`test/fixtures/model-skill-example/`, a
+ * project fixture; decision 0021 (d): the skill texts themselves moved to
+ * the skill set): the example model's shape, its format reference
+ * covering every field the published schema defines, and its worked
+ * example — the test commits the example repository, substitutes the
  * placeholder commit and blob ids with the real ones the way a run
  * computes them, and the model check passes with views rendered.
  */
 
-const SKILL_DIR = join(import.meta.dir, '..', 'skills', 'write-intended-model');
-const EXAMPLE_DIR = join(SKILL_DIR, 'example');
+const EXAMPLE_DIR = join(import.meta.dir, 'fixtures', 'model-skill-example');
 
 const SCHEMA: {
   properties: {
@@ -27,7 +27,7 @@ const SCHEMA: {
   };
 } = JSON.parse(readFileSync(join(import.meta.dir, '..', 'schema', 'intended-model.schema.json'), 'utf8'));
 
-/** The fields each section of reference.md must document, taken from the published schema. */
+/** The fields each section of model-format-reference.md must document, taken from the published schema. */
 const DOCUMENTED_FIELDS: Record<string, string[]> = {
   Element: Object.keys(SCHEMA.properties.elements.items.properties),
   Interface: Object.keys(SCHEMA.properties.interfaces.items.properties),
@@ -35,10 +35,10 @@ const DOCUMENTED_FIELDS: Record<string, string[]> = {
   Evidence: Object.keys(SCHEMA.properties.elements.items.properties.evidence.items.properties),
 };
 
-/** The text of one `## <heading>` section of reference.md, up to the next level-2 heading. */
+/** The text of one `## <heading>` section of model-format-reference.md, up to the next level-2 heading. */
 function sectionOf(reference: string, heading: string): string {
   const start = reference.indexOf(`## ${heading}\n`);
-  if (start < 0) throw new Error(`reference.md has no "## ${heading}" section`);
+  if (start < 0) throw new Error(`model-format-reference.md has no "## ${heading}" section`);
   const next = reference.indexOf('\n## ', start + 1);
   return next < 0 ? reference.slice(start) : reference.slice(start, next);
 }
@@ -67,14 +67,14 @@ interface ExampleModel {
  */
 function baseExample(repo: Repo): { pinned: string; base: string; substituteBase: (text: string) => string } {
   cpSync(join(EXAMPLE_DIR, 'repo'), repo.path, { recursive: true });
-  cpSync(join(EXAMPLE_DIR, 'madarch'), join(repo.path, 'madarch'), { recursive: true });
+  cpSync(join(EXAMPLE_DIR, 'model', 'madarch'), join(repo.path, 'madarch'), { recursive: true });
   const code = repo.commit('the receipts archiver');
   const substituteBase = (text: string): string =>
     text
       .replace(/BLOB:([A-Za-z0-9][A-Za-z0-9._/-]*)/g, (_: string, file: string) => repo.blob(file, code))
       .replaceAll('COMMIT', code);
   for (const name of ['model.yaml', 'review.md']) {
-    writeFileSync(join(repo.path, 'madarch', name), substituteBase(readFileSync(join(EXAMPLE_DIR, 'madarch', name), 'utf8')));
+    writeFileSync(join(repo.path, 'madarch', name), substituteBase(readFileSync(join(EXAMPLE_DIR, 'model', 'madarch', name), 'utf8')));
   }
   return { pinned: code, base: repo.commit('the model of the receipts repository'), substituteBase };
 }
@@ -106,24 +106,25 @@ function byId<T extends { id: string }>(items: T[]): Map<string, T> {
   return new Map(items.map((item) => [item.id, item]));
 }
 
-describe('the write-intended-model skill', () => {
-  test('names itself and says when to use it in the Agent Skills frontmatter', () => {
-    const skill = readFileSync(join(SKILL_DIR, 'SKILL.md'), 'utf8');
-    const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(skill);
-    expect(match).not.toBeNull();
-    const meta = parseYaml(match![1]!) as Record<string, unknown>;
-    expect(meta['name']).toBe('write-intended-model');
-    const description = meta['description'];
-    expect(typeof description).toBe('string');
-    expect((description as string).trim().length).toBeGreaterThan(0);
+describe('the worked model example the model-writing machinery runs on', () => {
+  test('the example model reads as the published schema shape, every item evidenced', () => {
+    const model = parseYaml(readFileSync(join(EXAMPLE_DIR, 'model', 'madarch', 'model.yaml'), 'utf8')) as ExampleModel;
+    expect(model.elements?.length).toBeGreaterThan(0);
+    for (const item of [...(model.elements ?? []), ...(model.interfaces ?? []), ...(model.relations ?? [])]) {
+      expect(item.evidence?.length, `${item.id} carries no evidence`).toBeGreaterThan(0);
+      for (const e of item.evidence ?? []) {
+        expect(typeof e.file).toBe('string');
+        expect(typeof e.line).toBe('number');
+      }
+    }
   });
 
   test('documents every schema field of evidence, element, interface and relation', () => {
-    const reference = readFileSync(join(SKILL_DIR, 'reference.md'), 'utf8');
+    const reference = readFileSync(join(EXAMPLE_DIR, 'model', 'madarch', 'model-format-reference.md'), 'utf8');
     for (const [heading, fields] of Object.entries(DOCUMENTED_FIELDS)) {
       const text = sectionOf(reference, heading);
       for (const field of fields) {
-        expect(text.includes(`\`${field}\``), `the "## ${heading}" section of reference.md does not document \`${field}\``).toBe(true);
+        expect(text.includes(`\`${field}\``), `the "## ${heading}" section of model-format-reference.md does not document \`${field}\``).toBe(true);
       }
     }
   });
@@ -131,7 +132,7 @@ describe('the write-intended-model skill', () => {
   test('checks the worked example: substituted placeholders, a passing check, rendered views', () => {
     withRepo((repo) => {
       cpSync(join(EXAMPLE_DIR, 'repo'), repo.path, { recursive: true });
-      cpSync(join(EXAMPLE_DIR, 'madarch'), join(repo.path, 'madarch'), { recursive: true });
+      cpSync(join(EXAMPLE_DIR, 'model', 'madarch'), join(repo.path, 'madarch'), { recursive: true });
       const base = repo.commit('the receipts archiver');
 
       // The placeholders stand for what a real run computes: the commit
@@ -155,24 +156,24 @@ describe('the write-intended-model skill', () => {
     });
   });
 
-  test('reference.md writes the check\'s table headers, and SKILL.md names the report\'s four headings', () => {
-    const reference = readFileSync(join(SKILL_DIR, 'reference.md'), 'utf8');
+  test('model-format-reference.md writes the check\'s table headers, and the example review names the report\'s four headings', () => {
+    const reference = readFileSync(join(EXAMPLE_DIR, 'model', 'madarch', 'model-format-reference.md'), 'utf8');
     for (const [heading, columns] of [['Claims', CLAIMS_COLUMNS], ['Assignment', ASSIGNMENT_COLUMNS]] as const) {
       const at = reference.indexOf(`### \`## ${heading}\``);
-      expect(at, `reference.md has no "### \`## ${heading}\`" section`).toBeGreaterThan(-1);
+      expect(at, `model-format-reference.md has no "### \`## ${heading}\`" section`).toBeGreaterThan(-1);
       const header = reference.slice(at).split('\n').find((line) => line.trim().startsWith('|'));
-      expect(header, `the "## ${heading}" section of reference.md holds no table`).toBeDefined();
+      expect(header, `the "## ${heading}" section of model-format-reference.md holds no table`).toBeDefined();
       const cells = header!.trim().slice(1, -1).split('|').map((cell) => cell.trim());
       expect(cells, `the "## ${heading}" table's header must be the check's columns`).toEqual(columns);
     }
-    const skill = readFileSync(join(SKILL_DIR, 'SKILL.md'), 'utf8');
+    const review = readFileSync(join(EXAMPLE_DIR, 'model', 'madarch', 'review.md'), 'utf8');
     for (const heading of ['## Claims', '## Undocumented', '## Assignment', '## Problems']) {
-      expect(skill.includes(`\`${heading}\``), `SKILL.md does not name the report heading \`${heading}\` verbatim`).toBe(true);
+      expect(review.includes(heading), `review.md does not hold the report heading \`${heading}\``).toBe(true);
     }
   });
 });
 
-describe('the write-intended-model skill updating a model', () => {
+describe('the model-writing machinery updating a model', () => {
   test('a branch that adds a folder the core imports: the example update passes with the element added and the rest unchanged', () => {
     withRepo((repo) => {
       const { pinned, base, substituteBase } = baseExample(repo);
@@ -183,7 +184,7 @@ describe('the write-intended-model skill updating a model', () => {
 
       // The model and report the update writes, with the branch's real ids.
       for (const name of ['model.yaml', 'review.md']) {
-        const text = readFileSync(join(EXAMPLE_DIR, 'update', 'madarch', name), 'utf8');
+        const text = readFileSync(join(EXAMPLE_DIR, 'update', 'model', 'madarch', name), 'utf8');
         writeFileSync(join(repo.path, 'madarch', name), substituteUpdate(text, repo, pinned, base, head));
       }
 
@@ -201,7 +202,7 @@ describe('the write-intended-model skill updating a model', () => {
       // Every id the base model holds and the change does not concern
       // is present, unchanged, in the updated model; the change adds
       // exactly the export element and relation.
-      const baseModel = parseYaml(substituteBase(readFileSync(join(EXAMPLE_DIR, 'madarch', 'model.yaml'), 'utf8'))) as ExampleModel;
+      const baseModel = parseYaml(substituteBase(readFileSync(join(EXAMPLE_DIR, 'model', 'madarch', 'model.yaml'), 'utf8'))) as ExampleModel;
       const updated = parseYaml(readFileSync(join(repo.path, 'madarch', 'model.yaml'), 'utf8')) as ExampleModel;
       const baseElements = byId(baseModel.elements ?? []);
       const updatedElements = byId(updated.elements ?? []);
@@ -238,7 +239,7 @@ describe('the write-intended-model skill updating a model', () => {
 
       // The expected update: only the archive's evidence re-pinned —
       // the same lines, the branch's commit and blob.
-      const baseModelText = substituteBase(readFileSync(join(EXAMPLE_DIR, 'madarch', 'model.yaml'), 'utf8'));
+      const baseModelText = substituteBase(readFileSync(join(EXAMPLE_DIR, 'model', 'madarch', 'model.yaml'), 'utf8'));
       const updatedModelText = baseModelText.replace(
         `commit: ${pinned}\n        blob: ${repo.blob('src/store.ts', pinned)}`,
         `commit: ${head}\n        blob: ${repo.blob('src/store.ts', head)}`,
