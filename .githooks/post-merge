@@ -2,9 +2,15 @@
 # shady2k tracker-sync record: this line records the revision this hook just cut or landed
 # (see .shady2k/integration.md, "Tracker synchronization"): the store keeps the
 # tracker's state under the revision's own name, written once and never moved,
-# so a read of the tracker at this revision answers. A failure never stops git.
+# so a read of the tracker at this revision answers. git's own hook variables
+# are cleared: the mechanism runs git in the store's worktree, not this one.
+# A failure never stops git; it is said, with the command that records it.
 top="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
 [ -f "$top/.shady2k/tracker.mjs" ] || exit 0
-node "$top/.shady2k/tracker.mjs" record --revision "$(git rev-parse HEAD)" --checkout "$top" >/dev/null 2>&1 || \
-  echo "post-merge: the tracker store did not record $(git rev-parse --short HEAD); a read of the tracker at it will be refused. Run: node .shady2k/tracker.mjs record --revision $(git rev-parse HEAD) --checkout $top" >&2
+rev="$(git rev-parse HEAD)"
+out="$(env -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE -u GIT_PREFIX -u GIT_COMMON_DIR \
+  node "$top/.shady2k/tracker.mjs" record --revision "$rev" --checkout "$top" 2>&1)" || case "$out" in
+  *"already exists"*) ;;
+  *) echo "post-merge: the tracker store did not record $rev ($out); a read of the tracker at it will be refused. Run: node .shady2k/tracker.mjs record --revision $rev --checkout $top" >&2 ;;
+esac
 exit 0
