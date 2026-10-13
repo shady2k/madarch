@@ -57,7 +57,7 @@ interface ManifestCaseSuite {
 }
 
 /** Runs every manifest case in the scratch folder the run makes itself, and records the verdicts. */
-function checkManifestCases(suite: ManifestCaseSuite, verdicts: CaseVerdict[]): void {
+function checkManifestCases(suite: ManifestCaseSuite, verdicts: CaseVerdict[], from: string): void {
   const root = mkdtempSync(join(tmpdir(), 'contract-manifest-'));
   for (const one of suite.cases) {
     const problems: string[] = [];
@@ -89,22 +89,24 @@ function checkManifestCases(suite: ManifestCaseSuite, verdicts: CaseVerdict[]): 
     } finally {
       for (const entry of readdirSync(root)) rmSync(join(root, entry), { recursive: true, force: true });
     }
-    verdicts.push({ case: `manifest ${one.name}`, problems });
+    verdicts.push({ case: `manifest ${one.name}`, from, problems });
   }
 }
 
 /** One check: whether one case agrees with the reading, and the words either way. */
 interface CaseVerdict {
   case: string;
+  /** The path of the cases file the case came from; absent for a product folder the walk found on disk. */
+  from?: string;
   problems: string[];
 }
 
 const verdicts: CaseVerdict[] = [];
 
 /** Runs one contract case and records the mismatch's file, line and words. */
-function checkCase(one: ContractCase): void {
+function checkCase(one: ContractCase, from: string): void {
   if (one.text === null || one.text === undefined) {
-    verdicts.push({ case: one.name, problems: [`the case ${one.name} carries no text: every example holds the registry file's whole text`] });
+    verdicts.push({ case: one.name, from, problems: [`the case ${one.name} carries no text: every example holds the registry file's whole text`] });
     return;
   }
   const read = parseContractText('docs/kinds.yaml', one.text);
@@ -113,7 +115,7 @@ function checkCase(one: ContractCase): void {
     if (!read.ok) {
       const first = read.errors[0];
       problems.push(`expected the registry to read, got refused at ${first.file}:${first.line}: ${first.message}`);
-      verdicts.push({ case: one.name, problems });
+      verdicts.push({ case: one.name, from, problems });
       return;
     }
     const held = read.reservations;
@@ -129,29 +131,29 @@ function checkCase(one: ContractCase): void {
     }
     const spare = one.reservations.length === 0 ? held.length : 0;
     if (spare !== 0) problems.push(`expected no further reservations, got ${spare}: ${held.map((f: ReservationFinding) => f.message).join('; ')}`);
-    verdicts.push({ case: one.name, problems });
+    verdicts.push({ case: one.name, from, problems });
     return;
   }
   if (one.message === undefined) {
     if (!read.ok) {
       const first = read.errors[0];
-      verdicts.push({ case: one.name, problems: [`expected the registry to read, got refused at ${first.file}:${first.line}: ${first.message}`] });
+      verdicts.push({ case: one.name, from, problems: [`expected the registry to read, got refused at ${first.file}:${first.line}: ${first.message}`] });
     } else {
-      verdicts.push({ case: one.name, problems: [] });
+      verdicts.push({ case: one.name, from, problems: [] });
     }
     return;
   }
   if (read.ok) {
-    verdicts.push({ case: one.name, problems: [`expected a refusal naming ${one.message}, got read as ok`] });
+    verdicts.push({ case: one.name, from, problems: [`expected a refusal naming ${one.message}, got read as ok`] });
     return;
   }
   const named = read.errors.some((error) => error.line === (one.line ?? 1) && error.message.includes(one.message!) && (one.path === undefined || error.path === one.path));
   if (!named) {
     const held = read.errors.map((error) => `${error.path || '-'}:${error.line}: ${error.message}`).join('; ');
-    verdicts.push({ case: one.name, problems: [`expected a refusal on line ${one.line ?? 1} naming ${JSON.stringify(one.message)}${one.path === undefined ? '' : ` at ${one.path}`}, got ${held}`] });
+    verdicts.push({ case: one.name, from, problems: [`expected a refusal on line ${one.line ?? 1} naming ${JSON.stringify(one.message)}${one.path === undefined ? '' : ` at ${one.path}`}, got ${held}`] });
     return;
   }
-  verdicts.push({ case: one.name, problems: [] });
+  verdicts.push({ case: one.name, from, problems: [] });
 }
 
 
@@ -217,15 +219,15 @@ interface DocumentCase {
 }
 
 /** Runs one document-fields case and records the mismatch's words. */
-function checkDocCase(one: DocumentCase, verdicts: CaseVerdict[]): void {
+function checkDocCase(one: DocumentCase, verdicts: CaseVerdict[], from: string): void {
   if (one.text === null || one.text === undefined) {
-    verdicts.push({ case: `document ${one.name}`, problems: ["the case carries no text: every example holds the document's whole Markdown"] });
+    verdicts.push({ case: `document ${one.name}`, from, problems: ["the case carries no text: every example holds the document's whole Markdown"] });
     return;
   }
   const read = parseDocumentFields('docs/example.md', one.text);
   if (one.ok !== undefined && one.ok !== null) {
     if (!read.ok) {
-      verdicts.push({ case: `document ${one.name}`, problems: [`expected the fields to read, got refused: ${read.errors.map((e) => `${e.file}:${e.line}: ${e.message}`).join('; ')}`] });
+      verdicts.push({ case: `document ${one.name}`, from, problems: [`expected the fields to read, got refused: ${read.errors.map((e) => `${e.file}:${e.line}: ${e.message}`).join('; ')}`] });
       return;
     }
     const problems: string[] = [];
@@ -233,7 +235,7 @@ function checkDocCase(one: DocumentCase, verdicts: CaseVerdict[]): void {
       const held = (read.fields as unknown as Record<string, unknown>)[field];
       if (JSON.stringify(held) !== JSON.stringify(expected)) problems.push(`field ${field} expected ${JSON.stringify(expected)}, got ${JSON.stringify(held)}`);
     }
-    verdicts.push({ case: `document ${one.name}`, problems });
+    verdicts.push({ case: `document ${one.name}`, from, problems });
     return;
   }
   const named = read.ok
@@ -241,7 +243,7 @@ function checkDocCase(one: DocumentCase, verdicts: CaseVerdict[]): void {
     : read.errors.some((error) => error.line === (one.line ?? 1) && error.message.includes(one.message!) && (one.path === undefined || error.path === one.path));
   if (!named) {
     const held = read.ok ? 'read as ok' : read.errors.map((error) => `${error.path || '-'}:${error.line}: ${error.message}`).join('; ');
-    verdicts.push({ case: `document ${one.name}`, problems: [`expected a refusal on line ${one.line ?? 1} naming ${JSON.stringify(one.message)}${one.path === undefined ? '' : ` at ${one.path}`}, got ${held}`] });
+    verdicts.push({ case: `document ${one.name}`, from, problems: [`expected a refusal on line ${one.line ?? 1} naming ${JSON.stringify(one.message)}${one.path === undefined ? '' : ` at ${one.path}`}, got ${held}`] });
   }
 }
 
@@ -261,16 +263,19 @@ function run(casesPath: string, documentCasesPath: string, manifestCasesPath: st
     if (!statSync(join(productsRoot, name)).isDirectory()) continue;
     checkProductFolder(productsRoot, name, verdicts);
   }
-  for (const one of file.cases) checkCase(one);
+  for (const one of file.cases) checkCase(one, casesPath);
   const manifestSuite = JSON.parse(readFileSync(manifestCasesPath, 'utf8')) as ManifestCaseSuite;
-  checkManifestCases(manifestSuite, verdicts);
+  checkManifestCases(manifestSuite, verdicts, manifestCasesPath);
   const docFile = JSON.parse(readFileSync(documentCasesPath, 'utf8')) as { cases: DocumentCase[] };
-  for (const one of docFile.cases) checkDocCase(one, verdicts);
+  for (const one of docFile.cases) checkDocCase(one, verdicts, documentCasesPath);
   let failed = 0;
   for (const verdict of verdicts) {
     if (verdict.problems.length === 0) continue;
     failed++;
-    for (const problem of verdict.problems) console.error(`error: case ${verdict.case}: ${problem}`);
+    for (const problem of verdict.problems) {
+      const where = verdict.from === undefined ? '' : ` (${verdict.from})`;
+      console.error(`error: case ${verdict.case}${where}: ${problem}`);
+    }
   }
   const products = verdicts.filter((v) => v.case.startsWith('product ')).length;
   const manifestCases = verdicts.filter((v) => v.case.startsWith('manifest ')).length;

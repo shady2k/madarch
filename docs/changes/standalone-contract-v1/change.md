@@ -2,7 +2,7 @@
 
 Change: standalone-contract-v1
 Base: 46dfdaad
-Tasks: madarch-m8eo.1
+Tasks: madarch-m8eo.1, madarch-6gwx
 Kind: behavior
 
 ## Intent
