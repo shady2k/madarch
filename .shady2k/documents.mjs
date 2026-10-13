@@ -378,6 +378,7 @@ export function commitGate(root, message) {
     checked.add(`${phase}:${changeId}`);
     const r = runCheck(root, { phase, change: changeId, candidate: 'index' });
     if (r.violations.length) refuse(r.text);
+    else if (r.notes.length) out.push(r.text); // not-made notes are shown, never refused
   };
 
   if (code.length) {

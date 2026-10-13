@@ -169,10 +169,25 @@ export function recordsOnlyAt(sha) {
   return before !== null && after !== null && onlyRecords(paths, before, after);
 }
 
-// The commit being made: what the index stages against HEAD.
+// The commit being made: what the index stages against the commit it will
+// follow — HEAD, or HEAD's parent when the commit amends HEAD. git tells a
+// hook nothing about amending, so the git process that runs the hook is read
+// from the process table (`ps`, Linux and macOS).
+export function amending(pid = process.ppid, depth = 6) {
+  for (let p = pid, n = 0; p > 1 && n < depth; n++) {
+    let line;
+    try { line = execFileSync('ps', ['-o', 'ppid=,args=', '-p', String(p)], { encoding: 'utf8' }).trim(); } catch { return false; }
+    const [, parent, args] = line.match(/^(\d+)\s+(.*)$/) ?? [];
+    if (!args) return false;
+    if (/(^|\/)git(\s|$)/.test(args) && /\scommit\b/.test(args)) return /\s--amend\b/.test(args);
+    p = Number(parent);
+  }
+  return false;
+}
 function recordsOnlyStaged() {
-  const paths = git('diff', '--cached', '--name-only').split('\n').filter(Boolean);
-  const before = showOr(`HEAD:${EXPORT}`), after = showOr(`:${EXPORT}`);
+  const base = amending() ? 'HEAD^' : 'HEAD';
+  const paths = git('diff', '--cached', '--name-only', base).split('\n').filter(Boolean);
+  const before = showOr(`${base}:${EXPORT}`), after = showOr(`:${EXPORT}`);
   return before !== null && after !== null && onlyRecords(paths, before, after);
 }
 
