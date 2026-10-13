@@ -102,6 +102,16 @@ its own documents, so a reader learns what madarch is, for whom, its vision and
 where it stands. It is the milestone's walk on a real product, not only the
 demo.
 
+**The engine holds no data** (the owner, 2026-10-13: "Наш движок не должен
+содержать никаких данных … Никакого хардкода"): every kind, form, field,
+stage, stage expectation, document path, group label and example product
+comes from the product's folder and its manifest; the engine carries only its
+own functions and its own words about its own use. Taken in with it:
+madarch-d7v3.2 (the remaining skill-set words leave the engine, outcome 3's
+own work), madarch-kyi6 (on a folder with no product the home page says what
+to do), madarch-n5ip (`madarch demo` serves madarch's own product repository,
+shady2k/madarch-product; the Fieldnote demo leaves this repository).
+
 ## Exclusions
 
 - Agent access (MCP/API surface beyond what the server already answers),
