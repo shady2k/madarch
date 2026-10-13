@@ -206,7 +206,7 @@ belongs to, a next-step hint; the statuses its documents may carry, in the
 order the reader walks them (a kind that names no status constrains
 none); and the link fields it declares, each as data (nothing read by
 name): the field's name as the document writes it, the kinds the field's
-targets may name each by its id prefix, the words the target's page shows
+targets may name, by the kinds' names, the words the target's page shows
 the backlink under, whether the field holds one target or many (`many`
 stands where it is left out), and whether a document of the kind without
 the link is a finding (`false` stands where it is left out).
@@ -223,8 +223,9 @@ without naming the form is refused. The manifest may carry the reserved
 `goals` section, an optional list of maturity levels, each naming its rules
 over the graph and the perspective it is granted for. A storage form this
 engine version does not implement, an imported fact's evidence and the goals
-section are kept as data and named by the engine's honest reservations —
-"not supported by this engine version" — never silently dropped, never a
+section are kept as data and named by the engine's honest reservations — words saying what this engine version does not
+do (it serves documents only, does not read imported graphs, does not
+compute maturity levels) — never silently dropped, never a
 silent unknown section; their words ride the reading's own answer
 (`read.reservations`, the words at the field lines) and are covered by the
 contract's own cases. Product-scoped global ids,
@@ -242,7 +243,7 @@ read, is refused naming what stands), the prefix's shape, the folder under
 hint carrying words, a prefix named once, a stage id named once, a status
 named once within its kind, a link field named once within its kind, a
 link field never carrying one of the generic fields madarch reads itself
-(`id`, `kind`, `status`, `links`), and every target naming a prefix the
+(`id`, `kind`, `status`, `links`), and every target naming a kind the
 registry declares — every refusal naming the file, the line the field
 stands on, the field's path from the registry's top, and the words a
 reader prints. The generic document fields are read from every Markdown
@@ -251,10 +252,11 @@ under the layout (`parseDocumentFields`), with their own published schema
 `links` between the identity line and the first `## ` section, a field
 case-insensitively spelled (`Kind:` read as `kind`), an unknown field
 ignored the way a manifest grows by fields, `links` a comma-separated
-list of ids, and a field given once. The check command
+list of ids, and every field but `links` given once (repeated `Links:`
+lines add to one list). The check command
 (`bun run contract:check`, beside `bun run views:check`) walks the
-conformance examples — two example product folders, one without a
-registry and one with it, read as the layout, the documents' fields and
+conformance examples — three example product folders, one without a
+registry, one with it and one the skill set made, read as the layout, the documents' fields and
 the registry naming no refusal — and the registry and document-field
 refusal cases, each carrying the printed words — and exits 0 when every
 case reads the way its words say and 1 naming the file, the line and the
@@ -287,7 +289,7 @@ stream reports and the next answer carries, with no restart.
 ### Scenario: registry-refusals
 - Given: the refusal cases the contract's examples carry (the version missing, not a whole number or not one madarch reads; a prefix, a folder, a stage, a hint, a status or a link field out of shape; a target naming no declared kind)
 - When: the check command runs
-- Then: each case is refused naming its file and line with the words the case records, and the check exits 1
+- Then: each case is refused naming its file and line with the words the case records, and the check, finding every case read the way its words say, exits 0 (it exits 1 only on a misread case)
 
 ### Scenario: no-registry
 - Given: a product whose `docs/` holds no registry file
@@ -300,7 +302,7 @@ stream reports and the next answer carries, with no restart.
 - Then: all four are read with those values, an unknown field beside them is ignored, and the published document-fields schema matches the TypeBox source byte for byte
 
 ### Scenario: document-fields-refusals
-- Given: the document-field cases the contract's examples carry (a field written twice, a kind that is not a word, a links value that names no id)
+- Given: the document-field cases the contract's examples carry (a field written twice, a kind that is not a word, a links value with no entry)
 - When: the check command runs
 - Then: each is refused naming its file and line with the words the case records
 
@@ -366,7 +368,7 @@ skill folder nor the section until the copy is made.
 ### Scenario: the-copy-lays-the-step
 - Given: a fresh draft and a madarch checkout
 - When: the checkout's `skills/describe-repository/` folder is copied into the draft's `skills/` and its `AGENTS-section.md` is appended to the draft's `AGENTS.md`
-- Then: the draft's `AGENTS.md` holds madarch's own constitution (the one `madarch new` writes) followed by the section, the section stands after the maintained markers, and the draft's `skills/` holds the skill beside the kept `.gitkeep`
+- Then: the draft's `AGENTS.md` holds the pinned constitution followed by the section, the section stands after the maintained markers, and the draft's `skills/` holds the skill beside the kept `.gitkeep`
 
 ## Requirement: describe-skill — The product's own skill describes a repository into the wiki's artifacts
 A new product's `skills/` folder shall hold the product's own
