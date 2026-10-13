@@ -1,0 +1,109 @@
+name: clean install walks
+
+on:
+  push:
+    branches: ['**']
+
+permissions:
+  contents: read
+
+jobs:
+  build-linux-fixture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile
+        working-directory: wiki/app
+      - run: bun run build
+        working-directory: wiki/app
+      - run: bun scripts/build-binary.ts --version 0.0.1 --os linux --arch x64 --out dist
+      - name: verify the Linux binary has no OpenSSL runtime dependency
+        run: |
+          if ldd dist/madarch-linux-x64 | grep -E 'lib(ssl|crypto)\.so'; then
+            echo 'compiled binary unexpectedly needs system OpenSSL' >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: clean-walk-linux-x64
+          path: dist/madarch-linux-x64
+
+  linux-supported:
+    needs: build-linux-fixture
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/download-artifact@v8
+        with:
+          name: clean-walk-linux-x64
+          path: dist
+      - name: install script on Linux x64
+        run: |
+          bun scripts/write-sha256.ts dist/madarch-linux-x64
+          cp dist/madarch-linux-x64.sha256 dist/SHA256SUMS.txt
+          MADARCH_RELEASE_BASE="file://$(pwd)/dist" MADARCH_INSTALL_PREFIX="$RUNNER_TEMP/madarch-install" sh scripts/install.sh v0.0.1
+          "$RUNNER_TEMP/madarch-install/bin/madarch" version
+      - name: npx new then serve on Linux x64
+        run: bun scripts/clean-install-walk.ts --binary dist/madarch-linux-x64 --os linux --arch x64
+
+  macos-arm64:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile
+        working-directory: wiki/app
+      - run: bun run build
+        working-directory: wiki/app
+      - run: bun scripts/build-binary.ts --version 0.0.1 --os darwin --arch arm64 --out dist
+      - name: install script on macOS arm64
+        run: |
+          bun scripts/write-sha256.ts dist/madarch-darwin-arm64
+          cp dist/madarch-darwin-arm64.sha256 dist/SHA256SUMS.txt
+          MADARCH_RELEASE_BASE="file://$(pwd)/dist" MADARCH_INSTALL_PREFIX="$RUNNER_TEMP/madarch-install" sh scripts/install.sh v0.0.1
+          "$RUNNER_TEMP/madarch-install/bin/madarch" version
+      - name: npx new then serve on macOS arm64
+        run: bun scripts/clean-install-walk.ts --binary dist/madarch-darwin-arm64 --os darwin --arch arm64
+      - name: Homebrew install and graph-backed walk
+        run: sh scripts/clean-homebrew-walk.sh dist/madarch-darwin-arm64
+
+  windows-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile
+        working-directory: wiki/app
+      - run: bun run build
+        working-directory: wiki/app
+      - run: bun scripts/build-binary.ts --version 0.0.1 --os windows --arch x64 --out dist
+      - name: install script on Windows x64
+        shell: pwsh
+        run: |
+          bun scripts/write-sha256.ts dist/madarch-windows-x64.exe
+          Copy-Item dist/madarch-windows-x64.exe.sha256 dist/SHA256SUMS.txt
+          $env:MADARCH_RELEASE_BASE = 'file:///' + (Resolve-Path dist).Path.Replace('\', '/')
+          $env:MADARCH_INSTALL_PREFIX = Join-Path $env:RUNNER_TEMP 'madarch-install'
+          & ./scripts/install.ps1 v0.0.1
+          & (Join-Path $env:MADARCH_INSTALL_PREFIX 'madarch.exe') version
+      - name: npx new then serve on Windows x64
+        shell: pwsh
+        env:
+          GIT_AUTHOR_NAME: Madarch Clean Walk
+          GIT_AUTHOR_EMAIL: walk@example.invalid
+          GIT_COMMITTER_NAME: Madarch Clean Walk
+          GIT_COMMITTER_EMAIL: walk@example.invalid
+        run: bun scripts/clean-install-walk.ts --binary dist/madarch-windows-x64.exe --os windows --arch x64
