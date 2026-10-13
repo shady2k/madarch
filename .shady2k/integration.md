@@ -48,7 +48,9 @@ are the repository's installation, and each person's plugin and hooks are theirs
   `[shady2k-time` comments. A changed or dropped comment is not records-only.
   `check-commits.mjs` refuses it: the records ride with the landing they
   describe. Filing, claiming, closing or annotating work is not records-only;
-  merges and the root commit are never marked.
+  merges and the root commit are never marked. For the commit being made the
+  adapter reads the `git commit` process from `ps` and, when it amends, judges
+  the index against `HEAD^`, so records added to a commit that carries code pass.
 - **Cleanup recovery:** none needed at setup (empty tracker). Before any bulk
   edit, snapshot with `node .shady2k/adapter.mjs backlog > <file>` and keep it with the task.
 
