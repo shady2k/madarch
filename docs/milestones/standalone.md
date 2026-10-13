@@ -145,6 +145,12 @@ standing permission to land into main.
 
 ## Next horizon
 
+**The tracker inside madarch** (milestone `tracker`, madarch-lk4r, opened by
+the owner on 2026-10-13, its order not chosen): work items on the product's
+entities, exclusive reservations confirmed by a shared arbiter, offline work
+synced as operations; source record docs/vision/tracker-discussion-2026-10-13.md.
+Until it is scheduled, every design keeps room for it.
+
 Agents through MCP and an API, editing by hand in the wiki, work launched
 from the wiki, the central server with its roles and sign-in, then the
 code-index feedback (madarch-mv2) and the data catalogue (madarch-1ui) ride

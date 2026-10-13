@@ -9,7 +9,8 @@
     "idea-to-wiki",
     "agent-access",
     "work-from-wiki",
-    "standalone"
+    "standalone",
+    "tracker"
   ],
   "areaLabels": [
     "model",
