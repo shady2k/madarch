@@ -21,7 +21,8 @@
     "language": "Язык",
     "english": "English",
     "russian": "Русский",
-    "repositories": "Репозитории"
+    "repositories": "Репозитории",
+    "toggleGroup": "Свернуть или развернуть группу «{{group}}»"
   },
   "groups": {
     "product": "Продукт",

@@ -1073,7 +1073,7 @@ describe('groupNav', () => {
     goto('/p/docs/decisions/0001-choice.md');
     await intoApp(createElement(App));
     await until(() => document.querySelector('.shell-breadcrumb') !== null, 'the breadcrumb');
-    expect(document.querySelector('.shell-breadcrumb')?.textContent).toBe('Decisions / Decision one');
+    expect(document.querySelector('.shell-breadcrumb')?.textContent).toBe('Product / Decisions / Decision one');
     expect(document.querySelector('.shell-menu')).not.toBeNull();
     expect(document.querySelector('.shell-focus')).not.toBeNull();
     expect(document.querySelector('.shell-menu')?.getAttribute('aria-label')).toBe('Document navigation');

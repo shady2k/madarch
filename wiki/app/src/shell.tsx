@@ -33,7 +33,7 @@ import {
 } from 'lucide-react';
 import type { PageList, PageMeta, Product, QuestionList } from './api.js';
 import type { Architecture } from './api.js';
-import { architectureAddress, addressOfStageRoute, QUESTIONS_ADDRESS, REPOS_ADDRESS } from './routes.js';
+import { architectureAddress, addressOfGroup, addressOfStageRoute, QUESTIONS_ADDRESS, REPOS_ADDRESS } from './routes.js';
 import { DEFAULT_STAGES, kindEntry, kindOrder, stageList, stagePosition, type RegistryOffer } from './registry.js';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
@@ -342,11 +342,11 @@ function NavPanel({ product, groups, current, currentStage, openQuestions, onNav
   };
   return (
     <>
-      <div className="nav-brand flex items-center gap-2.5 px-2 py-[14px]">
+      <a href="/" data-testid="nav-brand" className="nav-brand flex items-center gap-2.5 px-2 py-[14px] text-ink no-underline hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onNavigate?.(event); navigateTo('/'); }}>
         <BrandMark />
-        <strong className="text-[23px] font-[650] leading-none tracking-[-0.8px] text-ink">madarch</strong>
+        <strong className="text-[23px] font-[650] leading-none tracking-[-0.8px]">madarch</strong>
         <small className="nav-concept ml-auto rounded-[var(--radius-row)] border border-line px-[5px] py-0.5 text-[11px] leading-4 text-muted">{t('brand.concept')}</small>
-      </div>
+      </a>
       <div
         className="nav-product-block mb-3 flex w-full items-start gap-2.5 rounded-[var(--radius-card)] border border-line bg-[var(--surface-card)] px-[9px] py-2 shadow-[var(--shadow-low)]"
         data-testid="product-block"
@@ -411,20 +411,34 @@ function NavPanel({ product, groups, current, currentStage, openQuestions, onNav
           const isOpen = !collapsed.has(group.name);
           const section = (
             <section key={group.name} data-nav-group={group.name} className="mb-1.5">
-              <button
-                className="flex min-w-0 w-full items-center gap-1.5 rounded-[var(--radius-row)] px-2 py-1.5 text-left text-small text-secondary hover:bg-[var(--surface-hover)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
-                aria-expanded={isOpen}
-                onClick={() => toggleGroup(group.name)}
-              >
-                <ChevronDownIcon
-                  aria-hidden="true"
-                  className={'size-4 shrink-0 text-muted transition-transform duration-150 ' + (isOpen ? '' : '-rotate-90')}
-                />
-                <span className="nav-group-title min-w-0 flex-1 truncate text-[13px] text-secondary">
+              <div className="flex min-w-0 w-full items-center gap-1.5 rounded-[var(--radius-row)] px-2 py-1.5 text-left text-small text-secondary hover:bg-[var(--surface-hover)] hover:text-ink">
+                <a
+                  href={addressOfGroup(group.name)}
+                  data-testid={'nav-group-' + group.name}
+                  className="nav-group-title min-w-0 flex-1 truncate text-[13px] text-secondary no-underline hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+                  onClick={(event) => {
+                    if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
+                    event.preventDefault();
+                    onNavigate?.(event);
+                    navigateTo(addressOfGroup(group.name));
+                  }}
+                >
                   {t('groups.' + group.name, { defaultValue: wordLabel(group.name) })}
-                </span>
+                </a>
                 <span className="text-small text-muted">{group.pages.length}</span>
-              </button>
+                <button
+                  type="button"
+                  className="grid size-6 shrink-0 place-items-center rounded-[var(--radius-row)] text-muted hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+                  aria-label={t('navigation.toggleGroup', { group: t('groups.' + group.name, { defaultValue: wordLabel(group.name) }) })}
+                  aria-expanded={isOpen}
+                  onClick={() => toggleGroup(group.name)}
+                >
+                  <ChevronDownIcon
+                    aria-hidden="true"
+                    className={'size-4 transition-transform duration-150 ' + (isOpen ? '' : '-rotate-90')}
+                  />
+                </button>
+              </div>
               {isOpen && (
                 <ul className="m-0 list-none p-0">
                   {group.pages.map((page) => {
@@ -510,7 +524,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
   // The focus choice stays for the open page only: another page opens unfocused.
   useEffect(() => {
     setFocused(false);
-  }, [route.path]);
+  }, [route.path, route.group, route.stage]);
   // Escape closes the opened phone menu and focus returns to the menu button.
   useEffect(() => {
     if (!menuOpen) return;
@@ -543,7 +557,21 @@ export function Shell({ product, list, children, architecture, reposCount, repos
         <div className="shell-main flex min-w-0 flex-1 flex-col">
           <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line px-4 wide:px-[35px]">
             <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
-              {openPage === undefined && route.architecture !== undefined ? (
+              {openPage !== undefined ? (
+                <>
+                  <a href="/" data-testid="breadcrumb-product" className="text-muted no-underline hover:text-ink" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigateTo('/'); }}>{t('groups.product')}</a>{' '}
+                  <span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
+                  <a href={addressOfGroup(openPage.kind ?? groupOf(openPage.path))} data-testid="breadcrumb-group" className="text-muted no-underline hover:text-ink" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigateTo(addressOfGroup(openPage.kind ?? groupOf(openPage.path))); }}>{t('groups.' + (openPage.kind ?? groupOf(openPage.path)), { defaultValue: wordLabel(openPage.kind ?? groupOf(openPage.path)) })}</a>{' '}
+                  <span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
+                  <span className="text-ink">{openPage.title}</span>
+                </>
+              ) : route.group !== undefined ? (
+                <>
+                  <a href="/" data-testid="breadcrumb-product" className="text-muted no-underline hover:text-ink" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigateTo('/'); }}>{t('groups.product')}</a>{' '}
+                  <span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
+                  <span className="text-ink">{t('groups.' + route.group, { defaultValue: wordLabel(route.group) })}</span>
+                </>
+              ) : openPage === undefined && route.architecture !== undefined ? (
                 <>
                   <span className="text-muted">{t('architecture.title')}</span>{' '}
                   <span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
@@ -557,13 +585,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
                 </>
               ) : openPage === undefined ? (
                 reposOpen === true ? t('navigation.repositories') : t('navigation.overview')
-              ) : (
-                <>
-                  <span className="text-muted">{wordLabel(openPage.kind ?? groupOf(openPage.path))}</span>{' '}
-                  <span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
-                  <span className="text-ink">{openPage.title}</span>
-                </>
-              )}
+              ) : t('navigation.overview')}
             </span>
             <span className="flex shrink-0 items-center gap-1">
               {/*
@@ -664,7 +686,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
           <div className="document-bar flex min-h-[45px] items-stretch bg-ground">
             <div className="document-tab flex min-w-[182px] items-center gap-2 border-r border-line bg-page px-[25px] text-[13px] text-secondary" data-testid="document-tab">
               <FileTextIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-              <span className="truncate">{openPage?.path.split('/').pop() ?? (route.architecture !== undefined ? route.architecture.title : (route.stage !== undefined ? t(`stages.names.${route.stage}`) : (reposOpen === true ? t('navigation.repositories') : t('navigation.overview'))))}</span>
+              <span className="truncate">{openPage?.path.split('/').pop() ?? (route.architecture !== undefined ? route.architecture.title : (route.stage !== undefined ? t(`stages.names.${route.stage}`) : (route.group !== undefined ? t('groups.' + route.group, { defaultValue: wordLabel(route.group) }) : (reposOpen === true ? t('navigation.repositories') : t('navigation.overview')))))}</span>
             </div>
           </div>
           {/* The window-height shell: every panel and bar stays in place and
