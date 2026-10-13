@@ -167,6 +167,156 @@ as unknown, naming what it accepts.
 - When: `madarch list` is run
 - Then: it exits 2 naming that path
 
+## Requirement: contract — the product repository's mechanism is a published, versioned schema, read by the version the registry carries
+The read side of the product repository's format — the generic fields a
+document may carry (`id`, `kind`, `status`, `links`), the kinds registry's
+own shape and the stages as an ordered list with no fixed kinds — is
+madarch's published, versioned JSON schema, at
+`schema/product-registry.schema.json`, generated from one TypeBox source
+beside the model schemas' sources, so the published file cannot drift from
+the code. The registry file carries the contract version it is written
+against, `contract: 1`, written as its first line and read wherever it
+stands (the owner's refinement of
+decision 0021, 2026-10-12); the published schema carries the same version
+in its `$id`
+(`https://github.com/shady2k/madarch/schema/v1/product-registry.schema.json`),
+and the version in the file and the version in the `$id` are the same
+number. A kinds registry is one file under the product's `docs/`
+(`docs/kinds.yaml`); a product may hold none, in which case every page
+keeps the plain page behaviour it had and nothing of a kind is computed.
+
+At contract version 1 the registry names, per kind: its name, its id
+prefix, the folder the kind's documents live in (`docs/…`), the stage it
+belongs to, a next-step hint; the statuses its documents may carry, in the
+order the reader walks them (a kind that names no status constrains
+none); and the link fields it declares, each as data (nothing read by
+name): the field's name as the document writes it, the kinds the field's
+targets may name, by the kinds' names, the words the target's page shows
+the backlink under, whether the field holds one target or many (`many`
+stands where it is left out), and whether a document of the kind without
+the link is a finding (`false` stands where it is left out).
+
+The manifest also reserves what contract v1 does not implement (the 0021
+amendment as the owner refined it): each kind may name the storage form it is
+kept in — `document` (the only form this engine version implements), `task`,
+`model-element`, `component`, and `fact`, an entity imported from a system,
+carrying its evidence as the field names the fact's document carries (source
+system, ref or commit, record id), its truth held by the system it came from,
+read-only in the wiki, in one graph with the authored entities and their
+links; the evidence shape rides the `fact` form, and a kind carrying it
+without naming the form is refused. The manifest may carry the reserved
+`goals` section, an optional list of maturity levels, each naming its rules
+over the graph and the perspective it is granted for. A storage form this
+engine version does not implement, an imported fact's evidence and the goals
+section are kept as data and named by the engine's honest reservations — words saying what this engine version does not
+do (it serves documents only, does not read imported graphs, does not
+compute maturity levels) — never silently dropped, never a
+silent unknown section; their words ride the reading's own answer
+(`read.reservations`, the words at the field lines) and are covered by the
+contract's own cases. Product-scoped global ids,
+the lifecycle's milestones and the roles section are the amendment's
+reservations in prose; their shape arrives with the milestone that
+implements them.
+
+The reading (`parseContractText` in `src/product/contract.ts`) refuses in
+values, never thrown: strict YAML, then the schema, then the fields' own
+checks — the contract version gate (a registry that is no mapping at all
+is the schema's refusal; a mapping that carries no `contract`, a
+`contract` that is not a whole number, or a whole number madarch does not
+read, is refused naming what stands), the prefix's shape, the folder under
+`docs/` (no leg climbing out), the stage naming a stage of the list, the
+hint carrying words, a prefix named once, a stage id named once, a status
+named once within its kind, a link field named once within its kind, a
+link field never carrying one of the generic fields madarch reads itself
+(`id`, `kind`, `status`, `links`), and every target naming a kind the
+registry declares — every refusal naming the file, the line the field
+stands on, the field's path from the registry's top (empty for a file
+that does not parse as YAML at all), and the words a reader prints. The generic document fields are read from every Markdown
+under the layout (`parseDocumentFields`), with their own published schema
+(`schema/product-document.schema.json`): `id`, `kind`, `status` and
+`links` read from the document's lines before its first heading after
+line 1 (the identity line itself is not a field), a field
+case-insensitively spelled (`Kind:` read as `kind`), an unknown field
+ignored the way a manifest grows by fields, `links` a comma-separated
+list of ids, and every field but `links` given once (repeated `Links:`
+lines add to one list). The check command
+(`bun run contract:check`, beside `bun run views:check`) walks the
+conformance examples — three example product folders, one without a
+registry, one with it and one the skill set made, read as the layout, the documents' fields and
+the registry naming no refusal — and the registry and document-field
+refusal cases, each carrying the printed words — and exits 0 when every
+case reads the way its words say and 1 naming the file, the line and the
+words of every mismatch; CI runs it.
+
+The wiki that serves the product opens the registry the same way. A
+registry at a version madarch reads, reading whole, serves as a registry:
+at contract v1 the pages' kinds, statuses and groups are the set's own
+computed reading until the registry lane moves them onto the
+declarations. A registry of a version madarch does not read, or one that
+refuses its own reading, is never a failure: the served wiki names what
+stands (the version it found and the version it supports, or the
+reading's refusals, each with file and line) as a banner over the pages,
+and the pages are served plain — no kind, no status, no fields, no links
+— for as long as the registry does not read again. The registry's bytes
+are digested with the pages', so an edit to it (a kind added, a version
+changed, a malformed moment in between) is a change the server-sent
+stream reports and the next answer carries, with no restart.
+
+### Scenario: registry-reads
+- Given: a product whose `docs/kinds.yaml` opens with `contract: 1`, names the stages `idea` through `operate` in order and the kinds `source` (prefix `S`, `docs/sources`), `hypothesis` (prefix `H`), `product requirement` (prefix `FR`, `docs/requirements`) and `decision` (prefix `D`)
+- When: the registry is read
+- Then: it reads at version 1 with 7 stages and 4 kinds, each kind's stage one of the list, and the published schema carries the version in its `$id` and matches the TypeBox source byte for byte
+
+### Scenario: registry-declares-links-and-statuses
+- Given: a registry whose `user story` kind names the statuses `draft`, `ready` and the link fields `Serves` → `UC` (backlink `Served by`, many, required) and `Grew from` → `S`, `H` (backlink `Grew into`)
+- When: the registry is read
+- Then: the statuses and the links are read as the pieces of data they are, a target naming a kind declared after the carrying kind reads, and the example product's registry carries the owner's example declarations
+
+### Scenario: registry-refusals
+- Given: the refusal cases the contract's examples carry (the version missing, not a whole number or not one madarch reads; a prefix, a folder, a stage, a hint, a status or a link field out of shape; a target naming no declared kind)
+- When: the check command runs
+- Then: each case is refused naming its file and line with the words the case records, and the check, finding every case read the way its words say, exits 0 (it exits 1 only on a misread case)
+
+### Scenario: no-registry
+- Given: a product whose `docs/` holds no registry file
+- When: the product is read
+- Then: no refusal is raised and no field of no kind is computed
+
+### Scenario: document-fields-read
+- Given: a document whose header carries `Id: FR-001`, `Status: open`, `Kind: product requirement` and `Links: S-001, H-001`
+- When: its fields are read
+- Then: all four are read with those values, an unknown field beside them is ignored, and the published document-fields schema matches the TypeBox source byte for byte
+
+### Scenario: document-fields-refusals
+- Given: the document-field cases the contract's examples carry (a field written twice, a kind that is not a word, a links value with no entry)
+- When: the check command runs
+- Then: each is refused naming its file and line with the words the case records
+
+### Scenario: unknown-version-served
+- Given: a served product whose `docs/kinds.yaml` carries `contract: 99`
+- When: the wiki is asked for its pages
+- Then: the answer names the version — "the registry declares contract 99; this madarch reads contract 1" — with the file and line, the wiki shows it as a banner, and the pages serve plain (no kind, no document block), never a refusal of the start
+
+### Scenario: broken-registry-served
+- Given: a served product whose `docs/kinds.yaml` carries a reading refusal (a prefix that is not a prefix, an unparseable file)
+- When: the wiki is asked for its pages
+- Then: the answer names every refusal with file, line and words, the wiki serves the pages plain under the banner, and an edit that makes the registry read again restores the served kinds with no restart
+
+### Scenario: reserved-storage-forms-kept-and-named
+- Given: a registry whose `configuration item` kind declares `storage: fact` with its evidence field names, and a `goals` section naming one level per perspective
+- When: the registry is read
+- Then: it reads at version 1 with the fact kind and its evidence kept as data, and the engine's reservations name the fact's form, the evidence and the goals section at their lines — never a refusal, never a drop
+
+### Scenario: evidence-without-the-fact-form
+- Given: a registry whose kind carries an `evidence` shape without declaring `storage: fact`
+- When: the registry is read
+- Then: it is refused at the evidence field's line, naming the fact storage form the evidence rides
+
+### Scenario: registry-edit-is-a-live-change
+- Given: a served product whose registry reads and whose reader holds the pages answer
+- When: the registry file is edited (any byte)
+- Then: the pages revision moves, the way a page's edit moves it, so the wiki's stream reports the change and the next ask carries it
+
 ## Requirement: describe-step — madarch carries the describing step through the installed skill set
 The describing step of a product — giving the product's agent both the
 instructions to describe a connected repository and the place the results

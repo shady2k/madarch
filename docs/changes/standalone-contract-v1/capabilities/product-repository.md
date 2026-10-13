@@ -191,7 +191,8 @@ madarch's published, versioned JSON schema, at
 `schema/product-registry.schema.json`, generated from one TypeBox source
 beside the model schemas' sources, so the published file cannot drift from
 the code. The registry file carries the contract version it is written
-against, as its first word: `contract: 1` (the owner's refinement of
+against, `contract: 1`, written as its first line and read wherever it
+stands (the owner's refinement of
 decision 0021, 2026-10-12); the published schema carries the same version
 in its `$id`
 (`https://github.com/shady2k/madarch/schema/v1/product-registry.schema.json`),
@@ -245,11 +246,12 @@ named once within its kind, a link field named once within its kind, a
 link field never carrying one of the generic fields madarch reads itself
 (`id`, `kind`, `status`, `links`), and every target naming a kind the
 registry declares — every refusal naming the file, the line the field
-stands on, the field's path from the registry's top, and the words a
-reader prints. The generic document fields are read from every Markdown
+stands on, the field's path from the registry's top (empty for a file
+that does not parse as YAML at all), and the words a reader prints. The generic document fields are read from every Markdown
 under the layout (`parseDocumentFields`), with their own published schema
 (`schema/product-document.schema.json`): `id`, `kind`, `status` and
-`links` between the identity line and the first `## ` section, a field
+`links` read from the document's lines before its first heading after
+line 1 (the identity line itself is not a field), a field
 case-insensitively spelled (`Kind:` read as `kind`), an unknown field
 ignored the way a manifest grows by fields, `links` a comma-separated
 list of ids, and every field but `links` given once (repeated `Links:`
