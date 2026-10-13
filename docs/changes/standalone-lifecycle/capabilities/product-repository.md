@@ -204,7 +204,7 @@ skill folder nor the section until the copy is made.
 ### Scenario: the-copy-lays-the-step
 - Given: a fresh draft and a madarch checkout
 - When: the checkout's `skills/describe-repository/` folder is copied into the draft's `skills/` and its `AGENTS-section.md` is appended to the draft's `AGENTS.md`
-- Then: the draft's `AGENTS.md` holds the pinned constitution followed by the section, the section stands after the maintained markers, and the draft's `skills/` holds the skill beside the kept `.gitkeep`
+- Then: the draft's `AGENTS.md` holds madarch's own constitution (the one `madarch new` writes) followed by the section, the section stands after the maintained markers, and the draft's `skills/` holds the skill beside the kept `.gitkeep`
 
 ## Requirement: describe-skill — The product's own skill describes a repository into the wiki's artifacts
 A new product's `skills/` folder shall hold the product's own

@@ -12,40 +12,37 @@ the person and their agent fill in.
 
 The product repository's lifecycle — its layout, its manifest's schema,
 creating a draft, renaming it into a product and bootstrapping its code
-repositories — is the skill set's product-repository program (decision 0019).
-madarch bundles one pinned release of that program, so `madarch new` stays a
-front door for a person without an agent, and reads any folder with a valid
-manifest — a set-made folder, a draft madarch made, a folder written by hand
-— through the same pinned reader.
+repositories — is madarch's own code, the contract's own reading and
+writing (decision 0021, revising the clause of 0019 that gave the lifecycle
+to the skill set and pinned its release). `madarch new` stays a front door
+for a person without an agent, and reads any folder with a valid manifest —
+a set-made folder, a draft madarch made, a folder written by hand — with
+the same reader whoever made the folder.
 
-## Requirement: draft — `madarch new` creates a draft product repository through the pinned program
+## Requirement: draft — `madarch new` creates a draft product repository with madarch's own creation code
 When `madarch new` is run, it shall create, under the products home, a folder
 named `idea-YYYY-MM-DD` from the day's local date — `idea-YYYY-MM-DD-2`, and
 `-3` and so on when that day's names are taken — make it a git repository
 whose first commit holds the skeleton, and print the product's folder and its
-id. The creation itself shall be performed by the skill set's
-product-repository program, at the release pinned in madarch's checkout;
-madarch shall hold no creation code of its own beyond its own decisions: the
-products home, and the day a test names. The skeleton is what the pinned
-program writes: `AGENTS.md` (the constitution, naming the product
-repository's folders and what each is for), `CLAUDE.md` holding `@AGENTS.md`,
-`workspace.yaml` (the manifest), a `.gitignore` ignoring `repos/`, the folders
-`docs/`, `model/`, `skills/` and `prototypes/`, each kept by the file git
-needs to keep an empty folder, and `repos/` existing and untracked. The
-products home shall be `~/madarch/products` unless `MADARCH_HOME` or `--home`
-names another; this is madarch's decision, given to the program, which reads
-no home from anywhere else. The layout shall be the one the schema version
+id. The creation itself shall be madarch's own code
+(`src/product/draft.ts`; decision 0021), no program beside it: madarch
+writes the skeleton itself — `AGENTS.md` (the constitution, naming the
+product repository's folders and what each is for), `CLAUDE.md` holding
+`@AGENTS.md`, `workspace.yaml` (the manifest), a `.gitignore` ignoring
+`repos/`, the folders `docs/`, `model/`, `skills/` and `prototypes/`, each
+kept by the file git needs to keep an empty folder, and `repos/` existing
+and untracked. The products home shall be `~/madarch/products` unless
+`MADARCH_HOME` or `--home` names another. The layout shall be the one the schema version
 fixes — `docs/` for the wiki's documents, `model/` for the intended model,
 `skills/` for the team's own skills, `prototypes/` for the prototypes,
 `repos/` for the code repositories, untracked — and never read from the
 manifest. `repos/` is the only folder untracked; `skills/` holds the team's
 own skills and never a copy of the skill set (the set's pinned version is the
-manifest's optional field). `AGENTS.md` shall carry the program's marker
-comments around the part the program maintains — the pair the program's own
-example names, opened by a comment holding `product:maintained` and closed
-by the same word after a slash — so that a later version may update that
-part alone and leave every other section, the skill set's included, as it
-was. Nothing
+manifest's optional field). `AGENTS.md` shall carry the maintained-part
+marker comments — opened by a comment holding `product:maintained` and
+closed by the same word after a slash — so that a later version may update
+that part alone and leave every other section below it, the engineer's own
+included, as it was. Nothing
 written into the product shall hold an absolute path to the product's folder,
 and the links between its documents shall be relative paths, so the folder
 can be renamed without breaking them. If an argument or the products home
@@ -73,23 +70,20 @@ folder behind.
 - When: `madarch new` is run
 - Then: it exits 1 naming what git said, and the folder it made is gone
 
-### Scenario: same-folder-two-ways
-- Given: a draft created through the pinned program
-- When: the same draft is created by running the set's program beside the pinned release, on the same day in the same products home
-- Then: everything but the id and the folder's name is the same bytes
-
 ## Requirement: manifest — A product is read from its manifest and keeps its id
 The manifest `workspace.yaml` is how madarch and an agent recognise a product
-repository. When a product folder is read, its manifest shall be read by the
-pinned program's reader, for the schema version it was written in, the
+repository. When a product folder is read, its manifest shall be read by
+madarch's own reader (`src/product/manifest.ts`, the contract's own reading,
+decision 0021), for the schema version it was written in, the
 product's `id` — an opaque identifier given at creation and kept for the
 product's life, whatever its folder is later called — and its `name`, which
 is the folder's name for a draft; the manifest may also carry the pinned
 version of the skill set and the code repositories the product spans. These
 fields are never renamed; a manifest grows by fields added beside them, so a
 field this madarch does not know is ignored and a manifest written by a later
-madarch still opens. The reader shall refuse what the set's manifest cases
-refuse, in the set's words and lines: a folder holding no manifest, a
+madarch still opens. The reader shall refuse what the contract's manifest
+cases (the examples' `manifest-cases.json`) refuse, in those cases' words and
+lines, words madarch's own: a folder holding no manifest, a
 manifest that cannot be read, a manifest that is not the plain subset of YAML
 the schema version is written in (no anchors, aliases, tags, flow
 collections, second documents, duplicate fields or tab indents), a manifest
@@ -117,20 +111,20 @@ and the line where the reader knows it.
 - When: the product is read
 - Then: it opens, and its id and name are read as usual
 
-### Scenario: set-manifest-cases
-- Given: the manifest cases the skill set publishes with the program (a draft, a name the folder gives, fields a later version adds, and every refusal)
-- When: madarch's reader reads each case
-- Then: every case agrees with the set's own reader — the identity, or the refusal's line and message
+### Scenario: manifest-cases
+- Given: the manifest cases the contract publishes in `examples/contract/manifest-cases.json` (a draft, a name the folder gives, fields a later version adds, and every refusal, each with its printed words)
+- When: `bun run contract:check` runs the cases through madarch's reader, and the reader reads each case
+- Then: every case agrees — the identity, or the refusal's file, line and words the case records
 
 ### Scenario: set-made-folder-reads
-- Given: the set's example product folder (a full manifest naming a skill set and two code repositories)
+- Given: the contract's example product folder with a set pinned (`examples/contract/set-made-product/`, a full manifest naming a skill set and two code repositories)
 - When: madarch's reader reads it
 - Then: the id, name and schema version are the example's, and the pinned set and the declared repositories are read as the manifest declares them
 
 ### Scenario: constitution-is-written-once
 - Given: a draft created by `madarch new`
 - When: its `AGENTS.md` is read
-- Then: it names `docs/`, `model/`, `skills/`, `prototypes/` and `repos/` and what each is for, says that `skills/` holds the team's own skills, carries the program's maintained-part markers, and is byte for byte the constitution the pinned program's own example names
+- Then: it names `docs/`, `model/`, `skills/`, `prototypes/` and `repos/` and what each is for, says that `skills/` holds the team's own skills, carries the maintained-part markers, and is byte for byte the constitution the contract's example product `examples/contract/set-made-product/AGENTS.md` carries
 
 ### Scenario: no-absolute-path
 - Given: a draft created by `madarch new` in a scratch products home
@@ -145,7 +139,7 @@ point order of their folders: each product's folder, its id and its name, one
 fact per line. A subfolder whose manifest reads, whoever made that folder,
 shall be listed; a subfolder that holds no manifest is not a product and is
 not listed; a subfolder whose manifest stands but cannot be read shall be
-named on standard error with the reader's own words, and the products that
+named on standard error with the reader's words, and the products that
 did read shall still be listed with exit 0. A products home that is absent
 or empty shall be an empty list, exit 0; a products home that cannot be
 listed — a file of that name in the way, a home that cannot be read — shall
@@ -154,7 +148,7 @@ creates nothing and opens no browser; an option it does not take is refused
 as unknown, naming what it accepts.
 
 ### Scenario: list-names-the-kinds
-- Given: a products home holding a draft madarch made, the set's made folder and a hand-written one
+- Given: a products home holding a draft madarch made, a copy of the contract's set-made example (`examples/contract/set-made-product/`) and a hand-written one
 - When: `madarch list` is run
 - Then: all three are named, one fact per line, in code point order of their folders, and the command serves nothing
 
@@ -174,10 +168,10 @@ as unknown, naming what it accepts.
 - Then: it exits 2 naming that path
 
 ## Requirement: describe-step — madarch carries the describing step for a product to lay in
-madarch shall carry the describing step in its checkout, beside the pinned
-program, in one folder — `skills/describe-repository/` — holding the
-describing skill's `SKILL.md` and the section text `AGENTS-section.md` an
-engineer or their agent lays below the pinned program's maintained markers
+madarch shall carry the describing step in its checkout, beside its own
+lifecycle modules, in one folder — `skills/describe-repository/` — holding
+the describing skill's `SKILL.md` and the section text `AGENTS-section.md`
+an engineer or their agent lays below the maintained markers
 of a product's `AGENTS.md`. The section shall say that a code repository
 entered with `madarch repo add` is described before work begins; that the
 description follows the product's own skill `skills/describe-repository/`;
@@ -191,10 +185,10 @@ changes is described only after they are committed, and that every page is
 written under `docs/` so the wiki shows it as it is saved. The engineer's
 guide shall name the copy: the folder copied into the product's `skills/`,
 the section appended to the product's `AGENTS.md` below the maintained
-markers. The pinned program's draft stays byte for byte what the program
-writes — decision 0019: the constitution is the program's, so a section is
-laid below its markers by whoever runs the product, never written into the
-pinned skeleton; a draft `madarch new` alone makes carries neither the
+markers. A draft `madarch new` alone makes stays byte for byte what
+madarch's own creation writes (decision 0021: the constitution is
+madarch's, the section is laid below its markers by whoever runs the
+product, never written into the skeleton); such a draft carries neither the
 skill folder nor the section until the copy is made.
 
 ### Scenario: checkout-carries-the-step
@@ -205,12 +199,12 @@ skill folder nor the section until the copy is made.
 ### Scenario: a-fresh-draft-carries-nothing-until-copied
 - Given: a draft created by `madarch new` alone
 - When: its `AGENTS.md` and its `skills/` folder are read
-- Then: `AGENTS.md` is byte for byte the pinned program's constitution, and `skills/` holds only the program's `.gitkeep` — no describe-repository folder, no section
+- Then: `AGENTS.md` is byte for byte the constitution madarch's creation writes (the example's bytes), and `skills/` holds only the kept `.gitkeep` — no describe-repository folder, no section
 
 ### Scenario: the-copy-lays-the-step
 - Given: a fresh draft and a madarch checkout
 - When: the checkout's `skills/describe-repository/` folder is copied into the draft's `skills/` and its `AGENTS-section.md` is appended to the draft's `AGENTS.md`
-- Then: the draft's `AGENTS.md` holds the pinned constitution followed by the section, the section stands after the maintained markers, and the draft's `skills/` holds the skill beside the kept `.gitkeep`
+- Then: the draft's `AGENTS.md` holds madarch's own constitution (the one `madarch new` writes) followed by the section, the section stands after the maintained markers, and the draft's `skills/` holds the skill beside the kept `.gitkeep`
 
 ## Requirement: describe-skill — The product's own skill describes a repository into the wiki's artifacts
 A new product's `skills/` folder shall hold the product's own
