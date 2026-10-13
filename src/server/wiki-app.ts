@@ -147,7 +147,7 @@ const CONTENT_TYPES: Record<string, string> = {
 export interface WikiPart {
   /** `GET /api/product`: the product's id and name. */
   product: () => Handled;
-  /** `GET /api/questions`: the product's open questions as the set's form computes them. */
+  /** `GET /api/questions`: the product's questions as the set's form computes them. */
   questions: () => Handled;
   /** `GET /api/architecture`: the whole Architecture bundle, read fresh. */
   architecture: () => Handled;
@@ -180,7 +180,7 @@ export function createWikiPart(
 ): WikiPart {
   return {
     product: (): Handled => {
-      // The audience is the vision's `## Audience` first paragraph, when the
+      // The audience is the configured overview section, when the
       // product's vision is written; the draft carries none, and its absence
       // is the draft's own state the app reads.
       const audience = wiki.audience();
@@ -253,8 +253,8 @@ export function createWikiPart(
       if (askedFor === null) {
         return refused(400, {
           field: 'path',
-          accepted: 'a page path the product holds, like docs/vision.md',
-          message: `"path" is required: the path within the product of the page asked for, like ${JSON.stringify('docs/vision.md')}`,
+          accepted: 'a page path the product holds, like docs/example.md',
+          message: `"path" is required: the path within the product of the page asked for, like ${JSON.stringify('docs/example.md')}`,
         });
       }
       const asked = wiki.page(askedFor);
@@ -297,11 +297,13 @@ export function createWikiPart(
       return {
         response: json(200, {
           present: true,
-          stages: kit.stages.map((stage) => (stage.name === undefined ? { id: stage.id } : { id: stage.id, name: stage.name })),
+          stages: kit.stages.map((stage) => ({ id: stage.id, ...(stage.name === undefined ? {} : { name: stage.name }), ...(stage.expected === undefined ? {} : { expected: stage.expected }) })),
           goals: kit.goals,
+          overview: kit.overview,
           reservations: kit.reservations,
           kinds: kit.kinds.map((kind) => ({
             name: kind.name,
+            questions: kind.questions,
             prefix: kind.prefix,
             folder: kind.folder,
             stage: kind.stage,
@@ -348,7 +350,7 @@ export function createWikiPart(
 /**
  * One path under the app's files, or index.html when the app holds no file
  * there — the app's own routes, `/` and `/p/…` only, fall back to index.html
- * when no file answers: a page's address `/p/docs/vision.md` names no file,
+ * when no file answers: a page's address `/p/docs/example.md` names no file,
  * and index.html answers it, so the app's own routes run; the same answer
  * keeps reload and links working. A path under /api/ never reaches here: it
  * is answered by the routes or refused. Any other path is tried as a file

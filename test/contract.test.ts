@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseContractText } from '../src/product/contract.js';
 import { renderSchema } from '../scripts/generate-schemas.js';
-import { KindsRegistry, DocumentFields } from '../src/product/schema.js';
+import { KindsRegistry, DocumentFields, ProductCompleteness } from '../src/product/schema.js';
 import { parseDocumentFields } from '../src/product/contract.js';
 
 /**
@@ -264,6 +264,8 @@ describe('the contract of a product repository kinds registry', () => {
     expect(published).toBe(renderSchema(KindsRegistry));
     const docPublished = readFileSync(fileURLToPath(new URL('../schema/product-document.schema.json', import.meta.url)), 'utf8');
     expect(docPublished).toBe(renderSchema(DocumentFields));
+    const completenessPublished = readFileSync(fileURLToPath(new URL('../schema/product-completeness.schema.json', import.meta.url)), 'utf8');
+    expect(completenessPublished).toBe(renderSchema(ProductCompleteness));
   });
 
   test('the check command runs the whole examples folder and exits 0', () => {

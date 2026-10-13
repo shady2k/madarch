@@ -15,7 +15,7 @@
 import { lstatSync } from 'node:fs';
 import { readRegistryFileSafely } from './registry-file.js';
 import { parseContractText, type ContractError, type RegistryKind, type RegistryLink, type RegistryStage, type ReservationFinding } from './contract.js';
-import type { GoalLevel } from './schema.js';
+import type { GoalLevel, OverviewSources } from './schema.js';
 
 /** The file the kinds registry is read from, relative to the product folder. */
 export const REGISTRY_FILE = 'docs/kinds.yaml';
@@ -25,7 +25,7 @@ export type ProductRegistry =
   /** The product holds none: every page keeps the plain behaviour, the stages the mechanism's own. */
   | { present: false }
   /** The registry reads whole: its stages, in the list's order, and its kinds. */
-  | { present: true; kinds: RegistryKind[]; stages: RegistryStage[]; goals?: GoalLevel[]; reservations: ReservationFinding[] }
+  | { present: true; kinds: RegistryKind[]; stages: RegistryStage[]; goals?: GoalLevel[]; overview?: OverviewSources; reservations: ReservationFinding[] }
   /** The file stands but does not read: the contract's refusals, each naming the file, the line, the field's path and the words. */
   | { present: true; refused: ContractError[] };
 
@@ -70,7 +70,7 @@ export function readProductRegistry(productFolder: string): ProductRegistry {
   if (!read.ok) {
     return { present: true, refused: [...read.errors] };
   }
-  return { present: true, kinds: read.kinds, stages: read.stages, goals: read.goals, reservations: read.reservations };
+  return { present: true, kinds: read.kinds, stages: read.stages, goals: read.goals, overview: read.overview, reservations: read.reservations };
 }
 
 // ---- what the wiki needs from a read registry -----------------------------
@@ -88,6 +88,7 @@ export interface RegistryKit {
   kinds: RegistryKind[];
   stages: RegistryStage[];
   goals?: GoalLevel[];
+  overview?: OverviewSources;
   reservations: ReservationFinding[];
   /** The kind each id prefix names. */
   readonly byPrefix: Map<string, RegistryKind>;
@@ -169,6 +170,7 @@ export function registryKit(registry: ProductRegistry): RegistryKit | undefined 
     kinds,
     stages: registry.stages,
     goals: registry.goals,
+    overview: registry.overview,
     reservations: registry.reservations,
     byPrefix,
     idShape: new RegExp(`^(?:${prefixes.join('|')})-\\d{3,}$`),

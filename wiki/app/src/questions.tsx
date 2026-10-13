@@ -1,10 +1,7 @@
 /**
- * The open-questions view (docs/changes/open-questions, capability
- * product-wiki's requirement `open-questions`): the questions the product
- * carries in the set's form, open first with their state, then the closed
- * ones as a muted read. The set computes a question's state; the view invents
- * none: open, answered, and "Not applicable" are the set's words. A answered
- * question leaves the count, and stays readable here.
+ * The questions view uses the product's configured form: open entries first,
+ * then the answered or not-applicable entries in a muted read. The view
+ * computes the configured state and writes nothing.
  *
  * Every visible string rides the i18n catalogues; the count follows the
  * selected language through Intl (the units' plural forms).
@@ -18,7 +15,7 @@ import { statusContext } from './hold.js';
 import { PageLink } from './view.js';
 
 /** One question row of the view: the question in one line, its state, its facts. */
-function QuestionRow({ entry, closed }: { entry: QuestionEntry; closed: boolean }): ReactElement {
+function QuestionRow({ entry, closed, answererLabel, concernsLabel }: { entry: QuestionEntry; closed: boolean; answererLabel?: string; concernsLabel?: string }): ReactElement {
   const { t, i18n } = useTranslation();
   return (
     <li data-question-id={entry.id} data-question-state={entry.state}>
@@ -30,8 +27,8 @@ function QuestionRow({ entry, closed }: { entry: QuestionEntry; closed: boolean 
           <span className="questions-row-title">{entry.title}</span>
           <span className="questions-row-meta">
             <span className={'questions-state questions-state-' + entry.state}>{t('questions.state.' + entry.state)}</span>
-            {entry.who !== '' && <span className="questions-row-fact">{t('questions.who', { who: entry.who })}</span>}
-            {entry.concerns.length > 0 && <span className="questions-row-fact">{t('questions.concerns', { concerns: entry.concerns.join(', ') })}</span>}
+            {entry.who !== '' && answererLabel !== undefined && <span className="questions-row-fact">{answererLabel}: {entry.who}</span>}
+            {entry.concerns.length > 0 && concernsLabel !== undefined && <span className="questions-row-fact">{concernsLabel}: {entry.concerns.join(', ')}</span>}
             {entry.changedAt !== undefined && (
               <span className="questions-row-fact">{t('document.changed', { when: relativeTime(entry.changedAt, i18n.resolvedLanguage) })}</span>
             )}
@@ -45,7 +42,7 @@ function QuestionRow({ entry, closed }: { entry: QuestionEntry; closed: boolean 
 
 /**
  * The questions view the sidebar's count opens: its tagline, its open count,
- * the open questions on the navigation's row rhythm, and the closed ones —
+ * the questions on the navigation's row rhythm, and the closed ones —
  * answered or not applicable — muted, with their answers readable.
  */
 export function QuestionsView({ questions }: { questions: QuestionList | null }): ReactElement {
@@ -68,14 +65,14 @@ export function QuestionsView({ questions }: { questions: QuestionList | null })
   return (
     <main id="questions" data-testid="questions-view">
       <p className="eyebrow">{t('groups.questions')}</p>
-      <h1 className="app-title">{t('questions.title')}</h1>
+      <h1 className="app-title">{questions?.kindName ?? t('questions.title')}</h1>
       <p className="home-lead" data-testid="questions-lead">{t('questions.tagline')}</p>
       <p className="questions-count" data-testid="questions-count">{t('questions.countLine', { count: openCount, unit: countUnit })}</p>
       {open.length === 0 ? (
         <p className="questions-none">{t('questions.none')}</p>
       ) : (
         <ul className="questions-rows">
-          {open.map((entry) => <QuestionRow key={entry.id} entry={entry} closed={false} />)}
+          {open.map((entry) => <QuestionRow key={entry.id} entry={entry} closed={false} answererLabel={questions.answererLabel} concernsLabel={questions.concernsLabel} />)}
         </ul>
       )}
       {closed.length > 0 && (

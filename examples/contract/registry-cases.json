@@ -323,6 +323,10 @@
       "line": 10,
       "path": "kinds[0].evidence",
       "message": "the evidence shape rides the fact storage form: a kind carrying its evidence fields declares \"storage: fact\""
+    },
+    {
+      "name": "manifest expectations and configurable reader sources",
+      "text": "contract: 1\noverview:\n  audience:\n    document: docs/brief.md\n    section: Readers\nstages:\n  - id: explore\n    expected:\n      - interview\nkinds:\n  - name: inquiry\n    prefix: IQ\n    folder: docs/inquiries\n    stage: explore\n    hint: ask a question\n    questions:\n      identityPrefix: ASK\n      titleSeparator: ':'\n      promptSection: Unknown\n      answerSection: Resolution\n      answererField: Steward\n      concernsField: Affects\n      notApplicablePrefix: 'Out of scope:'\n"
     }
   ]
 }

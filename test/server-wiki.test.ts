@@ -126,8 +126,12 @@ describe('the server\'s product mode', () => {
     expect(await answer.json()).toEqual({ id: 'demo', name: 'Demo', folder: basename(folder!) });
   });
 
-  test('GET /api/product names the audience the vision carries, and nothing when the vision is absent', async () => {
+  test('GET /api/product reads the configured audience source', async () => {
     draft();
+    writeFileSync(join(folder!, 'docs', 'kinds.yaml'), [
+      'contract: 1', 'overview:', '  audience:', '    document: docs/vision.md', '    section: Audience',
+      'stages:', '  - id: idea', 'kinds:', '  - name: Product vision', '    prefix: V', '    folder: docs/vision.md', '    stage: idea', '    hint: describe the product',
+    ].join('\n') + '\n');
     builtApp();
     const url = startProduct();
     const bare = await (await fetch(`${url}/api/product`)).json() as { audience?: string };
@@ -137,8 +141,12 @@ describe('the server\'s product mode', () => {
     expect(named.audience).toBe('Cafe owners with waste.');
   });
 
-  test('GET /api/questions lists the questions with their state and the open count', async () => {
+  test('GET /api/questions lists the manifest-defined questions with their state and the open count', async () => {
     draft();
+    writeFileSync(join(folder!, 'docs', 'kinds.yaml'), [
+      'contract: 1', 'stages:', '  - id: idea', 'kinds:', '  - name: question', '    prefix: Q', '    folder: docs/questions', '    stage: idea', '    hint: answer the question', '    questions:',
+      '      identityPrefix: Q', '      titleSeparator: —', '      promptSection: Question', '      answerSection: Answer', '      answererField: Who can answer', '      concernsField: Concerns', '      notApplicablePrefix: "Not applicable:"',
+    ].join('\n') + '\n');
     builtApp();
     const questions = join(folder!, 'docs', 'questions');
     mkdirSync(questions, { recursive: true });

@@ -1,0 +1,31 @@
+{
+  "contract": 1,
+  "computedAt": "2026-10-13",
+  "sourceRevision": "50b08048dafa2c4d82c676164ae7df816b2f866a",
+  "findings": [
+    {
+      "stage": "idea",
+      "message": "Roadmap — lay out the milestones the idea walks in order"
+    },
+    {
+      "stage": "design",
+      "message": "Design specs — write the design's behaviour before code"
+    },
+    {
+      "stage": "build",
+      "message": "Task records are not present in this snapshot."
+    },
+    {
+      "stage": "verify",
+      "message": "Acceptance evidence has not been recorded."
+    },
+    {
+      "stage": "release",
+      "message": "Release information has not been recorded."
+    },
+    {
+      "stage": "operate",
+      "message": "Operational incidents have not been recorded."
+    }
+  ]
+}

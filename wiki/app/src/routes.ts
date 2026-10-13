@@ -1,7 +1,7 @@
 /**
  * The app's routes, read from location.pathname (decision 0018 and the draft's
  * design): the home page at `/`, a page at `/p/` plus the page's path within
- * the product, for example `/p/docs/vision.md`, and — since feature E
+ * the product, for example `/p/docs/example.md`, and — since feature E
  * (madarch-iuc.15) — the Architecture section's pages under
  * `/p/madarch/architecture` (the views' index), `/p/madarch/view/<scope>`
  * (one view; the landscape's scope is `_landscape`) and
@@ -23,7 +23,7 @@ export type Route =
 /** The address prefix of the wiki's own (non-document) pages. */
 export const ARCHITECTURE_PREFIX = '/p/madarch/';
 
-/** The open-questions view's address. */
+/** The questions view's address. */
 export const QUESTIONS_ADDRESS = '/questions';
 
 /** The landscape view's scope in an address. */

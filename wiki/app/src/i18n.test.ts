@@ -47,16 +47,16 @@ describe('wiki internationalization', () => {
 
   test('Russian open-question counts follow 1 / 2 / 5 forms, as Intl.PluralRules names them', async () => {
     await setWikiLanguage('ru');
-    expect(i18n.t('units.question', { count: 1 })).toBe('открытый вопрос');
-    expect(i18n.t('units.question', { count: 2 })).toBe('открытых вопроса');
-    expect(i18n.t('units.question', { count: 5 })).toBe('открытых вопросов');
+    expect(i18n.t('units.question', { count: 1 })).toBe('вопрос');
+    expect(i18n.t('units.question', { count: 2 })).toBe('вопроса');
+    expect(i18n.t('units.question', { count: 5 })).toBe('вопросов');
     const rules = new Intl.PluralRules('ru');
     expect(rules.select(1)).toBe('one');
     expect(rules.select(2)).toBe('few');
     expect(rules.select(5)).toBe('many');
     await setWikiLanguage('en');
-    expect(i18n.t('units.question', { count: 1 })).toBe('open question');
-    expect(i18n.t('units.question', { count: 5 })).toBe('open questions');
+    expect(i18n.t('units.question', { count: 1 })).toBe('question');
+    expect(i18n.t('units.question', { count: 5 })).toBe('questions');
   });
 
   test('relative times use the selected locale formatter', () => {

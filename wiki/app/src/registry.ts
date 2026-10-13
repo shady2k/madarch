@@ -7,8 +7,7 @@
  * `/api/registry` as data; the app's own catalogues hold only the shell's
  * fixed words. Where the product holds none, everything reads the plain
  * way it did: the groups are the pages' own groups, no kind shows anywhere
- * and the stage list is the generic life cycle this lived beside (the
- * mechanism's own generic list, not kind data).
+ * and no stage list is invented.
  */
 import { useEffect, useState } from 'react';
 import { getRegistry, type RegistryOffer } from './api.js';
@@ -38,14 +37,11 @@ export function useRegistry(revision: string): RegistryOffer | null {
   return offer;
 }
 
-/** The stage list the app shows: the registry's own, or the generic life cycle. */
+/** The stage list the app shows from the product registry, or none. */
 export function stageList(offer: RegistryOffer | null): { id: string; name?: string }[] {
   if (offer !== null && offer.present && 'stages' in offer) return offer.stages;
-  return DEFAULT_STAGES.map((id) => ({ id }));
+  return [];
 }
-
-/** The generic life cycle the reading shell shows when no registry names the product's own — the mechanism's own list, never kind data. */
-export const DEFAULT_STAGES = ['idea', 'requirements', 'design', 'build', 'verify', 'release', 'operate'] as const;
 
 /** The stage position of one id in the active list, or one past the end. */
 export function stagePosition(offer: RegistryOffer | null, id: string): number {

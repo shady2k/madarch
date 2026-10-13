@@ -75,6 +75,14 @@ const FIXTURE_REGISTRY = [
   '    folder: docs/questions',
   '    stage: idea',
   '    hint: write what is not known and who can answer it',
+  '    questions:',
+  '      identityPrefix: Q',
+  '      titleSeparator: —',
+  '      promptSection: Question',
+  '      answerSection: Answer',
+  '      answererField: Who can answer',
+  '      concernsField: Concerns',
+  '      notApplicablePrefix: \"Not applicable:\"',
   '    links:',
   '      - field: Concerns',
   '        targets:',
@@ -510,7 +518,8 @@ describe('the forms' + "'" + ' reading, held against its mutants', () => {
     const doc = parseDocument('docs/q.md', '# Q-001 — A question\n\nConcerns: VISION\nWho can answer: the owner\n\n## Question\nFirst.\n\n## Question\nSecond.\n', new Set(['docs/q.md']), kit);
     expect(doc.sections.map((s) => s.name)).toEqual(['Question']);
     expect(doc.sections[0]!.text).toBe('First.');
-    expect(statusOf(doc)).toBe('open');
+    expect(statusOf(doc)).toBeUndefined();
+    expect(statusOf(doc, { identityPrefix: 'Q', titleSeparator: '—', promptSection: 'Question', answerSection: 'Answer', answererField: 'Who can answer', concernsField: 'Concerns', notApplicablePrefix: 'Not applicable:' })).toBe('open');
   });
 
   test('a section gathers its lines and drops the fence lines and empty ones', () => {

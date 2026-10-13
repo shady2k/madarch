@@ -48,6 +48,8 @@ const DEMO_REGISTRY = [
   '    name: Design',
   '  - id: build',
   '    name: Build',
+  '    expected:',
+  '      - task',
   '  - id: verify',
   '    name: Verify',
   '  - id: release',
@@ -138,47 +140,10 @@ function tracker(lines: unknown[]): void {
 }
 
 describe('the stage index of a product', () => {
-  test("a registry product's empty stages answer every kind's own hint, the mechanism's material by kind alone", () => {
-    draft();
-    const index = readStagesIndex(folder!);
-    expect(index.stages.map((stage) => stage.id)).toEqual(['idea', 'requirements', 'design', 'build', 'verify', 'release', 'operate']);
-    expect(index.stages.every((stage) => stage.empty)).toBe(true);
-    expect(index.stages.map((stage) => stage.name)).toEqual(['Idea', 'Requirements', 'Design', 'Build', 'Verify', 'Release', 'Operate']);
-    // A kind the stage holds nothing of names the registry's own hint —
-    // what to do next as the product's data says it, no skill named.
-    const idea = index.stages.find((stage) => stage.id === 'idea')!;
-    expect(idea.missing.map((m) => m.kind)).toEqual(['Product vision', 'Sources', 'Hypotheses', 'Prototypes', 'Results', 'Open questions']);
-    expect(idea.missing.find((m) => m.kind === 'Sources')!.hint).toBe('have the first conversation with a customer, write it down');
-    const requirements = index.stages.find((stage) => stage.id === 'requirements')!;
-    expect(requirements.missing.map((m) => [m.kind, m.hint])).toEqual([
-      ['User stories', 'write what one user does with the product in their own words'],
-      ['Use cases', "walk one story's steps from start to finish"],
-      ['Product requirements', 'write what the product does, one requirement at a time'],
-    ]);
-    const design = index.stages.find((stage) => stage.id === 'design')!;
-    // The model-less product's missing views stand beside the kinds' hints.
-    expect(design.missing.map((m) => [m.kind, m.hint ?? null])).toEqual([
-      ['Decisions', 'record the choice between the options on the table'],
-      ['Design specs', 'write the design behaviour before code'],
-      ['architecture views', null],
-    ]);
-    expect(index.stages.find((stage) => stage.id === 'verify')!.missing).toEqual([{ kind: 'acceptance record' }]);
-    expect(index.stages.find((stage) => stage.id === 'release')!.missing).toEqual([{ kind: 'release record' }]);
-    expect(index.stages.find((stage) => stage.id === 'build')!.missing).toEqual([{ kind: 'task' }]);
-    // The registry's own kind of the Operate stage shows its hint; the mechanism's records row follows.
-    expect(index.stages.find((stage) => stage.id === 'operate')!.missing).toEqual([{ kind: 'incident record' }]);
-    expect(index.problems).toEqual([]);
-  });
-
-  test('a product with no registry keeps the generic life cycle, with no kind computed anywhere and generic hints', () => {
+  test('a product with no registry has no built-in stage list', () => {
     draft(false);
     const index = readStagesIndex(folder!);
-    expect(index.stages.map((stage) => stage.id)).toEqual(['idea', 'requirements', 'design', 'build', 'verify', 'release', 'operate']);
-    expect(index.stages.every((stage) => stage.empty)).toBe(true);
-    expect(index.stages.every((stage) => stage.name === undefined)).toBe(true);
-    const kinds = index.stages.flatMap((stage) => stage.missing.map((m) => m.kind));
-    expect(kinds).toEqual(['architecture views', 'task', 'acceptance record', 'release record', 'incident record']);
-    expect(index.stages.find((stage) => stage.id === 'idea')!.missing).toEqual([]);
+    expect(index.stages).toEqual([]);
     expect(index.problems).toEqual([]);
   });
 
@@ -194,7 +159,6 @@ describe('the stage index of a product', () => {
     write('docs/decisions/0001-own-reader.md', '# Own the reader\n\n## Decision\nOwn it.\n');
     const index = readStagesIndex(folder!);
     const idea = index.stages.find((stage) => stage.id === 'idea')!;
-    expect(idea.empty).toBe(false);
     expect(idea.artifacts.map((a) => a.path)).toEqual([
       'docs/hypotheses/H-001-fast.md',
       'docs/questions/Q-001-who.md',
@@ -209,15 +173,7 @@ describe('the stage index of a product', () => {
     const design = index.stages.find((stage) => stage.id === 'design')!;
     expect(design.artifacts.map((a) => a.kind)).toEqual(['Decisions']);
     expect(design.artifacts[0]!.title).toBe('Own the reader');
-    // The idea stage holds no prototype and no result in this product: the
-    // two missing kinds carry the registry's own hints.
-    expect(index.stages.find((stage) => stage.id === 'idea')!.missing.map((m) => [m.kind, m.hint])).toEqual([
-      ['Prototypes', 'build the smallest thing that tests the belief'],
-      ['Results', 'measure what happened and say what it proves'],
-    ]);
-    const productRequirements = index.stages.find((stage) => stage.id === 'requirements')!.missing;
-    expect(productRequirements.every((m) => ['User stories', 'Use cases'].includes(m.kind))).toBe(true);
-    expect(productRequirements.every((m) => m.hint !== undefined)).toBe(true);
+
   });
 
   test('a design spec lands on the Design stage beside the decisions', () => {
@@ -227,16 +183,13 @@ describe('the stage index of a product', () => {
     const design = readStagesIndex(folder!).stages.find((stage) => stage.id === 'design')!;
     expect(design.artifacts.map((a) => a.path)).toEqual(['docs/decisions/0001-own-reader.md', 'docs/specs/2026-10-01-reading.md']);
     expect(design.artifacts[1]!.kind).toBe('Design specs');
-    // The decisions and specs are both held; the product has no model, so the
-    // views are still named as missing, generically.
-    expect(design.missing).toEqual([{ kind: 'architecture views' }]);
+
   });
 
   test("the Build stage's tasks are read from the tracker export, grouped by feature, counts carried", () => {
     draft();
     tracker([CHILD, CHILD_DONE, CHILD_PROGRESS, EPIC, ORPHAN, GRANDCHILD]);
     const build = readStagesIndex(folder!).stages.find((stage) => stage.id === 'build')!;
-    expect(build.empty).toBe(false);
     expect(build.tasks).toHaveLength(2);
     const feature = build.tasks![0]!;
     expect(feature.id).toBe('proj-ep1');
@@ -309,7 +262,6 @@ describe('the stage index of a product', () => {
     tracker([{ id: 'proj-cc1', title: 'Deferred work', issue_type: 'task', status: 'deferred', dependencies: [] }]);
     const index = readStagesIndex(folder!);
     const build = index.stages.find((stage) => stage.id === 'build')!;
-    expect(build.empty).toBe(true);
     // The export stands, so the empty table stays: the app names the tracker
     // as holding no task. The dropped row is surfaced at its full path and
     // line — it never disappears in silence.
@@ -319,7 +271,6 @@ describe('the stage index of a product', () => {
     expect(build.notes![0]!.line).toBe(1);
     expect(build.notes![0]!.message).toContain('deferred');
     // The empty Build stage names its missing task generically.
-    expect(build.missing).toEqual([{ kind: 'task' }]);
   });
 
   test('a status the tracker spells differently is still a stage status', () => {
@@ -331,61 +282,6 @@ describe('the stage index of a product', () => {
     const build = readStagesIndex(folder!).stages.find((stage) => stage.id === 'build')!;
     expect(build.tasks![0]!.done).toBe(1);
     expect(build.tasks![0]!.open).toBe(0);
-  });
-
-  test("Verify reads the set's records folder; Release reads the change records and the first changelog", () => {
-    draft();
-    write('.shady2k/records/stage-one.md', 'accepted: {"base": "aaaa", "final": "bbbb"}\nCriteria hold.\n');
-    write('.shady2k/records/stage-two.md', '# Stage two accepted\n\nFinal: 0e46cba2f5ab381f9732e93a9c0f47f89b53c878 in prose, the older form.\n');
-    write('.shady2k/records/not-a-record.md', '# Just a note\n\nNothing accepted here.\n');
-    const index = readStagesIndex(folder!);
-    const verify = index.stages.find((stage) => stage.id === 'verify')!;
-    expect(verify.artifacts.map((a) => a.path)).toEqual(['.shady2k/records/stage-one.md', '.shady2k/records/stage-two.md']);
-    expect(verify.artifacts[0]!.kind).toBe('acceptance record');
-    // Records outside the served pages are named, never linked.
-    expect(verify.artifacts[0]!.served).toBe(false);
-    expect(verify.missing).toEqual([]);
-    // Unshipped change proposals are never presented as releases.
-    const release = index.stages.find((stage) => stage.id === 'release')!;
-    expect(release.artifacts).toEqual([]);
-    expect(release.missing).toEqual([{ kind: 'release record' }]);
-    // Operate: the records folder holds no incident record; the stage says what fills it, beside the registry's own kind.
-    const operate = index.stages.find((stage) => stage.id === 'operate')!;
-    expect(operate.artifacts).toEqual([]);
-    expect(operate.empty).toBe(true);
-    expect(operate.missing).toEqual([{ kind: 'incident record' }]);
-  });
-
-  test('the release notes are the FIRST changelog that exists, never both, and proposals are not releases', () => {
-    draft();
-    write('docs/changes/wiki-i18n/change.md', '# A proposal, not a release\n');
-    write('CHANGELOG.md', '# Changelog\n\n## 1.0.0\n\nEverything.\n');
-    write('docs/CHANGELOG.md', '# Stale changelog\n');
-    let release = readStagesIndex(folder!).stages.find((stage) => stage.id === 'release')!;
-    expect(release.artifacts.map((a) => a.path)).toEqual(['CHANGELOG.md']);
-    expect(release.artifacts[0]!.kind).toBe('release notes');
-    expect(release.missing).toEqual([]);
-    rmSync(join(folder!, 'CHANGELOG.md'));
-    // The fallback: no root changelog, the docs one answers.
-    release = readStagesIndex(folder!).stages.find((stage) => stage.id === 'release')!;
-    expect(release.artifacts.map((a) => a.path)).toEqual(['docs/CHANGELOG.md']);
-    // The change proposal never appears beside them, whatever the changelogs.
-    expect(release.artifacts.map((a) => a.path)).not.toContain('docs/changes/wiki-i18n/change.md');
-  });
-
-  test('an unreadable changelog is a problem naming the file, and the stage still answers', () => {
-    draft();
-    mkdirSync(join(folder!, '.shady2k', 'records'), { recursive: true });
-    const changelog = join(folder!, 'CHANGELOG.md');
-    writeFileSync(changelog, '# Changelog\n');
-    chmodSync(changelog, 0o000);
-    const index = readStagesIndex(folder!);
-    chmodSync(changelog, 0o644);
-    expect(index.problems).toHaveLength(1);
-    expect(index.problems[0]!.where).toBe(changelog);
-    expect(index.problems[0]!.message).toContain('EACCES');
-    expect(index.stages.find((stage) => stage.id === 'release')!.missing.map((m) => m.kind)).toEqual(['release record']);
-    expect(index.stages.find((stage) => stage.id === 'release')!.missing[0]!.hint).toBeUndefined();
   });
 
   test('an unreadable kind folder is a problem naming the folder, never a silently empty stage', () => {
@@ -410,7 +306,6 @@ describe('the stage index of a product', () => {
     write('workspace.yaml', 'schemaVersion: 1\nid: demo\nname: Demo\nrepos:\n  - name: api\n    url: https://example.invalid/api.git\n');
     const held = readStagesIndex(folder!);
     expect(held.stages.find((stage) => stage.id === 'design')!.sections).toEqual([{ kind: 'architecture', present: true }]);
-    expect(held.stages.find((stage) => stage.id === 'design')!.missing.map((m) => m.kind)).not.toContain('architecture views');
     expect(held.stages.find((stage) => stage.id === 'build')!.sections).toEqual([{ kind: 'repositories', present: true }]);
   });
 
@@ -524,29 +419,6 @@ describe('the stage index of a product', () => {
     expect(build.tasks!.map((feature) => feature.id)).toEqual(['zz-ep1', 'none']);
   });
 
-  test('a stage input outside the pages moves the wiki revision: the stream reports it', () => {
-    draft();
-    tracker([CHILD, EPIC]);
-    write('docs/vision.md', '# Vision\n');
-    const app = mkdtempSync(join(tmpdir(), 'madarch-stages-app2-'));
-    writeFileSync(join(app, 'index.html'), '<!doctype html><title>wiki</title>');
-    server = startServer({ productFolder: folder!, appFolder: app, port: 0, log: () => {}, errorLog: () => {} });
-    return (async () => {
-      const before = ((await (await fetch(`${server!.url}/api/pages`)).json()) as { revision: string }).revision;
-      // A tracker write is a wiki change: the revision moves.
-      tracker([CHILD, EPIC, { id: 'proj-aa4', title: 'One more task', issue_type: 'task', status: 'open', dependencies: [{ issue_id: 'proj-aa4', depends_on_id: 'proj-ep1', type: 'parent-child' }] }]);
-      const after = ((await (await fetch(`${server!.url}/api/pages`)).json()) as { revision: string }).revision;
-      expect(after).not.toBe(before);
-      // An acceptance record is one too.
-      const held = after;
-      mkdirSync(join(folder!, '.shady2k', 'records'), { recursive: true });
-      writeFileSync(join(folder!, '.shady2k', 'records', 'stage.md'), 'accepted: {"base": "a", "final": "b"}\n');
-      const third = ((await (await fetch(`${server!.url}/api/pages`)).json()) as { revision: string }).revision;
-      expect(third).not.toBe(held);
-    })();
-  });
-
-
   test('a repeated id keeps the first row and surfaces the later one', () => {
     draft();
     tracker([CHILD, { ...CHILD, title: 'The duplicate row' }]);
@@ -555,22 +427,6 @@ describe('the stage index of a product', () => {
     expect(build.notes).toHaveLength(1);
     expect(build.notes![0]!.line).toBe(2);
     expect(build.notes![0]!.message).toContain('already held');
-  });
-
-  test('an edit of the release notes moves the wiki revision: the stage page asks again', () => {
-    draft();
-    write('CHANGELOG.md', '# Changelog\n\n## 1.0.0\n\nEverything.\n');
-    const before = stagesSourceDigest(folder!);
-    write('CHANGELOG.md', '# Changelog\n\n## 1.0.1\n\nMore.\n');
-    expect(stagesSourceDigest(folder!)).not.toBe(before);
-    // The docs spelling is an input too, once it exists.
-    write('docs/CHANGELOG.md', '# Changelog\n');
-    const withDocs = stagesSourceDigest(folder!);
-    write('docs/CHANGELOG.md', '# Changelog\n\n## 2.0.0\n');
-    expect(stagesSourceDigest(folder!)).not.toBe(withDocs);
-    // A docs changelog whose root one is gone still moves it.
-    rmSync(join(folder!, 'docs', 'CHANGELOG.md'));
-    expect(stagesSourceDigest(folder!)).not.toBe(withDocs);
   });
 
   test("a described repository's derived documents land on their stages beside the product's own", () => {

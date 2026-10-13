@@ -38,7 +38,7 @@ export function classifyTarget(pagePath: string, href: string): ResolvedLink {
   // rooted: `a%20b.md` and `/docs/a%20b.md` name the files they escape
   // (finding 2.10). An escape the wiki cannot read names no page.
   // A rooted address names the page at that path within the product —
-  // `/docs/vision.md` and `/p/docs/vision.md` reach the same page, the
+  // `/docs/example.md` and `/p/docs/example.md` reach the same page, the
   // second being the wiki's own address shape (finding 5).
   let destination: string;
   try {
@@ -52,7 +52,7 @@ export function classifyTarget(pagePath: string, href: string): ResolvedLink {
   } else if (destination.startsWith('/')) {
     // A rooted address names the page at that path within the product, so
     // it resolves against the product root with the same rules as a
-    // relative one: `/docs/./vision.md` and `/docs/deep/../vision.md`
+    // relative one: `/docs/./example.md` and `/docs/deep/../example.md`
     // name the page their path reaches (finding 2.11).
     resolved = resolveRelative('', destination.slice(1));
   } else {

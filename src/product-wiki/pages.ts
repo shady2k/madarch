@@ -74,11 +74,11 @@ export const DOCS_FOLDER = 'docs';
 
 /** One page as the pages list names it. */
 export interface WikiPageEntry {
-  /** The page's path within the product, like `docs/vision.md` or `README.md`. */
+  /** The page's path within the product, like `docs/example.md` or `README.md`. */
   path: string;
   /** The page's title: its first level-one heading, else its file's name. */
   title: string;
-  /** The address the app answers the page at, like `/p/docs/vision.md`. */
+  /** The address the app answers the page at, like `/p/docs/example.md`. */
   address: string;
   /** The kind the product's registry names the page, when one stands and names it. */
   kind?: DocumentKind;
@@ -137,9 +137,9 @@ export type ProductWikiPages =
   | { ok: true; revision: string; pages: WikiPageEntry[]; contract?: ProductWikiContract }
   | { ok: false; message: string };
 
-/** The wiki's open questions and the answered ones, as one ask found them. */
+/** The wiki's questions and the answered ones, as one ask found them. */
 export type ProductWikiQuestions =
-  | { ok: true; questions: OpenQuestion[]; openCount: number }
+  | { ok: true; questions: OpenQuestion[]; openCount: number; kindName?: string; answererLabel?: string; concernsLabel?: string }
   | { ok: false; message: string };
 
 
@@ -162,7 +162,7 @@ export interface ProductWiki {
   pages(): ProductWikiPages;
   /** One page by its path within the product, read from disk now. */
   page(path: string): ProductWikiPage;
-  /** The product's open questions as the set's form computes their state, read from disk now. */
+  /** The product's questions as the set's form computes their state, read from disk now. */
   questions(): ProductWikiQuestions;
   /** The audience the product's vision names, when one is written. */
   audience(): string | undefined;
@@ -236,7 +236,7 @@ class FreshProductWiki implements ProductWiki {
       hash.update(`${path}\u0000${markdown.markdown}\u0000`);
     }
     // The revision covers the model's sources (feature E) and the stages'
-    // inputs (madarch-iuc.16): a saved model file, task, acceptance record
+    // inputs (madarch-iuc.16): a saved model file or tracker task
     // or manifest edit is a wiki change — the stream reports it and the open
     // section asks again, the same live rule as a page.
     hash.update(`model\u0000${modelSourceDigest(this.product)}\u0000`);
@@ -286,7 +286,7 @@ class FreshProductWiki implements ProductWiki {
     const pages: WikiPageEntry[] = [];
     for (const path of paths) {
       const doc = docs.byPath.get(path);
-      const status = doc === undefined ? undefined : statusOf(doc);
+      const status = doc === undefined ? undefined : statusOf(doc, kitOf(this.product.folder)?.kinds.find((kind) => kind.name === doc.kind)?.questions);
       pages.push({
         path,
         title: titles.get(path) as string,
@@ -355,7 +355,7 @@ class FreshProductWiki implements ProductWiki {
     const grown = doc === undefined ? [] : grownFromOf(doc, taken.snapshot.docs);
     const linked = doc === undefined ? [] : backlinksOf(doc, taken.snapshot.docs, kitOf(this.product.folder));
     const structural = taken.snapshot.structural.get(path) ?? [];
-    const status = doc === undefined ? undefined : statusOf(doc);
+    const status = doc === undefined ? undefined : statusOf(doc, kitOf(this.product.folder)?.kinds.find((kind) => kind.name === doc.kind)?.questions);
     // A plain page — no kind, no id, no fields, no links either
     // way — carries no document at all: the plain page behaviour stands.
     const document = doc === undefined || (doc.kind === undefined && doc.id === undefined && doc.fields.length === 0 && grown.length === 0 && linked.length === 0 && status === undefined)
@@ -385,21 +385,25 @@ class FreshProductWiki implements ProductWiki {
 
   questions(): ProductWikiQuestions {
     // A registry the wiki cannot serve degrades the set's computed
-    // sections with the pages: the open questions are the set's Q- forms
+    // sections with the pages: the configured question documents
     // read from its ids, and the pages they sit on are plain here.
-    const registry = readRegistryServing(this.product.folder);
-    if (registry.contract.state === 'unknown') return { ok: true, questions: [], openCount: 0 };
+    const registry = readProductRegistry(this.product.folder);
+    if (!registry.present || 'refused' in registry) return { ok: true, questions: [], openCount: 0 };
+    const questionKind = registry.kinds.find((kind) => kind.questions !== undefined);
+    if (questionKind === undefined) return { ok: true, questions: [], openCount: 0 };
+    const questionForm = questionKind.questions!;
     let held: string[];
     try {
       held = markdownPaths(this.product.folder);
     } catch (error) {
-      return { ok: false, message: `the open questions of the product ${JSON.stringify(this.product.folder)} could not be read: ${(error as Error).message}` };
+      return { ok: false, message: `the questions of the product ${JSON.stringify(this.product.folder)} could not be read: ${(error as Error).message}` };
     }
     const questions: OpenQuestion[] = [];
     for (const path of held) {
       const markdown = this.fileText(path);
       if (!markdown.ok) return markdown;
-      const parsed = parseQuestion(path, markdown.markdown);
+      if (!path.startsWith(questionKind.folder.replace(/\/$/, '') + '/') && path !== questionKind.folder) continue;
+      const parsed = parseQuestion(path, markdown.markdown, questionForm);
       if (parsed === undefined) continue;
       questions.push(parsed);
     }
@@ -408,7 +412,7 @@ class FreshProductWiki implements ProductWiki {
       const changedAt = changedAtOf(question.path, this.product.folder);
       return changedAt === undefined ? question : { ...question, changedAt };
     });
-    return { ok: true, questions: withChange, openCount: withChange.filter((question) => question.state === 'open').length };
+    return { ok: true, questions: withChange, openCount: withChange.filter((question) => question.state === 'open').length, kindName: questionKind.name, ...(questionForm.answererField === undefined ? {} : { answererLabel: questionForm.answererField }), ...(questionForm.concernsField === undefined ? {} : { concernsLabel: questionForm.concernsField }) };
   }
 
   audience(): string | undefined {
@@ -590,7 +594,7 @@ function inProductOrThrow(productFolder: string, path: string, within: string): 
 /** A page path the wiki refuses before it looks anything up: absolute, empty, or climbing out of the product. */
 function pagePathProblem(path: string): { ok: false; message: string } | undefined {
   if (path.length === 0 || isAbsolute(path) || path.startsWith('/')) {
-    return { ok: false, message: `the path ${JSON.stringify(path)} is not a path within the product: ask for a page by its path within the product, like ${JSON.stringify(`${DOCS_FOLDER}/vision.md`)}` };
+    return { ok: false, message: `the path ${JSON.stringify(path)} is not a path within the product: ask for a page by its path within the product, like ${JSON.stringify(`${DOCS_FOLDER}/example.md`)}` };
   }
   if (path.split('/').includes('..')) {
     return { ok: false, message: `the path ${JSON.stringify(path)} climbs out of the product: ask for a page by its path within the product` };

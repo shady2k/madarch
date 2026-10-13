@@ -15,6 +15,8 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseContractText, parseDocumentFields } from '../src/product/contract.js';
 import { readProduct } from '../src/product/manifest.js';
+import { Value } from 'typebox/value';
+import { ProductCompleteness } from '../src/product/schema.js';
 
 /** The case file the examples answer, like the set's own fixture cases. */
 interface ContractCase {
@@ -40,6 +42,7 @@ const DEFAULT_CASES = fileURLToPath(new URL('../examples/contract/registry-cases
 const DEFAULT_MANIFEST_CASES = fileURLToPath(new URL('../examples/contract/manifest-cases.json', import.meta.url));
 const DEFAULT_DOCUMENT_CASES = fileURLToPath(new URL('../examples/contract/document-cases.json', import.meta.url));
 const DEFAULT_PRODUCTS = fileURLToPath(new URL('../examples/contract/', import.meta.url));
+const DEFAULT_COMPLETENESS_CASES = fileURLToPath(new URL('../examples/contract/completeness-cases.json', import.meta.url));
 
 /** One manifest case as the examples hold it: a manifest's text, the identity it reads as or the refusal with the line and the words. */
 interface ManifestCase {
@@ -247,7 +250,7 @@ function checkDocCase(one: DocumentCase, verdicts: CaseVerdict[], from: string):
   }
 }
 
-function run(casesPath: string, documentCasesPath: string, manifestCasesPath: string, productsRoot: string, sourcePath: string | undefined): number {
+function run(casesPath: string, documentCasesPath: string, manifestCasesPath: string, productsRoot: string, sourcePath: string | undefined, completenessCasesPath: string): number {
   if (sourcePath !== undefined) {
     const text = readFileSync(sourcePath, 'utf8');
     const read = parseContractText(sourcePath, text);
@@ -268,6 +271,11 @@ function run(casesPath: string, documentCasesPath: string, manifestCasesPath: st
   checkManifestCases(manifestSuite, verdicts, manifestCasesPath);
   const docFile = JSON.parse(readFileSync(documentCasesPath, 'utf8')) as { cases: DocumentCase[] };
   for (const one of docFile.cases) checkDocCase(one, verdicts, documentCasesPath);
+  const completenessFile = JSON.parse(readFileSync(completenessCasesPath, 'utf8')) as { cases: { name: string; value: unknown; valid: boolean }[] };
+  for (const one of completenessFile.cases) {
+    const valid = Value.Check(ProductCompleteness, one.value);
+    verdicts.push({ case: `completeness ${one.name}`, from: completenessCasesPath, problems: valid === one.valid ? [] : [`expected schema result ${one.valid}, got ${valid}`] });
+  }
   let failed = 0;
   for (const verdict of verdicts) {
     if (verdict.problems.length === 0) continue;
@@ -279,7 +287,7 @@ function run(casesPath: string, documentCasesPath: string, manifestCasesPath: st
   }
   const products = verdicts.filter((v) => v.case.startsWith('product ')).length;
   const manifestCases = verdicts.filter((v) => v.case.startsWith('manifest ')).length;
-  console.log(`contract: ${file.cases.length} registry cases, ${docFile.cases.length} document cases, ${manifestCases} manifest cases, ${products} products, ${failed} misread`);
+  console.log(`contract: ${file.cases.length} registry cases, ${docFile.cases.length} document cases, ${manifestCases} manifest cases, ${completenessFile.cases.length} completeness cases, ${products} products, ${failed} misread`);
   return failed > 0 ? 1 : 0;
 }
 
@@ -288,6 +296,7 @@ let documentCasesPath = DEFAULT_DOCUMENT_CASES;
 let manifestCasesPath = DEFAULT_MANIFEST_CASES;
 let productsRoot = DEFAULT_PRODUCTS;
 let sourcePath: string | undefined;
+let completenessCasesPath = DEFAULT_COMPLETENESS_CASES;
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i += 2) {
   const flag = args[i];
@@ -308,6 +317,10 @@ for (let i = 0; i < args.length; i += 2) {
     productsRoot = value!;
     continue;
   }
+  if (flag === '--completeness-cases') {
+    completenessCasesPath = value!;
+    continue;
+  }
   if (flag === '--src') {
     sourcePath = value;
     continue;
@@ -315,4 +328,4 @@ for (let i = 0; i < args.length; i += 2) {
   console.error(`error: ${USAGE}`);
   process.exit(2);
 }
-process.exitCode = run(casesPath, documentCasesPath, manifestCasesPath, productsRoot, sourcePath);
+process.exitCode = run(casesPath, documentCasesPath, manifestCasesPath, productsRoot, sourcePath, completenessCasesPath);

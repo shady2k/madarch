@@ -34,13 +34,10 @@ const index: StagesIndex = {
         { path: 'docs/describing/the-brief.md', title: 'A brief on the wall', kind: 'Brief', served: true },
         { path: 'docs/sources/S-001-first-talk.md', title: 'First talk', kind: 'Note', served: true },
       ],
-      missing: [],
-      empty: false,
     },
     {
       id: 'build',
       artifacts: [],
-      missing: [],
       tasks: [
         {
           id: 'proj-ep1',
@@ -56,13 +53,10 @@ const index: StagesIndex = {
         },
       ],
       sections: [{ kind: 'repositories', present: true }],
-      empty: false,
     },
     {
       id: 'release',
       artifacts: [],
-      missing: [{ kind: 'release record' }],
-      empty: true,
     },
   ],
   problems: [],
@@ -105,12 +99,11 @@ describe('the stages view', () => {
     expect(addressOfStage('idea')).toBe('/s/idea');
   });
 
-  test("the navigator lists the stages in the life cycle's order, both languages naming them", async () => {
-    expect([...stageIds]).toEqual(['idea', 'requirements', 'design', 'build', 'verify', 'release', 'operate']);
+  test('a product with no registry has no built-in stage list', async () => {
+    expect([...stageIds]).toEqual([]);
     into(createElement('div', null, ...stageIds.map((stage) => createElement('span', { key: stage, 'data-stage': stage }))));
-    await until(() => document.querySelectorAll('[data-stage]').length === stageIds.length, 'the stage spans');
-    const spans = [...document.querySelectorAll('[data-stage]')].map((node) => node.getAttribute('data-stage'));
-    expect(spans).toEqual(['idea', 'requirements', 'design', 'build', 'verify', 'release', 'operate']);
+    await until(() => document.querySelectorAll('[data-stage]').length === 0, 'no stage rows');
+    expect(document.querySelectorAll('[data-stage]')).toHaveLength(0);
   });
 
   test('a stage page shows its artifacts as links to the pages that hold them', async () => {
@@ -133,51 +126,23 @@ describe('the stages view', () => {
     expect(document.querySelectorAll('button')).toHaveLength(0);
   });
 
-  test('an empty stage names its missing material generically, and no dead control stands', async () => {
-    const release = index.stages.find((stage) => stage.id === 'release')!;
-    into(createElement(StagePage, { stage: release, index }));
-    await until(() => document.querySelector('[data-testid="stage-missing"]') !== null, 'the missing lines');
-    const line = document.querySelector('[data-testid="stage-missing"]')?.textContent ?? '';
-    expect(line).toContain('Release record');
-    expect(line).toContain('lands here when the product reaches it');
-    expect(document.querySelectorAll('button')).toHaveLength(0);
-    expect(document.querySelectorAll('a[href=""]')).toHaveLength(0);
-  });
-
-  test('a registry kind\'s missing row reads the registry\'s own next-step hint', async () => {
-    const withRegistryHint: StagesIndex = {
-      stages: [
-        {
-          id: 'design',
-          missing: [{ kind: 'Design specs', hint: 'write the design behaviour before code' }],
-          artifacts: [],
-          empty: true,
-        },
-      ],
-      problems: [],
-    };
-    into(createElement(StagePage, { stage: withRegistryHint.stages[0]!, index: withRegistryHint }));
-    await until(() => document.querySelector('[data-testid="stage-missing"]') !== null, 'the hint line');
-    const line = document.querySelector('[data-testid="stage-missing"]')?.textContent ?? '';
-    expect(line).toBe('Design specs — write the design behaviour before code');
-  });
-
-  test('a stage the registry leaves empty with no missing kind names nothing but the generic line', async () => {
-    const emptyIdeas: StagesIndex = { stages: [{ id: 'idea', missing: [], artifacts: [], empty: true }], problems: [] };
+  test('a stage without a snapshot has no completeness findings or date', async () => {
+    const emptyIdeas: StagesIndex = { stages: [{ id: 'idea', artifacts: [] }], problems: [] };
     into(createElement(StagePage, { stage: emptyIdeas.stages[0]!, index: emptyIdeas }));
-    await until(() => document.querySelector('[data-testid="stage-missing"]') !== null, 'the generic line');
-    expect(document.querySelector('[data-testid="stage-missing"]')?.textContent ?? '').toBe('Nothing of this stage is here yet.');
+    await until(() => document.querySelector('main[data-stage="idea"]') !== null, 'the stage page');
+    expect(document.querySelector('[data-testid="completeness-findings"]')).toBeNull();
+    expect(document.querySelector('[data-testid="completeness-as-of"]')).toBeNull();
   });
 
-  test('the Russian chrome names the stages in Russian', async () => {
+  test('stage labels come from product data, not a built-in catalogue', async () => {
     const held = document.documentElement.lang;
     await setWikiLanguage('ru');
     const i18n = (await import('./i18n.js')).default;
-    expect(i18n.t('stages.names.idea')).toBe('Идея');
-    expect(i18n.t('stages.names.build')).toBe('Сборка');
-    expect(i18n.t('stages.missingKind', { kind: 'запись о выпуске' })).toContain('запись о выпуске');
-    expect(i18n.t('stages.nothingYet')).toBe('Здесь пока ничего нет.');
-    await setWikiLanguage('en');
+    expect(i18n.t('stages.names.idea')).toBe('stages.names.idea');
+    const named: StagesIndex = { stages: [{ id: 'idea', name: 'Этап продукта', artifacts: [], }], problems: [] };
+    into(createElement(StagePage, { stage: named.stages[0]!, index: named }));
+    await until(() => document.querySelector('h1')?.textContent === 'Этап продукта', 'the manifest stage name');
+    await setWikiLanguage(held === 'ru' ? 'ru' : 'en');
     document.documentElement.lang = held;
   });
 
@@ -187,8 +152,6 @@ describe('the stages view', () => {
         {
           id: 'verify',
           artifacts: [{ path: '.shady2k/records/stage-one.md', title: 'Stage one accepted', kind: 'acceptance record', served: false }],
-          missing: [],
-          empty: false,
         },
       ],
       problems: [],
@@ -225,10 +188,8 @@ describe('the stages view', () => {
         {
           id: 'build',
           artifacts: [],
-          missing: [{ kind: 'task' }],
           tasks: [],
           notes: [{ where: '/tmp/x/.beads/issues.jsonl', line: 4, message: 'the issue "t-1" holds the status "deferred": the stages group open, in-progress and done, so it is left out' }],
-          empty: true,
         },
       ],
       problems: [],
@@ -237,8 +198,7 @@ describe('the stages view', () => {
     await until(() => document.querySelector('[data-testid="stage-notes"]') !== null, 'the notes');
     expect(text()).toContain('line 4');
     expect(text()).toContain('deferred');
-    // The empty Build stage names its missing material generically.
-    expect(text()).toContain('Task lands here when the product reaches it');
+    expect(text()).toContain('tasks appear here when the tracker holds them');
   });
 
   test('the task groups render alone with their statuses', async () => {
@@ -246,4 +206,19 @@ describe('the stages view', () => {
     await until(() => document.querySelectorAll('.stage-task-row').length === 3, 'the task rows');
     expect(text()).toContain('1 task open');
   });
+  test('a supplied snapshot renders findings and its localized as-of date', async () => {
+    await setWikiLanguage('ru');
+    const snapshot: StagesIndex = {
+      stages: [{ id: 'custom', name: 'Custom', artifacts: [], findings: ['One supplied finding.'], }],
+      completeness: { computedAt: '2026-10-13', sourceRevision: 'abc1234' },
+      problems: [],
+    };
+    into(createElement(StagePage, { stage: snapshot.stages[0]!, index: snapshot }));
+    await until(() => document.querySelector('[data-testid="completeness-findings"]') !== null, 'snapshot findings');
+    expect(document.querySelector('[data-testid="completeness-findings"]')?.textContent).toContain('One supplied finding.');
+    await until(() => document.querySelector('[data-testid="completeness-as-of"]') !== null, 'as-of date');
+    expect(document.querySelector('[data-testid="completeness-as-of"]')?.textContent).toContain('13 октября 2026');
+    await setWikiLanguage('en');
+  });
+
 });

@@ -16,7 +16,7 @@
  */
 import { LineCounter, parseDocument } from 'yaml';
 import { Value } from 'typebox/value';
-import { KindsRegistry, type EvidenceFields, type GoalLevel, type StorageForm } from './schema.js';
+import { KindsRegistry, type EvidenceFields, type GoalLevel, type StorageForm, type QuestionForm, type OverviewSources } from './schema.js';
 import { checkStrictYaml } from '../model/strict-yaml.js';
 import { jsonPointerToSegments, lineForPath, segmentsToPath } from '../model/yaml-position.js';
 
@@ -92,17 +92,19 @@ export interface RegistryKind {
    * read-only in the wiki.
    */
   evidence?: EvidenceFields;
+  questions?: QuestionForm;
 }
 
 /** One stage of the registry's stage list, in the list's own order. */
 export interface RegistryStage {
   id: string;
   name?: string;
+  expected?: readonly string[];
 }
 
 /** What reading a registry file gave: the contract version it declares, the kinds and the stages of the file, or the refusals. */
 export type RegistryRead =
-  | { ok: true; contract: number; kinds: RegistryKind[]; stages: RegistryStage[]; goals?: GoalLevel[]; reservations: ReservationFinding[] }
+  | { ok: true; contract: number; kinds: RegistryKind[]; stages: RegistryStage[]; goals?: GoalLevel[]; overview?: OverviewSources; reservations: ReservationFinding[] }
   | { ok: false; errors: ContractError[] };
 
 
@@ -205,7 +207,7 @@ export function parseContractText(file: string, text: string): RegistryRead {
   }
   if (schemaErrors.length > 0) return { ok: false, errors };
 
-  const parsed = value as { contract: number; stages: RegistryStage[]; kinds: RegistryKind[]; goals?: GoalLevel[] };
+  const parsed = value as { contract: number; stages: RegistryStage[]; kinds: RegistryKind[]; goals?: GoalLevel[]; overview?: OverviewSources };
   const lines = {
     at: (segments: (string | number)[]) => lineForPath(doc, lineCounter, segments),
   };
@@ -381,7 +383,7 @@ export function parseContractText(file: string, text: string): RegistryRead {
       message: 'the manifest carries the reserved goals section; this engine version does not compute maturity levels — the section is kept as data, never dropped',
     });
   }
-  return { ok: true, contract: parsed.contract, kinds: parsed.kinds as RegistryKind[], stages: parsed.stages, goals: parsed.goals, reservations };
+  return { ok: true, contract: parsed.contract, kinds: parsed.kinds as RegistryKind[], stages: parsed.stages, goals: parsed.goals, overview: parsed.overview, reservations };
 }
 
 

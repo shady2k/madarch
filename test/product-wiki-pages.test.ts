@@ -632,6 +632,7 @@ describe('the product\'s open questions', () => {
 
   test('a question whose answer is empty is open; one with text is answered; Not applicable closes', () => {
     draft();
+    write('docs/kinds.yaml', ['contract: 1', 'overview:', '  audience:', '    document: docs/vision.md', '    section: Audience', 'stages:', '  - id: idea', 'kinds:', '  - name: question', '    prefix: Q', '    folder: docs/questions', '    stage: idea', '    hint: write a question', '    questions:', '      identityPrefix: Q', '      titleSeparator: —', '      promptSection: Question', '      answerSection: Answer', '      answererField: Who can answer', '      concernsField: Concerns', '      notApplicablePrefix: "Not applicable:"'].join('\n') + '\n');
     write('docs/questions/Q-004-who-collects-unclaimed.md', OPEN + '\n');
     const product = requireProduct(openProductWiki(folder!));
     const asked = product.questions();
@@ -646,8 +647,28 @@ describe('the product\'s open questions', () => {
     expect(asked.openCount).toBe(1);
   });
 
+  test('the manifest supplies question identity, fields, sections and audience source', () => {
+    draft();
+    write('docs/kinds.yaml', [
+      'contract: 1', 'overview:', '  audience:', '    document: docs/brief.md', '    section: Readers',
+      'stages:', '  - id: explore', 'kinds:', '  - name: inquiry', '    prefix: IQ', '    folder: docs/inquiries', '    stage: explore', '    hint: ask the question',
+      '    questions:', '      identityPrefix: ASK', '      titleSeparator: \":\"', '      promptSection: Unknown', '      answerSection: Decision', '      answererField: Steward', '      concernsField: Touches', '      notApplicablePrefix: "Out of scope:"',
+    ].join('\n') + '\n');
+    write('docs/inquiries/ASK-001.md', '# ASK-001: Is the route known?\n\nSteward: Maintainer\nTouches: IQ-002, ADR-003\n\n## Unknown\nWhich route should be used?\n\n## Decision\nOut of scope: not needed now.\n');
+    write('docs/brief.md', '# Brief\n\n## Readers\nOperators of small labs.\n');
+    const product = requireProduct(openProductWiki(folder!));
+    const asked = product.questions();
+    if (!asked.ok) throw new Error(asked.message);
+    expect(asked.kindName).toBe('inquiry');
+    expect(asked.questions.map((question) => [question.id, question.who, question.concerns, question.state])).toEqual([
+      ['ASK-001', 'Maintainer', ['IQ-002', 'ADR-003'], 'not-applicable'],
+    ]);
+    expect(product.audience()).toBe('Operators of small labs.');
+  });
+
   test('an answered and a not-applicable question are closed; the empty answer is not an answer', () => {
     draft();
+    write('docs/kinds.yaml', ['contract: 1', 'overview:', '  audience:', '    document: docs/vision.md', '    section: Audience', 'stages:', '  - id: idea', 'kinds:', '  - name: question', '    prefix: Q', '    folder: docs/questions', '    stage: idea', '    hint: write a question', '    questions:', '      identityPrefix: Q', '      titleSeparator: —', '      promptSection: Question', '      answerSection: Answer', '      answererField: Who can answer', '      concernsField: Concerns', '      notApplicablePrefix: "Not applicable:"'].join('\n') + '\n');
     write('docs/questions/Q-001-open.md', OPEN.replace('Q-004', 'Q-001') + '\n');
     write('docs/questions/Q-002-answered.md', [
       '# Q-002 — Should leftovers be delivered?',
@@ -690,6 +711,7 @@ describe('the product\'s open questions', () => {
 
   test('the answer is read whole, code fences included; the identity line is no section', () => {
     draft();
+    write('docs/kinds.yaml', ['contract: 1', 'overview:', '  audience:', '    document: docs/vision.md', '    section: Audience', 'stages:', '  - id: idea', 'kinds:', '  - name: question', '    prefix: Q', '    folder: docs/questions', '    stage: idea', '    hint: write a question', '    questions:', '      identityPrefix: Q', '      titleSeparator: —', '      promptSection: Question', '      answerSection: Answer', '      answererField: Who can answer', '      concernsField: Concerns', '      notApplicablePrefix: "Not applicable:"'].join('\n') + '\n');
     write('docs/questions/Q-005-fenced.md', [
       '# Q-005 — Which kernel do we bind?',
       '',
@@ -718,6 +740,7 @@ describe('the product\'s open questions', () => {
 
   test('a document that is no question is not listed; the questions change with the files', () => {
     draft();
+    write('docs/kinds.yaml', ['contract: 1', 'overview:', '  audience:', '    document: docs/vision.md', '    section: Audience', 'stages:', '  - id: idea', 'kinds:', '  - name: question', '    prefix: Q', '    folder: docs/questions', '    stage: idea', '    hint: write a question', '    questions:', '      identityPrefix: Q', '      titleSeparator: —', '      promptSection: Question', '      answerSection: Answer', '      answererField: Who can answer', '      concernsField: Concerns', '      notApplicablePrefix: "Not applicable:"'].join('\n') + '\n');
     write('docs/questions/Q-006-later.md', OPEN.replace('Q-004', 'Q-006') + '\n');
     write('docs/vision.md', '# Vision\n\nNo question here.\n');
     const product = requireProduct(openProductWiki(folder!));
@@ -733,6 +756,7 @@ describe('the product\'s open questions', () => {
 
   test('the audience is the vision\'s Audience section; no vision, no audience', () => {
     draft();
+    write('docs/kinds.yaml', ['contract: 1', 'overview:', '  audience:', '    document: docs/vision.md', '    section: Audience', 'stages:', '  - id: idea', 'kinds:', '  - name: question', '    prefix: Q', '    folder: docs/questions', '    stage: idea', '    hint: write a question', '    questions:', '      identityPrefix: Q', '      titleSeparator: —', '      promptSection: Question', '      answerSection: Answer', '      answererField: Who can answer', '      concernsField: Concerns', '      notApplicablePrefix: "Not applicable:"'].join('\n') + '\n');
     const product = requireProduct(openProductWiki(folder!));
     expect(product.audience()).toBeUndefined();
     write('docs/vision.md', [
@@ -749,6 +773,7 @@ describe('the product\'s open questions', () => {
 
   test('an Audience inside a code fence is not the audience', () => {
     draft();
+    write('docs/kinds.yaml', ['contract: 1', 'overview:', '  audience:', '    document: docs/vision.md', '    section: Audience', 'stages:', '  - id: idea', 'kinds:', '  - name: question', '    prefix: Q', '    folder: docs/questions', '    stage: idea', '    hint: write a question', '    questions:', '      identityPrefix: Q', '      titleSeparator: —', '      promptSection: Question', '      answerSection: Answer', '      answererField: Who can answer', '      concernsField: Concerns', '      notApplicablePrefix: "Not applicable:"'].join('\n') + '\n');
     write('docs/vision.md', [
       '# Draft',
       '',
@@ -770,7 +795,10 @@ describe('the product\'s open questions', () => {
  * in-process on `parseQuestion` and `audienceOf` directly, so a mutant that
  * changes one branch turns one of these cases red.
  */
-import { parseQuestion, audienceOf } from '../src/product-wiki/questions.js';
+import { parseQuestion as parseConfiguredQuestion, audienceOf as audienceOfSection } from '../src/product-wiki/questions.js';
+const questionForm = { identityPrefix: 'Q', titleSeparator: '—', promptSection: 'Question', answerSection: 'Answer', answererField: 'Who can answer', concernsField: 'Concerns', notApplicablePrefix: 'Not applicable:' };
+const parseQuestion = (path: string, markdown: string) => parseConfiguredQuestion(path, markdown, questionForm);
+const audienceOf = (markdown: string) => audienceOfSection(markdown, 'Audience');
 
 describe('parseQuestion edges, one branch at a time', () => {
   const identity = (rest: string): string => `# ${rest}\n`;

@@ -1,32 +1,8 @@
 /**
- * The stage index (docs/changes/wiki-sdlc/capabilities/product-wiki.md,
- * requirement `stages`; the places the registry reads sit in the
- * product-repository contract's capability): one computed view over the
- * product folder that names every stage of the life cycle what the product
- * holds there now and — when the stage holds nothing of a kind — what the
- * registry says comes next. The stages are the product's own life cycle:
- * where the product holds a kinds registry (`docs/kinds.yaml`, the file the
- * skill set writes at setup), the stage list and the order stand in that
- * file, and every document kind names its stage; where the product holds
- * none, the list is the reading shell's own generic life cycle (idea
- * through operate, the same stages as before this change) and no document
- * kind is computed anywhere.
- *
- * The stage page's own words are the reading shell's: what the stage holds
- * of the mechanism's own material — the tracker's tasks on the Build stage,
- * the stage acceptance records on the Verify stage, the release notes, and
- * the link rows to the Architecture and Repositories sections — is read
- * here whatever the registry says; the document kinds are the registry's
- * data alone. Every next-step hint is the registry's hint where the kind
- * came from it; the mechanism's own material is hinted generically, and
- * no skill of any set is named anywhere in code.
- *
- * Pure and deterministic over one reading of the product folder: the same
- * folder gives the same index, sorted by code point, never by locale;
- * nothing here reads the clock and nothing writes. The document kinds the
- * wiki serves as pages put their artifacts on the page paths the app
- * navigates to — the stage sections navigate, they never duplicate the
- * pages.
+ * Builds the product's stage view from its manifest and files. Stage order,
+ * names, kinds and expected records come from the product registry. External
+ * completeness findings are read from the committed product snapshot; this
+ * module does not infer missing records from current content.
  */
 import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -34,20 +10,11 @@ import { join as joinPath, relative, sep } from 'node:path';
 import { byCodePoint } from '../model/order.js';
 import { REGISTRY_FILE, readProductRegistry, registryKit, type RegistryKit } from '../product/registry.js';
 import { readRegistryServing } from '../product-wiki/registry.js';
-
-/**
- * The life cycle the reading shell shows when the product holds no registry:
- * the same stage list in the order it has always shown. It is the
- * mechanism's own generic list, not a kind word anywhere; where the product
- * holds a registry, the registry's stage list and order replace it.
- */
-export const STAGE_IDS = ['idea', 'requirements', 'design', 'build', 'verify', 'release', 'operate'] as const;
-export type StageId = (typeof STAGE_IDS)[number];
-
+import { readProductCompleteness, type CompletenessRead } from '../product/completeness.js';
 
 /** One product-document artifact a stage holds, pointing at the page that shows it. */
 export interface StageArtifact {
-  /** The document's path within the product, like `docs/vision.md`. */
+  /** The document's path within the product. */
   readonly path: string;
   /** The document's title: its identity line's title, else its first heading, else the file name. */
   readonly title: string;
@@ -56,14 +23,13 @@ export interface StageArtifact {
   /**
    * Whether the wiki's page reader serves this path (every Markdown under
    * `docs/` and the root `README.md` — nothing else). A record kept outside
-   * those places, an acceptance record above all, is named as text on the
-   * stage page, never wrapped in a link that cannot open.
+   * those places is named as text on the stage page, never linked.
    */
   readonly served: boolean;
 }
 
 /**
- * One feature the Build stage's tasks are grouped by: the set's features and
+ * One feature's tasks are grouped by: the set's features and
  * stages are tracker epics, and a task hangs under one by a `parent-child`
  * dependency whose `depends_on_id` names the parent — so an issue's parent is
  * read from its own `dependencies`, never from the parent's row. Issues with
@@ -81,7 +47,7 @@ export interface TaskFeature {
   readonly tasks: readonly TaskEntry[];
 }
 
-/** One task as the Build stage names it. */
+/** One task record as the stage index reads it. */
 export interface TaskEntry {
   readonly id: string;
   readonly title: string;
@@ -96,7 +62,7 @@ export interface StageSectionLink {
 }
 
 /**
- * A row the Build stage's reader mended or left out, surfaced at its full
+ * A tracker row mended or left out, surfaced at its full
  * path and line: a recognized status the stages do not group (deferred,
  * blocked), an issue with no status, a repeated id whose later row was
  * dropped, a dependency edge that is not an object. Notes never refuse the
@@ -111,62 +77,37 @@ export interface StageNote {
 
 /** One stage as one ask of the index found it. */
 export interface StageSection {
-  /** The stage's id: the registry's or the generic life cycle's. */
+  /** The stage's id from the registry. */
   readonly id: string;
-  /** The stage's name the registry gives it, when the registry names one; the app reads the generic list's names without one. */
+  /** The stage's name from the registry, when supplied. */
   readonly name?: string;
   /**
    * What the stage holds, read from the real files: document artifacts with
-   * their page paths, and the mechanism's own material — the Build stage's
-   * tasks among them.
+   * their page paths, and the mechanism's own material among them.
    */
   readonly artifacts: readonly StageArtifact[];
-  /**
-   * What the stage holds nothing of yet: a kind the registry names carries
-   * the registry's own next-step hint; the mechanism's own material carries
-   * only its kind, and the app words it generically.
-   */
-  readonly missing: readonly { kind: string; hint?: string }[];
-  /** The Build stage's tasks, grouped by feature; other stages hold none. */
+  readonly findings?: readonly string[];
+  /** Task records grouped by feature when the manifest assigns the task expectation. */
   readonly tasks?: readonly TaskFeature[];
-  /** The Build stage's mended and dropped rows, each at its full path and line; other stages hold none. */
+  /** The tracker export's mended and dropped rows, each at its full path and line; other stages hold none. */
   readonly notes?: readonly StageNote[];
   /** The other features' sections this stage navigates to; absent when the stage names none. */
   readonly sections?: readonly StageSectionLink[];
-  /** True when the stage holds nothing at all: the app then shows only the missing lines. */
-  readonly empty: boolean;
 }
 
-/** The whole index: every stage, in the life cycle's order, plus what was refused reading. */
+/** The whole index: manifest stages in order, plus any read problems. */
 export interface StagesIndex {
   readonly stages: readonly StageSection[];
-  /** How the reads went: a tracker export or records folder that exists but cannot be parsed is named here, never dropped in silence. */
+  readonly completeness?: { computedAt: string; sourceRevision: string };
+  /** How reads went: unreadable inputs are named here, never dropped in silence. */
   readonly problems: readonly { where: string; message: string }[];
 }
 
-/** The tracker export the Build stage reads its tasks from. */
+/** The tracker export read when a stage declares task records. */
 const TRACKER_EXPORT = '.beads/issues.jsonl';
 
 /** The folder a described repository's derived documents are written under (the describing step's own layout). */
 const REPOSITORY_DOCS = 'docs/repositories';
-
-/**
- * Where ship-release's records are read. The notes are the project's
- * changelog — Keep a Changelog's is the common form the skill names — and
- * the FIRST of the two spots that exists is the release notes, never both:
- * a fallback, not an accumulation. The change proposals under docs/changes/
- * are never shown as releases — a proposal is not a release until it lands.
- */
-const RELEASE_NOTE_PLACES = ['CHANGELOG.md', 'docs/CHANGELOG.md'];
-
-/** Where stage acceptance records are looked for: the set's records folder beside its checks. */
-const RECORDS_FOLDER = '.shady2k/records';
-
-/** The first line an acceptance record's evidence holds (`accepted:` or the older prose form). */
-const ACCEPTED_MARK = 'accepted: {"base"';
-
-/** The first line a record the set's gate calls implemented holds. */
-const IMPLEMENTED_MARK = 'implemented: {"revision"';
 
 /**
  * A product folder's stage index, read from its real files now. Errors of
@@ -190,20 +131,15 @@ export function readStagesIndex(productFolder: string): StagesIndex {
     }
   }
   const kit = registryKit(registry);
-  const list: { id: string; name?: string }[] = kit !== undefined
-    ? kit.stages.map((stage) => ({ id: stage.id, name: stage.name }))
-    : STAGE_IDS.map((id) => ({ id }));
+  const list: { id: string; name?: string }[] = kit?.stages.map((stage) => ({ id: stage.id, name: stage.name })) ?? [];
   const stageOf = new Map<string, StageSectionBuilder>();
-  for (const stage of list) stageOf.set(stage.id, { id: stage.id, name: stage.name, artifacts: [], missing: [] });
-  // The stage each piece of the mechanism's own material rides on: the
-  // stage ids are the generic life cycle's ids; where the registry's list
-  // carries the same id the material reads onto that stage, and where it
+  for (const stage of list) stageOf.set(stage.id, { id: stage.id, name: stage.name, artifacts: [] });
+  // Task records belong to the stage whose manifest expectations declare them.nd where it
   // names none the stage page skips that material.
-  const holderOf = (id: StageId): StageSectionBuilder | undefined => stageOf.get(id);
-  const build = holderOf('build')!;
-  // A stage's tasks field is set only where tasks are read, so the app never
-  // waits for a tasks table a stage does not hold.
-  build.tasks = [];
+  const holderOf = (id: string): StageSectionBuilder | undefined => stageOf.get(id);
+  const taskStage = kit?.stages.find((stage) => stage.expected?.includes('task'));
+  const build = taskStage === undefined ? undefined : holderOf(taskStage.id);
+  if (build !== undefined) build.tasks = [];
   // The sections other features own: the stage named design navigates to
   // the Architecture section when the product holds a model/ for it to
   // compile; the stage named build navigates to the Repositories section
@@ -227,7 +163,7 @@ export function readStagesIndex(productFolder: string): StagesIndex {
   const reposDeclared = manifestText !== undefined && /(^|\n)repos:/.test(manifestText);
   const reposFolder = joinPath(productFolder, 'repos');
   if (reposDeclared || (existsSync(reposFolder) && lstatSync(reposFolder).isDirectory())) {
-    build.sections = [{ kind: 'repositories', present: true }];
+    if (build !== undefined) build.sections = [{ kind: 'repositories', present: true }];
   }
 
   // The document kinds: every kind's folder the registry names, its one
@@ -318,10 +254,10 @@ export function readStagesIndex(productFolder: string): StagesIndex {
     }
   }
 
-  // The Build stage's tasks: read-only from the same export the tracker writes.
+  // Task records: read-only from the export the tracker writes.
   let exported = false;
   const trackerFull = joinPath(productFolder, TRACKER_EXPORT);
-  if (existsSync(trackerFull)) {
+  if (build !== undefined && existsSync(trackerFull)) {
     exported = true;
     const read = readTasks(trackerFull);
     if (read.ok) {
@@ -333,56 +269,18 @@ export function readStagesIndex(productFolder: string): StagesIndex {
     }
   }
 
-  // The Verify stage's acceptance records: files kept in a records folder
-  // beside its checks. They stand outside the wiki's served pages, so the
-  // artifacts are named, never linked.
-  const verify = stageOf.get('verify');
-  if (verify !== undefined) {
-    const recordsFull = joinPath(productFolder, RECORDS_FOLDER);
-    for (const name of fileNames(recordsFull, '.md', problems)) {
-      const full = joinPath(recordsFull, name);
-      try {
-        const text = readFileSync(full, 'utf8');
-        const accepted = text.includes(ACCEPTED_MARK) || /Final: [0-9a-f]{7,}/.test(text);
-        const implemented = text.includes(IMPLEMENTED_MARK);
-        if (accepted || implemented) {
-          verify.artifacts.push({ path: `${RECORDS_FOLDER}/${name}`, title: titleOf(text, name), kind: 'acceptance record', served: false });
-        }
-      } catch (error) {
-        problems.push({ where: full, message: (error as Error).message });
-      }
-    }
+  // Completeness is supplied by the product's committed snapshot. The engine
+  // does not infer missing records from current files.
+  const completeness: CompletenessRead = readProductCompleteness(productFolder);
+  if (completeness.present && 'problem' in completeness) {
+    problems.push({ where: 'docs/completeness.json', message: completeness.problem });
   }
-
-  // The Release stage: the project's changelog — the FIRST spot that
-  // exists is the release notes, never both. The change records under
-  // docs/changes/ are never shown as releases — a proposal is not a
-  // release until it lands. Where the product keeps no release form at
-  // all, the stage's missing line says what comes next, in the generic
-  // wording the mechanism hints with.
-  const release = stageOf.get('release');
-  if (release !== undefined) {
-    for (const place of RELEASE_NOTE_PLACES) {
-      const full = joinPath(productFolder, ...place.split('/'));
-      if (!existsSync(full)) continue;
-      try {
-        release.artifacts.push({
-          path: place,
-          title: titleOf(readFileSync(full, 'utf8'), place.split('/').pop()!),
-          kind: 'release notes',
-          served: true,
-        });
-        break;
-      } catch (error) {
-        problems.push({ where: full, message: (error as Error).message });
-      }
-    }
-  }
+  const snapshot = completeness.present && 'snapshot' in completeness ? completeness.snapshot : undefined;
 
   const stages = list.map((stage) => {
     const builder = stageOf.get(stage.id)!;
     builder.artifacts.sort((a, b) => byCodePoint(a.path, b.path));
-    builder.missing = missingOf(stage.id, builder, kit);
+    builder.findings = snapshot?.findings.filter((finding) => finding.stage === stage.id).map((finding) => finding.message) ?? [];
     // A product with no export at all carries no tasks table; where an
     // export stands but holds no grouped task, the empty table stays so
     // the app can say the tracker holds none.
@@ -391,7 +289,7 @@ export function readStagesIndex(productFolder: string): StagesIndex {
     }
     return buildSection(builder);
   });
-  return { stages, problems };
+  return { stages, problems, ...(snapshot === undefined ? {} : { completeness: { computedAt: snapshot.computedAt, sourceRevision: snapshot.sourceRevision } }) };
 }
 
 /** Every Markdown page under one folder, at any depth, in code point order of their paths. */
@@ -411,11 +309,11 @@ function markdownPagesUnder(folder: string, problems: { where: string; message: 
 }
 
 /** The artifact list of one stage's builder, for the repository-subtree reads. */
-function builderOf(stageOf: Map<StageId, StageSectionBuilder>, id: StageId): StageArtifact[] {
+function builderOf(stageOf: Map<string, StageSectionBuilder>, id: string): StageArtifact[] {
   return stageOf.get(id)!.artifacts;
 }
 
-/** Every task in a Build stage's groups, for the missing-line decision. */
+/** Every task in the manifest-assigned task groups. */
 function countTasks(groups: readonly TaskFeature[]): number {
   return groups.reduce((n, group) => n + group.tasks.length, 0);
 }
@@ -426,7 +324,7 @@ interface StageSectionBuilder {
   /** The stage's own name from the registry, when the registry names one. */
   name?: string;
   artifacts: StageArtifact[];
-  missing: { kind: string; hint?: string }[];
+  findings?: string[];
   tasks?: TaskFeature[];
   notes?: StageNote[];
   sections?: StageSectionLink[];
@@ -435,16 +333,14 @@ interface StageSectionBuilder {
 }
 
 function buildSection(builder: StageSectionBuilder): StageSection {
-  const empty = builder.artifacts.length === 0 && (builder.tasks === undefined || builder.tasks.length === 0);
   return {
     id: builder.id,
     ...(builder.name !== undefined ? { name: builder.name } : {}),
     artifacts: builder.artifacts,
-    missing: builder.missing,
+    ...(builder.findings !== undefined ? { findings: builder.findings } : {}),
     ...(builder.tasks !== undefined ? { tasks: builder.tasks } : {}),
     ...(builder.notes !== undefined ? { notes: builder.notes } : {}),
     ...(builder.sections !== undefined ? { sections: builder.sections } : {}),
-    empty,
   };
 }
 
@@ -567,42 +463,6 @@ function titleOf(markdown: string, fallback: string): string {
     }
   }
   return fallback.replace(/\.md$/, '');
-}
-
-/**
- * What a stage holds nothing of, each row the app shows as its quiet
- * next-step line. The kinds the registry names show the registry's own
- * hint — what to do next as the product's data says it; the mechanism's
- * own material (the Build stage's tasks, the Verify stage's acceptance
- * records, the release notes, the incident records on the Operate stage
- * and the Architecture views when the product holds no model) is hinted by
- * the entry's kind alone, with no skill named anywhere. The rows carry no
- * skill field: the hint is data or the app's own generic wording.
- */
-function missingOf(id: string, builder: StageSectionBuilder, kit: RegistryKit | undefined): { kind: string; hint?: string }[] {
-  const missing: { kind: string; hint?: string }[] = [];
-  const held = new Set(builder.artifacts.map((artifact) => artifact.kind));
-  if (kit !== undefined) {
-    for (const kind of kit.kinds) {
-      if (kind.stage !== id || held.has(kind.name)) continue;
-      if (missing.some((entry) => entry.kind === kind.name)) continue;
-      missing.push({ kind: kind.name, hint: kind.hint });
-    }
-  }
-  const mechanism = (kindWord: string, holds: boolean): void => {
-    if (holds) return;
-    if (missing.some((entry) => entry.kind.toLowerCase() === kindWord)) return;
-    missing.push({ kind: kindWord });
-  };
-  if (id === 'build') mechanism('task', builder.tasks === undefined ? false : countTasks(builder.tasks) > 0);
-  if (id === 'verify') mechanism('acceptance record', held.has('acceptance record'));
-  if (id === 'release') mechanism('release record', held.has('release notes'));
-  // The Operate stage's material is what the incidents' reader records —
-  // the timeline, the cost and what was filed — and none of it is read
-  // from these documents' pages: the row stands.
-  if (id === 'operate') mechanism('incident record', false);
-  if (id === 'design' && builder.wantsArchitecture === true) mechanism('architecture views', false);
-  return missing;
 }
 
 /** The manifest's text, when the product holds one; a manifest that cannot be read is no declaration. */
@@ -767,12 +627,9 @@ function readTasks(exportPath: string): { ok: true; groups: TaskFeature[]; notes
 }
 
 /**
- * The digest of everything the stages read beyond the wiki's pages: the
- * tracker export, the records folder, the manifest and the change records'
- * folder. The wiki's revision folds this in (the same rule feature E uses
- * for the model's sources), so a saved task or an acceptance record is a
- * wiki change: the stream reports it and the open stage page asks again.
- * Unreadable places hash as unreadable, so a place coming back is a change.
+ * The digest of stage inputs beyond the wiki pages. Snapshot bytes, tracker
+ * data, and the manifest affect the live revision; unreadable inputs hash as
+ * unreadable so a place coming back is a change.
  */
 export function stagesSourceDigest(productFolder: string): string {
   const hash = createHash('sha256');
@@ -785,18 +642,7 @@ export function stagesSourceDigest(productFolder: string): string {
     }
     hash.update('\u0000');
   };
-  const folderNames = (folder: string): string[] => {
-    if (!existsSync(folder)) return [];
-    try {
-      return readdirSync(folder).sort(byCodePoint);
-    } catch {
-      return ['unreadable'];
-    }
-  };
   file(joinPath(productFolder, TRACKER_EXPORT));
-  for (const name of folderNames(joinPath(productFolder, RECORDS_FOLDER))) {
-    file(joinPath(productFolder, RECORDS_FOLDER, name));
-  }
   file(joinPath(productFolder, 'workspace.yaml'));
   // The kinds registry is a stage input and a page input alike: a saved
   // registry is a wiki change the stream reports. Its bytes reach this
@@ -807,12 +653,7 @@ export function stagesSourceDigest(productFolder: string): string {
   if (registryServing.contract.state !== 'absent') {
     hash.update(`${REGISTRY_FILE}\u0000${registryServing.digest}\u0000`);
   }
-  // The release notes are stage inputs: both spellings hash, the read bytes
-  // only when the path exists, so an edit of the notes the stage shows moves
-  // the wiki revision and the open stage page asks again.
-  for (const place of RELEASE_NOTE_PLACES) {
-    const full = joinPath(productFolder, ...place.split('/'));
-    if (existsSync(full)) file(full);
-  }
+  const completeness = readProductCompleteness(productFolder);
+  if (completeness.present) hash.update(JSON.stringify(completeness));
   return hash.digest('hex');
 }
