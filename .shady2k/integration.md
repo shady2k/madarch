@@ -165,7 +165,10 @@ are the repository's installation, and each person's plugin and hooks are theirs
   killed after 10 s and a fetch after 20 s and reported as unreachable. The
   unit survives logout and reboot only with the user's linger on
   (`loginctl enable-linger <user>`, a privileged command; on NixOS
-  `users.users.<user>.linger = true`). A push to the ref starts no code CI (a
+  `users.users.<user>.linger = true`). The owner decided on 2026-10-13 not to
+  turn linger on ("Не нужен"): the service starts with the user's first login
+  session and stops with the last; while it is down, writes stay in this
+  machine's store and are published when it runs again. A push to the ref starts no code CI (a
   workflow's push event is a branch or a tag; the run list after the first
   pushes showed none). The residual the set accepts: two machines claiming one
   item in the same seconds can both believe they hold it until the next sync.
