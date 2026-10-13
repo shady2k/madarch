@@ -404,6 +404,35 @@ test('the latest receipt across all the change\'s tasks wins, and a malformed on
   assert.deepEqual(ids(runCheck(r.root, { phase: 'acceptance', change: 'add-views', candidate: head }).violations), ['unproved-check']);
   r.tracker([row('m-other'), row('m-leaf', 'task', { comments: [appr, ...passedAll, comment('check: {"id":"review","status":"ok"}')] })]);
   assert.throws(() => runCheck(r.root, { phase: 'acceptance', change: 'add-views', candidate: head }), /malformed check record/);
+  // The malformed receipt is retired by a void naming its comment id; the right one then counts.
+  const bad = { ...comment('check: {"id":"review","status":"ok"}'), id: 41 };
+  const good = receipt('review', 'passed', '2026-09-24T06:00:00Z');
+  const voidOf = (target, reason = 'written without its revision') => comment(`void: ${JSON.stringify({ comment: target, reason })}`, '2026-09-24T05:30:00Z');
+  r.tracker([row('m-other'), row('m-leaf', 'task', { comments: [appr, ...passedAll, bad, voidOf(41), good] })]);
+  assert.deepEqual(runCheck(r.root, { phase: 'acceptance', change: 'add-views', candidate: head }).violations, []);
+  // A void without its reason, or naming a comment not on its task, is refused, never ignored.
+  r.tracker([row('m-other'), row('m-leaf', 'task', { comments: [appr, ...passedAll, bad, voidOf(41, ''), good] })]);
+  assert.throws(() => runCheck(r.root, { phase: 'acceptance', change: 'add-views', candidate: head }), /malformed void record/);
+  r.tracker([row('m-other'), row('m-leaf', 'task', { comments: [appr, ...passedAll, bad, voidOf(99), good] })]);
+  assert.throws(() => runCheck(r.root, { phase: 'acceptance', change: 'add-views', candidate: head }), /names comment 99, which is not on m-leaf/);
+  // A void line out of shape, or one naming a void, is refused too.
+  r.tracker([row('m-other'), row('m-leaf', 'task', { comments: [appr, ...passedAll, comment('void: nonsense'), good] })]);
+  assert.throws(() => runCheck(r.root, { phase: 'acceptance', change: 'add-views', candidate: head }), /malformed void record/);
+  const firstVoid = { ...voidOf(41), id: 42 };
+  r.tracker([row('m-other'), row('m-leaf', 'task', { comments: [appr, ...passedAll, bad, firstVoid, comment(`void: ${JSON.stringify({ comment: 42, reason: 'undo' })}`, '2026-09-24T05:40:00Z'), good] })]);
+  assert.throws(() => runCheck(r.root, { phase: 'acceptance', change: 'add-views', candidate: head }), /not a check or approval record/);
+  // A void cannot retire a record written after it.
+  const later = { ...comment('check: {"id":"review","status":"ok"}', '2026-09-24T07:00:00Z'), id: 43 };
+  r.tracker([row('m-other'), row('m-leaf', 'task', { comments: [appr, ...passedAll, voidOf(43), later, good] })]);
+  assert.throws(() => runCheck(r.root, { phase: 'acceptance', change: 'add-views', candidate: head }), /written after it/);
+  // In the same second, the comment ids decide: a void with the lower id stands before its target.
+  const sameSecond = '2026-09-24T07:00:00Z';
+  const tieRecord = { ...comment('check: {"id":"review","status":"ok"}', sameSecond), id: 51 };
+  const tieVoid = { ...comment(`void: ${JSON.stringify({ comment: 51, reason: 'no revision' })}`, sameSecond), id: 50 };
+  r.tracker([row('m-other'), row('m-leaf', 'task', { comments: [appr, ...passedAll, tieVoid, tieRecord, good] })]);
+  assert.throws(() => runCheck(r.root, { phase: 'acceptance', change: 'add-views', candidate: head }), /written after it/);
+  r.tracker([row('m-other'), row('m-leaf', 'task', { comments: [appr, ...passedAll, { ...tieRecord, id: 50 }, { ...tieVoid, id: 51, text: `void: ${JSON.stringify({ comment: 50, reason: 'no revision' })}` }, good] })]);
+  assert.deepEqual(runCheck(r.root, { phase: 'acceptance', change: 'add-views', candidate: head }).violations, []);
 });
 
 test('a no-behavior change needs preserved contracts with coverage and no approval', () => {

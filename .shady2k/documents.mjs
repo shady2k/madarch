@@ -209,13 +209,41 @@ const capabilityAt = (src, id) => {
 // Evidence at the records level: tracker comments on the change's tasks whose
 // first line is "check: {id, status, reference, revision}" or
 // "approval: {changeDigest, reference}". The latest receipt per check, across
-// all the change's tasks, wins.
+// all the change's tasks, wins. A tracker only appends, so a receipt or an
+// approval written wrong is retired, never edited or deleted, by a comment on
+// the same task whose first line is "void: {comment, reason}" naming its
+// tracker comment id; every reader then acts as if it were not there.
 function evidenceFor(rows, change, revision, policy) {
   const approvals = [], receipts = [];
   const comments = rows.filter((x) => change.taskIds.includes(x.id))
     .flatMap((r) => (r.comments ?? []).map((c) => ({ r, c })))
     .sort((a, b) => String(a.c.created_at).localeCompare(String(b.c.created_at)));
+  const voided = new Set();
   for (const { r, c } of comments) {
+    const first = (c.text ?? '').split('\n')[0];
+    if (!/^void:/.test(first)) continue;
+    const m = first.match(/^void:\s*(\{.*\})\s*$/);
+    let v = null;
+    if (m) try { v = JSON.parse(m[1]); } catch { v = null; }
+    const target = v && (typeof v.comment === 'number' || typeof v.comment === 'string') ? String(v.comment) : '';
+    if (!target || typeof v.reason !== 'string' || !v.reason.trim())
+      throw new Error(`malformed void record on ${r.id} (needs comment, the tracker id of the record it retires, and reason): ${first}`);
+    const named = (r.comments ?? []).find((x) => String(x.id) === target);
+    if (!named)
+      throw new Error(`void record on ${r.id} names comment ${target}, which is not on ${r.id}: ${first}`);
+    if (!/^(check|approval):/.test((named.text ?? '').split('\n')[0]))
+      throw new Error(`void record on ${r.id} names comment ${target}, which is not a check or approval record (a void retires only those): ${first}`);
+    // br's comment ids grow with every comment; where both are numbers they
+    // order the two, otherwise the times do and a tie is not "before".
+    const num = (x) => (/^\d+$/.test(String(x)) ? Number(x) : NaN);
+    const standsBefore = Number.isFinite(num(named.id)) && Number.isFinite(num(c.id))
+      ? num(named.id) < num(c.id) : String(named.created_at) < String(c.created_at);
+    if (!standsBefore)
+      throw new Error(`void record on ${r.id} names comment ${target}, written after it: a void retires only a record that stands before it: ${first}`);
+    voided.add(`${r.id}:${target}`);
+  }
+  for (const { r, c } of comments) {
+    if (voided.has(`${r.id}:${String(c.id)}`)) continue;
     const first = (c.text ?? '').split('\n')[0];
     const m = first.match(/^(check|approval):\s*(\{.*\})\s*$/);
     if (!m) continue;

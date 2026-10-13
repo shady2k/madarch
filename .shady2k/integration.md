@@ -26,6 +26,15 @@ are the repository's installation, and each person's plugin and hooks are theirs
 - **Workflow ownership:** shady2k-skills owns the workflow; br is the only task list.
 - **Architecture and explorations:** `docs/system/architecture.md` (written 2026-09-30; a present document like the others); `docs/explorations/` only when retention is requested.
 - **Glossary and decisions:** `docs/glossary.md`, `docs/decisions/NNNN-<slug>.md` (MADR).
+- **Retiring a record written wrong:** a `check:` or `approval:` comment
+  written wrong (a receipt without its revision, say) is never edited or
+  deleted; a comment on the same task whose first line is `void: {"comment":
+  <its tracker comment id>, "reason": "<why>"}` retires it, and the document
+  gate reads the task as if it were not there. A void without its reason, or
+  naming a comment not on its task or one that is not a `check:` or
+  `approval:` record, or one written before the record it names, is refused
+  (exit 2), never ignored. Time
+  records keep their own void, the run script's `void`.
 - **Acceptance records:** a comment on the stage (epic) whose first line is
   `accepted: {"base": "<sha>", "final": "<sha>"}` (older records name
   `Final: <sha>` in prose, which the adapter also reads), followed by included tasks, criteria, test,
