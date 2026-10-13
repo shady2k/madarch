@@ -353,7 +353,7 @@ describe('the kinds registry the wiki serves', () => {
     const pages = product.pages();
     if (!pages.ok) throw new Error(pages.message);
     expect(pages.contract).toEqual({ known: true, version: 1 });
-    expect(pageKinds(pages)).toEqual(['decisions']);
+    expect(pageKinds(pages)).toEqual(['decision']);
 
     const bare = requireProduct(openProductWiki(draft()));
     const fresh = bare.pages();
@@ -373,7 +373,7 @@ describe('the kinds registry the wiki serves', () => {
     if (!after.ok) throw new Error(after.message);
     expect(after.revision).not.toBe(revisionBefore);
     expect(after.contract).toEqual({ known: true, version: 1 });
-    expect(pageKinds(after)).toEqual(['decisions']);
+    expect(pageKinds(after)).toEqual(['decision']);
   });
 
   test('the revision digests the registry\'s bytes, not the decoded text: two byte-distinct files the decoder flattens to the same text are two revisions', () => {

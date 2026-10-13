@@ -64,8 +64,8 @@ describe('the contract of a product repository kinds registry', () => {
     expect(us).toMatchObject({ name: 'user story', stage: 'requirements' });
     expect(us!.statuses).toEqual(['draft', 'ready']);
     expect(us!.links).toEqual([
-      { field: 'Grew from', targets: ['S', 'H'], backlink: 'Grew into', cardinality: 'many', required: false },
-      { field: 'Serves', targets: ['UC'], backlink: 'Served by', cardinality: 'one', required: true },
+      { field: 'Grew from', targets: ['source', 'hypothesis'], backlink: 'Grew into', cardinality: 'many', required: false },
+      { field: 'Serves', targets: ['use case'], backlink: 'Served by', cardinality: 'one', required: true },
     ]);
     // The 0021 amendment's reservations, kept as data the example carries:
     // the fact storage form with its evidence shape, and the goals section
@@ -100,6 +100,7 @@ describe('the contract of a product repository kinds registry', () => {
 
   test("a link's targets name kinds of the registry: the unknown one is refused at its line", () => {
     const read = parseContractText('docs/kinds.yaml', [
+      'contract: 1',
       'stages:',
       '  - id: idea',
       '  - id: requirements',
@@ -116,12 +117,13 @@ describe('the contract of a product repository kinds registry', () => {
       ''].join('\n'));
     expect(read.ok).toBe(false);
     if (read.ok) return;
-    const named = read.errors.find((error) => error.line === 13 && error.path === 'kinds[0].links[0].targets[0]' && error.message.includes('"no such kind" names no kind of the registry'));
+    const named = read.errors.find((error) => error.line === 14 && error.path === 'kinds[0].links[0].targets[0]' && error.message.includes('"no such kind" names no kind of the registry'));
     expect(named).toBeDefined();
   });
 
   test('a kind declares one link a field: the second is refused, the first line named', () => {
     const read = parseContractText('docs/kinds.yaml', [
+      'contract: 1',
       'stages:',
       '  - id: requirements',
       'kinds:',
@@ -143,12 +145,13 @@ describe('the contract of a product repository kinds registry', () => {
       ''].join('\n'));
     expect(read.ok).toBe(false);
     if (read.ok) return;
-    const named = read.errors.find((error) => error.line === 12 && error.path === 'kinds[0].links[1].field' && error.message.includes('is declared twice, first on line 10'));
+    const named = read.errors.find((error) => error.line === 13 && error.path === 'kinds[0].links[1].field' && error.message.includes('is declared twice, first on line 11'));
     expect(named).toBeDefined();
   });
 
   test('an allowed status is named once: the second is refused at its line', () => {
     const read = parseContractText('docs/kinds.yaml', [
+      'contract: 1',
       'stages:',
       '  - id: design',
       'kinds:',
@@ -163,12 +166,13 @@ describe('the contract of a product repository kinds registry', () => {
       ''].join('\n'));
     expect(read.ok).toBe(false);
     if (read.ok) return;
-    const named = read.errors.find((error) => error.line === 11 && error.path === 'kinds[0].statuses[1]' && error.message.includes('the status "Accepted" is named twice'));
+    const named = read.errors.find((error) => error.line === 12 && error.path === 'kinds[0].statuses[1]' && error.message.includes('the status "Accepted" is named twice'));
     expect(named).toBeDefined();
   });
 
   test('a kind\'s declared links and statuses read whole: field, targets, backlink label, cardinality and required', () => {
     const read = parseContractText('docs/kinds.yaml', [
+      'contract: 1',
       'stages:',
       '  - id: requirements',
       'kinds:',

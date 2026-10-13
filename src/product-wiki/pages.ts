@@ -45,9 +45,11 @@ import {
   type DocumentKind,
   type GrownFromEntry,
   type ProductDocuments,
+  type ParsedDocument,
   type StructuralFinding,
 } from './documents.js';
 import { CheckRunCache, runProductCheck, type ProductCheckRun, type ProductFinding } from './checking.js';
+import { readRegistryServing, type RegistryContract } from './registry.js';
 import { readProductRegistry, registryKit, type RegistryKit } from '../product/registry.js';
 
 /** The kinds kit of one product folder, read fresh: `undefined` when the product holds no registry that reads. */
@@ -173,7 +175,6 @@ function servedContract(state: RegistryContract): ProductWikiContract | undefine
   return { known: false, version: state.version, message: state.message };
 }
 
-/** Opens a product folder as a wiki; a folder whose manifest cannot be read is refused by `readProduct`. */
 export function openProductWiki(productFolder: string): OpenedProductWiki {
   const read = readProduct(productFolder);
   if (!read.ok) {
@@ -204,6 +205,8 @@ interface PageSetSnapshot {
   held: Set<string>;
   /** The structural findings per page's path, from the registry's reads over one product walk. */
   structural: Map<string, StructuralFinding[]>;
+  /** How the product's registry is served on this read: the gate's state, without the notice's words. */
+  contract: RegistryContract;
 }
 
 class FreshProductWiki implements ProductWiki {
@@ -238,8 +241,20 @@ class FreshProductWiki implements ProductWiki {
     // section asks again, the same live rule as a page.
     hash.update(`model\u0000${modelSourceDigest(this.product)}\u0000`);
     hash.update(`stages\u0000${stagesSourceDigest(this.product.folder)}\u0000`);
-    const docs = documentsOf(paths, (page) => texts.get(page) as string, pathsHeld, kitOf(this.product.folder));
-    const structural = structuralFindings(docs, kitOf(this.product.folder));
+    // The registry is part of what the wiki serves — the notice under an
+    // unknown contract, and later the kinds the registry lane draws from
+    // it — so its bytes are in the revision the same way a page's are: an
+    // edit to it is a change the stream reports. A registry the wiki cannot
+    // serve — a contract version it does not know, a file that refuses its
+    // own reading — degrades the pages to plain ones: no kind, no status,
+    // no fields, no links either way, under the named notice.
+    const registry = readRegistryServing(this.product.folder);
+    hash.update(`registry\u0000${registry.digest}\u0000`);
+    const degraded = registry.contract.state === 'unknown';
+    const docs = degraded
+      ? { byPath: new Map<string, ParsedDocument>(), byId: new Map<string, ParsedDocument>() }
+      : documentsOf(paths, (page) => texts.get(page) as string, pathsHeld, kitOf(this.product.folder));
+    const structural = degraded ? new Map<string, StructuralFinding[]>() : structuralFindings(docs, kitOf(this.product.folder));
     // The check's cache key digests what the check reads, not only what the
     // wiki shows: a prototype's `Code:` folder is read by the set's check
     // (it refuses a Code: naming no folder with files in it) and shown on
@@ -256,12 +271,12 @@ class FreshProductWiki implements ProductWiki {
       prototypeList = prototypePaths(this.product.folder);
     } catch (error) {
       const message = `the prototypes of the product ${JSON.stringify(this.product.folder)} could not be listed: ${(error as Error).message}`;
-      return { ok: true, snapshot: { revision, checkKey: `${revision}\u0000unreadable-prototypes`, paths, titles, texts, docs, held: pathsHeld, structural, prototypeProblem: message } };
+      return { ok: true, snapshot: { revision, checkKey: `${revision}\u0000unreadable-prototypes`, paths, titles, texts, docs, held: pathsHeld, structural, contract: registry.contract, prototypeProblem: message } };
     }
     const prototypeKey = createHash('sha256');
     for (const prototypePath of prototypeList) prototypeKey.update(`${prototypePath}\u0000`);
     const checkKey = `${revision}\u0000${prototypeKey.digest('hex')}`;
-    return { ok: true, snapshot: { revision, checkKey, paths, titles, texts, docs, held: pathsHeld, structural } };
+    return { ok: true, snapshot: { revision, checkKey, paths, titles, texts, docs, held: pathsHeld, structural, contract: registry.contract } };
   }
 
   pages(): ProductWikiPages {

@@ -37,24 +37,6 @@ export interface ContractError {
   version?: number;
 }
 
-/** One link type a kind declares (the owner's refinement of 2026-10-12): the
- * field the kind's documents carry the link in, the kinds the field's
- * targets may name, and how the link reads. The drawing of links and
- * backlinks from these declarations is the wiki's; nothing here reads a
- * kind or a field by name. */
-export interface RegistryLink {
-  /** The field's name as the document writes it, like `Grew from`, `Serves`. */
-  field: string;
-  /** The kinds the field's targets may name, each by its id prefix, like `S`, `H`. */
-  targets: string[];
-  /** The words the target's page shows the backlink under, like `Served by`; absent, no backlink is shown for the link. */
-  backlink?: string;
-  /** Whether the field holds one target or many; `many` stands where it is left out. */
-  cardinality?: 'one' | 'many';
-  /** Whether a document of the kind without this link is a finding on its page; `false` stands where it is left out. */
-  required?: boolean;
-}
-
 /** One link field a kind's documents may carry, as the registry declares it. */
 export interface RegistryLink {
   /** The form field's name the documents of the kind write the link under, like `Serves`. */

@@ -22,6 +22,7 @@ let folder: string | undefined;
 
 /** The kinds registry the fixtures read: the set-up shape, one file. */
 const FIXTURE_REGISTRY = [
+  'contract: 1',
   'stages:',
   '  - id: idea',
   '  - id: requirements',

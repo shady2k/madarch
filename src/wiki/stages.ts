@@ -33,6 +33,7 @@ import { createHash } from 'node:crypto';
 import { join as joinPath, relative, sep } from 'node:path';
 import { byCodePoint } from '../model/order.js';
 import { REGISTRY_FILE, readProductRegistry, registryKit, type RegistryKit } from '../product/registry.js';
+import { readRegistryServing } from '../product-wiki/registry.js';
 
 /**
  * The life cycle the reading shell shows when the product holds no registry:
@@ -798,8 +799,14 @@ export function stagesSourceDigest(productFolder: string): string {
   }
   file(joinPath(productFolder, 'workspace.yaml'));
   // The kinds registry is a stage input and a page input alike: a saved
-  // registry is a wiki change the stream reports.
-  file(joinPath(productFolder, ...REGISTRY_FILE.split('/')));
+  // registry is a wiki change the stream reports. Its bytes reach this
+  // digest only through the serving gate (readRegistryServing), never a
+  // direct read: the gate names a non-regular file instead of opening it,
+  // and opening a FIFO or a device here would block the ask for good.
+  const registryServing = readRegistryServing(productFolder);
+  if (registryServing.contract.state !== 'absent') {
+    hash.update(`${REGISTRY_FILE}\u0000${registryServing.digest}\u0000`);
+  }
   // The release notes are stage inputs: both spellings hash, the read bytes
   // only when the path exists, so an edit of the notes the stage shows moves
   // the wiki revision and the open stage page asks again.

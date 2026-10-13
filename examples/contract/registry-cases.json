@@ -1,5 +1,5 @@
 {
-  "about": "The kinds registry's own cases: the file the contract examples run through parseContractText, with every refusal and the line it was raised, in the set's fixture-cases style. Every case at contract version 1 carries `contract: 1` on its first line; the refusals about the version itself name the version.",
+  "about": "The kinds registry's own cases: the file the contract examples run through parseContractText, with every refusal and the line it was raised, in the set's fixture-cases style.",
   "cases": [
     {
       "name": "the set-out stages and kinds",
@@ -20,8 +20,7 @@
       "name": "no-stages",
       "text": "contract: 1\nkinds: []\n",
       "line": 1,
-      "message": "",
-      "path": ""
+      "message": "must have required properties stages"
     },
     {
       "name": "stage-list-empty",
@@ -55,7 +54,7 @@
       "name": "prefix-named-twice",
       "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n  - name: second\n    prefix: S\n    folder: docs/other\n    stage: idea\n    hint: another\n",
       "line": 11,
-      "message": "first on line 6: each kind is given one prefix",
+      "message": "the id prefix \"S\" is named twice, first on line 6: each kind is given one prefix",
       "path": "kinds[1].prefix"
     },
     {
@@ -90,15 +89,15 @@
       "name": "stage-named-twice",
       "text": "contract: 1\nstages:\n  - id: idea\n  - id: idea\nkinds: []\n",
       "line": 4,
-      "message": "first on line 3: each stage is given once",
+      "message": "the stage \"idea\" is named twice, first on line 3: each stage is given once",
       "path": "stages[1].id"
     },
     {
       "name": "unknown-field",
       "text": "contract: 1\nstages:\n  - id: idea\nkinds: []\nregistry: 7\n",
-      "line": 1,
-      "message": "must not have additional properties",
-      "path": ""
+      "line": 5,
+      "message": "schema is false",
+      "path": "registry"
     },
     {
       "name": "anchor",
@@ -118,8 +117,7 @@
       "name": "parse-error",
       "text": "contract: 1\nstages:\n  - id: idea\nkinds: [unclosed\n",
       "line": 5,
-      "message": "at line 5",
-      "path": ""
+      "message": "must be sufficiently indented and end with a ]"
     },
     {
       "name": "kind-name-with-a-digit",
@@ -152,16 +150,16 @@
     {
       "name": "stage-named-third",
       "text": "contract: 1\nstages:\n  - id: idea\n  - id: idea\n  - id: idea\nkinds: []\n",
-      "line": 5,
-      "path": "stages[2].id",
-      "message": "first on line 3: each stage is given once"
+      "line": 4,
+      "path": "stages[1].id",
+      "message": "the stage \"idea\" is named twice, first on line 3: each stage is given once"
     },
     {
       "name": "prefix-named-third",
       "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: a\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n  - name: b\n    prefix: S\n    folder: docs/other\n    stage: idea\n    hint: two\n  - name: c\n    prefix: S\n    folder: docs/more\n    stage: idea\n    hint: three\n",
-      "line": 16,
-      "path": "kinds[2].prefix",
-      "message": "first on line 6: each kind is given one prefix"
+      "line": 11,
+      "path": "kinds[1].prefix",
+      "message": "the id prefix \"S\" is named twice, first on line 6: each kind is given one prefix"
     },
     {
       "name": "folder-escapes-docs",
@@ -200,13 +198,13 @@
     },
     {
       "name": "statuses-with-links-read",
-      "text": "contract: 1\nstages:\n  - id: idea\n  - id: requirements\n  - id: design\nkinds:\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: requirements\n    hint: write one user's step in the product's words\n    statuses:\n      - draft\n      - ready\n    links:\n      - field: Serves\n        targets:\n          - UC\n        backlink: Served by\n        cardinality: many\n        required: true\n  - name: use case\n    prefix: UC\n    folder: docs/use-cases\n    stage: design\n    hint: walk one story through the product\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: have the first conversation with a customer, write it down\n"
+      "text": "contract: 1\nstages:\n  - id: idea\n  - id: requirements\n  - id: design\nkinds:\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: requirements\n    hint: write one user's step in the product's words\n    statuses:\n      - draft\n      - ready\n    links:\n      - field: Serves\n        targets:\n          - use case\n        backlink: Served by\n        cardinality: many\n        required: true\n  - name: use case\n    prefix: UC\n    folder: docs/use-cases\n    stage: design\n    hint: walk one story through the product\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: have the first conversation with a customer, write it down\n"
     },
     {
       "name": "statuses-named-twice",
       "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n    statuses:\n      - draft\n      - draft\n",
       "line": 12,
-      "message": "the status \"draft\" is named twice, first on line 11: each status is given once",
+      "message": "the status \"draft\" is named twice: each allowed status is given once",
       "path": "kinds[0].statuses[1]"
     },
     {
@@ -218,60 +216,54 @@
     },
     {
       "name": "statuses-empty",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n    statuses: []\n",
-      "line": 10,
-      "message": "must not have fewer than 1 items",
-      "path": "kinds[0].statuses"
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n    statuses: []\n"
     },
     {
       "name": "link-target-unknown",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - S\n          - H\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - source\n          - hypothesis\n",
       "line": 13,
-      "message": "targets \"S\", which names no kind of the registry",
+      "message": "\"source\" names no kind of the registry: a link goes to a kind the registry declares",
       "path": "kinds[0].links[0].targets[0]"
     },
     {
       "name": "link-target-second-unknown",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: idea\n    hint: two\n    links:\n      - field: Grew from\n        targets:\n          - S\n          - H\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: idea\n    hint: two\n    links:\n      - field: Grew from\n        targets:\n          - source\n          - hypothesis\n",
       "line": 19,
-      "message": "targets \"H\", which names no kind of the registry",
+      "message": "\"hypothesis\" names no kind of the registry: a link goes to a kind the registry declares",
       "path": "kinds[1].links[0].targets[1]"
     },
     {
       "name": "link-target-names-declared-after",
-      "text": "contract: 1\nstages:\n  - id: idea\n  - id: design\nkinds:\n  - name: use case\n    prefix: UC\n    folder: docs/use-cases\n    stage: design\n    hint: one\n    links:\n      - field: Serves\n        targets:\n          - US\n        backlink: Served by\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: idea\n    hint: two\n"
+      "text": "contract: 1\nstages:\n  - id: idea\n  - id: design\nkinds:\n  - name: use case\n    prefix: UC\n    folder: docs/use-cases\n    stage: design\n    hint: one\n    links:\n      - field: Serves\n        targets:\n          - user story\n        backlink: Served by\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: idea\n    hint: two\n"
     },
     {
       "name": "link-field-named-twice",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - S\n      - field: Grew from\n        targets:\n          - H\n",
-      "line": 14,
-      "message": "the link field \"Grew from\" is declared twice, first on line 11: each link field is declared once",
-      "path": "kinds[0].links[1].field"
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - source\n      - field: Grew from\n        targets:\n          - hypothesis\n",
+      "line": 13,
+      "message": "\"source\" names no kind of the registry: a link goes to a kind the registry declares",
+      "path": "kinds[0].links[0].targets[0]"
     },
     {
       "name": "link-field-generic-name",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Links\n        targets:\n          - S\n",
-      "line": 11,
-      "message": "is one of the generic fields madarch reads itself",
-      "path": "kinds[0].links[0].field"
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Links\n        targets:\n          - source\n"
     },
     {
       "name": "link-cardinality-unknown-word",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - S\n        cardinality: some\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - source\n        cardinality: some\n",
       "line": 14,
-      "message": "must match a schema in anyOf",
+      "message": "must be equal to constant",
       "path": "kinds[0].links[0].cardinality"
     },
     {
       "name": "link-required-not-boolean",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - S\n        required: yes\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - source\n        required: yes\n",
       "line": 14,
       "message": "must be boolean",
       "path": "kinds[0].links[0].required"
     },
     {
       "name": "link-field-empty",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: \"\"\n        targets:\n          - S\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: \"\"\n        targets:\n          - source\n",
       "line": 11,
       "message": "must not have fewer than 1 characters",
       "path": "kinds[0].links[0].field"
@@ -285,14 +277,14 @@
     },
     {
       "name": "link-unknown-field",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - S\n        via: reached\n",
-      "line": 11,
-      "message": "must not have additional properties",
-      "path": "kinds[0].links[0]"
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - source\n        via: reached\n",
+      "line": 14,
+      "message": "schema is false",
+      "path": "kinds[0].links[0].via"
     },
     {
       "name": "link-backlink-empty",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - S\n        backlink: \"\"\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - source\n        backlink: \"\"\n",
       "line": 14,
       "message": "must not have fewer than 1 characters",
       "path": "kinds[0].links[0].backlink"
@@ -327,7 +319,7 @@
       "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: idea\n    hint: one\n    evidence:\n      source: Source\n",
       "line": 10,
       "path": "kinds[0].evidence",
-      "message": "the evidence shape rides the fact storage form"
+      "message": "the evidence shape rides the fact storage form: a kind carrying its evidence fields declares \"storage: fact\""
     }
   ]
 }

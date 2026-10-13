@@ -43,7 +43,7 @@
         "additionalProperties": false
       },
       "minItems": 1,
-      "description": "The reserved goals section: maturity levels over the graph, per perspective (the 0021 amendment, 2026-10-12). This engine version keeps the section and names it as reserved-but-unimplemented when it renders; never a silent unknown section."
+      "description": "The reserved goals section: maturity levels over the graph, per perspective (the 0021 amendment). This engine version keeps the section and names it as reserved-but-unimplemented when it renders; never a silent unknown section."
     },
     "stages": {
       "type": "array",
@@ -160,6 +160,55 @@
               "additionalProperties": false
             },
             "description": "The links the kind declares: field name, allowed target kinds, the backlink's label, the cardinality and whether the link is required."
+          },
+          "storage": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "document"
+              },
+              {
+                "type": "string",
+                "const": "task"
+              },
+              {
+                "type": "string",
+                "const": "model-element"
+              },
+              {
+                "type": "string",
+                "const": "component"
+              },
+              {
+                "type": "string",
+                "const": "fact"
+              }
+            ],
+            "description": "How the kind is stored inside the product. document is what this engine version implements; the other forms are reserved and kept as data, named by an honest finding, never dropped."
+          },
+          "evidence": {
+            "type": "object",
+            "required": [
+              "source"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+                "minLength": 1
+              },
+              "ref": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+                "minLength": 1
+              },
+              "record": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
           }
         },
         "additionalProperties": false

@@ -12,7 +12,7 @@
  * behaviour, the refusals surfacing wherever the wiki reports problems.
  * Nothing here writes, and nothing reads the clock.
  */
-import { lstatSync, readFileSync } from 'node:fs';
+import { lstatSync, readFileSync, statSync } from 'node:fs';
 import { realpathSync } from 'node:fs';
 import { parseContractText, type ContractError, type RegistryKind, type RegistryLink, type RegistryStage } from './contract.js';
 
@@ -48,6 +48,29 @@ export function readProductRegistry(productFolder: string): ProductRegistry {
     throw error;
   }
   if (!stands) return { present: false };
+  // A non-regular file — a FIFO, a socket, a device — is never opened:
+  // the read below would block on it for good, so it is refused by name
+  // before the read is even tried, the way the page walk refuses a
+  // non-regular page (finding 2). A symlink that stat cannot resolve at
+  // all (dangling, closed loop) falls through to the resolution refusal
+  // beneath, exactly as it read before this gate stood here.
+  let regular: boolean | undefined;
+  try {
+    regular = statSync(file).isFile();
+  } catch {
+    regular = undefined;
+  }
+  if (regular === false) {
+    return {
+      present: true,
+      refused: [{
+        file: REGISTRY_FILE,
+        line: 0,
+        path: '',
+        message: `${REGISTRY_FILE} is not a regular file, so the wiki does not open it — the wiki serves these pages as plain documents`,
+      }],
+    };
+  }
   try {
     const real = realpathSync(file);
     const productReal = realpathSync(productFolder);

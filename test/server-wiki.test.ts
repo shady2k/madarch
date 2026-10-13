@@ -66,6 +66,7 @@ function draft(registry: boolean = false): string {
   writeFileSync(join(folder, 'docs', 'vision.md'), '# Vision\n\nWhat it is for.\n');
   if (registry) {
     writeFileSync(join(folder, 'docs', 'kinds.yaml'), [
+      'contract: 1',
       'stages:',
       '  - id: idea',
       '    name: Idea',
@@ -201,6 +202,7 @@ describe('the server\'s product mode', () => {
     draft(true);
     builtApp();
     writeFileSync(join(folder!, 'docs', 'kinds.yaml'), [
+      'contract: 1',
       'stages:',
       '  - id: idea',
       '    name: Idea',
@@ -248,6 +250,7 @@ describe('the server\'s product mode', () => {
     draft(true);
     builtApp();
     writeFileSync(join(folder!, 'docs', 'kinds.yaml'), [
+      'contract: 1',
       'stages:',
       '  - id: idea',
       '    name: Idea',
@@ -308,7 +311,7 @@ describe('the server\'s product mode', () => {
     // and the line each, and the pages keep the plain behaviour.
     draft();
     builtApp();
-    writeFileSync(join(folder!, 'docs', 'kinds.yaml'), 'stages:\n  - id: idea\nkinds:\n  - name: broken kind\n    prefix: X\n    folder: no\n    stage: idea\n    hint: x\n');
+    writeFileSync(join(folder!, 'docs', 'kinds.yaml'), 'contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: broken kind\n    prefix: X\n    folder: no\n    stage: idea\n    hint: x\n');
     const refusedUrl = startProduct();
     const refusedAnswer = await fetch(`${refusedUrl}/api/registry`);
     expect(refusedAnswer.status).toBe(200);
@@ -461,6 +464,7 @@ describe('the server\'s product mode', () => {
     draft();
     builtApp();
     writeFileSync(join(folder!, 'docs', 'kinds.yaml'), [
+      'contract: 1',
       'stages:',
       '  - id: idea',
       '  - id: requirements',
@@ -518,6 +522,7 @@ describe('the server\'s product mode', () => {
     const kindsPath = join(folder!, 'docs', 'kinds.yaml');
     const manifestWith = (us: string, storyBody?: string): void => {
       writeFileSync(kindsPath, [
+        'contract: 1',
         'stages:',
         '  - id: idea',
         '  - id: requirements',

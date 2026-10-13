@@ -29,7 +29,7 @@ kinds:
     links:
       - field: Grew from
         targets:
-          - S
+          - source
         backlink: Grew into
         cardinality: one
         required: true
@@ -44,14 +44,14 @@ kinds:
     links:
       - field: Grew from
         targets:
-          - S
-          - H
+          - source
+          - hypothesis
         backlink: Grew into
         cardinality: many
         required: false
       - field: Serves
         targets:
-          - UC
+          - use case
         backlink: Served by
         cardinality: one
         required: true
@@ -66,7 +66,7 @@ kinds:
     links:
       - field: Serves
         targets:
-          - US
+          - user story
         backlink: Served by
         cardinality: many
         required: false
@@ -81,8 +81,8 @@ kinds:
     links:
       - field: Serves
         targets:
-          - UC
-          - US
+          - use case
+          - user story
         backlink: Served by
         cardinality: many
         required: false

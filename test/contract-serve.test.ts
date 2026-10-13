@@ -61,6 +61,6 @@ describe('the served wiki and the product registry', () => {
     writeFileSync(join(folder!, 'docs', 'kinds.yaml'), 'contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n');
     const after = (await (await fetch(`${server.url}/api/pages`)).json()) as { pages: { kind?: string }[]; contract?: { known: boolean; version: number } };
     expect(after.contract).toEqual({ known: true, version: 1 });
-    expect(after.pages.map((entry) => entry.kind)).toEqual(['decisions']);
+    expect(after.pages.map((entry) => entry.kind)).toEqual(['decision']);
   });
 });
