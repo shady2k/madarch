@@ -298,12 +298,16 @@ export function createWikiPart(
         response: json(200, {
           present: true,
           stages: kit.stages.map((stage) => (stage.name === undefined ? { id: stage.id } : { id: stage.id, name: stage.name })),
+          goals: kit.goals,
+          reservations: kit.reservations,
           kinds: kit.kinds.map((kind) => ({
             name: kind.name,
             prefix: kind.prefix,
             folder: kind.folder,
             stage: kind.stage,
             hint: kind.hint,
+            storage: kind.storage,
+            evidence: kind.evidence,
             statuses: kind.statuses === undefined ? undefined : [...kind.statuses],
             links: kind.links === undefined ? undefined : kind.links.map((link) => ({
               field: link.field,

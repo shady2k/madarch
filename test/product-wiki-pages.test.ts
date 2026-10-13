@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { openProductWiki } from '../src/product-wiki/pages.js';
 import { readRegistryServing } from '../src/product-wiki/registry.js';
+import { readProductRegistry } from '../src/product/registry.js';
 
 /**
  * A product's pages read from the working tree (docs/changes/draft-product/
@@ -464,6 +465,113 @@ describe('the kinds registry the wiki serves', () => {
     if (!asked.ok) throw new Error(asked.message);
     expect(asked.questions).toEqual([]);
     expect(asked.openCount).toBe(0);
+  });
+
+  test('a registry symlink outside the product is refused by the serving reader', () => {
+    const productFolder = withRegistry('contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n');
+    const outside = mkdtempSync(join(tmpdir(), 'madarch-registry-outside-'));
+    try {
+      const externalRegistry = join(outside, 'kinds.yaml');
+      writeFileSync(externalRegistry, 'contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: external\n    prefix: X\n    folder: docs/external\n    stage: idea\n    hint: outside\n');
+      const registryFile = join(productFolder, 'docs', 'kinds.yaml');
+      rmSync(registryFile);
+      symlinkSync(externalRegistry, registryFile);
+
+      const serving = readRegistryServing(productFolder);
+      expect(serving.contract.state).toBe('unknown');
+      if (serving.contract.state !== 'unknown') return;
+      expect(serving.contract.message).toContain('symlink the product does not hold');
+      expect(serving.contract.message).toContain(externalRegistry);
+
+      const pages = requireProduct(openProductWiki(productFolder)).pages();
+      if (!pages.ok) throw new Error(pages.message);
+      if (pages.contract === undefined || pages.contract.known !== false) throw new Error('the external registry link must degrade');
+      expect(pages.contract.message).toContain('symlink the product does not hold');
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('retargeting an outside registry symlink changes the wiki revision', () => {
+    const productFolder = withRegistry('');
+    const outside = mkdtempSync(join(tmpdir(), 'madarch-registry-targets-'));
+    const targetA = join(outside, 'a.yaml');
+    const targetB = join(outside, 'b.yaml');
+    writeFileSync(targetA, 'contract: 1\nstages: []\nkinds: []\n');
+    writeFileSync(targetB, 'contract: 1\nstages: []\nkinds: []\n');
+    const registryFile = join(productFolder, 'docs', 'kinds.yaml');
+    rmSync(registryFile);
+    symlinkSync(targetA, registryFile);
+    try {
+      const product = requireProduct(openProductWiki(productFolder));
+      const first = product.pages();
+      if (!first.ok) throw new Error(first.message);
+      rmSync(registryFile);
+      symlinkSync(targetB, registryFile);
+      const second = product.pages();
+      if (!second.ok) throw new Error(second.message);
+      expect(second.revision).not.toBe(first.revision);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('retargeting an outside registry symlink between directories changes the wiki revision', () => {
+    const productFolder = withRegistry('');
+    const outside = mkdtempSync(join(tmpdir(), 'madarch-registry-directories-'));
+    const targetA = join(outside, 'a');
+    const targetB = join(outside, 'b');
+    mkdirSync(targetA);
+    mkdirSync(targetB);
+    const registryFile = join(productFolder, 'docs', 'kinds.yaml');
+    rmSync(registryFile);
+    symlinkSync(targetA, registryFile);
+    try {
+      const product = requireProduct(openProductWiki(productFolder));
+      const first = product.pages();
+      if (!first.ok) throw new Error(first.message);
+      rmSync(registryFile);
+      symlinkSync(targetB, registryFile);
+      const second = product.pages();
+      if (!second.ok) throw new Error(second.message);
+      expect(second.revision).not.toBe(first.revision);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('the product registry reader refuses a FIFO without blocking', () => {
+    const productFolder = withRegistry('');
+    rmSync(join(productFolder, 'docs', 'kinds.yaml'));
+    const made = spawnSync('mkfifo', [join(productFolder, 'docs', 'kinds.yaml')]);
+    expect(made.status).toBe(0);
+    const registry = readProductRegistry(productFolder);
+    expect(registry.present).toBe(true);
+    if (registry.present && 'refused' in registry) {
+      expect(registry.refused[0]?.message).toContain('not a regular file');
+    } else {
+      throw new Error('FIFO must be refused');
+    }
+  });
+
+  test('a dangling registry symlink is named as unknown, not treated as absent', () => {
+    const productFolder = withRegistry('');
+    const registryFile = join(productFolder, 'docs', 'kinds.yaml');
+    const absentDigest = readRegistryServing(productFolder).digest;
+    rmSync(registryFile);
+    symlinkSync(join(productFolder, 'docs', 'missing.yaml'), registryFile);
+
+    const serving = readRegistryServing(productFolder);
+    expect(serving.contract.state).toBe('unknown');
+    if (serving.contract.state !== 'unknown') return;
+    expect(serving.contract.message).toContain('could not be resolved');
+    expect(serving.contract.message).toContain('plain documents');
+    expect(serving.digest).not.toBe(absentDigest);
+
+    const pages = requireProduct(openProductWiki(productFolder)).pages();
+    if (!pages.ok) throw new Error(pages.message);
+    if (pages.contract === undefined || pages.contract.known !== false) throw new Error('the dangling registry link must degrade');
+    expect(pages.contract.message).toContain('could not be resolved');
   });
 
   test('a registry that is not a regular file is named and degrades the wiki, and the ask never blocks on it', () => {

@@ -208,6 +208,10 @@ describe('the server\'s product mode', () => {
       '    name: Idea',
       '  - id: requirements',
       '    name: Requirements',
+      'goals:',
+      '  - name: grounded',
+      '    perspective: business',
+      '    rules: [all requirements have an owner]',
       'kinds:',
       '  - name: Product vision',
       '    prefix: V',
@@ -219,6 +223,11 @@ describe('the server\'s product mode', () => {
       '    folder: docs/stories',
       '    stage: requirements',
       '    hint: write what one user does',
+      '    storage: fact',
+      '    evidence:',
+      '      source: Source',
+      '      ref: Ref',
+      '      record: Record',
       '    statuses: [draft, ready]',
       '  - name: Use case',
       '    prefix: UC',
@@ -235,9 +244,13 @@ describe('the server\'s product mode', () => {
     const url = startProduct();
     const answer = await fetch(`${url}/api/registry`);
     expect(answer.status).toBe(200);
-    const body = await answer.json() as { present: boolean; kinds?: { name: string; statuses?: string[]; links?: { field: string; targets: string[]; backlink?: string; cardinality?: string; required?: boolean }[] }[] };
+    const body = await answer.json() as { present: boolean; goals?: { name: string; perspective?: string; rules: string[] }[]; reservations?: { file: string; line: number; path: string; message: string }[]; kinds?: { name: string; storage?: string; evidence?: { source: string; ref?: string; record?: string }; statuses?: string[]; links?: { field: string; targets: string[]; backlink?: string; cardinality?: string; required?: boolean }[] }[] };
     expect(body.present).toBe(true);
+    expect(body.goals).toEqual([{ name: 'grounded', perspective: 'business', rules: ['all requirements have an owner'] }]);
+    expect(body.reservations?.map((finding) => finding.path)).toEqual(['kinds[1].storage', 'kinds[1].evidence', 'goals']);
     const story = body.kinds?.find((kind) => kind.name === 'User story');
+    expect(story?.storage).toBe('fact');
+    expect(story?.evidence).toEqual({ source: 'Source', ref: 'Ref', record: 'Record' });
     expect(story?.statuses).toEqual(['draft', 'ready']);
     expect(story?.links).toEqual([]);
     const uc = body.kinds?.find((kind) => kind.name === 'Use case');

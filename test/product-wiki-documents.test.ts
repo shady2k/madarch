@@ -183,7 +183,7 @@ afterEach(() => {
 const kit = (() => {
   const read = parseContractText('docs/kinds.yaml', FIXTURE_REGISTRY);
   if (!read.ok) throw new Error('the fixture registry must read');
-  return registryKit({ present: true, kinds: read.kinds, stages: read.stages });
+  return registryKit({ present: true, kinds: read.kinds, stages: read.stages, goals: read.goals, reservations: read.reservations });
 })();
 
 describe('the served body hides the field lines the header block shows', () => {

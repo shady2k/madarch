@@ -10,10 +10,10 @@
  * links, never failing silently.
  */
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { statSync } from 'node:fs';
+import { lstatSync } from 'node:fs';
 import { join as joinPath } from 'node:path';
 import { parseContractText, type ContractError } from '../product/contract.js';
+import { readRegistryFileSafely } from '../product/registry-file.js';
 
 /** The registry file's place within the product, the way every refusal names it. */
 export const REGISTRY_FILE = 'docs/kinds.yaml';
@@ -64,11 +64,13 @@ function noticeOf(read: { ok: false; errors: ContractError[] }): string {
  */
 export function readRegistryServing(productFolder: string): RegistryServing {
   const file = joinPath(productFolder, ...REGISTRY_FILE.split('/'));
-  let stat;
+  // lstat distinguishes an absent path from a dangling symlink: the link
+  // stands in the product, but its target cannot be served.
   try {
-    stat = statSync(file);
+    lstatSync(file);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
       return { contract: { state: 'absent' }, digest: digestOfText(`${REGISTRY_FILE}\u0000absent`) };
     }
     return {
@@ -76,22 +78,23 @@ export function readRegistryServing(productFolder: string): RegistryServing {
       digest: digestOfText(`${REGISTRY_FILE}\u0000unreadable`),
     };
   }
-  if (!stat.isFile()) {
-    const message = stat.isDirectory()
-      ? `${REGISTRY_FILE} is a folder, not a registry file — the wiki serves these pages as plain documents`
-      : `${REGISTRY_FILE} is not a regular file, so the wiki does not open it — the wiki serves these pages as plain documents`;
-    return {
-      contract: { state: 'unknown', message },
-      digest: digestOfText(`${REGISTRY_FILE}\u0000irregular`),
-    };
-  }
   let bytes: Buffer;
   try {
-    bytes = readFileSync(file);
+    bytes = readRegistryFileSafely(file, productFolder, REGISTRY_FILE);
   } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    const cause = (error as Error).message;
+    const message = code === 'ENOENT' || code === 'ELOOP'
+      ? `${REGISTRY_FILE} could not be resolved: ${cause}`
+      : code !== undefined
+        ? `${REGISTRY_FILE} could not be read: ${cause}`
+        : cause;
+    const outsideTarget = message.match(/symlink the product does not hold: it points at (.*), away from the place madarch reads/);
     return {
-      contract: { state: 'unknown', message: `${REGISTRY_FILE} could not be read: ${(error as Error).message} — the wiki serves these pages as plain documents` },
-      digest: digestOfText(`${REGISTRY_FILE}\u0000unreadable`),
+      contract: { state: 'unknown', message: `${message} — the wiki serves these pages as plain documents` },
+      digest: outsideTarget === null
+        ? digestOfText(`${REGISTRY_FILE}\u0000${message}`)
+        : digestOfText(`${REGISTRY_FILE}\u0000outside\u0000${outsideTarget[1]}`),
     };
   }
   const read = parseContractText(REGISTRY_FILE, bytes.toString('utf8'));
