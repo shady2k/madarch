@@ -43,14 +43,12 @@ if [ -z "$(git config --get user.email)" ]; then
   need "git user.email: commits are signed with the owner's public email (git config user.email <address>)"
 fi
 
-if command -v node >/dev/null 2>&1 && ! node .shady2k/adapter.mjs backlog >/dev/null 2>&1; then
-  need "a readable tracker export: node .shady2k/adapter.mjs backlog fails on .beads/issues.jsonl (run it to see why)"
-fi
 
 # Every local file a hook reads. A hook that cannot find one refuses the commit
 # and names this command; connect says what is missing before it writes anything.
 for f in \
-  .shady2k/adapter.mjs .shady2k/config.json .shady2k/push.mjs .shady2k/jsonl-clean.mjs \
+  .shady2k/adapter.mjs .shady2k/config.json .shady2k/push.mjs \
+  .shady2k/tracker.mjs .shady2k/tracker-sync.mjs .shady2k/tracker-sync.version .shady2k/trackers/br.mjs \
   .shady2k/documents.mjs .shady2k/documents.json .shady2k/document-policy.json \
   .shady2k/checks/check.mjs .shady2k/checks/time-format.mjs \
   .shady2k/checks/check-commits.mjs .shady2k/checks/check-present.mjs \
@@ -60,7 +58,7 @@ for f in \
   .shady2k/push.test.mjs \
   .githooks/privacy-guard.sh .githooks/tracker-home.sh .githooks/pre-commit \
   .githooks/commit-msg .githooks/pre-push .githooks/post-checkout \
-  .shady2k/connect.sh .beads/issues.jsonl; do
+  .githooks/post-commit .githooks/post-merge .shady2k/connect.sh; do
   [ -f "$f" ] || need "the files the hooks read: $f is missing from this checkout"
 done
 
@@ -71,19 +69,28 @@ fi
 
 fail() { echo "connect: $1; the clone is not connected. Fix it and rerun."; exit 1; }
 
-# The tracker database is local; the export is what is committed. Each
-# checkout, a git worktree included, gets its own database beside its own
-# export: br finds a database by walking up, and a worktree without one would
-# write the main checkout's tracker. Once it exists, br finds it first.
-db="$PWD/.beads/beads.db"
-br sync --import-only --db "$db" >/dev/null || fail "br could not import .beads/issues.jsonl (see above)"
-# The committed export stores "." for each issue's workspace path; give br this
-# clone's. br plans the migration first and applies only that reviewed plan.
-plan=$(br sync --migrate-source-repo-path --json --db "$db") || fail "br could not plan this clone's workspace path (see above)"
-if ! echo "$plan" | grep -q '"no_op":true'; then
-  sha=$(echo "$plan" | sed -n 's/.*"plan_sha256":"\([0-9a-f]*\)".*/\1/p')
-  br sync --migrate-source-repo-path --apply --expect-plan-sha256 "$sha" --db "$db" >/dev/null || fail "br could not set this clone's workspace path (see above)"
+# The tracker lives off the branches: one store per machine, a worktree of this
+# repository detached at refs/tracker/state, kept in step with origin by the
+# tracker-sync service (integration, "Tracker synchronization"). The main
+# checkout connects the machine (the store, rebuilt from the ref, and its own
+# .beads link); any other checkout only links its .beads to that store.
+# A real .beads folder is never overwritten: it is a second tracker.
+if [ -e .beads ] && ! [ -L .beads ]; then
+  fail "a real .beads folder stands in $PWD: it would be a second tracker. Move it out of the way (its records belong in the store), then rerun"
 fi
+store="$(node .shady2k/tracker.mjs store)" || fail "the tracker store's entry point (.shady2k/tracker.mjs) does not run"
+main_checkout="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
+if [ "$PWD" = "$main_checkout" ] || ! [ -d "$store/.beads" ]; then
+  # The prefix names a store the first machine makes; a store from the ref keeps its own.
+  node .shady2k/tracker.mjs connect --checkout "$PWD" --prefix madarch || fail "tracker-sync could not connect this machine's store (see above)"
+else
+  (cd "$store" && node "$OLDPWD/.shady2k/trackers/br.mjs" pointer-install --checkout "$OLDPWD") || fail "could not link .beads to the store $store (see above)"
+fi
+# br's own settings are this machine's, beside the store's database, and the
+# set's recipe carries only the state files: a claim is exclusive here
+# (br update --claim refuses an item another actor holds).
+grep -q '^claim_exclusive: true' "$store/.beads/config.yaml" 2>/dev/null || \
+  printf 'claim_exclusive: true\n' >> "$store/.beads/config.yaml" || fail "could not set claim_exclusive in $store/.beads/config.yaml"
 
 if [ -n "$make_main" ]; then
   git branch main origin/main >/dev/null || fail "could not create local main from origin/main"
@@ -91,14 +98,15 @@ if [ -n "$make_main" ]; then
 fi
 # core.hooksPath goes last: a write that fails part way leaves the hooks off,
 # so the clone is plainly unconnected, and a rerun completes it.
-git config filter.br-portable-path.clean "node .shady2k/jsonl-clean.mjs" || fail "could not write git config"
-git config filter.br-portable-path.smudge cat || fail "could not write git config"
-git config filter.br-portable-path.required true || fail "could not write git config"
+git config --unset-all filter.br-portable-path.clean 2>/dev/null
+git config --unset-all filter.br-portable-path.smudge 2>/dev/null
+git config --unset-all filter.br-portable-path.required 2>/dev/null
 git config core.hooksPath .githooks || fail "could not write git config"
 
 # Prove what the hooks read works here.
 [ "$(git config --get core.hooksPath)" = .githooks ] || fail "core.hooksPath did not take effect"
 .githooks/privacy-guard.sh || fail "the privacy guard does not pass on this clone"
-.githooks/tracker-home.sh >/dev/null || fail "br in this checkout still does not write its own tracker ($(br where 2>/dev/null | head -n 1))"
+.githooks/tracker-home.sh >/dev/null || fail "this checkout's .beads does not reach the machine's tracker store ($store)"
+node .shady2k/adapter.mjs backlog >/dev/null || fail "the tracker does not read through this checkout's .beads (node .shady2k/adapter.mjs backlog)"
 
-echo "connect: this clone is connected (hooks, path filter, its own tracker database, private patterns, main)."
+echo "connect: this clone is connected (hooks, the machine's tracker store at $store, private patterns, main)."

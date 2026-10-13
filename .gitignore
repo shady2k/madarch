@@ -9,3 +9,7 @@ node_modules/
 /wiki/app/dist/
 /wiki/demo/repos/
 stryker.log
+
+# The tracker lives off the branches: .beads is each checkout's link to the machine store.
+/.beads
+.beads

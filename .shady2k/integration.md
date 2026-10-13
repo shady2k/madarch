@@ -66,7 +66,9 @@ are the repository's installation, and each person's plugin and hooks are theirs
 ### Checks and execution
 
 - **Backlog adapter:** `node .shady2k/adapter.mjs backlog [--at <git-rev>]`;
-  reads `.beads/issues.jsonl` (br rewrites it on every write), or that file at a revision.
+  reads `.beads/issues.jsonl` through the checkout's link to the machine store
+  (br rewrites it on every write), or the store's recording at a revision (see
+  "Tracker layout"). Commit task ids resolve against the store as it is now.
 - **Rules:** `.shady2k/checks/{check,check-commits,check-docs,check-present,check-product}.mjs`,
   `document-format.mjs` (which `documents.mjs` parses the project's documents
   with and `check-present.mjs` takes its path matcher from; `check-docs.mjs`
@@ -128,28 +130,45 @@ are the repository's installation, and each person's plugin and hooks are theirs
   record, posted the same way, and every reader then acts as if the voided
   record were not there. `timeRecordsExempt` is empty: at adoption (2026-09-27)
   no work was active, submitted or implemented.
-- **Tracker layout:** the export `.beads/issues.jsonl` is committed on each
-  branch, and each checkout (a git worktree included) has its own br database
-  beside its own export, created by the connect command. A branch therefore
-  carries only its own tracker writes on top of the tracker at its base; a task
-  filed on `main` during a run reaches the run's worktree only through a merge.
-  The tracker at a revision is that file at the revision. `.githooks/tracker-home.sh`
-  (run by pre-commit) refuses a commit from a checkout whose br resolves to
-  another checkout's database (br finds a database by walking up, so a worktree
-  inside the main checkout without its own writes the main one's).
-  `.githooks/post-checkout` prevents that: git runs it after `git worktree add`,
-  and when the new checkout's br resolves elsewhere it runs the connect command
-  there; on any other checkout it passes silently. Only a worktree made with the
-  hooks off (or before they existed) can still write another checkout's
-  tracker; the guard refuses its commits until it is connected. At the end of a session, commit the export with the work
-  that changed it on the branch that did it; time records alone are never a
-  commit of their own (the commit check refuses it), they ride with that work's
-  landing. The owner chose on 2026-10-13 to move the store off the branches;
-  0.45.0 still accepts this in-branch layout for an ordinary project, and the
-  move waits for the reference mechanism the set ships
-  (skills-off-branch-tracker-not-shipped-d9f; tracked here as its own task),
-  installed by the setup rerun that follows it. Until then never run `br init`
-  in a worktree outside this folder: it makes a second, empty tracker.
+- **Tracker layout:** off the branches since 2026-10-13 (the owner's choice;
+  madarch-tjum, shady2k-skills 0.107.0). No branch carries `.beads/`: it is in
+  `.gitignore`, and each checkout's `.beads` is a link to the machine's one
+  store, `${XDG_STATE_HOME:-~/.local/state}/madarch/tracker`, a worktree of this
+  repository detached at `refs/tracker/state` (a ref no branch contains, pushed
+  to origin). br's database there is this machine's own, rebuilt from the
+  state files on the ref; only `.beads/issues.jsonl` and `.beads/beads.base.jsonl`
+  travel; br's `config.yaml` is the machine's too, and connect keeps
+  `claim_exclusive: true` in it. Every checkout, a herdr worktree anywhere included, reaches the same
+  store through its link: `.shady2k/tracker.mjs` names the store for all of
+  them, since the set's mechanism alone would name it after the checkout's
+  folder. `.githooks/tracker-home.sh` (pre-commit) refuses a commit from a
+  checkout whose `.beads` is missing, a real folder or a link elsewhere;
+  `.githooks/post-checkout` links a new worktree at once. Never run `br init`
+  in a checkout, and never let a real `.beads` folder stand in one: it is a
+  second tracker. The tracker at a code revision is the store's recording under
+  that revision's full name (`.githooks/post-commit` and `post-merge` record
+  each revision cut or landed; `node .shady2k/adapter.mjs backlog --at <rev>`
+  reads it, refusing a revision never recorded); revisions of the in-tree era
+  (up to 40ce61f1, recorded at the move from its own tree) read their own
+  committed export. Tracker writes need no commit: the service publishes them,
+  and a commit carries code and documents only.
+- **Tracker synchronization:** the set's mechanism, copied byte for byte from
+  shady2k-skills 0.107.0: `.shady2k/tracker-sync.mjs` (version in
+  `.shady2k/tracker-sync.version`), the br recipe `.shady2k/trackers/br.mjs`,
+  the unit template `.shady2k/supervisors/systemd-user/tracker-sync.service`;
+  run only through `node .shady2k/tracker.mjs <command>` (connect, publish,
+  sync, claim, transition, record, export, status, watch). Supervisor: the user
+  unit `~/.config/systemd/user/madarch-tracker-sync.service` (this machine's,
+  not committed) runs `tracker.mjs watch --interval 10 --debounce 2 --max-age 5`:
+  a write is published after 2 s of quiet or 5 s at most (measured at setup:
+  3.9 s), the other machines' state is merged per item every 10 s, a push is
+  killed after 10 s and a fetch after 20 s and reported as unreachable. The
+  unit survives logout and reboot only with the user's linger on
+  (`loginctl enable-linger <user>`, a privileged command; on NixOS
+  `users.users.<user>.linger = true`). A push to the ref starts no code CI (a
+  workflow's push event is a branch or a tag; the run list after the first
+  pushes showed none). The residual the set accepts: two machines claiming one
+  item in the same seconds can both believe they hold it until the next sync.
 - **Document gate:** `.shady2k/documents.mjs` exports the documents and tracker
   records into `check-docs.mjs`'s contract and runs it; tests in
   `.shady2k/documents.test.mjs` (`node --test .shady2k/*.test.mjs`).
@@ -312,17 +331,18 @@ are the repository's installation, and each person's plugin and hooks are theirs
   `.shady2k/push.test.mjs`, through real pushes to a scratch remote.
 - **Connecting a clone:** `sh .shady2k/connect.sh`. It checks first and changes
   nothing unless every check passes: node and br present, a valid private
-  pattern list, a readable tracker export, a local `main` (created from
-  `origin/main` when only that exists) and a `user.email`. Then it imports the
-  tracker export into this checkout's own br database (`.beads/beads.db`
-  beside the export, a worktree included) and migrates workspace paths through
-  br's reviewed plan, and only then writes the `br-portable-path` filter and
-  `core.hooksPath`, each write checked, and proves the privacy guard and the
-  tracker home guard pass.
-  Safe to rerun; it writes no global git config. Tests:
-  `.shady2k/hooks.test.mjs`. Known limit: in a clone that already had
-  `core.hooksPath` set, a filter write that fails part way leaves the old
-  hooks active beside a partial filter until a rerun succeeds.
+  pattern list, a local `main` (created from `origin/main` when only that
+  exists), a `user.email`, every file a hook reads, and no real `.beads` folder
+  in the checkout (a second tracker, refused and left alone). Then, in the main
+  checkout or on a machine with no store yet, it connects the machine
+  (`tracker.mjs connect`: the store from `refs/tracker/state`, its database
+  rebuilt from the ref, this machine's ordinal, the checkout's `.beads` link);
+  in any other checkout it only links `.beads` to the store. Only then does it
+  write `core.hooksPath` (and drop the old `br-portable-path` filter), and it
+  proves the privacy guard, the tracker home guard and a tracker read pass.
+  The supervisor is not started by it: the user unit is this machine's, agreed
+  with the owner (see "Tracker synchronization"). Safe to rerun; it writes no
+  global git config. Tests: `.shady2k/hooks.test.mjs`.
 - **Public repository, privacy:** no personal data and no details of the
   owner's other projects. `.githooks/privacy-guard.sh` refuses staged content
   matching the private pattern lists, never committed: per user at

@@ -8,11 +8,12 @@
 //   (push.mjs builds the same input for the commits a push introduces: commitLinks)
 //   adapter.mjs claim <id> --actor <name>     the integration's claim operation (see claimPlan)
 //
-// The export is .beads/issues.jsonl, which br rewrites on every write. Each
+// The export is .beads/issues.jsonl, which br rewrites on every write; .beads is
+// this checkout's link to the machine's tracker store (off the branches). Each
 // issue carries its `[shady2k-time` comments raw (the run script reads them). With --at
-// it is read from that revision instead, for baselines and honest ages.
+// it is the store's recording at that revision, for baselines and honest ages.
 import { readFileSync, existsSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -32,9 +33,41 @@ export function taskIds(message) {
   return ids;
 }
 
+// The tracker lives off the branches (integration, "Tracker layout"): the
+// working state is the machine store this checkout's .beads link reaches, and
+// the state at a code revision is the recording the store keeps under that
+// revision's name, never the code tree. A revision with no recording is
+// refused, never read as an empty tracker.
+// The last revision whose tree carried the tracker (the move off the branches,
+// recorded in the store from its own tree); a revision descending from it
+// reads only its recording.
+const LAST_IN_TREE = '40ce61f17579f2072e60cd9ad7a2fd0f8711d21f';
 function readExport(rev) {
   if (rev) {
-    try { return git('show', `${rev}:${EXPORT}`); } catch { return ''; }
+    // A recording is named by the full revision; a framed recording ("=== <file>"
+    // sections) carries the export as its .beads/issues.jsonl section.
+    let sha;
+    try { sha = git('rev-parse', '--verify', `${rev}^{commit}`).trim(); } catch { throw new Error(`the tracker at ${rev} cannot be read: ${rev} is not a revision of this repository`); }
+    const r = spawnSync(process.execPath, [join(ROOT, '.shady2k', 'tracker.mjs'), 'export', '--at', sha, '--offline'],
+      { cwd: ROOT, encoding: 'utf8', maxBuffer: GIT_MAX_BUFFER });
+    if (r.status !== 0) {
+      // Before the move off the branches (2026-10-13) the tracker was in the
+      // tree, and a revision of that era holds its own state there; a revision
+      // after it holds none and has only its recording.
+      // A revision that descends from the last in-tree one came after the move;
+      // any other revision (its ancestors, side branches of that era) holds its own.
+      let afterMove = false;
+      try { git('merge-base', '--is-ancestor', LAST_IN_TREE, sha); afterMove = sha !== LAST_IN_TREE; } catch { /* not a descendant */ }
+      const inTreeEra = !afterMove;
+      if (inTreeEra) {
+        try { return git('show', `${sha}:${EXPORT}`); } catch { /* a revision before the tracker existed */ }
+      }
+      throw new Error(`the tracker at ${rev} cannot be read: ${(r.stderr || r.stdout || '').trim() || `exit ${r.status}`}`);
+    }
+    if (!r.stdout.startsWith('=== ')) return r.stdout;
+    const sections = r.stdout.split(/^=== (.+)\n/m);
+    for (let i = 1; i < sections.length; i += 2) if (sections[i].trim() === EXPORT) return sections[i + 1];
+    throw new Error(`the tracker at ${rev} cannot be read: its recording carries no ${EXPORT} section`);
   }
   const path = join(ROOT, EXPORT);
   if (!existsSync(path)) throw new Error(`${EXPORT} not found: run \`br init\` or \`br sync --flush-only\``);
@@ -114,8 +147,10 @@ export function backlog(rev) {
 
 // Commit-link input for the given commits, their tasks resolved against the
 // tracker export at `rev` (the working tree without one).
+// Task ids resolve against the store, never a code tree: a pushed commit names
+// tasks the store holds now (`rev` is kept for the callers and not read).
 export function commitLinks(shas, rev) {
-  const { issues } = backlog(rev);
+  const { issues } = backlog();
   return { issues: issues.map(({ id, type, parent }) => ({ id, type, parent })), commits: shas.map((id) => ({ id, taskIds: taskIds(git('log', '-1', '--format=%B', id)), recordsOnly: recordsOnlyAt(id) })) };
 }
 

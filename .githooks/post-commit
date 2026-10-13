@@ -1,0 +1,10 @@
+#!/bin/sh
+# shady2k tracker-sync record: this line records the revision this hook just cut or landed
+# (see .shady2k/integration.md, "Tracker synchronization"): the store keeps the
+# tracker's state under the revision's own name, written once and never moved,
+# so a read of the tracker at this revision answers. A failure never stops git.
+top="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+[ -f "$top/.shady2k/tracker.mjs" ] || exit 0
+node "$top/.shady2k/tracker.mjs" record --revision "$(git rev-parse HEAD)" --checkout "$top" >/dev/null 2>&1 || \
+  echo "post-commit: the tracker store did not record $(git rev-parse --short HEAD); a read of the tracker at it will be refused. Run: node .shady2k/tracker.mjs record --revision $(git rev-parse HEAD) --checkout $top" >&2
+exit 0

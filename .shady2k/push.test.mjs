@@ -125,13 +125,19 @@ test('a push removing a path a present document names is refused with that path;
   assert.match(r.out, /new errors: 0/);
 });
 
-test('links resolve against the tracker at the pushed tip, not the checked-out one', () => {
+test('links resolve against the tracker store the checkout reaches, not a code tree', () => {
+  // The tracker lives off the branches: a pushed commit's task ids resolve
+  // against the store as it is now (here the checkout's .beads export), never
+  // against what some revision's tree carries.
   const s = setup();
   s.run('git', ['switch', '-q', '-c', 'side']);
+  writeFileSync(join(s.root, 'src/next.ts'), 'export {};\n');
+  s.run('git', ['add', 'src/next.ts']);
+  s.run('git', ['commit', '-q', '-m', 'next\n\nTask: madarch-t2']);
+  let r = s.push('side');
+  assert.equal(r.code, 1, r.out);
   writeFileSync(join(s.root, '.beads/issues.jsonl'), `${row('madarch-t1')}\n${row('madarch-t2')}\n`);
-  s.commit('file a task\n\nTask: madarch-t2');
-  s.run('git', ['switch', '-q', 'main']);
-  const r = s.push('side');
+  r = s.push('side');
   assert.equal(r.code, 0, r.out);
 });
 
