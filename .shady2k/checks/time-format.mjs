@@ -31,7 +31,9 @@
  *             alone, a CI run.
  *   summary   a feature closed: the forecast against the work, by phase, and
  *             how long the work occupied, parallel sessions counted once.
- *   verdict   the owner's judgement of a run.
+ *   verdict   a run judged by the owner. The set no longer asks for one and
+ *             nothing writes it; it is still read, so a record a tracker
+ *             already holds stays whole.
  *   recovery  how well a session picked up work another left.
  *   void      retires another record on the same item, named by its comment.
  *             A tracker may only append, so a record that is damaged, wrong
@@ -72,7 +74,7 @@ const oneOf = (list) => ({ list });
 export const SCHEMA = {
   claim: {
     need: { span: TEXT, at: TIME, session: TEXT, agent: TEXT, role: oneOf(ROLES) },
-    may: { due: TIME, away: INT, tasks: INT, stages: INT, basis: TEXT, note: TEXT, recovered: TIME },
+    may: { due: TIME, away: INT, tasks: INT, stages: INT, basis: TEXT, note: TEXT, recovered: TIME, sent: TEXT },
     table: { columns: ['forecast'], optional: true },
   },
   receipt: {

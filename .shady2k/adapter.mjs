@@ -116,7 +116,45 @@ export function backlog(rev) {
 // tracker export at `rev` (the working tree without one).
 export function commitLinks(shas, rev) {
   const { issues } = backlog(rev);
-  return { issues: issues.map(({ id, type, parent }) => ({ id, type, parent })), commits: shas.map((id) => ({ id, taskIds: taskIds(git('log', '-1', '--format=%B', id)) })) };
+  return { issues: issues.map(({ id, type, parent }) => ({ id, type, parent })), commits: shas.map((id) => ({ id, taskIds: taskIds(git('log', '-1', '--format=%B', id)), recordsOnly: recordsOnlyAt(id) })) };
+}
+
+// A commit carries only records of what already happened when the tracker
+// export is the one path it changes and every issue reads the same before and
+// after once its work-record comments and its update time are set aside: it
+// adds time records and moves no work. Filing, claiming, closing or editing
+// work is not that. The commit check refuses such a commit: the records ride
+// with the landing they describe (setup 0.45.0).
+const RECORD = '[shady2k-time';
+export function onlyRecords(paths, before, after) {
+  if (paths.length !== 1 || paths[0] !== EXPORT) return false;
+  const work = (text) => new Map(text.split('\n').filter((l) => l.trim()).map((line) => {
+    const { updated_at, comments, ...rest } = JSON.parse(line);
+    const kept = (comments ?? []).filter((c) => !(c.text ?? '').startsWith(RECORD));
+    return [rest.id, JSON.stringify({ ...rest, comments: kept })];
+  }));
+  const was = work(before), now = work(after);
+  if (was.size !== now.size) return false;
+  for (const [id, issue] of now) if (was.get(id) !== issue) return false;
+  return true;
+}
+
+const showOr = (spec) => { try { return git('show', spec); } catch { return null; } };
+
+// A committed revision: merges and the root commit are never records-only.
+export function recordsOnlyAt(sha) {
+  const parents = git('rev-list', '--parents', '-n', '1', sha).trim().split(/\s+/).slice(1);
+  if (parents.length !== 1) return false;
+  const paths = git('diff-tree', '--no-commit-id', '--name-only', '-r', sha).split('\n').filter(Boolean);
+  const before = showOr(`${sha}^:${EXPORT}`), after = showOr(`${sha}:${EXPORT}`);
+  return before !== null && after !== null && onlyRecords(paths, before, after);
+}
+
+// The commit being made: what the index stages against HEAD.
+function recordsOnlyStaged() {
+  const paths = git('diff', '--cached', '--name-only').split('\n').filter(Boolean);
+  const before = showOr(`HEAD:${EXPORT}`), after = showOr(`:${EXPORT}`);
+  return before !== null && after !== null && onlyRecords(paths, before, after);
 }
 
 function commits(args) {
@@ -125,12 +163,12 @@ function commits(args) {
   let list;
   if (args.message) {
     const msg = readFileSync(args.message, 'utf8').split('\n').filter((l) => !l.startsWith('#')).join('\n');
-    list = [{ id: 'pending-message', taskIds: taskIds(msg) }];
+    list = [{ id: 'pending-message', taskIds: taskIds(msg), recordsOnly: recordsOnlyStaged() }];
   } else if (args.range) {
     const out = git('log', '--format=%H%x00%B%x1e', args.range);
     list = out.split('\x1e').map((s) => s.trim()).filter(Boolean).map((s) => {
       const [id, body] = s.split('\0');
-      return { id, taskIds: taskIds(body ?? '') };
+      return { id, taskIds: taskIds(body ?? ''), recordsOnly: recordsOnlyAt(id) };
     });
     if (!list.length) throw new Error(`no commits in range ${args.range}`);
   } else throw new Error('commits needs --message <file> or --range <a>..<b>');

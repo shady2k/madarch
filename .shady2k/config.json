@@ -77,5 +77,6 @@
   "trackerWords": [
     "beads",
     "beads_rust"
-  ]
+  ],
+  "notifyPushes": true
 }

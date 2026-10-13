@@ -17,7 +17,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { checkDocuments, digest } from './checks/check-docs.mjs';
+import { checkDocuments, digest, notesOf } from './checks/check-docs.mjs';
 import { parseVision, parseMilestone, parseCapability, checkRevision } from './checks/document-format.mjs';
 import { normalize, taskIds } from './adapter.mjs';
 
@@ -311,7 +311,11 @@ export function runCheck(root, options) {
   const inputs = buildInputs(root, options);
   const { model, policy, evidence } = inputs;
   const violations = checkDocuments(model, policy, evidence);
-  if (!violations.length) return { violations, text: `Document gate (${model.phase}): clean${model.change ? ` for change ${model.change.id}` : ''}` };
+  // A mutation run that was not made, or not on this revision, is a note: it
+  // is reported with what to record, and never refuses (setup 0.45.0).
+  const notes = notesOf(violations);
+  const noted = notes.map((n) => `  not-made: ${n.at} — ${n.why}`);
+  if (!violations.length) return { violations, notes, text: [`Document gate (${model.phase}): clean${model.change ? ` for change ${model.change.id}` : ''}`, ...noted].join('\n') };
   const lines = [];
   const c = model.change;
   if (c) {
@@ -325,7 +329,7 @@ export function runCheck(root, options) {
       lines.push(`Capability document: ${CAPABILITIES}${id}.md (${onTarget ? 'exists on the target' : 'absent on the target: this change adds it'}).`);
     }
   } else lines.push(`Document gate (${model.phase}) refused: the vision (docs/vision.md: Audience, Problem, Outcome, Exclusions) and the current charter (docs/milestones/${model.project.milestone.id}.md: Outcomes and acceptance, Exclusions) must be complete.`);
-  lines.push('', ...violations.map((v) => `  ${v.id}: ${v.at}${v.why ? ` — ${v.why}` : ''}`));
+  lines.push('', ...violations.map((v) => `  ${v.id}: ${v.at}${v.why ? ` — ${v.why}` : ''}`), ...noted);
   if (c && violations.some((v) => ['unproved-check', 'stale-evidence'].includes(v.id))) {
     const missing = violations.filter((v) => v.id === 'unproved-check').map((v) => v.at);
     const ids = missing.length ? missing : policy.requiredChecks.filter((x) => !x.appliesTo || x.appliesTo.includes(c.kind)).map((x) => x.id);
@@ -338,7 +342,7 @@ export function runCheck(root, options) {
       `  br comments add ${c.taskIds[0]} 'approval: ${JSON.stringify({ changeDigest: digest({ kind: c.kind, intent: c.intent, outOfScope: c.outOfScope, deltas: c.deltas, preserves: c.preserves }), reference: '<the owner\'s words and where>' })}' --actor <agent>`);
   }
   lines.push('', 'Guide: .shady2k/integration.md, "Document gate".');
-  return { violations, text: lines.join('\n') };
+  return { violations, notes, text: lines.join('\n') };
 }
 
 // The commit-msg entry point: every commit gets the product phase; product code
@@ -456,7 +460,7 @@ function main(args) {
       return 0;
     }
     const r = runCheck(root, o);
-    console.log(opts.json ? JSON.stringify({ violations: r.violations }) : r.text);
+    console.log(opts.json ? JSON.stringify({ violations: r.violations, notes: r.notes }) : r.text);
     return r.violations.length ? 1 : 0;
   }
   throw new Error('usage: documents.mjs check|export --phase <phase> [--change <id>] [--candidate index|worktree|<rev>] [--target <rev>] | commit --message <file> | revision [--candidate <rev>] [--check <id>]');
