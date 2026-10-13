@@ -92,7 +92,10 @@ are the repository's installation, and each person's plugin and hooks are theirs
   longer has; the list itself is not a reference, so moving or dropping a listed
   document with no other document naming its path is not what it refuses
   (checked 2026-10-09: moving `docs/glossary.md` passed, moving
-  `.shady2k/integration.md`, named by `AGENTS.md`, was refused). At adoption
+  `.shady2k/integration.md`, named by `AGENTS.md`, was refused). The `skills`
+  ignore names the product-created `skills/` folder in product-repository
+  scenarios; it is not a repository-root folder shipped by this engine. It
+  does not ignore paths below that folder or moved skill-specific paths. At adoption
   (2026-09-29) it reported no dead references and two areas no present document
   mentions (`examples/`, `scripts/`), filed as debt; read again 2026-10-09 over
   the last twenty commits of `main`, no new dead reference and `examples/` still
