@@ -11,6 +11,7 @@
 import { mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { openProductWiki } from '../src/product-wiki/pages.js';
 import { parseDocument, resolveBodyLink, statusOf, backlinksOf, blankFieldLines } from '../src/product-wiki/documents.js';
@@ -392,7 +393,9 @@ describe('the set check at serve time', () => {
     write('docs/requirements/FR-999-a-failing-example.md', '# FR-999 — The failing example\n\nA break stands here.\n\nServes: UC-001\nVerified by: wishful thinking\n\n## Requirement\nThe reader sees `a-part` on demand.\n');
     write('docs/requirements/FR-001-fine.md', '# FR-001 — Fine\n\nServes: UC-001\nVerified by: test\n\n## Requirement\nSomething a user can observe.\n');
     const failing = page('docs/requirements/FR-999-a-failing-example.md');
-    expect(failing.check).toEqual({ ran: true, version: '0.44.0' });
+    // The version the checkout's installed check prints, which the page reports.
+    const installed = execFileSync('node', [script.ok ? script.path : '', '--version'], { encoding: 'utf8' }).trim();
+    expect(failing.check).toEqual({ ran: true, version: installed });
     expect(failing.findings.length).toBeGreaterThan(0);
     for (const finding of failing.findings) {
       expect(finding.file).toBe('docs/requirements/FR-999-a-failing-example.md');
