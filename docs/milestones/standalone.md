@@ -47,10 +47,17 @@ repository-describing skill and the model-writing skill — live in
 shady2k-skills; a skillless product still serves its described repository
 wiki.
    *Note (2026-10-13, set side confirmed):* the install contract is
-   shady2k-skills 0.106.0 or later (set main 5030227), which carries the
+   shady2k-skills 0.106.0 or later (package 0.106.0 at set main
+   `37c010e`; set CI run `38362016757` succeeded), which carries the
    skills 0021 (d) moved; the engine's checkout ships none, and this line
    and the guide's install-contract line are the only places the
    repository pins the set release.
+   *Acceptance (2026-10-13, engine side):* outcome 4 landed on madarch
+   `main` at `0be9fdba`; main CI run `38391358475` and Product documents
+   run `38391358622` succeeded. Stryker killed 66/88 mutants; the 22
+   survivors are tracked by `madarch-v4vc`. Eleven older example references
+   remain filed under `madarch-8nfh` and `madarch-hsz5`; the current finding
+   budget use is 3 of 5.
    *Check:* the set names the moved skills and carries them green under the
 set's own rules (it does not reach the set's main without the owner's own
 yes); madarch's repository names them only in the install contract.
