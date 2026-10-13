@@ -22,6 +22,7 @@ import { readStagesIndex } from '../src/wiki/stages.js';
 let folder: string | undefined;
 
 const REGISTRY = [
+  'contract: 1',
   'stages:',
   '  - id: idea',
   '    name: Idea',
@@ -115,13 +116,13 @@ describe('the kinds registry a product holds', () => {
   });
 
   test('a bad registry is refused by the contract\u2019s words, the file and the line named', () => {
-    draft('stages:\n  - id: idea\nkinds:\n  - name: broken kind\n    prefix: X\n    folder: elsewhere/plain\n    stage: idea\n    hint: x\n');
+    draft('contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: broken kind\n    prefix: X\n    folder: elsewhere/plain\n    stage: idea\n    hint: x\n');
     const read = readProductRegistry(folder!);
     expect(read).toMatchObject({ present: true });
     if (!read.present || !('refused' in read)) throw new Error('the broken registry must be refused');
     expect(read.refused).toHaveLength(1);
     expect(read.refused[0]!.file).toBe('docs/kinds.yaml');
-    expect(read.refused[0]!.line).toBe(6);
+    expect(read.refused[0]!.line).toBe(7);
     expect(read.refused[0]!.message).toContain('is not a place under the documents');
     // The pages keep the plain behaviour, and the stage index names the
     // refusal the same words.
@@ -130,7 +131,7 @@ describe('the kinds registry a product holds', () => {
     expect(pages.pages.every((page) => page.kind === undefined)).toBe(true);
     const index = readStagesIndex(folder!);
     expect(index.problems).toEqual([
-      { where: 'docs/kinds.yaml', message: 'line 6: kinds[0].folder: "elsewhere/plain" is not a place under the documents: a kind lives inside docs/' },
+      { where: 'docs/kinds.yaml', message: 'line 7: kinds[0].folder: "elsewhere/plain" is not a place under the documents: a kind lives inside docs/' },
     ]);
   });
 
@@ -224,7 +225,8 @@ describe('the fixed reference: the set-up demo product reads through the registr
   });
 
   test('a kind behind the longer folder wins the place’s match, and id prefixes pin the longest first', () => {
-    draft(['stages:',
+    draft(['contract: 1',
+      'stages:',
       '  - id: idea',
       '  - id: requirements',
       '  - id: design',

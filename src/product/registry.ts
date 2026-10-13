@@ -12,9 +12,10 @@
  * behaviour, the refusals surfacing wherever the wiki reports problems.
  * Nothing here writes, and nothing reads the clock.
  */
-import { lstatSync, readFileSync } from 'node:fs';
-import { realpathSync } from 'node:fs';
-import { parseContractText, type ContractError, type RegistryKind, type RegistryLink, type RegistryStage } from './contract.js';
+import { lstatSync } from 'node:fs';
+import { readRegistryFileSafely } from './registry-file.js';
+import { parseContractText, type ContractError, type RegistryKind, type RegistryLink, type RegistryStage, type ReservationFinding } from './contract.js';
+import type { GoalLevel } from './schema.js';
 
 /** The file the kinds registry is read from, relative to the product folder. */
 export const REGISTRY_FILE = 'docs/kinds.yaml';
@@ -24,7 +25,7 @@ export type ProductRegistry =
   /** The product holds none: every page keeps the plain behaviour, the stages the mechanism's own. */
   | { present: false }
   /** The registry reads whole: its stages, in the list's order, and its kinds. */
-  | { present: true; kinds: RegistryKind[]; stages: RegistryStage[] }
+  | { present: true; kinds: RegistryKind[]; stages: RegistryStage[]; goals?: GoalLevel[]; reservations: ReservationFinding[] }
   /** The file stands but does not read: the contract's refusals, each naming the file, the line, the field's path and the words. */
   | { present: true; refused: ContractError[] };
 
@@ -48,40 +49,28 @@ export function readProductRegistry(productFolder: string): ProductRegistry {
     throw error;
   }
   if (!stands) return { present: false };
+  let bytes: Buffer;
   try {
-    const real = realpathSync(file);
-    const productReal = realpathSync(productFolder);
-    if (real !== `${productReal}/${REGISTRY_FILE}`) {
-      return {
-        present: true,
-        refused: [{
-          file: REGISTRY_FILE,
-          line: 0,
-          path: '',
-          message: `the registry file is a symlink the product does not hold: it points at ${real}, away from the place madarch reads`,
-        }],
-      };
-    }
+    bytes = readRegistryFileSafely(file, productFolder, REGISTRY_FILE);
   } catch (error) {
+    const cause = (error as Error).message;
+    const code = (error as NodeJS.ErrnoException).code;
+    const message = cause.startsWith(`${REGISTRY_FILE} is not a regular file`) || cause.startsWith('the registry file is a symlink')
+      ? cause
+      : code === 'ENOENT' || code === 'ELOOP'
+        ? `the registry file could not be resolved: ${cause}`
+        : `the registry file could not be read: ${cause}`;
     return {
       present: true,
-      refused: [{ file: REGISTRY_FILE, line: 0, path: '', message: `the registry file could not be resolved: ${(error as Error).message}` }],
+      refused: [{ file: REGISTRY_FILE, line: 0, path: '', message }],
     };
   }
-  let text: string;
-  try {
-    text = readFileSync(file, 'utf8');
-  } catch (error) {
-    return {
-      present: true,
-      refused: [{ file: REGISTRY_FILE, line: 0, path: '', message: `the registry file could not be read: ${(error as Error).message}` }],
-    };
-  }
+  const text = bytes.toString('utf8');
   const read = parseContractText(REGISTRY_FILE, text);
   if (!read.ok) {
     return { present: true, refused: [...read.errors] };
   }
-  return { present: true, kinds: read.kinds, stages: read.stages };
+  return { present: true, kinds: read.kinds, stages: read.stages, goals: read.goals, reservations: read.reservations };
 }
 
 // ---- what the wiki needs from a read registry -----------------------------
@@ -98,6 +87,8 @@ export function readProductRegistry(productFolder: string): ProductRegistry {
 export interface RegistryKit {
   kinds: RegistryKind[];
   stages: RegistryStage[];
+  goals?: GoalLevel[];
+  reservations: ReservationFinding[];
   /** The kind each id prefix names. */
   readonly byPrefix: Map<string, RegistryKind>;
   /** The whole id shape: `(?:US|UC|FR|PRA|S|H|Q|P|R)-\d{3,}`, prefixes longest first. */
@@ -177,6 +168,8 @@ export function registryKit(registry: ProductRegistry): RegistryKit | undefined 
   return {
     kinds,
     stages: registry.stages,
+    goals: registry.goals,
+    reservations: registry.reservations,
     byPrefix,
     idShape: new RegExp(`^(?:${prefixes.join('|')})-\\d{3,}$`),
     mentionShape: new RegExp(`(?<![\\w-])(?:${prefixes.join('|')})-\\d{3,}(?![\\w-])`, 'g'),

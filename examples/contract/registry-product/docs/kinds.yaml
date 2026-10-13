@@ -1,3 +1,4 @@
+contract: 1
 stages:
   - id: idea
   - id: requirements
@@ -12,18 +13,111 @@ kinds:
     folder: docs/sources
     stage: idea
     hint: have the first conversation with a customer, write it down
+    statuses:
+      - draft
+      - heard
   - name: hypothesis
     prefix: H
     folder: docs/hypotheses
     stage: idea
     hint: turn a source into one checkable sentence
+    statuses:
+      - draft
+      - confirmed
+      - refuted
+      - unclear
+    links:
+      - field: Grew from
+        targets:
+          - source
+        backlink: Grew into
+        cardinality: one
+        required: true
+  - name: user story
+    prefix: US
+    folder: docs/stories
+    stage: requirements
+    hint: write one user's step in the product's words
+    statuses:
+      - draft
+      - ready
+    links:
+      - field: Grew from
+        targets:
+          - source
+          - hypothesis
+        backlink: Grew into
+        cardinality: many
+        required: false
+      - field: Serves
+        targets:
+          - use case
+        backlink: Served by
+        cardinality: one
+        required: true
+  - name: use case
+    prefix: UC
+    folder: docs/use-cases
+    stage: design
+    hint: walk one story through the product
+    statuses:
+      - draft
+      - ready
+    links:
+      - field: Serves
+        targets:
+          - user story
+        backlink: Served by
+        cardinality: many
+        required: false
   - name: product requirement
     prefix: FR
     folder: docs/requirements
     stage: requirements
     hint: write what the product does, one requirement at a time
+    statuses:
+      - draft
+      - ready
+    links:
+      - field: Serves
+        targets:
+          - use case
+          - user story
+        backlink: Served by
+        cardinality: many
+        required: false
   - name: decision
     prefix: D
     folder: docs/decisions
     stage: design
     hint: record the choice between the options on the table
+    statuses:
+      - proposed
+      - accepted
+      - superseded
+  - name: configuration item
+    prefix: CI
+    folder: docs/configuration
+    stage: operate
+    hint: keep what the system already holds, read and read again
+    # The reserved fact storage form (the 0021 amendment): the record's truth
+    # stays with the system it was imported from, read-only in the wiki.
+    storage: fact
+    evidence:
+      source: Source
+      ref: Ref
+      record: Record
+
+# The reserved goals section (the 0021 amendment, 2026-10-12): the shape's
+# place, one level per perspective; this engine version keeps the section as
+# data and names it as reserved-but-unimplemented when it renders.
+goals:
+  - name: grounded
+    perspective: business
+    rules:
+      - every use case links a user story
+      - every product requirement serves a use case or a user story
+  - name: true-to-the-systems
+    perspective: ops
+    rules:
+      - every imported fact names its source system and record

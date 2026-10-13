@@ -27,6 +27,12 @@ interface ContractCase {
   path?: string;
   /** The words the refusal carries; absent for an example that reads. */
   message?: string;
+  /**
+   * The honest-finding cases (the 0021 amendment's reservations): a case
+   * that reads, whose reservations the engine keeps and names — each as an
+   * expected finding's line, field path and words, all to hold at once.
+   */
+  reservations?: { line?: number; path?: string; message: string }[];
 }
 
 const USAGE = 'usage: bun run contract:check [--cases <file>] [--documents <file>] [--manifest-cases <file>] [--products <folder>] [--src <file>]';
@@ -102,6 +108,30 @@ function checkCase(one: ContractCase): void {
     return;
   }
   const read = parseContractText('docs/kinds.yaml', one.text);
+  if (one.reservations !== undefined) {
+    const problems: string[] = [];
+    if (!read.ok) {
+      const first = read.errors[0];
+      problems.push(`expected the registry to read, got refused at ${first.file}:${first.line}: ${first.message}`);
+      verdicts.push({ case: one.name, problems });
+      return;
+    }
+    const held = read.reservations;
+    for (const expected of one.reservations) {
+      const named = held.some((finding: ReservationFinding) =>
+        finding.line === (expected.line ?? 1) &&
+        finding.message.includes(expected.message) &&
+        (expected.path === undefined || finding.path === expected.path));
+      if (!named) {
+        const shown = held.map((finding: ReservationFinding) => `${finding.path}:${finding.line}: ${finding.message}`).join('; ');
+        problems.push(`expected a reservation on line ${expected.line ?? 1} naming ${JSON.stringify(expected.message)}${expected.path === undefined ? '' : ` at ${expected.path}`}, got ${shown}`);
+      }
+    }
+    const spare = one.reservations.length === 0 ? held.length : 0;
+    if (spare !== 0) problems.push(`expected no further reservations, got ${spare}: ${held.map((f: ReservationFinding) => f.message).join('; ')}`);
+    verdicts.push({ case: one.name, problems });
+    return;
+  }
   if (one.message === undefined) {
     if (!read.ok) {
       const first = read.errors[0];

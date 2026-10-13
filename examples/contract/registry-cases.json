@@ -1,174 +1,325 @@
 {
- "about": "The kinds registry's own cases: the file the contract examples run through parseContractText, with every refusal and the line it was raised, in the set's fixture-cases style.",
- "cases": [
-  {
-   "name": "the set-out stages and kinds",
-   "text": "stages:\n  - id: idea\n  - id: requirements\n  - id: design\n  - id: build\n  - id: verify\n  - id: release\n  - id: operate\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: have the first conversation with a customer, write it down\n  - name: hypothesis\n    prefix: H\n    folder: docs/hypotheses\n    stage: idea\n    hint: turn a source into one checkable sentence\n  - name: product requirement\n    prefix: FR\n    folder: docs/requirements\n    stage: requirements\n    hint: write what the product does, one requirement at a time\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: design\n    hint: record the choice between the options on the table\n"
-  },
-  {
-   "name": "nothing registered yet",
-   "text": "stages:\n  - id: idea\nkinds: []\n"
-  },
-  {
-   "name": "not-a-mapping",
-   "text": "- a\n- b\n",
-   "line": 1,
-   "message": "must be object",
-   "path": ""
-  },
-  {
-   "name": "no-stages",
-   "text": "kinds: []\n",
-   "line": 1,
-   "message": "",
-   "path": ""
-  },
-  {
-   "name": "stage-list-empty",
-   "text": "stages: []\nkinds: []\n",
-   "line": 1,
-   "message": "must not have fewer than 1 items",
-   "path": "stages"
-  },
-  {
-   "name": "stage-id-empty",
-   "text": "stages:\n  - id: \"\"\nkinds: []\n",
-   "line": 2,
-   "message": "",
-   "path": "stages[0].id"
-  },
-  {
-   "name": "kind-without-a-name",
-   "text": "stages:\n  - id: idea\nkinds:\n  - prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n",
-   "line": 4,
-   "message": "",
-   "path": "kinds[0]"
-  },
-  {
-   "name": "prefix-lowercase",
-   "text": "stages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: s\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n",
-   "line": 5,
-   "message": "is not an id prefix",
-   "path": "kinds[0].prefix"
-  },
-  {
-   "name": "prefix-named-twice",
-   "text": "stages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n  - name: second\n    prefix: S\n    folder: docs/other\n    stage: idea\n    hint: another\n",
-   "line": 10,
-   "message": "first on line 5: each kind is given one prefix",
-   "path": "kinds[1].prefix"
-  },
-  {
-   "name": "folder-outside-docs",
-   "text": "stages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: sources\n    stage: idea\n    hint: talk to a customer\n",
-   "line": 6,
-   "message": "not a place under the documents",
-   "path": "kinds[0].folder"
-  },
-  {
-   "name": "folder-absolute",
-   "text": "stages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: /etc/sources\n    stage: idea\n    hint: talk to a customer\n",
-   "line": 6,
-   "message": "not a place under the documents",
-   "path": "kinds[0].folder"
-  },
-  {
-   "name": "stage-unknown",
-   "text": "stages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: build\n    hint: talk to a customer\n",
-   "line": 7,
-   "message": "is not a stage of the list",
-   "path": "kinds[0].stage"
-  },
-  {
-   "name": "hint-empty",
-   "text": "stages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: \"\"\n",
-   "line": 8,
-   "message": "must not have fewer than 1 characters",
-   "path": "kinds[0].hint"
-  },
-  {
-   "name": "stage-named-twice",
-   "text": "stages:\n  - id: idea\n  - id: idea\nkinds: []\n",
-   "line": 3,
-   "message": "first on line 2: each stage is given once",
-   "path": "stages[1].id"
-  },
-  {
-   "name": "unknown-field",
-   "text": "stages:\n  - id: idea\nkinds: []\nregistry: 7\n",
-   "line": 1,
-   "message": "must not have additional properties",
-   "path": ""
-  },
-  {
-   "name": "anchor",
-   "text": "stages:\n  - id: &same idea\nkinds: []\n",
-   "line": 2,
-   "message": "is not allowed",
-   "path": "stages[0].id"
-  },
-  {
-   "name": "flow-collection",
-   "text": "stages: {x: y}\nkinds: []\n",
-   "line": 1,
-   "message": "",
-   "path": "stages"
-  },
-  {
-   "name": "parse-error",
-   "text": "stages:\n  - id: idea\nkinds: [unclosed\n",
-   "line": 4,
-   "message": "at line 4",
-   "path": ""
-  },
-  {
-   "name": "kind-name-with-a-digit",
-   "text": "stages:\n  - id: idea\nkinds:\n  - name: 2source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n",
-   "line": 4,
-   "message": "must match pattern",
-   "path": "kinds[0].name"
-  },
-  {
-   "name": "prefix-too-long",
-   "text": "stages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: ABCDE\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n",
-   "line": 5,
-   "message": "is not an id prefix",
-   "path": "kinds[0].prefix"
-  },
-  {
-   "name": "prefix-with-a-digit",
-   "text": "stages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: A1\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n",
-   "line": 5,
-   "message": "is not an id prefix",
-   "path": "kinds[0].prefix"
-  },
-  {
-   "name": "hint-only-spaces",
-   "text": "stages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: \"   \"\n",
-   "line": 8,
-   "message": "the hint is empty",
-   "path": "kinds[0].hint"
-  },
-  {
-   "name": "stage-named-third",
-   "text": "stages:\n  - id: idea\n  - id: idea\n  - id: idea\nkinds: []\n",
-   "line": 4,
-   "path": "stages[2].id",
-   "message": "first on line 2: each stage is given once"
-  },
-  {
-   "name": "prefix-named-third",
-   "text": "stages:\n  - id: idea\nkinds:\n  - name: a\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n  - name: b\n    prefix: S\n    folder: docs/other\n    stage: idea\n    hint: two\n  - name: c\n    prefix: S\n    folder: docs/more\n    stage: idea\n    hint: three\n",
-   "line": 15,
-   "path": "kinds[2].prefix",
-   "message": "first on line 5: each kind is given one prefix"
-  },
-  {
-   "name": "folder-escapes-docs",
-   "text": "stages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/../../outside\n    stage: idea\n    hint: talk to a customer\n",
-   "line": 6,
-   "path": "kinds[0].folder",
-   "message": "climbs out of the documents"
-  }
- ]
+  "about": "The kinds registry's own cases: the file the contract examples run through parseContractText, with every refusal and the line it was raised, in the set's fixture-cases style.",
+  "cases": [
+    {
+      "name": "the set-out stages and kinds",
+      "text": "contract: 1\nstages:\n  - id: idea\n  - id: requirements\n  - id: design\n  - id: build\n  - id: verify\n  - id: release\n  - id: operate\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: have the first conversation with a customer, write it down\n  - name: hypothesis\n    prefix: H\n    folder: docs/hypotheses\n    stage: idea\n    hint: turn a source into one checkable sentence\n  - name: product requirement\n    prefix: FR\n    folder: docs/requirements\n    stage: requirements\n    hint: write what the product does, one requirement at a time\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: design\n    hint: record the choice between the options on the table\n"
+    },
+    {
+      "name": "nothing registered yet",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds: []\n"
+    },
+    {
+      "name": "not-a-mapping",
+      "text": "- a\n- b\n",
+      "line": 1,
+      "message": "must be object",
+      "path": ""
+    },
+    {
+      "name": "no-stages",
+      "text": "contract: 1\nkinds: []\n",
+      "line": 1,
+      "message": "must have required properties stages"
+    },
+    {
+      "name": "stage-list-empty",
+      "text": "contract: 1\nstages: []\nkinds: []\n",
+      "line": 2,
+      "message": "must not have fewer than 1 items",
+      "path": "stages"
+    },
+    {
+      "name": "stage-id-empty",
+      "text": "contract: 1\nstages:\n  - id: \"\"\nkinds: []\n",
+      "line": 3,
+      "message": "",
+      "path": "stages[0].id"
+    },
+    {
+      "name": "kind-without-a-name",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n",
+      "line": 5,
+      "message": "",
+      "path": "kinds[0]"
+    },
+    {
+      "name": "prefix-lowercase",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: s\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n",
+      "line": 6,
+      "message": "is not an id prefix",
+      "path": "kinds[0].prefix"
+    },
+    {
+      "name": "prefix-named-twice",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n  - name: second\n    prefix: S\n    folder: docs/other\n    stage: idea\n    hint: another\n",
+      "line": 11,
+      "message": "the id prefix \"S\" is named twice, first on line 6: each kind is given one prefix",
+      "path": "kinds[1].prefix"
+    },
+    {
+      "name": "folder-outside-docs",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: sources\n    stage: idea\n    hint: talk to a customer\n",
+      "line": 7,
+      "message": "not a place under the documents",
+      "path": "kinds[0].folder"
+    },
+    {
+      "name": "folder-absolute",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: /etc/sources\n    stage: idea\n    hint: talk to a customer\n",
+      "line": 7,
+      "message": "not a place under the documents",
+      "path": "kinds[0].folder"
+    },
+    {
+      "name": "stage-unknown",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: build\n    hint: talk to a customer\n",
+      "line": 8,
+      "message": "is not a stage of the list",
+      "path": "kinds[0].stage"
+    },
+    {
+      "name": "hint-empty",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: \"\"\n",
+      "line": 9,
+      "message": "must not have fewer than 1 characters",
+      "path": "kinds[0].hint"
+    },
+    {
+      "name": "stage-named-twice",
+      "text": "contract: 1\nstages:\n  - id: idea\n  - id: idea\nkinds: []\n",
+      "line": 4,
+      "message": "the stage \"idea\" is named twice, first on line 3: each stage is given once",
+      "path": "stages[1].id"
+    },
+    {
+      "name": "unknown-field",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds: []\nregistry: 7\n",
+      "line": 5,
+      "message": "schema is false",
+      "path": "registry"
+    },
+    {
+      "name": "anchor",
+      "text": "contract: 1\nstages:\n  - id: &same idea\nkinds: []\n",
+      "line": 3,
+      "message": "is not allowed",
+      "path": "stages[0].id"
+    },
+    {
+      "name": "flow-collection",
+      "text": "contract: 1\nstages: {x: y}\nkinds: []\n",
+      "line": 2,
+      "message": "",
+      "path": "stages"
+    },
+    {
+      "name": "parse-error",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds: [unclosed\n",
+      "line": 5,
+      "message": "must be sufficiently indented and end with a ]"
+    },
+    {
+      "name": "kind-name-with-a-digit",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: 2source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n",
+      "line": 5,
+      "message": "must match pattern",
+      "path": "kinds[0].name"
+    },
+    {
+      "name": "prefix-too-long",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: ABCDE\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n",
+      "line": 6,
+      "message": "is not an id prefix",
+      "path": "kinds[0].prefix"
+    },
+    {
+      "name": "prefix-with-a-digit",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: A1\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n",
+      "line": 6,
+      "message": "is not an id prefix",
+      "path": "kinds[0].prefix"
+    },
+    {
+      "name": "hint-only-spaces",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: \"   \"\n",
+      "line": 9,
+      "message": "the hint is empty",
+      "path": "kinds[0].hint"
+    },
+    {
+      "name": "stage-named-third",
+      "text": "contract: 1\nstages:\n  - id: idea\n  - id: idea\n  - id: idea\nkinds: []\n",
+      "line": 4,
+      "path": "stages[1].id",
+      "message": "the stage \"idea\" is named twice, first on line 3: each stage is given once"
+    },
+    {
+      "name": "prefix-named-third",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: a\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n  - name: b\n    prefix: S\n    folder: docs/other\n    stage: idea\n    hint: two\n  - name: c\n    prefix: S\n    folder: docs/more\n    stage: idea\n    hint: three\n",
+      "line": 11,
+      "path": "kinds[1].prefix",
+      "message": "the id prefix \"S\" is named twice, first on line 6: each kind is given one prefix"
+    },
+    {
+      "name": "folder-escapes-docs",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/../../outside\n    stage: idea\n    hint: talk to a customer\n",
+      "line": 7,
+      "path": "kinds[0].folder",
+      "message": "climbs out of the documents"
+    },
+    {
+      "name": "no-contract-field",
+      "text": "stages:\n  - id: idea\nkinds: []\n",
+      "line": 1,
+      "message": "the registry carries no contract version",
+      "path": "contract"
+    },
+    {
+      "name": "contract-not-a-number",
+      "text": "contract: one\nstages:\n  - id: idea\nkinds: []\n",
+      "line": 1,
+      "message": "is not a contract version",
+      "path": "contract"
+    },
+    {
+      "name": "contract-not-whole",
+      "text": "contract: 1.5\nstages:\n  - id: idea\nkinds: []\n",
+      "line": 1,
+      "message": "is not a contract version",
+      "path": "contract"
+    },
+    {
+      "name": "contract-unknown-version",
+      "text": "contract: 99\nstages:\n  - id: idea\nkinds: []\n",
+      "line": 1,
+      "message": "declares contract 99",
+      "path": "contract"
+    },
+    {
+      "name": "statuses-with-links-read",
+      "text": "contract: 1\nstages:\n  - id: idea\n  - id: requirements\n  - id: design\nkinds:\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: requirements\n    hint: write one user's step in the product's words\n    statuses:\n      - draft\n      - ready\n    links:\n      - field: Serves\n        targets:\n          - use case\n        backlink: Served by\n        cardinality: many\n        required: true\n  - name: use case\n    prefix: UC\n    folder: docs/use-cases\n    stage: design\n    hint: walk one story through the product\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: have the first conversation with a customer, write it down\n"
+    },
+    {
+      "name": "statuses-named-twice",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n    statuses:\n      - draft\n      - draft\n",
+      "line": 12,
+      "message": "the status \"draft\" is named twice: each allowed status is given once",
+      "path": "kinds[0].statuses[1]"
+    },
+    {
+      "name": "statuses-not-a-list",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n    statuses: draft\n",
+      "line": 10,
+      "message": "must be array",
+      "path": "kinds[0].statuses"
+    },
+    {
+      "name": "statuses-empty",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n    statuses: []\n"
+    },
+    {
+      "name": "link-target-unknown",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - source\n          - hypothesis\n",
+      "line": 13,
+      "message": "\"source\" names no kind of the registry: a link goes to a kind the registry declares",
+      "path": "kinds[0].links[0].targets[0]"
+    },
+    {
+      "name": "link-target-second-unknown",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: idea\n    hint: two\n    links:\n      - field: Grew from\n        targets:\n          - source\n          - hypothesis\n",
+      "line": 19,
+      "message": "\"hypothesis\" names no kind of the registry: a link goes to a kind the registry declares",
+      "path": "kinds[1].links[0].targets[1]"
+    },
+    {
+      "name": "link-target-names-declared-after",
+      "text": "contract: 1\nstages:\n  - id: idea\n  - id: design\nkinds:\n  - name: use case\n    prefix: UC\n    folder: docs/use-cases\n    stage: design\n    hint: one\n    links:\n      - field: Serves\n        targets:\n          - user story\n        backlink: Served by\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: idea\n    hint: two\n"
+    },
+    {
+      "name": "link-field-named-twice",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - source\n      - field: Grew from\n        targets:\n          - hypothesis\n",
+      "line": 13,
+      "message": "\"source\" names no kind of the registry: a link goes to a kind the registry declares",
+      "path": "kinds[0].links[0].targets[0]"
+    },
+    {
+      "name": "link-field-generic-name",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Links\n        targets:\n          - source\n"
+    },
+    {
+      "name": "link-cardinality-unknown-word",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - source\n        cardinality: some\n",
+      "line": 14,
+      "message": "must be equal to constant",
+      "path": "kinds[0].links[0].cardinality"
+    },
+    {
+      "name": "link-required-not-boolean",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - source\n        required: yes\n",
+      "line": 14,
+      "message": "must be boolean",
+      "path": "kinds[0].links[0].required"
+    },
+    {
+      "name": "link-field-empty",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: \"\"\n        targets:\n          - source\n",
+      "line": 11,
+      "message": "must not have fewer than 1 characters",
+      "path": "kinds[0].links[0].field"
+    },
+    {
+      "name": "link-targets-empty",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets: []\n",
+      "line": 12,
+      "message": "must not have fewer than 1 items",
+      "path": "kinds[0].links[0].targets"
+    },
+    {
+      "name": "link-unknown-field",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - source\n        via: reached\n",
+      "line": 14,
+      "message": "schema is false",
+      "path": "kinds[0].links[0].via"
+    },
+    {
+      "name": "link-backlink-empty",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - source\n        backlink: \"\"\n",
+      "line": 14,
+      "message": "must not have fewer than 1 characters",
+      "path": "kinds[0].links[0].backlink"
+    },
+    {
+      "name": "a-kind-may-name-its-document-storage",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: idea\n    hint: one\n    storage: document\n"
+    },
+    {
+      "name": "reserved-storage-forms-and-goals-are-read-and-named",
+      "text": "contract: 1\nstages:\n  - id: idea\n  - id: operate\nkinds:\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: idea\n    hint: one\n  - name: configuration item\n    prefix: CI\n    folder: docs/configuration\n    stage: operate\n    storage: fact\n    hint: keep what the system holds\n    evidence:\n      source: Source\n      ref: Ref\n      record: Record\ngoals:\n  - name: grounded\n    perspective: business\n    rules:\n      - every use case links a user story\n",
+      "reservations": [
+        {
+          "line": 15,
+          "path": "kinds[1].storage",
+          "message": "the kind \"configuration item\" declares the storage form \"fact\""
+        },
+        {
+          "line": 17,
+          "path": "kinds[1].evidence",
+          "message": "carries its evidence (source, ref, record)"
+        },
+        {
+          "line": 21,
+          "path": "goals",
+          "message": "the reserved goals section"
+        }
+      ]
+    },
+    {
+      "name": "an-evidence-shape-without-the-fact-form-is-refused",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: idea\n    hint: one\n    evidence:\n      source: Source\n",
+      "line": 10,
+      "path": "kinds[0].evidence",
+      "message": "the evidence shape rides the fact storage form: a kind carrying its evidence fields declares \"storage: fact\""
+    }
+  ]
 }

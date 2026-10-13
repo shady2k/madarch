@@ -8,3 +8,4 @@ node_modules/
 *.tsbuildinfo
 /wiki/app/dist/
 /wiki/demo/repos/
+stryker.log

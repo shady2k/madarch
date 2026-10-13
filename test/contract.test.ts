@@ -51,15 +51,56 @@ describe('the contract of a product repository kinds registry', () => {
     expect(read).toMatchObject({ ok: true });
     if (!read.ok) return;
     expect(read.stages.map((s) => s.id)).toEqual(['idea', 'requirements', 'design', 'build', 'verify', 'release', 'operate']);
-    expect(read.kinds).toHaveLength(4);
+    expect(read.contract).toBe(1);
+    expect(read.kinds).toHaveLength(7);
     const p = read.kinds.find((k) => k.prefix === 'FR');
     expect(p).toMatchObject({ name: 'product requirement', folder: 'docs/requirements', stage: 'requirements' });
     expect(typeof p!.hint).toBe('string');
     expect(p!.hint.trim().length).toBeGreaterThan(0);
+    // The owner's example, declared as data (the refinement of 2026-10-12):
+    // a user story serves a use case and grew from a source or a
+    // hypothesis, with the backlink the target's page shows.
+    const us = read.kinds.find((k) => k.prefix === 'US');
+    expect(us).toMatchObject({ name: 'user story', stage: 'requirements' });
+    expect(us!.statuses).toEqual(['draft', 'ready']);
+    expect(us!.links).toEqual([
+      { field: 'Grew from', targets: ['source', 'hypothesis'], backlink: 'Grew into', cardinality: 'many', required: false },
+      { field: 'Serves', targets: ['use case'], backlink: 'Served by', cardinality: 'one', required: true },
+    ]);
+    // The 0021 amendment's reservations, kept as data the example carries:
+    // the fact storage form with its evidence shape, and the goals section
+    // the engine names instead of dropping.
+    const ci = read.kinds.find((k) => k.prefix === 'CI');
+    expect(ci).toMatchObject({ name: 'configuration item', storage: 'fact', evidence: { source: 'Source', ref: 'Ref', record: 'Record' } });
+    expect(read.reservations.map((r) => r.path)).toEqual(['kinds[6].storage', 'kinds[6].evidence', 'goals']);
+    expect(read.reservations.map((r) => r.line)).toEqual([105, 106, 114]);
+    expect(read.reservations[2]!.message).toContain('reserved goals section');
+    expect(read.goals).toEqual([
+      { name: 'grounded', perspective: 'business', rules: ['every use case links a user story', 'every product requirement serves a use case or a user story'] },
+      { name: 'true-to-the-systems', perspective: 'ops', rules: ['every imported fact names its source system and record'] },
+    ]);
+  });
+
+  test('the contract version gate names the version it does not know, for the wiki to serve', () => {
+    const refused = parseContractText('docs/kinds.yaml', 'contract: 99\nstages:\n  - id: idea\nkinds: []\n');
+    expect(refused.ok).toBe(false);
+    if (refused.ok) return;
+    const version = refused.errors.find((error) => error.version !== undefined);
+    expect(version).toBeDefined();
+    expect(version!.version).toBe(99);
+    expect(version!.line).toBe(1);
+    expect(version!.path).toBe('contract');
+    expect(version!.message).toContain('declares contract 99');
+    expect(version!.message).toContain('this madarch reads contract 1');
+    const carried = parseContractText('docs/kinds.yaml', 'contract: 1\nstages:\n  - id: idea\nkinds: []\n');
+    expect(carried.ok).toBe(true);
+    if (!carried.ok) return;
+    expect(carried.contract).toBe(1);
   });
 
   test("a link's targets name kinds of the registry: the unknown one is refused at its line", () => {
     const read = parseContractText('docs/kinds.yaml', [
+      'contract: 1',
       'stages:',
       '  - id: idea',
       '  - id: requirements',
@@ -76,12 +117,13 @@ describe('the contract of a product repository kinds registry', () => {
       ''].join('\n'));
     expect(read.ok).toBe(false);
     if (read.ok) return;
-    const named = read.errors.find((error) => error.line === 13 && error.path === 'kinds[0].links[0].targets[0]' && error.message.includes('"no such kind" names no kind of the registry'));
+    const named = read.errors.find((error) => error.line === 14 && error.path === 'kinds[0].links[0].targets[0]' && error.message.includes('"no such kind" names no kind of the registry'));
     expect(named).toBeDefined();
   });
 
   test('a kind declares one link a field: the second is refused, the first line named', () => {
     const read = parseContractText('docs/kinds.yaml', [
+      'contract: 1',
       'stages:',
       '  - id: requirements',
       'kinds:',
@@ -103,12 +145,13 @@ describe('the contract of a product repository kinds registry', () => {
       ''].join('\n'));
     expect(read.ok).toBe(false);
     if (read.ok) return;
-    const named = read.errors.find((error) => error.line === 12 && error.path === 'kinds[0].links[1].field' && error.message.includes('is declared twice, first on line 10'));
+    const named = read.errors.find((error) => error.line === 13 && error.path === 'kinds[0].links[1].field' && error.message.includes('is declared twice, first on line 11'));
     expect(named).toBeDefined();
   });
 
   test('an allowed status is named once: the second is refused at its line', () => {
     const read = parseContractText('docs/kinds.yaml', [
+      'contract: 1',
       'stages:',
       '  - id: design',
       'kinds:',
@@ -123,12 +166,13 @@ describe('the contract of a product repository kinds registry', () => {
       ''].join('\n'));
     expect(read.ok).toBe(false);
     if (read.ok) return;
-    const named = read.errors.find((error) => error.line === 11 && error.path === 'kinds[0].statuses[1]' && error.message.includes('the status "Accepted" is named twice'));
+    const named = read.errors.find((error) => error.line === 12 && error.path === 'kinds[0].statuses[1]' && error.message.includes('the status "Accepted" is named twice'));
     expect(named).toBeDefined();
   });
 
   test('a kind\'s declared links and statuses read whole: field, targets, backlink label, cardinality and required', () => {
     const read = parseContractText('docs/kinds.yaml', [
+      'contract: 1',
       'stages:',
       '  - id: requirements',
       'kinds:',
@@ -166,6 +210,34 @@ describe('the contract of a product repository kinds registry', () => {
     expect(parsed).toBeDefined();
     expect(parsed!.line).toBe(4);
     expect(parsed!.path).toBe('');
+  });
+
+  test('a registry that is no mapping at all is the schema refusal, not the version gate', () => {
+    const nothing = parseContractText('docs/kinds.yaml', 'null\n');
+    expect(nothing.ok).toBe(false);
+    if (nothing.ok) return;
+    expect(nothing.errors.some((error) => /object/.test(error.message))).toBe(true);
+    const word = parseContractText('docs/kinds.yaml', 'just a word\n');
+    expect(word.ok).toBe(false);
+    if (word.ok) return;
+    expect(word.errors.some((error) => /object/.test(error.message))).toBe(true);
+  });
+
+  test('the version gate names the whole number only at the field\'s own line, not the document\'s first', () => {
+    const refused = parseContractText('docs/kinds.yaml', '# the kinds registry\ncontract: "one"\n');
+    expect(refused.ok).toBe(false);
+    if (refused.ok) return;
+    const missing = refused.errors[0];
+    expect(missing!.line).toBe(2);
+    expect(missing!.path).toBe('contract');
+    // The field's own line, wherever it stands: a version carried late in the
+    // file is refused at that line, not at the document's first content line.
+    const late = parseContractText('docs/kinds.yaml', 'stages:\n  - id: idea\nkinds: []\ncontract: 99\n');
+    expect(late.ok).toBe(false);
+    if (late.ok) return;
+    const unknown = late.errors.find((error) => error.version !== undefined);
+    expect(unknown!.line).toBe(4);
+    expect(unknown!.version).toBe(99);
   });
 
   test('the published product-registry and product-document schemas match the TypeBox sources', () => {

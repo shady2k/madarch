@@ -167,6 +167,24 @@ describe('the home page', () => {
     await intoApp(createElement(App));
     await until(() => text().includes('has no pages yet'), 'the empty home page');
   });
+
+  test('a registry of a contract the wiki does not know is named by the banner on every view', async () => {
+    const message = 'docs/kinds.yaml:1: the registry declares contract 99; this madarch reads contract 1 — the wiki serves these pages as plain documents';
+    const unknown: PageList = { ...listWithPages, contract: { known: false, version: 99, message } };
+    const stream = installWithStream(answerFor(product, unknown, pagesAtR1));
+    goto('/');
+    await intoApp(createElement(App, { reconnectMs: 5 }));
+    await until(() => document.querySelector('[data-testid="contract-banner"]')?.textContent === message, 'the banner on the home page');
+    goto('/p/docs/vision.md');
+    await until(() => document.querySelector('[data-testid="contract-banner"]')?.textContent === message, 'the banner on a page');
+
+    // A registry at a version the wiki reads goes bannerless again: the
+    // stream's change event asks the list, and the new answer carries it.
+    const known: PageList = { ...listWithPages, contract: { known: true, version: 1 } };
+    stream.set(answerFor(product, known, pagesAtR1));
+    stream.push('event: change\ndata: {"revision":"r2"}\n\n');
+    await until(() => document.querySelector('[data-testid="contract-banner"]') === null, 'the banner gone');
+  });
 });
 
 describe('a page', () => {

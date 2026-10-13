@@ -1,10 +1,50 @@
 {
   "type": "object",
   "required": [
+    "contract",
     "stages",
     "kinds"
   ],
   "properties": {
+    "contract": {
+      "type": "number",
+      "const": 1,
+      "description": "The contract version the registry is written against; this schema publishes version 1."
+    },
+    "goals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "rules"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+            "minLength": 1
+          },
+          "perspective": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+            "minLength": 1
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "description": "The rules the level holds; a rule names a count, a coverage, a provenance agreement or an approval by role."
+          }
+        },
+        "additionalProperties": false
+      },
+      "minItems": 1,
+      "description": "The reserved goals section: maturity levels over the graph, per perspective (the 0021 amendment). This engine version keeps the section and names it as reserved-but-unimplemented when it renders; never a silent unknown section."
+    },
     "stages": {
       "type": "array",
       "items": {
@@ -120,6 +160,55 @@
               "additionalProperties": false
             },
             "description": "The links the kind declares: field name, allowed target kinds, the backlink's label, the cardinality and whether the link is required."
+          },
+          "storage": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "document"
+              },
+              {
+                "type": "string",
+                "const": "task"
+              },
+              {
+                "type": "string",
+                "const": "model-element"
+              },
+              {
+                "type": "string",
+                "const": "component"
+              },
+              {
+                "type": "string",
+                "const": "fact"
+              }
+            ],
+            "description": "How the kind is stored inside the product. document is what this engine version implements; the other forms are reserved and kept as data, named by an honest finding, never dropped."
+          },
+          "evidence": {
+            "type": "object",
+            "required": [
+              "source"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+                "minLength": 1
+              },
+              "ref": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+                "minLength": 1
+              },
+              "record": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
           }
         },
         "additionalProperties": false
@@ -128,8 +217,8 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/shady2k/madarch/schema/product-registry.schema.json",
+  "$id": "https://github.com/shady2k/madarch/schema/v1/product-registry.schema.json",
   "title": "Madarch product kinds registry",
-  "description": "The shape of one product repository kinds registry file: the stages as an ordered list with no fixed kinds, and the kinds the product holds, each with its name, id prefix, folder, stage and next-step hint. The mechanism is madarch's; the kinds (usually written at setup by the skill set) are the product's data.",
+  "description": "The shape of one product repository kinds registry file, at contract version 1: the stages as an ordered list with no fixed kinds, and the kinds the product holds, each with its name, id prefix, folder, stage, next-step hint, allowed statuses and declared link types. The mechanism is madarch's; the kinds (usually written at setup by the skill set) are the product's data.",
   "additionalProperties": false
 }

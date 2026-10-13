@@ -36,6 +36,67 @@ export const KindLinkEntry = Type.Object(
 );
 export type KindLinkEntry = Static<typeof KindLinkEntry>;
 
+/**
+ * The storage forms a kind may declare (the 0021 amendment as the owner
+ * refined it, 2026-10-12 ~22:15 MSK): how the kind's records are stored
+ * inside the product. `document` is the only form this engine version
+ * implements; the other four are reserved — the tracker's tasks, the
+ * model's elements, the UI kit's components, and imported facts with their
+ * evidence. The engine keeps a form it does not implement and names it as
+ * an honest "not supported by this engine version" finding, never dropping
+ * it.
+ */
+export const StorageForm = Type.Union(
+  [
+    Type.Literal('document'),
+    Type.Literal('task'),
+    Type.Literal('model-element'),
+    Type.Literal('component'),
+    Type.Literal('fact'),
+  ],
+  { description: 'How the kind is stored inside the product. document is what this engine version implements; the other forms are reserved and kept as data, named by an honest finding, never dropped.' },
+);
+export type StorageForm = Static<typeof StorageForm>;
+
+/**
+ * The evidence shape a `fact` kind carries, reserved: the field names the
+ * fact's document carries its provenance in — the source system, the ref
+ * or commit it was read at, and the record id the source holds. The shape
+ * is data the engine keeps; the fact's truth stays with the system it came
+ * from, read-only in the wiki.
+ */
+export const EvidenceFields = Type.Object(
+  {
+    /** The document's field naming the source system, like `Source`. */
+    source: RegistryName,
+    /** The document's field naming the ref or commit, like `Ref`. */
+    ref: Type.Optional(RegistryName),
+    /** The document's field naming the record id, like `Record`. */
+    record: Type.Optional(RegistryName),
+  },
+  { additionalProperties: false },
+);
+export type EvidenceFields = Static<typeof EvidenceFields>;
+
+/** One level of the reserved goals section: a named maturity level holding
+ * the rules over the graph — counts by type and status, required-link
+ * coverage, provenance agreement, approvals by role — seen from one
+ * perspective when one is named. The shape is reserved: this engine
+ * version keeps the section as data and names it as
+ * reserved-but-unimplemented when it renders, never silently. */
+export const GoalLevel = Type.Object(
+  {
+    /** The level's name as a reader sees it, like `grounded`. */
+    name: RegistryName,
+    /** The perspective the level is granted for, like `business`, `security`; absent, the level is granted for every perspective. */
+    perspective: Type.Optional(RegistryName),
+    /** The rules the level is built from, each as the words the level grants. */
+    rules: Type.Array(Type.String({ minLength: 1 }), { minItems: 1, description: 'The rules the level holds; a rule names a count, a coverage, a provenance agreement or an approval by role.' }),
+  },
+  { additionalProperties: false },
+);
+export type GoalLevel = Static<typeof GoalLevel>;
+
 /** One kind of document the product holds, as the registry names it. */
 export const KindEntry = Type.Object(
   {
@@ -53,6 +114,16 @@ export const KindEntry = Type.Object(
     statuses: Type.Optional(Type.Array(RegistryName, { description: 'The allowed statuses of the kind, as the documents write them.' })),
     /** The link fields the kind's documents may carry, each naming its target kinds. */
     links: Type.Optional(Type.Array(KindLinkEntry, { description: 'The links the kind declares: field name, allowed target kinds, the backlink\'s label, the cardinality and whether the link is required.' })),
+    /** The storage form the kind is kept in (the 0021 amendment); `document` stands where it is left out. */
+    storage: Type.Optional(StorageForm),
+    /**
+     * The field names the kind's fact carries its evidence in, reserved for
+     * the `fact` storage form: source system, ref or commit, record id. The
+     * engine keeps the shape as data and shows an honest "not supported by
+     * this engine version" finding at the reserved form, never a refusal
+     * and never a drop.
+     */
+    evidence: Type.Optional(EvidenceFields),
   },
   { additionalProperties: false },
 );
@@ -75,17 +146,33 @@ export type StageEntry = Static<typeof StageEntry>;
  * the kinds are the data the product (usually the skill set, at setup)
  * writes; the schema fixes only the mechanism.
  */
+/**
+ * The contract version the registry schema publishes (the owner's
+ * refinement, 2026-10-12): the version stands in the registry file itself
+ * (`contract: 1`) and in the published schema's `$id`, so a tool that
+ * validates a registry knows both sides' version, and moving either side
+ * to a new version is a deliberate change. The file under madarch
+ * (`schema/product-registry.schema.json`) stays the one source; a reader
+ * of another version (the skill set's copy) targets the version its `$id`
+ * names.
+ */
+const REGISTRY_SCHEMA_ID = 'https://github.com/shady2k/madarch/schema/v1/product-registry.schema.json';
+
+
 export const KindsRegistry = Type.Object(
   {
+    /** The contract version the registry is written against; this schema is version 1. */
+    contract: Type.Literal(1, { description: 'The contract version the registry is written against; this schema publishes version 1.' }),
+    goals: Type.Optional(Type.Array(GoalLevel, { minItems: 1, description: 'The reserved goals section: maturity levels over the graph, per perspective (the 0021 amendment). This engine version keeps the section and names it as reserved-but-unimplemented when it renders; never a silent unknown section.' })),
     stages: Type.Array(StageEntry, { minItems: 1, description: 'The life cycle in the order the reader walks it; every kind names one of these.' }),
     kinds: Type.Array(KindEntry, { description: 'The kinds the product holds, each naming its stage of the list.' }),
   },
   {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
-    $id: 'https://github.com/shady2k/madarch/schema/product-registry.schema.json',
+    $id: REGISTRY_SCHEMA_ID,
     title: 'Madarch product kinds registry',
     description:
-      'The shape of one product repository kinds registry file: the stages as an ordered list with no fixed kinds, and the kinds the product holds, each with its name, id prefix, folder, stage and next-step hint. The mechanism is madarch\'s; the kinds (usually written at setup by the skill set) are the product\'s data.',
+      'The shape of one product repository kinds registry file, at contract version 1: the stages as an ordered list with no fixed kinds, and the kinds the product holds, each with its name, id prefix, folder, stage, next-step hint, allowed statuses and declared link types. The mechanism is madarch\'s; the kinds (usually written at setup by the skill set) are the product\'s data.',
     additionalProperties: false,
   },
 );

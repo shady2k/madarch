@@ -38,6 +38,7 @@ function thisFolder(): string {
 }
 
 const DEMO_REGISTRY = [
+  'contract: 1',
   'stages:',
   '  - id: idea',
   '    name: Idea',

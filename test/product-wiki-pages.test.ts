@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { openProductWiki } from '../src/product-wiki/pages.js';
+import { readRegistryServing } from '../src/product-wiki/registry.js';
+import { readProductRegistry } from '../src/product/registry.js';
 
 /**
  * A product's pages read from the working tree (docs/changes/draft-product/
@@ -30,6 +32,13 @@ function write(path: string, content: string): void {
   const dir = full.slice(0, full.lastIndexOf('/'));
   mkdirSync(dir, { recursive: true });
   writeFileSync(full, content);
+}
+
+function writeBytes(path: string, bytes: Buffer): void {
+  const full = join(folder!, path);
+  const dir = full.slice(0, full.lastIndexOf('/'));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(full, bytes);
 }
 
 function requireProduct(wiki: ReturnType<typeof openProductWiki>): import('../src/product-wiki/pages.js').ProductWiki {
@@ -301,6 +310,286 @@ describe('the pages a product holds', () => {
     product.pages();
     product.page('docs/vision.md');
     expect(readFileSync(join(folder!, 'docs', 'vision.md'), 'utf8')).toBe(before);
+  });
+});
+
+describe('the kinds registry the wiki serves', () => {
+  function withRegistry(text: string): string {
+    draft();
+    write('docs/kinds.yaml', text);
+    write('docs/decisions/D-001.md', '# D-001 — One decision\n\nrecorded here\n');
+    return folder!;
+  }
+
+  function pageKinds(pages: { ok: boolean; pages?: { kind?: string }[] }): string[] {
+    return pages.pages?.map((page) => page.kind ?? '') ?? [];
+  }
+
+  test('a registry at a version the wiki does not know names the version and serves plain pages', () => {
+    const product = requireProduct(openProductWiki(withRegistry('contract: 99\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n')));
+    const pages = product.pages();
+    if (!pages.ok) throw new Error(pages.message);
+    expect(pages.contract).toEqual({ known: false, version: 99, message: 'docs/kinds.yaml:1: the registry declares contract 99; this madarch reads contract 1 — the wiki serves these pages as plain documents' });
+    expect(pageKinds(pages)).toEqual(['']);
+
+    const asked = product.page('docs/decisions/D-001.md');
+    if (!asked.ok) throw new Error(asked.message);
+    expect(asked.page.document).toBeUndefined();
+    expect(asked.page.markdown).toContain('recorded here');
+  });
+
+  test('a registry the wiki cannot read degrades with the reading refusal as the banner', () => {
+    const product = requireProduct(openProductWiki(withRegistry('contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: d\n    folder: docs/decisions\n    stage: idea\n    hint: one\n')));
+    const pages = product.pages();
+    if (!pages.ok) throw new Error(pages.message);
+    const banner = pages.contract;
+    if (banner === undefined || banner.known !== false) throw new Error('the registry refused its reading, so the wiki degrades');
+    expect(banner.message).toContain('docs/kinds.yaml:6: "d" is not an id prefix');
+    expect(banner.message).toContain('the wiki serves these pages as plain documents');
+    expect(banner.version).toBeUndefined();
+  });
+
+  test('a registry at contract 1 the wiki serves reads as before, and no registry means no banner', () => {
+    const product = requireProduct(openProductWiki(withRegistry('contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n')));
+    const pages = product.pages();
+    if (!pages.ok) throw new Error(pages.message);
+    expect(pages.contract).toEqual({ known: true, version: 1 });
+    expect(pageKinds(pages)).toEqual(['decision']);
+
+    const bare = requireProduct(openProductWiki(draft()));
+    const fresh = bare.pages();
+    if (!fresh.ok) throw new Error(fresh.message);
+    expect(fresh.contract).toBeUndefined();
+  });
+
+  test('an edit to the registry is a change the wiki revises on its own ask', () => {
+    const unused = withRegistry('contract: 99\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n');
+    const product = requireProduct(openProductWiki(unused));
+    const before = product.pages();
+    if (!before.ok) throw new Error(before.message);
+    const revisionBefore = before.revision;
+    if (before.contract === undefined || before.contract.known !== false) throw new Error('the unknown contract degrades');
+    write('docs/kinds.yaml', 'contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n');
+    const after = product.pages();
+    if (!after.ok) throw new Error(after.message);
+    expect(after.revision).not.toBe(revisionBefore);
+    expect(after.contract).toEqual({ known: true, version: 1 });
+    expect(pageKinds(after)).toEqual(['decision']);
+  });
+
+  test('the revision digests the registry\'s bytes, not the decoded text: two byte-distinct files the decoder flattens to the same text are two revisions', () => {
+    const unused = withRegistry('contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n');
+    const file = join(folder!, 'docs', 'kinds.yaml');
+    const product = requireProduct(openProductWiki(folder!));
+    const before = product.pages();
+    if (!before.ok) throw new Error(before.message);
+    expect(before.contract).toEqual({ known: true, version: 1 });
+    // A stray continuation byte (0xA0) and another one (0xBE) decode to the
+    // same replacement character, so a revision over the decoded text would
+    // see no change; the bytes themselves must move it. The byte rides
+    // inside the last scalar (before the final newline), so the file still
+    // reads whole as YAML - the answer must not depend on a broken file.
+    const raw = readFileSync(file);
+    const spine = raw.subarray(0, raw.length - 1);
+    writeBytes('docs/kinds.yaml', Buffer.concat([spine, Buffer.from([0xA0, 10])]));
+    const strayOne = product.pages();
+    if (!strayOne.ok) throw new Error(strayOne.message);
+    expect(strayOne.contract).toEqual({ known: true, version: 1 });
+    writeBytes('docs/kinds.yaml', Buffer.concat([spine, Buffer.from([0xBE])]));
+    const strayTwo = product.pages();
+    if (!strayTwo.ok) throw new Error(strayTwo.message);
+    expect(strayTwo.revision).not.toBe(strayOne.revision);
+    expect(strayTwo.contract).toEqual({ known: true, version: 1 });
+  });
+
+  test('a registry the file system refuses to stat is the named unknown state, not the absent state', () => {
+    withRegistry('contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n');
+    chmodSync(join(folder!, 'docs'), 0o000);
+    try {
+      const serving = readRegistryServing(folder!);
+      expect(serving.contract.state).toBe('unknown');
+      if (serving.contract.state !== 'unknown') return;
+      expect(serving.contract.message).toContain('docs/kinds.yaml could not be read');
+      expect(serving.contract.message).toContain('plain documents');
+      expect(serving.contract.version).toBeUndefined();
+    } finally {
+      chmodSync(join(folder!, 'docs'), 0o755);
+    }
+  });
+
+  test('each state of the registry carries its own digest, so a change of state is never lost under a shared one', () => {
+    withRegistry('contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n');
+    const file = join(folder!, 'docs', 'kinds.yaml');
+    const known = readRegistryServing(folder!).digest;
+    rmSync(file);
+    const absent = readRegistryServing(folder!).digest;
+    mkdirSync(file);
+    const served = readRegistryServing(folder!);
+    expect(served.contract).toMatchObject({ state: 'unknown' });
+    if (served.contract.state !== 'unknown') throw new Error('the folder degrades');
+    expect(served.contract.message).toContain('docs/kinds.yaml is a folder, not a registry file');
+    expect(served.contract.message).toContain('plain documents');
+    const folderState = served.digest;
+    rmSync(file, { recursive: true });
+    chmodSync(join(folder!, 'docs'), 0o000);
+    let unreadable: string;
+    try {
+      unreadable = readRegistryServing(folder!).digest;
+    } finally {
+      chmodSync(join(folder!, 'docs'), 0o755);
+    }
+    const taken = new Set([known, absent, folderState, unreadable]);
+    expect(taken.size).toBe(4);
+  });
+
+  test('a registry whose bytes refuse to be read is the named unknown state, never a throw of the ask', () => {
+    withRegistry('contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n');
+    const file = join(folder!, 'docs', 'kinds.yaml');
+    chmodSync(file, 0o000);
+    try {
+      const serving = readRegistryServing(folder!);
+      expect(serving.contract.state).toBe('unknown');
+      if (serving.contract.state !== 'unknown') return;
+      expect(serving.contract.message).toContain('docs/kinds.yaml could not be read');
+      expect(serving.contract.message).toContain('plain documents');
+    } finally {
+      chmodSync(file, 0o644);
+    }
+  });
+
+  test('a registry the wiki cannot serve degrades the open questions the way it degrades the pages', () => {
+    const product = requireProduct(openProductWiki(withRegistry('contract: 99\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n')));
+    write('docs/decisions/D-001.md', '# D-001 — One decision\n\nrecorded here\n');
+    write('docs/decisions/Q-009-late.md', '\n# Q-009 — Serving late?\n\n## Question\nA question the degradation must not answer.\n\n## Answer\n');
+    const asked = product.questions();
+    if (!asked.ok) throw new Error(asked.message);
+    expect(asked.questions).toEqual([]);
+    expect(asked.openCount).toBe(0);
+  });
+
+  test('a registry symlink outside the product is refused by the serving reader', () => {
+    const productFolder = withRegistry('contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n');
+    const outside = mkdtempSync(join(tmpdir(), 'madarch-registry-outside-'));
+    try {
+      const externalRegistry = join(outside, 'kinds.yaml');
+      writeFileSync(externalRegistry, 'contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: external\n    prefix: X\n    folder: docs/external\n    stage: idea\n    hint: outside\n');
+      const registryFile = join(productFolder, 'docs', 'kinds.yaml');
+      rmSync(registryFile);
+      symlinkSync(externalRegistry, registryFile);
+
+      const serving = readRegistryServing(productFolder);
+      expect(serving.contract.state).toBe('unknown');
+      if (serving.contract.state !== 'unknown') return;
+      expect(serving.contract.message).toContain('symlink the product does not hold');
+      expect(serving.contract.message).toContain(externalRegistry);
+
+      const pages = requireProduct(openProductWiki(productFolder)).pages();
+      if (!pages.ok) throw new Error(pages.message);
+      if (pages.contract === undefined || pages.contract.known !== false) throw new Error('the external registry link must degrade');
+      expect(pages.contract.message).toContain('symlink the product does not hold');
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('retargeting an outside registry symlink changes the wiki revision', () => {
+    const productFolder = withRegistry('');
+    const outside = mkdtempSync(join(tmpdir(), 'madarch-registry-targets-'));
+    const targetA = join(outside, 'a.yaml');
+    const targetB = join(outside, 'b.yaml');
+    writeFileSync(targetA, 'contract: 1\nstages: []\nkinds: []\n');
+    writeFileSync(targetB, 'contract: 1\nstages: []\nkinds: []\n');
+    const registryFile = join(productFolder, 'docs', 'kinds.yaml');
+    rmSync(registryFile);
+    symlinkSync(targetA, registryFile);
+    try {
+      const product = requireProduct(openProductWiki(productFolder));
+      const first = product.pages();
+      if (!first.ok) throw new Error(first.message);
+      rmSync(registryFile);
+      symlinkSync(targetB, registryFile);
+      const second = product.pages();
+      if (!second.ok) throw new Error(second.message);
+      expect(second.revision).not.toBe(first.revision);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('retargeting an outside registry symlink between directories changes the wiki revision', () => {
+    const productFolder = withRegistry('');
+    const outside = mkdtempSync(join(tmpdir(), 'madarch-registry-directories-'));
+    const targetA = join(outside, 'a');
+    const targetB = join(outside, 'b');
+    mkdirSync(targetA);
+    mkdirSync(targetB);
+    const registryFile = join(productFolder, 'docs', 'kinds.yaml');
+    rmSync(registryFile);
+    symlinkSync(targetA, registryFile);
+    try {
+      const product = requireProduct(openProductWiki(productFolder));
+      const first = product.pages();
+      if (!first.ok) throw new Error(first.message);
+      rmSync(registryFile);
+      symlinkSync(targetB, registryFile);
+      const second = product.pages();
+      if (!second.ok) throw new Error(second.message);
+      expect(second.revision).not.toBe(first.revision);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('the product registry reader refuses a FIFO without blocking', () => {
+    const productFolder = withRegistry('');
+    rmSync(join(productFolder, 'docs', 'kinds.yaml'));
+    const made = spawnSync('mkfifo', [join(productFolder, 'docs', 'kinds.yaml')]);
+    expect(made.status).toBe(0);
+    const registry = readProductRegistry(productFolder);
+    expect(registry.present).toBe(true);
+    if (registry.present && 'refused' in registry) {
+      expect(registry.refused[0]?.message).toContain('not a regular file');
+    } else {
+      throw new Error('FIFO must be refused');
+    }
+  });
+
+  test('a dangling registry symlink is named as unknown, not treated as absent', () => {
+    const productFolder = withRegistry('');
+    const registryFile = join(productFolder, 'docs', 'kinds.yaml');
+    const absentDigest = readRegistryServing(productFolder).digest;
+    rmSync(registryFile);
+    symlinkSync(join(productFolder, 'docs', 'missing.yaml'), registryFile);
+
+    const serving = readRegistryServing(productFolder);
+    expect(serving.contract.state).toBe('unknown');
+    if (serving.contract.state !== 'unknown') return;
+    expect(serving.contract.message).toContain('could not be resolved');
+    expect(serving.contract.message).toContain('plain documents');
+    expect(serving.digest).not.toBe(absentDigest);
+
+    const pages = requireProduct(openProductWiki(productFolder)).pages();
+    if (!pages.ok) throw new Error(pages.message);
+    if (pages.contract === undefined || pages.contract.known !== false) throw new Error('the dangling registry link must degrade');
+    expect(pages.contract.message).toContain('could not be resolved');
+  });
+
+  test('a registry that is not a regular file is named and degrades the wiki, and the ask never blocks on it', () => {
+    const unused = withRegistry('');
+    rmSync(join(folder!, 'docs', 'kinds.yaml'));
+    const made = spawnSync('mkfifo', [join(folder!, 'docs', 'kinds.yaml')]);
+    if (made.status !== 0) throw new Error(`mkfifo is not available here: ${made.stderr?.toString() ?? made.status}`);
+    const product = requireProduct(openProductWiki(folder!));
+    const pages = product.pages();
+    if (!pages.ok) throw new Error(pages.message);
+    if (pages.contract === undefined || pages.contract.known !== false) throw new Error('the irregular file degrades');
+    expect(pages.contract.message).toContain('docs/kinds.yaml is not a regular file');
+    expect(pages.contract.message).toContain('the wiki serves these pages as plain documents');
+    expect(pages.contract.version).toBeUndefined();
+    const asked = product.page('docs/decisions/D-001.md');
+    if (!asked.ok) throw new Error(asked.message);
+    expect(asked.page.document).toBeUndefined();
+    expect(asked.page.markdown).toContain('recorded here');
   });
 });
 
