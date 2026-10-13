@@ -116,7 +116,79 @@ export function backlog(rev) {
 // tracker export at `rev` (the working tree without one).
 export function commitLinks(shas, rev) {
   const { issues } = backlog(rev);
-  return { issues: issues.map(({ id, type, parent }) => ({ id, type, parent })), commits: shas.map((id) => ({ id, taskIds: taskIds(git('log', '-1', '--format=%B', id)) })) };
+  return { issues: issues.map(({ id, type, parent }) => ({ id, type, parent })), commits: shas.map((id) => ({ id, taskIds: taskIds(git('log', '-1', '--format=%B', id)), recordsOnly: recordsOnlyAt(id) })) };
+}
+
+// A commit carries only records of what already happened when the tracker
+// export is the one path it changes and every issue reads the same before and
+// after once its update time and its added work-record comments are set aside:
+// it appends time records and moves no work. Filing, claiming, closing or
+// editing work is not that, and neither is changing or dropping a record that
+// was already there. The commit check refuses such a commit: the records ride
+// with the landing they describe (setup 0.45.0).
+const RECORD = '[shady2k-time';
+const isRecord = (c) => (c.text ?? '').startsWith(RECORD);
+// Field order is br's, not meaning: the comparison sorts every object's keys.
+const canonical = (v) => Array.isArray(v) ? v.map(canonical)
+  : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canonical(v[k])])) : v;
+const rows = (text) => new Map(text.split('\n').filter((l) => l.trim()).map((line) => {
+  const row = JSON.parse(line);
+  return [row.id, row];
+}));
+export function onlyRecords(paths, before, after) {
+  if (paths.length !== 1 || paths[0] !== EXPORT) return false;
+  const was = rows(before), now = rows(after);
+  if (was.size !== now.size) return false;
+  let added = 0;
+  for (const [id, issue] of now) {
+    const old = was.get(id);
+    if (!old) return false;
+    const { updated_at: _a, comments: oldComments = [], ...oldRest } = old;
+    const { updated_at: _b, comments: newComments = [], ...newRest } = issue;
+    if (JSON.stringify(canonical(oldRest)) !== JSON.stringify(canonical(newRest))) return false;
+    // Every comment that was there stays as it was; what is added is records only.
+    const kept = new Set(newComments.map((c) => JSON.stringify(canonical(c))));
+    if (!oldComments.every((c) => kept.has(JSON.stringify(canonical(c))))) return false;
+    const before = new Set(oldComments.map((c) => JSON.stringify(canonical(c))));
+    const fresh = newComments.filter((c) => !before.has(JSON.stringify(canonical(c))));
+    if (!fresh.every(isRecord)) return false;
+    added += fresh.length;
+  }
+  // A commit that only touches update times or comment order adds no record.
+  return added > 0;
+}
+
+const showOr = (spec) => { try { return git('show', spec); } catch { return null; } };
+
+// A committed revision: merges and the root commit are never records-only.
+export function recordsOnlyAt(sha) {
+  const parents = git('rev-list', '--parents', '-n', '1', sha).trim().split(/\s+/).slice(1);
+  if (parents.length !== 1) return false;
+  const paths = git('diff-tree', '--no-commit-id', '--name-only', '-r', sha).split('\n').filter(Boolean);
+  const before = showOr(`${sha}^:${EXPORT}`), after = showOr(`${sha}:${EXPORT}`);
+  return before !== null && after !== null && onlyRecords(paths, before, after);
+}
+
+// The commit being made: what the index stages against the commit it will
+// follow — HEAD, or HEAD's parent when the commit amends HEAD. git tells a
+// hook nothing about amending, so the git process that runs the hook is read
+// from the process table (`ps`, Linux and macOS).
+export function amending(pid = process.ppid, depth = 6) {
+  for (let p = pid, n = 0; p > 1 && n < depth; n++) {
+    let line;
+    try { line = execFileSync('ps', ['-o', 'ppid=,args=', '-p', String(p)], { encoding: 'utf8' }).trim(); } catch { return false; }
+    const [, parent, args] = line.match(/^(\d+)\s+(.*)$/) ?? [];
+    if (!args) return false;
+    if (/(^|\/)git(\s|$)/.test(args) && /\scommit\b/.test(args)) return /\s--amend\b/.test(args);
+    p = Number(parent);
+  }
+  return false;
+}
+function recordsOnlyStaged() {
+  const base = amending() ? 'HEAD^' : 'HEAD';
+  const paths = git('diff', '--cached', '--name-only', base).split('\n').filter(Boolean);
+  const before = showOr(`${base}:${EXPORT}`), after = showOr(`:${EXPORT}`);
+  return before !== null && after !== null && onlyRecords(paths, before, after);
 }
 
 function commits(args) {
@@ -125,12 +197,12 @@ function commits(args) {
   let list;
   if (args.message) {
     const msg = readFileSync(args.message, 'utf8').split('\n').filter((l) => !l.startsWith('#')).join('\n');
-    list = [{ id: 'pending-message', taskIds: taskIds(msg) }];
+    list = [{ id: 'pending-message', taskIds: taskIds(msg), recordsOnly: recordsOnlyStaged() }];
   } else if (args.range) {
     const out = git('log', '--format=%H%x00%B%x1e', args.range);
     list = out.split('\x1e').map((s) => s.trim()).filter(Boolean).map((s) => {
       const [id, body] = s.split('\0');
-      return { id, taskIds: taskIds(body ?? '') };
+      return { id, taskIds: taskIds(body ?? ''), recordsOnly: recordsOnlyAt(id) };
     });
     if (!list.length) throw new Error(`no commits in range ${args.range}`);
   } else throw new Error('commits needs --message <file> or --range <a>..<b>');

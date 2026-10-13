@@ -280,7 +280,10 @@ test('a receipt stands for what its check reads: an ignored path keeps it, any o
   r.write('src/views.ts', 'export const views = 2;\n');
   const code = r.commit('code');
   const stale = runCheck(r.root, { phase: 'acceptance', change: 'add-views', candidate: code });
-  assert.deepEqual(stale.violations.filter((v) => v.id === 'stale-evidence').map((v) => v.at).sort(), ['mutation', 'review', 'static', 'test', 'test-views']);
+  assert.deepEqual(stale.violations.filter((v) => v.id === 'stale-evidence').map((v) => v.at).sort(), ['review', 'static', 'test', 'test-views']);
+  // A mutation receipt gone stale is a note, never a refusal: the run measures the tests (setup 0.45.0).
+  assert.deepEqual(stale.notes.map((n) => n.at), ['mutation']);
+  assert.match(stale.text, /not-made: mutation — a mutation run measures how strong the tests are/);
   assert.match(stale.text, new RegExp(`"id":"static","status":"passed","reference":"<where its output is kept>","revision":"${checkRevisionOf(r.root, code, 'static')}"`));
 });
 

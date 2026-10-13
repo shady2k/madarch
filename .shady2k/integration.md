@@ -41,6 +41,16 @@ are the repository's installation, and each person's plugin and hooks are theirs
 - **Commit task links:** every commit, merges and reverts included, carries one
   or more lines `Task: <id>[, <id>...]`. Parsed by `taskIds()` in
   `.shady2k/adapter.mjs` (case-insensitive `^Task:` lines, ids split on commas and spaces).
+  The adapter also marks a commit that carries only records of what already
+  happened (`recordsOnly`, `onlyRecords()`): one whose single changed path is
+  `.beads/issues.jsonl`, in which every issue keeps its fields (compared with
+  keys sorted, `updated_at` aside) and every comment it had, and adds only
+  `[shady2k-time` comments. A changed or dropped comment is not records-only.
+  `check-commits.mjs` refuses it: the records ride with the landing they
+  describe. Filing, claiming, closing or annotating work is not records-only;
+  merges and the root commit are never marked. For the commit being made the
+  adapter reads the `git commit` process from `ps` and, when it amends, judges
+  the index against `HEAD^`, so records added to a commit that carries code pass.
 - **Cleanup recovery:** none needed at setup (empty tracker). Before any bulk
   edit, snapshot with `node .shady2k/adapter.mjs backlog > <file>` and keep it with the task.
 
@@ -53,12 +63,15 @@ are the repository's installation, and each person's plugin and hooks are theirs
   with and `check-present.mjs` takes its path matcher from; `check-docs.mjs`
   reads the exported model, not files) and `time-format.mjs`
   (which `check.mjs` reads records by),
-  verbatim copies of shady2k-skills plugin 0.91.0 (setup and rules 0.41.0),
+  verbatim copies of shady2k-skills plugin 0.105.0 (setup and rules 0.45.0),
   compared byte for byte at each setup. Their self-tests run from the plugin's
-  setup skill directory, where their fixtures are. `check.mjs` carries 0.41.0's
+  setup skill directory, where their fixtures are. `check.mjs` carries the
   record rules: a record is retired by a `void` record naming its comment, never
   edited or deleted, and a void that retires nothing only warns
-  (`time-void-idle`).
+  (`time-void-idle`). Since 0.45.0 `check-docs.mjs` reports a mutation check
+  that was not made, or not on the judged revision, as a `not-made` note and
+  never refuses on it; `documents.mjs` prints the notes beside its verdict
+  (and in `--json`).
 - **Present documents:** the config's `presentDocuments` (`AGENTS.md`, the
   glossary, `docs/system/architecture.md`, the current capability specs).
   `node .shady2k/checks/check-present.mjs --config .shady2k/config.json --base
@@ -117,7 +130,14 @@ are the repository's installation, and each person's plugin and hooks are theirs
   there; on any other checkout it passes silently. Only a worktree made with the
   hooks off (or before they existed) can still write another checkout's
   tracker; the guard refuses its commits until it is connected. At the end of a session, commit the export with the work
-  that changed it on the branch that did it.
+  that changed it on the branch that did it; time records alone are never a
+  commit of their own (the commit check refuses it), they ride with that work's
+  landing. The owner chose on 2026-10-13 to move the store off the branches;
+  0.45.0 still accepts this in-branch layout for an ordinary project, and the
+  move waits for the reference mechanism the set ships
+  (skills-off-branch-tracker-not-shipped-d9f; tracked here as its own task),
+  installed by the setup rerun that follows it. Until then never run `br init`
+  in a worktree outside this folder: it makes a second, empty tracker.
 - **Document gate:** `.shady2k/documents.mjs` exports the documents and tracker
   records into `check-docs.mjs`'s contract and runs it; tests in
   `.shady2k/documents.test.mjs` (`node --test .shady2k/*.test.mjs`).
@@ -347,9 +367,20 @@ are the repository's installation, and each person's plugin and hooks are theirs
   the harness's own `jev` tool where it has one. The key's place is this
   machine's, in `~/.config/shady2k-skills/jev.json`, never the config; a
   machine without it works without Jev.
-- **Reviewer:** another model where available (Codex through its MCP server or
-  CLI; available when the server is connected in the session). Fallback: an
-  independent same-model reviewer, disclosed in the acceptance record.
+- **Reviewer:** gpt-6-luna through the Prime Agent CLI, the way:
+  `prime-agent --provider openai-codex --model gpt-6-luna -p "<the review brief>"`
+  run in the checkout under review (proved by one real call at the 0.45.0
+  setup, 2026-10-13); gpt-6.1-sol the same way once its limit lifts, by the
+  owner's choice. A way that stops answering is repaired with the owner told,
+  never silently replaced. Fallback: an independent same-model reviewer,
+  disclosed in the acceptance record.
+- **Pushes to the owner:** `notifyPushes` is on (owner's yes, 2026-10-13); the
+  channel is this machine's, `~/.config/shady2k-skills/notify.json` naming the
+  owner's Bark script, sent through the run script's `notify --config
+  .shady2k/config.json`. No key is in the repository.
+- **Practices:** `docs/practices/PRA-<n>-<slug>.md` from the set's practice
+  template, each with one line in `AGENTS.md`; none recorded yet
+  (`refine-practices` writes them).
 - **Parallel execution:** one worker (config `maxWorkers`); separate git
   worktrees when more are allowed; `br update <id> --claim` is atomic and
   exclusive (`claim_exclusive: true` in `.beads/config.yaml`).

@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { backlog, claimPlan, normalize } from './adapter.mjs';
+import { backlog, claimPlan, normalize, onlyRecords } from './adapter.mjs';
 
 const leaf = (id, extra = {}) => ({ id, type: 'task', status: 'open', parent: 'stage', blockedBy: [], holder: null, ...extra });
 const done = (id, extra = {}) => leaf(id, { status: 'implemented', integration: { revision: 'r1', evidence: 'x' }, ...extra });
@@ -194,4 +194,39 @@ test('an at-revision read of an export above the old 1 MiB default buffer still 
   const { issues } = backlog(rev);
   assert.ok(issues.length > 0, 'an at-revision read of a real export yields the tracker');
   assert.ok(issues.some((i) => i.id === 'madarch-iuc.17'));
+});
+
+const EXPORT = '.beads/issues.jsonl';
+const row = (id, extra = {}) => JSON.stringify({ id, title: 't', status: 'open', updated_at: '2026-10-13T07:00:00Z', comments: [], ...extra });
+const rec = (id, text) => ({ id, issue_id: 'm-1', author: 'a', text, created_at: '2026-10-13T07:01:00Z' });
+
+test('records only: a commit that adds time records and nothing else is marked', () => {
+  const before = row('m-1') + '\n' + row('m-2') + '\n';
+  const after = row('m-1', { updated_at: '2026-10-13T08:00:00Z', comments: [rec(1, '[shady2k-time v1] receipt\nspan: x')] }) + '\n' + row('m-2') + '\n';
+  assert.equal(onlyRecords([EXPORT], before, after), true);
+});
+
+test('records only: filing, moving or annotating work, or any other path, is not', () => {
+  const before = row('m-1') + '\n';
+  assert.equal(onlyRecords([EXPORT], before, before + row('m-2') + '\n'), false, 'a filed task');
+  assert.equal(onlyRecords([EXPORT], before, row('m-1', { status: 'closed' }) + '\n'), false, 'a closure');
+  assert.equal(onlyRecords([EXPORT], before, row('m-1', { comments: [rec(1, 'submitted: {}')] }) + '\n'), false, 'a submitted record');
+  const withRecord = row('m-1', { comments: [rec(1, '[shady2k-time v1] claim')] }) + '\n';
+  assert.equal(onlyRecords([EXPORT, 'src/x.ts'], before, withRecord), false, 'records riding with code');
+  assert.equal(onlyRecords(['src/x.ts'], before, before), false, 'no tracker change at all');
+});
+
+test('records only: field order is not meaning; a changed or dropped record is not an appended one', () => {
+  const recRow = (comments, extra = {}) => row('m-1', { comments, ...extra });
+  const one = [rec(1, '[shady2k-time v1] claim')];
+  const reordered = JSON.stringify({ comments: [...one, rec(2, '[shady2k-time v1] receipt')], updated_at: 'later', status: 'open', title: 't', id: 'm-1' });
+  assert.equal(onlyRecords([EXPORT], recRow(one) + '\n', reordered + '\n'), true, 'keys in another order, a record appended');
+  assert.equal(onlyRecords([EXPORT], recRow(one) + '\n', recRow([]) + '\n'), false, 'a record dropped');
+  assert.equal(onlyRecords([EXPORT], recRow(one) + '\n', recRow([rec(1, '[shady2k-time v1] claim, edited')]) + '\n'), false, 'a record edited');
+});
+
+test('records only: a commit that adds no record is not records-only', () => {
+  const two = [rec(1, '[shady2k-time v1] claim'), rec(2, '[shady2k-time v1] receipt')];
+  assert.equal(onlyRecords([EXPORT], row('m-1') + '\n', row('m-1', { updated_at: 'later' }) + '\n'), false, 'only the update time');
+  assert.equal(onlyRecords([EXPORT], row('m-1', { comments: two }) + '\n', row('m-1', { comments: [...two].reverse() }) + '\n'), false, 'comments reordered');
 });
