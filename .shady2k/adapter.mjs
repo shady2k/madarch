@@ -139,6 +139,7 @@ export function onlyRecords(paths, before, after) {
   if (paths.length !== 1 || paths[0] !== EXPORT) return false;
   const was = rows(before), now = rows(after);
   if (was.size !== now.size) return false;
+  let added = 0;
   for (const [id, issue] of now) {
     const old = was.get(id);
     if (!old) return false;
@@ -149,9 +150,12 @@ export function onlyRecords(paths, before, after) {
     const kept = new Set(newComments.map((c) => JSON.stringify(canonical(c))));
     if (!oldComments.every((c) => kept.has(JSON.stringify(canonical(c))))) return false;
     const before = new Set(oldComments.map((c) => JSON.stringify(canonical(c))));
-    if (!newComments.every((c) => before.has(JSON.stringify(canonical(c))) || isRecord(c))) return false;
+    const fresh = newComments.filter((c) => !before.has(JSON.stringify(canonical(c))));
+    if (!fresh.every(isRecord)) return false;
+    added += fresh.length;
   }
-  return true;
+  // A commit that only touches update times or comment order adds no record.
+  return added > 0;
 }
 
 const showOr = (spec) => { try { return git('show', spec); } catch { return null; } };

@@ -224,3 +224,9 @@ test('records only: field order is not meaning; a changed or dropped record is n
   assert.equal(onlyRecords([EXPORT], recRow(one) + '\n', recRow([]) + '\n'), false, 'a record dropped');
   assert.equal(onlyRecords([EXPORT], recRow(one) + '\n', recRow([rec(1, '[shady2k-time v1] claim, edited')]) + '\n'), false, 'a record edited');
 });
+
+test('records only: a commit that adds no record is not records-only', () => {
+  const two = [rec(1, '[shady2k-time v1] claim'), rec(2, '[shady2k-time v1] receipt')];
+  assert.equal(onlyRecords([EXPORT], row('m-1') + '\n', row('m-1', { updated_at: 'later' }) + '\n'), false, 'only the update time');
+  assert.equal(onlyRecords([EXPORT], row('m-1', { comments: two }) + '\n', row('m-1', { comments: [...two].reverse() }) + '\n'), false, 'comments reordered');
+});
