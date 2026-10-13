@@ -167,83 +167,83 @@ as unknown, naming what it accepts.
 - When: `madarch list` is run
 - Then: it exits 2 naming that path
 
-## Requirement: describe-step — madarch carries the describing step for a product to lay in
-madarch shall carry the describing step in its checkout, beside its own
-lifecycle modules, in one folder — `skills/describe-repository/` — holding
-the describing skill's `SKILL.md` and the section text `AGENTS-section.md`
-an engineer or their agent lays below the maintained markers
-of a product's `AGENTS.md`. The section shall say that a code repository
-entered with `madarch repo add` is described before work begins; that the
-description follows the product's own skill `skills/describe-repository/`;
-and that the description writes the repository's intended model, with its
-evidence, into the repository's own `madarch/` folder, the architecture
-page under the product's `docs/repositories/name/`, the capabilities found
-in the code as requirements and use cases marked derived from code, and
-the decisions found in the code or its ADRs, each linked to the model
-elements it shapes. It shall say that a repository holding uncommitted
-changes is described only after they are committed, and that every page is
-written under `docs/` so the wiki shows it as it is saved. The engineer's
-guide shall name the copy: the folder copied into the product's `skills/`,
-the section appended to the product's `AGENTS.md` below the maintained
-markers. A draft `madarch new` alone makes stays byte for byte what
-madarch's own creation writes (decision 0021: the constitution is
+## Requirement: describe-step — madarch carries the describing step through the installed skill set
+The describing step of a product — giving the product's agent both the
+instructions to describe a connected repository and the place the results
+land — shall be carried by the skill set's installed release, the install
+contract being shady2k-skills 0.106.0 or later, and madarch's own documents
+shall name the skills only in that contract line. The engineer's guide shall
+name the set's release as what gives the product the describing step, the
+set's installation into the product (`setup-shady2k-skills`, run by the
+product's agent) laying the section below the maintained markers of the
+product's `AGENTS.md` — the layout madarch's own creation writes — and
+nothing of it naming a `skills/` folder of the madarch checkout as the step's
+home. A checkout of madarch alone shall hold no skill folder: `skills/`
+(leaving out `docs/`, `model/`, `prototypes/` and the lifecycle modules) is
+absent from the repository's tree. The step's results land where the
+capability already reads them: a repository's intended model with its review
+report in the repository's own model folder, and the architecture page with
+the derived requirements, use cases and decision records under the product's
+`docs/repositories/name/`. A draft `madarch new` alone makes stays byte for
+byte what madarch's own creation writes (decision 0021: the constitution is
 madarch's, the section is laid below its markers by whoever runs the
-product, never written into the skeleton); such a draft carries neither the
-skill folder nor the section until the copy is made.
+product, never written into the skeleton); such a draft carries no section
+until the installed set lays one.
 
-### Scenario: checkout-carries-the-step
-- Given: a madarch checkout at the change's revision
-- When: its `skills/describe-repository/` folder is listed and the two files are read
-- Then: it holds `SKILL.md` and `AGENTS-section.md`; the skill names the four artifacts, the model check command, the committed-checkout rule and the derived-from-code provenance shape; the section names the skill, the four artifacts, the committed-checkout rule and the wiki's live display
+### Scenario: the-checkout-ships-no-skills
+- Given: a checkout of this repository at the change's revision
+- When: its tree is listed for a `skills/` folder beside `docs/`, `model/`, `prototypes/` and the lifecycle modules
+- Then: none exists — the repository holds no `skills/` folder, and no code path or test reads one
 
-### Scenario: a-fresh-draft-carries-nothing-until-copied
+### Scenario: a-fresh-draft-carries-nothing-until-laid
 - Given: a draft created by `madarch new` alone
 - When: its `AGENTS.md` and its `skills/` folder are read
-- Then: `AGENTS.md` is byte for byte the constitution madarch's creation writes (the example's bytes), and `skills/` holds only the kept `.gitkeep` — no describe-repository folder, no section
+- Then: `AGENTS.md` is byte for byte the constitution madarch's creation writes (the example's bytes), and `skills/` holds only the kept `.gitkeep`
 
-### Scenario: the-copy-lays-the-step
-- Given: a fresh draft and a madarch checkout
-- When: the checkout's `skills/describe-repository/` folder is copied into the draft's `skills/` and its `AGENTS-section.md` is appended to the draft's `AGENTS.md`
-- Then: the draft's `AGENTS.md` holds madarch's own constitution (the one `madarch new` writes) followed by the section, the section stands after the maintained markers, and the draft's `skills/` holds the skill beside the kept `.gitkeep`
+### Scenario: the-guide-names-the-set-release
+- Given: the guide `docs/guides/start-a-product.md` at its describing step
+- When: its skills step is read
+- Then: it names the set's release the install contract carries (shady2k-skills 0.106.0 or later) as what gives the product the describing step, and no line of it names a `skills/` folder of the madarch checkout
 
-## Requirement: describe-skill — The product's own skill describes a repository into the wiki's artifacts
-A new product's `skills/` folder shall hold the product's own
-describe-repository skill, one Agent Skills folder whose instructions run,
-for one repository of the product's manifest: first the repository's
-intended model, written through madarch's model-writing machinery — the
-set's `write-intended-model` procedure and the model check run from a
-madarch checkout — into the repository's own `madarch/` folder with a
-review report beside it, every element, interface and relation carrying
-evidence naming the file, the line or range, and the commit and blob it was
-read from, the check finishing only on a run that exits 0; then the
-architecture page `docs/repositories/name/architecture.md` in the
-product's `docs/`, prose that names the model's views and links the model's
-folder and the review report by relative paths; then the capabilities found
-in the code as user stories, use cases and product requirements in the
-set's forms, continuing the product's own id numbering, each marked derived
-from code in its title and by `Source: code` and `Evidence:` lines in its
-`Sources` section naming the file and lines every statement was read from; and then one MADR decision record per
-decision found in the repository's code or its own ADRs, under
-`docs/repositories/name/decisions/`, each record naming the model ids it
-shapes. The skill shall refuse a checkout with uncommitted changes before
-reading it, naming the folder and the command that showed the changes; it
-shall update an existing model instead of rewriting it, keeping every id
-the changes do not concern; and it shall finish by running the product's
-document check on what it wrote and reporting the repository, the model
-check's verdict, the pages with their paths and the ids it took, leaving
-committing to the person.
+### Scenario: the-registryless-product-describes-as-before
+- Given: a fixture product whose manifest declares one small repository and whose agent has the set's release installed
+- When: the repository is described the way the installed step describes it
+- Then: the repository's model folder holds a model and a review report, the product's `docs/repositories/name/` holds the architecture page with the derived artifacts beside it, and every page the run wrote is a page of the wiki — the same places the capability reads, whoever installed the step
+
+## Requirement: describe-skill — A product's described repository carries the artifacts the wiki reads
+A repository connected to the product (declared in the manifest with `madarch
+repo add` or any other way the entry was gained) shall be described into the
+places the wiki reads, the description run by the product's agent through
+the skill set's installed release: first the repository's intended model,
+written into the repository's own model folder — `madarch/` beside the code,
+the folder the model check and the wiki's diagram tab read — with a review
+report beside it, every element, interface and relation carrying evidence
+naming the file, the line or range, and the commit and blob it was read
+from; then the architecture page `docs/repositories/name/architecture.md` in
+the product's `docs/`, prose that names the model's views and links the
+model's folder and the review report by relative paths; then the
+capabilities found in the code as requirements and use cases marked derived
+from code, in the set's product forms, each statement naming the file and
+the lines it was read from; and then the decisions found in the repository's
+code or its own ADRs as decision records, each linked to the model elements
+it shapes. A repository holding uncommitted changes is described only after
+they are committed: the evidence the model pins is committed text. The wiki
+shows what the step wrote as it is saved; the described repository's
+architecture page joins the design stage's material beside the kind folders
+the registry names, and the product serves the same wiki with or without any
+skill installed at all.
 
 ### Scenario: described-repository-shows-its-artifacts
 - Given: a fixture product whose manifest declares one small repository and whose checkout is clean
-- When: the describe-repository skill is run on that repository
-- Then: the repository's `madarch/` folder holds a model and a review report the model check passes, the product's `docs/repositories/name/` holds the architecture page, at least one requirement and one use case marked derived from code with `Source: code` and `Evidence:` lines of file-and-line citations in their `Sources` sections, and one decision record naming a model id, and every page the skill wrote is a page of the wiki
+- When: that repository is described the way the installed step describes it (a fixture laying the model, its review report, the architecture page, a derived requirement and use case, and a decision record where the capability reads them)
+- Then: the repository's model folder holds a model and a review report the model check passes, the product's `docs/repositories/name/` holds the architecture page, at least one requirement and one use case marked derived from code with `Source: code` and `Evidence:` lines of file-and-line citations in their `Sources` sections, and one decision record naming a model id, and every page the run wrote is a page of the wiki
 
 ### Scenario: uncommitted-checkout-refused
 - Given: a fixture product whose declared repository holds an uncommitted change
-- When: the describe-repository skill is asked to describe it
+- When: a description is attempted against it
 - Then: nothing is written, and the refusal names the repository folder and the command that showed the changes
 
 ### Scenario: evidence-is-traceable
-- Given: a requirement the skill derived from code
+- Given: a requirement the description derived from code
 - When: its `Evidence:` line is read and each citation opened
 - Then: every citation names a file of the repository and a line range, and the statement it supports reads at that place in the repository's committed text
