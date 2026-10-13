@@ -89,7 +89,18 @@ or with the bare madarch binary): the contract's check command accepted; one
 product madarch makes alone; the skills' product served through the registry
 alone; the binary installed and the image offline.
 
-**Finding budget 5**, until the owner says otherwise.
+**Finding budget 7** (raised from 5 by the owner on 2026-10-13, "Бери все,
+бюджет поднимай", after walking the served demo wiki and judging it unusable:
+the overview that says nothing of the product, mixed languages, links that do
+not navigate, dead chrome — madarch-xq0v, madarch-k47i, madarch-0n3p,
+madarch-gj94). Nothing planned is displaced.
+
+**Taken in on 2026-10-13** (the owner's same words, and "Давай сделаем по
+нашему продукту … создайте эти манифесты, чтобы это было понятно"):
+madarch's own product wiki (madarch-wsce) — madarch served as a product from
+its own documents, so a reader learns what madarch is, for whom, its vision and
+where it stands. It is the milestone's walk on a real product, not only the
+demo.
 
 ## Exclusions
 
