@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { ModelFile } from '../src/model/schema.js';
 import { CompiledModel } from '../src/model/compiled-schema.js';
 import { renderSchema } from '../scripts/generate-schemas.js';
+import { DiscussionMessage } from '../src/product/discussion-schema.js';
 
 function schemaFile(name: string): string {
   return readFileSync(fileURLToPath(new URL(`../schema/${name}`, import.meta.url)), 'utf8');
@@ -16,5 +17,9 @@ describe('schema freshness', () => {
 
   test('the published compiled-model schema matches the TypeBox source', () => {
     expect(schemaFile('compiled-model.schema.json')).toBe(renderSchema(CompiledModel));
+  });
+
+  test('the published discussion-message schema matches the TypeBox source', () => {
+    expect(schemaFile('product-discussion-message.schema.json')).toBe(renderSchema(DiscussionMessage));
   });
 });

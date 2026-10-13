@@ -17,6 +17,7 @@ import { parseContractText, parseDocumentFields } from '../src/product/contract.
 import { readProduct } from '../src/product/manifest.js';
 import { Value } from 'typebox/value';
 import { ProductCompleteness } from '../src/product/schema.js';
+import { parseDiscussionMessage, scanDiscussionMarkers } from '../src/product/discussion-contract.js';
 
 /** The case file the examples answer, like the set's own fixture cases. */
 interface ContractCase {
@@ -37,10 +38,11 @@ interface ContractCase {
   reservations?: { line?: number; path?: string; message: string }[];
 }
 
-const USAGE = 'usage: bun run contract:check [--cases <file>] [--documents <file>] [--manifest-cases <file>] [--products <folder>] [--src <file>]';
+const USAGE = 'usage: bun run contract:check [--cases <file>] [--documents <file>] [--manifest-cases <file>] [--discussions <file>] [--products <folder>] [--src <file>]';
 const DEFAULT_CASES = fileURLToPath(new URL('../examples/contract/registry-cases.json', import.meta.url));
 const DEFAULT_MANIFEST_CASES = fileURLToPath(new URL('../examples/contract/manifest-cases.json', import.meta.url));
 const DEFAULT_DOCUMENT_CASES = fileURLToPath(new URL('../examples/contract/document-cases.json', import.meta.url));
+const DEFAULT_DISCUSSION_CASES = fileURLToPath(new URL('../examples/contract/discussion-cases.json', import.meta.url));
 const DEFAULT_PRODUCTS = fileURLToPath(new URL('../examples/contract/', import.meta.url));
 const DEFAULT_COMPLETENESS_CASES = fileURLToPath(new URL('../examples/contract/completeness-cases.json', import.meta.url));
 
@@ -212,6 +214,18 @@ function checkProductFolder(root: string, name: string, verdicts: CaseVerdict[])
 
 
 /** One document case as the examples hold it: its text, the fields it expects or the refusal with the line and the words. */
+interface DiscussionCase {
+  name: string;
+  path: string;
+  text: string;
+  ok?: boolean;
+  line?: number;
+  message?: string;
+  source?: string;
+  markerLine?: number;
+  markerMessage?: string;
+}
+
 interface DocumentCase {
   name: string;
   text: string | null;
@@ -250,7 +264,24 @@ function checkDocCase(one: DocumentCase, verdicts: CaseVerdict[], from: string):
   }
 }
 
-function run(casesPath: string, documentCasesPath: string, manifestCasesPath: string, productsRoot: string, sourcePath: string | undefined, completenessCasesPath: string): number {
+function checkDiscussionCases(suite: { cases: DiscussionCase[] }, from: string): void {
+  for (const one of suite.cases) {
+    const problems: string[] = [];
+    const read = parseDiscussionMessage(one.path, one.text);
+    if (one.ok === false) {
+      if (read.ok) problems.push('expected the message to be refused, got accepted');
+      else if (!read.errors.some((error) => error.line === (one.line ?? 1) && error.message.includes(one.message ?? ''))) problems.push(`expected a refusal on line ${one.line ?? 1} naming ${JSON.stringify(one.message ?? '')}, got ${read.errors.map((e) => `${e.file}:${e.line}: ${e.message}`).join('; ')}`);
+    } else if (!read.ok) problems.push(`expected the message to read, got ${read.errors.map((e) => `${e.file}:${e.line}: ${e.message}`).join('; ')}`);
+    if (one.source !== undefined) {
+      const markers = scanDiscussionMarkers(`${one.path.replace(/\/[^/]+$/, '')}/source.md`, one.source);
+      if (one.markerMessage === undefined && markers.errors.length) problems.push(`expected markers to read, got ${markers.errors.map((e) => `${e.file}:${e.line}: ${e.message}`).join('; ')}`);
+      if (one.markerMessage !== undefined && !markers.errors.some((e) => e.line === one.markerLine && e.message.includes(one.markerMessage!))) problems.push(`expected marker refusal on line ${one.markerLine} naming ${JSON.stringify(one.markerMessage)}, got ${markers.errors.map((e) => `${e.file}:${e.line}: ${e.message}`).join('; ') || 'no refusal'}`);
+    }
+    verdicts.push({ case: `discussion ${one.name}`, from, problems });
+  }
+}
+
+function run(casesPath: string, documentCasesPath: string, manifestCasesPath: string, discussionCasesPath: string, productsRoot: string, sourcePath: string | undefined, completenessCasesPath: string): number {
   if (sourcePath !== undefined) {
     const text = readFileSync(sourcePath, 'utf8');
     const read = parseContractText(sourcePath, text);
@@ -276,6 +307,8 @@ function run(casesPath: string, documentCasesPath: string, manifestCasesPath: st
     const valid = Value.Check(ProductCompleteness, one.value);
     verdicts.push({ case: `completeness ${one.name}`, from: completenessCasesPath, problems: valid === one.valid ? [] : [`expected schema result ${one.valid}, got ${valid}`] });
   }
+  const discussionSuite = JSON.parse(readFileSync(discussionCasesPath, 'utf8')) as { cases: DiscussionCase[] };
+  checkDiscussionCases(discussionSuite, discussionCasesPath);
   let failed = 0;
   for (const verdict of verdicts) {
     if (verdict.problems.length === 0) continue;
@@ -287,12 +320,13 @@ function run(casesPath: string, documentCasesPath: string, manifestCasesPath: st
   }
   const products = verdicts.filter((v) => v.case.startsWith('product ')).length;
   const manifestCases = verdicts.filter((v) => v.case.startsWith('manifest ')).length;
-  console.log(`contract: ${file.cases.length} registry cases, ${docFile.cases.length} document cases, ${manifestCases} manifest cases, ${completenessFile.cases.length} completeness cases, ${products} products, ${failed} misread`);
+  console.log(`contract: ${file.cases.length} registry cases, ${docFile.cases.length} document cases, ${discussionSuite.cases.length} discussion cases, ${manifestCases} manifest cases, ${completenessFile.cases.length} completeness cases, ${products} products, ${failed} misread`);
   return failed > 0 ? 1 : 0;
 }
 
 let casesPath = DEFAULT_CASES;
 let documentCasesPath = DEFAULT_DOCUMENT_CASES;
+let discussionCasesPath = DEFAULT_DISCUSSION_CASES;
 let manifestCasesPath = DEFAULT_MANIFEST_CASES;
 let productsRoot = DEFAULT_PRODUCTS;
 let sourcePath: string | undefined;
@@ -313,6 +347,10 @@ for (let i = 0; i < args.length; i += 2) {
     documentCasesPath = value!;
     continue;
   }
+  if (flag === '--discussions') {
+    discussionCasesPath = value!;
+    continue;
+  }
   if (flag === '--products') {
     productsRoot = value!;
     continue;
@@ -328,4 +366,4 @@ for (let i = 0; i < args.length; i += 2) {
   console.error(`error: ${USAGE}`);
   process.exit(2);
 }
-process.exitCode = run(casesPath, documentCasesPath, manifestCasesPath, productsRoot, sourcePath, completenessCasesPath);
+process.exitCode = run(casesPath, documentCasesPath, manifestCasesPath, discussionCasesPath, productsRoot, sourcePath, completenessCasesPath);

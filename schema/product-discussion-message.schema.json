@@ -1,0 +1,109 @@
+{
+  "type": "object",
+  "required": [
+    "contract",
+    "author",
+    "time",
+    "thread",
+    "anchor",
+    "document",
+    "sourceCommit",
+    "status"
+  ],
+  "properties": {
+    "contract": {
+      "type": "number",
+      "const": 1,
+      "description": "The discussion-message contract version; this schema publishes version 1."
+    },
+    "author": {
+      "type": "string",
+      "minLength": 1
+    },
+    "time": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The message creation time in ISO 8601 form."
+    },
+    "thread": {
+      "type": "string",
+      "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+      "minLength": 26,
+      "maxLength": 26
+    },
+    "anchor": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "page"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "quote",
+            "before",
+            "after"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "selection"
+            },
+            "quote": {
+              "type": "string",
+              "minLength": 1
+            },
+            "before": {
+              "type": "string",
+              "maxLength": 32,
+              "description": "Up to 32 Unicode code points immediately before the selected quote."
+            },
+            "after": {
+              "type": "string",
+              "maxLength": 32,
+              "description": "Up to 32 Unicode code points immediately after the selected quote."
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "document": {
+      "type": "string",
+      "pattern": "^docs/(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*(?:^|/)\\.(?:/|$))(?:[^/]+/)*[^/]+\\.md$",
+      "description": "A product-relative Markdown document path under docs/, without dot-segment traversal."
+    },
+    "sourceCommit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "The 40-character source commit hash."
+    },
+    "status": {
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "open"
+        },
+        {
+          "type": "string",
+          "const": "resolved"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/shady2k/madarch/schema/v1/product-discussion-message.schema.json",
+  "title": "Madarch product discussion message",
+  "description": "One Markdown message under comments/<thread ULID>/<message ULID>.md. Its front matter is versioned independently of generic product document fields.",
+  "additionalProperties": false
+}

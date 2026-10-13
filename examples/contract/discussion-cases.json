@@ -1,0 +1,69 @@
+{
+  "about": "Pinned v1 product discussion message and source-marker contract cases.",
+  "cases": [
+    {
+      "name": "valid-selection-message",
+      "path": "comments/01ARZ3NDEKTSV4RRFFQ69G5FAV/01ARZ3NDEKTSV4RRFFQ69G5FAX.md",
+      "text": "---\ncontract: 1\nauthor: Ada\ntime: 2026-10-14T12:00:00Z\nthread: 01ARZ3NDEKTSV4RRFFQ69G5FAV\nanchor:\n  kind: selection\n  quote: A sentence\n  before: text before\n  after: text after\ndocument: docs/vision.md\nsourceCommit: b985d519a3107d92edc3e6fa358d4834277e7021\nstatus: open\n---\nA useful comment.\n",
+      "source": "Before <!--c:01ARZ3NDEKTSV4RRFFQ69G5FAV-->A sentence<!--/c:01ARZ3NDEKTSV4RRFFQ69G5FAV--> after."
+    },
+    {
+      "name": "page-level-message",
+      "path": "comments/01ARZ3NDEKTSV4RRFFQ69G5FAV/01ARZ3NDEKTSV4RRFFQ69G5FAX.md",
+      "text": "---\ncontract: 1\nauthor: Ada\ntime: 2026-10-14T12:00:00Z\nthread: 01ARZ3NDEKTSV4RRFFQ69G5FAV\nanchor:\n  kind: page\ndocument: docs/vision.md\nsourceCommit: b985d519a3107d92edc3e6fa358d4834277e7021\nstatus: open\n---\nA useful comment.\n",
+      "source": "Page-level comments have no selection markers."
+    },
+    {
+      "name": "lost-selection-anchor",
+      "path": "comments/01ARZ3NDEKTSV4RRFFQ69G5FAV/01ARZ3NDEKTSV4RRFFQ69G5FAX.md",
+      "text": "---\ncontract: 1\nauthor: Ada\ntime: 2026-10-14T12:00:00Z\nthread: 01ARZ3NDEKTSV4RRFFQ69G5FAV\nanchor:\n  kind: selection\n  quote: Deleted text\n  before: context before\n  after: context after\ndocument: docs/vision.md\nsourceCommit: b985d519a3107d92edc3e6fa358d4834277e7021\nstatus: open\n---\nA useful comment.\n",
+      "source": "The selected range was deleted."
+    },
+    {
+      "name": "overlapping-distinct-ids",
+      "path": "comments/01ARZ3NDEKTSV4RRFFQ69G5FAV/01ARZ3NDEKTSV4RRFFQ69G5FAX.md",
+      "text": "---\ncontract: 1\nauthor: Ada\ntime: 2026-10-14T12:00:00Z\nthread: 01ARZ3NDEKTSV4RRFFQ69G5FAV\nanchor:\n  kind: selection\n  quote: one two\n  before: left\n  after: right\ndocument: docs/vision.md\nsourceCommit: b985d519a3107d92edc3e6fa358d4834277e7021\nstatus: open\n---\nA useful comment.\n",
+      "source": "<!--c:01ARZ3NDEKTSV4RRFFQ69G5FAV-->one <!--c:01ARZ3NDEKTSV4RRFFQ69G5FAY-->two<!--/c:01ARZ3NDEKTSV4RRFFQ69G5FAV--> three<!--/c:01ARZ3NDEKTSV4RRFFQ69G5FAY-->"
+    },
+    {
+      "name": "one-sided-marker",
+      "path": "comments/01ARZ3NDEKTSV4RRFFQ69G5FAV/01ARZ3NDEKTSV4RRFFQ69G5FAX.md",
+      "text": "---\ncontract: 1\nauthor: Ada\ntime: 2026-10-14T12:00:00Z\nthread: 01ARZ3NDEKTSV4RRFFQ69G5FAV\nanchor:\n  kind: selection\n  quote: selected\n  before: left\n  after: right\ndocument: docs/vision.md\nsourceCommit: b985d519a3107d92edc3e6fa358d4834277e7021\nstatus: open\n---\nA useful comment.\n",
+      "source": "one\n<!--c:01ARZ3NDEKTSV4RRFFQ69G5FAV-->selected text",
+      "markerLine": 2,
+      "markerMessage": "has no matching closing marker"
+    },
+    {
+      "name": "mismatched-marker-ids",
+      "path": "comments/01ARZ3NDEKTSV4RRFFQ69G5FAV/01ARZ3NDEKTSV4RRFFQ69G5FAX.md",
+      "text": "---\ncontract: 1\nauthor: Ada\ntime: 2026-10-14T12:00:00Z\nthread: 01ARZ3NDEKTSV4RRFFQ69G5FAV\nanchor:\n  kind: selection\n  quote: selected\n  before: left\n  after: right\ndocument: docs/vision.md\nsourceCommit: b985d519a3107d92edc3e6fa358d4834277e7021\nstatus: open\n---\nA useful comment.\n",
+      "source": "<!--c:01ARZ3NDEKTSV4RRFFQ69G5FAV-->text<!--/c:01ARZ3NDEKTSV4RRFFQ69G5FAY-->",
+      "markerLine": 1,
+      "markerMessage": "has no matching opening marker"
+    },
+    {
+      "name": "thread-path-mismatch",
+      "path": "comments/01ARZ3NDEKTSV4RRFFQ69G5FAY/01ARZ3NDEKTSV4RRFFQ69G5FAX.md",
+      "text": "---\ncontract: 1\nauthor: Ada\ntime: 2026-10-14T12:00:00Z\nthread: 01ARZ3NDEKTSV4RRFFQ69G5FAV\nanchor:\n  kind: page\ndocument: docs/vision.md\nsourceCommit: b985d519a3107d92edc3e6fa358d4834277e7021\nstatus: open\n---\nA useful comment.\n",
+      "ok": false,
+      "line": 5,
+      "message": "must match the thread ULID"
+    },
+    {
+      "name": "context-over-32-characters-refused",
+      "path": "comments/01ARZ3NDEKTSV4RRFFQ69G5FAV/01ARZ3NDEKTSV4RRFFQ69G5FAX.md",
+      "text": "---\ncontract: 1\nauthor: Ada\ntime: 2026-10-14T12:00:00Z\nthread: 01ARZ3NDEKTSV4RRFFQ69G5FAV\nanchor:\n  kind: selection\n  quote: A sentence\n  before: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n  after: text after\ndocument: docs/vision.md\nsourceCommit: b985d519a3107d92edc3e6fa358d4834277e7021\nstatus: open\n---\nA useful comment.\n",
+      "ok": false,
+      "line": 9,
+      "message": "32"
+    },
+    {
+      "name": "malformed-marker-even-beside-valid-marker",
+      "path": "comments/01ARZ3NDEKTSV4RRFFQ69G5FAV/01ARZ3NDEKTSV4RRFFQ69G5FAX.md",
+      "text": "---\ncontract: 1\nauthor: Ada\ntime: 2026-10-14T12:00:00Z\nthread: 01ARZ3NDEKTSV4RRFFQ69G5FAV\nanchor:\n  kind: selection\n  quote: A sentence\n  before: text before\n  after: text after\ndocument: docs/vision.md\nsourceCommit: b985d519a3107d92edc3e6fa358d4834277e7021\nstatus: open\n---\nA useful comment.\n",
+      "source": "<!--c:01ARZ3NDEKTSV4RRFFQ69G5FAV-->selected<!--/c:01ARZ3NDEKTSV4RRFFQ69G5FAV-->\n<!--c:broken",
+      "markerLine": 2,
+      "markerMessage": "malformed"
+    }
+  ]
+}

@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { ModelFile } from '../src/model/schema.js';
 import { CompiledModel } from '../src/model/compiled-schema.js';
 import { DocumentFields, KindsRegistry, ProductCompleteness } from '../src/product/schema.js';
+import { DiscussionMessage } from '../src/product/discussion-schema.js';
 
 export function renderSchema(schema: unknown): string {
   return `${JSON.stringify(schema, null, 2)}\n`;
@@ -24,6 +25,7 @@ function main(): void {
   writeFileSync(`${root}schema/product-registry.schema.json`, renderSchema(KindsRegistry));
   writeFileSync(`${root}schema/product-document.schema.json`, renderSchema(DocumentFields));
   writeFileSync(`${root}schema/product-completeness.schema.json`, renderSchema(ProductCompleteness));
+  writeFileSync(`${root}schema/product-discussion-message.schema.json`, renderSchema(DiscussionMessage));
 }
 
 if (import.meta.main) {
