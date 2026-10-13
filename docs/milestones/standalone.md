@@ -142,6 +142,15 @@ walks.
 - First wave started 2026-10-12: the contract (a), the skills move (d with
 7), the binary (e), reviewed as they land (gpt-6-luna), no --no-verify,
 standing permission to land into main.
+- Taken in by the owner on 2026-10-14 ("Пока мы ждем, нужно реализовать
+добавление комментария"): comments on selected text in the wiki,
+madarch-y781 (views). The design agreed the same day: two invisible markers
+wrap the selection in the Markdown source, the discussion is kept as one
+file per message under `comments/` in the product's git, committed and
+pushed at once, and a thread is a `discussion` element in the graph
+(decisions 0017 and 0023). Install on clean Linux, macOS and Windows,
+madarch-lfhu.2, joins outcome 5 the same night (Windows and Homebrew by the
+owner's word; the tap shady2k/homebrew-tap created on his yes).
 
 ## Next horizon
 
