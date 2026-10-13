@@ -244,8 +244,11 @@
       "path": "kinds[0].links[0].targets[0]"
     },
     {
-      "name": "link-field-generic-name",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Links\n        targets:\n          - source\n"
+      "name": "a-link-field-never-carries-a-generic-name",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Links\n        targets:\n          - source\n",
+      "line": 11,
+      "path": "kinds[0].links[0].field",
+      "message": "\"Links\" is one of the generic fields madarch reads itself (id, kind, status, links): a kind declares one link a field of its own, never one of these"
     },
     {
       "name": "link-cardinality-unknown-word",

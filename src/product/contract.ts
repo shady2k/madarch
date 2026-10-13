@@ -293,9 +293,23 @@ export function parseContractText(file: string, text: string): RegistryRead {
     }
     // The kind's declared links: one field a time, each target naming a kind
     // of the registry, the reader's words standing at the line they are on.
+    // A link field is never named as one of the generic fields madarch reads
+    // itself (decision 0021, the contract-v1 amendment): the documents' id,
+    // kind, status and links are the engine's own words, and a link field
+    // spelled as one of them — the case does not make it another field —
+    // would be read twice by different halves of the engine.
     const seenLinkFields = new Map<string, number>();
     for (const [linkIndex, link] of (kind.links ?? []).entries()) {
       const key = link.field.toLowerCase();
+      const generic = DOCUMENT_FIELD_NAMES.find((carry) => carry.toLowerCase() === key);
+      if (generic !== undefined) {
+        errors.push({
+          file,
+          line: lines.at(['kinds', index, 'links', linkIndex, 'field']),
+          path: `kinds[${index}].links[${linkIndex}].field`,
+          message: `"${link.field}" is one of the generic fields madarch reads itself (${DOCUMENT_FIELD_NAMES.join(', ')}): a kind declares one link a field of its own, never one of these`,
+        });
+      }
       const first = seenLinkFields.get(key);
       if (first !== undefined) {
         errors.push({

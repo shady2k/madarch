@@ -98,6 +98,25 @@ describe('the contract of a product repository kinds registry', () => {
     expect(carried.contract).toBe(1);
   });
 
+  test("a link field is never named as one of the generic fields madarch reads itself, the case never making it another field", () => {
+    const cases = JSON.parse(readFileSync(CASES_FILE, 'utf8')) as { cases: { name: string; text: string; line?: number; path?: string; message?: string }[] };
+    const one = cases.cases.find((c) => c.name === 'a-link-field-never-carries-a-generic-name');
+    expect(one).toBeDefined();
+    const read = parseContractText('docs/kinds.yaml', one!.text);
+    expect(read.ok).toBe(false);
+    if (read.ok) return;
+    for (const generic of ['Id', 'Kind', 'Status', 'Links']) {
+      const text = one!.text.replace('field: Links', `field: ${generic}`);
+      const refused = parseContractText('docs/kinds.yaml', text);
+      expect(refused.ok).toBe(false);
+      if (refused.ok) continue;
+      const named = refused.errors.find((error) =>
+        error.line === one!.line && error.path === one!.path &&
+        error.message.includes(`"${generic}" is one of the generic fields madarch reads itself (id, kind, status, links)`));
+      expect(named).toBeDefined();
+    }
+  });
+
   test("a link's targets name kinds of the registry: the unknown one is refused at its line", () => {
     const read = parseContractText('docs/kinds.yaml', [
       'contract: 1',
