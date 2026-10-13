@@ -215,3 +215,12 @@ test('records only: filing, moving or annotating work, or any other path, is not
   assert.equal(onlyRecords([EXPORT, 'src/x.ts'], before, withRecord), false, 'records riding with code');
   assert.equal(onlyRecords(['src/x.ts'], before, before), false, 'no tracker change at all');
 });
+
+test('records only: field order is not meaning; a changed or dropped record is not an appended one', () => {
+  const recRow = (comments, extra = {}) => row('m-1', { comments, ...extra });
+  const one = [rec(1, '[shady2k-time v1] claim')];
+  const reordered = JSON.stringify({ comments: [...one, rec(2, '[shady2k-time v1] receipt')], updated_at: 'later', status: 'open', title: 't', id: 'm-1' });
+  assert.equal(onlyRecords([EXPORT], recRow(one) + '\n', reordered + '\n'), true, 'keys in another order, a record appended');
+  assert.equal(onlyRecords([EXPORT], recRow(one) + '\n', recRow([]) + '\n'), false, 'a record dropped');
+  assert.equal(onlyRecords([EXPORT], recRow(one) + '\n', recRow([rec(1, '[shady2k-time v1] claim, edited')]) + '\n'), false, 'a record edited');
+});

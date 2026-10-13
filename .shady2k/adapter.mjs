@@ -121,21 +121,36 @@ export function commitLinks(shas, rev) {
 
 // A commit carries only records of what already happened when the tracker
 // export is the one path it changes and every issue reads the same before and
-// after once its work-record comments and its update time are set aside: it
-// adds time records and moves no work. Filing, claiming, closing or editing
-// work is not that. The commit check refuses such a commit: the records ride
+// after once its update time and its added work-record comments are set aside:
+// it appends time records and moves no work. Filing, claiming, closing or
+// editing work is not that, and neither is changing or dropping a record that
+// was already there. The commit check refuses such a commit: the records ride
 // with the landing they describe (setup 0.45.0).
 const RECORD = '[shady2k-time';
+const isRecord = (c) => (c.text ?? '').startsWith(RECORD);
+// Field order is br's, not meaning: the comparison sorts every object's keys.
+const canonical = (v) => Array.isArray(v) ? v.map(canonical)
+  : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canonical(v[k])])) : v;
+const rows = (text) => new Map(text.split('\n').filter((l) => l.trim()).map((line) => {
+  const row = JSON.parse(line);
+  return [row.id, row];
+}));
 export function onlyRecords(paths, before, after) {
   if (paths.length !== 1 || paths[0] !== EXPORT) return false;
-  const work = (text) => new Map(text.split('\n').filter((l) => l.trim()).map((line) => {
-    const { updated_at, comments, ...rest } = JSON.parse(line);
-    const kept = (comments ?? []).filter((c) => !(c.text ?? '').startsWith(RECORD));
-    return [rest.id, JSON.stringify({ ...rest, comments: kept })];
-  }));
-  const was = work(before), now = work(after);
+  const was = rows(before), now = rows(after);
   if (was.size !== now.size) return false;
-  for (const [id, issue] of now) if (was.get(id) !== issue) return false;
+  for (const [id, issue] of now) {
+    const old = was.get(id);
+    if (!old) return false;
+    const { updated_at: _a, comments: oldComments = [], ...oldRest } = old;
+    const { updated_at: _b, comments: newComments = [], ...newRest } = issue;
+    if (JSON.stringify(canonical(oldRest)) !== JSON.stringify(canonical(newRest))) return false;
+    // Every comment that was there stays as it was; what is added is records only.
+    const kept = new Set(newComments.map((c) => JSON.stringify(canonical(c))));
+    if (!oldComments.every((c) => kept.has(JSON.stringify(canonical(c))))) return false;
+    const before = new Set(oldComments.map((c) => JSON.stringify(canonical(c))));
+    if (!newComments.every((c) => before.has(JSON.stringify(canonical(c))) || isRecord(c))) return false;
+  }
   return true;
 }
 

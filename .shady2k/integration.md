@@ -43,8 +43,9 @@ are the repository's installation, and each person's plugin and hooks are theirs
   `.shady2k/adapter.mjs` (case-insensitive `^Task:` lines, ids split on commas and spaces).
   The adapter also marks a commit that carries only records of what already
   happened (`recordsOnly`, `onlyRecords()`): one whose single changed path is
-  `.beads/issues.jsonl` and in which every issue reads the same before and
-  after once its `[shady2k-time` comments and `updated_at` are set aside.
+  `.beads/issues.jsonl`, in which every issue keeps its fields (compared with
+  keys sorted, `updated_at` aside) and every comment it had, and adds only
+  `[shady2k-time` comments. A changed or dropped comment is not records-only.
   `check-commits.mjs` refuses it: the records ride with the landing they
   describe. Filing, claiming, closing or annotating work is not records-only;
   merges and the root commit are never marked.
