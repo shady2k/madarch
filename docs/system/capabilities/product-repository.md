@@ -397,3 +397,21 @@ skill installed at all.
 - Given: a requirement the description derived from code
 - When: its `Evidence:` line is read and each citation opened
 - Then: every citation names a file of the repository and a line range, and the statement it supports reads at that place in the repository's committed text
+
+## Requirement: discussions — messages and selection markers follow a published v1 contract
+A discussion message is a Markdown file at `comments/{thread ULID}/{message ULID}.md`. Its YAML front matter carries `contract: 1`, `author`, `time`, `thread`, `anchor`, `document`, `sourceCommit`, and `status`; its body is Markdown. The published schema is generated from a TypeBox source at `schema/product-discussion-message.schema.json`, with `$id` `https://github.com/shady2k/madarch/schema/v1/product-discussion-message.schema.json`. The thread directory and message filename are ULIDs; the thread directory id matches the front-matter `thread` field. An anchor is either `kind: page` for an intentional page-level comment, or `kind: selection` with a selected `quote` and `before`/`after` context of at most 32 Unicode code points. A page anchor has no source markers and is not a lost anchor. A selection uses paired `c` comment markers around the selected range. Different ids may overlap. When both markers for a selection are absent, the anchor is lost but valid; when exactly one marker is absent or the closing id differs from the opening id, validation refuses with the source file and 1-based line. The published conformance cases pin valid messages and markers, page comments, distinct-id overlaps, lost anchors, and refusals.
+
+### Scenario: discussion-message-contract
+- Given: a message file at matching thread and message ULID paths with valid v1 front matter and a body
+- When: it is checked against the published contract
+- Then: it is accepted, and malformed metadata is refused with the message file and line
+
+### Scenario: page-comment-is-not-lost-selection
+- Given: a message whose anchor is `kind: page`
+- When: the message and source document are checked
+- Then: it is accepted without selection markers and is not classified as a lost anchor
+
+### Scenario: selection-marker-cases
+- Given: source Markdown with paired selection markers, including overlapping pairs with distinct ids
+- When: its markers are checked
+- Then: it is accepted; a selection with both markers absent is accepted as lost; a one-sided or mismatched pair is refused with source file and line
