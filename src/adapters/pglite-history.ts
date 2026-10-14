@@ -1,4 +1,4 @@
-import { Database, type Statement } from 'bun:sqlite';
+import { PGlite, type Transaction } from '@electric-sql/pglite';
 import type { CompiledModel } from '../model/compile.js';
 import { CLASHABLE_KINDS, assembleCompiledModel, assembleSourceModel, assertionsOf, type Assertion, type AssertionKind } from '../history/assertions.js';
 import type {
@@ -18,8 +18,8 @@ import type {
 import { byCodePoint } from '../model/order.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
 
-export interface SqliteHistoryOptions {
-  /** The database file's path; `':memory:'` (the default) for an in-memory database, as tests use. */
+export interface PGliteHistoryOptions {
+  /** The PGlite data directory; omitted for a private in-memory database. Keep persistent paths in product-local state outside the product repository. */
   path?: string;
   /** Supplies recorded time's "now"; tests inject a fake clock. */
   clock: Clock;
@@ -79,10 +79,9 @@ class StoreRefused extends Error {
 }
 
 /**
- * Bitemporal versions of every source's compiled model, in SQLite behind
- * `HistoryStore` (see design.md, "From files to answers"). Bun-specific
- * (`bun:sqlite`): this is the boundary decision 0008 draws, and the only
- * place in this module the rest of the library ever needs to cross.
+ * Bitemporal versions of every source's compiled model, in PostgreSQL behind
+ * `HistoryStore`. PGlite runs PostgreSQL in WASM in-process, and supports
+ * the same file-backed database interface as the server's PostgreSQL store.
  *
  * One table, `assertions`, holds one row per element, interface, relation,
  * data entity, scenario, category, zone, environment or state a source has
@@ -145,138 +144,147 @@ class StoreRefused extends Error {
  * `ReadModel` for how `read` reports the disagreement instead, as a
  * `Discrepancy`, not an error.
  */
-export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore {
-  // `':memory:'` here is a documented convention, not load-bearing: an
-  // empty string opens an equally private, unshared temporary database
-  // under `bun:sqlite`, so there is no test that could tell the two apart
-  // from the outside.
-  const db = new Database(options.path ?? ':memory:');
-  const clock = options.clock;
+type Executor = Pick<PGlite, 'query'> | Transaction;
 
-  db.run(`
-    CREATE TABLE IF NOT EXISTS assertions (
-      source TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      entity_id TEXT NOT NULL,
-      content TEXT NOT NULL,
-      valid_from INTEGER NOT NULL,
-      valid_to INTEGER,
-      opened_by TEXT NOT NULL,
-      closed_by TEXT,
-      recorded_from INTEGER NOT NULL,
-      recorded_to INTEGER
-    )
-  `);
-  db.run('CREATE INDEX IF NOT EXISTS assertions_current ON assertions (source, kind, entity_id, recorded_to)');
-  db.run('CREATE INDEX IF NOT EXISTS assertions_time ON assertions (valid_from, valid_to, recorded_from, recorded_to)');
-  db.run('CREATE INDEX IF NOT EXISTS assertions_other ON assertions (kind, recorded_to, source)');
-  db.run(`
-    CREATE TABLE IF NOT EXISTS source_commits (
-      source TEXT NOT NULL,
-      commit_id TEXT NOT NULL,
-      committed_at INTEGER NOT NULL,
-      content_digest TEXT NOT NULL,
-      recorded_at INTEGER NOT NULL,
-      canonical_digest TEXT NOT NULL,
-      PRIMARY KEY (source, commit_id)
-    )
-  `);
-  db.run('CREATE INDEX IF NOT EXISTS source_commits_order ON source_commits (source, committed_at, commit_id)');
-  const commitColumns = db.query<{ name: string }, []>('PRAGMA table_info(source_commits)').all();
-  if (!commitColumns.some((column) => column.name === 'canonical_digest')) {
-    const legacyCommit = db.query<{ source: string; commit_id: string }, []>(
-      'SELECT source, commit_id FROM source_commits ORDER BY source, committed_at, commit_id LIMIT 1',
-    ).get();
-    if (legacyCommit !== null) {
-      db.close();
-      throw new Error(`the history file "${options.path ?? ':memory:'}" holds commit "${legacyCommit.commit_id}" of source "${legacyCommit.source}" without a canonical model digest; the stored assertions cannot faithfully recover the model's original array order, so the history must be migrated by a server that still has the original sent models`);
-    }
-    db.run('ALTER TABLE source_commits ADD COLUMN canonical_digest TEXT');
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string') return error.message;
+  return String(error);
+}
+
+function statement<Row>(executor: Executor, sql: string) {
+  let parameter = 0;
+  const postgresSql = sql.replace(/\?/g, () => `$${++parameter}`);
+  return {
+    all: async (...params: unknown[]): Promise<Row[]> => (await executor.query<Row>(postgresSql, params)).rows,
+    get: async (...params: unknown[]): Promise<Row | null> => (await executor.query<Row>(postgresSql, params)).rows[0] ?? null,
+    run: async (...params: unknown[]): Promise<void> => { await executor.query(postgresSql, params); },
+  };
+}
+
+async function insertAssertionRows(executor: Executor, rows: readonly unknown[][]): Promise<void> {
+  const perRow = 9;
+  const chunkSize = Math.floor(60_000 / perRow);
+  for (let start = 0; start < rows.length; start += chunkSize) {
+    const chunk = rows.slice(start, start + chunkSize);
+    const values: unknown[] = [];
+    const tuples = chunk.map((row) => {
+      const placeholders = row.map((value) => {
+        values.push(value);
+        return `$${values.length}`;
+      });
+      return `(${placeholders.join(', ')}, NULL)`;
+    });
+    await executor.query(`INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to) VALUES ${tuples.join(', ')}`, values);
   }
-  db.run(`
-    CREATE TABLE IF NOT EXISTS source_registry (
-      source TEXT PRIMARY KEY,
-      id TEXT NOT NULL UNIQUE,
-      former_names TEXT NOT NULL
-    )
-  `);
-  const selectRegistry = db.query<{ id: unknown; former_names: unknown }, [string]>(
-    'SELECT id, former_names FROM source_registry WHERE source = ?',
-  );
-  const upsertRegistry = db.query<unknown, [string, string, string]>(
-    'INSERT INTO source_registry (source, id, former_names) VALUES (?, ?, ?) ON CONFLICT(source) DO UPDATE SET id = excluded.id, former_names = excluded.former_names',
-  );
-  const renameRegistry = db.query<unknown, [string, string]>('UPDATE source_registry SET source = ? WHERE source = ?');
-  const selectCommit: Statement<CommitRow, [string, string]> = db.query(
-    'SELECT committed_at, content_digest, canonical_digest FROM source_commits WHERE source = ? AND commit_id = ?',
-  );
-  const selectSuccessorCommit: Statement<SuccessorRow, [string, number, number, string]> = db.query(
-    `SELECT commit_id, committed_at FROM source_commits
-     WHERE source = ? AND (committed_at > ? OR (committed_at = ? AND commit_id > ?))
-     ORDER BY committed_at ASC, commit_id ASC LIMIT 1`,
-  );
-  const selectStateAt: Statement<AssertionRow, [string, number, number, string, number, number, string]> = db.query(
-    `SELECT kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from FROM assertions
-     WHERE source = ? AND recorded_to IS NULL
-       AND (valid_from < ? OR (valid_from = ? AND opened_by < ?))
-       AND (valid_to IS NULL OR valid_to > ? OR (valid_to = ? AND closed_by > ?))`,
-  );
-  // `CLASHABLE_KINDS` is a fixed, code-defined list (never user input), so
-  // it is safe to inline it into the SQL text rather than bind as
-  // parameters. Shared kinds (`SHARED_KINDS`) are never checked here any
-  // more: a shared id is never refused for disagreeing with another
-  // source (the owner's rule), so `store` has nothing left to look up for
-  // them ahead of time.
-  const clashableKindsList = CLASHABLE_KINDS.map((kind) => `'${kind}'`).join(', ');
-  const selectOtherCurrentOverlapping: Statement<OtherCurrentRow, [string, number | null, number | null, number]> = db.query(
-    `SELECT kind, entity_id, content, source FROM assertions
-     WHERE source != ? AND kind IN (${clashableKindsList}) AND recorded_to IS NULL
-       AND (? IS NULL OR valid_from < ?)
-       AND (valid_to IS NULL OR valid_to > ?)`,
-  );
-  const selectMaxRecordedAt: Statement<{ max_recorded: number | null }, []> = db.query('SELECT MAX(recorded_at) AS max_recorded FROM source_commits');
-  const selectReadAllSources: Statement<OtherCurrentRow, [number, number, number, number]> = db.query(
-    `SELECT kind, entity_id, content, source FROM assertions
-     WHERE valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)
-       AND recorded_from <= ? AND (recorded_to IS NULL OR recorded_to > ?)`,
-  );
-  const selectReadOneSource: Statement<OtherCurrentRow, [string, number, number, number, number]> = db.query(
-    `SELECT kind, entity_id, content, source FROM assertions
-     WHERE source = ?
-       AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)
-       AND recorded_from <= ? AND (recorded_to IS NULL OR recorded_to > ?)`,
-  );
-  const selectAllAssertions: Statement<
-    { source: string; kind: AssertionKind; entity_id: string; content: string; valid_from: number; valid_to: number | null; recorded_from: number; recorded_to: number | null },
-    [string | null, string | null]
-  > = db.query(
-    `SELECT source, kind, entity_id, content, valid_from, valid_to, recorded_from, recorded_to FROM assertions
-     WHERE (? IS NULL OR source = ?)
-     ORDER BY source, kind, entity_id, valid_from, recorded_from`,
-  );
-  const selectSources: Statement<{ source: string }, []> = db.query('SELECT DISTINCT source FROM source_commits');
-  const selectCommits: Statement<CommitListRow, [string]> = db.query(
-    'SELECT commit_id, committed_at, recorded_at, canonical_digest FROM source_commits WHERE source = ? ORDER BY committed_at ASC, commit_id ASC',
-  );
-  const selectCommitRecord: Statement<CommitListRow, [string, string]> = db.query(
-    'SELECT commit_id, committed_at, recorded_at, canonical_digest FROM source_commits WHERE source = ? AND commit_id = ?',
-  );
-  const selectLatestCommit: Statement<CommitListRow, [string]> = db.query(
-    'SELECT commit_id, committed_at, recorded_at, canonical_digest FROM source_commits WHERE source = ? ORDER BY committed_at DESC, commit_id DESC LIMIT 1',
-  );
-  const insertAssertion: Statement<unknown, [string, AssertionKind, string, string, number, number | null, string, string | null, number]> = db.query(
-    `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-  );
-  const closeAssertion: Statement<unknown, [number, string, AssertionKind, string, number, string]> = db.query(
-    `UPDATE assertions SET recorded_to = ?
-     WHERE source = ? AND kind = ? AND entity_id = ? AND valid_from = ? AND opened_by = ? AND recorded_to IS NULL`,
-  );
-  const insertCommit: Statement<unknown, [string, string, number, string, number, string]> = db.query(
-    'INSERT INTO source_commits (source, commit_id, committed_at, content_digest, recorded_at, canonical_digest) VALUES (?, ?, ?, ?, ?, ?)',
-  );
-  const renameCommitSource: Statement<unknown, [string, string]> = db.query('UPDATE source_commits SET source = ? WHERE source = ?');
-  const renameAssertionSource: Statement<unknown, [string, string]> = db.query('UPDATE assertions SET source = ? WHERE source = ?');
+}
+
+export function createPGliteHistory(options: PGliteHistoryOptions): HistoryStore {
+  const db = new PGlite(options.path);
+  const clock = options.clock;
+  const path = options.path ?? ':memory:';
+  const ready = (async () => {
+    try {
+      await db.waitReady;
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS assertions (
+          source TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          content TEXT NOT NULL,
+          valid_from DOUBLE PRECISION NOT NULL,
+          valid_to DOUBLE PRECISION,
+          opened_by TEXT NOT NULL,
+          closed_by TEXT,
+          recorded_from DOUBLE PRECISION NOT NULL,
+          recorded_to DOUBLE PRECISION
+        );
+        CREATE INDEX IF NOT EXISTS assertions_current ON assertions (source, kind, entity_id, recorded_to);
+        CREATE INDEX IF NOT EXISTS assertions_time ON assertions (valid_from, valid_to, recorded_from, recorded_to);
+        CREATE INDEX IF NOT EXISTS assertions_other ON assertions (kind, recorded_to, source);
+        CREATE TABLE IF NOT EXISTS source_commits (
+          source TEXT NOT NULL,
+          commit_id TEXT NOT NULL,
+          committed_at DOUBLE PRECISION NOT NULL,
+          content_digest TEXT NOT NULL,
+          recorded_at DOUBLE PRECISION NOT NULL,
+          canonical_digest TEXT NOT NULL,
+          PRIMARY KEY (source, commit_id)
+        );
+        CREATE INDEX IF NOT EXISTS source_commits_order_c ON source_commits (source, committed_at, commit_id COLLATE "C");
+        CREATE TABLE IF NOT EXISTS source_registry (
+          source TEXT PRIMARY KEY,
+          id TEXT NOT NULL UNIQUE,
+          former_names TEXT NOT NULL
+        );
+      `);
+      const columns = await db.query<{ column_name: string }>(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'source_commits'",
+      );
+      if (!columns.rows.some((column) => column.column_name === 'canonical_digest')) {
+        const legacyCommit = await db.query<{ source: string; commit_id: string }>(
+          'SELECT source, commit_id FROM source_commits ORDER BY source, committed_at, commit_id LIMIT 1',
+        );
+        if (legacyCommit.rows.length > 0) {
+          const row = legacyCommit.rows[0]!;
+          throw new Error(`the history database "${path}" holds commit "${row.commit_id}" of source "${row.source}" without a canonical model digest; the stored assertions cannot faithfully recover the model's original array order, so the history must be migrated by a server that still has the original sent models`);
+        }
+        await db.exec('ALTER TABLE source_commits ADD COLUMN canonical_digest TEXT');
+      }
+    } catch (error) {
+      const cause = error instanceof Error ? error : new Error(errorMessage(error), { cause: error });
+      throw new Error(`the history directory "${path}" cannot be opened: ${errorMessage(error)}`, { cause });
+    }
+  })();
+  // A caller observes initialization failures on its next history operation;
+  // attach a handler now so a failed constructor does not become unhandled.
+  void ready.catch(() => {});
+
+  function statements(executor: Executor) {
+    return {
+      selectRegistry: statement<{ id: unknown; former_names: unknown }>(executor, 'SELECT id, former_names FROM source_registry WHERE source = ?'),
+      upsertRegistry: statement(executor, 'INSERT INTO source_registry (source, id, former_names) VALUES (?, ?, ?) ON CONFLICT(source) DO UPDATE SET id = excluded.id, former_names = excluded.former_names'),
+      renameRegistry: statement(executor, 'UPDATE source_registry SET source = ? WHERE source = ?'),
+      selectCommit: statement<CommitRow>(executor, 'SELECT committed_at, content_digest, canonical_digest FROM source_commits WHERE source = ? AND commit_id = ?'),
+      selectSuccessorCommit: statement<SuccessorRow>(executor, `SELECT commit_id, committed_at FROM source_commits
+        WHERE source = ? AND (committed_at > ? OR (committed_at = ? AND commit_id COLLATE "C" > ? COLLATE "C"))
+        ORDER BY committed_at ASC, commit_id COLLATE "C" ASC LIMIT 1`),
+      selectStateAt: statement<AssertionRow>(executor, `SELECT kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from FROM assertions
+        WHERE source = ? AND recorded_to IS NULL
+          AND (valid_from < ? OR (valid_from = ? AND opened_by COLLATE "C" < ? COLLATE "C"))
+          AND (valid_to IS NULL OR valid_to > ? OR (valid_to = ? AND closed_by COLLATE "C" > ? COLLATE "C"))`),
+      selectOtherCurrentOverlapping: statement<OtherCurrentRow>(executor, `SELECT kind, entity_id, content, source FROM assertions
+        WHERE source != ? AND kind IN (${CLASHABLE_KINDS.map((kind) => `'${kind}'`).join(', ')}) AND recorded_to IS NULL
+          AND (?::DOUBLE PRECISION IS NULL OR valid_from < ?)
+          AND (valid_to IS NULL OR valid_to > ?) ORDER BY source COLLATE "C"`),
+      selectMaxRecordedAt: statement<{ max_recorded: number | null }>(executor, 'SELECT MAX(recorded_at) AS max_recorded FROM source_commits'),
+      selectReadAllSources: statement<OtherCurrentRow>(executor, `SELECT kind, entity_id, content, source FROM assertions
+        WHERE valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)
+          AND recorded_from <= ? AND (recorded_to IS NULL OR recorded_to > ?)`),
+      selectReadOneSource: statement<OtherCurrentRow>(executor, `SELECT kind, entity_id, content, source FROM assertions
+        WHERE source = ? AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)
+          AND recorded_from <= ? AND (recorded_to IS NULL OR recorded_to > ?)`),
+      selectAllAssertions: statement<{ source: string; kind: AssertionKind; entity_id: string; content: string; valid_from: number; valid_to: number | null; recorded_from: number; recorded_to: number | null }>(executor, `SELECT source, kind, entity_id, content, valid_from, valid_to, recorded_from, recorded_to FROM assertions
+        WHERE (?::TEXT IS NULL OR source = ?) ORDER BY source COLLATE "C", kind COLLATE "C", entity_id COLLATE "C", valid_from, recorded_from`),
+      selectSources: statement<{ source: string }>(executor, 'SELECT DISTINCT source FROM source_commits'),
+      selectCommits: statement<CommitListRow>(executor, 'SELECT commit_id, committed_at, recorded_at, canonical_digest FROM source_commits WHERE source = ? ORDER BY committed_at ASC, commit_id COLLATE "C" ASC'),
+      selectCommitRecord: statement<CommitListRow>(executor, 'SELECT commit_id, committed_at, recorded_at, canonical_digest FROM source_commits WHERE source = ? AND commit_id = ?'),
+      selectLatestCommit: statement<CommitListRow>(executor, 'SELECT commit_id, committed_at, recorded_at, canonical_digest FROM source_commits WHERE source = ? ORDER BY committed_at DESC, commit_id COLLATE "C" DESC LIMIT 1'),
+      closeAssertion: statement(executor, `UPDATE assertions SET recorded_to = ?
+        WHERE source = ? AND kind = ? AND entity_id = ? AND valid_from = ? AND opened_by = ? AND recorded_to IS NULL`),
+      insertCommit: statement(executor, 'INSERT INTO source_commits (source, commit_id, committed_at, content_digest, recorded_at, canonical_digest) VALUES (?, ?, ?, ?, ?, ?)'),
+      renameCommitSource: statement(executor, 'UPDATE source_commits SET source = ? WHERE source = ?'),
+      renameAssertionSource: statement(executor, 'UPDATE assertions SET source = ? WHERE source = ?'),
+    };
+  }
+  const q = statements(db);
+  const {
+    selectRegistry, upsertRegistry, renameRegistry, selectCommit, selectSuccessorCommit,
+    selectStateAt, selectOtherCurrentOverlapping, selectMaxRecordedAt, selectReadAllSources,
+    selectReadOneSource, selectAllAssertions, selectSources, selectCommits, selectCommitRecord,
+    selectLatestCommit, closeAssertion, insertCommit, renameCommitSource,
+    renameAssertionSource,
+  } = q;
 
   function slotOf(kind: AssertionKind, id: string): string {
     return `${kind}\u0000${id}`;
@@ -347,35 +355,38 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
       return { errors: [{ message: `the model could not be recorded: ${error instanceof Error ? error.message : String(error)}` }], opened: [], closed: [] };
     }
 
-    const existing = selectCommit.get(source, commit);
-    if (existing !== null) {
-      if (existing.committed_at === committedAt && existing.canonical_digest === canonicalDigest) {
-        // Already stored, identical canonical model: idempotent, nothing new.
-        return { errors: [], opened: [], closed: [] };
-      }
-      return {
-        errors: [
-          {
-            message: [
-              ...(existing.committed_at !== committedAt ? ['a different commit time'] : []),
-              ...(existing.canonical_digest !== canonicalDigest
-                ? [`stored canonical digest ${JSON.stringify(existing.canonical_digest)} differs from incoming canonical digest ${JSON.stringify(canonicalDigest)}`]
-                : []),
-            ].join('; ').replace(/^/, `commit "${commit}" of source "${source}" is already stored with `),
-            id: commit,
-            source,
-          },
-        ],
-        opened: [],
-        closed: [],
-      };
-    }
-
-    const runStore = db.transaction((): StoreResult => {
+    try {
+      await ready;
+      return await db.transaction(async (tx): Promise<StoreResult> => {
+        const {
+          selectCommit, upsertRegistry, selectSuccessorCommit, selectOtherCurrentOverlapping,
+          selectStateAt, selectMaxRecordedAt, closeAssertion, insertCommit,
+        } = statements(tx);
+        const queuedAssertions: unknown[][] = [];
+        const existing = await selectCommit.get(source, commit);
+        if (existing !== null) {
+          if (existing.committed_at === committedAt && existing.canonical_digest === canonicalDigest) {
+            return { errors: [], opened: [], closed: [] };
+          }
+          return {
+            errors: [{
+              message: [
+                ...(existing.committed_at !== committedAt ? ['a different commit time'] : []),
+                ...(existing.canonical_digest !== canonicalDigest
+                  ? [`stored canonical digest ${JSON.stringify(existing.canonical_digest)} differs from incoming canonical digest ${JSON.stringify(canonicalDigest)}`]
+                  : []),
+              ].join('; ').replace(/^/, `commit "${commit}" of source "${source}" is already stored with `),
+              id: commit,
+              source,
+            }],
+            opened: [],
+            closed: [],
+          };
+        }
       // The commit immediately after this one in the source's own order
       // (time first, commit id only to break a tie): where this version's
       // assertions close, open-ended otherwise.
-      const successor = selectSuccessorCommit.get(source, committedAt, committedAt, commit);
+      const successor = await selectSuccessorCommit.get(source, committedAt, committedAt, commit);
       const ourValidTo: number | null = successor?.committed_at ?? null;
 
       // Everything another source currently believes, overlapping this
@@ -383,7 +394,7 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
       // after the clock's current "now" is seen too, since only what is
       // currently believed (not "now") is checked (the `sources`
       // requirement).
-      const otherCurrent = selectOtherCurrentOverlapping.all(source, ourValidTo, ourValidTo, committedAt);
+      const otherCurrent = await selectOtherCurrentOverlapping.all(source, ourValidTo, ourValidTo, committedAt);
       const otherBySlot = new Map<string, OtherCurrentRow[]>();
       for (const row of otherCurrent) {
         const slot = slotOf(row.kind, row.entity_id);
@@ -417,7 +428,7 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
       // first commit, or for a late-arriving one earlier than anything
       // stored yet.
       const stateAtSlot = new Map<string, AssertionRow>();
-      for (const row of selectStateAt.all(source, committedAt, committedAt, commit, committedAt, committedAt, commit)) {
+      for (const row of await selectStateAt.all(source, committedAt, committedAt, commit, committedAt, committedAt, commit)) {
         stateAtSlot.set(slotOf(row.kind, row.entity_id), row);
       }
 
@@ -432,7 +443,7 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
         if (stillAsserted !== undefined && stillAsserted.content === oldRow.content) continue;
         if (notBefore === undefined || oldRow.recorded_from > notBefore) notBefore = oldRow.recorded_from;
       }
-      const historicalFloor = selectMaxRecordedAt.get()?.max_recorded ?? undefined;
+      const historicalFloor = (await selectMaxRecordedAt.get())?.max_recorded ?? undefined;
       const storingNow = recordingNow(notBefore, historicalFloor);
 
       const opened: AssertionChange[] = [];
@@ -449,7 +460,7 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
         const stillAsserted = newBySlot.get(slot);
         if (stillAsserted !== undefined && stillAsserted.content === oldRow.content) continue;
 
-        closeAssertion.run(storingNow, source, oldRow.kind, oldRow.entity_id, oldRow.valid_from, oldRow.opened_by);
+        await closeAssertion.run(storingNow, source, oldRow.kind, oldRow.entity_id, oldRow.valid_from, oldRow.opened_by);
         // Reported exactly as the row stood before this store touched it —
         // its own valid end, `oldRow.valid_to`, not the point this commit
         // now truncates it to: a caller keeping its own derived index (e.g.
@@ -476,7 +487,7 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
         // in `opened` too (the `StoreResult.opened` contract: "every row
         // written by the store").
         if (committedAt !== oldRow.valid_from) {
-          insertAssertion.run(source, oldRow.kind, oldRow.entity_id, oldRow.content, oldRow.valid_from, committedAt, oldRow.opened_by, commit, storingNow);
+          queuedAssertions.push([source, oldRow.kind, oldRow.entity_id, oldRow.content, oldRow.valid_from, committedAt, oldRow.opened_by, commit, storingNow]);
           opened.push({ source, kind: oldRow.kind, id: oldRow.entity_id, content: oldRow.content, validFrom: oldRow.valid_from, validTo: committedAt, recordedFrom: storingNow, recordedTo: null });
         }
 
@@ -492,7 +503,7 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
         // `ourValidTo`; `!==` alone tells "past" from "exactly at" (a
         // same-instant tie-break, which must not reopen a zero-width row).
         if (successor !== null && oldRow.valid_to !== ourValidTo) {
-          insertAssertion.run(source, oldRow.kind, oldRow.entity_id, oldRow.content, ourValidTo!, oldRow.valid_to, successor.commit_id, oldRow.closed_by, storingNow);
+          queuedAssertions.push([source, oldRow.kind, oldRow.entity_id, oldRow.content, ourValidTo!, oldRow.valid_to, successor.commit_id, oldRow.closed_by, storingNow]);
           opened.push({ source, kind: oldRow.kind, id: oldRow.entity_id, content: oldRow.content, validFrom: ourValidTo!, validTo: oldRow.valid_to, recordedFrom: storingNow, recordedTo: null });
         }
       }
@@ -504,43 +515,44 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
         for (const [slot, assertion] of newBySlot) {
           const oldRow = stateAtSlot.get(slot);
           if (oldRow !== undefined && oldRow.content === assertion.content) continue;
-          insertAssertion.run(source, assertion.kind, assertion.id, assertion.content, committedAt, ourValidTo, commit, successor?.commit_id ?? null, storingNow);
+          queuedAssertions.push([source, assertion.kind, assertion.id, assertion.content, committedAt, ourValidTo, commit, successor?.commit_id ?? null, storingNow]);
           opened.push({ source, kind: assertion.kind, id: assertion.id, content: assertion.content, validFrom: committedAt, validTo: ourValidTo, recordedFrom: storingNow, recordedTo: null });
         }
       }
 
+      await insertAssertionRows(tx, queuedAssertions);
       if (registryInput !== undefined) {
-        upsertRegistry.run(source, registryInput.id, JSON.stringify(registryInput.formerNames));
+        await upsertRegistry.run(source, registryInput.id, JSON.stringify(registryInput.formerNames));
       }
-      insertCommit.run(source, commit, committedAt, contentDigest, storingNow, canonicalDigest);
+      await insertCommit.run(source, commit, committedAt, contentDigest, storingNow, canonicalDigest);
       return { errors: [], opened, closed };
-    });
-
-    try {
-      return runStore();
+      });
     } catch (error) {
       if (error instanceof StoreRefused) return { errors: error.errors, opened: [], closed: [] };
-      return { errors: [{ message: `the history could not be updated: ${error instanceof Error ? error.message : String(error)}` }], opened: [], closed: [] };
+      return { errors: [{ message: `the history could not be updated: ${errorMessage(error)}` }], opened: [], closed: [] };
     }
   }
 
+
   async function read(input: ReadInput = {}): Promise<ReadResult> {
+    await ready;
     const now = clock.now();
     const valid = input.valid ?? now;
     const known = input.known ?? now;
 
     if (input.source !== undefined) {
-      const rows = selectReadOneSource.all(input.source, valid, valid, known, known);
+      const rows = await selectReadOneSource.all(input.source, valid, valid, known, known);
       const { model, errors } = assembleSourceModel(rows.map((row) => ({ kind: row.kind, id: row.entity_id, content: row.content, source: row.source })));
       return { model, discrepancies: [], errors };
     }
 
-    const rows = selectReadAllSources.all(valid, valid, known, known);
+    const rows = await selectReadAllSources.all(valid, valid, known, known);
     return assembleCompiledModel(rows.map((row) => ({ kind: row.kind, id: row.entity_id, content: row.content, source: row.source })));
   }
 
   async function assertions(input: AssertionsInput = {}): Promise<AssertionRecord[]> {
-    const rows = input.source !== undefined ? selectAllAssertions.all(input.source, input.source) : selectAllAssertions.all(null, null);
+    await ready;
+    const rows = input.source !== undefined ? await selectAllAssertions.all(input.source, input.source) : await selectAllAssertions.all(null, null);
     return rows.map((row) => ({
       source: row.source,
       kind: row.kind,
@@ -554,7 +566,8 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
   }
 
   async function sources(): Promise<string[]> {
-    return selectSources.all().map((row) => row.source).sort(byCodePoint);
+    await ready;
+    return (await selectSources.all()).map((row) => row.source).sort(byCodePoint);
   }
 
   async function renameSource(from: string, to: string, registryInput?: SourceRegistry): Promise<void> {
@@ -564,66 +577,110 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
       throw new Error(`the history holds ${holds}, but the rename asks to rename ${JSON.stringify(from)} to ${JSON.stringify(to)}: the one source a history holds is renamed whole, nothing beside it`);
     }
     // Keep the registry metadata and history rows under the same source name.
-    db.transaction(() => {
-      renameRegistry.run(to, from);
+    await ready;
+    await db.transaction(async (tx) => {
+      const { renameRegistry, upsertRegistry, renameCommitSource, renameAssertionSource } = statements(tx);
+      await renameRegistry.run(to, from);
       if (registryInput !== undefined) {
-        upsertRegistry.run(to, registryInput.id, JSON.stringify(registryInput.formerNames));
+        await upsertRegistry.run(to, registryInput.id, JSON.stringify(registryInput.formerNames));
       }
-      renameCommitSource.run(to, from);
-      renameAssertionSource.run(to, from);
-    })();
+      await renameCommitSource.run(to, from);
+      await renameAssertionSource.run(to, from);
+    });
   }
 
   /** Every commit of one source, oldest first in the history's own commit order. */
   async function commits(source: string): Promise<CommitRecord[]> {
-    return selectCommits.all(source).map((row) => ({ commit: row.commit_id, committedAt: row.committed_at, storedAt: row.recorded_at, canonicalDigest: row.canonical_digest }));
+    await ready;
+    return (await selectCommits.all(source)).map((row) => ({ commit: row.commit_id, committedAt: row.committed_at, storedAt: row.recorded_at, canonicalDigest: row.canonical_digest }));
   }
 
   async function commitRecord(source: string, commit: string): Promise<CommitRecord | undefined> {
-    const row = selectCommitRecord.get(source, commit);
+    await ready;
+    const row = await selectCommitRecord.get(source, commit);
     return row === null ? undefined : { commit: row.commit_id, committedAt: row.committed_at, storedAt: row.recorded_at, canonicalDigest: row.canonical_digest };
   }
   async function latestCommit(source: string): Promise<CommitRecord | undefined> {
-    const row = selectLatestCommit.get(source);
+    await ready;
+    const row = await selectLatestCommit.get(source);
     return row === null ? undefined : { commit: row.commit_id, committedAt: row.committed_at, storedAt: row.recorded_at, canonicalDigest: row.canonical_digest };
   }
 
   async function hasCommit(source: string, commit: string): Promise<boolean> {
-    return selectCommit.get(source, commit) !== null;
+    await ready;
+    return await selectCommit.get(source, commit) !== null;
   }
 
   async function registry(source: string): Promise<{ id: string; formerNames: string[] } | undefined> {
-    const row = selectRegistry.get(source);
+    await ready;
+    const row = await selectRegistry.get(source);
     if (row === null) return undefined;
     const path = options.path ?? ':memory:';
     if (typeof row.id !== 'string' || row.id.length === 0) {
-      throw new Error(`the history file "${path}" has invalid "source_registry.id" value ${JSON.stringify(row.id)}: it must be a non-empty string`);
+      throw new Error(`the history database "${path}" has invalid "source_registry.id" value ${JSON.stringify(row.id)}: it must be a non-empty string`);
     }
     if (typeof row.former_names !== 'string') {
-      throw new Error(`the history file "${path}" has invalid "source_registry.former_names" value ${JSON.stringify(row.former_names)}: it must be a JSON array`);
+      throw new Error(`the history database "${path}" has invalid "source_registry.former_names" value ${JSON.stringify(row.former_names)}: it must be a JSON array`);
     }
     let formerNames: unknown;
     try {
       formerNames = JSON.parse(row.former_names);
     } catch {
-      throw new Error(`the history file "${path}" has invalid "source_registry.former_names" value ${JSON.stringify(row.former_names)}: it must be a JSON array`);
+      throw new Error(`the history database "${path}" has invalid "source_registry.former_names" value ${JSON.stringify(row.former_names)}: it must be a JSON array`);
     }
     if (!Array.isArray(formerNames) || formerNames.some((name) => typeof name !== 'string' || name.length === 0)) {
-      throw new Error(`the history file "${path}" has invalid "source_registry.former_names" value ${JSON.stringify(row.former_names)}: it must be an array of non-empty strings`);
+      throw new Error(`the history database "${path}" has invalid "source_registry.former_names" value ${JSON.stringify(row.former_names)}: it must be an array of non-empty strings`);
     }
     const names = formerNames as string[];
     if (new Set(names).size !== names.length || names.includes(source) || names.some((name, index) => index > 0 && byCodePoint(names[index - 1]!, name) > 0)) {
-      throw new Error(`the history file "${path}" has invalid "source_registry.former_names" value ${JSON.stringify(row.former_names)}: names must be unique, code-point sorted, and must not include current source ${JSON.stringify(source)}`);
+      throw new Error(`the history database "${path}" has invalid "source_registry.former_names" value ${JSON.stringify(row.former_names)}: names must be unique, code-point sorted, and must not include current source ${JSON.stringify(source)}`);
     }
     return { id: row.id, formerNames: names };
   }
 
   async function setRegistry(source: string, id: string, formerNames: readonly string[]): Promise<void> {
-    upsertRegistry.run(source, id, JSON.stringify(formerNames));
+    await ready;
+    await upsertRegistry.run(source, id, JSON.stringify(formerNames));
   }
-  async function close(): Promise<void> {
-    db.close();
+  // PGlite exposes one connection per database; keep direct HistoryStore calls in order too.
+  let operationTail: Promise<void> = Promise.resolve();
+  let closed = false;
+  let closePromise: Promise<void> | undefined;
+  function serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const result = operationTail.then(async () => {
+      if (closed) throw new Error('history database is closed');
+      return await operation();
+    });
+    operationTail = result.then(() => undefined, () => undefined);
+    return result;
+  }
+  function close(): Promise<void> {
+    if (closePromise !== undefined) return closePromise;
+    closePromise = operationTail.then(async () => {
+      try {
+        await ready;
+      } catch {
+        // A failed operation reports initialization; close still releases PGlite.
+      }
+      closed = true;
+      await db.close();
+    });
+    operationTail = closePromise.then(() => undefined, () => undefined);
+    return closePromise;
   }
 
-  return { store, read, assertions, sources, renameSource, registry, setRegistry, commits, commitRecord, latestCommit, hasCommit, close };
+  return {
+    store: (input, registryInput) => serialize(() => store(input, registryInput)),
+    read: (input) => serialize(() => read(input)),
+    assertions: (input) => serialize(() => assertions(input)),
+    sources: () => serialize(() => sources()),
+    renameSource: (from, to, registryInput) => serialize(() => renameSource(from, to, registryInput)),
+    registry: (source) => serialize(() => registry(source)),
+    setRegistry: (source, id, formerNames) => serialize(() => setRegistry(source, id, formerNames)),
+    hasCommit: (source, commit) => serialize(() => hasCommit(source, commit)),
+    commitRecord: (source, commit) => serialize(() => commitRecord(source, commit)),
+    latestCommit: (source) => serialize(() => latestCommit(source)),
+    commits: (source) => serialize(() => commits(source)),
+    close,
+  };
 }

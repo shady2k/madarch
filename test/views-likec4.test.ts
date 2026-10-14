@@ -8,7 +8,7 @@ import { checkLikeC4Workspaces } from '../scripts/likec4-check.js';
 import {
   compileModel,
   createLadybugEngine,
-  createSqliteHistory,
+  createPGliteHistory,
   loadModel,
   renderLikeC4Workspace,
   type CompiledElement,
@@ -36,7 +36,7 @@ async function renderFixture(name: string): Promise<LikeC4Result> {
   const { model, errors } = loadModel(fixture(name));
   expect(errors).toEqual([]);
   const compiled = compileModel(model!);
-  const history = createSqliteHistory({ clock: { now: () => DAY(1) } });
+  const history = createPGliteHistory({ clock: { now: () => DAY(1) } });
   const engine = createLadybugEngine();
   try {
     expect((await history.store({ source: 's', commit: name, committedAt: DAY(1), model: compiled })).errors).toEqual([]);
@@ -207,7 +207,7 @@ describe('views/likec4', () => {
   test('before the model existed the workspace is empty but still valid: no kinds, no elements, the landscape alone', async () => {
     const { model } = loadModel(fixture('views-drill-down'));
     const compiled = compileModel(model!);
-    const history = createSqliteHistory({ clock: { now: () => DAY(1) } });
+    const history = createPGliteHistory({ clock: { now: () => DAY(1) } });
     const engine = createLadybugEngine();
     await history.store({ source: 's', commit: 'c', committedAt: DAY(1), model: compiled });
     engine.rebuild(await history.assertions());

@@ -1,12 +1,12 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { Database } from 'bun:sqlite';
+import { PGlite } from '@electric-sql/pglite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { canonicalJsonDigest } from '../src/model/canonical.js';
 import {
-  createSqliteHistory,
+  createPGliteHistory,
   loadAndCompileModel,
   serializeCompiledModel,
   type Clock,
@@ -33,8 +33,25 @@ function fakeClock(initial: number): Clock & { set(t: number): void } {
   };
 }
 
+const openHistories = new Set<HistoryStore>();
+
+function newHistory(options: Parameters<typeof createPGliteHistory>[0]): HistoryStore {
+  const instance = createPGliteHistory(options);
+  openHistories.add(instance);
+  const close = instance.close.bind(instance);
+  instance.close = async () => {
+    if (!openHistories.delete(instance)) return;
+    await close();
+  };
+  return instance;
+}
+
+afterEach(async () => {
+  await Promise.all([...openHistories].map((instance) => instance.close()));
+});
+
 function history(clock: Clock): HistoryStore {
-  return createSqliteHistory({ clock });
+  return newHistory({ clock });
 }
 
 async function readModel(h: HistoryStore, input?: Parameters<HistoryStore['read']>[0]): Promise<CompiledModel> {
@@ -201,23 +218,25 @@ describe('reading the union of an unsorted store: entities come back sorted by i
 describe('the database path option', () => {
   test('an in-memory history (the default) is not shared between two independent instances', async () => {
     const clock = fakeClock(DAY(2));
-    const h1 = createSqliteHistory({ clock });
+    const h1 = newHistory({ clock });
     await h1.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
 
-    const h2 = createSqliteHistory({ clock });
+    const h2 = newHistory({ clock });
     expect((await readModel(h2, { source: 'shop', valid: DAY(1), known: DAY(2) })).elements).toEqual([]);
   });
 
   test('a file path persists the history: a second instance opened on the same path reads what the first stored', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-history-'));
-    const path = join(dir, 'history.sqlite');
+    const path = join(dir, 'history.pglite');
     const clock = fakeClock(DAY(2));
 
-    const h1 = createSqliteHistory({ path, clock });
+    const h1 = newHistory({ path, clock });
     await h1.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
 
-    const h2 = createSqliteHistory({ path, clock });
+    await h1.close();
+    const h2 = newHistory({ path, clock });
     expect((await readModel(h2, { source: 'shop', valid: DAY(1), known: DAY(2) })).elements.map((e) => e.id)).toEqual(['a']);
+    await h2.close();
   });
 });
 
@@ -332,6 +351,20 @@ describe('commits: every commit of one source, in the history\'s own commit orde
     await h.close();
   });
 
+  test('PostgreSQL orders tied commit ids by code point, matching the former binary order', async () => {
+    const h = history(fakeClock(DAY(10)));
+    const ids = ['ä', 'a', '😀', 'A'];
+    for (const commit of ids) {
+      await h.store({ source: 'shop', commit, committedAt: DAY(1), model: model([element('item', { technology: commit })]) });
+    }
+
+    expect((await h.commits('shop')).map((row) => row.commit)).toEqual(['A', 'a', 'ä', '😀']);
+    expect((await readModel(h, { source: 'shop', valid: DAY(1), known: DAY(10) + 10 })).elements[0]?.technology).toBe('😀');
+
+    await h.store({ source: 'ordering', commit: 'c1', committedAt: DAY(1), model: model(['ä', 'a', '😀', 'A'].map((id) => element(id))) });
+    expect((await h.assertions({ source: 'ordering' })).filter((row) => row.kind === 'element').map((row) => row.id)).toEqual(['A', 'a', 'ä', '😀']);
+  });
+
   test('commits at the same time are ordered by the commit id', async () => {
     const clock = fakeClock(DAY(10));
     const h = history(clock);
@@ -353,23 +386,26 @@ describe('commits: every commit of one source, in the history\'s own commit orde
     await h.close();
   });
 
-  test('opening a legacy history with commits refuses when its canonical digest cannot be reconstructed faithfully', async () => {
+  test('opening a PGlite history with commits but no canonical digest refuses when the digest cannot be reconstructed faithfully', async () => {
     const folder = mkdtempSync(join(tmpdir(), 'madarch-legacy-history-'));
-    const path = join(folder, 'history.sqlite');
+    const path = join(folder, 'history.pglite');
     try {
-      const db = new Database(path);
-      db.run(`CREATE TABLE source_commits (
+      const db = new PGlite(path);
+      await db.waitReady;
+      await db.exec(`CREATE TABLE source_commits (
         source TEXT NOT NULL,
         commit_id TEXT NOT NULL,
-        committed_at INTEGER NOT NULL,
+        committed_at DOUBLE PRECISION NOT NULL,
         content_digest TEXT NOT NULL,
-        recorded_at INTEGER NOT NULL,
+        recorded_at DOUBLE PRECISION NOT NULL,
         PRIMARY KEY (source, commit_id)
       )`);
-      db.query('INSERT INTO source_commits VALUES (?, ?, ?, ?, ?)').run('shop', 'legacy-c1', DAY(1), 'old-content-digest', DAY(2));
-      db.close();
+      await db.query('INSERT INTO source_commits VALUES ($1, $2, $3, $4, $5)', ['shop', 'legacy-c1', DAY(1), 'old-content-digest', DAY(2)]);
+      await db.close();
 
-      expect(() => createSqliteHistory({ path, clock: fakeClock(DAY(10)) })).toThrow(/history\.sqlite.*legacy-c1.*shop.*cannot faithfully recover/i);
+      const history = newHistory({ path, clock: fakeClock(DAY(10)) });
+      await expect(history.sources()).rejects.toThrow(/history\.pglite.*legacy-c1.*shop.*cannot faithfully recover/i);
+      await history.close();
     } finally {
       rmSync(folder, { recursive: true, force: true });
     }
@@ -506,21 +542,23 @@ describe('lossless: what is stored reads back as compiled', () => {
 
   test('the exclusive-kind safety net reports an entity or scenario id two sources claim, like the other clashable kinds (data written outside store())', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-hnq14-'));
-    const path = join(dir, 'history.sqlite');
+    const path = join(dir, 'history.pglite');
     try {
-      await createSqliteHistory({ clock: fakeClock(DAY(2)), path }).close();
-      const raw = new Database(path);
-      const insert = raw.query(
-        `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to)
-         VALUES (?, ?, ?, ?, ?, NULL, 'c1', NULL, ?, NULL)`,
-      );
+      await newHistory({ clock: fakeClock(DAY(2)), path }).close();
+      const raw = new PGlite(path);
+      await raw.waitReady;
       for (const kind of ['entity', 'scenario'] as const) {
-        insert.run('a', kind, 'x', JSON.stringify({ id: 'x', v: 'A' }), DAY(1), DAY(1));
-        insert.run('b', kind, 'x', JSON.stringify({ id: 'x', v: 'B' }), DAY(1), DAY(1));
+        for (const [source, value] of [['a', 'A'], ['b', 'B']] as const) {
+          await raw.query(
+            `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to)
+             VALUES ($1, $2, $3, $4, $5, NULL, 'c1', NULL, $6, NULL)`,
+            [source, kind, 'x', JSON.stringify({ id: 'x', v: value }), DAY(1), DAY(1)],
+          );
+        }
       }
-      raw.close();
+      await raw.close();
 
-      const h = createSqliteHistory({ clock: fakeClock(DAY(2)), path });
+      const h = newHistory({ clock: fakeClock(DAY(2)), path });
       const result = await h.read({ valid: DAY(2), known: DAY(2) });
       expect(result.model).toBeUndefined();
       expect(result.errors).toEqual([

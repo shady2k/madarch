@@ -1,8 +1,8 @@
 /**
  * The server's command line: `bun scripts/serve.ts --data <folder>
- * [--host 127.0.0.1] [--port 4180]`. The folder is required — it names
- * where the sources' history files live, and a missing input is an error,
- * never a temporary default. The server listens on 127.0.0.1 unless
+ * [--host 127.0.0.1] [--port 4180]`. The folder is required. It names
+ * machine-local source-history state outside the product repository; there
+ * is no temporary default. The server listens on 127.0.0.1 unless
  * `--host` says otherwise (decision 0012). One line per request goes to
  * standard output; a failure of the server itself is logged at error
  * level on standard error. Exits 2 naming what is wrong when the
@@ -60,7 +60,7 @@ async function main(args: readonly string[]): Promise<number> {
     }
   }
   if (data === undefined) {
-    console.error(`the --data flag is required: it names the folder the server keeps its sources' history files in`);
+    console.error(`the --data flag is required: it names the local state folder for source histories, outside the product repository`);
     console.error(USAGE);
     return 2;
   }

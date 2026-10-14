@@ -7,7 +7,7 @@ import {
   buildViewSet,
   compileModel,
   createLadybugEngine,
-  createSqliteHistory,
+  createPGliteHistory,
   loadAndCompileModel,
   loadModel,
   renderMermaidPages,
@@ -46,7 +46,7 @@ async function build(name: string): Promise<Built> {
   const { model, errors } = loadModel(fixture(name));
   expect(errors).toEqual([]);
   const compiled = compileModel(model!);
-  const history = createSqliteHistory({ clock: fakeClock(DAY(1)) });
+  const history = createPGliteHistory({ clock: fakeClock(DAY(1)) });
   expect((await history.store({ source: 's', commit: name, committedAt: DAY(1), model: compiled })).errors).toEqual([]);
   const engine = createLadybugEngine();
   engine.rebuild(await history.assertions());
@@ -742,7 +742,7 @@ describe('views/labels for a topic or queue', () => {
     const compiled = compileModel(model!);
     const restock = compiled.relations.find((relation) => relation.id === 'inventory-asks-restock')!;
     restock.action = 'receive';
-    const history = createSqliteHistory({ clock: fakeClock(DAY(1)) });
+    const history = createPGliteHistory({ clock: fakeClock(DAY(1)) });
     expect((await history.store({ source: 's', commit: 'receive', committedAt: DAY(1), model: compiled })).errors).toEqual([]);
     const engine = createLadybugEngine();
     engine.rebuild(await history.assertions());

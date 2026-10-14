@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/index.js';
-import { Database } from 'bun:sqlite';
+import { PGlite } from '@electric-sql/pglite';
 import { canonicalJsonDigest } from '../src/model/canonical.js';
 
 const DAY = (day: number) => Date.UTC(2026, 8, day); // September 2026
@@ -297,7 +297,7 @@ describe('POST /models', () => {
     await start();
     const response = await send('../../outside', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
     expect(response.status).toBe(201);
-    expect(await Bun.file(join(folder!, '..%2F..%2Foutside.sqlite')).exists()).toBe(true);
+    expect(existsSync(join(folder!, '..%2F..%2Foutside.pglite'))).toBe(true);
   });
 });
 
@@ -778,13 +778,18 @@ describe('a failing history read', () => {
 
     // A row written outside the store: the read's clash safety net
     // refuses the source's model, and the view cannot be answered.
-    const raw = new Database(join(folder!, 'shop.sqlite'));
-    raw.run(
+    const dataFolder = folder!;
+    await server!.stop();
+    server = undefined;
+    const raw = new PGlite(join(dataFolder, 'shop.pglite'));
+    await raw.waitReady;
+    await raw.query(
       `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to)
-       VALUES ('shop', 'element', 'a', ?, ?, NULL, 'outside', NULL, ?, NULL)`,
+       VALUES ('shop', 'element', 'a', $1, $2, NULL, 'outside', NULL, $3, NULL)`,
       [JSON.stringify({ id: 'a', kind: 'service', ancestors: [], zones: [], zonesByEnvironment: {}, environments: ['*'], states: ['as-is'], technology: 'injected' }), DAY(1), DAY(1)],
     );
-    raw.close();
+    await raw.close();
+    server = await startServer({ dataFolder, port: 0, clock: { now: () => clockNow.value }, log: (line) => lines.push(line), errorLog: (line) => errors.push(line) });
 
     errors = [];
     const response = await post('/views', { source: 'shop', format: 'mermaid' });

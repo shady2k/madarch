@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'bun:test';
-import { Database } from 'bun:sqlite';
+import { afterEach, describe, expect, test } from 'bun:test';
+import { PGlite } from '@electric-sql/pglite';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,7 +7,7 @@ import {
   ASSERTION_KINDS,
   CLASHABLE_KINDS,
   SHARED_KINDS,
-  createSqliteHistory,
+  createPGliteHistory,
   isOneStateChain,
   type AssertionChange,
   type Clock,
@@ -31,8 +31,30 @@ function fakeClock(initial: number): Clock & { set(t: number): void } {
   };
 }
 
+const openHistories = new Set<HistoryStore>();
 function history(clock: Clock, path?: string): HistoryStore {
-  return createSqliteHistory({ clock, path });
+  const instance = createPGliteHistory({ clock, path });
+  openHistories.add(instance);
+  const close = instance.close.bind(instance);
+  instance.close = async () => {
+    if (!openHistories.delete(instance)) return;
+    await close();
+  };
+  return instance;
+}
+
+afterEach(async () => {
+  await Promise.all([...openHistories].map((instance) => instance.close()));
+});
+
+async function rawRows(path: string, sql: string): Promise<Record<string, unknown>[]> {
+  const db = new PGlite(path);
+  await db.waitReady;
+  try {
+    return (await db.query<Record<string, unknown>>(sql)).rows;
+  } finally {
+    await db.close();
+  }
 }
 
 async function readModel(h: HistoryStore, input?: Parameters<HistoryStore['read']>[0]): Promise<ReadModel> {
@@ -408,7 +430,7 @@ describe('2. shared vocabulary: elements/interfaces/relations stay exclusive; ca
 
   test('the union read keeps every source\'s zone definition instead of picking silently between them, even for data written outside store() (safety net for the assembler itself)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
-    const path = join(dir, 'history.sqlite');
+    const path = join(dir, 'history.pglite');
     const clock = fakeClock(DAY(2));
     const h = history(clock, path);
     await h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: model([], { zones: [zone('pci', 'compliance')] }) });
@@ -417,14 +439,15 @@ describe('2. shared vocabulary: elements/interfaces/relations stay exclusive; ca
     // Reaches around `store()`'s own (still-refusing) id-clash check the
     // same way the review's own scripts do, to exercise the assembler's own
     // merge logic directly: it must never drop a source's definition.
-    const raw = new Database(path);
+    const raw = new PGlite(path);
+    await raw.waitReady;
     const now = clock.now();
-    raw.run(
+    await raw.query(
       `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to)
-       VALUES ('b', 'zone', 'pci', ?, ?, NULL, 'c1', NULL, ?, NULL)`,
+       VALUES ('b', 'zone', 'pci', $1, $2, NULL, 'c1', NULL, $3, NULL)`,
       [JSON.stringify({ id: 'pci', kind: 'regulatory' }), DAY(1), now],
     );
-    raw.close();
+    await raw.close();
 
     const h2 = history(clock, path);
     const result = await h2.read({ valid: DAY(2), known: DAY(2) });
@@ -557,7 +580,7 @@ describe('4. HistoryStore\'s public interface for stage 3 and the server', () =>
 
   test('a database failure partway through a store comes back as a generic error value, and the transaction leaves nothing behind', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
-    const path = join(dir, 'history.sqlite');
+    const path = join(dir, 'history.pglite');
     const clock = fakeClock(DAY(2));
     const h = history(clock, path);
     await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
@@ -567,15 +590,18 @@ describe('4. HistoryStore\'s public interface for stage 3 and the server', () =>
     // looks like: not a `StoreRefused` (the store's own checks found
     // nothing wrong), and not a thrown exception either — an error value,
     // and the transaction rolled back to exactly what it was.
-    const raw = new Database(path);
-    raw.run(`CREATE TRIGGER boom BEFORE INSERT ON assertions WHEN NEW.entity_id = 'boom' BEGIN SELECT RAISE(ABORT, 'injected failure'); END`);
-    raw.close();
+    await h.close();
+    const raw = new PGlite(path);
+    await raw.waitReady;
+    await raw.exec(`CREATE FUNCTION fail_boom() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.entity_id = 'boom' THEN RAISE EXCEPTION 'injected failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER boom BEFORE INSERT ON assertions FOR EACH ROW EXECUTE FUNCTION fail_boom()`);
+    await raw.close();
 
-    const before = await h.assertions();
+    const reopened = history(clock, path);
+    const before = await reopened.assertions();
     let thrown: unknown;
     let result: { errors: { message: string }[]; opened: unknown[]; closed: unknown[] } | undefined;
     try {
-      result = await h.store({ source: 's', commit: 'c2', committedAt: DAY(1) + 1, model: model([element('a'), element('boom')]) });
+      result = await reopened.store({ source: 's', commit: 'c2', committedAt: DAY(1) + 1, model: model([element('a'), element('boom')]) });
     } catch (error) {
       thrown = error;
     }
@@ -585,7 +611,7 @@ describe('4. HistoryStore\'s public interface for stage 3 and the server', () =>
     expect(typeof result?.errors[0]?.message).toBe('string');
     expect(result?.opened).toEqual([]);
     expect(result?.closed).toEqual([]);
-    expect(await h.assertions()).toEqual(before);
+    expect(await reopened.assertions()).toEqual(before);
   });
 });
 
@@ -689,16 +715,18 @@ describe('6. same-time commits of one source are ordered by commit id, code poin
 
   test('no empty row is ever written for a same-time commit that immediately supersedes another', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
-    const path = join(dir, 'history.sqlite');
+    const path = join(dir, 'history.pglite');
     const clock = fakeClock(DAY(2));
     const h = history(clock, path);
     await h.store({ source: 's', commit: 'a', committedAt: DAY(1), model: model([element('X', { technology: 'A' })]) });
     clock.set(DAY(3));
     await h.store({ source: 's', commit: 'b', committedAt: DAY(1), model: model([element('X', { technology: 'B' })]) });
 
-    const raw = new Database(path);
-    const empty = raw.query('SELECT * FROM assertions WHERE valid_from = valid_to').all();
-    raw.close();
+    await h.close();
+    const raw = new PGlite(path);
+    await raw.waitReady;
+    const empty = (await raw.query('SELECT * FROM assertions WHERE valid_from = valid_to')).rows;
+    await raw.close();
     expect(empty).toEqual([]);
   });
 });
@@ -706,20 +734,23 @@ describe('6. same-time commits of one source are ordered by commit id, code poin
 describe('7. the repeat test compares the stored database rows, not only reads; the performance bound is measured on a replacing store', () => {
   test('an identical repeat leaves every row exactly as it was, byte for byte, not merely producing the same read', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
-    const path = join(dir, 'history.sqlite');
+    const path = join(dir, 'history.pglite');
     const clock = fakeClock(DAY(2));
     const h = history(clock, path);
     await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('a'), element('b')]) });
 
-    const before = new Database(path).query('SELECT * FROM assertions ORDER BY rowid').all();
-    const beforeCommits = new Database(path).query('SELECT * FROM source_commits ORDER BY rowid').all();
+    await h.close();
+    const before = await rawRows(path, 'SELECT * FROM assertions ORDER BY source, kind, entity_id, valid_from, recorded_from');
+    const beforeCommits = await rawRows(path, 'SELECT * FROM source_commits ORDER BY source, committed_at, commit_id');
 
     clock.set(DAY(3));
-    const result = await h.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('a'), element('b')]) });
+    const reopened = history(clock, path);
+    const result = await reopened.store({ source: 's', commit: 'c1', committedAt: DAY(1), model: model([element('a'), element('b')]) });
     expect(result.errors).toEqual([]);
+    await reopened.close();
 
-    const after = new Database(path).query('SELECT * FROM assertions ORDER BY rowid').all();
-    const afterCommits = new Database(path).query('SELECT * FROM source_commits ORDER BY rowid').all();
+    const after = await rawRows(path, 'SELECT * FROM assertions ORDER BY source, kind, entity_id, valid_from, recorded_from');
+    const afterCommits = await rawRows(path, 'SELECT * FROM source_commits ORDER BY source, committed_at, commit_id');
     expect(after).toEqual(before);
     expect(afterCommits).toEqual(beforeCommits);
   });
@@ -942,7 +973,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 
   test('a late commit whose predecessor row already closes exactly at the late commit\'s own successor opens no extra, redundant row', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
-    const path = join(dir, 'history.sqlite');
+    const path = join(dir, 'history.pglite');
     const clock = fakeClock(DAY(2));
     const h = history(clock, path);
     await h.store({ source: 's', commit: 'c0', committedAt: DAY(1), model: model([element('X', { technology: 'A' })]) });
@@ -962,9 +993,11 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
       { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(5), validTo: DAY(10), recordedFrom: expect.any(Number), recordedTo: null },
     ]);
 
-    const raw = new Database(path);
-    const empty = raw.query('SELECT * FROM assertions WHERE valid_from = valid_to').all();
-    raw.close();
+    await h.close();
+    const raw = new PGlite(path);
+    await raw.waitReady;
+    const empty = (await raw.query('SELECT * FROM assertions WHERE valid_from = valid_to')).rows;
+    await raw.close();
     expect(empty).toEqual([]);
   });
 
@@ -1002,7 +1035,7 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 
   test('two same-time commits, and a later-arriving one sorting (by commit id) just before the first: no zero-width row is restored at their shared boundary', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
-    const path = join(dir, 'history.sqlite');
+    const path = join(dir, 'history.pglite');
     const clock = fakeClock(DAY(2));
     const h = history(clock, path);
     await h.store({ source: 's', commit: 'a', committedAt: DAY(1), model: model([element('X', { technology: '1' })]) });
@@ -1028,27 +1061,30 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
       { source: 's', kind: 'element', id: 'X', content: expect.any(String), validFrom: DAY(5), validTo: DAY(10), recordedFrom: expect.any(Number), recordedTo: null },
     ]);
 
-    const raw = new Database(path);
-    const empty = raw.query('SELECT * FROM assertions WHERE valid_from = valid_to').all();
-    raw.close();
+    await h.close();
+    const raw = new PGlite(path);
+    await raw.waitReady;
+    const empty = (await raw.query('SELECT * FROM assertions WHERE valid_from = valid_to')).rows;
+    await raw.close();
     expect(empty).toEqual([]);
   });
 
   test('the union read keeps both sources\' disagreeing environment definitions instead of picking silently between them (safety net for the assembler itself)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
-    const path = join(dir, 'history.sqlite');
+    const path = join(dir, 'history.pglite');
     const clock = fakeClock(DAY(2));
     const h = history(clock, path);
     await h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: model([], { environments: [environment('production', { X: '1' })] }) });
     await h.close();
 
-    const raw = new Database(path);
-    raw.run(
+    const raw = new PGlite(path);
+    await raw.waitReady;
+    await raw.query(
       `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to)
-       VALUES ('b', 'environment', 'production', ?, ?, NULL, 'c1', NULL, ?, NULL)`,
+       VALUES ('b', 'environment', 'production', $1, $2, NULL, 'c1', NULL, $3, NULL)`,
       [JSON.stringify({ id: 'production', name: 'a different name' }), DAY(1), clock.now()],
     );
-    raw.close();
+    await raw.close();
 
     const h2 = history(clock, path);
     const result = await h2.read({ valid: DAY(2), known: DAY(2) });
@@ -1061,19 +1097,20 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 
   test('the union read keeps both sources\' conflicting bindings for the same variable instead of picking silently between them (safety net, agreeing on everything else)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
-    const path = join(dir, 'history.sqlite');
+    const path = join(dir, 'history.pglite');
     const clock = fakeClock(DAY(2));
     const h = history(clock, path);
     await h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: model([], { environments: [environment('production', { TIMEOUT: '30' })] }) });
     await h.close();
 
-    const raw = new Database(path);
-    raw.run(
+    const raw = new PGlite(path);
+    await raw.waitReady;
+    await raw.query(
       `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to)
-       VALUES ('b', 'environment', 'production', ?, ?, NULL, 'c1', NULL, ?, NULL)`,
+       VALUES ('b', 'environment', 'production', $1, $2, NULL, 'c1', NULL, $3, NULL)`,
       [JSON.stringify({ id: 'production', bindings: { TIMEOUT: '60' } }), DAY(1), clock.now()],
     );
-    raw.close();
+    await raw.close();
 
     const h2 = history(clock, path);
     const result = await h2.read({ valid: DAY(2), known: DAY(2) });
@@ -1084,19 +1121,20 @@ describe('8. mutation hardening: edge cases the fixes above depend on', () => {
 
   test('the union read does not report a discrepancy when two sources bind the same variable to the same value (stays silent when there is truly nothing to disagree about)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
-    const path = join(dir, 'history.sqlite');
+    const path = join(dir, 'history.pglite');
     const clock = fakeClock(DAY(2));
     const h = history(clock, path);
     await h.store({ source: 'a', commit: 'c1', committedAt: DAY(1), model: model([], { environments: [environment('production', { TIMEOUT: '30' })] }) });
     await h.close();
 
-    const raw = new Database(path);
-    raw.run(
+    const raw = new PGlite(path);
+    await raw.waitReady;
+    await raw.query(
       `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to)
-       VALUES ('b', 'environment', 'production', ?, ?, NULL, 'c1', NULL, ?, NULL)`,
+       VALUES ('b', 'environment', 'production', $1, $2, NULL, 'c1', NULL, $3, NULL)`,
       [JSON.stringify({ id: 'production', bindings: { TIMEOUT: '30' } }), DAY(1), clock.now()],
     );
-    raw.close();
+    await raw.close();
 
     const h2 = history(clock, path);
     const result = await h2.read({ valid: DAY(2), known: DAY(2) });
@@ -1221,22 +1259,23 @@ describe('10. a seeded random sequence of stores matches an independently comput
     };
     const ri = (n: number) => Math.floor(rnd() * n);
 
+    const clock = fakeClock(100000);
+    const h = history(clock);
     for (let trial = 0; trial < 40; trial++) {
+      const source = `s${trial}`;
       const n = 1 + ri(6);
       const commits = Array.from({ length: n }, (_, i) => {
         const els: CompiledElement[] = [];
-        for (const id of ['A', 'B', 'C']) {
-          if (rnd() < 0.6) els.push(element(id, rnd() < 0.5 ? {} : { technology: `t${ri(2)}` }));
+        for (const name of ['A', 'B', 'C']) {
+          if (rnd() < 0.6) els.push(element(`${trial}-${name}`, rnd() < 0.5 ? {} : { technology: `t${ri(2)}` }));
         }
         return { id: `c${ri(100)}_${i}`, t: 1000 * (1 + ri(5)), els };
       });
 
-      const clock = fakeClock(100000);
-      const h = history(clock);
       const stored: { id: string; t: number; els: CompiledElement[] }[] = [];
       for (const cm of commits) {
         clock.set(100000 + stored.length * 10 + (rnd() < 0.2 ? -50 : 0)); // sometimes jumps back
-        const result = await h.store({ source: 's', commit: cm.id, committedAt: cm.t, model: model(cm.els) });
+        const result = await h.store({ source, commit: cm.id, committedAt: cm.t, model: model(cm.els) });
         expect(result.errors).toEqual([]);
         stored.push(cm);
       }
@@ -1255,10 +1294,10 @@ describe('10. a seeded random sequence of stores matches an independently comput
       };
 
       for (let v = 500; v <= 6500; v += 500) {
-        expect(await ids(h, { valid: v, known: 1e9 })).toBe(oracle(v));
+        expect(await ids(h, { source, valid: v, known: 1e9 })).toBe(oracle(v));
       }
 
-      const current = (await h.assertions()).filter((r) => r.recordedTo === null);
+      const current = (await h.assertions({ source })).filter((r) => r.recordedTo === null);
       for (const row of current) {
         expect(row.validTo === null || row.validTo > row.validFrom).toBe(true);
       }
@@ -1270,7 +1309,7 @@ describe('10. a seeded random sequence of stores matches an independently comput
         }
       }
     }
-  });
+  }, 10_000);
 });
 
 describe('11. the review\'s own scenarios (t8, t9): both stores succeed; the union shows each source\'s value and a discrepancy; each relation still carries its own source\'s address', () => {
@@ -1391,28 +1430,29 @@ describe('12. known-time correctness: a read at an earlier known time reproduces
     };
     const ri = (n: number) => Math.floor(rnd() * n);
     const validPoints = [500, 1500, 2500, 3500, 4500, 5500];
+    const clock = fakeClock(100000);
+    const h = history(clock);
 
     for (let trial = 0; trial < 200; trial++) {
+      const source = `s${trial}`;
       const n = 1 + ri(6);
       const commits = Array.from({ length: n }, (_, i) => {
         const els: CompiledElement[] = [];
-        for (const id of ['A', 'B', 'C']) {
-          if (rnd() < 0.6) els.push(element(id, rnd() < 0.5 ? {} : { technology: `t${ri(2)}` }));
+        for (const name of ['A', 'B', 'C']) {
+          if (rnd() < 0.6) els.push(element(`${trial}-${name}`, rnd() < 0.5 ? {} : { technology: `t${ri(2)}` }));
         }
         return { id: `c${ri(100)}_${i}`, t: 1000 * (1 + ri(5)), els };
       });
 
-      const clock = fakeClock(100000);
-      const h = history(clock);
       const knownAt: number[] = [];
       const snapshots: string[] = [];
       for (const cm of commits) {
         clock.set(100000 + knownAt.length * 10 + (rnd() < 0.2 ? -50 : 0));
-        const result = await h.store({ source: 's', commit: cm.id, committedAt: cm.t, model: model(cm.els) });
+        const result = await h.store({ source, commit: cm.id, committedAt: cm.t, model: model(cm.els) });
         expect(result.errors).toEqual([]);
-        const rows = await h.assertions();
+        const rows = await h.assertions({ source });
         knownAt.push(Math.max(...rows.map((a) => a.recordedFrom), ...rows.map((a) => a.recordedTo ?? 0)));
-        snapshots.push((await Promise.all(validPoints.map((v) => ids(h, { valid: v, known: 1e9 })))).join('|'));
+        snapshots.push((await Promise.all(validPoints.map((v) => ids(h, { source, valid: v, known: 1e9 })))).join('|'));
       }
 
       // Every store's own known-time boundary, read back from the FINAL
@@ -1420,30 +1460,33 @@ describe('12. known-time correctness: a read at an earlier known time reproduces
       // reproduce exactly the snapshot taken right after that store — no
       // later store's effects leaking in through a tied recorded moment.
       for (let i = 0; i < commits.length; i++) {
-        const replay = (await Promise.all(validPoints.map((v) => ids(h, { valid: v, known: knownAt[i]! })))).join('|');
+        const replay = (await Promise.all(validPoints.map((v) => ids(h, { source, valid: v, known: knownAt[i]! })))).join('|');
         expect(replay).toBe(snapshots[i]!);
       }
     }
-  });
+  }, 20_000);
 });
 
 describe('13. the exclusive-kind safety net names the right kind for every one of the seven kinds (data written outside store())', () => {
   async function insertRaw(path: string, rows: { source: string; kind: string; id: string; content: unknown }[]): Promise<void> {
     // Creates the schema (a fresh store, immediately closed) before writing raw rows into it.
-    await createSqliteHistory({ clock: fakeClock(0), path }).close();
-    const raw = new Database(path);
-    const insert = raw.query(
-      `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to)
-       VALUES (?, ?, ?, ?, ?, NULL, 'c1', NULL, ?, NULL)`,
-    );
-    for (const row of rows) insert.run(row.source, row.kind, row.id, JSON.stringify(row.content), DAY(1), DAY(1));
-    raw.close();
+    await createPGliteHistory({ clock: fakeClock(0), path }).close();
+    const raw = new PGlite(path);
+    await raw.waitReady;
+    for (const row of rows) {
+      await raw.query(
+        `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to)
+         VALUES ($1, $2, $3, $4, $5, NULL, 'c1', NULL, $6, NULL)`,
+        [row.source, row.kind, row.id, JSON.stringify(row.content), DAY(1), DAY(1)],
+      );
+    }
+    await raw.close();
   }
 
   for (const kind of ASSERTION_KINDS) {
     test(`the union read's exclusive-kind safety net reports "${kind}" as the field when two sources' rows for the same id disagree`, async () => {
       const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
-      const path = join(dir, 'history.sqlite');
+      const path = join(dir, 'history.pglite');
       await insertRaw(path, [
         { source: 'a', kind, id: 'x', content: { id: 'x', v: 'A' } },
         { source: 'b', kind, id: 'x', content: { id: 'x', v: 'B' } },
@@ -1466,7 +1509,7 @@ describe('13. the exclusive-kind safety net names the right kind for every one o
   for (const kind of ASSERTION_KINDS) {
     test(`a source-filtered read's own exclusive-kind safety net reports "${kind}" as the field when one source's own two rows for the same id disagree (never happens through store(), which always closes the old row first)`, async () => {
       const dir = mkdtempSync(join(tmpdir(), 'madarch-stage2-'));
-      const path = join(dir, 'history.sqlite');
+      const path = join(dir, 'history.pglite');
       await insertRaw(path, [
         { source: 's', kind, id: 'x', content: { id: 'x', v: 'A' } },
         { source: 's', kind, id: 'x', content: { id: 'x', v: 'B' } },

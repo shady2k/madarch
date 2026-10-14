@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   createLadybugEngine,
-  createSqliteHistory,
+  createPGliteHistory,
   type Clock,
   type CompiledElement,
   type CompiledModel,
@@ -56,7 +56,7 @@ describe('M1: an engine kept in step through update() answers exactly like a reb
         const rnd = seededRandom(seed);
         let now = 100_000;
         const clock = fakeClock(now);
-        const history = createSqliteHistory({ clock });
+        const history = createPGliteHistory({ clock });
         const updated = createLadybugEngine();
         updated.rebuild([]);
 

@@ -14,9 +14,10 @@
     "wiki:shots": "bun scripts/wiki-shots.ts"
   },
   "dependencies": {
+    "@electric-sql/pglite": "0.5.10",
+    "@ladybugdb/core": "0.20.4",
     "typebox": "1.3.34",
-    "yaml": "2.9.1",
-    "@ladybugdb/core": "0.20.4"
+    "yaml": "2.9.1"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "20.14.5",
