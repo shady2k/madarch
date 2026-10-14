@@ -1,7 +1,7 @@
 # The product registry may supply localized kind and stage labels
 
 Change: localized-registry-labels
-Base: 79161f7364071e52a5f33b604bec8cdb25ab7b65
+Base: 58f13ee3f81cf0cdcc4b8f8fd1c5fa1b4d579c27
 Tasks: madarch-k47i
 Kind: behavior
 

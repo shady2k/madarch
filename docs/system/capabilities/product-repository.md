@@ -194,7 +194,12 @@ name): the field's name as the document writes it, the kinds the field's
 targets may name, by the kinds' names, the words the target's page shows
 the backlink under, whether the field holds one target or many (`many`
 stands where it is left out), and whether a document of the kind without
-the link is a finding (`false` stands where it is left out).
+the link is a finding (`false` stands where it is left out). A kind may
+also carry an optional `labels` mapping with both `en` and `ru` non-blank
+strings; when present, no other keys are accepted. Stages may carry the
+same optional paired mapping. These labels affect display only: `name` and
+`id` remain the registry identities. A missing `labels` mapping remains
+valid under contract v1, so existing registries need no migration.
 
 The manifest also reserves what contract v1 does not implement (the 0021
 amendment as the owner refined it): each kind may name the storage form it is
@@ -266,6 +271,11 @@ stream reports and the next answer carries, with no restart.
 - Given: a product whose `docs/kinds.yaml` opens with `contract: 1`, names the stages `idea` through `operate` in order and the kinds `source` (prefix `S`, `docs/sources`), `hypothesis` (prefix `H`), `product requirement` (prefix `FR`, `docs/requirements`) and `decision` (prefix `D`)
 - When: the registry is read
 - Then: it reads at version 1 with 7 stages and 4 kinds, each kind's stage one of the list, and the published schema carries the version in its `$id` and matches the TypeBox source byte for byte
+
+### Scenario: optional-localized-registry-labels
+- Given: one contract-v1 registry with paired labels on a kind and stage, and one legacy contract-v1 registry with no labels
+- When: both registries are checked against the published schema and read
+- Then: both remain valid under the same contract-v1 schema id; a present labels object requires both non-blank locale values and rejects extra keys
 
 ### Scenario: registry-declares-links-and-statuses
 - Given: a registry whose `user story` kind names the statuses `draft`, `ready` and the link fields `Serves` → `UC` (backlink `Served by`, many, required) and `Grew from` → `S`, `H` (backlink `Grew into`)
