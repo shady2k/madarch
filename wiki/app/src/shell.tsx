@@ -494,7 +494,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
   architecture?: Architecture | null;
   /** The repositories the manifest declares, when any: the sidebar entry shows only then. */
   reposCount?: number;
-  /** Whether the repositories' page is the one open, for the breadcrumb and the tab strip. */
+  /** Whether the repositories' page is the one open, for the breadcrumb. */
   reposOpen?: boolean;
   /** The kinds registry the server answered, or none: the groups, their order and the stage rows read it. */
   offer?: RegistryOffer | null;
