@@ -9,10 +9,14 @@ stages:
   - id: requirements
     name: Requirements
   - id: design
+    sections:
+      - architecture
     expected:
       - architecture views
     name: Design
   - id: build
+    sections:
+      - repositories
     expected:
       - task
     name: Build

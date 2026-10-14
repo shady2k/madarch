@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -124,6 +124,33 @@ describe('the server\'s product mode', () => {
     const answer = await fetch(`${url}/api/product`);
     expect(answer.status).toBe(200);
     expect(await answer.json()).toEqual({ id: 'demo', name: 'Demo', folder: basename(folder!) });
+  });
+
+  test('GET /api/product does not disclose audience content through an outside symlink', async () => {
+    draft();
+    writeFileSync(join(folder!, 'docs', 'kinds.yaml'), [
+      'contract: 1', 'overview:', '  audience:', '    document: docs/brief.md', '    section: Readers',
+      'stages:', '  - id: explore', 'kinds: []',
+    ].join('\n') + '\n');
+    const outside = join(tmpdir(), `madarch-api-audience-${process.pid}.md`);
+    writeFileSync(outside, '# Private\n\n## Readers\nOutside secret.\n');
+    try {
+      const brief = join(folder!, 'docs', 'brief.md');
+      writeFileSync(brief, '# Brief\n\n## Readers\nOutside secret.\n');
+      builtApp();
+      const url = startProduct();
+      const validResponse = await fetch(`${url}/api/product`);
+      expect((await validResponse.json() as { audience?: string }).audience).toBe('Outside secret.');
+      rmSync(brief, { force: true });
+      symlinkSync(outside, brief);
+      const response = await fetch(`${url}/api/product`);
+      expect(response.status).toBe(200);
+      const body = await response.json() as { audience?: string };
+      expect(body.audience).toBeUndefined();
+      expect(JSON.stringify(body)).not.toContain('Outside secret.');
+    } finally {
+      rmSync(outside, { force: true });
+    }
   });
 
   test('GET /api/product reads the configured audience source', async () => {

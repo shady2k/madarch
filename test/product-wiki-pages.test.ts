@@ -771,6 +771,19 @@ describe('the product\'s open questions', () => {
     expect(product.audience()).toBe('Owners of small cafes with fewer than twenty seats.');
   });
 
+  test('an audience document symlink cannot read outside the product root', () => {
+    draft();
+    const outside = join(tmpdir(), `madarch-audience-outside-${process.pid}.md`);
+    writeFileSync(outside, '# Outside\n\n## Audience\nSecret outside text.\n');
+    try {
+      write('docs/kinds.yaml', ['contract: 1', 'overview:', '  audience:', '    document: docs/brief.md', '    section: Readers', 'stages:', '  - id: explore', 'kinds: []'].join('\n') + '\n');
+      symlinkSync(outside, join(folder!, 'docs', 'brief.md'));
+      expect(requireProduct(openProductWiki(folder!)).audience()).toBeUndefined();
+    } finally {
+      rmSync(outside, { force: true });
+    }
+  });
+
   test('an Audience inside a code fence is not the audience', () => {
     draft();
     write('docs/kinds.yaml', ['contract: 1', 'overview:', '  audience:', '    document: docs/vision.md', '    section: Audience', 'stages:', '  - id: idea', 'kinds:', '  - name: question', '    prefix: Q', '    folder: docs/questions', '    stage: idea', '    hint: write a question', '    questions:', '      identityPrefix: Q', '      titleSeparator: —', '      promptSection: Question', '      answerSection: Answer', '      answererField: Who can answer', '      concernsField: Concerns', '      notApplicablePrefix: "Not applicable:"'].join('\n') + '\n');

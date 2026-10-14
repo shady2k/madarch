@@ -2,8 +2,8 @@
  * Parses product question documents from the form declared in the product
  * registry. Identity, field names and section names are supplied as data.
  */
-import { readFileSync, statSync } from 'node:fs';
-import { join as joinPath } from 'node:path';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { join as joinPath, relative, sep } from 'node:path';
 import { readProductRegistry } from '../product/registry.js';
 import type { QuestionForm } from '../product/schema.js';
 
@@ -131,8 +131,13 @@ export function productAudience(productFolder: string): string | undefined {
   if (!registry.present || 'refused' in registry || registry.overview?.audience === undefined) return undefined;
   const { document, section } = registry.overview.audience;
   if (!document.startsWith('docs/') || document.split('/').some((part) => part === '' || part === '..')) return undefined;
-  try { return audienceOf(readFileSync(joinPath(productFolder, ...document.split('/')), 'utf8'), section); }
-  catch { return undefined; }
+  try {
+    const root = realpathSync(productFolder);
+    const file = realpathSync(joinPath(root, ...document.split('/')));
+    const within = relative(root, file);
+    if (within === '..' || within.startsWith(`..${sep}`) || within.startsWith(sep)) return undefined;
+    return audienceOf(readFileSync(file, 'utf8'), section);
+  } catch { return undefined; }
 }
 
 /** A configured section's first paragraph, as one line. */

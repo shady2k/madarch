@@ -94,6 +94,22 @@
               "minLength": 1
             },
             "uniqueItems": true
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "architecture"
+                },
+                {
+                  "type": "string",
+                  "const": "repositories"
+                }
+              ]
+            },
+            "uniqueItems": true
           }
         },
         "additionalProperties": false

@@ -19,7 +19,8 @@ registry. Its fields are `contract`, `computedAt`, `sourceRevision`, and
 versioned schema `$id`, following the registry schema's published contract
 pattern.
 
-Extend registry v1 with additive optional manifest data: stage `expected`,
+Extend registry v1 with additive optional manifest data: stage `expected` and
+`sections` (the engine-provided architecture/repositories sections),
 registry `overview.audience` source, and per-kind `questions` form. Keep v1
 because these fields add optional declarations without changing prior v1
 interpretation; the previous v1 files remain valid.

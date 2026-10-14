@@ -134,36 +134,30 @@ export function readStagesIndex(productFolder: string): StagesIndex {
   const list: { id: string; name?: string }[] = kit?.stages.map((stage) => ({ id: stage.id, name: stage.name })) ?? [];
   const stageOf = new Map<string, StageSectionBuilder>();
   for (const stage of list) stageOf.set(stage.id, { id: stage.id, name: stage.name, artifacts: [] });
-  // Task records belong to the stage whose manifest expectations declare them.nd where it
-  // names none the stage page skips that material.
+  // Task records belong to every stage whose manifest expectations declare them;
+  // where none does, the stage pages skip that material.
   const holderOf = (id: string): StageSectionBuilder | undefined => stageOf.get(id);
-  const taskStage = kit?.stages.find((stage) => stage.expected?.includes('task'));
-  const build = taskStage === undefined ? undefined : holderOf(taskStage.id);
-  if (build !== undefined) build.tasks = [];
-  // The sections other features own: the stage named design navigates to
-  // the Architecture section when the product holds a model/ for it to
-  // compile; the stage named build navigates to the Repositories section
-  // when the manifest declares repositories or a repos/ folder stands in
-  // the product. The stages name them; whether the serving app holds those
-  // sections is that app's build, so the index carries `present` and the
-  // app decides between a link and the named placeholder.
-  const design = holderOf('design');
+  const taskStages = kit?.stages.filter((stage) => stage.expected?.includes('task')) ?? [];
+  const taskHolders = taskStages.map((stage) => holderOf(stage.id)).filter((stage): stage is StageSectionBuilder => stage !== undefined);
+  for (const holder of taskHolders) holder.tasks = [];
+  // Cross-page sections are placed only where the registry declares them.
+  // Their content remains the engine's generic section implementation.
+  const architectureStages = kit?.stages.filter((stage) => stage.sections?.includes('architecture')) ?? [];
+  const repositoryStages = kit?.stages.filter((stage) => stage.sections?.includes('repositories')) ?? [];
   const modelFolder = joinPath(productFolder, 'model');
-  if (design !== undefined) {
-    if (existsSync(modelFolder) && lstatSync(modelFolder).isDirectory()) {
-      design.sections = [{ kind: 'architecture', present: true }];
-    } else {
-      design.sections = [];
-      // Recorded as the section's own flag: the final pass fills `missing`
-      // from the artifacts, and the architecture views are missing only then.
-      design.wantsArchitecture = true;
-    }
+  const hasModel = existsSync(modelFolder) && lstatSync(modelFolder).isDirectory();
+  for (const stage of architectureStages) {
+    const holder = holderOf(stage.id);
+    if (holder === undefined) continue;
+    holder.sections = hasModel ? [{ kind: 'architecture', present: true }] : [];
   }
   const manifestText = readManifestText(productFolder);
   const reposDeclared = manifestText !== undefined && /(^|\n)repos:/.test(manifestText);
   const reposFolder = joinPath(productFolder, 'repos');
-  if (reposDeclared || (existsSync(reposFolder) && lstatSync(reposFolder).isDirectory())) {
-    if (build !== undefined) build.sections = [{ kind: 'repositories', present: true }];
+  const hasRepos = reposDeclared || (existsSync(reposFolder) && lstatSync(reposFolder).isDirectory());
+  if (hasRepos) for (const stage of repositoryStages) {
+    const holder = holderOf(stage.id);
+    if (holder !== undefined) holder.sections = [...(holder.sections ?? []), { kind: 'repositories', present: true }];
   }
 
   // The document kinds: every kind's folder the registry names, its one
@@ -197,15 +191,15 @@ export function readStagesIndex(productFolder: string): StagesIndex {
     for (const name of fileNames(reposDocs, undefined, problems)) {
       const repoFolder = joinPath(reposDocs, name);
       const architecturePage = joinPath(repoFolder, 'architecture.md');
-      const architectureHolder = stageOf.get('design');
-      if (architectureHolder !== undefined && existsSync(architecturePage)) {
+      if (architectureStages.length > 0 && existsSync(architecturePage)) {
         try {
-          architectureHolder.artifacts.push({
+          const artifact = {
             path: `${REPOSITORY_DOCS}/${name}/architecture.md`,
             title: titleOf(readFileSync(architecturePage, 'utf8'), name),
             kind: 'repository architecture',
             served: true,
-          });
+          };
+          for (const stage of architectureStages) holderOf(stage.id)?.artifacts.push(artifact);
         } catch (error) {
           problems.push({ where: architecturePage, message: (error as Error).message });
         }
@@ -257,14 +251,13 @@ export function readStagesIndex(productFolder: string): StagesIndex {
   // Task records: read-only from the export the tracker writes.
   let exported = false;
   const trackerFull = joinPath(productFolder, TRACKER_EXPORT);
-  if (build !== undefined && existsSync(trackerFull)) {
+  if (taskHolders.length > 0 && existsSync(trackerFull)) {
     exported = true;
     const read = readTasks(trackerFull);
     if (read.ok) {
-      build.tasks = read.groups;
-      build.notes = read.notes;
+      for (const holder of taskHolders) { holder.tasks = read.groups; holder.notes = read.notes; }
     } else {
-      build.tasks = [];
+      for (const holder of taskHolders) holder.tasks = [];
       problems.push({ where: trackerFull, message: read.message });
     }
   }
@@ -328,8 +321,6 @@ interface StageSectionBuilder {
   tasks?: TaskFeature[];
   notes?: StageNote[];
   sections?: StageSectionLink[];
-  /** The product holds no model/: the Design stage's missing lines name the views. */
-  wantsArchitecture?: boolean;
 }
 
 function buildSection(builder: StageSectionBuilder): StageSection {

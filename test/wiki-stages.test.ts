@@ -46,10 +46,14 @@ const DEMO_REGISTRY = [
   '    name: Requirements',
   '  - id: design',
   '    name: Design',
+  '    sections:',
+  '      - architecture',
   '  - id: build',
   '    name: Build',
   '    expected:',
   '      - task',
+  '    sections:',
+  '      - repositories',
   '  - id: verify',
   '    name: Verify',
   '  - id: release',
@@ -140,6 +144,41 @@ function tracker(lines: unknown[]): void {
 }
 
 describe('the stage index of a product', () => {
+  test('custom stage ids receive declared task and section data, including multiple task expectations', () => {
+    draft();
+    const registry = DEMO_REGISTRY.replace('  - id: design\n    name: Design\n    sections:\n      - architecture', '  - id: custom-architecture\n    name: Design\n    sections:\n      - architecture\n  - id: custom-architecture-two\n    sections:\n      - architecture')
+      .replace('  - id: build\n    name: Build', '  - id: custom-build\n    name: Build')
+      .replaceAll('    stage: design', '    stage: custom-architecture')
+      .replace('  - id: verify\n    name: Verify', '  - id: custom-tasks\n    expected:\n      - task\n    name: Verify\n  - id: custom-verify\n    name: Verify');
+    write('docs/kinds.yaml', registry);
+    mkdirSync(join(folder!, 'model'));
+    tracker([EPIC, CHILD]);
+    const index = readStagesIndex(folder!);
+    expect(index.stages.find((stage) => stage.id === 'custom-architecture')!.sections).toEqual([{ kind: 'architecture', present: true }]);
+    expect(index.stages.find((stage) => stage.id === 'custom-architecture-two')!.sections).toEqual([{ kind: 'architecture', present: true }]);
+    const taskTables = index.stages.filter((stage) => stage.id === 'custom-build' || stage.id === 'custom-tasks').map((stage) => stage.tasks);
+    expect(taskTables[0]).toEqual(taskTables[1]);
+    expect(taskTables[0]![0]!.tasks.map((task) => task.id)).toEqual(['proj-aa1']);
+    expect(index.stages.find((stage) => stage.id === 'idea')!.tasks).toBeUndefined();
+    expect(index.stages.find((stage) => stage.id === 'requirements')!.tasks).toBeUndefined();
+  });
+
+  test('an export is ignored when no stage declares task expectations', () => {
+    draft();
+    write('docs/kinds.yaml', 'contract: 1\nstages:\n  - id: explore\nkinds: []\n');
+    write('.beads/issues.jsonl', 'not-json\n');
+    const index = readStagesIndex(folder!);
+    expect(index.stages).toEqual([{ id: 'explore', artifacts: [], findings: [] }]);
+    expect(index.problems.some((problem) => problem.where.endsWith('issues.jsonl'))).toBe(false);
+  });
+
+  test('a declared task expectation has no table before the tracker export exists', () => {
+    draft();
+    write('docs/kinds.yaml', 'contract: 1\nstages:\n  - id: custom-tasks\n    expected:\n      - task\nkinds: []\n');
+    const index = readStagesIndex(folder!);
+    expect(index.stages[0]!.tasks).toBeUndefined();
+  });
+
   test('a product with no registry has no built-in stage list', () => {
     draft(false);
     const index = readStagesIndex(folder!);

@@ -163,6 +163,8 @@ export const StageEntry = Type.Object(
     name: Type.Optional(RegistryName),
     /** Records the product's completeness calculator expects at this stage. */
     expected: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { uniqueItems: true })),
+    /** Engine-provided cross-page sections shown with this stage. */
+    sections: Type.Optional(Type.Array(Type.Union([Type.Literal('architecture'), Type.Literal('repositories')]), { uniqueItems: true })),
   },
   { additionalProperties: false },
 );

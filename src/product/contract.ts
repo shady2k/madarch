@@ -100,6 +100,7 @@ export interface RegistryStage {
   id: string;
   name?: string;
   expected?: readonly string[];
+  sections?: readonly ('architecture' | 'repositories')[];
 }
 
 /** What reading a registry file gave: the contract version it declares, the kinds and the stages of the file, or the refusals. */
