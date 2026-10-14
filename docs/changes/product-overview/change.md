@@ -1,7 +1,7 @@
 # The product home introduces the product before its page groups
 
 Change: product-overview
-Base: 986ee65a532e548ea68d7d3ed897065f6d52b3f5
+Base: 44c5da29abdbf3631760045e64308b1c18fe4cdb
 Tasks: madarch-xq0v
 Kind: behavior
 
@@ -14,7 +14,7 @@ Owner Addendum 12 (2026-10-14) corrects the empty-home guidance: `madarch clone`
 ## Out of scope
 - Changing product registry-label behavior.
 - The pending `madarch demo` shorthand tracked by `madarch-n5ip`; empty-home guidance uses the shipped clone-and-serve commands.
-- Completing the ten pinned real-product reader-walk cases or closing `madarch-xq0v`; these remain required acceptance work.
+- Reconstructing an authoritative ten-case reader-walk list that was not found. Its absence is recorded as an accepted limitation; the owner accepts the bilingual rendered walk on `madarch-product` for this close-out.
 
 ## Changes to requirements
 - product-wiki/overview (added): the first screen shows a normalized optional overview before document groups; product-authored identity and facts are not inferred; legacy audience remains visible without a facts block when the projection is absent; missing and blank values are omitted without placeholders; only a nonblank milestone title with a safe path in the served page list is linked.
@@ -37,7 +37,11 @@ None.
 Use an optional normalized projection on `/api/product`; retain top-level `audience` compatibility. Read only the product registry's declared document-and-section mappings, validate each source as a product-relative wiki page, and never hardcode product identity, paths, headings or workflow. Missing or invalid mappings contribute no value. The client links a milestone only when its path is safe and present in the served page list. The empty-home guide uses only the shipped `madarch new`, `madarch clone`, `madarch repo add` and `setup-shady2k-skills` commands, and the demo's clone-and-serve path; it does not claim `madarch demo` exists. See the approved design target in `status.md` and the existing task acceptance.
 
 ## Acceptance evidence
-Pending. The local UI tests and fixture render are evidence only for the client; no production reader-walk or final acceptance is claimed.
+- The rendered English/Russian reader walk on the public `madarch-product` clone passed the overview, document, registry labels and shell cases; the localized empty-folder guide also passed in both languages. See reader-walk comment #3296 and screenshots under `/tmp/madarch-readerwalk-shots/`.
+- The manual walk's Fieldnote cases 7 and 8 failed on the old `wiki/demo` fixture. The owner explicitly accepted `madarch-n5ip` replacing that demo with `madarch-product`; these Fieldnote failures are not claimed as passes or as this task's continuing acceptance target.
+- The authoritative pinned ten-case list was not found. The numbered matrix in #3296 is the walk performed, not a claim that it is canonical. The owner accepts this as a recorded limitation for close-out.
+- PR #12 merged at `bb9d75a8420c0c87b7a493c07879868bcbf8e8b7`; PR CI 38641772495 and product-documents 38641772458 passed. Post-merge main CI 38643634842 and product-documents 38643634934 passed. Independent review is recorded in comment #3207.
+- Per Owner Addendum 11, mutation testing is deferred to the milestone-end run; it is not claimed as passed here.
 
 ## DONE WHEN
 On the demo product and madarch's own product wiki, the first screen shows the product name, audience, vision problem and outcome, current milestone and its state, and next step from product documents before document groups, with correct links and no placeholder text for absent facts; the ten pinned reader-walk cases pass. The task remains open until that rendered acceptance is recorded.

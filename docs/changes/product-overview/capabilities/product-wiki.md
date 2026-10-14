@@ -113,14 +113,14 @@ in the current wiki page list; missing data shall never create a blank link. A s
 - Then: no audience placeholder or overview-facts block is shown
 
 ## Requirement: shell — The reading shell holds the navigation, the document and the panel place
-When a product's wiki is served, its pages shall be shown in a reading shell: a left navigation holding the product's name and its documents grouped by kind — the kind a page's path names, pages outside a kind by themselves — with the current page marked visually and by its accessibility attributes, and every page of the wiki one click away from it; each group heading shall link to a generic page at `/g/` followed by the URI-encoded group identity, keyed by the existing `PageMeta.kind ?? groupOf(path)` identity, whose heading uses the existing localized/fallback group label and whose links list only that group's live pages in code point order; the sidebar brand `madarch вики` shall link to Product overview; a document breadcrumb shall link its first `Продукт` segment to Product overview and its group segment to that group page, providing the in-app way back without a separate Back button; the document in the centre as the main element; and a place for a right context panel, closed by default and empty until content fills it. A focus mode shall hide both panels and bring them back, and on a narrow screen the navigation shall open from a menu without narrowing the document's column. Language selection shall live in a globe menu in the top bar; the globe button shall have a localized accessible name and tooltip, and the menu shall mark the current language as checked.
+When a product's wiki is served, its pages shall be shown in a reading shell: a left navigation holding the product's name and its documents grouped by kind — the kind a page's path names, pages outside a kind by themselves — with the current page marked visually and by its accessibility attributes, and every page of the wiki one click away from it; each group heading shall link to a generic page at `/g/` followed by the URI-encoded group identity, keyed by the existing `PageMeta.kind ?? groupOf(path)` identity, whose heading uses the matching registry entry's current-locale `labels` value when the optional pair is present; if absent, the manifest's own name is shown unchanged, never the other locale; the stage navigator and document-kind labels follow the same rule (a stage uses its own `id` only when it has no display name or label); and whose links list only that group's live pages in code point order; the sidebar brand `madarch вики` shall link to Product overview; a document breadcrumb shall link its first `Продукт` segment to Product overview and its group segment to that group page, providing the in-app way back without a separate Back button; the document in the centre as the main element; and a place for a right context panel, closed by default and empty until content fills it. A focus mode shall hide both panels and bring them back, and on a narrow screen the navigation shall open from a menu without narrowing the document's column. Language selection shall live in a globe menu in the top bar; the globe button shall have a localized accessible name and tooltip, and the menu shall mark the current language as checked.
 
-The sidebar carries an Architecture entry in the life-cycle order — after the decisions, before the research kinds — with the model's views' count; the entry stands even where the product holds no model. The shell shall fill the window at any window height: its sidebar, its top bar and its tab strip stay while only the work area scrolls, and a tab strip row under the top bar carries the open file name (the view switch and history arrive with the editor work and no control stands dead). The document surface shall be flush across the work area, from the sidebar edge to the window edge and from the tab strip through the status bar, with no inset page or raised frame. The status bar stands at the very bottom of the window, outside the scrolled content, and carries on its left the wiki's actual live-connection state — Live when the event stream is open, Reconnecting while it is not — with nothing claimed about browser persistence. The chrome reads as the mockup lays it: the brand as the product's own mark, a product block naming the product with its "Product space" line and an initial square about 36 px, no trailing chevron on the product overview row, the sidebar's group heading in small muted uppercase, and a breadcrumb whose parent sits muted around a spaced slash with the current page in the primary text colour.
+The sidebar carries an Architecture entry in the life-cycle order — after the decisions, before the research kinds — with the model's views' count; the entry stands even where the product holds no model. The shell shall fill the window at any window height: its sidebar and top bar stay while only the document work area scrolls. No tab strip or bottom status strip shall be rendered. On a document page, the top bar shall not repeat that page's title; the page title belongs to the document content. The document surface shall be flush across the work area, from the sidebar edge to the window edge, with no inset page or raised frame. The chrome reads as the mockup lays it: the brand as the product's own mark, a product block naming the product with its "Product space" line and an initial square about 36 px, the product block has no disclosure chevron or switcher affordance, no trailing chevron on the product overview row, the sidebar's group heading in small muted uppercase, and a breadcrumb whose parent sits muted around a spaced slash without repeating the document title.
 
 ### Scenario: group-page-and-group-navigation
 - Given: a served product whose pages carry more than one group identity, including two pages in one group
 - When: the group heading in the sidebar or that group's breadcrumb segment is clicked
-- Then: the app opens `/g/` followed by the URI-encoded group identity, uses the localized/fallback group label as its heading, and lists only that group's live pages as links in code point path order
+- Then: the app opens `/g/` followed by the URI-encoded group identity, uses the registry entry’s current-locale label as its heading, or its own name unchanged when the optional pair is absent, never the other locale, and lists only that group’s live pages as links in code point path order
 
 ### Scenario: brand-and-product-breadcrumb
 - Given: a document page is open
@@ -155,15 +155,16 @@ The sidebar carries an Architecture entry in the life-cycle order — after the 
 ### Scenario: window-height-shell
 - Given: the wiki open in a tall window (1440x1400) and then scrolled
 - When: the shell is read while the column scrolls
-- Then: the sidebar and the top bars stay fixed while only the document column scrolls, and the status bar stands at the bottom edge of the window
+- Then: the sidebar and top bar stay fixed while only the document column scrolls, with no tab strip or bottom status strip
+
+### Scenario: no-dead-reader-chrome
+- Given: a document page is open in the served wiki
+- When: the reader inspects the shell and document
+- Then: the tab strip and bottom status strip are absent, the top bar does not repeat the document heading, and the product block has no disclosure control
 ### Scenario: home-overview
 - Given: a served product home read in a browser
 - When: the home page is read
 - Then: the home carries a lead, its documents grouped by kind with counts, links not underlined, each row icon and title on the navigation rhythm, and groups that share the document text measure with rounded hairline borders and no inner rules
-### Scenario: connection-state-in-the-status-bar
-- Given: the wiki served and its event stream open
-- When: the status bar is read, and then the stream is dropped
-- Then: with the stream open the status bar names the connection Live; with it dropped it names Reconnecting, and it never claims a browser save happened
 
 ## Requirement: reading-typography — Pages read on the shared design tokens
 The app's styles shall take their values from one tokens module the editor of madarch-j0a reuses: font families, a type scale, spacing, colours, a light theme and a dark theme that follows the system setting. It shall ship the fonts it names — Inter for text and a monospace face — under the SIL Open Font Licence with Cyrillic, licences recorded beside the files, with a fallback stack for macOS, Linux and Windows. Document text and home groups shall share one fluid measure: 48 px inline padding on desktop, 32 px on tablet and 20 px on phone, with a 960 px maximum text width centered only when the work area has room. Its body line height shall be 1.4 to 1.6, its heading scale shall keep a steady vertical rhythm, its quotes, code blocks, lists and tables shall read comfortably, and no element shall overflow the text area. The column measure: the earlier research value (36em/62 chars; the mockup's 740px) is superseded by the owner's fluid-width direction of 2026-10-11 (note-width.md).
@@ -464,12 +465,18 @@ The server watches the product working tree and answers one Server-Sent Events s
 When a local madarch is given a product folder, it shall serve that product's
 wiki at its address and print the address; `madarch new` shall create the
 draft and serve its wiki in one command, and `madarch serve` shall serve the
-product of the current folder when it is given none. `madarch new` shall open
-the address in the browser the machine uses; where no browser can be opened,
-it shall say so and print the address without failing. The server shall serve
-the app's built files and answer the wiki's pages; a request it cannot answer
-shall be refused with a message naming what was asked for, and no document's
-content shall be logged.
+product of the current folder when it is given none. `madarch serve` shall
+also serve an existing directory with no `workspace.yaml` as a temporary,
+read-only empty home so its reader can see the getting-started guide. The
+folder's name supplies only the temporary display name; no manifest, product
+id or sample document is written or treated as manifest data. A directory
+that does not exist, a manifest that cannot be read, or a manifest that does
+not parse remains refused with its cause. Manifest reading and lifecycle
+commands remain strict. `madarch new` shall open the address in the browser the
+machine uses; where no browser can be opened, it shall say so and print the
+address without failing. The server shall serve the app's built files and
+answer the wiki's pages; a request it cannot answer shall be refused with a
+message naming what was asked for, and no document's content shall be logged.
 
 
 
@@ -483,6 +490,17 @@ content shall be logged.
 - Given: a draft created earlier and no server running
 - When: `madarch serve` is run in the product's root
 - Then: the same wiki answers at the address it prints
+
+### Scenario: serve-empty-folder-without-manifest
+- Given: an existing empty directory with no `workspace.yaml` and no server running
+- When: `madarch serve` is run in that directory
+- Then: the command prints an address, the home page answers with the localized getting-started guide, and the directory is unchanged — no manifest or product data is written
+
+### Scenario: invalid-manifest-still-refused
+- Given: an existing directory whose `workspace.yaml` is unreadable or malformed
+- When: `madarch serve` is run in that directory
+- Then: it remains refused with the manifest's file, line and cause; the no-manifest fallback does not mask it
+
 ### Scenario: unknown-page
 - Given: a served draft
 - When: a page of a path the product does not hold, and a path outside its `docs/`, are asked for
@@ -510,11 +528,13 @@ command shall stop with exit 2 and print what the builder said.
 
 ## Requirement: result — Served, opened or refused, and why
 When a product's wiki is served, the command shall serve until it is stopped.
+An existing directory without a `workspace.yaml` is the one exception to the
+manifest requirement: it serves an empty home with the getting-started guide.
 It shall exit 2 when its input cannot be read — an argument it does not know,
-a product folder that is not there, a product whose manifest cannot be read, an
-address already taken, or an app that cannot be built — naming what is wrong;
-and 1 when a step it takes fails. Serving shall change neither the product's
-files nor its repository.
+a path that is not an existing directory, a manifest entry that cannot be
+read, an invalid manifest, an address already taken, or an app that cannot be
+built — naming what is wrong; and 1 when a step it takes fails. Serving shall
+change neither the product's files nor its repository.
 
 
 
@@ -522,9 +542,14 @@ files nor its repository.
 
 
 ### Scenario: no-product
-- Given: a folder that holds no `workspace.yaml`
-- When: `madarch serve --product` naming that folder is run
-- Then: it exits 2 naming the folder and the manifest it looked for
+- Given: a path that does not exist or does not name a directory
+- When: `madarch serve --product` naming that path is run
+- Then: it exits 2 naming the path and refusing to serve it
+
+### Scenario: present-manifest-refused
+- Given: an existing directory whose `workspace.yaml` entry is present but unreadable or invalid
+- When: `madarch serve --product` naming that directory is run
+- Then: it exits 2 naming the manifest and its cause rather than using the no-manifest fallback
 ### Scenario: address-taken
 - Given: a server already answering on the default port
 - When: another product's wiki is served on it
@@ -553,6 +578,13 @@ loading and error states, tooltips and accessible labels. Counts and relative
 file-change times shall follow the selected language through `Intl.PluralRules`
 and `Intl.RelativeTimeFormat`. The document's changed-time label shall use the
 file's real modification time, never placeholder content.
+
+Kind, group and stage names that come from the product registry are displayed using that entry's label for the selected locale when its optional paired labels are present. When the pair is absent, the wiki displays the manifest's own name unchanged (or a stage's own id when it has no name); it never substitutes the other locale. These registry labels do not translate the product's authored document content.
+
+### Scenario: registry-labels-follow-the-selected-locale
+- Given: a contract-v1 registry with paired English and Russian labels for kinds and stages, and a legacy registry whose entries have no labels
+- When: each product is read in English and Russian
+- Then: the labeled entries use the selected locale; the legacy entries use their own manifest name unchanged (or a stage id if no name exists); no entry falls back to the other locale, and product document content stays as authored
 
 ### Scenario: browser-language-default
 - Given: the wiki is opened with no saved choice in a browser whose language is `ru-RU`, and then in one whose language is `en-US`
