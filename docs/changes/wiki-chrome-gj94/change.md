@@ -34,7 +34,11 @@ None.
 Use the no-switcher option already supported by the noninteractive product block. Remove the status footer and tab row from the shell. Keep the category context in the toolbar but omit the document title; the reader sees the title once in the document heading. XQ0V-owned app and locale files remain untouched.
 
 ## Acceptance evidence
-Pending.
+- Shell-only tests: `cd wiki/app && bun test src/shell.styles.test.ts` — exit 0 (14 passed).
+- Reader E2E: `MADARCH_WIKI_E2E=1 MADARCH_WIKI_SCREENSHOT=/tmp/madarch-gj94-reader.png bun test test/wiki-chrome-e2e.test.ts` — exit 0 (1 passed, 10 assertions); screenshot rendered and inspected outside the repository at `/tmp/madarch-gj94-reader.png` (1150×900).
+- Static/build: `cd wiki/app && bun run check` — exit 0; `cd wiki/app && bun run build` — exit 0; root `bun run check` — exit 0.
+- Root tests: `MADARCH_SKIP_PERF=1 bun test test/` — exit 0 (1677 passed, 45 skipped).
+- Full wiki-app suite is pending the authorized update of stale chrome assertions in `app.test.ts` after XQ0V's change lands; the earlier suite run exited 1 on those assertions. It must be rerun before this task is handed off as accepted.
 
 ## DONE WHEN
 The browser-rendered reader view has no tab strip, no repeated document title, no Fieldnote disclosure affordance, and no dead bottom status strip; a disjoint reader E2E test asserts these facts and captures a screenshot outside the repository.
