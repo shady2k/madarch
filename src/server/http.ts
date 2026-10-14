@@ -65,6 +65,8 @@ export interface ServerOptions {
   dataFolder?: string;
   /** The product folder served as its wiki: read once, then read fresh at every ask — never written, never asked a git question. */
   productFolder?: string;
+  /** Serving-only opt-in for an existing directory with no manifest; defaults to strict product recognition. */
+  allowNoManifest?: boolean;
   /** The folder the app's built files served from (stage 2's build); without it only the API answers. */
   appFolder?: string;
   /** The address to listen on; `127.0.0.1` unless said otherwise (decision 0012). */
@@ -165,7 +167,7 @@ export function startServer(options: ServerOptions): StartedServer {
   if (options.dataFolder === undefined && options.productFolder === undefined) {
     throw new Error("the server is started with neither a data folder nor a product folder: give --data <folder> for the sources' histories, --product <folder> for a product's wiki, or both");
   }
-  const wiki = options.productFolder === undefined ? undefined : openProductWiki(options.productFolder);
+  const wiki = options.productFolder === undefined ? undefined : openProductWiki(options.productFolder, { allowNoManifest: options.allowNoManifest });
   if (wiki !== undefined && !wiki.ok) {
     throw new Error(`the product ${JSON.stringify(options.productFolder!)} cannot be served as a wiki: ${wiki.message}`);
   }

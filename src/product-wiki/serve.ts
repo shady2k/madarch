@@ -6,8 +6,9 @@
  * product of a folder given with `--product`, or of the current folder
  * when none was given.
  *
- * The flow is the requirement's: the product is opened first (a folder
- * whose manifest cannot be read is refused by name); then the app's built
+ * The flow is the requirement's: a valid product is opened first; an
+ * existing directory with no manifest opts into a temporary, read-only
+ * wiki home; every other manifest refusal is named. Then the app's built
  * files are built once on first use (`ensureBuilt`, saying so before the
  * build starts); then the server is started on the port named, or refused
  * naming `--port`; then the address is printed, and only after it, the
@@ -25,6 +26,7 @@ import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { startServer, type StartedServer } from '../server/http.js';
 import { readProduct } from '../product/manifest.js';
+import { isExistingDirectoryWithoutManifest } from './manifestless.js';
 import { ensureBuilt, type AppBuildOptions } from './app.js';
 
 /** The port the command serves on when none is named; the model server's own default. */
@@ -130,7 +132,8 @@ export function serveWiki(options: ServeOptions = {}): ServeResult {
   const folder = resolve(options.productFolder?.trim() || cwd);
 
   const read = readProduct(folder);
-  if (!read.ok) {
+  const noManifest = !read.ok && isExistingDirectoryWithoutManifest(folder);
+  if (!read.ok && !noManifest) {
     return { outcome: 'refused', message: `the folder ${folder} cannot be served as a product's wiki: ${read.message} (${read.file}, line ${read.line})` };
   }
   const built = ensureBuilt({ appFolder: options.appFolder, buildCommand: options.buildCommand, env: options.env }, print);
@@ -138,7 +141,7 @@ export function serveWiki(options: ServeOptions = {}): ServeResult {
   const port = options.port ?? DEFAULT_PORT;
   let server: StartedServer;
   try {
-    server = startServer({ productFolder: folder, appFolder: built.dist, port });
+    server = startServer({ productFolder: folder, appFolder: built.dist, port, allowNoManifest: noManifest });
   } catch (error) {
     const message = (error as Error).message;
     // Bun's thrown error carries the POSIX code ("EADDRINUSE") rather than the

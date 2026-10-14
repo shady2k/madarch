@@ -68,7 +68,7 @@ export interface ProductModelResult {
  * again, exactly like a saved document. The bytes only: no parse, no
  * compile — this runs at every pages ask.
  */
-export function modelSourceDigest(product: ProductIdentity): string {
+export function modelSourceDigest(product: Pick<ProductIdentity, 'folder' | 'repos'>): string {
   const hash = createHash('sha256');
   const digestFolder = (prefix: string, folder: string): void => {
     for (const name of yamlFiles(folder)) {
@@ -135,7 +135,7 @@ function readFolder(prefix: string, folder: string, into: ModelSourceFile[], not
  * a repository with no `madarch/` folder contributes nothing — the set's
  * skill writes one, and until then the product's model stands alone.
  */
-export function readProductModel(product: ProductIdentity): ProductModelResult {
+export function readProductModel(product: Pick<ProductIdentity, 'folder' | 'repos'>): ProductModelResult {
   const errors: ModelProblem[] = [];
   const notes: ModelProblem[] = [];
   const warnings: ModelProblem[] = [];

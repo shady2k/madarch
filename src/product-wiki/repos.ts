@@ -270,7 +270,7 @@ function withReadme(entry: ProductRepoEntry, target: string, productFolder: stri
  * finished before this runs, and a checkout that answers wrong is reported,
  * with the cause named, in its own row.
  */
-export function readProductRepos(product: ProductIdentity, gitEnv: GitEnv = {}): ProductRefsAnswer {
+export function readProductRepos(product: Pick<ProductIdentity, 'folder' | 'repos'>, gitEnv: GitEnv = {}): ProductRefsAnswer {
   const repos = product.repos
     .map((declared) => readOne(product.folder, declared, gitEnv))
     .sort((one, other) => byCodePoint(one.name, other.name));
