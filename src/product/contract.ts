@@ -16,7 +16,7 @@
  */
 import { LineCounter, parseDocument } from 'yaml';
 import { Value } from 'typebox/value';
-import { KindsRegistry, type EvidenceFields, type GoalLevel, type StorageForm, type QuestionForm, type OverviewSources } from './schema.js';
+import { KindsRegistry, type EvidenceFields, type GoalLevel, type StorageForm, type QuestionForm, type OverviewSources, type LocalizedLabels } from './schema.js';
 import { checkStrictYaml } from '../model/strict-yaml.js';
 import { jsonPointerToSegments, lineForPath, segmentsToPath } from '../model/yaml-position.js';
 
@@ -66,6 +66,8 @@ export interface ReservationFinding {
 
 export interface RegistryKind {
   name: string;
+  /** The product's localized display labels; absent in older contract-1 registries. */
+  labels?: LocalizedLabels;
   /** The document's id prefix, like `FR`. */
   prefix: string;
   /** The folder or file under the product the kind lives in, `docs/…`, like `docs/requirements`. */
@@ -99,6 +101,8 @@ export interface RegistryKind {
 export interface RegistryStage {
   id: string;
   name?: string;
+  /** The product's localized display labels; absent in older contract-1 registries. */
+  labels?: LocalizedLabels;
   expected?: readonly string[];
   sections?: readonly ('architecture' | 'repositories')[];
 }

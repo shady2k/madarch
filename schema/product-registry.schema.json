@@ -87,6 +87,27 @@
             "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
             "minLength": 1
           },
+          "labels": {
+            "type": "object",
+            "required": [
+              "en",
+              "ru"
+            ],
+            "properties": {
+              "en": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "ru": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              }
+            },
+            "additionalProperties": false,
+            "description": "Localized product labels for the supported wiki locales. When present, both English and Russian values are required."
+          },
           "expected": {
             "type": "array",
             "items": {
@@ -133,6 +154,27 @@
             "type": "string",
             "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
             "minLength": 1
+          },
+          "labels": {
+            "type": "object",
+            "required": [
+              "en",
+              "ru"
+            ],
+            "properties": {
+              "en": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "ru": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              }
+            },
+            "additionalProperties": false,
+            "description": "Localized product labels for the supported wiki locales. When present, both English and Russian values are required."
           },
           "prefix": {
             "type": "string",

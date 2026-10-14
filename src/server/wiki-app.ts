@@ -296,12 +296,13 @@ export function createWikiPart(
       return {
         response: json(200, {
           present: true,
-          stages: kit.stages.map((stage) => ({ id: stage.id, ...(stage.name === undefined ? {} : { name: stage.name }), ...(stage.expected === undefined ? {} : { expected: stage.expected }) })),
+          stages: kit.stages.map((stage) => ({ id: stage.id, ...(stage.name === undefined ? {} : { name: stage.name }), ...(stage.labels === undefined ? {} : { labels: stage.labels }), ...(stage.expected === undefined ? {} : { expected: stage.expected }) })),
           goals: kit.goals,
           overview: kit.overview,
           reservations: kit.reservations,
           kinds: kit.kinds.map((kind) => ({
             name: kind.name,
+            ...(kind.labels === undefined ? {} : { labels: kind.labels }),
             questions: kind.questions,
             prefix: kind.prefix,
             folder: kind.folder,

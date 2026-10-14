@@ -19,8 +19,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { Shell } from './shell.js';
 import { setWikiLanguage } from './i18n.js';
-import { routeContext, statusContext } from './hold.js';
-import type { Product, PageList, PageMeta } from './api.js';
+import { routeContext, statusContext, type RouteData } from './hold.js';
+import type { Product, ProductWithAudience, PageList, PageMeta, RegistryOffer } from './api.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const indexCss = readFileSync(join(here, 'styles/index.css'), 'utf8');
@@ -58,7 +58,19 @@ const pages: PageMeta[] = [
 ];
 const list: PageList = { revision: 'r1', pages };
 
-async function intoShell(): Promise<HTMLElement> {
+describe('the product API shape', () => {
+  test('a manifestless product can omit its id and optional audience', () => {
+    const product: ProductWithAudience = { name: 'Empty Home', folder: 'empty-home' };
+    expect(product.id).toBeUndefined();
+    expect(product.folder).toBe('empty-home');
+    expect(product.audience).toBeUndefined();
+  });
+});
+
+async function intoShell(
+  route: RouteData = { path: 'docs/requirements/one.md', heldPaths: new Set<string>() },
+  offer: RegistryOffer | null = null,
+): Promise<HTMLElement> {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -69,8 +81,8 @@ async function intoShell(): Promise<HTMLElement> {
       { value: { publish: (): void => undefined, parts: ['word count', 'Markdown', 'UTF-8'], connection: 'reconnecting' } },
       createElement(
       routeContext.Provider,
-      { value: { path: 'docs/requirements/one.md', heldPaths: new Set<string>() } },
-      createElement(Shell, { product, list, children: createElement('p', {}, 'doc') }),
+      { value: route },
+      createElement(Shell, { product, list, children: createElement('p', {}, 'doc'), offer }),
       ),
     ),
   );
@@ -173,6 +185,40 @@ describe('the shell markup', () => {
     expect(crumb?.textContent).toBe('Product / Requirements / Requirement one');
     expect(crumb?.querySelector('[data-testid="breadcrumb-group"]')?.textContent).toBe('Requirements');
     expect(crumb?.querySelector('.text-ink')?.textContent).toBe('Requirement one');
+  });
+
+  test('the registered stage label is localized in the navigator, breadcrumb and tab', async () => {
+    await setWikiLanguage('ru');
+    try {
+      const offer: RegistryOffer = {
+        present: true,
+        stages: [{ id: 'idea', name: 'Idea', labels: { en: 'English idea', ru: 'Русская идея' } }],
+        kinds: [],
+      };
+      const container = await intoShell({ stage: 'idea', heldPaths: new Set<string>() }, offer);
+      expect(container.querySelector('[data-stage-link="idea"]')?.textContent).toBe('Русская идея');
+      expect(container.querySelector('.shell-breadcrumb .text-ink')?.textContent).toBe('Русская идея');
+      expect(container.querySelector('[data-testid="document-tab"] .truncate')?.textContent).toBe('Русская идея');
+    } finally {
+      await setWikiLanguage('en');
+    }
+  });
+
+  test('stage shell surfaces fall back to the manifest name, not the other locale', async () => {
+    await setWikiLanguage('ru');
+    try {
+      const offer: RegistryOffer = {
+        present: true,
+        stages: [{ id: 'idea', name: 'Canonical idea' }],
+        kinds: [],
+      };
+      const container = await intoShell({ stage: 'idea', heldPaths: new Set<string>() }, offer);
+      expect(container.querySelector('[data-stage-link="idea"]')?.textContent).toBe('Canonical idea');
+      expect(container.querySelector('.shell-breadcrumb .text-ink')?.textContent).toBe('Canonical idea');
+      expect(container.querySelector('[data-testid="document-tab"] .truncate')?.textContent).toBe('Canonical idea');
+    } finally {
+      await setWikiLanguage('en');
+    }
   });
 
   test('the tab strip row stands under the top bar and carries the open file\'s name; no dead controls with it', async () => {
