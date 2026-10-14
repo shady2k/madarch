@@ -1,6 +1,6 @@
 # 0023. The data storage boundary: four kinds of data, each with one home
 
-Status: accepted
+Status: accepted; partly amended by 0024
 Date: 2026-10-12
 
 Amends 0009: the server's fact log starts on PostgreSQL directly, with SQLite
