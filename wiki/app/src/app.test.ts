@@ -888,13 +888,27 @@ describe('the reading shell', () => {
 
 
 
-  test('a stage route marks its manifest-declared stage in the shared navigation context', async () => {
-    const registry: RegistryOffer = { present: true, stages: [{ id: 'idea', name: 'Idea' }], kinds: [] };
+  test('a stage route uses its manifest name in the breadcrumb and tab', async () => {
+    const registry: RegistryOffer = { present: true, stages: [{ id: 'plan', name: 'Plan' }, { id: 'idea', name: 'Explore the idea' }], kinds: [] };
     const answer = answerFor(product, shellList, shellPages);
     install((target) => target === '/api/registry' ? { body: registry } : answer(target));
     goto('/s/idea');
     await intoApp(createElement(App));
     await until(() => document.querySelector('[data-stage-link="idea"][aria-current="page"]') !== null, 'the active stage link');
+    expect(document.querySelector('.shell-breadcrumb')?.textContent).toContain('Explore the idea');
+    expect(document.querySelector('.shell-breadcrumb')?.textContent).not.toContain('stages.names.idea');
+    expect(document.querySelector('[data-testid="document-tab"]')?.textContent).toContain('Explore the idea');
+  });
+
+  test('an unknown stage route uses a readable fallback label', async () => {
+    const registry: RegistryOffer = { present: true, stages: [{ id: 'plan', name: 'Plan' }], kinds: [] };
+    const answer = answerFor(product, shellList, shellPages);
+    install((target) => target === '/api/registry' ? { body: registry } : answer(target));
+    goto('/s/not-in-registry-stage');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('.shell-breadcrumb')?.textContent?.includes('Not In Registry Stage') === true, 'the fallback stage name');
+    expect(document.querySelector('.shell-breadcrumb')?.textContent).toContain('Not In Registry Stage');
+    expect(document.querySelector('[data-testid="document-tab"]')?.textContent).toContain('Not In Registry Stage');
   });
 
   test('the brand reads madarch, and the product block below it names the product', async () => {

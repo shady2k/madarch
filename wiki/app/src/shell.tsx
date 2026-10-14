@@ -523,8 +523,19 @@ export function Shell({ product, list, children, architecture, reposCount, repos
   }, [menuOpen]);
   const current = route.path;
   const registryOffer = offer ?? null;
+  const stageLabel = (id: string): string => {
+    const stage = stageList(registryOffer).find((entry) => entry.id === id);
+    return stage?.name ?? t(`stages.names.${id}`, { defaultValue: wordLabel(id) });
+  };
   const groups = groupNav(list.pages, registryOffer);
   const openPage = current === undefined ? undefined : list.pages.find((page) => page.path === current);
+  const documentTabTitle = (() => {
+    if (openPage !== undefined) return openPage.path.split('/').pop();
+    if (route.architecture !== undefined) return route.architecture.title;
+    if (route.stage !== undefined) return stageLabel(route.stage);
+    if (route.group !== undefined) return t('groups.' + route.group, { defaultValue: wordLabel(route.group) });
+    return reposOpen === true ? t('navigation.repositories') : t('navigation.overview');
+  })();
   const classes = ['shell'];
   if (menuOpen) classes.push('nav-open');
   if (focused) classes.push('doc-only');
@@ -566,7 +577,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
                 <>
                   <span className="text-muted">{t('stages.title')}</span>{' '}
                   <span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
-                  <span className="text-ink">{t(`stages.names.${route.stage}`)}</span>
+                  <span className="text-ink">{stageLabel(route.stage)}</span>
                 </>
               ) : openPage === undefined ? (
                 reposOpen === true ? t('navigation.repositories') : t('navigation.overview')
@@ -671,7 +682,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
           <div className="document-bar flex min-h-[45px] items-stretch bg-ground">
             <div className="document-tab flex min-w-[182px] items-center gap-2 border-r border-line bg-page px-[25px] text-[13px] text-secondary" data-testid="document-tab">
               <FileTextIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-              <span className="truncate">{openPage?.path.split('/').pop() ?? (route.architecture !== undefined ? route.architecture.title : (route.stage !== undefined ? t(`stages.names.${route.stage}`) : (route.group !== undefined ? t('groups.' + route.group, { defaultValue: wordLabel(route.group) }) : (reposOpen === true ? t('navigation.repositories') : t('navigation.overview')))))}</span>
+              <span className="truncate">{documentTabTitle}</span>
             </div>
           </div>
           {/* The window-height shell: every panel and bar stays in place and
