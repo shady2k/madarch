@@ -6,7 +6,7 @@ import { StagePage, TaskGroups, addressOfStage } from './stages.js';
 import { groupOf, stageIds } from './shell.js';
 import { setWikiLanguage } from './i18n.js';
 import { addressOfStageRoute, routeOf } from './routes.js';
-import type { StagesIndex } from './api.js';
+import type { RegistryOffer, StagesIndex } from './api.js';
 
 /**
  * The stages view without a server: the index is given as data, the DOM is
@@ -139,9 +139,10 @@ describe('the stages view', () => {
     await setWikiLanguage('ru');
     const i18n = (await import('./i18n.js')).default;
     expect(i18n.t('stages.names.idea')).toBe('stages.names.idea');
-    const named: StagesIndex = { stages: [{ id: 'idea', name: 'Этап продукта', artifacts: [], }], problems: [] };
-    into(createElement(StagePage, { stage: named.stages[0]!, index: named }));
-    await until(() => document.querySelector('h1')?.textContent === 'Этап продукта', 'the manifest stage name');
+    const named: StagesIndex = { stages: [{ id: 'idea', name: 'Stage projection name', artifacts: [], }], problems: [] };
+    const offer: RegistryOffer = { present: true, stages: [{ id: 'idea', name: 'Этап продукта', labels: { en: 'Idea phase', ru: ' ' } }], kinds: [] };
+    into(createElement(StagePage, { stage: named.stages[0]!, index: named, offer }));
+    await until(() => document.querySelector('h1')?.textContent === 'Этап продукта', 'the registry manifest-name fallback');
     await setWikiLanguage(held === 'ru' ? 'ru' : 'en');
     document.documentElement.lang = held;
   });

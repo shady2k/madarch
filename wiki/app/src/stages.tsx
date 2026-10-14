@@ -17,7 +17,8 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CircleDashedIcon, CircleIcon, CircleCheckBigIcon, ListTodoIcon } from 'lucide-react';
-import { getStages, type StagesIndex, type TaskFeature, type StageSection, type StageSectionLink, type StageNote } from './api.js';
+import { getStages, type StagesIndex, type TaskFeature, type StageSection, type StageSectionLink, type StageNote, type RegistryOffer } from './api.js';
+import { registryStageDisplayLabel } from './overview.js';
 import { PageLink } from './view.js';
 import { wordLabel } from './shell.js';
 
@@ -152,12 +153,14 @@ const REPOSITORIES_ADDRESS = '/r';
 const KNOWN_SECTION_ROUTES = new Set<string>([ARCHITECTURE_ADDRESS, REPOSITORIES_ADDRESS]);
 
 /** One manifest stage page: its artifacts, supplied findings and optional task records. */
-export function StagePage({ stage, index }: { stage: StageSection; index: StagesIndex }): ReactElement {
+export function StagePage({ stage, index, offer }: { stage: StageSection; index: StagesIndex; offer?: RegistryOffer | null }): ReactElement {
   const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage === 'ru' ? 'ru' : 'en';
+  const heading = registryStageDisplayLabel(offer, stage.id, locale) ?? stage.id;
   return (
     <main id="stage" data-stage={stage.id}>
       <p className="eyebrow">{t('stages.eyebrow')}</p>
-      <h1 className="app-title">{stage.name ?? t(`stages.names.${stage.id}`, { defaultValue: wordLabel(stage.id) })}</h1>
+      <h1 className="app-title">{heading}</h1>
       {t(`stages.leads.${stage.id}`, { defaultValue: '' }) !== '' && (
         <p className="home-lead">{t(`stages.leads.${stage.id}`)}</p>
       )}
