@@ -1793,10 +1793,46 @@ describe('the open questions', () => {
     await intoApp(createElement(App));
     await until(() => document.querySelector('[data-testid="home-audience"]') !== null, 'the audience line');
     expect(document.querySelector('[data-testid="home-audience"]')?.textContent).toContain('Owners of small cafes');
+    expect(document.querySelector('[data-testid="home-overview-facts"]')).toBeNull();
+    expect(document.querySelector('[data-testid="home-problem"]')).toBeNull();
     unmount();
     install(answerFor(product, listWithPages, pagesAtR1));
     goto('/');
     await intoApp(createElement(App));
     await until(() => document.querySelector('[data-testid="home-audience"]')?.textContent?.includes('not written yet'), 'the empty audience line');
+    expect(document.querySelector('[data-testid="home-overview-facts"]')).toBeNull();
+    expect(document.querySelector('[data-testid="home-problem"]')).toBeNull();
+  });
+
+  test('a manifestless product keeps the legacy audience without overview facts', async () => {
+    const manifestless: ProductWithAudience = {
+      ...product,
+      id: undefined,
+      audience: 'Owners of small cafes with fewer than twenty seats.',
+    };
+    install(answerFor(manifestless, listWithPages, pagesAtR1));
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('[data-testid="home-audience"]') !== null, 'the legacy audience line');
+    expect(document.querySelector('[data-testid="home-audience"]')?.textContent).toContain('Owners of small cafes');
+    expect(document.querySelector('[data-testid="home-overview-facts"]')).toBeNull();
+    expect(document.querySelector('[data-testid="home-problem"]')).toBeNull();
+
+    unmount();
+    const manifestlessBlank: ProductWithAudience = { ...manifestless, audience: '  	 ' };
+    install(answerFor(manifestlessBlank, listWithPages, pagesAtR1));
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('[data-testid="home-audience"]')?.textContent?.includes('not written yet'), 'the missing legacy audience copy');
+    expect(document.querySelector('[data-testid="home-overview-facts"]')).toBeNull();
+  });
+
+  test('a blank legacy audience without a normalized overview uses localized missing-data copy', async () => {
+    const blankAudience: ProductWithAudience = { ...product, audience: ' 	 ' };
+    install(answerFor(blankAudience, listWithPages, pagesAtR1));
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('[data-testid="home-audience"]')?.textContent?.includes('not written yet'), 'the missing legacy audience copy');
+    expect(document.querySelector('[data-testid="home-overview-facts"]')).toBeNull();
   });
 });

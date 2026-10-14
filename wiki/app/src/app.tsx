@@ -377,6 +377,8 @@ export function HomePage({ product, list, architecture, offer, overview }: { pro
   const { publish } = useContext(statusContext);
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage === 'ru' ? 'ru' : 'en';
+  const normalizedLegacyAudience = product.audience?.trim();
+  const showMissingLegacyAudience = product.id !== undefined || product.audience !== undefined;
   const documentUnit = t('units.document', { count: documents });
   const groupUnit = t('units.group', { count: groups.length });
   useEffect(() => {
@@ -395,7 +397,13 @@ export function HomePage({ product, list, architecture, offer, overview }: { pro
       <p className="eyebrow">{t('home.overview')}</p>
       <h1 className="app-title">{product.name}</h1>
       <p className="home-lead" data-testid="home-lead">{lead}</p>
-      {product.id === undefined ? null : <HomeOverviewFacts overview={overview} legacyAudience={product.audience} />}
+      {product.id !== undefined && overview !== undefined ? (
+        <HomeOverviewFacts overview={overview} legacyAudience={product.audience} />
+      ) : normalizedLegacyAudience !== undefined && normalizedLegacyAudience.length > 0 ? (
+        <p className="home-audience" data-testid="home-audience">{t('home.audience', { audience: normalizedLegacyAudience })}</p>
+      ) : showMissingLegacyAudience ? (
+        <p className="home-audience home-audience-empty" data-testid="home-audience">{t('home.noAudience')}</p>
+      ) : null}
       {documents === 0 ? (
         <section className="home-group mt-7" data-testid="empty-home-guidance" aria-labelledby="empty-home-guidance-title">
           <h2 id="empty-home-guidance-title" className="text-h2 font-medium">{t(product.id === undefined ? 'home.noManifestTitle' : 'home.gettingStartedTitle')}</h2>

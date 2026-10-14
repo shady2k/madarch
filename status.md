@@ -165,3 +165,14 @@ K47I merged as `986ee65a532e548ea68d7d3ed897065f6d52b3f5`. XQ0V was rebased onto
 Fast checks after the rebase: `cd wiki/app && bun run check` exit **0**; `cd wiki/app && bun test src/app.test.ts` exit **0** (70 passed, 262 expectations); `cd wiki/app && bun test src/stages.test.tsx` exit **0** (12 passed, 32 expectations); `git diff --check` exit **0**. No Stryker was run. The ten pinned reader-walk cases remain pending, so `madarch-xq0v` stays open for rendered acceptance. Commit and submit the XQ0V UI/status changes; do not close the task or K47I.
 
 The commit hook required a behavior change record. Added `docs/changes/product-overview/change.md` and the complete proposed `product-wiki.md` capability. Its approval comment on `madarch-xq0v` cites the exact owner task request; `node .shady2k/documents.mjs commit --message /tmp/madarch-xq0v-commit-message.txt` then exited **0**. The local `/home/dev/repos/madarch` main checkout was clean and four commits behind; it was fast-forwarded to `origin/main` at `986ee65a` because the document gate requires current `main`. No product repository checkout was touched.
+
+## Addendum 13: integrator review 3182 follow-up
+
+After PR #10's integration review, fresh span `1ef800a9` was claimed on the still-open XQ0V task. The in-scope fixes are limited to the app's absent-projection behavior and the product-overview contract:
+- When the normalized overview projection is absent, `HomePage` renders no overview-facts block but preserves a present legacy top-level audience line; blank or whitespace values use localized missing-audience copy. Regression tests pin manifest-backed and manifestless responses.
+- The proposed `product-wiki` capability now normatively maps `audience`, `problem`, `outcome`, `currentMilestone`, `milestoneState` and `nextStep` to product-relative document/exact-section sources. Paths, sections and semantic roles are product data; missing mappings stay absent and invalid configured sources are reported without fallback.
+- The change and capability acceptance now require the first screen to show the product facts, including milestone state, before document groups.
+
+No production `/api/product` overview reader or server/API-contract changes are in this task; `wiki/app/src/api.ts` remains the exact K47I blob. PR #10 is closed, not merged; the worker branch must be handed to the integrator for a fresh integration update. The ten pinned real reader-walk cases remain pending, so XQ0V stays open.
+
+Validation after the review fixes: `cd wiki/app && bun run check` exit **0**; `cd wiki/app && bun test` exit **0** (150 passed, 0 failed, 557 expectations); `cd wiki/app && bun run build` exit **0** (existing large-chunk warning); `git diff --check` exit **0**; `node .shady2k/documents.mjs check --phase feature --change product-overview` exit **0**. No Stryker or production server reader was run.
