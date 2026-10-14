@@ -246,7 +246,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
       <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, stage: route.name === 'stage' ? route.stage : undefined, group: route.name === 'group' ? route.group : undefined, architecture: architectureCrumb, heldPaths }}>
         <Shell product={data.product} list={list} architecture={architecture} reposCount={data.repos?.repos.length} reposOpen={route.name === 'repos'} offer={data.registry}>
         {route.name === 'home' ? (
-          <HomePage product={data.product} list={list} architecture={architecture} offer={data.registry} />
+          <HomePage product={data.product} list={list} architecture={architecture} offer={data.registry} overview={data.product.overview} />
         ) : route.name === 'group' ? (
           <GroupPage group={route.group} list={list} offer={data.registry} />
         ) : route.name === 'repos' && (data.repos?.repos.length ?? 0) > 0 ? (
@@ -254,7 +254,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
         ) : route.name === 'repos' ? (
           // `/r` of an undeclared product: no repositories section exists —
           // the server refuses the route and the reader sees the home.
-          <HomePage product={data.product} list={list} architecture={architecture} offer={data.registry} />
+          <HomePage product={data.product} list={list} architecture={architecture} offer={data.registry} overview={data.product.overview} />
         ) : route.name === 'architecture' ? (
           <ArchitectureReader key={'architecture:' + list.revision} revision={list.revision} routeName="index" />
         ) : route.name === 'view' ? (
@@ -378,7 +378,6 @@ export function HomePage({ product, list, architecture, offer, overview }: { pro
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage === 'ru' ? 'ru' : 'en';
   const normalizedLegacyAudience = product.audience?.trim();
-  const showMissingLegacyAudience = product.id !== undefined || product.audience !== undefined;
   const documentUnit = t('units.document', { count: documents });
   const groupUnit = t('units.group', { count: groups.length });
   useEffect(() => {
@@ -398,11 +397,9 @@ export function HomePage({ product, list, architecture, offer, overview }: { pro
       <h1 className="app-title">{product.name}</h1>
       <p className="home-lead" data-testid="home-lead">{lead}</p>
       {product.id !== undefined && overview !== undefined ? (
-        <HomeOverviewFacts overview={overview} legacyAudience={product.audience} />
+        <HomeOverviewFacts overview={overview} legacyAudience={product.audience} pagePaths={list.pages.map((page) => page.path)} />
       ) : normalizedLegacyAudience !== undefined && normalizedLegacyAudience.length > 0 ? (
         <p className="home-audience" data-testid="home-audience">{t('home.audience', { audience: normalizedLegacyAudience })}</p>
-      ) : showMissingLegacyAudience ? (
-        <p className="home-audience home-audience-empty" data-testid="home-audience">{t('home.noAudience')}</p>
       ) : null}
       {documents === 0 ? (
         <section className="home-group mt-7" data-testid="empty-home-guidance" aria-labelledby="empty-home-guidance-title">
@@ -410,6 +407,8 @@ export function HomePage({ product, list, architecture, offer, overview }: { pro
           <p className="mt-3 text-secondary">{t(product.id === undefined ? 'home.noManifestDescription' : 'home.productRepository')}</p>
           <ol className="mt-3 list-decimal pl-6">
             <li>{t('home.newProduct')} <code>madarch new</code></li>
+            <li>{t('home.cloneProduct')} <code>{'madarch clone <url>'}</code></li>
+            <li>{t('home.addRepository')} <code>{'madarch repo add <name> <url> --product <folder>'}</code></li>
             <li>{t('home.setupProduct')} <code>setup-shady2k-skills</code> {t('home.setupProductManifest')} <code>{t('home.workspaceFile')}</code> {t('home.setupProductEnd')}</li>
             <li>
               <p>{t('home.demoProduct')} <a href="https://github.com/shady2k/madarch-product" target="_blank" rel="noreferrer" className="text-link underline">{t('home.demoRepository')}</a></p>
