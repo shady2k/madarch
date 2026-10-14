@@ -543,9 +543,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
         <div className="shell-main flex min-w-0 flex-1 flex-col">
           <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line px-4 wide:px-[35px]">
             <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
-              {openPage !== undefined ? (openPage.kind ?? groupOf(openPage.path)) === 'product' ? (
-                <a href="/" data-testid="breadcrumb-product" className="text-muted no-underline hover:text-ink" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigateTo('/'); }}>{t('groups.product')}</a>
-              ) : (
+              {openPage !== undefined ? (
                 <>
                   <a href="/" data-testid="breadcrumb-product" className="text-muted no-underline hover:text-ink" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigateTo('/'); }}>{t('groups.product')}</a>{' '}
                   <span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
