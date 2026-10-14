@@ -481,11 +481,11 @@ function NavPanel({ product, groups, current, currentStage, onNavigate, architec
 
 /**
  * The shell itself. Everything the app shows stands inside it: the navigation
- * panel, the toolbar (the breadcrumb on the left; the menu button, the focus
- * toggle and the context-panel place on the right), the document toolbar —
- * the tab strip row carrying the open file's name — the document inside its
- * own scrolling column (the only scrolling part at any window height), and
- * the status bar along the window's bottom edge.
+ * panel, the toolbar (product/group context on the left; the menu button, focus
+ * toggle and context-panel place on the right), and the document inside its
+ * own scrolling column (the only scrolling part at any window height). The
+ * toolbar does not repeat a page heading; no tab or bottom status strip is
+ * rendered.
  */
 export function Shell({ product, list, children, architecture, reposCount, reposOpen, offer }: {
   product: Product;
