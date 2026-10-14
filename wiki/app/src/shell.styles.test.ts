@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { Shell } from './shell.js';
 import { setWikiLanguage } from './i18n.js';
-import { routeContext, statusContext, type RouteData } from './hold.js';
+import { routeContext, type RouteData } from './hold.js';
 import type { Product, ProductWithAudience, PageList, PageMeta, RegistryOffer } from './api.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -77,13 +77,9 @@ async function intoShell(
   rendered = { root, container };
   root.render(
     createElement(
-      statusContext.Provider,
-      { value: { publish: (): void => undefined, parts: ['word count', 'Markdown', 'UTF-8'], connection: 'reconnecting' } },
-      createElement(
       routeContext.Provider,
       { value: route },
-      createElement(Shell, { product, list, children: createElement('p', {}, 'doc'), offer }),
-      ),
+      createElement(Shell, { product, list, children: createElement('main', {}, createElement('h1', {}, 'Requirement one')), offer }),
     ),
   );
   for (let i = 0; i < 200; i++) {
@@ -149,7 +145,6 @@ describe('the shell markup', () => {
   test('group titles and the brand never compute under the 14px floor', () => {
     expect(tokensCss).toContain('--fs-small: max(14px, 0.78em)');
     expect(indexCss).toMatch(/\.eyebrow \{[^}]*--fs-small/s);
-    expect(indexCss).toMatch(/\.statusbar \{[^}]*--fs-small/s);
   });
 
   test('the mockup chrome: the product block, the overview entry, collapsed groups with counts, the folder footer', async () => {
@@ -179,15 +174,16 @@ describe('the shell markup', () => {
     expect(footerRow?.querySelector('b')?.textContent).toBe('idea-2026-10-10');
   });
 
-  test('the breadcrumb names kind and title, and every icon rides lucide', async () => {
+  test('the breadcrumb keeps product and group context without repeating the document title', async () => {
     const container = await intoShell();
     const crumb = container.querySelector('.shell-breadcrumb');
-    expect(crumb?.textContent).toBe('Product / Requirements / Requirement one');
+    expect(crumb?.textContent).toBe('Product / Requirements');
     expect(crumb?.querySelector('[data-testid="breadcrumb-group"]')?.textContent).toBe('Requirements');
-    expect(crumb?.querySelector('.text-ink')?.textContent).toBe('Requirement one');
+    expect(crumb?.textContent).not.toContain('Requirement one');
+    expect(container.querySelector('main h1')?.textContent).toBe('Requirement one');
   });
 
-  test('the registered stage label is localized in the navigator, breadcrumb and tab', async () => {
+  test('the registered stage label is localized in the navigator and breadcrumb', async () => {
     await setWikiLanguage('ru');
     try {
       const offer: RegistryOffer = {
@@ -198,7 +194,7 @@ describe('the shell markup', () => {
       const container = await intoShell({ stage: 'idea', heldPaths: new Set<string>() }, offer);
       expect(container.querySelector('[data-stage-link="idea"]')?.textContent).toBe('Русская идея');
       expect(container.querySelector('.shell-breadcrumb .text-ink')?.textContent).toBe('Русская идея');
-      expect(container.querySelector('[data-testid="document-tab"] .truncate')?.textContent).toBe('Русская идея');
+      expect(container.querySelector('[data-testid="document-tab"]')).toBeNull();
     } finally {
       await setWikiLanguage('en');
     }
@@ -215,44 +211,23 @@ describe('the shell markup', () => {
       const container = await intoShell({ stage: 'idea', heldPaths: new Set<string>() }, offer);
       expect(container.querySelector('[data-stage-link="idea"]')?.textContent).toBe('Canonical idea');
       expect(container.querySelector('.shell-breadcrumb .text-ink')?.textContent).toBe('Canonical idea');
-      expect(container.querySelector('[data-testid="document-tab"] .truncate')?.textContent).toBe('Canonical idea');
+      expect(container.querySelector('[data-testid="document-tab"]')).toBeNull();
     } finally {
       await setWikiLanguage('en');
     }
   });
 
-  test('the tab strip row stands under the top bar and carries the open file\'s name; no dead controls with it', async () => {
+  test('dead reader chrome is absent and the toolbar does not repeat the document heading', async () => {
     const container = await intoShell();
-    const tab = container.querySelector('[data-testid="document-tab"]');
-    expect(tab).not.toBeNull();
-    expect(tab?.textContent).toContain('one.md');
-    // The strip is a row between the top bar and the document, and nothing
-    // dead rides in it: no view switch, no history button, no search box.
-    expect(container.querySelector('.document-bar')?.parentElement?.className).toContain('shell-main');
-    expect(container.querySelectorAll('.document-bar button').length).toBe(0);
-    expect(container.querySelector('.search-trigger')).toBeNull();
-  });
-
-  test('the document toolbar rule conveys the tab and the mockup\'s top rule; the strip stands on the base ground', () => {
-    expect(indexCss).toMatch(/\.document-tab \{[^}]*border-block-start:\s*2px solid var\(--text\)/s);
-    expect(shellTsx).toContain('bg-ground');
-    expect(shellTsx).toContain('shell-scroll min-w-0 flex-1 overflow-y-auto');
-  });
-
-  test('the status bar is a row of the shell at its very bottom edge, outside the scrolled content', async () => {
-    const container = await intoShell();
-    const bar = container.querySelector('footer.statusbar');
-    expect(bar).not.toBeNull();
-    // The bar lives in the shell's main column directly, not inside the
-    // scrolling column: its parent is the flex-col shell-main, after the row.
-    expect(bar?.previousElementSibling?.className).toContain('shell-row');
-    expect(container.querySelector('.shell-scroll footer.statusbar')).toBeNull();
-    // the bar shows what the open document published
-    expect(bar?.textContent).toContain('word count');
-    expect(bar?.querySelector('[data-testid="connection-status"]')?.textContent).toContain('Reconnecting');
-    // the carried state names itself: a bare shell (no app stream bound) is reconnecting
-    expect(bar?.querySelector('[data-testid="connection-status"]')?.getAttribute('data-state')).toBe('reconnecting');
-    expect(bar?.querySelector('.status-dot')).not.toBeNull();
+    expect(container.querySelector('.document-bar, [data-testid="document-tab"]')).toBeNull();
+    expect(container.querySelector('footer.statusbar, [data-testid="connection-status"]')).toBeNull();
+    const heading = container.querySelector('main h1')?.textContent;
+    expect(heading).toBe('Requirement one');
+    expect(container.querySelector('.shell-toolbar')?.textContent).not.toContain(heading);
+    const productBlock = container.querySelector('[data-testid="product-block"]');
+    expect(productBlock?.querySelector('button, a, [aria-haspopup], [aria-expanded], svg')).toBeNull();
+    expect(productBlock?.textContent).not.toMatch(/[▼▽∨]/u);
+    expect(container.querySelector('.shell-scroll')?.className).toContain('overflow-y-auto');
   });
 
   test('the sidebar navigation scrolls between its fixed heading and footer', async () => {
