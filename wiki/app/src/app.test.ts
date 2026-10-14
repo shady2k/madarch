@@ -901,6 +901,7 @@ describe('the reading shell', () => {
     await intoApp(createElement(App));
     await until(() => document.querySelector('.app-nav .nav-brand') !== null, 'the brand');
     expect(document.querySelector('.app-nav .nav-brand')?.textContent).toContain('madarch');
+    expect(document.querySelector('.app-nav .nav-brand .nav-concept')?.textContent).toBe('wiki');
     expect(document.querySelector('[data-testid="product-block"]')?.textContent).toContain('Draft Idea');
   });
 
@@ -952,6 +953,7 @@ describe('the reading shell', () => {
       goto('/g/product');
       await intoApp(createElement(App));
       await until(() => document.querySelector('main#group h1')?.textContent === 'Продукт', 'the translated group heading');
+      expect(document.querySelector('[data-nav-group="product"] button')?.getAttribute('aria-label')).toBe('Свернуть или развернуть группу «Продукт»');
       expect(document.querySelector('.shell-breadcrumb')?.textContent).toBe('Продукт / Продукт');
       (document.querySelector('main#group a[href="/p/README.md"]') as HTMLAnchorElement).click();
       await until(() => window.location.pathname === '/p/README.md' && document.querySelector('main#page') !== null, 'the product page');
@@ -1013,11 +1015,16 @@ describe('the reading shell', () => {
     await until(() => document.querySelector('[data-testid="word-count"]')?.textContent === '7 documents', 'the overview status replacing the group status');
 
     const groupToggle = document.querySelector('[data-nav-group="decisions"] button') as HTMLButtonElement;
+    expect(groupToggle.getAttribute('aria-label')).toBe('Toggle Decisions group');
     expect(groupToggle.getAttribute('aria-expanded')).toBe('true');
+    const chevron = groupToggle.querySelector('svg');
+    expect([...chevron!.classList]).toEqual(['lucide', 'lucide-chevron-down', 'size-4', 'transition-transform', 'duration-150']);
     groupToggle.click();
     await until(() => groupToggle.getAttribute('aria-expanded') === 'false' && document.querySelector('[data-nav-group="decisions"] .nav-link') === null, 'the collapsed group');
+    expect([...groupToggle.querySelector('svg')!.classList]).toEqual(['lucide', 'lucide-chevron-down', 'size-4', 'transition-transform', 'duration-150', '-rotate-90']);
     groupToggle.click();
     await until(() => groupToggle.getAttribute('aria-expanded') === 'true' && document.querySelector('[data-nav-group="decisions"] .nav-link') !== null, 'the expanded group');
+    expect([...groupToggle.querySelector('svg')!.classList]).toEqual(['lucide', 'lucide-chevron-down', 'size-4', 'transition-transform', 'duration-150']);
     (document.querySelector('[data-testid="nav-group-decisions"]') as HTMLAnchorElement).click();
     await until(() => window.location.pathname === '/g/decisions' && document.querySelector('main#group') !== null, 'the group from its sidebar heading');
     (document.querySelector('[data-testid="nav-group-product"]') as HTMLAnchorElement).click();
