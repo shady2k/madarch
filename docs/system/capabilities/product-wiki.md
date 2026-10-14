@@ -272,95 +272,64 @@ checkout's own repository.
 - When: its repositories section is read
 - Then: the checkout's files and git status are unchanged, and a second commit inside the checkout is what the next ask reports
 
-## Requirement: stages — Every stage of the life cycle is visible, in order, from the real files
-When a product's wiki is served, the app shall show the SDLC stages as
-sections in the life cycle's own order — Idea, Requirements, Design, Build,
-Verify, Release, Operate — under a Life cycle heading in the navigation, and
-one page per stage at the app's `/s/` route. Each stage's section shall hold
-what the product really has at that stage, read from the product's files at
-every ask and never written to:
-- the Idea stage: the vision, the sources, the hypotheses, the open questions,
-  the prototypes and their results, each with its page path, its title and its
-  kind, linking to the page the wiki already serves;
-- the Requirements stage: the user stories, the use cases and the product
-  requirements, the same way;
-- the Design stage: the decision records and the design specs, the same way;
-  where the product holds an intended model (`model/`), the stage names the
-  Architecture section and links to it instead of repeating it — the
-  Architecture section itself is another change's work and is not built here;
-- the Build stage: the product's tasks, read only from the tracker's own
-  export `.beads/issues.jsonl`, an open, in-progress or done status each,
-  grouped by the feature (the tracker epic) each hangs under by its
-  `parent-child` dependency, tasks with no epic under no feature; where the
-  product declares repositories in its manifest or holds a cloned `repos/`,
-  the stage names the Repositories section and links to it instead of listing
-  the repositories itself; the tasks are read-only: no control here writes,
-  closes or edits anything;
-- the Verify stage: the acceptance records — the files under the set's
-  records folder whose text holds an `accepted:` or `implemented:` record
-  (or the older prose `Final:` form); they stand outside the served pages,
-  so the stage names them as text, never links that cannot open;
-- the Release stage: the project's changelog — the first of `CHANGELOG.md`
-  and `docs/CHANGELOG.md` that exists is the release notes, a fallback,
-  never both; the change proposals under `docs/changes/` are never shown as
-  releases — a proposal is not a release until it lands;
-- the Operate stage: nothing is read — `handle-incident` turns its review
-  into tracked work and lessons kept where every agent reads, not into a
-  folder of records, so the stage holds its missing line and names the
-  skill.
+## Requirement: stages — The manifest owns the stage list and expectations
+A product registry supplies the stage list, order, names and the records
+expected at each stage. A product without a registry has no stage list. The
+wiki may show tracker task groups only on a stage whose manifest expectations
+include them; it does not infer expected records from stage names.
 
-A kind a stage holds nothing of shall show one quiet line naming the skill of
-the set that fills it — `define-product`, `to-spec`, `to-design`,
-`take-task`, `ship-release` or `handle-incident` — and no dead control: a
-stage with nothing shows only what is missing and who writes it. An artifact
-whose path the page reader does not serve shall be named as text, never
-wrapped in a link. The sections other features own — Architecture and
-Repositories — shall be named on their stages, linked only where the serving
-app holds their routes, and quiet text until then. A tracker export or
-records place that exists but cannot be read shall be named as a problem
-with its full path and the cause, on the stage page it belongs to, and shall
-never shrink silently into an empty stage; a row the Build stage's reader
-mends or leaves out — a repeated id, a row with no status, a status the
-stages do not group, a dependency edge that is not an object — shall be
-surfaced at its full path and line while the groups stand.
+The product skill set computes completeness against the manifest once and
+commits its result as `docs/completeness.json`. The result is the product's
+truth at the source revision it names. It carries the published contract
+version, computation date, source product revision and findings. Madarch
+validates and renders those findings and the localized “as of” date only. It
+never recomputes completeness or warns based on current documents. When the
+snapshot is absent, the wiki shows no completeness findings.
 
-Every stage name, kind name, status and missing-skill line of the app's own
-wording shall go through the same message catalogues as the rest of the
-chrome, in English and Russian, with the task counts through
-`Intl.PluralRules`.
+The stage pages may show documents and mechanism-owned material they read,
+but missing records are never inferred from those files. The stage page's
+findings are only the snapshot's supplied messages. A stage's expected record
+names live once in the registry and are not duplicated in engine code.
 
-### Scenario: stages-order-and-navigation
-- Given: a served product
-- When: the stages navigator is read
-- Then: it lists Idea, Requirements, Design, Build, Verify, Release, Operate in that order, each opening its own stage page at its `/s/` route, and the open stage is marked and named in the breadcrumb and the document tab
-### Scenario: idea-stage-shows-the-chain
-- Given: a product whose `docs/` holds a vision, a source, a hypothesis, a user story, a use case and a product requirement
-- When: the Idea and Requirements stage pages are read
-- Then: the Idea page lists the vision, the source and the hypothesis with their titles and kinds, each a link to the page that holds it, the Requirements page lists the story, the use case and the requirement the same way, and the kinds each stage holds nothing of are named with the skill that writes them
-### Scenario: build-stage-tasks-grouped-by-feature
-- Given: a product whose tracker export holds an epic with tasks of statuses open, in progress and closed under it by parent-child dependencies, and a task with no epic
-- When: the Build stage page is read
-- Then: the tasks stand under their feature's title with the counts of open, in-progress and done tasks, the task with no epic stands under no feature, and nothing on the page writes to the tracker
-### Scenario: build-stage-refuses-a-damaged-export-by-name
-- Given: a product whose `.beads/issues.jsonl` holds a line that is not JSON
-- When: the Build stage page is read
-- Then: the page names the export's full path and the line that cannot be read, and the stage page still answers
-### Scenario: empty-stage-names-its-skill
-- Given: a product whose root holds no changelog and no change records
-- When: the Release and Operate stage pages are read
-- Then: each page shows the quiet line naming `ship-release` or `handle-incident` as the skill that fills it, and no button, link or control stands dead on it
-### Scenario: build-stage-surfaces-what-it-mends
-- Given: a product whose tracker export holds a task with the status `deferred` and a repeated id
-- When: the Build stage page is read
-- Then: each mended or dropped row is named with the export's full path and its line, the healthy tasks still stand grouped, and the stage's missing line names `take-task` when no task is grouped
-### Scenario: verify-records-are-text-not-links
-- Given: a product whose records folder holds an acceptance record
-- When: the Verify stage page is read
-- Then: the record is named with its title and kind as text, no link to it is rendered, and the page carries no dead control
-### Scenario: stages-are-read-only
-- Given: a served product whose stage pages are opened
-- When: its files and git status are compared before and after
-- Then: reading the stages changed nothing in the product
+### Scenario: manifest-stages-and-expectations
+- Given: a product registry with a custom ordered stage list and one stage whose `expected` list includes `interview` and `task`
+- When: the registry and stage index are read
+- Then: the wiki uses only the declared stage order and exposes the stage's expected records from the registry
+
+### Scenario: supplied-snapshot-is-rendered
+- Given: a committed snapshot with a source revision, a computation date and a finding for a manifest stage
+- When: that stage page is read in English or Russian
+- Then: it renders the supplied finding and localized as-of date, without inspecting current documents to change the finding
+
+### Scenario: no-snapshot-no-findings
+- Given: a product with a registry but no completeness snapshot
+- When: its stage page is read
+- Then: it shows no completeness finding or snapshot date
+
+### Scenario: no-registry-no-stages
+- Given: a product without a kinds registry
+- When: the life-cycle navigation is read
+- Then: it shows no built-in stage list
+
+## Requirement: questions-and-overview — Product declarations supply reader forms
+A kind may declare a question form in `docs/kinds.yaml`, including its
+identity prefix, title separator, field names, section names and the text that
+marks a not-applicable answer. Only documents of that declared kind feed the
+questions view. The overview may declare the document and section from which
+the audience is read. Madarch reads these values as product data and carries
+them through the wiki; it has no fixed question prefix, question fields,
+audience document or audience section. The Open questions sidebar entry is
+not built into the engine.
+
+### Scenario: manifest-question-form
+- Given: a registry that declares a question kind with non-default prefix, fields and section names
+- When: question documents of that kind are read
+- Then: the wiki parses only the declared form and renders the configured field labels
+
+### Scenario: manifest-audience-source
+- Given: a registry that names a document and section for the overview audience
+- When: the product overview is read
+- Then: it reads that section's first paragraph and no other document or section
 
 ## Requirement: live — A page follows its file as it is saved
 When a page is asked for, its text shall be read from the product's working
