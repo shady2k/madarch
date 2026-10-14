@@ -32,7 +32,29 @@
     "lead": "The reading space of {{product}}: {{count}} {{documentUnit}} in {{groupCount}} {{groupUnit}}.",
     "noPages": "{{product}} has no pages yet.",
     "audience": "Audience: {{audience}}",
-    "noAudience": "The audience is not written yet"
+    "noAudience": "The audience is not written yet",
+    "overviewFacts": "Product facts",
+    "audienceLabel": "Audience",
+    "problemLabel": "Problem",
+    "outcomeLabel": "Outcome",
+    "currentMilestoneLabel": "Current milestone",
+    "milestoneState": "State: {{state}}",
+    "nextStep": "Next step: {{step}}",
+    "notDeclared": "Not declared in the product documents yet",
+    "gettingStartedTitle": "Getting started",
+    "noManifestTitle": "This folder has no product manifest",
+    "noManifestDescription": "This folder is not set up as a product repository yet. A product manifest (workspace.yaml) and its documents are needed before the wiki can show a product overview.",
+    "productRepository": "A product repository keeps a product's documents and connects its code repositories.",
+    "newProduct": "Start a new product with:",
+    "setupProduct": "Run",
+    "setupProductManifest": "to create the product manifest",
+    "workspaceFile": "workspace.yaml",
+    "setupProductEnd": "and its documents.",
+    "demoProduct": "Explore the Madarch product example on GitHub:",
+    "demoRepository": "Madarch product example",
+    "demoClone": "git clone https://github.com/shady2k/madarch-product",
+    "demoServe": "madarch serve --product madarch-product",
+    "otherDocumentsGroup": "Other documents"
   },
   "questions": {
     "title": "Questions",
@@ -211,5 +233,9 @@
     "branchValue": "branch {{branch}}",
     "lastCommit": "last commit {{when}}",
     "noReadme": "No README at its root"
+  },
+  "registry": {
+    "unnamedKind": "Unlabelled kind",
+    "unnamedStage": "Unlabelled stage"
   }
 }
