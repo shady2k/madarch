@@ -32,6 +32,101 @@
             }
           },
           "additionalProperties": false
+        },
+        "problem": {
+          "type": "object",
+          "required": [
+            "document",
+            "section"
+          ],
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 1
+            },
+            "section": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "outcome": {
+          "type": "object",
+          "required": [
+            "document",
+            "section"
+          ],
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 1
+            },
+            "section": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "currentMilestone": {
+          "type": "object",
+          "required": [
+            "document",
+            "section"
+          ],
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 1
+            },
+            "section": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "milestoneState": {
+          "type": "object",
+          "required": [
+            "document",
+            "section"
+          ],
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 1
+            },
+            "section": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "nextStep": {
+          "type": "object",
+          "required": [
+            "document",
+            "section"
+          ],
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 1
+            },
+            "section": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
