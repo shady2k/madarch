@@ -41,18 +41,23 @@ a product with no pages shall say that it has none yet.
 
 ## Requirement: overview — A product's home explains it before listing its groups
 When a product's wiki has a normalized overview projection, its home shall
-introduce the product before listing document groups. The optional response
-shape is `overview?: { audience?: string; problem?: string; outcome?: string;
-currentMilestone?: { title: string; state?: string; nextStep?: string;
-path?: string } }`; the existing top-level `Product.audience` remains a
-compatible value and matches `overview.audience` when both are present. The
-overview shall show the product name and the audience, problem, outcome,
-current milestone title, state and next step supplied by product data. It shall
-not infer identity, vision facts, milestone state, document paths or workflow
-from engine defaults. The projection is optional; when absent (including a
-manifestless product response), the wiki shall not render the overview-facts
-block. Missing or blank facts shall use the selected locale's missing-data
-copy. A milestone title becomes a link only when both its title and safe
+introduce the product on its first screen before listing document groups. The
+optional response shape is `overview?: { audience?: string; problem?: string;
+outcome?: string; currentMilestone?: { title: string; state?: string;
+nextStep?: string; path?: string } }`; the existing top-level
+`Product.audience` remains a compatible value and matches `overview.audience`
+when both are present. The overview shall show the product name and the
+audience, problem, outcome, current milestone title, state and next step
+supplied by product data. Their normative document-and-section source mappings
+are defined by `questions-and-overview`; the UI shall not infer identity,
+vision facts, milestone state, document paths or workflow from engine defaults.
+The projection is optional; when absent (including a manifestless product
+response), the wiki shall not render the overview-facts block. If the
+projection is absent but the legacy top-level audience exists, that audience
+shall remain visible without an overview-facts block. A blank or whitespace
+legacy audience shall use the selected locale's missing-audience copy. Missing
+or blank facts within a supplied projection shall use the selected locale's
+missing-data copy. A milestone title becomes a link only when both its title and safe
 product-relative path are nonblank; missing data shall never create a blank
 link. The existing empty-home guidance remains available when a product has no
 pages.
@@ -60,7 +65,7 @@ pages.
 ### Scenario: manifest-overview-before-groups
 - Given: a product whose response supplies audience, problem, outcome and a current milestone with title, state, next step and a safe page path
 - When: its home is read
-- Then: the product's supplied facts appear before the document groups, and the milestone title links to the supplied page
+- Then: the first screen shows the product's supplied audience, problem, outcome, milestone title, milestone state and next step before the document groups, and the milestone title links to the supplied page
 
 ### Scenario: missing-overview-facts
 - Given: a product whose overview fields are absent, blank or whitespace-only
@@ -76,6 +81,16 @@ pages.
 - Given: an existing directory without manifest metadata and no pages
 - When: its home is read
 - Then: no overview-facts block is shown and the existing localized empty-home guidance remains
+
+### Scenario: manifestless-legacy-audience
+- Given: a manifestless product response with a top-level legacy audience and no normalized overview
+- When: its home is read
+- Then: the legacy audience remains visible and no overview-facts block is shown
+
+### Scenario: blank-legacy-audience
+- Given: a product response, with or without manifest metadata, whose top-level legacy audience is blank or whitespace-only and has no normalized overview
+- When: its home is read in English or Russian
+- Then: the selected locale's missing-audience copy is shown without an overview-facts block
 
 ## Requirement: shell — The reading shell holds the navigation, the document and the panel place
 When a product's wiki is served, its pages shall be shown in a reading shell: a left navigation holding the product's name and its documents grouped by kind — the kind a page's path names, pages outside a kind by themselves — with the current page marked visually and by its accessibility attributes, and every page of the wiki one click away from it; each group heading shall link to a generic page at `/g/` followed by the URI-encoded group identity, keyed by the existing `PageMeta.kind ?? groupOf(path)` identity, whose heading uses the existing localized/fallback group label and whose links list only that group's live pages in code point order; the sidebar brand `madarch вики` shall link to Product overview; a document breadcrumb shall link its first `Продукт` segment to Product overview and its group segment to that group page, providing the in-app way back without a separate Back button; the document in the centre as the main element; and a place for a right context panel, closed by default and empty until content fills it. A focus mode shall hide both panels and bring them back, and on a narrow screen the navigation shall open from a menu without narrowing the document's column. Language selection shall live in a globe menu in the top bar; the globe button shall have a localized accessible name and tooltip, and the menu shall mark the current language as checked.
@@ -353,11 +368,21 @@ names live once in the registry and are not duplicated in engine code.
 A kind may declare a question form in `docs/kinds.yaml`, including its
 identity prefix, title separator, field names, section names and the text that
 marks a not-applicable answer. Only documents of that declared kind feed the
-questions view. The overview may declare the document and section from which
-the audience is read. Madarch reads these values as product data and carries
-them through the wiki; it has no fixed question prefix, question fields,
-audience document or audience section. The Open questions sidebar entry is
-not built into the engine.
+questions view.
+
+The product registry may also declare an optional `overview` object with
+optional source mappings for `audience`, `problem`, `outcome`,
+`currentMilestone`, `milestoneState` and `nextStep`. Each mapping shall name a
+product-relative Markdown `document` and an exact `section`. The selected
+section supplies only the value for its declared semantic field; the
+`currentMilestone` mapping supplies the milestone title. The paths, sections
+and semantic roles are product data. An absent mapping leaves that value
+absent. Engine code shall not infer document paths, headings, milestone state
+or workflow, or fall back to another source. Configured unsafe or invalid
+sources shall be reported explicitly rather than silently replaced. When both
+are present, the legacy top-level `Product.audience` shall match
+`overview.audience`. The Open questions sidebar entry is not built into the
+engine.
 
 ### Scenario: manifest-question-form
 - Given: a registry that declares a question kind with non-default prefix, fields and section names
@@ -368,6 +393,16 @@ not built into the engine.
 - Given: a registry that names a document and section for the overview audience
 - When: the product overview is read
 - Then: it reads that section's first paragraph and no other document or section
+
+### Scenario: manifest-overview-field-sources
+- Given: a registry with separate document-and-section mappings for all overview fields
+- When: the normalized overview is produced
+- Then: each value comes only from its mapped section, an undeclared source remains absent, and no engine default or alternate source is used
+
+### Scenario: invalid-overview-source
+- Given: a configured overview source that is unsafe or cannot be resolved
+- When: the normalized overview is produced
+- Then: the source error is reported explicitly and no other document or section is used as a fallback
 
 ## Requirement: live — A page follows its file as it is saved
 When a page is asked for, its text shall be read from the product's working
