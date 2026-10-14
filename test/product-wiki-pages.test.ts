@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -157,6 +157,36 @@ describe('the pages a product holds', () => {
     } finally {
       rmSync(bad, { recursive: true, force: true });
     }
+  });
+
+  test('a manifestless directory opens only with an explicit serving opt-in and has no product id', () => {
+    folder = mkdtempSync(join(tmpdir(), 'madarch-wiki-pages-'));
+    const strict = openProductWiki(folder);
+    expect(strict.ok).toBe(false);
+    const opened = openProductWiki(folder, { allowNoManifest: true });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    expect(opened.wiki.product).toEqual({ manifest: 'absent', name: folder.split(/[\\/]/).pop()!, folder, repos: [] });
+    const pages = opened.wiki.pages();
+    expect(pages.ok).toBe(true);
+    if (pages.ok) expect(pages.pages).toEqual([]);
+    expect(readdirSync(folder!)).toEqual([]);
+  });
+
+  test('a dangling manifest symlink is not treated as an absent manifest', () => {
+    folder = mkdtempSync(join(tmpdir(), 'madarch-wiki-pages-'));
+    symlinkSync(join(folder, 'missing-target.yaml'), join(folder, 'workspace.yaml'));
+    const opened = openProductWiki(folder, { allowNoManifest: true });
+    expect(opened.ok).toBe(false);
+    if (!opened.ok) expect(opened.message).toContain('workspace.yaml');
+  });
+
+  test('the no-manifest opt-in does not accept a present invalid manifest', () => {
+    const productFolder = draft();
+    writeFileSync(join(productFolder, 'workspace.yaml'), 'schemaVersion: 999\n');
+    const opened = openProductWiki(productFolder, { allowNoManifest: true });
+    expect(opened.ok).toBe(false);
+    if (!opened.ok) expect(opened.message).toContain('schema version');
   });
 
   test('the pages are named by code point order of their paths, not the locale', () => {

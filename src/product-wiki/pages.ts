@@ -21,16 +21,18 @@
  *
  * Refusals are values, named the way this project names them: the exact
  * path asked for, and why the wiki does not hold it. A product whose
- * manifest cannot be read is refused by `readProduct`, never re-read here.
+ * manifest cannot be read is refused by `readProduct`; only the explicit
+ * serving opt-in can open an existing directory whose manifest is absent.
  */
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, readdirSync, realpathSync, statSync, type Dirent } from 'node:fs';
-import { basename as nameOf, isAbsolute, join as joinPath, relative } from 'node:path';
+import { basename as nameOf, isAbsolute, join as joinPath, relative, resolve } from 'node:path';
 import { scanDocument } from '../wiki/documents.js';
 import { modelSourceDigest } from './model.js';
 import { parseQuestion, changedAtOf, productAudience, type OpenQuestion } from './questions.js';
 import { stagesSourceDigest } from '../wiki/stages.js';
 import { readProduct, type ProductIdentity } from '../product/manifest.js';
+import { isExistingDirectoryWithoutManifest } from './manifestless.js';
 import { byCodePoint } from '../model/order.js';
 import {
   backlinksOf,
@@ -154,10 +156,15 @@ export type OpenedProductWiki =
   | { ok: true; wiki: ProductWiki }
   | { ok: false; file: string; line: number; message: string };
 
+/** The product information needed by the wiki; a manifestless home has no product id. */
+export type ProductWikiIdentity =
+  | (Pick<ProductIdentity, 'id' | 'name' | 'folder' | 'repos'> & { manifest: 'present' })
+  | { manifest: 'absent'; name: string; folder: string; repos: [] };
+
 /** A read product folder's pages, asked one at a time, always fresh. */
 export interface ProductWiki {
-  /** The product the wiki serves, as its manifest names it. */
-  readonly product: ProductIdentity;
+  /** Manifest-backed identity or temporary, display-only name for a manifestless home. */
+  readonly product: ProductWikiIdentity;
   /** Every page the product holds now, in code point order of their paths, read from disk now. */
   pages(): ProductWikiPages;
   /** One page by its path within the product, read from disk now. */
@@ -175,12 +182,23 @@ function servedContract(state: RegistryContract): ProductWikiContract | undefine
   return { known: false, version: state.version, message: state.message };
 }
 
-export function openProductWiki(productFolder: string): OpenedProductWiki {
-  const read = readProduct(productFolder);
+export function openProductWiki(productFolder: string, options: { allowNoManifest?: boolean } = {}): OpenedProductWiki {
+  const folder = resolve(productFolder);
+  const read = readProduct(folder);
   if (!read.ok) {
+    const missing = isExistingDirectoryWithoutManifest(folder);
+    if (options.allowNoManifest === true && missing) {
+      const name = nameOf(folder);
+      const product: ProductWikiIdentity = { manifest: 'absent', name, folder, repos: [] };
+      return { ok: true, wiki: new FreshProductWiki(product) };
+    }
     return { ok: false, file: read.file, line: read.line, message: read.message };
   }
-  return { ok: true, wiki: new FreshProductWiki(read.product) };
+  const product: ProductWikiIdentity = {
+    manifest: 'present', id: read.product.id, name: read.product.name,
+    folder: read.product.folder, repos: read.product.repos,
+  };
+  return { ok: true, wiki: new FreshProductWiki(product) };
 }
 
 /**
@@ -213,7 +231,7 @@ class FreshProductWiki implements ProductWiki {
   /** The check run per revision: a quiet product runs the set's check once. */
   private readonly checkRuns = new CheckRunCache();
 
-  constructor(readonly product: ProductIdentity) {}
+  constructor(readonly product: ProductWikiIdentity) {}
 
   /** One fresh read of the page set: walk, read, parse the set's forms, digest. */
   private snapshot(): { ok: true; snapshot: PageSetSnapshot } | { ok: false; message: string } {

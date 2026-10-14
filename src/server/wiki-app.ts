@@ -184,11 +184,10 @@ export function createWikiPart(
       // product's vision is written; the draft carries none, and its absence
       // is the draft's own state the app reads.
       const audience = wiki.audience();
-      return {
-        response: json(200, audience === undefined
-          ? { id: wiki.product.id, name: wiki.product.name, folder: nameOf(wiki.product.folder) }
-          : { id: wiki.product.id, name: wiki.product.name, folder: nameOf(wiki.product.folder), audience }),
-      };
+      const identity = wiki.product.manifest === 'present'
+        ? { id: wiki.product.id, name: wiki.product.name, folder: nameOf(wiki.product.folder) }
+        : { name: wiki.product.name, folder: nameOf(wiki.product.folder) };
+      return { response: json(200, audience === undefined ? identity : { ...identity, audience }) };
     },
     questions: (): Handled => {
       const asked = wiki.questions();

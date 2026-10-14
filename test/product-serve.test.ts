@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { chmodSync, cpSync, mkdtempSync, mkdirSync, readdirSync, symlinkSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,10 +14,11 @@ import { homeOfCommand, noStrayDrafts, sealedHome } from './scratch-home.js';
  * serves the product of the given or the current folder; the app's built
  * files are built once on first use, through an injectable builder, and
  * the address is printed before the machine's opener — an injectable
- * opener — is asked to open it. A run that cannot serve exits 2 naming
- * what is wrong: an unknown argument, a folder that holds no manifest,
- * a port already in use, an app build that cannot be used. 1 is the exit
- * of a step that failed.
+ * opener — is asked to open it. An existing directory without a manifest
+ * serves a temporary empty home with no product id or writes. A run that
+ * cannot serve exits 2 naming what is wrong: an unknown argument, a path
+ * that is not a directory, a present unreadable manifest, a port already
+ * in use, or an app build that cannot be used. 1 is the exit of a failed step.
  *
  * Every test runs the command as a child process the way a person runs
  * it. A serving run ends only when the test ends it, so none hangs. The
@@ -227,22 +228,82 @@ function injectableOpener(mode: 'ok' | 'fail'): string {
 }
 
 describe('madarch serve: an existing product served', () => {
-  test('a folder without a manifest is refused with exit 2, naming the folder and the manifest', () => {
+  test('madarch serve in an empty folder serves a read-only home without a product id', async () => {
     const base = scratchFolder();
-    const run = runCommand(['serve'], { MADARCH_HOME: base }, base);
+    const folder = join(base, 'empty-home');
+    mkdirSync(folder);
+    const app = builtApp(scratchFolder('madarch-serve-app-'));
+    const before = readdirSync(folder);
+    const live = serveLive(['serve', '--no-open'], { MADARCH_HOME: base, MADARCH_APP: app }, folder);
+    await whenServing(live);
+    const productResponse = await fetch(`${live.address}/api/product`);
+    expect(productResponse.status).toBe(200);
+    const product = await productResponse.json() as { id?: string; name: string; folder: string };
+    expect(product.name).toBe('empty-home');
+    expect(product.folder).toBe('empty-home');
+    expect(Object.hasOwn(product, 'id')).toBe(false);
+    const pagesResponse = await fetch(`${live.address}/api/pages`);
+    expect(pagesResponse.status).toBe(200);
+    expect((await pagesResponse.json() as { pages: unknown[] }).pages).toEqual([]);
+    expect(readdirSync(folder)).toEqual(before);
+    await live.finish();
+  });
+
+  test('serve --product serves an existing directory without a manifest', async () => {
+    const base = scratchFolder();
+    const folder = join(base, 'no-manifest');
+    mkdirSync(folder);
+    writeFileSync(join(folder, 'notes.txt'), 'not a wiki page');
+    const app = builtApp(scratchFolder('madarch-serve-app-'));
+    const before = readdirSync(folder);
+    const live = serveLive(['serve', '--product', folder, '--no-open'], { MADARCH_HOME: base, MADARCH_APP: app }, base);
+    await whenServing(live);
+    const product = await (await fetch(`${live.address}/api/product`)).json() as { id?: string; name: string };
+    expect(product.id).toBeUndefined();
+    expect(product.name).toBe('no-manifest');
+    const pages = await (await fetch(`${live.address}/api/pages`)).json() as { pages: unknown[] };
+    expect(pages.pages).toEqual([]);
+    expect(readdirSync(folder)).toEqual(before);
+    await live.finish();
+  });
+
+  test('a missing product path remains refused', () => {
+    const base = scratchFolder();
+    const missing = join(base, 'missing');
+    const run = runCommand(['serve', '--product', missing], { MADARCH_HOME: base }, base);
     expect(run.status).toBe(2);
-    expect(run.stdout).toBe('');
-    expect(run.stderr).toContain(base);
+    expect(run.stderr).toContain(missing);
     expect(run.stderr).toContain('no workspace.yaml');
   });
 
-  test('serve --product names the folder it was given when it holds no manifest', () => {
+  test('a non-directory product path remains refused', () => {
     const base = scratchFolder();
-    const folder = join(base, 'not-a-product');
-    mkdirSync(folder, { recursive: true });
+    const file = join(base, 'not-a-directory');
+    writeFileSync(file, 'file');
+    const run = runCommand(['serve', '--product', file], { MADARCH_HOME: base }, base);
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain(file);
+  });
+
+  test('an invalid manifest remains refused instead of using the fallback', () => {
+    const base = scratchFolder();
+    const folder = join(base, 'invalid');
+    mkdirSync(folder);
+    writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 999\n');
     const run = runCommand(['serve', '--product', folder], { MADARCH_HOME: base }, base);
     expect(run.status).toBe(2);
-    expect(run.stderr).toContain(folder);
+    expect(run.stderr).toContain('workspace.yaml');
+    expect(run.stderr).toContain('schema version');
+  });
+
+  test('a dangling manifest symlink remains refused instead of using the fallback', () => {
+    const base = scratchFolder();
+    const folder = join(base, 'dangling');
+    mkdirSync(folder);
+    symlinkSync(join(folder, 'missing-target.yaml'), join(folder, 'workspace.yaml'));
+    const run = runCommand(['serve', '--product', folder], { MADARCH_HOME: base }, base);
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('workspace.yaml');
   });
 
   test('an unknown option to serve is refused, naming what is accepted', () => {
