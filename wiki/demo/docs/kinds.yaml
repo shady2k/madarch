@@ -1,18 +1,36 @@
 contract: 1
+overview:
+  audience:
+    document: docs/vision.md
+    section: Audience
 stages:
   - id: idea
     name: Idea
   - id: requirements
     name: Requirements
   - id: design
+    sections:
+      - architecture
+    expected:
+      - architecture views
     name: Design
   - id: build
+    sections:
+      - repositories
+    expected:
+      - task
     name: Build
   - id: verify
+    expected:
+      - acceptance record
     name: Verify
   - id: release
+    expected:
+      - release record
     name: Release
   - id: operate
+    expected:
+      - incident record
     name: Operate
 kinds:
   - name: Product vision
@@ -76,6 +94,14 @@ kinds:
     folder: docs/questions
     stage: idea
     hint: write what is not known and who can answer it
+    questions:
+      identityPrefix: Q
+      titleSeparator: —
+      promptSection: Question
+      answerSection: Answer
+      answererField: Who can answer
+      concernsField: Concerns
+      notApplicablePrefix: "Not applicable:"
     links:
       - field: Concerns
         targets:

@@ -55,7 +55,7 @@ export function TaskStatusGlyph({ status }: { status: 'open' | 'in_progress' | '
 }
 
 /**
- * One stage's tasks grouped by feature: the feature's title (or its id when
+ * Task records grouped by feature: the feature's title (or its id when
  * the title is empty), its counts, then its tasks in id order — the shapes
  * the server's index already ordered. The tasks are read-only here.
  */
@@ -96,35 +96,7 @@ export function TaskGroups({ groups }: { groups: readonly TaskFeature[] }): Reac
 }
 
 /**
- * The lines an empty stage carries: a kind the registry names shows the
- * registry's own next-step hint — what to do next, as the product's data
- * says it; the mechanism's own material is hinted generically, naming what
- * the stage holds nothing of, no skill of any set named anywhere.
- */
-function MissingLines({ section }: { section: StageSection }): ReactElement | null {
-  const { t } = useTranslation();
-  if (section.missing.length === 0) {
-    return section.empty ? (
-      <div className="stage-missing" data-testid="stage-missing">
-        <p className="stage-missing-line">{t('stages.nothingYet')}</p>
-      </div>
-    ) : null;
-  }
-  return (
-    <div className="stage-missing" data-testid="stage-missing">
-      {section.missing.map((entry) => (
-        <p key={entry.kind} className="stage-missing-line">
-          {entry.hint !== undefined && entry.hint !== ''
-            ? `${wordLabel(entry.kind)} — ${entry.hint}`
-            : t('stages.missingKind', { kind: t(`stages.kinds.${entry.kind}`, { defaultValue: wordLabel(entry.kind) }) })}
-        </p>
-      ))}
-    </div>
-  );
-}
-
-/**
- * The mended and dropped rows of the Build stage's tracker read, each at
+ * The mended and dropped rows of the tracker's read, each at
  * its full path and line: nothing an export holds disappears in silence.
  */
 function Notes({ notes }: { notes: readonly StageNote[] }): ReactElement | null {
@@ -179,9 +151,9 @@ const ARCHITECTURE_ADDRESS = '/p/madarch/architecture';
 const REPOSITORIES_ADDRESS = '/r';
 const KNOWN_SECTION_ROUTES = new Set<string>([ARCHITECTURE_ADDRESS, REPOSITORIES_ADDRESS]);
 
-/** The one stage's own page: every artifact a link, the tasks of Build, the linked sections, the missing lines. */
+/** One manifest stage page: its artifacts, supplied findings and optional task records. */
 export function StagePage({ stage, index }: { stage: StageSection; index: StagesIndex }): ReactElement {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   return (
     <main id="stage" data-stage={stage.id}>
       <p className="eyebrow">{t('stages.eyebrow')}</p>
@@ -198,6 +170,12 @@ export function StagePage({ stage, index }: { stage: StageSection; index: Stages
           ))}
         </div>
       )}
+      {stage.findings !== undefined && stage.findings.length > 0 && (
+        <section data-testid="completeness-findings" className="stage-missing">
+          {stage.findings.map((finding, at) => <p key={at} className="stage-missing-line">{finding}</p>)}
+        </section>
+      )}
+      {index.completeness !== undefined && <p className="stage-snapshot-date" data-testid="completeness-as-of">{t('stages.asOf', { date: new Intl.DateTimeFormat(i18n.resolvedLanguage === 'ru' ? 'ru-RU' : 'en-US', { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(index.completeness.computedAt + 'T00:00:00Z')) })}</p>}
       <SectionLinks links={stage.sections ?? []} />
       {stage.artifacts.length > 0 && (
         <div className="home-groups">
@@ -221,7 +199,6 @@ export function StagePage({ stage, index }: { stage: StageSection; index: Stages
       {stage.tasks !== undefined && stage.tasks.length > 0 && <TaskGroups groups={stage.tasks} />}
       {stage.notes !== undefined && <Notes notes={stage.notes} />}
       {stage.tasks !== undefined && stage.tasks.length === 0 && <p className="stage-missing-line">{t('stages.noTasks')}</p>}
-      <MissingLines section={stage} />
     </main>
   );
 }

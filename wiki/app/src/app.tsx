@@ -243,7 +243,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
   return (
     <StatusBridge streamConnected={streamConnected}>
       <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, stage: route.name === 'stage' ? route.stage : undefined, group: route.name === 'group' ? route.group : undefined, architecture: architectureCrumb, heldPaths }}>
-        <Shell product={data.product} list={list} architecture={architecture} reposCount={data.repos?.repos.length} reposOpen={route.name === 'repos'} openQuestions={data.questions} offer={data.registry}>
+        <Shell product={data.product} list={list} architecture={architecture} reposCount={data.repos?.repos.length} reposOpen={route.name === 'repos'} offer={data.registry}>
         {route.name === 'home' ? (
           <HomePage product={data.product} list={list} architecture={architecture} />
         ) : route.name === 'group' ? (
@@ -589,7 +589,7 @@ function DocumentHeader({ document: doc }: { document: PageDocument }): ReactEle
   if (doc.id !== undefined) identity.push({ label: t('document.fieldId'), value: doc.id });
   if (doc.status !== undefined) identity.push({ label: t('document.fieldStatus'), value: t('status.' + doc.status, { defaultValue: doc.status }) });
   const namedDates = new Set(['Date', 'Since']);
-  const people = new Set(['With', 'Who can answer']);
+  const people = new Set(['With']);
   const all = doc.fields ?? [];
   const rest = all.filter((field) => !namedDates.has(field.name) && !people.has(field.name));
   const dates = all.filter((field) => namedDates.has(field.name));

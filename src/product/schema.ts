@@ -97,6 +97,30 @@ export const GoalLevel = Type.Object(
 );
 export type GoalLevel = Static<typeof GoalLevel>;
 
+export const QuestionForm = Type.Object(
+  {
+    identityPrefix: RegistryId,
+    titleSeparator: Type.String({ minLength: 1 }),
+    promptSection: RegistryName,
+    answerSection: RegistryName,
+    answererField: Type.Optional(RegistryName),
+    concernsField: Type.Optional(RegistryName),
+    notApplicablePrefix: Type.Optional(Type.String({ minLength: 1 })),
+  },
+  { additionalProperties: false },
+);
+export type QuestionForm = Static<typeof QuestionForm>;
+
+export const OverviewSources = Type.Object(
+  { audience: Type.Optional(Type.Object({ document: Type.String({ minLength: 1 }), section: RegistryName }, { additionalProperties: false })) },
+  { additionalProperties: false },
+);
+export type OverviewSources = Static<typeof OverviewSources>;
+
+
+
+
+
 /** One kind of document the product holds, as the registry names it. */
 export const KindEntry = Type.Object(
   {
@@ -114,6 +138,8 @@ export const KindEntry = Type.Object(
     statuses: Type.Optional(Type.Array(RegistryName, { description: 'The allowed statuses of the kind, as the documents write them.' })),
     /** The link fields the kind's documents may carry, each naming its target kinds. */
     links: Type.Optional(Type.Array(KindLinkEntry, { description: 'The links the kind declares: field name, allowed target kinds, the backlink\'s label, the cardinality and whether the link is required.' })),
+    /** The document form used by the generic questions view, when this kind is a question kind. */
+    questions: Type.Optional(QuestionForm),
     /** The storage form the kind is kept in (the 0021 amendment); `document` stands where it is left out. */
     storage: Type.Optional(StorageForm),
     /**
@@ -135,10 +161,36 @@ export const StageEntry = Type.Object(
     id: RegistryId,
     /** The stage's name as a reader sees it; the id stands in where it is left out. */
     name: Type.Optional(RegistryName),
+    /** Records the product's completeness calculator expects at this stage. */
+    expected: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { uniqueItems: true })),
+    /** Engine-provided cross-page sections shown with this stage. */
+    sections: Type.Optional(Type.Array(Type.Union([Type.Literal('architecture'), Type.Literal('repositories')]), { uniqueItems: true })),
   },
   { additionalProperties: false },
 );
 export type StageEntry = Static<typeof StageEntry>;
+
+const REGISTRY_SCHEMA_ID = 'https://github.com/shady2k/madarch/schema/v1/product-registry.schema.json';
+
+export const KindsRegistry = Type.Object(
+  {
+    /** The contract version the registry is written against; this schema is version 1. */
+    contract: Type.Literal(1, { description: 'The contract version the registry is written against; this schema publishes version 1.' }),
+    overview: Type.Optional(OverviewSources),
+    goals: Type.Optional(Type.Array(GoalLevel, { minItems: 1, description: 'The reserved goals section: maturity levels over the graph, per perspective (the 0021 amendment). This engine version keeps the section and names it as reserved-but-unimplemented when it renders; never a silent unknown section.' })),
+    stages: Type.Array(StageEntry, { minItems: 1, description: 'The life cycle in the order the reader walks it; every kind names one of these.' }),
+    kinds: Type.Array(KindEntry, { description: 'The kinds the product holds, each naming its stage of the list.' }),
+  },
+  {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $id: REGISTRY_SCHEMA_ID,
+    title: 'Madarch product kinds registry',
+    description:
+      'The shape of one product repository kinds registry file, at contract version 1: the stages as an ordered list with no fixed kinds, and the kinds the product holds, each with its name, id prefix, folder, stage, next-step hint, allowed statuses and declared link types. The mechanism is madarch\'s; the kinds (usually written at setup by the skill set) are the product\'s data.',
+    additionalProperties: false,
+  },
+);
+export type KindsRegistry = Static<typeof KindsRegistry>;
 
 /**
  * The registry as one file's shape: the stages in the order the reader walks
@@ -156,27 +208,7 @@ export type StageEntry = Static<typeof StageEntry>;
  * of another version (the skill set's copy) targets the version its `$id`
  * names.
  */
-const REGISTRY_SCHEMA_ID = 'https://github.com/shady2k/madarch/schema/v1/product-registry.schema.json';
 
-
-export const KindsRegistry = Type.Object(
-  {
-    /** The contract version the registry is written against; this schema is version 1. */
-    contract: Type.Literal(1, { description: 'The contract version the registry is written against; this schema publishes version 1.' }),
-    goals: Type.Optional(Type.Array(GoalLevel, { minItems: 1, description: 'The reserved goals section: maturity levels over the graph, per perspective (the 0021 amendment). This engine version keeps the section and names it as reserved-but-unimplemented when it renders; never a silent unknown section.' })),
-    stages: Type.Array(StageEntry, { minItems: 1, description: 'The life cycle in the order the reader walks it; every kind names one of these.' }),
-    kinds: Type.Array(KindEntry, { description: 'The kinds the product holds, each naming its stage of the list.' }),
-  },
-  {
-    $schema: 'https://json-schema.org/draft/2020-12/schema',
-    $id: REGISTRY_SCHEMA_ID,
-    title: 'Madarch product kinds registry',
-    description:
-      'The shape of one product repository kinds registry file, at contract version 1: the stages as an ordered list with no fixed kinds, and the kinds the product holds, each with its name, id prefix, folder, stage, next-step hint, allowed statuses and declared link types. The mechanism is madarch\'s; the kinds (usually written at setup by the skill set) are the product\'s data.',
-    additionalProperties: false,
-  },
-);
-export type KindsRegistry = Static<typeof KindsRegistry>;
 
 
 /**
@@ -205,3 +237,25 @@ export const DocumentFields = Type.Object(
   },
 );
 export type DocumentFieldsSchema = Static<typeof DocumentFields>;
+
+
+/** The external calculator's committed completeness snapshot. */
+export const ProductCompleteness = Type.Object(
+  {
+    contract: Type.Literal(1),
+    computedAt: Type.String({ format: 'date' }),
+    sourceRevision: Type.String({ pattern: '^[0-9a-f]{7,40}$', description: 'The product repository revision the external calculation read.' }),
+    findings: Type.Array(Type.Object({
+      stage: RegistryId,
+      message: Type.String({ minLength: 1 }),
+    }, { additionalProperties: false })),
+  },
+  {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $id: 'https://github.com/shady2k/madarch/schema/v1/product-completeness.schema.json',
+    title: 'Madarch product completeness snapshot',
+    description: 'A committed snapshot computed by the product skill set. Madarch validates and renders the supplied findings; it does not calculate completeness.',
+    additionalProperties: false,
+  },
+);
+export type ProductCompleteness = Static<typeof ProductCompleteness>;

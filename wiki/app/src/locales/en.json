@@ -10,7 +10,6 @@
   },
   "navigation": {
     "overview": "Product overview",
-    "openQuestions": "Open questions",
     "documents": "Documents",
     "aria": "Document navigation",
     "close": "Close navigation",
@@ -36,13 +35,11 @@
     "noAudience": "The audience is not written yet"
   },
   "questions": {
-    "title": "Open questions",
+    "title": "Questions",
     "tagline": "A place for what is still to settle.",
     "countLine": "{{count}} {{unit}}",
-    "none": "No open questions: all are closed.",
+    "none": "No questions are open.",
     "closedHeading": "Closed questions",
-    "who": "Who can answer: {{who}}",
-    "concerns": "Concerns: {{concerns}}",
     "state": {
       "open": "Open",
       "answered": "Answered",
@@ -90,10 +87,10 @@
     "word_other": "words",
     "document_one": "document",
     "document_other": "documents",
-    "question_one": "open question",
-    "question_few": "open questions",
-    "question_many": "open questions",
-    "question_other": "open questions",
+    "question_one": "question",
+    "question_few": "questions",
+    "question_many": "questions",
+    "question_other": "questions",
     "group_one": "group",
     "group_other": "groups",
     "word_few": "words",
@@ -184,24 +181,6 @@
   "stages": {
     "title": "Life cycle",
     "eyebrow": "Life cycle",
-    "names": {
-      "idea": "Idea",
-      "requirements": "Requirements",
-      "design": "Design",
-      "build": "Build",
-      "verify": "Verify",
-      "release": "Release",
-      "operate": "Operate"
-    },
-    "leads": {
-      "idea": "Why the product is worth building: what is known, what is believed and what is waiting to settle.",
-      "requirements": "What the product must do, as its user sees it: the statements the product is held to.",
-      "design": "How the system will do it: the intent drawn before code and the choices taken about why.",
-      "build": "What is being built and where it stands: the code repositories and the product tasks, grouped by feature, read from the tracker.",
-      "verify": "What was accepted and how it was proven: the stage records with their revisions and checks.",
-      "release": "What reached its users and when: the release notes and the versions.",
-      "operate": "What failed in use and what it changed: the incidents’ timeline, the cost, what was filed."
-    },
     "noTasks": "The tracker export .beads/issues.jsonl holds no task yet — tasks appear here when the tracker holds them.",
     "counts": "{{open}} {{openUnit}} open · {{inProgress}} in progress · {{done}} done",
     "tasksTitle": "Tasks by feature",
@@ -215,16 +194,12 @@
     "architectureLink": "The architecture views belong to the Architecture section — the diagrams change serves it at /p/madarch/architecture when it lands; this build names it, it does not link it.",
     "repositoriesLink": "The code repositories belong to the Repositories section — the repositories change serves it at /r when it lands; this build names it, it does not link it.",
     "kinds": {
-      "acceptance record": "Acceptance record",
-      "release record": "Release record",
-      "release notes": "Release notes",
-      "incident record": "Incident record",
-      "architecture views": "Architecture views",
       "task": "Task",
       "repository architecture": "Repository architecture"
     },
     "missingKind": "Nothing of this stage is here yet — {{kind}} lands here when the product reaches it.",
-    "nothingYet": "Nothing of this stage is here yet."
+    "nothingYet": "Nothing of this stage is here yet.",
+    "asOf": "As of {{date}}"
   },
   "repos": {
     "overview": "Code repositories",

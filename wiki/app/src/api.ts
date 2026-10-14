@@ -91,22 +91,22 @@ export type PageList = {
   contract?: PageContract;
 };
 
-/** The states an open question stands in, the set's own three (computed, never written). */
+/** Question states derived from the configured answer sections; they are not written to the document. */
 export type QuestionState = 'open' | 'answered' | 'not-applicable';
 
-/** One open question, as the questions API carries it. */
+/** One question, as the questions API carries it. */
 export type QuestionEntry = {
   /** The path within the product of the question's document. */
   path: string;
-  /** The document's id, `Q-004` for example. */
+  /** The document's configured identity. */
   id: string;
   /** The identity line's title: the question in one line. */
   title: string;
   /** The `## Question` section: what is not known, in full. */
   question: string;
-  /** The `Who can answer:` field. */
+  /** The value of the configured answerer field. */
   who: string;
-  /** The `Concerns:` field's ids, split and trimmed. */
+  /** Values of the configured references field, split and trimmed. */
   concerns: readonly string[];
   /** The computed state: `open`, `answered` or `not-applicable`. */
   state: QuestionState;
@@ -119,6 +119,9 @@ export type QuestionEntry = {
 export type QuestionList = {
   questions: QuestionEntry[];
   openCount: number;
+  kindName?: string;
+  answererLabel?: string;
+  concernsLabel?: string;
 };
 
 export type ProductWithAudience = Product & {
@@ -245,7 +248,7 @@ export const getProduct = (signal?: AbortSignal): Promise<ProductWithAudience> =
   readJson<ProductWithAudience>('read the product', '/api/product', signal);
 
 export const getQuestions = (signal?: AbortSignal): Promise<QuestionList> =>
-  readJson<QuestionList>('read the open questions', '/api/questions', signal);
+  readJson<QuestionList>('read the questions', '/api/questions', signal);
 
 export const getArchitecture = (signal?: AbortSignal): Promise<Architecture> =>
   readJson<Architecture>('read the architecture', '/api/architecture', signal);
@@ -256,7 +259,7 @@ export const getPages = (signal?: AbortSignal): Promise<PageList> =>
 export const getPage = (path: string, signal?: AbortSignal): Promise<Page> =>
   readJson<Page>(`read the page ${path}`, `/api/page?path=${encodeURIComponent(path)}`, signal);
 
-/** The stage sections and task groups the stage index answers, the server's own shapes. */
+/** The manifest stage sections and task groups the server read. */
 export type StageArtifact = {
   path: string;
   title: string;
@@ -295,17 +298,17 @@ export type StageSection = {
   id: string;
   artifacts: StageArtifact[];
   /** What the stage holds nothing of yet: a kind the registry names carries its own next-step hint, the mechanism's material carries its kind alone. */
-  missing: { kind: string; hint?: string }[];
+  findings?: string[];
   tasks?: TaskFeature[];
   notes?: StageNote[];
   sections?: StageSectionLink[];
   /** The stage's name as the product's registry gives it, when one stands. */
   name?: string;
-  empty: boolean;
 };
 
 export type StagesIndex = {
   stages: StageSection[];
+  completeness?: { computedAt: string; sourceRevision: string };
   problems: { where: string; message: string }[];
 };
 

@@ -18,7 +18,7 @@ import { groupNav } from './shell.js';
 import { languageStorageKey, setWikiLanguage } from './i18n.js';
 import { addressOfGroup, addressOfPage, routeOf } from './routes.js';
 
-import type { Product, ProductWithAudience, PageList, Page, QuestionList, QuestionEntry } from './api.js';
+import type { Product, ProductWithAudience, PageList, Page, QuestionList, QuestionEntry, RegistryOffer } from './api.js';
 
 beforeAll(async () => {
   GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -41,7 +41,7 @@ function answerFor(product: Product, list: PageList, pages: Record<string, Page>
     if (target === '/api/product') return { body: product };
     if (target === '/api/pages') return { body: list };
 
-    if (target === '/api/questions') return { body: questions };
+    if (target === '/api/questions') return { body: { ...questions, answererLabel: 'Steward', concernsLabel: 'Touches' } };
     if (target === '/api/architecture')
       return {
         body: {
@@ -888,11 +888,27 @@ describe('the reading shell', () => {
 
 
 
-  test('a stage route marks its stage in the shared navigation context', async () => {
-    install(answerFor(product, shellList, shellPages));
+  test('a stage route uses its manifest name in the breadcrumb and tab', async () => {
+    const registry: RegistryOffer = { present: true, stages: [{ id: 'plan', name: 'Plan' }, { id: 'idea', name: 'Explore the idea' }], kinds: [] };
+    const answer = answerFor(product, shellList, shellPages);
+    install((target) => target === '/api/registry' ? { body: registry } : answer(target));
     goto('/s/idea');
     await intoApp(createElement(App));
     await until(() => document.querySelector('[data-stage-link="idea"][aria-current="page"]') !== null, 'the active stage link');
+    expect(document.querySelector('.shell-breadcrumb')?.textContent).toContain('Explore the idea');
+    expect(document.querySelector('.shell-breadcrumb')?.textContent).not.toContain('stages.names.idea');
+    expect(document.querySelector('[data-testid="document-tab"]')?.textContent).toContain('Explore the idea');
+  });
+
+  test('an unknown stage route uses a readable fallback label', async () => {
+    const registry: RegistryOffer = { present: true, stages: [{ id: 'plan', name: 'Plan' }], kinds: [] };
+    const answer = answerFor(product, shellList, shellPages);
+    install((target) => target === '/api/registry' ? { body: registry } : answer(target));
+    goto('/s/not-in-registry-stage');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('.shell-breadcrumb')?.textContent?.includes('Not In Registry Stage') === true, 'the fallback stage name');
+    expect(document.querySelector('.shell-breadcrumb')?.textContent).toContain('Not In Registry Stage');
+    expect(document.querySelector('[data-testid="document-tab"]')?.textContent).toContain('Not In Registry Stage');
   });
 
   test('the brand reads madarch, and the product block below it names the product', async () => {
@@ -1468,26 +1484,23 @@ describe('the open questions', () => {
     answer: 'Not applicable: chains are out of the vision.',
   };
 
-  test('the sidebar names the view with the live count, in Russian with its plurals', async () => {
-    await setWikiLanguage('en');
-    const list: QuestionList = { questions: [openQuestion, answeredQuestion, notApplicable], openCount: 1 };
+  test('the sidebar does not expose a set-specific open-questions entry', async () => {
+    const list: QuestionList = { questions: [openQuestion, answeredQuestion, notApplicable], openCount: 1, kindName: 'Open questions' };
     install(answerFor(product, listWithPages, pagesAtR1, list));
     goto('/');
     await intoApp(createElement(App));
-    await until(() => text().includes('Open questions'), 'the sidebar entry');
-    expect(document.querySelector('[data-testid="open-questions-count"]')?.textContent).toBe('1');
-    await setWikiLanguage('ru');
-    await until(() => text().includes('Открытые вопросы'), 'the Russian entry');
-    await setWikiLanguage('en');
+    expect(document.querySelector('[data-testid="nav-open-questions"]')).toBeNull();
+    expect(document.querySelector('[data-testid="open-questions-count"]')).toBeNull();
   });
 
   test('the questions view lists the open ones first and the closed ones muted with their answers', async () => {
-    const list: QuestionList = { questions: [openQuestion, answeredQuestion, notApplicable], openCount: 1 };
+    const list: QuestionList = { questions: [openQuestion, answeredQuestion, notApplicable], openCount: 1, kindName: 'Open questions' };
     install(answerFor(product, listWithPages, pagesAtR1, list));
     goto('/questions');
     await intoApp(createElement(App));
     await until(() => document.querySelector('[data-testid="questions-view"]') !== null, 'the questions view');
     const view = document.querySelector('[data-testid="questions-view"]')!;
+    expect(view.querySelector('h1')?.textContent).toBe('Open questions');
     const rows = [...view.querySelectorAll('[data-question-id]')];
     expect(rows.map((row) => row.getAttribute('data-question-id'))).toEqual(['Q-004', 'Q-002', 'Q-003']);
     expect(view.querySelector('[data-testid="questions-count"]')?.textContent).toContain('1');
@@ -1496,18 +1509,18 @@ describe('the open questions', () => {
   });
 
   test('answering a question closes it: the count drops and the row moves to the closed read', async () => {
-    const before: QuestionList = { questions: [openQuestion, answeredQuestion, notApplicable], openCount: 1 };
+    const before: QuestionList = { questions: [openQuestion, answeredQuestion, notApplicable], openCount: 1, kindName: 'Open questions' };
     const stream = installWithStream(answerFor(product, listWithPages, pagesAtR1, before));
     goto('/questions');
     await intoApp(createElement(App, { reconnectMs: 5 }));
-    await until(() => document.querySelector('[data-testid="open-questions-count"]')?.textContent === '1', 'the first count');
+    await until(() => document.querySelector('[data-testid="questions-count"]')?.textContent?.includes('1'), 'the first count');
     const closed: QuestionList = {
       questions: [{ ...openQuestion, state: 'answered', answer: 'The owner collects them.' }, answeredQuestion, notApplicable],
       openCount: 0,
     };
     stream.set(answerFor(product, listWithPages, pagesAtR1, closed));
     stream.push('event: change\ndata: {"revision":"r2"}\n\n');
-    await until(() => document.querySelector('[data-testid="open-questions-count"]')?.textContent === '0', 'the answered count');
+    await until(() => document.querySelector('[data-testid="questions-count"]')?.textContent?.includes('0'), 'the answered count');
     await until(() => text().includes('The owner collects them.'), 'the answer shown');
     expect(stream.calls.filter((call) => call === EVENTS_PATH).length).toBe(1);
   });

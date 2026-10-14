@@ -1,0 +1,60 @@
+{
+  "about": "Pinned completeness snapshot contract cases: an external computed snapshot is validated and rendered, never calculated by madarch.",
+  "cases": [
+    {
+      "name": "valid snapshot with no findings",
+      "valid": true,
+      "value": {
+        "contract": 1,
+        "computedAt": "2026-10-13",
+        "sourceRevision": "50b08048dafa2c4d82c676164ae7df816b2f866a",
+        "findings": []
+      }
+    },
+    {
+      "name": "valid snapshot findings",
+      "valid": true,
+      "value": {
+        "contract": 1,
+        "computedAt": "2026-10-13",
+        "sourceRevision": "abcdef0",
+        "findings": [
+          {
+            "stage": "build",
+            "message": "Product requirement FR-001 has no use case link."
+          }
+        ]
+      }
+    },
+    {
+      "name": "missing source revision",
+      "valid": false,
+      "value": {
+        "contract": 1,
+        "computedAt": "2026-10-13",
+        "findings": []
+      }
+    },
+    {
+      "name": "unknown field",
+      "valid": false,
+      "value": {
+        "contract": 1,
+        "computedAt": "2026-10-13",
+        "sourceRevision": "abcdef0",
+        "findings": [],
+        "generatedBy": "madarch"
+      }
+    },
+    {
+      "name": "invalid date",
+      "valid": false,
+      "value": {
+        "contract": 1,
+        "computedAt": "yesterday",
+        "sourceRevision": "abcdef0",
+        "findings": []
+      }
+    }
+  ]
+}

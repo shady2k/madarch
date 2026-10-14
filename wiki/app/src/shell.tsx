@@ -22,7 +22,6 @@
 import { useEffect, useRef, useState, useContext, type ReactElement, type ReactNode, type MouseEventHandler } from 'react';
 import {
   CheckIcon,
-  CircleDashedIcon,
   ChevronDownIcon,
   FileTextIcon,
   FolderGit2Icon,
@@ -31,10 +30,10 @@ import {
   NetworkIcon,
   PanelRightIcon,
 } from 'lucide-react';
-import type { PageList, PageMeta, Product, QuestionList } from './api.js';
+import type { PageList, PageMeta, Product } from './api.js';
 import type { Architecture } from './api.js';
-import { architectureAddress, addressOfGroup, addressOfStageRoute, QUESTIONS_ADDRESS, REPOS_ADDRESS } from './routes.js';
-import { DEFAULT_STAGES, kindEntry, kindOrder, stageList, stagePosition, type RegistryOffer } from './registry.js';
+import { architectureAddress, addressOfGroup, addressOfStageRoute, REPOS_ADDRESS } from './routes.js';
+import { kindEntry, kindOrder, stageList, stagePosition, type RegistryOffer } from './registry.js';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { setWikiLanguage, type WikiLanguage } from './i18n.js';
@@ -82,8 +81,8 @@ function FilledDocumentGlyph({ className }: { className: string }): ReactElement
   );
 }
 
-/** The stages, in the life cycle's own order when no registry names the product's own — the app's generic list, re-read from the registry module. */
-export const stageIds = DEFAULT_STAGES;
+/** The stages available from a manifest; a product without one has none. */
+export const stageIds = stageList(null).map((stage) => stage.id);
 
 /** One group of the navigation: its title and its pages in path order. */
 export type NavGroup = { name: string; pages: PageMeta[] };
@@ -314,14 +313,12 @@ function StagesNav({ current, onNavigate, offer }: { current: string | undefined
   );
 }
 
-function NavPanel({ product, groups, current, currentStage, openQuestions, onNavigate, architectureCount, reposCount, offer }: {
+function NavPanel({ product, groups, current, currentStage, onNavigate, architectureCount, reposCount, offer }: {
   product: Product;
   groups: readonly NavGroup[];
   current: string | undefined;
   /** The open stage's id, when the route is a stage's. */
   currentStage?: string;
-  /** The product's open questions, when the questions view is wired. */
-  openQuestions?: QuestionList;
   onNavigate?: MouseEventHandler;
   /** The Architecture section's view count, when the model holds views. */
   architectureCount?: number;
@@ -369,16 +366,6 @@ function NavPanel({ product, groups, current, currentStage, openQuestions, onNav
         data-testid="nav-overview"
       >
         <span className="flex items-center gap-2.5"><PanelRightIcon aria-hidden="true" className="size-4 shrink-0 text-muted" /> {t('navigation.overview')}</span>
-      </a>
-      <a
-        className="mb-3 flex items-center justify-between rounded-[var(--radius-row)] px-2.5 py-2 text-[13px] text-ink no-underline hover:bg-[var(--surface-hover)] focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
-        href={QUESTIONS_ADDRESS}
-        data-testid="nav-open-questions"
-      >
-        <span className="flex items-center gap-2.5"><CircleDashedIcon aria-hidden="true" className="size-4 shrink-0 text-muted" /> {t('navigation.openQuestions')}</span>
-        {openQuestions !== undefined && (
-          <span className="nav-questions-count text-[12px] text-muted" data-testid="open-questions-count">{openQuestions.openCount}</span>
-        )}
       </a>
       {reposCount !== undefined && reposCount > 0 && (
         <a
@@ -501,7 +488,7 @@ export function StatusBar(): ReactElement {
  * own scrolling column (the only scrolling part at any window height), and
  * the status bar along the window's bottom edge.
  */
-export function Shell({ product, list, children, architecture, reposCount, reposOpen, openQuestions, offer }: {
+export function Shell({ product, list, children, architecture, reposCount, reposOpen, offer }: {
   product: Product;
   list: PageList;
   children: ReactNode;
@@ -510,8 +497,6 @@ export function Shell({ product, list, children, architecture, reposCount, repos
   reposCount?: number;
   /** Whether the repositories' page is the one open, for the breadcrumb and the tab strip. */
   reposOpen?: boolean;
-  /** The product's open questions, when the questions view is wired. */
-  openQuestions?: QuestionList;
   /** The kinds registry the server answered, or none: the groups, their order and the stage rows read it. */
   offer?: RegistryOffer | null;
 }): ReactElement {
@@ -538,8 +523,19 @@ export function Shell({ product, list, children, architecture, reposCount, repos
   }, [menuOpen]);
   const current = route.path;
   const registryOffer = offer ?? null;
+  const stageLabel = (id: string): string => {
+    const stage = stageList(registryOffer).find((entry) => entry.id === id);
+    return stage?.name ?? t(`stages.names.${id}`, { defaultValue: wordLabel(id) });
+  };
   const groups = groupNav(list.pages, registryOffer);
   const openPage = current === undefined ? undefined : list.pages.find((page) => page.path === current);
+  const documentTabTitle = (() => {
+    if (openPage !== undefined) return openPage.path.split('/').pop();
+    if (route.architecture !== undefined) return route.architecture.title;
+    if (route.stage !== undefined) return stageLabel(route.stage);
+    if (route.group !== undefined) return t('groups.' + route.group, { defaultValue: wordLabel(route.group) });
+    return reposOpen === true ? t('navigation.repositories') : t('navigation.overview');
+  })();
   const classes = ['shell'];
   if (menuOpen) classes.push('nav-open');
   if (focused) classes.push('doc-only');
@@ -552,7 +548,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
           aria-label={t('navigation.aria')}
           hidden={focused}
         >
-          <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} openQuestions={openQuestions} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} offer={registryOffer} />
+          <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} offer={registryOffer} />
         </aside>
         <div className="shell-main flex min-w-0 flex-1 flex-col">
           <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line px-4 wide:px-[35px]">
@@ -581,7 +577,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
                 <>
                   <span className="text-muted">{t('stages.title')}</span>{' '}
                   <span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
-                  <span className="text-ink">{t(`stages.names.${route.stage}`)}</span>
+                  <span className="text-ink">{stageLabel(route.stage)}</span>
                 </>
               ) : openPage === undefined ? (
                 reposOpen === true ? t('navigation.repositories') : t('navigation.overview')
@@ -611,7 +607,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
                   data-testid="phone-nav"
                   className={'app-nav w-[min(280px,_82vw)] px-[14px] py-3 ' + (focused ? 'bg-chrome' : '')}
                 >
-                  <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} openQuestions={openQuestions} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} offer={registryOffer} />
+                  <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} offer={registryOffer} />
                 </SheetContent>
               </Sheet>
               <DropdownMenu.Root>
@@ -686,7 +682,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
           <div className="document-bar flex min-h-[45px] items-stretch bg-ground">
             <div className="document-tab flex min-w-[182px] items-center gap-2 border-r border-line bg-page px-[25px] text-[13px] text-secondary" data-testid="document-tab">
               <FileTextIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-              <span className="truncate">{openPage?.path.split('/').pop() ?? (route.architecture !== undefined ? route.architecture.title : (route.stage !== undefined ? t(`stages.names.${route.stage}`) : (route.group !== undefined ? t('groups.' + route.group, { defaultValue: wordLabel(route.group) }) : (reposOpen === true ? t('navigation.repositories') : t('navigation.overview')))))}</span>
+              <span className="truncate">{documentTabTitle}</span>
             </div>
           </div>
           {/* The window-height shell: every panel and bar stays in place and

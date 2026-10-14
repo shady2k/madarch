@@ -14,14 +14,14 @@
  * What the registry is and how it refuses is the contract's own reading
  * (`src/product/contract.ts`); this module consumes it, and names nothing
  * of any set vocabulary: the prefixes and folders come from the registry's
- * own fields, and a status is computed from the document's own text — the
- * sections `Answer` and `Verdict` stand in the document or they do not —
- * never from a kind's name.
+ * own fields, question status uses the form the kind declares, and a result
+ * status reads the document's `Verdict` section.
  */
 import { dirname as dirOf, isAbsolute, join as joinPath } from 'node:path';
 import { byCodePoint } from '../model/order.js';
 import { registryKit, kindLinksOf, kindOfId, kindOfPath, type RegistryKit } from '../product/registry.js';
 import type { RegistryKind } from '../product/contract.js';
+import type { QuestionForm } from '../product/schema.js';
 
 /** A product document's kind, as the registry that names it spells it. */
 export type DocumentKind = string;
@@ -85,20 +85,18 @@ export interface ParsedDocument {
 
 /**
  * The status the document's own text computes, never written: a document
- * whose sections hold a question's material (the sections its form gathers,
- * `Question` and `What settles it`) is answered when its `Answer` section
- * carries text and stands open while it does not, and one whose sections
- * hold a `Verdict` stands in the first word the verdict says. A document
- * the text carries none of this in computes no status; the words are the
- * document's own, never a kind's data in code.
+ * whose manifest-declared question section has an answer section is answered
+ * when the answer carries text and open while it does not. A document whose
+ * sections hold a `Verdict` stands in the first word the verdict says.
+ * Otherwise it computes no status.
  */
 export type ComputedStatus = 'answered' | 'open' | 'confirmed' | 'refuted' | 'unclear';
 
-export function statusOf(doc: ParsedDocument): ComputedStatus | undefined {
+export function statusOf(doc: ParsedDocument, questionForm?: QuestionForm): ComputedStatus | undefined {
   if (doc.id === undefined) return undefined;
-  const question = doc.sections.find((s) => s.name === 'Question' || s.name === 'What settles it');
-  if (question !== undefined) {
-    const answer = doc.sections.find((s) => s.name === 'Answer');
+  const question = questionForm === undefined ? undefined : doc.sections.find((s) => s.name === questionForm.promptSection);
+  if (question !== undefined && questionForm !== undefined) {
+    const answer = doc.sections.find((s) => s.name === questionForm.answerSection);
     return answer !== undefined && answer.text.trim() !== '' ? 'answered' : 'open';
   }
   const verdict = doc.sections.find((s) => s.name === 'Verdict');

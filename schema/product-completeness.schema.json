@@ -1,0 +1,50 @@
+{
+  "type": "object",
+  "required": [
+    "contract",
+    "computedAt",
+    "sourceRevision",
+    "findings"
+  ],
+  "properties": {
+    "contract": {
+      "type": "number",
+      "const": 1
+    },
+    "computedAt": {
+      "type": "string",
+      "format": "date"
+    },
+    "sourceRevision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{7,40}$",
+      "description": "The product repository revision the external calculation read."
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "stage",
+          "message"
+        ],
+        "properties": {
+          "stage": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/shady2k/madarch/schema/v1/product-completeness.schema.json",
+  "title": "Madarch product completeness snapshot",
+  "description": "A committed snapshot computed by the product skill set. Madarch validates and renders the supplied findings; it does not calculate completeness.",
+  "additionalProperties": false
+}

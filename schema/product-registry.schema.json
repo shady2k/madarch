@@ -11,6 +11,31 @@
       "const": 1,
       "description": "The contract version the registry is written against; this schema publishes version 1."
     },
+    "overview": {
+      "type": "object",
+      "properties": {
+        "audience": {
+          "type": "object",
+          "required": [
+            "document",
+            "section"
+          ],
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 1
+            },
+            "section": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "goals": {
       "type": "array",
       "items": {
@@ -61,6 +86,30 @@
             "type": "string",
             "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
             "minLength": 1
+          },
+          "expected": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "architecture"
+                },
+                {
+                  "type": "string",
+                  "const": "repositories"
+                }
+              ]
+            },
+            "uniqueItems": true
           }
         },
         "additionalProperties": false
@@ -160,6 +209,50 @@
               "additionalProperties": false
             },
             "description": "The links the kind declares: field name, allowed target kinds, the backlink's label, the cardinality and whether the link is required."
+          },
+          "questions": {
+            "type": "object",
+            "required": [
+              "identityPrefix",
+              "titleSeparator",
+              "promptSection",
+              "answerSection"
+            ],
+            "properties": {
+              "identityPrefix": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+              },
+              "titleSeparator": {
+                "type": "string",
+                "minLength": 1
+              },
+              "promptSection": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+                "minLength": 1
+              },
+              "answerSection": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+                "minLength": 1
+              },
+              "answererField": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+                "minLength": 1
+              },
+              "concernsField": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9 _-]*$",
+                "minLength": 1
+              },
+              "notApplicablePrefix": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
           },
           "storage": {
             "anyOf": [
