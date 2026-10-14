@@ -20,7 +20,15 @@ heading, else its file's name without its extension, and its address shall be
 `/p/` and its path within the product. A page shall show its Markdown as
 formatted text. A link from one page to another page of the wiki shall open
 that page; a link to anything else shall be shown as its text. A home page of
-a product with no pages shall say that it has none yet.
+a product with no pages shall say that it has none yet and give a short,
+localized getting-started guide. The guide shall explain what a product
+repository is and name only `madarch new` and `setup-shady2k-skills` as next
+steps. It shall offer a demo by running
+`git clone https://github.com/shady2k/madarch-product` followed by
+`madarch serve --product madarch-product`. `setup-shady2k-skills` writes
+`workspace.yaml` and product documents. The guide shall appear when the home has no pages,
+including when no manifest metadata is available to the app; it shall not add
+sample product content.
 
 
 
@@ -33,7 +41,15 @@ a product with no pages shall say that it has none yet.
 ### Scenario: no-pages-yet
 - Given: a draft whose `docs/` holds no Markdown file
 - When: its wiki is opened
-- Then: the home page names the product and says it has no pages yet
+- Then: the home page names the product, says it has no pages yet, and shows
+  the localized guide naming only `madarch new` and `setup-shady2k-skills`.
+  It offers the demo with `git clone https://github.com/shady2k/madarch-product`
+  followed by `madarch serve --product madarch-product`.
+
+### Scenario: no-manifest-home-guide
+- Given: an existing directory without `workspace.yaml` is served and has no Markdown pages
+- When: its home page is opened in English or Russian
+- Then: it shows the same localized getting-started guide, including that setup writes `workspace.yaml` and product documents, without adding sample product content
 ### Scenario: link-between-pages
 - Given: a product whose `docs/index.md` links to `vision.md` and to `../AGENTS.md`
 - When: its index page is read
@@ -370,12 +386,18 @@ The server watches the product working tree and answers one Server-Sent Events s
 When a local madarch is given a product folder, it shall serve that product's
 wiki at its address and print the address; `madarch new` shall create the
 draft and serve its wiki in one command, and `madarch serve` shall serve the
-product of the current folder when it is given none. `madarch new` shall open
-the address in the browser the machine uses; where no browser can be opened,
-it shall say so and print the address without failing. The server shall serve
-the app's built files and answer the wiki's pages; a request it cannot answer
-shall be refused with a message naming what was asked for, and no document's
-content shall be logged.
+product of the current folder when it is given none. `madarch serve` shall
+also serve an existing directory with no `workspace.yaml` as a temporary,
+read-only empty home so its reader can see the getting-started guide. The
+folder's name supplies only the temporary display name; no manifest, product
+id or sample document is written or treated as manifest data. A directory
+that does not exist, a manifest that cannot be read, or a manifest that does
+not parse remains refused with its cause. Manifest reading and lifecycle
+commands remain strict. `madarch new` shall open the address in the browser the
+machine uses; where no browser can be opened, it shall say so and print the
+address without failing. The server shall serve the app's built files and
+answer the wiki's pages; a request it cannot answer shall be refused with a
+message naming what was asked for, and no document's content shall be logged.
 
 
 
@@ -389,6 +411,17 @@ content shall be logged.
 - Given: a draft created earlier and no server running
 - When: `madarch serve` is run in the product's root
 - Then: the same wiki answers at the address it prints
+
+### Scenario: serve-empty-folder-without-manifest
+- Given: an existing empty directory with no `workspace.yaml` and no server running
+- When: `madarch serve` is run in that directory
+- Then: the command prints an address, the home page answers with the localized getting-started guide, and the directory is unchanged — no manifest or product data is written
+
+### Scenario: invalid-manifest-still-refused
+- Given: an existing directory whose `workspace.yaml` is unreadable or malformed
+- When: `madarch serve` is run in that directory
+- Then: it remains refused with the manifest's file, line and cause; the no-manifest fallback does not mask it
+
 ### Scenario: unknown-page
 - Given: a served draft
 - When: a page of a path the product does not hold, and a path outside its `docs/`, are asked for
@@ -416,11 +449,13 @@ command shall stop with exit 2 and print what the builder said.
 
 ## Requirement: result — Served, opened or refused, and why
 When a product's wiki is served, the command shall serve until it is stopped.
+An existing directory without a `workspace.yaml` is the one exception to the
+manifest requirement: it serves an empty home with the getting-started guide.
 It shall exit 2 when its input cannot be read — an argument it does not know,
-a product folder that is not there, a product whose manifest cannot be read, an
-address already taken, or an app that cannot be built — naming what is wrong;
-and 1 when a step it takes fails. Serving shall change neither the product's
-files nor its repository.
+a path that is not an existing directory, a manifest entry that cannot be
+read, an invalid manifest, an address already taken, or an app that cannot be
+built — naming what is wrong; and 1 when a step it takes fails. Serving shall
+change neither the product's files nor its repository.
 
 
 
@@ -428,9 +463,14 @@ files nor its repository.
 
 
 ### Scenario: no-product
-- Given: a folder that holds no `workspace.yaml`
-- When: `madarch serve --product` naming that folder is run
-- Then: it exits 2 naming the folder and the manifest it looked for
+- Given: a path that does not exist or does not name a directory
+- When: `madarch serve --product` naming that path is run
+- Then: it exits 2 naming the path and refusing to serve it
+
+### Scenario: present-manifest-refused
+- Given: an existing directory whose `workspace.yaml` entry is present but unreadable or invalid
+- When: `madarch serve --product` naming that directory is run
+- Then: it exits 2 naming the manifest and its cause rather than using the no-manifest fallback
 ### Scenario: address-taken
 - Given: a server already answering on the default port
 - When: another product's wiki is served on it
