@@ -16,7 +16,7 @@ import { createElement } from 'react';
 import { App, HomePage, PageReader, RepositoriesPage, RepoCard, EVENTS_PATH } from './app.js';
 import { groupNav } from './shell.js';
 import { languageStorageKey, setWikiLanguage } from './i18n.js';
-import { addressOfPage } from './routes.js';
+import { addressOfGroup, addressOfPage, routeOf } from './routes.js';
 
 import type { Product, ProductWithAudience, PageList, Page, QuestionList, QuestionEntry } from './api.js';
 
@@ -805,6 +805,22 @@ describe('addresses', () => {
   });
 });
 
+describe('group addresses', () => {
+  test('encodes one group segment and decodes it from a group route', () => {
+    const address = addressOfGroup('release notes/✓');
+    expect(address).toBe('/g/release%20notes%2F%E2%9C%93');
+    expect(routeOf(address)).toEqual({ name: 'group', group: 'release notes/✓' });
+  });
+
+  test('a page address is not mistaken for a group route', () => {
+    expect(routeOf('/p/docs/vision.md')).toEqual({ name: 'page', path: 'docs/vision.md' });
+  });
+
+  test('a malformed group address falls back to the overview', () => {
+    expect(routeOf('/g/%E0%A4%A')).toEqual({ name: 'home' });
+  });
+});
+
 describe('the reading shell', () => {
   const shellList: PageList = {
     revision: 'r1',
@@ -872,12 +888,20 @@ describe('the reading shell', () => {
 
 
 
+  test('a stage route marks its stage in the shared navigation context', async () => {
+    install(answerFor(product, shellList, shellPages));
+    goto('/s/idea');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('[data-stage-link="idea"][aria-current="page"]') !== null, 'the active stage link');
+  });
+
   test('the brand reads madarch, and the product block below it names the product', async () => {
     install(answerFor(product, shellList, shellPages));
     goto('/');
     await intoApp(createElement(App));
     await until(() => document.querySelector('.app-nav .nav-brand') !== null, 'the brand');
     expect(document.querySelector('.app-nav .nav-brand')?.textContent).toContain('madarch');
+    expect(document.querySelector('.app-nav .nav-brand .nav-concept')?.textContent).toBe('wiki');
     expect(document.querySelector('[data-testid="product-block"]')?.textContent).toContain('Draft Idea');
   });
 
@@ -903,6 +927,150 @@ describe('the reading shell', () => {
     await until(() => document.querySelector('.app-nav a[href="/p/docs/research/notes.md"]') !== null, 'the nav link');
     (document.querySelector('.app-nav a[href="/p/docs/research/notes.md"]') as HTMLAnchorElement).click();
     await until(() => document.querySelector('main#page h1')?.textContent === 'Research notes', 'the opened page');
+  });
+
+  test('a registry kind, rather than its folder, identifies a page group', async () => {
+    const registeredList: PageList = {
+      ...shellList,
+      pages: shellList.pages.map((meta) => meta.path === 'docs/decisions/0001-choice.md' ? { ...meta, kind: 'review' } : meta),
+    };
+    install(answerFor(product, registeredList, shellPages));
+    goto('/p/docs/decisions/0001-choice.md');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('[data-testid="breadcrumb-group"]') !== null, 'the registered group breadcrumb');
+    const crumb = document.querySelector('[data-testid="breadcrumb-group"]') as HTMLAnchorElement;
+    expect(crumb.getAttribute('href')).toBe('/g/review');
+    expect(crumb.textContent).toBe('Review');
+    crumb.click();
+    await until(() => window.location.pathname === '/g/review' && document.querySelector('main#group h1')?.textContent === 'Review', 'the registered group page');
+    expect([...document.querySelectorAll('main#group a[href^="/p/"]')].map((link) => link.textContent)).toEqual(['Decision one']);
+  });
+
+  test('the group heading and breadcrumb use the selected language where a translation exists', async () => {
+    await setWikiLanguage('ru');
+    try {
+      install(answerFor(product, shellList, shellPages));
+      goto('/g/product');
+      await intoApp(createElement(App));
+      await until(() => document.querySelector('main#group h1')?.textContent === 'Продукт', 'the translated group heading');
+      expect(document.querySelector('[data-nav-group="product"] button')?.getAttribute('aria-label')).toBe('Свернуть или развернуть группу «Продукт»');
+      expect(document.querySelector('.shell-breadcrumb')?.textContent).toBe('Продукт / Продукт');
+      (document.querySelector('main#group a[href="/p/README.md"]') as HTMLAnchorElement).click();
+      await until(() => window.location.pathname === '/p/README.md' && document.querySelector('main#page') !== null, 'the product page');
+      expect(document.querySelector('.shell-breadcrumb')?.textContent).toBe('Продукт / Продукт / README');
+    } finally {
+      await setWikiLanguage('en');
+    }
+  });
+
+  test('an unknown group route renders an empty group page rather than failing', async () => {
+    install(answerFor(product, shellList, shellPages));
+    goto('/g/not-held');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('main#group h1')?.textContent === 'Not Held', 'the empty group page');
+    expect(document.querySelector('.shell-breadcrumb')?.textContent).toBe('Product / Not Held');
+    expect(document.querySelectorAll('main#group a[href^="/p/"]').length).toBe(0);
+    expect(document.querySelector('.status-details')?.textContent).toBe('');
+  });
+
+  test('leaving a nonempty group page clears its status on a stage route', async () => {
+    install(answerFor(product, shellList, shellPages));
+    goto('/g/decisions');
+    await intoApp(createElement(App));
+    await until(
+      () => document.querySelector('main#group h1')?.textContent === 'Decisions' && document.querySelector('.status-details')?.textContent === '1 document',
+      'the nonempty group page and its status',
+    );
+
+    window.history.pushState({}, '', '/s/idea');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    await until(
+      () => window.location.pathname === '/s/idea' && document.querySelector('main#group') === null
+        && (document.querySelector('.loading') !== null || document.querySelector('main#stage') !== null),
+      'the stage route',
+    );
+    await until(() => document.querySelector('.status-details')?.textContent === '', 'the cleared group status');
+    expect(document.querySelector('.status-details')?.textContent).toBe('');
+  });
+
+  test('a group route lists only its live group pages and its breadcrumbs and nav link return to overview', async () => {
+    install(answerFor(product, shellList, shellPages));
+    goto('/p/docs/decisions/0001-choice.md');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('[data-testid="breadcrumb-group"]') !== null, 'the page group breadcrumb');
+
+    (document.querySelector('[data-testid="breadcrumb-product"]') as HTMLAnchorElement).click();
+    await until(() => window.location.pathname === '/' && document.querySelector('main#home') !== null, 'the overview from a page breadcrumb');
+    (document.querySelector('main#home a[href="/p/docs/decisions/0001-choice.md"]') as HTMLAnchorElement).click();
+    await until(() => window.location.pathname === '/p/docs/decisions/0001-choice.md' && document.querySelector('[data-testid="breadcrumb-group"]') !== null, 'the decision page again');
+
+    (document.querySelector('[data-testid="breadcrumb-group"]') as HTMLAnchorElement).click();
+    await until(() => window.location.pathname === '/g/decisions' && document.querySelector('main#group h1')?.textContent === 'Decisions', 'the group page');
+    expect([...document.querySelectorAll('main#group a[href^="/p/"]')].map((link) => link.textContent)).toEqual(['Decision one']);
+    expect(document.querySelector('[data-testid="breadcrumb-product"]')?.getAttribute('href')).toBe('/');
+    expect(document.querySelector('.status-details')?.textContent).toBe('1 document');
+
+    (document.querySelector('[data-testid="breadcrumb-product"]') as HTMLAnchorElement).click();
+    await until(() => window.location.pathname === '/' && document.querySelector('main#home') !== null, 'the overview from the group breadcrumb');
+    await until(() => document.querySelector('[data-testid="word-count"]')?.textContent === '7 documents', 'the overview status replacing the group status');
+
+    const groupToggle = document.querySelector('[data-nav-group="decisions"] button') as HTMLButtonElement;
+    expect(groupToggle.getAttribute('aria-label')).toBe('Toggle Decisions group');
+    expect(groupToggle.getAttribute('aria-expanded')).toBe('true');
+    const chevron = groupToggle.querySelector('svg');
+    expect([...chevron!.classList]).toEqual(['lucide', 'lucide-chevron-down', 'size-4', 'transition-transform', 'duration-150']);
+    groupToggle.click();
+    await until(() => groupToggle.getAttribute('aria-expanded') === 'false' && document.querySelector('[data-nav-group="decisions"] .nav-link') === null, 'the collapsed group');
+    expect([...groupToggle.querySelector('svg')!.classList]).toEqual(['lucide', 'lucide-chevron-down', 'size-4', 'transition-transform', 'duration-150', '-rotate-90']);
+    groupToggle.click();
+    await until(() => groupToggle.getAttribute('aria-expanded') === 'true' && document.querySelector('[data-nav-group="decisions"] .nav-link') !== null, 'the expanded group');
+    expect([...groupToggle.querySelector('svg')!.classList]).toEqual(['lucide', 'lucide-chevron-down', 'size-4', 'transition-transform', 'duration-150']);
+    (document.querySelector('[data-testid="nav-group-decisions"]') as HTMLAnchorElement).click();
+    await until(() => window.location.pathname === '/g/decisions' && document.querySelector('main#group') !== null, 'the group from its sidebar heading');
+    (document.querySelector('[data-testid="nav-group-product"]') as HTMLAnchorElement).click();
+    await until(() => window.location.pathname === '/g/product' && document.querySelector('main#group h1')?.textContent === 'Product', 'the product group from its sidebar heading');
+    await until(() => document.querySelector('.status-details')?.textContent === '2 documents', 'the new group status');
+
+    (document.querySelector('main#group a[href="/p/docs/vision.md"]') as HTMLAnchorElement).click();
+    await until(() => window.location.pathname === '/p/docs/vision.md' && document.querySelector('main#page') !== null, 'the page for sidebar-brand navigation');
+    await until(() => document.querySelector('[data-testid="nav-brand"]') !== null, 'the sidebar brand');
+    (document.querySelector('[data-testid="nav-brand"]') as HTMLAnchorElement).click();
+    await until(() => window.location.pathname === '/' && document.querySelector('main#home') !== null, 'the overview from the sidebar brand');
+
+    (document.querySelector('[data-testid="nav-group-decisions"]') as HTMLAnchorElement).click();
+    await until(() => window.location.pathname === '/g/decisions' && document.querySelector('main#group h1')?.textContent === 'Decisions', 'the group page from its sidebar heading');
+  });
+
+  test('modified navigation clicks keep the browser link behavior', async () => {
+    install(answerFor(product, shellList, shellPages));
+    goto('/p/docs/decisions/0001-choice.md');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('[data-testid="breadcrumb-group"]') !== null, 'the page navigation links');
+
+    const modifiers = [
+      { shiftKey: true },
+      { ctrlKey: true },
+      { metaKey: true },
+      { altKey: true },
+      { button: 1 },
+    ];
+    for (const selector of ['[data-testid="nav-brand"]', '[data-testid="breadcrumb-product"]', '[data-testid="breadcrumb-group"]', '[data-testid="nav-group-decisions"]']) {
+      for (const modifier of modifiers) {
+        const link = document.querySelector(selector) as HTMLAnchorElement;
+        const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ...modifier });
+        link.dispatchEvent(event);
+        expect(event.defaultPrevented).toBe(false);
+      }
+    }
+
+    (document.querySelector('[data-testid="breadcrumb-group"]') as HTMLAnchorElement).click();
+    await until(() => document.querySelector('main#group') !== null, 'the group page');
+    const productCrumb = document.querySelector('[data-testid="breadcrumb-product"]') as HTMLAnchorElement;
+    for (const modifier of modifiers) {
+      const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ...modifier });
+      productCrumb.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
   });
 
   test('the context panel place exists: empty, closed, named', async () => {
@@ -1050,6 +1218,19 @@ describe('groupNav', () => {
     await until(() => document.querySelector('.shell.doc-only') === null, 'the cleared focus');
     expect(document.querySelector('.shell-focus')?.getAttribute('aria-pressed')).toBe('false');
   });
+
+  test('opening a group route clears the focus choice', async () => {
+    install(answerFor(product, focusList, focusPages));
+    goto('/p/docs/vision.md');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('.shell-focus') !== null, 'the focus control');
+    (document.querySelector('.shell-focus') as HTMLButtonElement).click();
+    await until(() => document.querySelector('.shell.doc-only') !== null, 'the focused shell');
+    (document.querySelector('[data-testid="nav-group-product"]') as HTMLAnchorElement).click();
+    await until(() => window.location.pathname === '/g/product' && document.querySelector('main#group h1')?.textContent === 'Product', 'the group route');
+    await until(() => document.querySelector('.shell.doc-only') === null, 'the cleared focus on the group route');
+    expect(document.querySelector('.shell-focus')?.getAttribute('aria-pressed')).toBe('false');
+  });
  });
 
 
@@ -1073,7 +1254,7 @@ describe('groupNav', () => {
     goto('/p/docs/decisions/0001-choice.md');
     await intoApp(createElement(App));
     await until(() => document.querySelector('.shell-breadcrumb') !== null, 'the breadcrumb');
-    expect(document.querySelector('.shell-breadcrumb')?.textContent).toBe('Decisions / Decision one');
+    expect(document.querySelector('.shell-breadcrumb')?.textContent).toBe('Product / Decisions / Decision one');
     expect(document.querySelector('.shell-menu')).not.toBeNull();
     expect(document.querySelector('.shell-focus')).not.toBeNull();
     expect(document.querySelector('.shell-menu')?.getAttribute('aria-label')).toBe('Document navigation');

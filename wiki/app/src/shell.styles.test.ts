@@ -170,8 +170,8 @@ describe('the shell markup', () => {
   test('the breadcrumb names kind and title, and every icon rides lucide', async () => {
     const container = await intoShell();
     const crumb = container.querySelector('.shell-breadcrumb');
-    expect(crumb?.textContent).toBe('Requirements / Requirement one');
-    expect(crumb?.querySelector('.text-muted')?.textContent).toBe('Requirements');
+    expect(crumb?.textContent).toBe('Product / Requirements / Requirement one');
+    expect(crumb?.querySelector('[data-testid="breadcrumb-group"]')?.textContent).toBe('Requirements');
     expect(crumb?.querySelector('.text-ink')?.textContent).toBe('Requirement one');
   });
 

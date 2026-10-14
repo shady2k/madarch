@@ -242,10 +242,12 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
   }
   return (
     <StatusBridge streamConnected={streamConnected}>
-      <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, stage: route.name === 'stage' ? route.stage : undefined, architecture: architectureCrumb, heldPaths }}>
+      <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, stage: route.name === 'stage' ? route.stage : undefined, group: route.name === 'group' ? route.group : undefined, architecture: architectureCrumb, heldPaths }}>
         <Shell product={data.product} list={list} architecture={architecture} reposCount={data.repos?.repos.length} reposOpen={route.name === 'repos'} openQuestions={data.questions} offer={data.registry}>
         {route.name === 'home' ? (
           <HomePage product={data.product} list={list} architecture={architecture} />
+        ) : route.name === 'group' ? (
+          <GroupPage group={route.group} list={list} offer={data.registry} />
         ) : route.name === 'repos' && (data.repos?.repos.length ?? 0) > 0 ? (
           <RepositoriesPage product={data.product} repos={data.repos!.repos} />
         ) : route.name === 'repos' ? (
@@ -324,6 +326,34 @@ export function StatusBridge({ children, streamConnected }: { children: ReactNod
     <statusContext.Provider value={{ publish, parts: line, connection: streamConnected ? 'live' : 'reconnecting' }}>
       {children}
     </statusContext.Provider>
+  );
+}
+
+/** A generic group page: only live pages with this route's group identity, in code-point path order. */
+export function GroupPage({ group, list, offer }: { group: string; list: PageList; offer?: RegistryOffer | null }): ReactElement {
+  const { publish } = useContext(statusContext);
+  const { t } = useTranslation();
+  const label = t('groups.' + group, { defaultValue: wordLabel(group) });
+  const pages = groupNav(list.pages, offer ?? null).find((entry) => entry.name === group)?.pages ?? [];
+  useEffect(() => {
+    publish(pages.length === 0 ? null : [t('status.documents', { count: pages.length, unit: t('units.document', { count: pages.length }) })]);
+    return () => publish(null);
+  }, [publish, pages.length, t]);
+  return (
+    <main id="group" data-testid="group-page">
+      <p className="eyebrow">{t('navigation.documents')}</p>
+      <h1 className="app-title">{label}</h1>
+      <ul className="home-rows">
+        {pages.map((meta) => (
+          <li key={meta.path}>
+            <PageLink path={meta.path} className="home-row">
+              <FileTextIcon aria-hidden="true" className="home-row-icon" />
+              <span className="home-row-title">{meta.title}</span>
+            </PageLink>
+          </li>
+        ))}
+      </ul>
+    </main>
   );
 }
 

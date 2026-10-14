@@ -11,6 +11,7 @@
 
 export type Route =
   | { name: 'home' }
+  | { name: 'group'; group: string }
   | { name: 'questions' }
   | { name: 'page'; path: string }
   | { name: 'architecture' }
@@ -43,6 +44,13 @@ export function addressOfElement(id: string): string {
 
 /** Reads a route from the address. Anything else answers the home page. */
 export function routeOf(pathname: string): Route {
+  if (pathname.startsWith('/g/')) {
+    try {
+      return { name: 'group', group: decodeURIComponent(pathname.slice('/g/'.length)) };
+    } catch {
+      return { name: 'home' };
+    }
+  }
   if (pathname === QUESTIONS_ADDRESS || pathname.startsWith(QUESTIONS_ADDRESS + '/')) {
     return { name: 'questions' };
   }
@@ -72,6 +80,11 @@ export function routeOf(pathname: string): Route {
     }
   }
   return { name: 'home' };
+}
+
+/** The address of one document group page. */
+export function addressOfGroup(group: string): string {
+  return '/g/' + encodeURIComponent(group);
 }
 
 /** The address of a page, `/p/` plus its path within the product. */

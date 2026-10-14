@@ -21,7 +21,8 @@
     "language": "Language",
     "english": "English",
     "russian": "Russian",
-    "repositories": "Repositories"
+    "repositories": "Repositories",
+    "toggleGroup": "Toggle {{group}} group"
   },
   "groups": {
     "product": "Product",
