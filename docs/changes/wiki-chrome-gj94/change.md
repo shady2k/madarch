@@ -35,10 +35,11 @@ Use the no-switcher option already supported by the noninteractive product block
 
 ## Acceptance evidence
 - Shell-only tests: `cd wiki/app && bun test src/shell.styles.test.ts` — exit 0 (14 passed).
-- Reader E2E: `MADARCH_WIKI_E2E=1 MADARCH_WIKI_SCREENSHOT=/tmp/madarch-gj94-reader.png bun test test/wiki-chrome-e2e.test.ts` — exit 0 (1 passed, 10 assertions); screenshot rendered and inspected outside the repository at `/tmp/madarch-gj94-reader.png` (1150×900).
-- Static/build: `cd wiki/app && bun run check` — exit 0; `cd wiki/app && bun run build` — exit 0; root `bun run check` — exit 0.
-- Root tests: `MADARCH_SKIP_PERF=1 bun test test/` — exit 0 (1677 passed, 45 skipped).
-- Full wiki-app suite is pending the authorized update of stale chrome assertions in `app.test.ts` after XQ0V's change lands; the earlier suite run exited 1 on those assertions. It must be rerun before this task is handed off as accepted.
+- Reader E2E (real server and Chromium, 1150×900): English `MADARCH_WIKI_E2E=1 MADARCH_WIKI_LANGUAGE=en MADARCH_WIKI_SCREENSHOT=/tmp/madarch-gj94-reader-en.png bun test test/wiki-chrome-e2e.test.ts` — exit 0 (1 passed, 9 assertions); Russian `MADARCH_WIKI_E2E=1 MADARCH_WIKI_LANGUAGE=ru MADARCH_WIKI_SCREENSHOT=/tmp/madarch-gj94-reader-ru.png bun test test/wiki-chrome-e2e.test.ts` — exit 0 (1 passed, 9 assertions). Both fresh screenshots were visually inspected outside the repository.
+- App checks: `cd wiki/app && bun install --frozen-lockfile && bun run check && bun test && bun run build` — exit 0; app suite: 150 passed, 0 failed. `cd wiki/app && bun test src/shell.styles.test.ts` — exit 0 (14 passed).
+- Root static check: `bun run check` — exit 0. The full root test suite was not rerun for this follow-up.
+- Feature-document gate after rebase: `node .shady2k/documents.mjs check --phase feature --change wiki-chrome-gj94 --candidate worktree --target origin/main` — exit 0, clean.
+- Independent gpt-6-luna review found one breadcrumb-context defect; it was fixed, and the second review reported no findings.
 
 ## DONE WHEN
 The browser-rendered reader view has no tab strip, no repeated document title, no Fieldnote disclosure affordance, and no dead bottom status strip; a disjoint reader E2E test asserts these facts and captures a screenshot outside the repository.

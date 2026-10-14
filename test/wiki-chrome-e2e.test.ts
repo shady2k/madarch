@@ -16,6 +16,7 @@ const APP = join(ROOT, 'wiki', 'app', 'dist');
 const SCREENSHOT = process.env.MADARCH_WIKI_SCREENSHOT ?? '/tmp/madarch-gj94-reader.png';
 const PAGE_PATH = '/p/docs/vision.md';
 const PAGE_TITLE = 'Reader vision';
+const LANGUAGE = process.env.MADARCH_WIKI_LANGUAGE === 'ru' ? 'ru' : 'en';
 const enabled = process.env.MADARCH_WIKI_E2E === '1';
 const runDescribe = enabled ? describe.serial : describe.skip;
 
@@ -79,6 +80,9 @@ runDescribe('wiki reader chrome (built app and Chromium)', () => {
   beforeEach(async () => {
     page = await browser!.newPage();
     await page.setViewport({ width: 1150, height: 900 });
+    await page.evaluateOnNewDocument((language) => {
+      localStorage.setItem('madarch-wiki-language', language);
+    }, LANGUAGE);
   });
 
   afterEach(async () => {
@@ -111,8 +115,7 @@ runDescribe('wiki reader chrome (built app and Chromium)', () => {
     expect(await page.$('footer.statusbar, [data-testid="connection-status"]')).toBeNull();
     const toolbarText = await page.$eval('.shell-toolbar', (toolbar) => toolbar.textContent ?? '');
     expect(toolbarText).not.toContain(PAGE_TITLE);
-    expect(toolbarText).not.toContain('Product / Product');
-    expect(await page.$eval('.shell-breadcrumb', (breadcrumb) => breadcrumb.textContent?.trim())).toBe('Product');
+    expect(await page.$eval('.shell-breadcrumb', (breadcrumb) => breadcrumb.textContent?.trim())).toBe(LANGUAGE === 'ru' ? 'Продукт / Продукт' : 'Product / Product');
 
     const productBlock = await page.$('[data-testid="product-block"]');
     expect(productBlock).not.toBeNull();

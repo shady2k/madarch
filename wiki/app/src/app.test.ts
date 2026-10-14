@@ -673,7 +673,7 @@ describe('live update', () => {
     await until(() => text().includes('After the drop.'), 'the page saved after the drop');
     expect(answers).toBe(2);
   });
-  test('the status bar names the stream state on its own: Reconnecting until open, then Live', async () => {
+  test('the stream connection state is not shown as chrome', async () => {
     // The first /api/events asks and holds its answer until the test lets it
     // through: the connection state reads Reconnecting for as long as the
     // stream is not open, and Live the moment it opens.
@@ -695,17 +695,16 @@ describe('live update', () => {
     goto('/p/docs/vision.md');
     await intoApp(createElement(App, { reconnectMs: 5 }));
     await until(() => open !== undefined, 'the stream is asked');
-    await until(() => document.querySelector('[data-testid="connection-status"]')?.textContent?.includes('Reconnecting'), 'a not-yet-open stream reads Reconnecting');
+    expect(document.querySelector('[data-testid="connection-status"]')).toBeNull();
     open?.(new Response(new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(new TextEncoder().encode('retry: 3000\n\n'));
       },
     }), { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8' } }));
-    await until(() => document.querySelector('[data-testid="connection-status"]')?.textContent?.includes('Live'), 'an open stream reads Live');
-    expect(document.querySelector('[data-testid="connection-status"]')?.getAttribute('data-state')).toBe('live');
+    expect(document.querySelector('[data-testid="connection-status"]')).toBeNull();
   });
 
-  test('a stream that opens and then fails reads Reconnecting again', async () => {
+  test('a failed stream does not add a connection status control', async () => {
     let answers = 0;
     (globalThis as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL): Promise<Response> => {
       const target = input instanceof URL ? input.pathname + input.search : String(input);
@@ -731,9 +730,8 @@ describe('live update', () => {
     }) as unknown as typeof fetch;
     goto('/p/docs/vision.md');
     await intoApp(createElement(App, { reconnectMs: 5 }));
-    await until(() => document.querySelector('[data-testid="connection-status"]')?.textContent?.includes('Live'), 'the first stream opens Live');
-    await until(() => document.querySelector('[data-testid="connection-status"]')?.textContent?.includes('Reconnecting'), 'the broken stream reads Reconnecting');
-    expect(document.querySelector('[data-testid="connection-status"]')?.getAttribute('data-state')).toBe('reconnecting');
+    await until(() => answers === 2, 'the failed stream requests its reconnect');
+    expect(document.querySelector('[data-testid="connection-status"]')).toBeNull();
   });
 
 });
@@ -1147,14 +1145,14 @@ describe('the reading shell', () => {
     // groups after the product group stand in code point order.
     expect(titles).toEqual(['Product', 'Other', 'Requirements', 'Research', 'Architecture']);
   });
-  test('an architecture view page reads Architecture / the view in the breadcrumb and the tab', async () => {
+  test('an architecture view page reads Architecture / the view in the breadcrumb', async () => {
     install(answerFor(product, shellList, shellPages));
     goto('/p/madarch/view/shop');
     await intoApp(createElement(App));
     await until(() => document.querySelector('.app-nav nav') !== null, 'the navigation');
     await until(() => document.querySelector('.shell-breadcrumb')?.textContent?.includes('Shop') === true, 'the Architecture breadcrumb');
     expect(document.querySelector('.shell-breadcrumb')?.textContent).toContain('Architecture');
-    expect(document.querySelector('[data-testid="document-tab"]')?.textContent).toContain('Shop');
+    expect(document.querySelector('[data-testid="document-tab"]')).toBeNull();
   });
 
 
@@ -1193,7 +1191,7 @@ describe('the reading shell', () => {
     }
   });
 
-  test('a stage route uses its manifest name in the breadcrumb and tab', async () => {
+  test('a stage route uses its manifest name in the breadcrumb', async () => {
     const registry: RegistryOffer = { present: true, stages: [{ id: 'plan', name: 'Plan' }, { id: 'idea', name: 'Explore the idea' }], kinds: [] };
     const answer = answerFor(product, shellList, shellPages);
     install((target) => target === '/api/registry' ? { body: registry } : answer(target));
@@ -1202,10 +1200,10 @@ describe('the reading shell', () => {
     await until(() => document.querySelector('[data-stage-link="idea"][aria-current="page"]') !== null, 'the active stage link');
     expect(document.querySelector('.shell-breadcrumb')?.textContent).toContain('Explore the idea');
     expect(document.querySelector('.shell-breadcrumb')?.textContent).not.toContain('stages.names.idea');
-    expect(document.querySelector('[data-testid="document-tab"]')?.textContent).toContain('Explore the idea');
+    expect(document.querySelector('[data-testid="document-tab"]')).toBeNull();
   });
 
-  test('an unknown stage route uses a readable fallback label', async () => {
+  test('an unknown stage route uses a readable fallback label without a tab', async () => {
     const registry: RegistryOffer = { present: true, stages: [{ id: 'plan', name: 'Plan' }], kinds: [] };
     const answer = answerFor(product, shellList, shellPages);
     install((target) => target === '/api/registry' ? { body: registry } : answer(target));
@@ -1213,7 +1211,7 @@ describe('the reading shell', () => {
     await intoApp(createElement(App));
     await until(() => document.querySelector('.shell-breadcrumb')?.textContent?.includes('Not In Registry Stage') === true, 'the fallback stage name');
     expect(document.querySelector('.shell-breadcrumb')?.textContent).toContain('Not In Registry Stage');
-    expect(document.querySelector('[data-testid="document-tab"]')?.textContent).toContain('Not In Registry Stage');
+    expect(document.querySelector('[data-testid="document-tab"]')).toBeNull();
   });
 
   test('the brand reads madarch, and the product block below it names the product', async () => {
@@ -1278,7 +1276,7 @@ describe('the reading shell', () => {
       expect(document.querySelector('.shell-breadcrumb')?.textContent).toBe('Продукт / Продукт');
       (document.querySelector('main#group a[href="/p/README.md"]') as HTMLAnchorElement).click();
       await until(() => window.location.pathname === '/p/README.md' && document.querySelector('main#page') !== null, 'the product page');
-      expect(document.querySelector('.shell-breadcrumb')?.textContent).toBe('Продукт / Продукт / README');
+      expect(document.querySelector('.shell-breadcrumb')?.textContent).toBe('Продукт / Продукт');
     } finally {
       await setWikiLanguage('en');
     }
@@ -1291,7 +1289,7 @@ describe('the reading shell', () => {
     await until(() => document.querySelector('main#group h1')?.textContent === 'Not Held', 'the empty group page');
     expect(document.querySelector('.shell-breadcrumb')?.textContent).toBe('Product / Not Held');
     expect(document.querySelectorAll('main#group a[href^="/p/"]').length).toBe(0);
-    expect(document.querySelector('.status-details')?.textContent).toBe('');
+    expect(document.querySelector('.status-details')).toBeNull();
   });
 
   test('leaving a nonempty group page clears its status on a stage route', async () => {
@@ -1299,8 +1297,8 @@ describe('the reading shell', () => {
     goto('/g/decisions');
     await intoApp(createElement(App));
     await until(
-      () => document.querySelector('main#group h1')?.textContent === 'Decisions' && document.querySelector('.status-details')?.textContent === '1 document',
-      'the nonempty group page and its status',
+      () => document.querySelector('main#group h1')?.textContent === 'Decisions',
+      'the nonempty group page',
     );
 
     window.history.pushState({}, '', '/s/idea');
@@ -1310,8 +1308,7 @@ describe('the reading shell', () => {
         && (document.querySelector('.loading') !== null || document.querySelector('main#stage') !== null),
       'the stage route',
     );
-    await until(() => document.querySelector('.status-details')?.textContent === '', 'the cleared group status');
-    expect(document.querySelector('.status-details')?.textContent).toBe('');
+    expect(document.querySelector('.status-details')).toBeNull();
   });
 
   test('a group route lists only its live group pages and its breadcrumbs and nav link return to overview', async () => {
@@ -1329,11 +1326,11 @@ describe('the reading shell', () => {
     await until(() => window.location.pathname === '/g/decisions' && document.querySelector('main#group h1')?.textContent === 'Decisions', 'the group page');
     expect([...document.querySelectorAll('main#group a[href^="/p/"]')].map((link) => link.textContent)).toEqual(['Decision one']);
     expect(document.querySelector('[data-testid="breadcrumb-product"]')?.getAttribute('href')).toBe('/');
-    expect(document.querySelector('.status-details')?.textContent).toBe('1 document');
+    expect(document.querySelector('.status-details')).toBeNull();
 
     (document.querySelector('[data-testid="breadcrumb-product"]') as HTMLAnchorElement).click();
     await until(() => window.location.pathname === '/' && document.querySelector('main#home') !== null, 'the overview from the group breadcrumb');
-    await until(() => document.querySelector('[data-testid="word-count"]')?.textContent === '7 documents', 'the overview status replacing the group status');
+    expect(document.querySelector('.status-details')).toBeNull();
 
     const groupToggle = document.querySelector('[data-nav-group="decisions"] button') as HTMLButtonElement;
     expect(groupToggle.getAttribute('aria-label')).toBe('Toggle Decisions group');
@@ -1350,7 +1347,7 @@ describe('the reading shell', () => {
     await until(() => window.location.pathname === '/g/decisions' && document.querySelector('main#group') !== null, 'the group from its sidebar heading');
     (document.querySelector('[data-testid="nav-group-product"]') as HTMLAnchorElement).click();
     await until(() => window.location.pathname === '/g/product' && document.querySelector('main#group h1')?.textContent === 'Product', 'the product group from its sidebar heading');
-    await until(() => document.querySelector('.status-details')?.textContent === '2 documents', 'the new group status');
+    expect(document.querySelector('.status-details')).toBeNull();
 
     (document.querySelector('main#group a[href="/p/docs/vision.md"]') as HTMLAnchorElement).click();
     await until(() => window.location.pathname === '/p/docs/vision.md' && document.querySelector('main#page') !== null, 'the page for sidebar-brand navigation');
@@ -1575,7 +1572,7 @@ describe('groupNav', () => {
     goto('/p/docs/decisions/0001-choice.md');
     await intoApp(createElement(App));
     await until(() => document.querySelector('.shell-breadcrumb') !== null, 'the breadcrumb');
-    expect(document.querySelector('.shell-breadcrumb')?.textContent).toBe('Product / Decisions / Decision one');
+    expect(document.querySelector('.shell-breadcrumb')?.textContent).toBe('Product / Decisions');
     expect(document.querySelector('.shell-menu')).not.toBeNull();
     expect(document.querySelector('.shell-focus')).not.toBeNull();
     expect(document.querySelector('.shell-menu')?.getAttribute('aria-label')).toBe('Document navigation');
@@ -1619,10 +1616,7 @@ describe('language switch', () => {
     expect(document.title).toBe('Draft Idea — вики продукта');
     expect(document.querySelector('.shell-language')?.getAttribute('aria-label')).toBe('Язык');
     expect(window.localStorage.getItem(languageStorageKey)).toBe('ru');
-    await until(() => document.querySelector('.status-details')?.textContent?.includes('3 документа'), 'the Russian status count');
-    expect(document.querySelector('.status-details')?.textContent).toContain('3 документа');
-    expect(document.querySelector('.status-details')?.textContent).toContain('Markdown');
-    expect(document.querySelector('.status-details')?.textContent).toContain('UTF-8');
+    expect(document.querySelector('.status-details')).toBeNull();
 
     unmount();
     goto('/');
