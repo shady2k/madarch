@@ -8,6 +8,45 @@
       "source": "Before <!--c:01ARZ3NDEKTSV4RRFFQ69G5FAV-->A sentence<!--/c:01ARZ3NDEKTSV4RRFFQ69G5FAV--> after."
     },
     {
+      "name": "valid-iso-date-time-with-offset",
+      "path": "comments/01ARZ3NDEKTSV4RRFFQ69G5FAV/01ARZ3NDEKTSV4RRFFQ69G5FAX.md",
+      "text": "---\ncontract: 1\nauthor: Ada\ntime: 2026-10-14T14:00:00+02:00\nthread: 01ARZ3NDEKTSV4RRFFQ69G5FAV\nanchor:\n  kind: page\ndocument: docs/vision.md\nsourceCommit: b985d519a3107d92edc3e6fa358d4834277e7021\nstatus: open\n---\nA useful comment.\n"
+    },
+    {
+      "name": "valid-lowercase-iso-date-time",
+      "path": "comments/01ARZ3NDEKTSV4RRFFQ69G5FAV/01ARZ3NDEKTSV4RRFFQ69G5FAX.md",
+      "text": "---\ncontract: 1\nauthor: Ada\ntime: 2026-10-14t14:00:00z\nthread: 01ARZ3NDEKTSV4RRFFQ69G5FAV\nanchor:\n  kind: page\ndocument: docs/vision.md\nsourceCommit: b985d519a3107d92edc3e6fa358d4834277e7021\nstatus: open\n---\nA useful comment.\n"
+    },
+    {
+      "name": "impossible-calendar-date-refused",
+      "path": "comments/01ARZ3NDEKTSV4RRFFQ69G5FAV/01ARZ3NDEKTSV4RRFFQ69G5FAX.md",
+      "text": "---\ncontract: 1\nauthor: Ada\ntime: 2026-02-31T12:00:00Z\nthread: 01ARZ3NDEKTSV4RRFFQ69G5FAV\nanchor:\n  kind: page\ndocument: docs/vision.md\nsourceCommit: b985d519a3107d92edc3e6fa358d4834277e7021\nstatus: open\n---\nA useful comment.\n",
+      "ok": false,
+      "line": 4,
+      "message": "date-time"
+    },
+    {
+      "name": "non-leap-february-29-refused",
+      "path": "comments/01ARZ3NDEKTSV4RRFFQ69G5FAV/01ARZ3NDEKTSV4RRFFQ69G5FAX.md",
+      "text": "---\ncontract: 1\nauthor: Ada\ntime: 2025-02-29T12:00:00Z\nthread: 01ARZ3NDEKTSV4RRFFQ69G5FAV\nanchor:\n  kind: page\ndocument: docs/vision.md\nsourceCommit: b985d519a3107d92edc3e6fa358d4834277e7021\nstatus: open\n---\nA useful comment.\n",
+      "ok": false,
+      "line": 4,
+      "message": "date-time"
+    },
+    {
+      "name": "valid-leap-second",
+      "path": "comments/01ARZ3NDEKTSV4RRFFQ69G5FAV/01ARZ3NDEKTSV4RRFFQ69G5FAX.md",
+      "text": "---\ncontract: 1\nauthor: Ada\ntime: 2016-12-31T23:59:60Z\nthread: 01ARZ3NDEKTSV4RRFFQ69G5FAV\nanchor:\n  kind: page\ndocument: docs/vision.md\nsourceCommit: b985d519a3107d92edc3e6fa358d4834277e7021\nstatus: open\n---\nA useful comment.\n"
+    },
+    {
+      "name": "non-iso-time-refused",
+      "path": "comments/01ARZ3NDEKTSV4RRFFQ69G5FAV/01ARZ3NDEKTSV4RRFFQ69G5FAX.md",
+      "text": "---\ncontract: 1\nauthor: Ada\ntime: yesterday\nthread: 01ARZ3NDEKTSV4RRFFQ69G5FAV\nanchor:\n  kind: page\ndocument: docs/vision.md\nsourceCommit: b985d519a3107d92edc3e6fa358d4834277e7021\nstatus: open\n---\nA useful comment.\n",
+      "ok": false,
+      "line": 4,
+      "message": "date-time"
+    },
+    {
       "name": "page-level-message",
       "path": "comments/01ARZ3NDEKTSV4RRFFQ69G5FAV/01ARZ3NDEKTSV4RRFFQ69G5FAX.md",
       "text": "---\ncontract: 1\nauthor: Ada\ntime: 2026-10-14T12:00:00Z\nthread: 01ARZ3NDEKTSV4RRFFQ69G5FAV\nanchor:\n  kind: page\ndocument: docs/vision.md\nsourceCommit: b985d519a3107d92edc3e6fa358d4834277e7021\nstatus: open\n---\nA useful comment.\n",

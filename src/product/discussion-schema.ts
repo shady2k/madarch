@@ -4,6 +4,9 @@ import { Type, type Static } from 'typebox';
 export const ULID_PATTERN = '^[0-7][0-9A-HJKMNP-TV-Z]{25}$';
 const Ulid = Type.String({ pattern: ULID_PATTERN, minLength: 26, maxLength: 26 });
 
+/** Portable syntax guard: JSON Schema format is annotation-only unless a consumer enables assertions. */
+export const ISO_DATE_TIME_PATTERN = '^(?:[0-9]{4}-(?:(?:01|03|05|07|08|10|12)-(?:0[1-9]|[12][0-9]|3[01])|(?:04|06|09|11)-(?:0[1-9]|[12][0-9]|30)|02-(?:0[1-9]|1[0-9]|2[0-8]))|(?:[0-9]{2}(?:0[48]|[2468][048]|[13579][26])|(?:[02468][048]|[13579][26])00)-02-29)[Tt](?:[01][0-9]|2[0-3]):[0-5][0-9]:(?:[0-5][0-9]|60)(?:\\.[0-9]+)?(?:[Zz]|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])(?![\\s\\S])';
+
 const PageAnchor = Type.Object({ kind: Type.Literal('page') }, { additionalProperties: false });
 const SelectionAnchor = Type.Object({
   kind: Type.Literal('selection'),
@@ -16,7 +19,7 @@ const SelectionAnchor = Type.Object({
 export const DiscussionMessage = Type.Object({
   contract: Type.Literal(1, { description: 'The discussion-message contract version; this schema publishes version 1.' }),
   author: Type.String({ minLength: 1 }),
-  time: Type.String({ minLength: 1, description: 'The message creation time in ISO 8601 form.' }),
+  time: Type.String({ pattern: ISO_DATE_TIME_PATTERN, format: 'date-time', description: 'The message creation time in ISO 8601 date-time form with an explicit UTC offset.' }),
   thread: Ulid,
   anchor: Type.Union([PageAnchor, SelectionAnchor]),
   document: Type.String({ pattern: '^docs/(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*(?:^|/)\\.(?:/|$))(?:[^/]+/)*[^/]+\\.md$', description: 'A product-relative Markdown document path under docs/, without dot-segment traversal.' }),
