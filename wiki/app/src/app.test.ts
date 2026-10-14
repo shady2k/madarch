@@ -18,7 +18,7 @@ import { groupNav } from './shell.js';
 import { languageStorageKey, setWikiLanguage } from './i18n.js';
 import { addressOfGroup, addressOfPage, routeOf } from './routes.js';
 
-import type { Product, ProductWithAudience, PageList, Page, QuestionList, QuestionEntry } from './api.js';
+import type { Product, ProductWithAudience, PageList, Page, QuestionList, QuestionEntry, RegistryOffer } from './api.js';
 
 beforeAll(async () => {
   GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -888,8 +888,10 @@ describe('the reading shell', () => {
 
 
 
-  test('a stage route marks its stage in the shared navigation context', async () => {
-    install(answerFor(product, shellList, shellPages));
+  test('a stage route marks its manifest-declared stage in the shared navigation context', async () => {
+    const registry: RegistryOffer = { present: true, stages: [{ id: 'idea', name: 'Idea' }], kinds: [] };
+    const answer = answerFor(product, shellList, shellPages);
+    install((target) => target === '/api/registry' ? { body: registry } : answer(target));
     goto('/s/idea');
     await intoApp(createElement(App));
     await until(() => document.querySelector('[data-stage-link="idea"][aria-current="page"]') !== null, 'the active stage link');
