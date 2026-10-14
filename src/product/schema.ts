@@ -121,11 +121,30 @@ export type OverviewSources = Static<typeof OverviewSources>;
 
 
 
+/**
+ * Reader-facing labels supplied by the product for the wiki's supported locales.
+ * Optional on registry entries only for contract-1 compatibility. The shell
+ * uses the active locale's value when present; otherwise it shows the
+ * registry entry's own name unchanged, never a value from another locale.
+ */
+export const LocalizedLabels = Type.Object(
+  {
+    /** The English display label. */
+    en: Type.String({ minLength: 1, pattern: '\\S' }),
+    /** The Russian display label. */
+    ru: Type.String({ minLength: 1, pattern: '\\S' }),
+  },
+  { additionalProperties: false, description: 'Localized product labels for the supported wiki locales. When present, both English and Russian values are required.' },
+);
+export type LocalizedLabels = Static<typeof LocalizedLabels>;
+
 /** One kind of document the product holds, as the registry names it. */
 export const KindEntry = Type.Object(
   {
-    /** The kind's name as a reader sees it, like `source`, `product requirement`. */
+    /** The kind's stable registry name, used for matching documents and links. */
     name: RegistryName,
+    /** The product's localized display label; absent for legacy contract-1 registries. */
+    labels: Type.Optional(LocalizedLabels),
     /** The prefix the kind's document ids carry, like `FR` for `FR-001`. */
     prefix: Type.String({ minLength: 1, description: 'Two to four capitals (A-Z), checked when the registry is read.' }),
     /** The place inside the product the kind's documents live in, `docs/…`. */
@@ -159,8 +178,10 @@ export type KindEntry = Static<typeof KindEntry>;
 export const StageEntry = Type.Object(
   {
     id: RegistryId,
-    /** The stage's name as a reader sees it; the id stands in where it is left out. */
+    /** The stage's stable registry name; legacy field retained for compatibility. */
     name: Type.Optional(RegistryName),
+    /** The product's localized display label; absent for legacy contract-1 registries. */
+    labels: Type.Optional(LocalizedLabels),
     /** Records the product's completeness calculator expects at this stage. */
     expected: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { uniqueItems: true })),
     /** Engine-provided cross-page sections shown with this stage. */

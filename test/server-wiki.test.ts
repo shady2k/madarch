@@ -241,6 +241,9 @@ describe('the server\'s product mode', () => {
       'stages:',
       '  - id: idea',
       '    name: Idea',
+      '    labels:',
+      '      en: Idea',
+      '      ru: Идея',
       '  - id: requirements',
       '    name: Requirements',
       'goals:',
@@ -249,6 +252,9 @@ describe('the server\'s product mode', () => {
       '    rules: [all requirements have an owner]',
       'kinds:',
       '  - name: Product vision',
+      '    labels:',
+      '      en: Product vision',
+      '      ru: Видение продукта',
       '    prefix: V',
       '    folder: docs/vision.md',
       '    stage: idea',
@@ -279,8 +285,16 @@ describe('the server\'s product mode', () => {
     const url = startProduct();
     const answer = await fetch(`${url}/api/registry`);
     expect(answer.status).toBe(200);
-    const body = await answer.json() as { present: boolean; goals?: { name: string; perspective?: string; rules: string[] }[]; reservations?: { file: string; line: number; path: string; message: string }[]; kinds?: { name: string; storage?: string; evidence?: { source: string; ref?: string; record?: string }; statuses?: string[]; links?: { field: string; targets: string[]; backlink?: string; cardinality?: string; required?: boolean }[] }[] };
+    const body = await answer.json() as {
+      present: boolean;
+      stages?: { id: string; name?: string; labels?: { en: string; ru: string } }[];
+      goals?: { name: string; perspective?: string; rules: string[] }[];
+      reservations?: { file: string; line: number; path: string; message: string }[];
+      kinds?: { name: string; labels?: { en: string; ru: string }; storage?: string; evidence?: { source: string; ref?: string; record?: string }; statuses?: string[]; links?: { field: string; targets: string[]; backlink?: string; cardinality?: string; required?: boolean }[] }[];
+    };
     expect(body.present).toBe(true);
+    expect(body.stages?.find((stage) => stage.id === 'idea')?.labels).toEqual({ en: 'Idea', ru: 'Идея' });
+    expect(body.kinds?.find((kind) => kind.name === 'Product vision')?.labels).toEqual({ en: 'Product vision', ru: 'Видение продукта' });
     expect(body.goals).toEqual([{ name: 'grounded', perspective: 'business', rules: ['all requirements have an owner'] }]);
     expect(body.reservations?.map((finding) => finding.path)).toEqual(['kinds[1].storage', 'kinds[1].evidence', 'goals']);
     const story = body.kinds?.find((kind) => kind.name === 'User story');
@@ -290,6 +304,12 @@ describe('the server\'s product mode', () => {
     expect(story?.links).toEqual([]);
     const uc = body.kinds?.find((kind) => kind.name === 'Use case');
     expect(uc?.links).toEqual([{ field: 'Serves', targets: ['User story'], backlink: 'Served by', cardinality: 'many', required: true }]);
+    const stagesAnswer = await fetch(`${url}/api/stages`);
+    expect(stagesAnswer.status).toBe(200);
+    const stagesBody = await stagesAnswer.json() as { stages: { id: string; name?: string; labels?: unknown }[] };
+    const idea = stagesBody.stages.find((stage) => stage.id === 'idea');
+    expect(idea).toMatchObject({ id: 'idea', name: 'Idea' });
+    expect(idea).not.toHaveProperty('labels');
     server!.stop();
     server = undefined;
   });

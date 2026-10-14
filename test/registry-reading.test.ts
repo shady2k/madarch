@@ -204,6 +204,10 @@ describe('the fixed reference: the set-up demo product reads through the registr
     const registry = readProductRegistry(demo);
     if (!registry.present || !('stages' in registry)) throw new Error('the demo must carry a registry');
     expect(registry.stages.map((s) => s.id)).toEqual(['idea', 'requirements', 'design', 'build', 'verify', 'release', 'operate']);
+    expect(registry.stages[0]?.labels).toEqual({ en: 'Idea', ru: 'Идея' });
+    expect(registry.kinds[0]?.labels).toEqual({ en: 'Product vision', ru: 'Видение продукта' });
+    expect(registry.stages.every((stage) => Boolean(stage.labels?.en.trim()) && Boolean(stage.labels?.ru.trim()))).toBe(true);
+    expect(registry.kinds.every((kind) => Boolean(kind.labels?.en.trim()) && Boolean(kind.labels?.ru.trim()))).toBe(true);
     const opened = openProductWiki(demo);
     if (!opened.ok) throw new Error(opened.message);
     const pages = opened.wiki.pages();

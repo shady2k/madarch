@@ -107,15 +107,35 @@ export function groupOf(path: string): string {
  * never invents a kind the product does not hold.
  */
 /**
- * The group's word for a reader: the labels the sidebar, the home page and
- * the breadcrumb use, sentence case (the checkpoint's defect: slugs are for
- * paths, not for people). The word comes from the path itself — the app
- * invents nothing, and every catalogue word it may show next to it is the
- * shell's own fixed wording.
+ * Humanizes a plain grouping key. Registered product groups use their
+ * locale-specific manifest label, or the manifest name when that label is absent.
  */
 export function wordLabel(group: string): string {
   if (group === '') return 'Other';
   return group.charAt(0).toUpperCase() + group.slice(1).replace(/-([a-z])/g, (_hit, word: string) => (' ' + word.toUpperCase()));
+}
+
+/** Use the active locale's registry label, then the entry's own name or id unchanged. */
+export function localizedRegistryLabel(entry: unknown, language: WikiLanguage): string {
+  if (entry === null || typeof entry !== 'object') return '';
+  const manifestEntry = entry as { labels?: Partial<Record<WikiLanguage, string>>; name?: string; id?: string };
+  const label = manifestEntry.labels?.[language];
+  if (typeof label === 'string' && label.trim() !== '') return label;
+  return manifestEntry.name ?? manifestEntry.id ?? '';
+}
+
+/** Registry kinds use their own label/name; plain path groups keep the app's translated or humanized label. */
+export function displayGroupLabel(group: string, offer: RegistryOffer | null, language: WikiLanguage, translate: (key: string, options?: { defaultValue: string }) => string): string {
+  const kind = kindEntry(offer, group);
+  if (kind !== undefined) return localizedRegistryLabel(kind, language);
+  if (group === 'product' || group === 'other') return translate('groups.' + group);
+  return translate('groups.' + group, { defaultValue: wordLabel(group) });
+}
+
+function displayStageLabel(id: string, offer: RegistryOffer | null, language: WikiLanguage, translate: (key: string, options?: { defaultValue: string }) => string): string {
+  const stage = stageList(offer).find((entry) => entry.id === id);
+  if (stage !== undefined) return localizedRegistryLabel(stage, language);
+  return translate('stages.names.' + id, { defaultValue: wordLabel(id) });
 }
 
 export function kindOf(path: string, group: string): string {
@@ -274,12 +294,10 @@ export function navLinkClasses(current: boolean): string {
 }
 
 /**
- * The stages navigator: one row per stage, in the life cycle's order — the
- * registry's own where the product holds one, the generic list where not —
- * the open stage marked. A stage name is the registry's name where the
- * registry gave one; the fixed list's names stay the app's own wording.
+ * The stages navigator: manifest stages use their active-locale label or
+ * manifest name/id; an unknown stage route keeps the shell's readable fallback.
  */
-function StagesNav({ current, onNavigate, offer }: { current: string | undefined; onNavigate?: MouseEventHandler; offer: RegistryOffer | null }): ReactElement {
+function StagesNav({ current, onNavigate, offer, language }: { current: string | undefined; onNavigate?: MouseEventHandler; offer: RegistryOffer | null; language: WikiLanguage }): ReactElement {
   const { t } = useTranslation();
   return (
     <section data-testid="stages-nav" className="mb-1.5" aria-label={t('stages.title')}>
@@ -289,7 +307,7 @@ function StagesNav({ current, onNavigate, offer }: { current: string | undefined
       <ul className="m-0 list-none p-0">
         {stageList(offer).map((stage) => {
           const isCurrent = current === stage.id;
-          const label = stage.name ?? t(`stages.names.${stage.id}`, { defaultValue: wordLabel(stage.id) });
+          const label = displayStageLabel(stage.id, offer, language, t);
           return (
             <li key={stage.id} onClick={onNavigate}>
               <a
@@ -313,7 +331,7 @@ function StagesNav({ current, onNavigate, offer }: { current: string | undefined
   );
 }
 
-function NavPanel({ product, groups, current, currentStage, onNavigate, architectureCount, reposCount, offer }: {
+function NavPanel({ product, groups, current, currentStage, onNavigate, architectureCount, reposCount, offer, language }: {
   product: Product;
   groups: readonly NavGroup[];
   current: string | undefined;
@@ -326,6 +344,7 @@ function NavPanel({ product, groups, current, currentStage, onNavigate, architec
   reposCount?: number;
   /** The kinds registry the server answered, or none; the stage rows and the group order read it. */
   offer: RegistryOffer | null;
+  language: WikiLanguage;
 }): ReactElement {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const { t } = useTranslation();
@@ -384,7 +403,7 @@ function NavPanel({ product, groups, current, currentStage, onNavigate, architec
           <span className="text-small text-muted">{reposCount}</span>
         </a>
       )}
-      <StagesNav current={currentStage} onNavigate={onNavigate} offer={offer} />
+      <StagesNav current={currentStage} onNavigate={onNavigate} offer={offer} language={language} />
       <div className="mb-1.5 mt-2 flex items-center justify-between px-2">
         <h2 className="text-[12px] uppercase tracking-[0.08em] text-muted">{t('navigation.documents')}</h2>
         <span className="text-small text-muted" data-testid="documents-count">
@@ -410,13 +429,13 @@ function NavPanel({ product, groups, current, currentStage, onNavigate, architec
                     navigateTo(addressOfGroup(group.name));
                   }}
                 >
-                  {t('groups.' + group.name, { defaultValue: wordLabel(group.name) })}
+                  {displayGroupLabel(group.name, offer, language, t)}
                 </a>
                 <span className="text-small text-muted">{group.pages.length}</span>
                 <button
                   type="button"
                   className="grid size-6 shrink-0 place-items-center rounded-[var(--radius-row)] text-muted hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
-                  aria-label={t('navigation.toggleGroup', { group: t('groups.' + group.name, { defaultValue: wordLabel(group.name) }) })}
+                  aria-label={t('navigation.toggleGroup', { group: displayGroupLabel(group.name, offer, language, t) })}
                   aria-expanded={isOpen}
                   onClick={() => toggleGroup(group.name)}
                 >
@@ -523,17 +542,15 @@ export function Shell({ product, list, children, architecture, reposCount, repos
   }, [menuOpen]);
   const current = route.path;
   const registryOffer = offer ?? null;
-  const stageLabel = (id: string): string => {
-    const stage = stageList(registryOffer).find((entry) => entry.id === id);
-    return stage?.name ?? t(`stages.names.${id}`, { defaultValue: wordLabel(id) });
-  };
+  const stageLabel = (id: string): string => displayStageLabel(id, registryOffer, language, t);
+  const groupLabel = (name: string): string => displayGroupLabel(name, registryOffer, language, t);
   const groups = groupNav(list.pages, registryOffer);
   const openPage = current === undefined ? undefined : list.pages.find((page) => page.path === current);
   const documentTabTitle = (() => {
     if (openPage !== undefined) return openPage.path.split('/').pop();
     if (route.architecture !== undefined) return route.architecture.title;
     if (route.stage !== undefined) return stageLabel(route.stage);
-    if (route.group !== undefined) return t('groups.' + route.group, { defaultValue: wordLabel(route.group) });
+    if (route.group !== undefined) return groupLabel(route.group);
     return reposOpen === true ? t('navigation.repositories') : t('navigation.overview');
   })();
   const classes = ['shell'];
@@ -548,7 +565,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
           aria-label={t('navigation.aria')}
           hidden={focused}
         >
-          <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} offer={registryOffer} />
+          <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} offer={registryOffer} language={language} />
         </aside>
         <div className="shell-main flex min-w-0 flex-1 flex-col">
           <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line px-4 wide:px-[35px]">
@@ -557,7 +574,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
                 <>
                   <a href="/" data-testid="breadcrumb-product" className="text-muted no-underline hover:text-ink" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigateTo('/'); }}>{t('groups.product')}</a>{' '}
                   <span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
-                  <a href={addressOfGroup(openPage.kind ?? groupOf(openPage.path))} data-testid="breadcrumb-group" className="text-muted no-underline hover:text-ink" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigateTo(addressOfGroup(openPage.kind ?? groupOf(openPage.path))); }}>{t('groups.' + (openPage.kind ?? groupOf(openPage.path)), { defaultValue: wordLabel(openPage.kind ?? groupOf(openPage.path)) })}</a>{' '}
+                  <a href={addressOfGroup(openPage.kind ?? groupOf(openPage.path))} data-testid="breadcrumb-group" className="text-muted no-underline hover:text-ink" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigateTo(addressOfGroup(openPage.kind ?? groupOf(openPage.path))); }}>{groupLabel(openPage.kind ?? groupOf(openPage.path))}</a>{' '}
                   <span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
                   <span className="text-ink">{openPage.title}</span>
                 </>
@@ -565,7 +582,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
                 <>
                   <a href="/" data-testid="breadcrumb-product" className="text-muted no-underline hover:text-ink" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigateTo('/'); }}>{t('groups.product')}</a>{' '}
                   <span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
-                  <span className="text-ink">{t('groups.' + route.group, { defaultValue: wordLabel(route.group) })}</span>
+                  <span className="text-ink">{groupLabel(route.group)}</span>
                 </>
               ) : openPage === undefined && route.architecture !== undefined ? (
                 <>
@@ -607,7 +624,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
                   data-testid="phone-nav"
                   className={'app-nav w-[min(280px,_82vw)] px-[14px] py-3 ' + (focused ? 'bg-chrome' : '')}
                 >
-                  <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} offer={registryOffer} />
+                  <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} offer={registryOffer} language={language} />
                 </SheetContent>
               </Sheet>
               <DropdownMenu.Root>

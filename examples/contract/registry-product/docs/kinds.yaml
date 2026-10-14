@@ -1,14 +1,38 @@
 contract: 1
 stages:
   - id: idea
+    labels:
+      en: Idea
+      ru: Идея
   - id: requirements
+    labels:
+      en: Requirements
+      ru: Требования
   - id: design
+    labels:
+      en: Design
+      ru: Проектирование
   - id: build
+    labels:
+      en: Build
+      ru: Разработка
   - id: verify
+    labels:
+      en: Verify
+      ru: Проверка
   - id: release
+    labels:
+      en: Release
+      ru: Выпуск
   - id: operate
+    labels:
+      en: Operate
+      ru: Эксплуатация
 kinds:
   - name: source
+    labels:
+      en: Source
+      ru: Источник
     prefix: S
     folder: docs/sources
     stage: idea
@@ -17,6 +41,9 @@ kinds:
       - draft
       - heard
   - name: hypothesis
+    labels:
+      en: Hypothesis
+      ru: Гипотеза
     prefix: H
     folder: docs/hypotheses
     stage: idea
@@ -34,6 +61,9 @@ kinds:
         cardinality: one
         required: true
   - name: user story
+    labels:
+      en: User story
+      ru: Пользовательская история
     prefix: US
     folder: docs/stories
     stage: requirements
@@ -56,6 +86,9 @@ kinds:
         cardinality: one
         required: true
   - name: use case
+    labels:
+      en: Use case
+      ru: Сценарий использования
     prefix: UC
     folder: docs/use-cases
     stage: design
@@ -71,6 +104,9 @@ kinds:
         cardinality: many
         required: false
   - name: product requirement
+    labels:
+      en: Product requirement
+      ru: Требование к продукту
     prefix: FR
     folder: docs/requirements
     stage: requirements
@@ -87,6 +123,9 @@ kinds:
         cardinality: many
         required: false
   - name: decision
+    labels:
+      en: Decision
+      ru: Решение
     prefix: D
     folder: docs/decisions
     stage: design
@@ -96,6 +135,9 @@ kinds:
       - accepted
       - superseded
   - name: configuration item
+    labels:
+      en: Configuration item
+      ru: Элемент конфигурации
     prefix: CI
     folder: docs/configuration
     stage: operate

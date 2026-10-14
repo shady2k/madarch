@@ -6,7 +6,8 @@
  */
 
 export type Product = {
-  id: string;
+  /** The manifest id; absent for a manifestless product response. */
+  id?: string;
   name: string;
   /** The product folder's name on this machine (the sidebar footer names it). */
   folder?: string;
@@ -329,9 +330,17 @@ export type RegistryKindLink = {
   required?: boolean;
 };
 
+/** The product's supported reader-facing registry labels; older contract-1 registries omit this pair. */
+export type RegistryLabels = {
+  en: string;
+  ru: string;
+};
+
 /** One kind as the product's registry names it. */
 export type RegistryKindEntry = {
   name: string;
+  /** When absent, the shell uses `name` unchanged. */
+  labels?: RegistryLabels;
   prefix: string;
   folder: string;
   stage: string;
@@ -345,8 +354,10 @@ export type RegistryKindEntry = {
 /** One stage of the registry's life cycle, in its own order. */
 export type RegistryStageEntry = {
   id: string;
-  /** The stage's name as a reader sees it; the id stands in where it is left out. */
+  /** The stage's manifest name; the id stands in where it is left out. */
   name?: string;
+  /** When absent, the shell uses `name`, or `id` if the manifest has no name. */
+  labels?: RegistryLabels;
 };
 
 export type RegistryRefusal = {

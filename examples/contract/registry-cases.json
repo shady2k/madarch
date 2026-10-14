@@ -331,6 +331,38 @@
     {
       "name": "generic stage sections and repeated expectations",
       "text": "contract: 1\nstages:\n  - id: custom-one\n    expected:\n      - task\n      - review\n    sections:\n      - architecture\n  - id: custom-two\n    expected:\n      - task\n    sections:\n      - repositories\nkinds: []\n"
+    },
+    {
+      "name": "localized kind and stage labels accept English and Russian text",
+      "text": "contract: 1\nstages:\n  - id: idea\n    labels:\n      en: Idea\n      ru: Идея\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n    labels:\n      en: Source\n      ru: Источник\n"
+    },
+    {
+      "name": "localized labels require a Russian value when they are present",
+      "text": "contract: 1\nstages:\n  - id: idea\n    labels:\n      en: Idea\nkinds: []\n",
+      "line": 4,
+      "path": "stages[0].labels",
+      "message": "must have required properties ru"
+    },
+    {
+      "name": "localized labels reject whitespace-only text",
+      "text": "contract: 1\nstages:\n  - id: idea\n    labels:\n      en: \"   \"\n      ru: Идея\nkinds: []\n",
+      "line": 5,
+      "path": "stages[0].labels.en",
+      "message": "must match pattern"
+    },
+    {
+      "name": "localized labels reject unsupported locales",
+      "text": "contract: 1\nstages:\n  - id: idea\n    labels:\n      en: Idea\n      ru: Идея\n      fr: Idée\nkinds: []\n",
+      "line": 7,
+      "path": "stages[0].labels.fr",
+      "message": "schema is false"
+    },
+    {
+      "name": "kind localized labels use the same complete bilingual shape",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n    labels:\n      en: Source\n",
+      "line": 10,
+      "path": "kinds[0].labels",
+      "message": "must have required properties ru"
     }
   ]
 }
