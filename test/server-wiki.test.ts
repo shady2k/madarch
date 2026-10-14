@@ -94,8 +94,8 @@ function builtApp(): string {
   return appFolder;
 }
 
-afterEach(() => {
-  server?.stop();
+afterEach(async () => {
+  await server?.stop();
   server = undefined;
   if (appFolder !== undefined) rmSync(appFolder, { recursive: true, force: true });
   appFolder = undefined;
@@ -103,10 +103,10 @@ afterEach(() => {
   folder = undefined;
 });
 
-function startProduct(): string {
+async function startProduct(): Promise<string> {
   lines = [];
   errors = [];
-  server = startServer({
+  server = await startServer({
     productFolder: folder!,
     appFolder,
     port: 0,
@@ -120,7 +120,7 @@ describe('the server\'s product mode', () => {
   test('GET /api/product names the product\'s id and name and its folder', async () => {
     draft();
     builtApp();
-    const url = startProduct();
+    const url = await startProduct();
     const answer = await fetch(`${url}/api/product`);
     expect(answer.status).toBe(200);
     expect(await answer.json()).toEqual({ id: 'demo', name: 'Demo', folder: basename(folder!) });
@@ -138,7 +138,7 @@ describe('the server\'s product mode', () => {
       const brief = join(folder!, 'docs', 'brief.md');
       writeFileSync(brief, '# Brief\n\n## Readers\nOutside secret.\n');
       builtApp();
-      const url = startProduct();
+      const url = await startProduct();
       const validResponse = await fetch(`${url}/api/product`);
       expect((await validResponse.json() as { audience?: string }).audience).toBe('Outside secret.');
       rmSync(brief, { force: true });
@@ -160,7 +160,7 @@ describe('the server\'s product mode', () => {
       'stages:', '  - id: idea', 'kinds:', '  - name: Product vision', '    prefix: V', '    folder: docs/vision.md', '    stage: idea', '    hint: describe the product',
     ].join('\n') + '\n');
     builtApp();
-    const url = startProduct();
+    const url = await startProduct();
     const bare = await (await fetch(`${url}/api/product`)).json() as { audience?: string };
     expect(bare.audience).toBeUndefined();
     writeFileSync(join(folder!, 'docs', 'vision.md'), '# Vision\n\n## Audience\nCafe owners with waste.\n');
@@ -207,7 +207,7 @@ describe('the server\'s product mode', () => {
       '## Answer',
       'Not applicable: delivery is out of the vision.',
     ].join('\n') + '\n');
-    const url = startProduct();
+    const url = await startProduct();
     const answer = await fetch(`${url}/api/questions`);
     expect(answer.status).toBe(200);
     const body = (await answer.json()) as { questions: { id: string; state: string }[]; openCount: number };
@@ -220,7 +220,7 @@ describe('the server\'s product mode', () => {
     draft(true);
     builtApp();
     writeFileSync(join(folder!, 'docs', 'a-notes.md'), 'no heading\n');
-    const url = startProduct();
+    const url = await startProduct();
     const answer = await fetch(`${url}/api/pages`);
     expect(answer.status).toBe(200);
     const body = (await answer.json()) as { revision: string; pages: { path: string; title: string; address: string; kind?: string }[] };
@@ -282,7 +282,7 @@ describe('the server\'s product mode', () => {
       '        backlink: Served by',
       '        required: true',
       ''].join('\n'));
-    const url = startProduct();
+    const url = await startProduct();
     const answer = await fetch(`${url}/api/registry`);
     expect(answer.status).toBe(200);
     const body = await answer.json() as {
@@ -310,7 +310,7 @@ describe('the server\'s product mode', () => {
     const idea = stagesBody.stages.find((stage) => stage.id === 'idea');
     expect(idea).toMatchObject({ id: 'idea', name: 'Idea' });
     expect(idea).not.toHaveProperty('labels');
-    server!.stop();
+    await server!.stop();
     server = undefined;
   });
 
@@ -350,7 +350,7 @@ describe('the server\'s product mode', () => {
     const stories = join(folder!, 'docs', 'stories');
     mkdirSync(stories, { recursive: true });
     writeFileSync(join(stories, 'US-001-return.md'), '# US-001 — Return\n\nStatus: archived\nGrew from: S-099\n\n## Story\nI return.\n');
-    const url = startProduct();
+    const url = await startProduct();
     const asked = await fetch(`${url}/api/page?path=docs%2Fstories%2FUS-001-return.md`);
     expect(asked.status).toBe(200);
     const body = await asked.json() as { structural: { rule: string; file: string; line: number }[] };
@@ -358,21 +358,21 @@ describe('the server\'s product mode', () => {
       ['structural.status', 3],
       ['structural.undeclared-field', 4],
     ]);
-    server!.stop();
+    await server!.stop();
     server = undefined;
   });
 
   test('GET /api/registry answers the kinds registry whole, refused, or absent', async () => {
     draft(true);
     builtApp();
-    const url = startProduct();
+    const url = await startProduct();
     const answer = await fetch(`${url}/api/registry`);
     expect(answer.status).toBe(200);
     const body = (await answer.json()) as { present: boolean; stages?: { id: string; name?: string }[]; kinds?: { name: string; prefix: string; folder: string; stage: string; hint: string }[]; refused?: { file: string; line: number; path: string; message: string }[] };
     expect(body.present).toBe(true);
     expect(body.stages).toEqual([{ id: 'idea', name: 'Idea' }, { id: 'requirements', name: 'Requirements' }]);
     expect(body.kinds?.map((kind) => kind.name)).toEqual(['Product vision']);
-    server!.stop();
+    await server!.stop();
     server = undefined;
 
     // The file stands but does not read: the contract's refusals, the file
@@ -380,7 +380,7 @@ describe('the server\'s product mode', () => {
     draft();
     builtApp();
     writeFileSync(join(folder!, 'docs', 'kinds.yaml'), 'contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: broken kind\n    prefix: X\n    folder: no\n    stage: idea\n    hint: x\n');
-    const refusedUrl = startProduct();
+    const refusedUrl = await startProduct();
     const refusedAnswer = await fetch(`${refusedUrl}/api/registry`);
     expect(refusedAnswer.status).toBe(200);
     const refusedBody = (await refusedAnswer.json()) as typeof body;
@@ -388,12 +388,12 @@ describe('the server\'s product mode', () => {
     expect(refusedBody.refused?.some((error) => error.file === 'docs/kinds.yaml' && error.message.includes('is not a place under the documents'))).toBe(true);
     const refusedPages = (await (await fetch(`${refusedUrl}/api/pages`)).json()) as { pages: { path: string; kind?: string }[] };
     expect(refusedPages.pages.every((page) => page.kind === undefined)).toBe(true);
-    server!.stop();
+    await server!.stop();
     server = undefined;
 
     draft();
     builtApp();
-    const plainUrl = startProduct();
+    const plainUrl = await startProduct();
     const plainAnswer = await fetch(`${plainUrl}/api/registry`);
     expect(plainAnswer.status).toBe(200);
     expect(await plainAnswer.json()).toEqual({ present: false });
@@ -407,7 +407,7 @@ describe('the server\'s product mode', () => {
       'schemaVersion: 1\nid: demo\nname: Demo\nrepos:\n  - name: core\n    url: https://example.com/core.git\n  - name: web\n    url: https://example.com/web.git\n    branch: main\n',
     );
     fixtureCheckout(folder!, 'core', 'Make the core');
-    const url = startProduct();
+    const url = await startProduct();
     const answer = await fetch(`${url}/api/repos`);
     expect(answer.status).toBe(200);
     const body = (await answer.json()) as {
@@ -428,7 +428,7 @@ describe('the server\'s product mode', () => {
   test('an undeclared product holds no /api/repos and no /r: both refuse, the home still answers (finding: the route exists only where repos are declared)', async () => {
     draft();
     builtApp();
-    const url = startProduct();
+    const url = await startProduct();
     const reposAnswer = await fetch(`${url}/api/repos`);
     expect(reposAnswer.status).toBe(404);
     const pageAnswer = await fetch(`${url}/r`);
@@ -447,7 +447,7 @@ describe('the server\'s product mode', () => {
     );
     mkdirSync(join(folder!, 'repos', 'broken'), { recursive: true });
     writeFileSync(join(folder!, 'repos', 'broken', 'note.txt'), 'plain folder\n');
-    const url2 = startProduct();
+    const url2 = await startProduct();
     const answer = await fetch(`${url2}/api/repos`);
     expect(answer.status).toBe(200);
     const body = (await answer.json()) as { repos: { name: string; state: string; problem?: string }[] };
@@ -458,7 +458,7 @@ describe('the server\'s product mode', () => {
   test('GET /api/events answers a text/event-stream whose `retry` comes first', async () => {
     draft();
     builtApp();
-    const url = startProduct();
+    const url = await startProduct();
     const asking = new AbortController();
     const response = await fetch(`${url}/api/events`, { signal: asking.signal });
     expect(response.ok).toBe(true);
@@ -491,7 +491,7 @@ describe('the server\'s product mode', () => {
   test('GET /api/events carries one change event for a saved file, within two seconds, and a burst of saves is one event', async () => {
     draft();
     builtApp();
-    const url = startProduct();
+    const url = await startProduct();
     const asking = new AbortController();
     const response = await fetch(`${url}/api/events`, { signal: asking.signal });
     expect(response.headers.get('content-type')).toContain('text/event-stream');
@@ -546,7 +546,7 @@ describe('the server\'s product mode', () => {
     const cases = join(folder!, 'docs', 'use-cases');
     mkdirSync(cases, { recursive: true });
     writeFileSync(join(cases, 'UC-001-return.md'), '# UC-001 — Return\n\n## Story\nThe note opens where it was left.\n');
-    const url = startProduct();
+    const url = await startProduct();
     const streamOn = new AbortController();
     const response = await fetch(`${url}/api/events`, { signal: streamOn.signal });
     expect(response.headers.get('content-type')).toContain('text/event-stream');
@@ -663,7 +663,7 @@ describe('the server\'s product mode', () => {
   test('GET /api/page gives one page whole; asking twice after a save gives the new bytes', async () => {
     draft();
     builtApp();
-    const url = startProduct();
+    const url = await startProduct();
     const first = await fetch(`${url}/api/page?path=docs%2Fvision.md`);
     expect(first.status).toBe(200);
     const body = (await first.json()) as { path: string; title: string; markdown: string; changedAt: string };
@@ -679,7 +679,7 @@ describe('the server\'s product mode', () => {
   test('a missing page, and a path outside the wiki, are refused with the path named', async () => {
     draft();
     builtApp();
-    const url = startProduct();
+    const url = await startProduct();
     const missing = await fetch(`${url}/api/page?path=docs/other.md`);
     expect(missing.status).toBe(404);
     const body = (await missing.json()) as { message: string };
@@ -699,7 +699,7 @@ describe('the server\'s product mode', () => {
     const locked = join(folder!, 'docs', 'locked');
     mkdirSync(locked);
     writeFileSync(join(locked, 'secret.md'), '# hidden');
-    const url = startProduct();
+    const url = await startProduct();
     // The unreadable subfolder is a filesystem failure, not an absent page:
     // the answer is a 500 naming the path asked for and the cause.
     let answer: Response;
@@ -718,7 +718,7 @@ describe('the server\'s product mode', () => {
   test('the app\'s files are served, and a path the app does not hold answers index.html', async () => {
     draft();
     builtApp();
-    const url = startProduct();
+    const url = await startProduct();
     const root = await fetch(`${url}/`);
     expect(root.status).toBe(200);
     expect(await root.text()).toContain('demo wiki');
@@ -735,7 +735,7 @@ describe('the server\'s product mode', () => {
   test('static serving and the fallback answer GET and HEAD only; other methods are refused with 405', async () => {
     draft();
     builtApp();
-    const url = startProduct();
+    const url = await startProduct();
     const postRoot = await fetch(`${url}/`, { method: 'POST' });
     expect(postRoot.status).toBe(405);
     const postRoute = await fetch(`${url}/p/docs/vision.md`, { method: 'POST' });
@@ -755,7 +755,7 @@ describe('the server\'s product mode', () => {
   test('the fallback answers only the app\'s own routes; an unknown path or a missing asset is a named 404 (finding 6)', async () => {
     draft();
     builtApp();
-    const url = startProduct();
+    const url = await startProduct();
     // A page address the wiki's routes answer falls back to the app.
     const page = await fetch(`${url}/p/docs/vision.md`);
     expect(page.status).toBe(200);
@@ -776,7 +776,7 @@ describe('the server\'s product mode', () => {
   test('every app route answers the app\'s index.html directly: a reload or a shared link works (walk 1, fix 3)', async () => {
     draft();
     builtApp();
-    const url = startProduct();
+    const url = await startProduct();
     // The addresses the app itself routes: the home, a page, the open-questions
     // view, the Architecture index, one view, one element, the repositories,
     // the stages. Each GET must answer the app's index.html — never a 404 —
@@ -798,7 +798,7 @@ describe('the server\'s product mode', () => {
   test('a path under /api that nothing answers is refused with JSON naming it', async () => {
     draft();
     builtApp();
-    const url = startProduct();
+    const url = await startProduct();
     const answer = await fetch(`${url}/api/unknown`);
     expect(answer.status).toBe(404);
     const body = (await answer.json()) as { message: string };
@@ -809,7 +809,7 @@ describe('the server\'s product mode', () => {
   test('the log line carries method, path, status and no document content', async () => {
     draft();
     builtApp();
-    const url = startProduct();
+    const url = await startProduct();
     await fetch(`${url}/api/page?path=docs/vision.md`);
     await fetch(`${url}/api/nothing`);
     const about = lines.filter((line) => line.startsWith('GET /api/page'));
@@ -828,7 +828,7 @@ describe('the server\'s product mode', () => {
     const commit = commitAll();
     expect(commit.status).toBe(0); // the command succeeded: an empty git status is a real clean tree
     builtApp();
-    const url = startProduct();
+    const url = await startProduct();
     await fetch(`${url}/api/product`);
     await fetch(`${url}/api/pages`);
     await fetch(`${url}/api/page?path=docs/vision.md`);
@@ -842,17 +842,17 @@ describe('the server\'s product mode', () => {
     expect(files).toContain('workspace.yaml');
   });
 
-  test('a server with a product folder but no manifest refuses to start', () => {
+  test('a server with a product folder but no manifest refuses to start', async () => {
     const nowhere = mkdtempSync(join(tmpdir(), 'madarch-wiki-server-'));
     try {
-      expect(() => startServer({ productFolder: nowhere, port: 0 })).toThrow('workspace.yaml');
+      await expect(startServer({ productFolder: nowhere, port: 0 })).rejects.toThrow('workspace.yaml');
     } finally {
       rmSync(nowhere, { recursive: true, force: true });
     }
   });
 
-  test('started with neither a product folder nor a data folder, it refuses to start', () => {
-    expect(() => startServer({ port: 0 })).toThrow(/neither a data folder nor a product folder/);
+  test('started with neither a product folder nor a data folder, it refuses to start', async () => {
+    await expect(startServer({ port: 0 })).rejects.toThrow(/neither a data folder nor a product folder/);
   });
 
   test('without an app folder named, the checkout\'s built app is used and / answers (finding 3, deterministic)', async () => {
@@ -874,7 +874,7 @@ describe('the server\'s product mode', () => {
     const keptAsset = join(distFolder, 'pre-existing.js');
     writeFileSync(keptAsset, 'export const kept = 1;\n');
     try {
-      server = startServer({ productFolder: folder!, port: 0, log: () => {}, errorLog: () => {} });
+      server = await startServer({ productFolder: folder!, port: 0, log: () => {}, errorLog: () => {} });
       const root = await fetch(`${server.url}/`);
       expect(root.status).toBe(200);
       expect((await root.text()).length).toBeGreaterThan(0);
@@ -897,7 +897,7 @@ describe('the server\'s product mode', () => {
     try {
       let message = '';
       try {
-        startServer({ productFolder: folder!, port: 0 });
+        await startServer({ productFolder: folder!, port: 0 });
       } catch (error) {
         message = (error as Error).message;
       }
@@ -912,7 +912,7 @@ describe('the server\'s product mode', () => {
     let dataFolder: string | undefined;
     draft();
     builtApp();
-    server = startServer({
+    server = await startServer({
       dataFolder: (dataFolder = mkdtempSync(join(tmpdir(), 'madarch-wiki-data-'))),
       productFolder: folder!,
       appFolder,
@@ -955,7 +955,7 @@ describe('the server\'s product mode', () => {
     for (let i = 0; i < 300; i++) {
       writeFileSync(join(folder!, 'docs', `doc-${String(i).padStart(3, '0')}.md`), `# Page ${i}\n\nSome text.\n`);
     }
-    const url = startProduct();
+    const url = await startProduct();
     const started = performance.now();
     const answer = await fetch(`${url}/api/pages`);
     await answer.json();

@@ -66,15 +66,15 @@ relations:
     to: catalog-api
 `;
 
-afterEach(() => {
-  server?.stop();
+afterEach(async () => {
+  await server?.stop();
   server = undefined;
   if (folder !== undefined) rmSync(folder, { recursive: true, force: true });
   folder = undefined;
 });
 
 describe('the merged model', () => {
-  test('the product model/ alone compiles', () => {
+  test('the product model/ alone compiles', async () => {
     product();
     write('model/system.yaml', DRILL_DOWN);
     const result = readProductModel(requireProduct(folder!));
@@ -82,7 +82,7 @@ describe('the merged model', () => {
     expect(result.model?.elements.map((element) => element.id)).toEqual(['catalog-api', 'checkout-web', 'shop']);
   });
 
-  test("a repository's madarch/ under repos/ merges with the product's own model/", () => {
+  test("a repository's madarch/ under repos/ merges with the product's own model/", async () => {
     product();
     write('workspace.yaml', 'schemaVersion: 1\nid: demo\nname: Demo\nrepos:\n  - name: alpha\n    url: https://example.com/alpha.git\n');
     write('model/system.yaml', DRILL_DOWN);
@@ -104,7 +104,7 @@ relations:
     expect(result.model?.elements.map((element) => element.id)).toEqual(['catalog-api', 'checkout-web', 'payments', 'shop']);
   });
 
-  test('an id declared twice across the merge is a compile error naming both files', () => {
+  test('an id declared twice across the merge is a compile error naming both files', async () => {
     product();
     write('workspace.yaml', 'schemaVersion: 1\nid: demo\nname: Demo\nrepos:\n  - name: alpha\n    url: https://example.com/alpha.git\n');
     write('model/system.yaml', DRILL_DOWN);
@@ -117,7 +117,7 @@ relations:
     expect(result.errors.every((error) => error.message.includes('more than once'))).toBe(true);
   });
 
-  test('a checked-out repository with no madarch/ contributes nothing and names no error', () => {
+  test('a checked-out repository with no madarch/ contributes nothing and names no error', async () => {
     product();
     write('model/system.yaml', DRILL_DOWN);
     mkdirSync(join(folder!, 'repos', 'plain'), { recursive: true });
@@ -126,7 +126,7 @@ relations:
     expect(result.model).toBeDefined();
   });
 
-  test('no model anywhere is one named error, not a crash', () => {
+  test('no model anywhere is one named error, not a crash', async () => {
     product();
     const result = readProductModel(requireProduct(folder!));
     expect(result.model).toBeUndefined();
@@ -136,18 +136,18 @@ relations:
 });
 
 describe('the bundle', () => {
-  function bundleOf(markdown: string) {
+  async function bundleOf(markdown: string) {
     product();
     write('model/system.yaml', DRILL_DOWN);
     write('docs/vision.md', markdown);
     const result = readProductModel(requireProduct(folder!));
     if (result.model === undefined) throw new Error(result.errors.map((e) => e.message).join('; '));
     const pages = new Map([['docs/vision.md', markdown]]);
-    return architectureBundle(result.model, result.notes, result.warnings, result.sources, pages);
+    return await architectureBundle(result.model, result.notes, result.warnings, result.sources, pages);
   }
 
-  test('one view per element with children, the landscape first, with Mermaid source and table', () => {
-    const bundle = bundleOf('# Vision\n\nNothing named.\n');
+  test('one view per element with children, the landscape first, with Mermaid source and table', async () => {
+    const bundle = await bundleOf('# Vision\n\nNothing named.\n');
     const views = bundle.model?.views ?? [];
     expect(views[0]!.scope).toBe('');
     expect(views.map((view) => view.scope)).toContain('shop');
@@ -159,8 +159,8 @@ describe('the bundle', () => {
     expect(shop.table.columns).toEqual(['#', 'From', 'To', 'Relations']);
   });
 
-  test('the view table carries the arrows, the element page the relations both ways', () => {
-    const bundle = bundleOf('# Vision\n\nNothing named.\n');
+  test('the view table carries the arrows, the element page the relations both ways', async () => {
+    const bundle = await bundleOf('# Vision\n\nNothing named.\n');
     const shop = bundle.model?.views.find((view) => view.scope === 'shop')!;
     expect(shop.table.rows.length).toBeGreaterThan(0);
     const web = bundle.model?.elements.find((element) => element.id === 'checkout-web')!;
@@ -171,14 +171,14 @@ describe('the bundle', () => {
     expect(catalog.incoming).toHaveLength(1);
   });
 
-  test('a document naming an element by its id, word-bounded, names it; a word inside another word does not', () => {
-    const bundle = bundleOf('# Vision\n\nThe shop serves `checkout-web` and xcheckout-webx stands apart; checkout-web again.\n');
+  test('a document naming an element by its id, word-bounded, names it; a word inside another word does not', async () => {
+    const bundle = await bundleOf('# Vision\n\nThe shop serves `checkout-web` and xcheckout-webx stands apart; checkout-web again.\n');
     const web = bundle.model?.elements.find((element) => element.id === 'checkout-web')!;
     // First standalone mention wins; a code-span mention still names it (the reader copied the id there); a bound-to-letters one does not.
     expect(web.namedBy).toEqual(['docs/vision.md']);
   });
 
-  test('a model that does not compile returns its errors, each with file, line and path', () => {
+  test('a model that does not compile returns its errors, each with file, line and path', async () => {
     product();
     write('model/bad.yaml', 'version: 1\n\nelements:\n  - id: web\n    kind: servic\n');
     const result = readProductModel(requireProduct(folder!));
@@ -189,7 +189,7 @@ describe('the bundle', () => {
     expect(result.errors[0]!.path).toContain('kind');
   });
 
-  test('a declared repository with no checkout rides as a note beside the compiled model', () => {
+  test('a declared repository with no checkout rides as a note beside the compiled model', async () => {
     product();
     write('workspace.yaml', 'schemaVersion: 1\nid: demo\nname: Demo\nrepos:\n  - name: gone\n    url: https://example.com/gone.git\n');
     write('model/system.yaml', DRILL_DOWN);
@@ -202,7 +202,7 @@ describe('the bundle', () => {
 });
 
 describe('the element facts of the bundle', () => {
-  function richBundle() {
+  async function richBundle() {
     product();
     write('model/system.yaml', `version: 1
 
@@ -236,10 +236,10 @@ relations:
 `);
     const result = readProductModel(requireProduct(folder!));
     if (result.model === undefined) throw new Error(result.errors.map((e) => e.message).join('; '));
-    return architectureBundle(result.model, result.notes, result.warnings, result.sources, new Map());
+    return await architectureBundle(result.model, result.notes, result.warnings, result.sources, new Map());
   }
 
-  test('the relations of one end stand in code point order of the other end, then of the relation id', () => {
+  test('the relations of one end stand in code point order of the other end, then of the relation id', async () => {
     product();
     write('model/system.yaml', `version: 1
 
@@ -266,13 +266,13 @@ relations:
     to: alpha
 `);
     const result = readProductModel(requireProduct(folder!));
-    const bundle = architectureBundle(result.model!, result.notes, result.warnings, result.sources, new Map());
+    const bundle = await architectureBundle(result.model!, result.notes, result.warnings, result.sources, new Map());
     const hub = bundle.model!.elements.find((element) => element.id === 'hub')!;
     expect(hub.outgoing.map((relation) => relation.relationId)).toEqual(['hub-aaa', 'hub-alpha', 'hub-zeta']);
   });
 
-  test('a relation row carries the contract and the action; a bare relation carries neither', () => {
-    const bundle = richBundle();
+  test('a relation row carries the contract and the action; a bare relation carries neither', async () => {
+    const bundle = await richBundle();
     const leaf = bundle.model!.elements.find((element) => element.id === 'leaf')!;
     expect(leaf.outgoing).toHaveLength(1);
     expect(leaf.outgoing[0]!.interface).toBe('topic::leaf-events');
@@ -282,8 +282,8 @@ relations:
     expect(lone.incoming[0]!.action).toBe('send');
   });
 
-  test('up is the nearest ancestor with a view of its own, not just the parent', () => {
-    const bundle = richBundle();
+  test('up is the nearest ancestor with a view of its own, not just the parent', async () => {
+    const bundle = await richBundle();
     // Views: landscape, root, mid (leaf has no children). The view of mid
     // leads up to root; a leaf has no view at all.
     const views = bundle.model!.views.map((view) => view.scope);
@@ -295,8 +295,8 @@ relations:
     expect(root.opens).toEqual(['mid']);
   });
 
-  test('an element without technology or parent carries neither field', () => {
-    const bundle = richBundle();
+  test('an element without technology or parent carries neither field', async () => {
+    const bundle = await richBundle();
     const lone = bundle.model!.elements.find((element) => element.id === 'lone')!;
     expect('technology' in lone).toBe(false);
     expect('parent' in lone).toBe(false);
@@ -306,7 +306,7 @@ relations:
     expect(leaf.provides).toEqual(['topic::leaf-events']);
   });
 
-  test('a model folder reads its files in name order', () => {
+  test('a model folder reads its files in name order', async () => {
     product();
     write('model/b-second.yaml', 'version: 1\n\nelements:\n  - id: second\n    kind: service\n    parent: first\n');
     write('model/a-first.yaml', 'version: 1\n\nelements:\n  - id: first\n    kind: domain\n');
@@ -317,7 +317,7 @@ relations:
 });
 
 describe('the conservative name rule', () => {
-  test('word boundaries on both sides, dashes and dots inside the id kept whole', () => {
+  test('word boundaries on both sides, dashes and dots inside the id kept whole', async () => {
     expect(textNamesElement('the checkout-web serves', 'checkout-web')).toBe(true);
     expect(textNamesElement('the checkout-webx serves', 'checkout-web')).toBe(false);
     expect(textNamesElement('xcheckout-web stands', 'checkout-web')).toBe(false);
@@ -325,7 +325,7 @@ describe('the conservative name rule', () => {
     expect(textNamesElement('', 'checkout-web')).toBe(false);
   });
 
-  test('a hyphen before or after the id is part of another word: not-shop never names shop', () => {
+  test('a hyphen before or after the id is part of another word: not-shop never names shop', async () => {
     expect(textNamesElement('the not-shop serves', 'shop')).toBe(false);
     expect(textNamesElement('the shop-item serves', 'shop')).toBe(false);
     expect(textNamesElement('the shop, however, serves', 'shop')).toBe(true);
@@ -334,7 +334,7 @@ describe('the conservative name rule', () => {
     expect(textNamesElement('a.b stands alone', 'a.b')).toBe(true);
   });
 
-  test('fences, inline code spans and link targets are not matches', () => {
+  test('fences, inline code spans and link targets are not matches', async () => {
     expect(textNamesElement('```\nshop\n```', 'shop')).toBe(false);
     expect(textNamesElement('see `shop` here', 'shop')).toBe(false);
     expect(textNamesElement('see [x](shop) here', 'shop')).toBe(false);
@@ -345,7 +345,7 @@ describe('the conservative name rule', () => {
     expect(textNamesElement('read [the shop docs](x.md) now', 'shop')).toBe(true);
   });
 
-  test('pagesNamingElement sorts by code point and answers every matching page', () => {
+  test('pagesNamingElement sorts by code point and answers every matching page', async () => {
     const pages = new Map([
       ['docs/b.md', 'sees shop'],
       ['docs/a.md', 'sees shop too'],
@@ -356,7 +356,7 @@ describe('the conservative name rule', () => {
 });
 
 describe('the model rides the wiki revision', () => {
-  test('a saved model file changes the pages revision, so the stream reports a change', () => {
+  test('a saved model file changes the pages revision, so the stream reports a change', async () => {
     product();
     write('model/system.yaml', DRILL_DOWN);
     const wiki = requireProduct2(folder!);
@@ -369,7 +369,7 @@ describe('the model rides the wiki revision', () => {
     expect(after.pages.map((page) => page.path)).toEqual(before.pages.map((page) => page.path));
   });
 
-  test('an unchanged model keeps the same revision', () => {
+  test('an unchanged model keeps the same revision', async () => {
     product();
     write('model/system.yaml', DRILL_DOWN);
     const wiki = requireProduct2(folder!);
@@ -384,7 +384,7 @@ describe('the server routes', () => {
   test('/api/architecture answers the bundle; /api/architecture/likec4.js answers the webcomponent or its named refusal', async () => {
     product();
     write('model/system.yaml', DRILL_DOWN);
-    server = startServer({ productFolder: folder!, port: 0, appFolder: join(folder!, 'app'), log: () => {}, errorLog: () => {} });
+    server = await startServer({ productFolder: folder!, port: 0, appFolder: join(folder!, 'app'), log: () => {}, errorLog: () => {} });
     mkdirSync(join(folder!, 'app'), { recursive: true });
     writeFileSync(join(folder!, 'app', 'index.html'), '<!doctype html><title>t</title>');
     const bundle = (await (await fetch(`${server.url}/api/architecture`)).json()) as {

@@ -20,10 +20,10 @@ import { buildSkillFixtures, type SkillFixtures } from './skill-fixtures/build.j
 const BUILDER = fileURLToPath(new URL('./skill-fixtures/build.ts', import.meta.url));
 
 /** Builds the fixtures into a fresh temporary folder and removes the folder afterwards. */
-function withFixtures(run: (fixtures: SkillFixtures) => void): void {
+async function withFixtures(run: (fixtures: SkillFixtures) => void | Promise<void>): Promise<void> {
   const folder = mkdtempSync(join(tmpdir(), 'madarch-skill-fixtures-'));
   try {
-    run(buildSkillFixtures(folder));
+    await run(buildSkillFixtures(folder));
   } finally {
     rmSync(folder, { recursive: true, force: true });
   }
@@ -57,9 +57,9 @@ function prose(repo: string): string {
 }
 
 describe('the skill fixture repositories', () => {
-  test('the same build twice gives the same commit hashes', () => {
-    withFixtures((first) => {
-      withFixtures((second) => {
+  test('the same build twice gives the same commit hashes', async () => {
+    await withFixtures(async (first) => {
+      await withFixtures(async (second) => {
         expect(head(first.staleDocument)).toBe(head(second.staleDocument));
         expect(head(first.undocumentedPackage)).toBe(head(second.undocumentedPackage));
         expect(head(first.staleDocument)).not.toBe(head(first.undocumentedPackage));
@@ -67,8 +67,8 @@ describe('the skill fixture repositories', () => {
     });
   });
 
-  test('each repository is a small application with a short history', () => {
-    withFixtures((fixtures) => {
+  test('each repository is a small application with a short history', async () => {
+    await withFixtures(async (fixtures) => {
       for (const repo of [fixtures.staleDocument, fixtures.undocumentedPackage]) {
         const paths = tracked(repo);
         expect(paths.length).toBeGreaterThanOrEqual(8);
@@ -83,8 +83,8 @@ describe('the skill fixture repositories', () => {
     });
   });
 
-  test('the stale document names the config module the code no longer has', () => {
-    withFixtures((fixtures) => {
+  test('the stale document names the config module the code no longer has', async () => {
+    await withFixtures(async (fixtures) => {
       const document = readFileSync(join(fixtures.staleDocument, 'docs/architecture.md'), 'utf8');
       expect(document).toContain('config module');
       expect(document).toContain('src/config/');
@@ -99,8 +99,8 @@ describe('the skill fixture repositories', () => {
     });
   });
 
-  test('the notify package is there, core imports it, and no document mentions it', () => {
-    withFixtures((fixtures) => {
+  test('the notify package is there, core imports it, and no document mentions it', async () => {
+    await withFixtures(async (fixtures) => {
       const paths = tracked(fixtures.undocumentedPackage);
       expect(paths.some((path) => path.startsWith('src/notify/'))).toBe(true);
       const core = readFileSync(join(fixtures.undocumentedPackage, 'src/core.ts'), 'utf8');
@@ -114,17 +114,17 @@ describe('the skill fixture repositories', () => {
     });
   });
 
-  test('neither repository has a madarch folder', () => {
-    withFixtures((fixtures) => {
+  test('neither repository has a madarch folder', async () => {
+    await withFixtures(async (fixtures) => {
       expect(existsSync(join(fixtures.staleDocument, 'madarch'))).toBe(false);
       expect(existsSync(join(fixtures.undocumentedPackage, 'madarch'))).toBe(false);
     });
   });
 
-  test('the model check reports both repositories unreadable for the missing madarch folder', () => {
-    withFixtures((fixtures) => {
+  test('the model check reports both repositories unreadable for the missing madarch folder', async () => {
+    await withFixtures(async (fixtures) => {
       for (const repo of [fixtures.staleDocument, fixtures.undocumentedPackage]) {
-        const report = checkModel(repo);
+        const report = await checkModel(repo);
         expect(report.outcome).toBe('unreadable');
         expect(report.errors).toHaveLength(1);
         expect(report.errors[0]!.message).toContain('madarch folder');
@@ -132,7 +132,7 @@ describe('the skill fixture repositories', () => {
     });
   });
 
-  test('building into a non-empty folder is refused, naming it', () => {
+  test('building into a non-empty folder is refused, naming it', async () => {
     const folder = mkdtempSync(join(tmpdir(), 'madarch-skill-fixtures-'));
     try {
       writeFileSync(join(folder, 'occupied'), 'x');
@@ -149,7 +149,7 @@ describe('the skill fixture repositories', () => {
     }
   });
 
-  test('the builder also runs as a script', () => {
+  test('the builder also runs as a script', async () => {
     const folder = mkdtempSync(join(tmpdir(), 'madarch-skill-fixtures-'));
     try {
       const built = spawnSync(process.execPath, [BUILDER, folder], { encoding: 'utf8' });
@@ -165,8 +165,8 @@ describe('the skill fixture repositories', () => {
     }
   });
 
-  test('the build ignores the machine\'s git configuration and environment', () => {
-    withFixtures((sealed) => {
+  test('the build ignores the machine\'s git configuration and environment', async () => {
+    await withFixtures((sealed) => {
       const folder = mkdtempSync(join(tmpdir(), 'madarch-skill-fixtures-'));
       try {
         // A global config with another identity and signing on, a foreign

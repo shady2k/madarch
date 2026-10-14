@@ -50,24 +50,24 @@ function fakeClock(initial: number): Clock & { set(t: number): void } {
 const DAY = (day: number) => Date.UTC(2026, 8, day);
 
 /** Loads and compiles a fixture, stores it as one source's one commit, and builds a query engine from the history it produced. */
-function engineFor(fixtureName: string, commit: string, committedAt: number, storedAt: number): { engine: QueryEngine; history: HistoryStore } {
+async function engineFor(fixtureName: string, commit: string, committedAt: number, storedAt: number): Promise<{ engine: QueryEngine; history: HistoryStore }> {
   const { model, errors } = loadModel(fixture(fixtureName));
   expect(errors).toEqual([]);
   const compiled = compileModel(model!);
 
   const clock = fakeClock(storedAt);
   const history = createSqliteHistory({ clock });
-  const stored = history.store({ source: 's', commit, committedAt, model: compiled });
+  const stored = await history.store({ source: 's', commit, committedAt, model: compiled });
   expect(stored.errors).toEqual([]);
 
   const engine = createLadybugEngine();
-  engine.rebuild(history.assertions());
+  engine.rebuild(await history.assertions());
   return { engine, history };
 }
 
 describe('the graph-queries capability, end to end from YAML fixtures to query answers', () => {
-  test('collapse: two modules calling one service, viewed at the depth of services, show one relation with both calls behind it', () => {
-    const { engine, history } = engineFor('gq-collapse', 'c1', DAY(1), DAY(2));
+  test('collapse: two modules calling one service, viewed at the depth of services, show one relation with both calls behind it', async () => {
+    const { engine, history } = await engineFor('gq-collapse', 'c1', DAY(1), DAY(2));
     const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
 
     const result = engine.view({ depth: 0 }, at);
@@ -76,11 +76,11 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     expect(result.relations).toEqual([{ from: 'checkout-web', to: 'payments-api', relationIds: ['cart-calls-payments', 'ui-calls-payments'] }]);
 
     engine.close();
-    history.close();
+    await history.close();
   });
 
-  test('refinement-counted-once at the depth of domains and services, drawn separately once its own ends are shown: the corrected reading of graph-queries/view', () => {
-    const { engine, history } = engineFor('gq-refinement-once', 'c1', DAY(1), DAY(2));
+  test('refinement-counted-once at the depth of domains and services, drawn separately once its own ends are shown: the corrected reading of graph-queries/view', async () => {
+    const { engine, history } = await engineFor('gq-refinement-once', 'c1', DAY(1), DAY(2));
     const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
 
     // Depth 1 (domains and services): checkout-cart (a module, one of the
@@ -107,11 +107,11 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     ]);
 
     engine.close();
-    history.close();
+    await history.close();
   });
 
-  test('inside-one-box: a relation whose ends both lift to the same shown service is not drawn', () => {
-    const { engine, history } = engineFor('gq-inside-one-box', 'c1', DAY(1), DAY(2));
+  test('inside-one-box: a relation whose ends both lift to the same shown service is not drawn', async () => {
+    const { engine, history } = await engineFor('gq-inside-one-box', 'c1', DAY(1), DAY(2));
     const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
 
     const result = engine.view({ depth: 0 }, at);
@@ -120,11 +120,11 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     expect(result.relations).toEqual([]);
 
     engine.close();
-    history.close();
+    await history.close();
   });
 
-  test('transitive-dependents: checkout-web depends on event-bus through two relations, orders-api through one', () => {
-    const { engine, history } = engineFor('gq-transitive-dependents', 'c1', DAY(1), DAY(2));
+  test('transitive-dependents: checkout-web depends on event-bus through two relations, orders-api through one', async () => {
+    const { engine, history } = await engineFor('gq-transitive-dependents', 'c1', DAY(1), DAY(2));
     const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
 
     const result = engine.dependents('event-bus', { transitive: true }, at);
@@ -135,10 +135,10 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     expect(byId.size).toBe(2);
 
     engine.close();
-    history.close();
+    await history.close();
   });
 
-  test('service-gains-internal-elements: two versions of one source in one history — a relation moved to a newly-added internal module still lifts to the same single relation at the service level, before and after', () => {
+  test('service-gains-internal-elements: two versions of one source in one history — a relation moved to a newly-added internal module still lifts to the same single relation at the service level, before and after', async () => {
     const v1 = loadModel(fixture('gq-nesting-v1'));
     expect(v1.errors).toEqual([]);
     const v2 = loadModel(fixture('gq-nesting-v2'));
@@ -151,12 +151,12 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     // histories compared side by side.
     const clock = fakeClock(DAY(2));
     const history = createSqliteHistory({ clock });
-    expect(history.store({ source: 's', commit: 'v1', committedAt: DAY(1), model: compileModel(v1.model!) }).errors).toEqual([]);
+    expect((await history.store({ source: 's', commit: 'v1', committedAt: DAY(1), model: compileModel(v1.model!) })).errors).toEqual([]);
     clock.set(DAY(12));
-    expect(history.store({ source: 's', commit: 'v2', committedAt: DAY(10), model: compileModel(v2.model!) }).errors).toEqual([]);
+    expect((await history.store({ source: 's', commit: 'v2', committedAt: DAY(10), model: compileModel(v2.model!) })).errors).toEqual([]);
 
     const engine = createLadybugEngine();
-    engine.rebuild(history.assertions());
+    engine.rebuild(await history.assertions());
 
     // Before v2's commit: the relation is still checkout-web's own direct
     // call (checkout-cart, the internal module it later moves to, does not
@@ -175,11 +175,11 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     expect(after.relations).toEqual(before.relations);
 
     engine.close();
-    history.close();
+    await history.close();
   });
 
-  test("scoped (M2, the review's fx/scoped fixture): a scoped view shows a refinement whose own general relation reaches outside the scope entirely", () => {
-    const { engine, history } = engineFor('gq-scoped', 'c1', DAY(1), DAY(2));
+  test("scoped (M2, the review's fx/scoped fixture): a scoped view shows a refinement whose own general relation reaches outside the scope entirely", async () => {
+    const { engine, history } = await engineFor('gq-scoped', 'c1', DAY(1), DAY(2));
     const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
 
     // shop-uses-ui (shop -> checkout-ui) reaches outside the checkout-web
@@ -195,11 +195,11 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     expect(scoped.relations).toEqual([{ from: 'checkout-cart', to: 'checkout-ui', relationIds: ['cart-calls-ui'] }]);
 
     engine.close();
-    history.close();
+    await history.close();
   });
 
-  test('children: payments with the services payments-api and payments-stub, end to end from a YAML fixture', () => {
-    const { engine, history } = engineFor('gq-children', 'c1', DAY(1), DAY(2));
+  test('children: payments with the services payments-api and payments-stub, end to end from a YAML fixture', async () => {
+    const { engine, history } = await engineFor('gq-children', 'c1', DAY(1), DAY(2));
     const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
 
     const result = engine.children('payments', at);
@@ -207,10 +207,10 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     expect(result.elements?.map((e) => e.id).sort()).toEqual(['payments-api', 'payments-stub']);
 
     engine.close();
-    history.close();
+    await history.close();
   });
 
-  test('dependency-appears (as-of): orders-api starts depending on event-bus in a commit of 5 September, stored the same day, end to end from YAML', () => {
+  test('dependency-appears (as-of): orders-api starts depending on event-bus in a commit of 5 September, stored the same day, end to end from YAML', async () => {
     const v1 = loadModel(fixture('gq-dependency-appears-v1'));
     expect(v1.errors).toEqual([]);
     const v2 = loadModel(fixture('gq-dependency-appears-v2'));
@@ -219,12 +219,12 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     const SEPTEMBER = (day: number) => Date.UTC(2026, 8, day);
     const clock = fakeClock(SEPTEMBER(1));
     const history = createSqliteHistory({ clock });
-    expect(history.store({ source: 's', commit: 'v1', committedAt: SEPTEMBER(1), model: compileModel(v1.model!) }).errors).toEqual([]);
+    expect((await history.store({ source: 's', commit: 'v1', committedAt: SEPTEMBER(1), model: compileModel(v1.model!) })).errors).toEqual([]);
     clock.set(SEPTEMBER(5));
-    expect(history.store({ source: 's', commit: 'v2', committedAt: SEPTEMBER(5), model: compileModel(v2.model!) }).errors).toEqual([]);
+    expect((await history.store({ source: 's', commit: 'v2', committedAt: SEPTEMBER(5), model: compileModel(v2.model!) })).errors).toEqual([]);
 
     const engine = createLadybugEngine();
-    engine.rebuild(history.assertions());
+    engine.rebuild(await history.assertions());
 
     const before = engine.dependents('event-bus', { transitive: false }, { valid: SEPTEMBER(3), known: SEPTEMBER(20), state: 'as-is' });
     expect(before.error).toBeUndefined();
@@ -235,10 +235,10 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     expect(after.elements?.map((e) => e.id)).toEqual(['orders-api']);
 
     engine.close();
-    history.close();
+    await history.close();
   });
 
-  test('rebuild: a history with three versions of two sources answers a fixed set of queries the same way after the engine is thrown away and rebuilt', () => {
+  test('rebuild: a history with three versions of two sources answers a fixed set of queries the same way after the engine is thrown away and rebuilt', async () => {
     // Two sources, disjoint id namespaces (`checkout-*` for `s`,
     // `billing-*` for `p`), each evolving over three versions — the
     // `rebuild` requirement's own scenario (graph-queries.md): the same
@@ -261,17 +261,17 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     const clock = fakeClock(DAY(1));
     const history = createSqliteHistory({ clock });
 
-    expect(history.store({ source: 's', commit: 's1', committedAt: DAY(1), model: checkoutModel(false) }).errors).toEqual([]);
+    expect((await history.store({ source: 's', commit: 's1', committedAt: DAY(1), model: checkoutModel(false) })).errors).toEqual([]);
     clock.set(DAY(2));
-    expect(history.store({ source: 'p', commit: 'p1', committedAt: DAY(2), model: billingModel(1) }).errors).toEqual([]);
+    expect((await history.store({ source: 'p', commit: 'p1', committedAt: DAY(2), model: billingModel(1) })).errors).toEqual([]);
     clock.set(DAY(3));
-    expect(history.store({ source: 's', commit: 's2', committedAt: DAY(3), model: checkoutModel(true) }).errors).toEqual([]);
+    expect((await history.store({ source: 's', commit: 's2', committedAt: DAY(3), model: checkoutModel(true) })).errors).toEqual([]);
     clock.set(DAY(4));
-    expect(history.store({ source: 'p', commit: 'p2', committedAt: DAY(4), model: billingModel(2) }).errors).toEqual([]);
+    expect((await history.store({ source: 'p', commit: 'p2', committedAt: DAY(4), model: billingModel(2) })).errors).toEqual([]);
     clock.set(DAY(5));
-    expect(history.store({ source: 's', commit: 's3', committedAt: DAY(5), model: checkoutModel(true) }).errors).toEqual([]);
+    expect((await history.store({ source: 's', commit: 's3', committedAt: DAY(5), model: checkoutModel(true) })).errors).toEqual([]);
     clock.set(DAY(6));
-    expect(history.store({ source: 'p', commit: 'p3', committedAt: DAY(6), model: billingModel(2) }).errors).toEqual([]);
+    expect((await history.store({ source: 'p', commit: 'p3', committedAt: DAY(6), model: billingModel(2) })).errors).toEqual([]);
 
     const at = { valid: DAY(6), known: DAY(6), state: 'as-is' };
     const fixedQueries = (engine: QueryEngine) => ({
@@ -281,7 +281,7 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     });
 
     const first = createLadybugEngine();
-    first.rebuild(history.assertions());
+    first.rebuild(await history.assertions());
     const before = fixedQueries(first);
     expect(before.view.error).toBeUndefined();
     expect(before.view.relations).toEqual([{ from: 'billing-api', to: 'ledger-svc', relationIds: ['billing-calls-ledger'] }, { from: 'checkout-web', to: 'payments-api', relationIds: ['checkout-calls-payments'] }]);
@@ -290,11 +290,11 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
 
     // Thrown away and rebuilt from the very same history.
     const second = createLadybugEngine();
-    second.rebuild(history.assertions());
+    second.rebuild(await history.assertions());
     const after = fixedQueries(second);
     second.close();
 
     expect(after).toEqual(before);
-    history.close();
+    await history.close();
   });
 });

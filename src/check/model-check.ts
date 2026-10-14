@@ -664,7 +664,7 @@ function touchedCommits(repo: string, revCommit: string, committedAt: number, fi
  * the history unreadable, the model unstorable, the view set unbuildable)
  * the rest is still reported and a note says what was skipped.
  */
-function problemFindings(repo: string, revCommit: string, model: CompiledModel, assignment: readonly { path: string; element: string }[], elementIds: ReadonlySet<string>, notes: ModelCheckFinding[]): ProblemFinding[] {
+async function problemFindings(repo: string, revCommit: string, model: CompiledModel, assignment: readonly { path: string; element: string }[], elementIds: ReadonlySet<string>, notes: ModelCheckFinding[]): Promise<ProblemFinding[]> {
   const findings: ProblemFinding[] = [];
   findings.push(...magicSourceOrSinkProblems(model), ...trustBoundaryProblems(model));
 
@@ -673,7 +673,7 @@ function problemFindings(repo: string, revCommit: string, model: CompiledModel, 
     notes.push({ file: repo, line: 0, message: `the checked revision ${revCommit} has no readable commit time; the problems that read the levels or the history were skipped` });
     return findings;
   }
-  const prepared = prepareModel(model, { source: 'model-check', commit: revCommit, at: committedAt });
+  const prepared = await prepareModel(model, { source: 'model-check', commit: revCommit, at: committedAt });
   try {
     if (prepared.errors.length > 0) {
       notes.push({ file: repo, line: 0, message: `${prepared.errors[0]}; the problems that read the levels were skipped` });
@@ -687,7 +687,7 @@ function problemFindings(repo: string, revCommit: string, model: CompiledModel, 
       }
     }
   } finally {
-    prepared.close();
+    await prepared.close();
   }
 
   // A file belongs to the element of the deepest assignment row covering
@@ -726,14 +726,14 @@ function problemFindings(repo: string, revCommit: string, model: CompiledModel, 
  * were asked for, so their absence fails the check. The folder stays the
  * only place the check writes.
  */
-function writeViewFolder(repo: string, revCommit: string, model: CompiledModel, folder: string, errors: ModelCheckFinding[], notes: ModelCheckFinding[]): void {
+async function writeViewFolder(repo: string, revCommit: string, model: CompiledModel, folder: string, errors: ModelCheckFinding[], notes: ModelCheckFinding[]): Promise<void> {
   const committedAt = committedTime(repo, revCommit);
   if (committedAt === undefined) {
     errors.push({ file: repo, line: 0, message: `the views for ${folder} were not rendered: the checked revision ${revCommit} has no readable commit time` });
     return;
   }
   try {
-    const rendered = renderModel(model, { source: 'model-check', commit: revCommit, at: committedAt });
+    const rendered = await renderModel(model, { source: 'model-check', commit: revCommit, at: committedAt });
     if (rendered.pages === undefined || rendered.workspace === undefined) {
       errors.push({ file: repo, line: 0, message: `the views for ${folder} could not be rendered: ${rendered.errors[0] ?? 'no error named'}` });
       return;
@@ -753,7 +753,7 @@ function writeViewFolder(repo: string, revCommit: string, model: CompiledModel, 
   }
 }
 
-export function checkModel(repoPath: string, options: ModelCheckOptions = {}): ModelCheckReport {
+export async function checkModel(repoPath: string, options: ModelCheckOptions = {}): Promise<ModelCheckReport> {
   const repo = resolve(repoPath);
   const rev = options.rev ?? 'HEAD';
   const unreadable = (message: string): ModelCheckReport => ({
@@ -870,11 +870,11 @@ export function checkModel(repoPath: string, options: ModelCheckOptions = {}): M
 
   // Problems never fail the check: they are computed from the compiled
   // model and the history whenever both could be read.
-  report.problems = problemFindings(repo, revCommit, model!, review.assignment, elementIds, report.notes).sort(compareProblems);
+  report.problems = (await problemFindings(repo, revCommit, model!, review.assignment, elementIds, report.notes)).sort(compareProblems);
 
   // The views, when the caller asked for them: the model compiled, so
   // every view of it is rendered and written into the folder they named.
-  if (options.views !== undefined) writeViewFolder(repo, revCommit, model!, options.views, report.errors, report.notes);
+  if (options.views !== undefined) await writeViewFolder(repo, revCommit, model!, options.views, report.errors, report.notes);
 
   // Warnings arrive ordered from the loader (file order, then the order
   // written); errors, stale items and notes are sorted here whatever order

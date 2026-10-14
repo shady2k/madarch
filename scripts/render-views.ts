@@ -35,8 +35,8 @@ export function renderReferenceSystem() {
   return prepareRendering(REFERENCE_SYSTEM, { source: 'reference-system', commit: 'working-tree', at: REFERENCE_TIME });
 }
 
-function main(): void {
-  const { pages, workspace, notDrawn, errors, warnings } = renderReferenceSystem();
+async function main(): Promise<void> {
+  const { pages, workspace, notDrawn, errors, warnings } = await renderReferenceSystem();
   for (const warning of warnings) console.error(`warning: ${warning}`);
   for (const line of notDrawn) console.error(`note: ${line}`);
   if (pages === undefined || workspace === undefined) {
@@ -49,5 +49,5 @@ function main(): void {
 }
 
 if (import.meta.main) {
-  main();
+  await main();
 }

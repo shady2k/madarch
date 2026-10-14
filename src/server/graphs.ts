@@ -41,8 +41,8 @@ export interface Graph {
   /** The sources the graph is built from, in code point order. */
   readonly sources: readonly string[];
   /** The engine, built on first use from every listed source's assertions. */
-  engine(): QueryEngine;
-  /** Releases the engine, if it was ever built; a close that fails is swallowed and the engine is dropped either way (see `dropIfBuilt`). */
+  engine(): Promise<QueryEngine>;
+  /** Closes this graph permanently, invalidating a pending build and releasing its engine if built. */
   close(): void;
 }
 
@@ -80,7 +80,7 @@ export interface Graphs {
    * holds. A source no graph lists changes nothing.
    */
   remove(source: string): void;
-  /** Closes every graph's engine. */
+  /** Closes every graph permanently and invalidates pending engine builds. */
   close(): void;
 }
 
@@ -90,7 +90,7 @@ interface GraphEntry extends Graph {
   lists(source: string): boolean;
   /** Applies one store's report to a built engine; a graph that was never built changes nothing. */
   applyIfBuilt(result: StoreResult): void;
-  /** Drops the built engine, if there is one; the next use rebuilds it from the histories through the clash check. Unconditional: the engine leaves the cache before it is closed, and a close that fails is swallowed. */
+  /** Invalidates a pending build and drops the built engine, if there is one; the next use rebuilds through the clash check. */
   dropIfBuilt(): void;
 }
 
@@ -98,6 +98,9 @@ interface GraphEntry extends Graph {
 function newGraph(name: string, sources: readonly string[], historyOf: (source: string) => HistoryStore, clock: Clock): GraphEntry {
   const listed = [...sources].sort(byCodePoint);
   let engineInstance: QueryEngine | undefined;
+  let enginePromise: Promise<QueryEngine> | undefined;
+  let generation = 0;
+  let retired = false;
   /**
    * Drops the built engine, if there is one; the next use rebuilds it
    * from the histories through the clash check. The cache is cleared
@@ -110,6 +113,8 @@ function newGraph(name: string, sources: readonly string[], historyOf: (source: 
    * this cache held its last reference anyway.
    */
   const dropIfBuilt = (): void => {
+    generation++;
+    enginePromise = undefined;
     const engine = engineInstance;
     if (engine === undefined) return;
     engineInstance = undefined;
@@ -119,21 +124,41 @@ function newGraph(name: string, sources: readonly string[], historyOf: (source: 
       // Swallowed on purpose; see above.
     }
   };
+  const engine = (): Promise<QueryEngine> => {
+    if (retired) return Promise.reject(new Error(`the graph "${name}" is closed`));
+    if (engineInstance !== undefined) return Promise.resolve(engineInstance);
+    if (enginePromise !== undefined) return enginePromise;
+
+    const buildGeneration = generation;
+    let pending!: Promise<QueryEngine>;
+    pending = (async () => {
+      try {
+        const assertions = (await Promise.all(listed.map((source) => historyOf(source).assertions({ source })))).flat();
+        if (buildGeneration !== generation) return engine();
+        const clash = clashingId(assertions);
+        if (clash !== undefined) throw new Error(clash);
+        const built = createLadybugEngine({ clock });
+        built.rebuild(assertions);
+        engineInstance = built;
+        return built;
+      } catch (error) {
+        if (buildGeneration !== generation) return engine();
+        throw error;
+      } finally {
+        if (enginePromise === pending) enginePromise = undefined;
+      }
+    })();
+    enginePromise = pending;
+    return pending;
+  };
+  const close = (): void => {
+    retired = true;
+    dropIfBuilt();
+  };
   return {
     name,
     sources: listed,
-    engine(): QueryEngine {
-      let engine = engineInstance;
-      if (engine === undefined) {
-        const assertions: AssertionRecord[] = listed.flatMap((source) => historyOf(source).assertions({ source }));
-        const clash = clashingId(assertions);
-        if (clash !== undefined) throw new Error(clash);
-        engine = createLadybugEngine({ clock });
-        engine.rebuild(assertions);
-        engineInstance = engine;
-      }
-      return engine;
-    },
+    engine,
     lists: (source) => listed.includes(source),
     applyIfBuilt: (result) => {
       // A graph of one source cannot take a clash: its rows are the only
@@ -145,10 +170,14 @@ function newGraph(name: string, sources: readonly string[], historyOf: (source: 
         dropIfBuilt();
         return;
       }
+      if (enginePromise !== undefined) {
+        dropIfBuilt();
+        return;
+      }
       engineInstance?.update(result.opened, result.closed);
     },
     dropIfBuilt,
-    close: dropIfBuilt,
+    close,
   };
 }
 

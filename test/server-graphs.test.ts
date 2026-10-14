@@ -46,37 +46,37 @@ function model(elements: CompiledElement[], relations: CompiledRelation[] = []):
 }
 
 /** A history with the commits already stored; each commit's model is named by its elements and relations. */
-function storedHistory(source: string, clock: Clock, commits: { commit: string; committedAt: number; elements: CompiledElement[]; relations?: CompiledRelation[] }[]): HistoryStore {
+async function storedHistory(source: string, clock: Clock, commits: { commit: string; committedAt: number; elements: CompiledElement[]; relations?: CompiledRelation[] }[]): Promise<HistoryStore> {
   const history = createSqliteHistory({ clock });
   for (const each of commits) {
-    history.store({ source, commit: each.commit, committedAt: each.committedAt, model: model(each.elements, each.relations) });
+    await history.store({ source, commit: each.commit, committedAt: each.committedAt, model: model(each.elements, each.relations) });
   }
   return history;
 }
 
 describe('a graph built from two sources', () => {
-  test('the union view holds both sources’ roots, whose ids do not clash', () => {
+  test('the union view holds both sources’ roots, whose ids do not clash', async () => {
     const clock = fakeClock(DAY(9));
-    const one = storedHistory('github.com/a/one', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('one-root', { kind: 'system' })] }]);
-    const two = storedHistory('github.com/b/two', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('two-root', { kind: 'system' })] }]);
+    const one = await storedHistory('github.com/a/one', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('one-root', { kind: 'system' })] }]);
+    const two = await storedHistory('github.com/b/two', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('two-root', { kind: 'system' })] }]);
     const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/a/one' ? one : two), clock });
 
     const union = graphs.addGraph('union', ['github.com/a/one', 'github.com/b/two']);
-    const view = union.engine().view({ depth: 0 });
+    const view = (await union.engine()).view({ depth: 0 });
     graphs.close();
 
     expect(view.error).toBeUndefined();
     expect(view.elements?.map((e) => e.id).sort()).toEqual(['one-root', 'two-root']);
   });
 
-  test('a graph listing one source answers that source alone', () => {
+  test('a graph listing one source answers that source alone', async () => {
     const clock = fakeClock(DAY(9));
-    const one = storedHistory('github.com/a/one', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('one-root', { kind: 'system' })] }]);
-    const two = storedHistory('github.com/b/two', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('two-root', { kind: 'system' })] }]);
+    const one = await storedHistory('github.com/a/one', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('one-root', { kind: 'system' })] }]);
+    const two = await storedHistory('github.com/b/two', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('two-root', { kind: 'system' })] }]);
     const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/a/one' ? one : two), clock });
 
     const single = graphs.graphForSource('github.com/a/one');
-    const view = single.engine().view({ depth: 0 });
+    const view = (await single.engine()).view({ depth: 0 });
     graphs.close();
 
     expect(view.error).toBeUndefined();
@@ -85,24 +85,125 @@ describe('a graph built from two sources', () => {
     expect(single.sources).toEqual(['github.com/a/one']);
   });
 
-  test('a relation across the two sources joins them in the union view', () => {
+  test('a relation across the two sources joins them in the union view', async () => {
     const clock = fakeClock(DAY(9));
-    const one = storedHistory('github.com/a/one', clock, [
+    const one = await storedHistory('github.com/a/one', clock, [
       { commit: 'c1', committedAt: DAY(1), elements: [element('one-api')], relations: [relation('one-calls-two', 'one-api', 'two-api')] },
     ]);
-    const two = storedHistory('github.com/b/two', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('two-api')] }]);
+    const two = await storedHistory('github.com/b/two', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('two-api')] }]);
     const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/a/one' ? one : two), clock });
 
     const union = graphs.addGraph('union', ['github.com/a/one', 'github.com/b/two']);
-    const view = union.engine().view({ depth: 0 });
+    const view = (await union.engine()).view({ depth: 0 });
     graphs.close();
 
     expect(view.relations?.map((r) => [r.from, r.to])).toEqual([['one-api', 'two-api']]);
   });
 });
 
+describe('asynchronous graph engine construction', () => {
+  test('concurrent first calls share one engine', async () => {
+    const clock = fakeClock(DAY(9));
+    const history = await storedHistory('shop', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('root', { kind: 'system' })] }]);
+    const graphs = createGraphs({ historyOf: () => history, clock });
+    const graph = graphs.graphForSource('shop');
+
+    const [first, second] = await Promise.all([graph.engine(), graph.engine()]);
+    graphs.close();
+    await history.close();
+
+    expect(first).toBe(second);
+  });
+
+  test('a store during a pending build invalidates it and the caller receives a fresh engine', async () => {
+    const clock = fakeClock(DAY(9));
+    const history = await storedHistory('shop', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('root', { kind: 'system' })] }]);
+    const originalAssertions = history.assertions.bind(history);
+    let started!: () => void;
+    let release!: () => void;
+    const readStarted = new Promise<void>((resolve) => { started = resolve; });
+    const holdRead = new Promise<void>((resolve) => { release = resolve; });
+    let firstRead = true;
+    history.assertions = async (input) => {
+      if (firstRead) {
+        firstRead = false;
+        started();
+        await holdRead;
+      }
+      return originalAssertions(input);
+    };
+    const graphs = createGraphs({ historyOf: () => history, clock });
+    const graph = graphs.graphForSource('shop');
+    const pendingEngine = graph.engine();
+    await readStarted;
+
+    const stored = await history.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('root', { kind: 'system' }), element('next')]) });
+    graphs.applyStore('shop', stored);
+    release();
+    const engine = await pendingEngine;
+    const view = engine.view({ depth: 0 });
+    graphs.close();
+    await history.close();
+
+    expect(view.elements?.map((each) => each.id).sort()).toEqual(['next', 'root']);
+  });
+
+  test('a failed read invalidated during a pending build retries from the history', async () => {
+    const clock = fakeClock(DAY(9));
+    const history = await storedHistory('shop', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('root', { kind: 'system' })] }]);
+    const originalAssertions = history.assertions.bind(history);
+    let started!: () => void;
+    let release!: () => void;
+    const readStarted = new Promise<void>((resolve) => { started = resolve; });
+    const holdRead = new Promise<void>((resolve) => { release = resolve; });
+    let firstRead = true;
+    history.assertions = async (input) => {
+      if (firstRead) {
+        firstRead = false;
+        started();
+        await holdRead;
+        throw new Error('stale read failed');
+      }
+      return originalAssertions(input);
+    };
+    const graphs = createGraphs({ historyOf: () => history, clock });
+    const graph = graphs.graphForSource('shop');
+    const pendingEngine = graph.engine();
+    await readStarted;
+
+    graphs.dropBuilt('shop');
+    release();
+    const engine = await pendingEngine;
+    const view = engine.view({ depth: 0 });
+    graphs.close();
+    await history.close();
+
+    expect(view.elements?.map((each) => each.id)).toEqual(['root']);
+  });
+
+  test('closing a graph during a pending build does not leave an engine behind', async () => {
+    const clock = fakeClock(DAY(9));
+    const history = await storedHistory('shop', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('root', { kind: 'system' })] }]);
+    const originalAssertions = history.assertions.bind(history);
+    let release!: () => void;
+    const holdRead = new Promise<void>((resolve) => { release = resolve; });
+    history.assertions = async (input) => {
+      await holdRead;
+      return originalAssertions(input);
+    };
+    const graphs = createGraphs({ historyOf: () => history, clock });
+    const graph = graphs.graphForSource('shop');
+    const pendingEngine = graph.engine();
+
+    graphs.close();
+    release();
+    await expect(pendingEngine).rejects.toThrow(/graph "shop" is closed/);
+    await history.close();
+  });
+});
+
 describe('a graph is a set of sources', () => {
-  test('a graph listing the same source twice is refused naming it', () => {
+  test('a graph listing the same source twice is refused naming it', async () => {
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });
     const graphs = createGraphs({ historyOf: () => one, clock });
@@ -110,16 +211,16 @@ describe('a graph is a set of sources', () => {
     graphs.close();
   });
 
-  test('two sources declaring the same element id are an error naming the id and both sources', () => {
+  test('two sources declaring the same element id are an error naming the id and both sources', async () => {
     const clock = fakeClock(DAY(9));
-    const one = storedHistory('github.com/a/one', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('core')] }]);
-    const two = storedHistory('github.com/b/two', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('core')] }]);
+    const one = await storedHistory('github.com/a/one', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('core')] }]);
+    const two = await storedHistory('github.com/b/two', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('core')] }]);
     const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/a/one' ? one : two), clock });
     const union = graphs.addGraph('union', ['github.com/a/one', 'github.com/b/two']);
 
     let thrown: unknown;
     try {
-      union.engine();
+      await union.engine();
     } catch (error) {
       thrown = error;
     }
@@ -129,53 +230,53 @@ describe('a graph is a set of sources', () => {
     graphs.close();
   });
 
-  test('an id one source dropped before another declares it is no clash', () => {
+  test('an id one source dropped before another declares it is no clash', async () => {
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });
     const two = createSqliteHistory({ clock });
     clock.set(DAY(10));
-    one.store({ source: 'github.com/a/one', commit: 'c1', committedAt: DAY(1), model: model([element('core')]) });
+    await one.store({ source: 'github.com/a/one', commit: 'c1', committedAt: DAY(1), model: model([element('core')]) });
     clock.set(DAY(12));
-    one.store({ source: 'github.com/a/one', commit: 'c2', committedAt: DAY(3), model: model([]) });
+    await one.store({ source: 'github.com/a/one', commit: 'c2', committedAt: DAY(3), model: model([]) });
     clock.set(DAY(14));
-    two.store({ source: 'github.com/b/two', commit: 'c1', committedAt: DAY(3), model: model([element('core')]) });
+    await two.store({ source: 'github.com/b/two', commit: 'c1', committedAt: DAY(3), model: model([element('core')]) });
 
     const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/a/one' ? one : two), clock });
     const union = graphs.addGraph('union', ['github.com/a/one', 'github.com/b/two']);
-    expect(union.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['core']);
+    expect((await union.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['core']);
     graphs.close();
   });
 });
 
 describe('keeping a built graph in step', () => {
-  test('a store after the engine was built is applied, and the view changes with it', () => {
+  test('a store after the engine was built is applied, and the view changes with it', async () => {
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });
-    one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('root', { kind: 'system' })]) });
+    await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('root', { kind: 'system' })]) });
     const graphs = createGraphs({ historyOf: () => one, clock });
     const graph = graphs.graphForSource('shop');
-    expect(graph.engine().view({ depth: 1 }).elements?.map((e) => e.id)).toEqual(['root']);
+    expect((await graph.engine()).view({ depth: 1 }).elements?.map((e) => e.id)).toEqual(['root']);
 
-    const result = one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('root', { kind: 'system' }), element('child', { parent: 'root', ancestors: ['root'] })]) });
+    const result = await one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('root', { kind: 'system' }), element('child', { parent: 'root', ancestors: ['root'] })]) });
     expect(result.errors).toEqual([]);
     graphs.applyStore('shop', result);
 
-    const view = graph.engine().view({ depth: 1 });
+    const view = (await graph.engine()).view({ depth: 1 });
     graphs.close();
     expect(view.elements?.map((e) => e.id).sort()).toEqual(['child', 'root']);
   });
 
-  test('a store report that both closes and opens rows reaches a built engine', () => {
+  test('a store report that both closes and opens rows reaches a built engine', async () => {
     // The closed row leaves the assertion-driven view; the opened child
     // row must arrive in the same update.
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });
-    one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a'), element('keep')]) });
+    await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a'), element('keep')]) });
     const graphs = createGraphs({ historyOf: () => one, clock });
     const graph = graphs.graphForSource('shop');
-    expect(graph.engine().view({ depth: 1 }).elements?.map((each) => each.id).sort()).toEqual(['a', 'keep']);
+    expect((await graph.engine()).view({ depth: 1 }).elements?.map((each) => each.id).sort()).toEqual(['a', 'keep']);
 
-    const result = one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('keep'), element('child', { parent: 'keep', ancestors: ['keep'] })]) });
+    const result = await one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('keep'), element('child', { parent: 'keep', ancestors: ['keep'] })]) });
     expect(result.errors).toEqual([]);
     expect(result.closed.length).toBeGreaterThan(0);
     expect(result.opened.length).toBeGreaterThan(0);
@@ -184,64 +285,64 @@ describe('keeping a built graph in step', () => {
     // frozen clock; move real time past it, as a running server would,
     // before asking the view.
     clock.set(DAY(15));
-    const view = graph.engine().view({ depth: 1 });
+    const view = (await graph.engine()).view({ depth: 1 });
     graphs.close();
     expect(view.elements?.map((each) => each.id).sort()).toEqual(['child', 'keep']);
   });
 
-  test('a store report that only closes rows reaches a built engine', () => {
+  test('a store report that only closes rows reaches a built engine', async () => {
     // A commit at the very instant the dropped row starts, sorting after
     // it by id, closes the old row and opens no replacement (a zero-width
     // slice is never written).
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });
-    one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
+    await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
     const graphs = createGraphs({ historyOf: () => one, clock });
     const graph = graphs.graphForSource('shop');
-    expect(graph.engine().view({ depth: 1 }).elements?.map((each) => each.id)).toEqual(['a']);
+    expect((await graph.engine()).view({ depth: 1 }).elements?.map((each) => each.id)).toEqual(['a']);
 
-    const result = one.store({ source: 'shop', commit: 'c2', committedAt: DAY(1), model: model([]) });
+    const result = await one.store({ source: 'shop', commit: 'c2', committedAt: DAY(1), model: model([]) });
     expect(result.errors).toEqual([]);
     expect(result.closed.length).toBeGreaterThan(0);
     expect(result.opened).toEqual([]);
     graphs.applyStore('shop', result);
     clock.set(DAY(15));
 
-    const view = graph.engine().view({ depth: 1 });
+    const view = (await graph.engine()).view({ depth: 1 });
     graphs.close();
     expect(view.elements?.map((each) => each.id)).toEqual([]);
   });
 
-  test('dropBuilt drops the built engines of every graph listing the source, and the next use rebuilds from the history', () => {
+  test('dropBuilt drops the built engines of every graph listing the source, and the next use rebuilds from the history', async () => {
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });
-    one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
+    await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
     const graphs = createGraphs({ historyOf: () => one, clock });
     const own = graphs.graphForSource('shop');
     const union = graphs.addGraph('union', ['shop', 'other']);
-    expect(own.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
-    expect(union.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
+    expect((await own.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
+    expect((await union.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
 
-    one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('b')]) });
+    await one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('b')]) });
     // The second store recorded its rows 1 ms past the frozen clock (it
     // closed c1's row); move real time past that before asking again.
     clock.set(DAY(15));
     graphs.dropBuilt('shop');
 
-    expect(own.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['b']);
-    expect(union.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['b']);
+    expect((await own.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['b']);
+    expect((await union.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['b']);
     graphs.close();
   });
 
-  test('remove takes the graphs listing the source out of the set, and a graph of the name is built fresh', () => {
+  test('remove takes the graphs listing the source out of the set, and a graph of the name is built fresh', async () => {
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });
-    one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
+    await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
     const graphs = createGraphs({ historyOf: () => one, clock });
     const own = graphs.graphForSource('shop');
     const union = graphs.addGraph('union', ['shop', 'other']);
-    expect(own.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
-    expect(union.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
+    expect((await own.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
+    expect((await union.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
 
     graphs.remove('shop');
 
@@ -253,10 +354,10 @@ describe('keeping a built graph in step', () => {
     // under a new name would build it: what the old one held is gone.
     const fresh = graphs.graphForSource('shop');
     expect(fresh).not.toBe(own);
-    expect(fresh.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
+    expect((await fresh.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
     graphs.close();
   });
-  test('removes every matching graph even when one graph close throws, then rethrows the failure', () => {
+  test('removes every matching graph even when one graph close throws, then rethrows the failure', async () => {
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });
     const graphs = createGraphs({ historyOf: () => one, clock });
@@ -276,20 +377,20 @@ describe('keeping a built graph in step', () => {
     one.close();
   });
 
-  test('a store whose report a built engine fails to apply is dropped, not left behind: the throw passes on and the next use rebuilds from the history', () => {
+  test('a store whose report a built engine fails to apply is dropped, not left behind: the throw passes on and the next use rebuilds from the history', async () => {
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });
-    one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
+    await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
     const graphs = createGraphs({ historyOf: () => one, clock });
     const graph = graphs.graphForSource('shop');
-    expect(graph.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
+    expect((await graph.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
 
-    const result = one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('b')]) });
+    const result = await one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('b')]) });
     expect(result.errors).toEqual([]);
     expect(result.opened.length + result.closed.length).toBeGreaterThan(0);
     // Sabotage the built engine's own update, as a failing Ladybug write
     // would: the history has the commit, the engine cannot take it.
-    const engine = graph.engine();
+    const engine = await graph.engine();
     engine.update = () => {
       throw new Error('the engine update failed');
     };
@@ -301,27 +402,27 @@ describe('keeping a built graph in step', () => {
     // The second store recorded its rows 1 ms past the frozen clock (it
     // closed c1's row); move real time past that before asking again.
     clock.set(DAY(15));
-    const view = graph.engine().view({ depth: 0 });
+    const view = (await graph.engine()).view({ depth: 0 });
     graphs.close();
     expect(view.elements?.map((each) => each.id)).toEqual(['b']);
   });
 
-  test('a recovery whose engine close fails still drops every listing graph and passes the original error on', () => {
+  test('a recovery whose engine close fails still drops every listing graph and passes the original error on', async () => {
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });
-    one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
+    await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
     const graphs = createGraphs({ historyOf: () => one, clock });
     const own = graphs.graphForSource('shop');
     const union = graphs.addGraph('union', ['shop', 'other']);
-    expect(own.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
-    expect(union.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
+    expect((await own.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
+    expect((await union.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
 
-    const result = one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('b')]) });
+    const result = await one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('b')]) });
     expect(result.errors).toEqual([]);
     // Sabotage the one graph's engine twice over: its update throws (the
     // failure being recovered from) and so does its close (the destructor
     // failing on the recovery path).
-    const engine = own.engine();
+    const engine = await own.engine();
     engine.update = () => {
       throw new Error('the engine update failed');
     };
@@ -344,73 +445,73 @@ describe('keeping a built graph in step', () => {
     clock.set(DAY(15));
     // Both graphs' engines are gone: each next use rebuilds from the
     // history and answers at c2, not from the engine the close failed on.
-    expect(own.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['b']);
-    expect(union.engine().view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['b']);
+    expect((await own.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['b']);
+    expect((await union.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['b']);
     graphs.close();
   });
 
-  test('a graph built after several stores sees all of them without any update call', () => {
+  test('a graph built after several stores sees all of them without any update call', async () => {
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });
-    one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
-    one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('a'), element('b')]) });
+    await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
+    await one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('a'), element('b')]) });
     const graphs = createGraphs({ historyOf: () => one, clock });
 
-    const view = graphs.graphForSource('shop').engine().view({ depth: 0 });
+    const view = (await graphs.graphForSource('shop').engine()).view({ depth: 0 });
     graphs.close();
     expect(view.elements?.map((e) => e.id)).toEqual(['a', 'b']);
   });
 
-  test('a store with nothing opened or closed changes nothing', () => {
+  test('a store with nothing opened or closed changes nothing', async () => {
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });
-    one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
+    await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
     const graphs = createGraphs({ historyOf: () => one, clock });
     const graph = graphs.graphForSource('shop');
-    const before = graph.engine().view({ depth: 0 }).elements?.map((e) => e.id);
+    const before = (await graph.engine()).view({ depth: 0 }).elements?.map((e) => e.id);
 
     graphs.applyStore('shop', { errors: [], opened: [], closed: [] });
 
-    expect(graph.engine().view({ depth: 0 }).elements?.map((e) => e.id)).toEqual(before);
+    expect((await graph.engine()).view({ depth: 0 }).elements?.map((e) => e.id)).toEqual(before);
     graphs.close();
   });
 
-  test('a store for a source the graph does not list is not applied', () => {
+  test('a store for a source the graph does not list is not applied', async () => {
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });
-    one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('shop-root')]) });
-    one.store({ source: 'other', commit: 'c1', committedAt: DAY(1), model: model([element('other-root')]) });
+    await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('shop-root')]) });
+    await one.store({ source: 'other', commit: 'c1', committedAt: DAY(1), model: model([element('other-root')]) });
     const graphs = createGraphs({ historyOf: () => one, clock });
     const graph = graphs.graphForSource('shop');
-    expect(graph.engine().view({ depth: 0 }).elements?.map((e) => e.id)).toEqual(['shop-root']);
+    expect((await graph.engine()).view({ depth: 0 }).elements?.map((e) => e.id)).toEqual(['shop-root']);
 
-    const result = one.store({ source: 'other', commit: 'c2', committedAt: DAY(2), model: model([element('other-root'), element('other-new')]) });
+    const result = await one.store({ source: 'other', commit: 'c2', committedAt: DAY(2), model: model([element('other-root'), element('other-new')]) });
     graphs.applyStore('other', result);
 
-    const view = graph.engine().view({ depth: 0 });
+    const view = (await graph.engine()).view({ depth: 0 });
     graphs.close();
     expect(view.elements?.map((e) => e.id)).toEqual(['shop-root']);
   });
 
-  test('a store that brings a clash into a built two-source graph drops its engine, and the next use refuses instead of answering with duplicate rows', () => {
+  test('a store that brings a clash into a built two-source graph drops its engine, and the next use refuses instead of answering with duplicate rows', async () => {
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });
     const two = createSqliteHistory({ clock });
-    one.store({ source: 'github.com/a/one', commit: 'c1', committedAt: DAY(1), model: model([element('one-root')]) });
-    two.store({ source: 'github.com/b/two', commit: 'c1', committedAt: DAY(1), model: model([element('two-root')]) });
+    await one.store({ source: 'github.com/a/one', commit: 'c1', committedAt: DAY(1), model: model([element('one-root')]) });
+    await two.store({ source: 'github.com/b/two', commit: 'c1', committedAt: DAY(1), model: model([element('two-root')]) });
     const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/a/one' ? one : two), clock });
     const union = graphs.addGraph('union', ['github.com/a/one', 'github.com/b/two']);
-    expect(union.engine().view({ depth: 0 }).elements?.map((each) => each.id).sort()).toEqual(['one-root', 'two-root']);
+    expect((await union.engine()).view({ depth: 0 }).elements?.map((each) => each.id).sort()).toEqual(['one-root', 'two-root']);
 
     // The store's own report reaches the built engine as rows; only a
     // rebuild through the clash check can refuse what they declare.
-    const result = one.store({ source: 'github.com/a/one', commit: 'c2', committedAt: DAY(2), model: model([element('one-root'), element('two-root')]) });
+    const result = await one.store({ source: 'github.com/a/one', commit: 'c2', committedAt: DAY(2), model: model([element('one-root'), element('two-root')]) });
     expect(result.errors).toEqual([]);
     graphs.applyStore('github.com/a/one', result);
 
     let thrown: unknown;
     try {
-      union.engine();
+      await union.engine();
     } catch (error) {
       thrown = error;
     }
@@ -422,7 +523,7 @@ describe('keeping a built graph in step', () => {
 });
 
 describe('graph names', () => {
-  test('a graph name taken twice is refused naming it', () => {
+  test('a graph name taken twice is refused naming it', async () => {
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });
     const graphs = createGraphs({ historyOf: () => one, clock });
@@ -431,7 +532,7 @@ describe('graph names', () => {
     graphs.close();
   });
 
-  test('a graph listing no source is refused naming it', () => {
+  test('a graph listing no source is refused naming it', async () => {
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });
     const graphs = createGraphs({ historyOf: () => one, clock });
@@ -439,7 +540,7 @@ describe('graph names', () => {
     graphs.close();
   });
 
-  test('graphForSource hands the same graph back and get finds it by name', () => {
+  test('graphForSource hands the same graph back and get finds it by name', async () => {
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });
     const graphs = createGraphs({ historyOf: () => one, clock });
@@ -453,7 +554,7 @@ describe('graph names', () => {
 });
 
 describe('the graph engine and its clock', () => {
-  test('the sources are held in code point order, whatever order they were listed in', () => {
+  test('the sources are held in code point order, whatever order they were listed in', async () => {
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });
     const graphs = createGraphs({ historyOf: () => one, clock });
@@ -462,31 +563,31 @@ describe('the graph engine and its clock', () => {
     graphs.close();
   });
 
-  test('the engine answers at the clock the graphs were given, not the real one', () => {
+  test('the engine answers at the clock the graphs were given, not the real one', async () => {
     // A commit dated far past the real "now": only an engine answering at
     // the injected clock sees it as current.
     const far = Date.UTC(2030, 0, 2);
     const clock = fakeClock(far);
     const one = createSqliteHistory({ clock });
-    one.store({ source: 'shop', commit: 'c1', committedAt: Date.UTC(2030, 0, 1), model: model([element('far-future')]) });
+    await one.store({ source: 'shop', commit: 'c1', committedAt: Date.UTC(2030, 0, 1), model: model([element('far-future')]) });
     const graphs = createGraphs({ historyOf: () => one, clock });
-    const view = graphs.graphForSource('shop').engine().view({ depth: 0 });
+    const view = (await graphs.graphForSource('shop').engine()).view({ depth: 0 });
     graphs.close();
     expect(view.elements?.map((each) => each.id)).toEqual(['far-future']);
   });
 
-  test('a store report applied before the engine was ever built is not lost and does not build it', () => {
+  test('a store report applied before the engine was ever built is not lost and does not build it', async () => {
     const clock = fakeClock(DAY(9));
     const one = createSqliteHistory({ clock });
-    one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('root', { kind: 'system' })]) });
+    await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('root', { kind: 'system' })]) });
     const graphs = createGraphs({ historyOf: () => one, clock });
     const graph = graphs.addGraph('shop', ['shop']);
 
-    const result = one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('root', { kind: 'system' }), element('child', { parent: 'root', ancestors: ['root'] })]) });
+    const result = await one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('root', { kind: 'system' }), element('child', { parent: 'root', ancestors: ['root'] })]) });
     expect(result.errors).toEqual([]);
     expect(() => graphs.applyStore('shop', result)).not.toThrow();
 
-    expect(graph.engine().view({ depth: 1 }).elements?.map((each) => each.id).sort()).toEqual(['child', 'root']);
+    expect((await graph.engine()).view({ depth: 1 }).elements?.map((each) => each.id).sort()).toEqual(['child', 'root']);
     graphs.close();
   });
 });

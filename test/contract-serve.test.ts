@@ -24,8 +24,8 @@ function productWithRegistry(text: string): void {
   writeFileSync(join(folder, 'app', 'index.html'), '<!doctype html><title>t</title>');
 }
 
-afterEach(() => {
-  server?.stop();
+afterEach(async () => {
+  await server?.stop();
   server = undefined;
   if (folder !== undefined) rmSync(folder, { recursive: true, force: true });
   folder = undefined;
@@ -39,7 +39,7 @@ describe('the served wiki and the product registry', () => {
     mkdirSync(join(folder, 'app'), { recursive: true });
     writeFileSync(join(folder, 'docs', 'decisions', 'D-001.md'), '# D-001 — One decision\n\nrecorded here\n');
     writeFileSync(join(folder, 'app', 'index.html'), '<!doctype html><title>t</title>');
-    server = startServer({ productFolder: folder, port: 0, appFolder: join(folder, 'app'), log: () => {}, errorLog: () => {} });
+    server = await startServer({ productFolder: folder, port: 0, appFolder: join(folder, 'app'), log: () => {}, errorLog: () => {} });
     const listed = (await (await fetch(`${server.url}/api/pages`)).json()) as Record<string, unknown>;
     expect('contract' in listed).toBe(false);
     expect(Array.isArray(listed.pages)).toBe(true);
@@ -48,7 +48,7 @@ describe('the served wiki and the product registry', () => {
 
   test('a registry of contract 99 is named by the served pages answer, and the pages serve plain', async () => {
     productWithRegistry('contract: 99\nstages:\n  - id: idea\nkinds:\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: idea\n    hint: one\n');
-    server = startServer({ productFolder: folder!, port: 0, appFolder: join(folder!, 'app'), log: () => {}, errorLog: () => {} });
+    server = await startServer({ productFolder: folder!, port: 0, appFolder: join(folder!, 'app'), log: () => {}, errorLog: () => {} });
     const list = (await (await fetch(`${server.url}/api/pages`)).json()) as { pages: { kind?: string }[]; contract?: { known: boolean; version?: number; message: string } };
     expect(list.contract).toEqual({ known: false, version: 99, message: 'docs/kinds.yaml:1: contract: the registry declares contract 99; this madarch reads contract 1 — the wiki serves these pages as plain documents' });
     expect(list.pages.map((entry) => entry.kind)).toEqual([undefined]);

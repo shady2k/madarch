@@ -14,7 +14,7 @@ import { checkModel } from '../src/check/model-check.js';
 
 const USAGE = 'usage: bun scripts/check-model.ts <repository path> [--rev <git revision>] [--views <folder>] [--json]';
 
-function main(args: readonly string[]): number {
+async function main(args: readonly string[]): Promise<number> {
   let repoPath: string | undefined;
   let rev: string | undefined;
   let views: string | undefined;
@@ -58,7 +58,7 @@ function main(args: readonly string[]): number {
     return 2;
   }
 
-  const report = checkModel(repoPath, { rev, views });
+  const report = await checkModel(repoPath, { rev, views });
   if (json) {
     console.log(JSON.stringify(report, null, 2));
   } else {
@@ -71,4 +71,4 @@ function main(args: readonly string[]): number {
   return report.outcome === 'passed' ? 0 : report.outcome === 'failed' ? 1 : 2;
 }
 
-process.exitCode = main(process.argv.slice(2));
+process.exitCode = await main(process.argv.slice(2));

@@ -74,15 +74,15 @@ function spec(title: string, headings: readonly string[]): string {
 }
 
 describe('requirements-resolve', () => {
-  test('requirement-found: a scenario naming a requirement the spec holds reports nothing about it', () => {
-    withRepo((repo) => {
+  test('requirement-found: a scenario naming a requirement the spec holds reports nothing about it', async () => {
+    await withRepo(async (repo) => {
       const { commit, blob } = sourcesCommit(repo);
       repo.write('docs/system/capabilities/server.md', spec('Server', ['store — Sent models are kept', 'store-version — The kept model has a version']));
       repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/store', 'server/store-version']));
       repo.writeReview([], requirementsReview());
       repo.commit('the model');
 
-      const report = checkModel(repo.path);
+      const report = await checkModel(repo.path);
 
       expect(report.outcome).toBe('passed');
       expect(report.errors).toEqual([]);
@@ -90,23 +90,23 @@ describe('requirements-resolve', () => {
     });
   });
 
-  test('requirement-found: a heading ended by the end of the line or a space satisfies the id as the em-dash form does', () => {
-    withRepo((repo) => {
+  test('requirement-found: a heading ended by the end of the line or a space satisfies the id as the em-dash form does', async () => {
+    await withRepo(async (repo) => {
       const { commit, blob } = sourcesCommit(repo);
       repo.write('docs/system/capabilities/server.md', spec('Server', ['store', 'bare-id Title written after a space']));
       repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/store', 'server/bare-id']));
       repo.writeReview([], requirementsReview());
       repo.commit('the model');
 
-      const report = checkModel(repo.path);
+      const report = await checkModel(repo.path);
 
       expect(report.outcome).toBe('passed');
       expect(report.errors).toEqual([]);
     });
   });
 
-  test('requirement-found: a heading whose id merely starts the same way does not satisfy a shorter id, and the reverse', () => {
-    withRepo((repo) => {
+  test('requirement-found: a heading whose id merely starts the same way does not satisfy a shorter id, and the reverse', async () => {
+    await withRepo(async (repo) => {
       const { commit, blob } = sourcesCommit(repo);
       // `store-version` is a requirement; `store` is not, so a heading for
       // `store-version` must not satisfy `store` — and a heading for `store`
@@ -117,7 +117,7 @@ describe('requirements-resolve', () => {
       repo.writeReview([], requirementsReview());
       repo.commit('the model');
 
-      const report = checkModel(repo.path);
+      const report = await checkModel(repo.path);
 
       expect(report.outcome).toBe('failed');
       expect(report.errors).toHaveLength(2);
@@ -129,15 +129,15 @@ describe('requirements-resolve', () => {
     });
   });
 
-  test('unknown-requirement: a scenario naming a requirement the spec does not hold fails, naming the scenario, the requirement, the model file and line, and saying the spec has no such requirement', () => {
-    withRepo((repo) => {
+  test('unknown-requirement: a scenario naming a requirement the spec does not hold fails, naming the scenario, the requirement, the model file and line, and saying the spec has no such requirement', async () => {
+    await withRepo(async (repo) => {
       const { commit, blob } = sourcesCommit(repo);
       repo.write('docs/system/capabilities/server.md', spec('Server', ['store — Sent models are kept']));
       repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/archive']));
       repo.writeReview([], requirementsReview());
       repo.commit('the model');
 
-      const report = checkModel(repo.path);
+      const report = await checkModel(repo.path);
 
       expect(report.outcome).toBe('failed');
       expect(report.errors).toHaveLength(1);
@@ -152,15 +152,15 @@ describe('requirements-resolve', () => {
     });
   });
 
-  test('unknown-capability: a scenario naming a capability with no spec at all fails, saying there is no such capability spec', () => {
-    withRepo((repo) => {
+  test('unknown-capability: a scenario naming a capability with no spec at all fails, saying there is no such capability spec', async () => {
+    await withRepo(async (repo) => {
       const { commit, blob } = sourcesCommit(repo);
       repo.write('docs/system/capabilities/server.md', spec('Server', ['store — Sent models are kept']));
       repo.writeModel('model.yaml', scenarioModel(commit, blob, ['billing/refund']));
       repo.writeReview([], requirementsReview());
       repo.commit('the model');
 
-      const report = checkModel(repo.path);
+      const report = await checkModel(repo.path);
 
       expect(report.outcome).toBe('failed');
       expect(report.errors).toHaveLength(1);
@@ -176,8 +176,8 @@ describe('requirements-resolve', () => {
     });
   });
 
-  test('every unresolved requirement is reported, sorted by file, then line, then id in code-point order', () => {
-    withRepo((repo) => {
+  test('every unresolved requirement is reported, sorted by file, then line, then id in code-point order', async () => {
+    await withRepo(async (repo) => {
       const { commit, blob } = sourcesCommit(repo);
       repo.write('docs/system/capabilities/server.md', spec('Server', ['store — Sent models are kept']));
       // Two scenarios in two model files: one names two unknown requirements
@@ -209,7 +209,7 @@ describe('requirements-resolve', () => {
       repo.writeReview([], requirementsReview());
       repo.commit('the model');
 
-      const report = checkModel(repo.path);
+      const report = await checkModel(repo.path);
 
       expect(report.outcome).toBe('failed');
       expect(report.errors.map((f) => `${f.file}:${f.line}:${f.id}`)).toEqual([
@@ -223,8 +223,8 @@ describe('requirements-resolve', () => {
     });
   });
 
-  test('the specs are read at the checked revision, not the working tree: a requirement removed after the model named it fails only at the newer revision', () => {
-    withRepo((repo) => {
+  test('the specs are read at the checked revision, not the working tree: a requirement removed after the model named it fails only at the newer revision', async () => {
+    await withRepo(async (repo) => {
       const { commit, blob } = sourcesCommit(repo);
       repo.write('docs/system/capabilities/server.md', spec('Server', ['store — Sent models are kept']));
       repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/store']));
@@ -236,11 +236,11 @@ describe('requirements-resolve', () => {
       repo.write('docs/system/capabilities/server.md', spec('Server', ['archive — Old models are archived']));
       const removedAt = repo.commit('the spec loses the requirement');
 
-      const atOld = checkModel(repo.path, { rev: modelCommit });
+      const atOld = await checkModel(repo.path, { rev: modelCommit });
       expect(atOld.outcome).toBe('passed');
       expect(atOld.errors).toEqual([]);
 
-      const atNew = checkModel(repo.path, { rev: removedAt });
+      const atNew = await checkModel(repo.path, { rev: removedAt });
       expect(atNew.outcome).toBe('failed');
       expect(atNew.errors).toHaveLength(1);
       expect(atNew.errors[0]!.message).toContain('server/store');
@@ -248,8 +248,8 @@ describe('requirements-resolve', () => {
     });
   });
 
-  test('a scenario that names no requirement resolves nothing, with the key left out entirely too: the check passes with no findings about it', () => {
-    withRepo((repo) => {
+  test('a scenario that names no requirement resolves nothing, with the key left out entirely too: the check passes with no findings about it', async () => {
+    await withRepo(async (repo) => {
       const { commit, blob } = sourcesCommit(repo);
       // One scenario states `requirements` as an empty list; the other
       // leaves the key out: neither resolves anything, and neither may
@@ -264,21 +264,21 @@ describe('requirements-resolve', () => {
       repo.writeReview([], requirementsReview());
       repo.commit('the model');
 
-      const report = checkModel(repo.path);
+      const report = await checkModel(repo.path);
 
       expect(report.outcome).toBe('passed');
       expect(report.errors).toEqual([]);
     });
   });
 
-  test('a model that does not compile reports nothing this section could compute', () => {
-    withRepo((repo) => {
+  test('a model that does not compile reports nothing this section could compute', async () => {
+    await withRepo(async (repo) => {
       const { commit, blob } = sourcesCommit(repo);
       repo.writeModel('model.yaml', scenarioModel(commit, blob, ['billing/refund']).replace('    name: Store\n', '    name: Store\n    parent: nowhere\n'));
       repo.writeReview([], requirementsReview());
       repo.commit('the model');
 
-      const report = checkModel(repo.path);
+      const report = await checkModel(repo.path);
 
       expect(report.outcome).toBe('failed');
       // Only the loader's refusal is reported: no requirement finding.
@@ -287,8 +287,8 @@ describe('requirements-resolve', () => {
     });
   });
 
-  test('the command reports an unresolved requirement the way a person reads it, exiting 1', () => {
-    withRepo((repo) => {
+  test('the command reports an unresolved requirement the way a person reads it, exiting 1', async () => {
+    await withRepo(async (repo) => {
       const { commit, blob } = sourcesCommit(repo);
       repo.write('docs/system/capabilities/server.md', spec('Server', ['store — Sent models are kept']));
       repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/archive']));
@@ -305,8 +305,8 @@ describe('requirements-resolve', () => {
     });
   });
 
-  test('the command reports a found requirement the way a person reads it, exiting 0', () => {
-    withRepo((repo) => {
+  test('the command reports a found requirement the way a person reads it, exiting 0', async () => {
+    await withRepo(async (repo) => {
       const { commit, blob } = sourcesCommit(repo);
       repo.write('docs/system/capabilities/server.md', spec('Server', ['store — Sent models are kept']));
       repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/store']));
@@ -320,15 +320,15 @@ describe('requirements-resolve', () => {
     });
   });
 
-  test('a heading inside a fenced code block is an example, not a requirement', () => {
-    withRepo((repo) => {
+  test('a heading inside a fenced code block is an example, not a requirement', async () => {
+    await withRepo(async (repo) => {
       const { commit, blob } = sourcesCommit(repo);
       repo.write('docs/system/capabilities/server.md', ['# Server', '', 'An example of the form:', '', '```markdown', '## Requirement: archive — An example heading', '```', ''].join('\n'));
       repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/archive']));
       repo.writeReview([], requirementsReview());
       repo.commit('the model');
 
-      const report = checkModel(repo.path);
+      const report = await checkModel(repo.path);
 
       expect(report.outcome).toBe('failed');
       expect(report.errors).toContainEqual(
@@ -337,36 +337,36 @@ describe('requirements-resolve', () => {
     });
   });
 
-  test('a heading inside an indented fenced code block is an example too', () => {
-    withRepo((repo) => {
+  test('a heading inside an indented fenced code block is an example too', async () => {
+    await withRepo(async (repo) => {
       const { commit, blob } = sourcesCommit(repo);
       repo.write('docs/system/capabilities/server.md', ['# Server', '', '  ```markdown', '## Requirement: archive — An example heading', '  ```', ''].join('\n'));
       repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/archive']));
       repo.writeReview([], requirementsReview());
       repo.commit('the model');
 
-      const report = checkModel(repo.path);
+      const report = await checkModel(repo.path);
 
       expect(report.outcome).toBe('failed');
       expect(report.errors).toContainEqual(expect.objectContaining({ message: expect.stringContaining('has no requirement "archive"') }));
     });
   });
 
-  test('a fence is closed only by the same character, at least as long, with nothing after it', () => {
+  test('a fence is closed only by the same character, at least as long, with nothing after it', async () => {
     const cases: { name: string; spec: string[] }[] = [
       { name: 'a shorter closing run', spec: ['# Server', '', '````markdown', '## Requirement: archive — An example', '```', ''] },
       { name: 'a closing run of the other character', spec: ['# Server', '', '```', '## Requirement: archive — An example', '~~~', ''] },
       { name: 'a closing line with a suffix', spec: ['# Server', '', '```', '## Requirement: archive — An example', '``` extra', ''] },
     ];
     for (const { name, spec: lines } of cases) {
-      withRepo((repo) => {
+      await withRepo(async (repo) => {
         const { commit, blob } = sourcesCommit(repo);
         repo.write('docs/system/capabilities/server.md', [...lines, '## Requirement: store — Sent models are kept', ''].join('\n'));
         repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/store']));
         repo.writeReview([], requirementsReview());
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome, name).toBe('failed');
         expect(report.errors, name).toContainEqual(expect.objectContaining({ message: expect.stringContaining('has no requirement "store"') }));
@@ -374,51 +374,51 @@ describe('requirements-resolve', () => {
     }
   });
 
-  test('a fence that opens and closes leaves the headings after it readable', () => {
-    withRepo((repo) => {
+  test('a fence that opens and closes leaves the headings after it readable', async () => {
+    await withRepo(async (repo) => {
       const { commit, blob } = sourcesCommit(repo);
       repo.write('docs/system/capabilities/server.md', ['# Server', '', '```markdown', '## Requirement: archive — An example', '```', '', '## Requirement: store — Sent models are kept', ''].join('\n'));
       repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/store']));
       repo.writeReview([], requirementsReview());
       repo.commit('the model');
 
-      const report = checkModel(repo.path);
+      const report = await checkModel(repo.path);
 
       expect(report.outcome).toBe('passed');
       expect(report.errors).toEqual([]);
     });
   });
 
-  test('a closing fence may carry trailing spaces', () => {
-    withRepo((repo) => {
+  test('a closing fence may carry trailing spaces', async () => {
+    await withRepo(async (repo) => {
       const { commit, blob } = sourcesCommit(repo);
       repo.write('docs/system/capabilities/server.md', ['# Server', '', '```markdown', '## Requirement: archive — An example', '```   ', '', '## Requirement: store — Sent models are kept', ''].join('\n'));
       repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/store']));
       repo.writeReview([], requirementsReview());
       repo.commit('the model');
 
-      const report = checkModel(repo.path);
+      const report = await checkModel(repo.path);
 
       expect(report.outcome).toBe('passed');
       expect(report.errors).toEqual([]);
     });
   });
 
-  test('a fence marker is read only at the start of a line, and only a run of three', () => {
+  test('a fence marker is read only at the start of a line, and only a run of three', async () => {
     const cases: { name: string; prose: string }[] = [
       { name: 'a marker inside a line of prose', prose: 'The format writes ```yaml and ~~~ for a fence.' },
       { name: 'a single backtick', prose: '`store` is the id of the requirement.' },
       { name: 'a single tilde', prose: '~10 items are enough.' },
     ];
     for (const { name, prose } of cases) {
-      withRepo((repo) => {
+      await withRepo(async (repo) => {
         const { commit, blob } = sourcesCommit(repo);
         repo.write('docs/system/capabilities/server.md', ['# Server', '', prose, '', '## Requirement: store — Sent models are kept', ''].join('\n'));
         repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/store']));
         repo.writeReview([], requirementsReview());
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome, name).toBe('passed');
         expect(report.errors, name).toEqual([]);
@@ -426,60 +426,60 @@ describe('requirements-resolve', () => {
     }
   });
 
-  test('a marker indented by three spaces is a fence, and hides the headings in it', () => {
-    withRepo((repo) => {
+  test('a marker indented by three spaces is a fence, and hides the headings in it', async () => {
+    await withRepo(async (repo) => {
       const { commit, blob } = sourcesCommit(repo);
       repo.write('docs/system/capabilities/server.md', ['# Server', '', '   ```markdown', '## Requirement: store — Sent models are kept', '   ```', ''].join('\n'));
       repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/store']));
       repo.writeReview([], requirementsReview());
       repo.commit('the model');
 
-      const report = checkModel(repo.path);
+      const report = await checkModel(repo.path);
 
       expect(report.outcome).toBe('failed');
       expect(report.errors).toContainEqual(expect.objectContaining({ message: expect.stringContaining('has no requirement "store"') }));
     });
   });
 
-  test('a line indented by four spaces is an indented code block, not a fence, so it hides nothing', () => {
-    withRepo((repo) => {
+  test('a line indented by four spaces is an indented code block, not a fence, so it hides nothing', async () => {
+    await withRepo(async (repo) => {
       const { commit, blob } = sourcesCommit(repo);
       repo.write('docs/system/capabilities/server.md', ['# Server', '', '    ```', '', '## Requirement: store — Sent models are kept', ''].join('\n'));
       repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/store']));
       repo.writeReview([], requirementsReview());
       repo.commit('the model');
 
-      const report = checkModel(repo.path);
+      const report = await checkModel(repo.path);
 
       expect(report.outcome).toBe('passed');
       expect(report.errors).toEqual([]);
     });
   });
 
-  test('a heading whose line ends with a carriage return satisfies the id', () => {
-    withRepo((repo) => {
+  test('a heading whose line ends with a carriage return satisfies the id', async () => {
+    await withRepo(async (repo) => {
       const { commit, blob } = sourcesCommit(repo);
       repo.write('docs/system/capabilities/server.md', '# Server\r\n\r\n## Requirement: store\r\n');
       repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/store']));
       repo.writeReview([], requirementsReview());
       repo.commit('the model');
 
-      const report = checkModel(repo.path);
+      const report = await checkModel(repo.path);
 
       expect(report.errors).toEqual([]);
       expect(report.outcome).toBe('passed');
     });
   });
 
-  test('an unresolved requirement names the full path it is written at', () => {
-    withRepo((repo) => {
+  test('an unresolved requirement names the full path it is written at', async () => {
+    await withRepo(async (repo) => {
       const { commit, blob } = sourcesCommit(repo);
       repo.write('docs/system/capabilities/server.md', spec('Server', ['store — Sent models are kept']));
       repo.writeModel('model.yaml', scenarioModel(commit, blob, ['server/archive', 'server/store']));
       repo.writeReview([], requirementsReview());
       repo.commit('the model');
 
-      const report = checkModel(repo.path);
+      const report = await checkModel(repo.path);
 
       expect(report.errors).toEqual([
         expect.objectContaining({ id: 'server/archive', file: 'madarch/model.yaml', path: 'scenarios[0].requirements[0]' }),

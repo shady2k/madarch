@@ -66,8 +66,8 @@ let server: StartedServer | undefined;
 let lines: string[];
 let errors: string[];
 
-afterEach(() => {
-  server?.stop();
+afterEach(async () => {
+  await server?.stop();
   server = undefined;
   if (folder !== undefined) {
     rmSync(folder, { recursive: true, force: true });
@@ -76,12 +76,12 @@ afterEach(() => {
 });
 
 /** A server on a free port over a scratch folder, with a held clock and captured logs; returns its base URL. */
-function start(): string {
+async function start(): Promise<string> {
   folder = mkdtempSync(join(tmpdir(), 'madarch-server-views-'));
   lines = [];
   errors = [];
   clockNow.value = NOW;
-  server = startServer({
+  server = await startServer({
     dataFolder: folder,
     port: 0,
     clock: { now: () => clockNow.value },
@@ -97,10 +97,10 @@ function post(path: string, body: unknown): Promise<Response> {
 }
 
 /** Restarts the server on the same data folder and port, as a restart on kept data is. */
-function restart(): void {
+async function restart(): Promise<void> {
   const port = server!.port;
-  server?.stop();
-  server = startServer({
+  await server?.stop();
+  server = await startServer({
     dataFolder: folder!,
     port,
     clock: { now: () => clockNow.value },
@@ -126,12 +126,12 @@ function sendReference(): Promise<Response> {
 }
 
 /** An engine built independently of the server: the same model stored in a history of its own. */
-function independentEngine(model: CompiledModel, at: number): { engine: QueryEngine; history: HistoryStore; close(): void } {
+async function independentEngine(model: CompiledModel, at: number): Promise<{ engine: QueryEngine; history: HistoryStore; close(): Promise<void> }> {
   const history = createSqliteHistory({ clock: { now: () => at } });
-  expect(history.store({ source: 'independent', commit: 'v1', committedAt: at, model }).errors).toEqual([]);
+  expect((await history.store({ source: 'independent', commit: 'v1', committedAt: at, model })).errors).toEqual([]);
   const engine = createLadybugEngine();
-  engine.rebuild(history.assertions());
-  return { engine, history, close: () => { engine.close(); history.close(); } };
+  engine.rebuild(await history.assertions());
+  return { engine, history, close: async () => { engine.close(); await history.close(); } };
 }
 
 /** The drill-down fixture, the model the views capability's own scenarios use. */
@@ -158,8 +158,8 @@ function validate(workspace: string): LikeC4CheckResult {
 }
 
 /** The render the server's answer is held to, asked directly of the independent engine at the model's own time. */
-function renderMermaid(element: string | undefined, depth: number | undefined): string {
-  const independent = independentEngine(referenceModel(), REFERENCE_TIME);
+async function renderMermaid(element: string | undefined, depth: number | undefined): Promise<string> {
+  const independent = await independentEngine(referenceModel(), REFERENCE_TIME);
   try {
     const request: Record<string, unknown> = {};
     if (element !== undefined) request.element = element;
@@ -168,13 +168,13 @@ function renderMermaid(element: string | undefined, depth: number | undefined): 
     expect(rendered.errors).toEqual([]);
     return rendered.page!;
   } finally {
-    independent.close();
+    await independent.close();
   }
 }
 
 describe('POST /views of the reference system', () => {
   test('the landscape and the view of ordering at depth 1 are text/markdown equal to renderOneViewMermaid for the same model', async () => {
-    start();
+    await start();
     expect((await sendReference()).status).toBe(201);
 
     // Depth 2 pins the plumbing: the asked depth reaches the renderer, it is not answered at the default.
@@ -187,13 +187,13 @@ describe('POST /views of the reference system', () => {
       expect(response.status).toBe(200);
       expect(response.headers.get('content-type')).toBe('text/markdown; charset=utf-8');
       const body = await response.text();
-      expect(body).toBe(renderMermaid('element' in request ? request.element : undefined, 'depth' in request ? request.depth : undefined));
+      expect(body).toBe(await renderMermaid('element' in request ? request.element : undefined, 'depth' in request ? request.depth : undefined));
       expect(body).toContain('```mermaid');
     }
   });
 
   test('the LikeC4 answers are text/plain and pass likec4 validate on their own', async () => {
-    start();
+    await start();
     expect((await sendReference()).status).toBe(201);
 
     for (const request of [{ source: REFERENCE_SOURCE, format: 'likec4' }, { source: REFERENCE_SOURCE, element: 'ordering', format: 'likec4' }]) {
@@ -207,7 +207,7 @@ describe('POST /views of the reference system', () => {
   });
 
   test('the same request twice, and after a restart on the same data folder, gives byte-identical text', async () => {
-    start();
+    await start();
     expect((await sendReference()).status).toBe(201);
 
     const first = {
@@ -220,7 +220,7 @@ describe('POST /views of the reference system', () => {
     };
     expect(second).toEqual(first);
 
-    restart();
+    await restart();
     const after = {
       mermaid: await (await post('/views', { source: REFERENCE_SOURCE, element: 'ordering', format: 'mermaid' })).text(),
       likec4: await (await post('/views', { source: REFERENCE_SOURCE, format: 'likec4' })).text(),
@@ -231,7 +231,7 @@ describe('POST /views of the reference system', () => {
   test.skipIf(process.env['MADARCH_SKIP_PERF'] !== undefined)(
     'a view answers in under one second once its engine is built',
     async () => {
-    start();
+    await start();
     expect((await sendReference()).status).toBe(201);
     // The first request builds the source's engine; the requirement measures an answer over a built one.
     expect((await post('/views', { source: REFERENCE_SOURCE, element: 'ordering', format: 'mermaid' })).status).toBe(200);
@@ -251,7 +251,7 @@ describe('POST /views of the reference system', () => {
   );
 
   test('the log line names the source, and a refusal adds its message', async () => {
-    start();
+    await start();
     expect((await sendReference()).status).toBe(201);
     lines = [];
 
@@ -273,26 +273,26 @@ describe('a view after a store that failed once', () => {
   }
 
   /** The mermaid landscape the server must answer with for one model, asked of an engine built independently of the server's own. */
-  function expectedLandscape(model: CompiledModel, at: number): string {
-    const independent = independentEngine(model, at);
+  async function expectedLandscape(model: CompiledModel, at: number): Promise<string> {
+    const independent = await independentEngine(model, at);
     try {
       const rendered = renderOneViewMermaid(independent.engine, model, {}, { valid: at, known: at });
       expect(rendered.errors).toEqual([]);
       return rendered.page!;
     } finally {
-      independent.close();
+      await independent.close();
     }
   }
 
   test('a store that failed after its commit leaves no engine answering the older model: the retry says already stored, the next view reflects the new commit', async () => {
-    start();
+    await start();
     const first = oneElementModel('old-only');
     const second = oneElementModel('new-only');
     expect((await post('/models', { source: 'shop', commit: 'c1', committedAt: '2026-09-01T12:00:00Z', model: first })).status).toBe(201);
     // The first view builds the source's engine at c1.
     const atFirst = await post('/views', { source: 'shop', format: 'mermaid' });
     expect(atFirst.status).toBe(200);
-    expect(await atFirst.text()).toBe(expectedLandscape(first, NOW));
+    expect(await atFirst.text()).toBe(await expectedLandscape(first, NOW));
 
     // Sabotage at the file-system boundary: the sidecar's own temporary
     // path is a folder, so the history stores the commit and the sidecar
@@ -312,7 +312,7 @@ describe('a view after a store that failed once', () => {
     clockNow.value = DAY(40);
     const answer = await post('/views', { source: 'shop', format: 'mermaid' });
     expect(answer.status).toBe(200);
-    expect(await answer.text()).toBe(expectedLandscape(second, DAY(40)));
+    expect(await answer.text()).toBe(await expectedLandscape(second, DAY(40)));
   });
 });
 
@@ -325,19 +325,19 @@ describe('POST /views names the relations LikeC4 cannot draw', () => {
   }
 
   /** The renderer's own answer for a model, asked of an independent engine at the version's own time. */
-  function renderExpected(model: CompiledModel, at: number): LikeC4Result {
-    const independent = independentEngine(model, at);
+  async function renderExpected(model: CompiledModel, at: number): Promise<LikeC4Result> {
+    const independent = await independentEngine(model, at);
     try {
       const rendered = renderOneViewLikeC4(independent.engine, model, {}, { valid: at, known: at });
       expect(rendered.errors).toEqual([]);
       return rendered;
     } finally {
-      independent.close();
+      await independent.close();
     }
   }
 
   test('the answer opens with one comment line per not-drawn relation, in code point order of relation id, and still validates', async () => {
-    start();
+    await start();
     const model = notDrawnModel();
     expect((await post('/models', { source: 'not-drawn', commit: 'c1', committedAt: '2026-09-02T00:00:00Z', model })).status).toBe(201);
 
@@ -346,7 +346,7 @@ describe('POST /views names the relations LikeC4 cannot draw', () => {
     const answer = await response.text();
 
     // The fixture's own relations in code point order of id, read off the model, not off the renderer.
-    const expected = renderExpected(model, DAY(2));
+    const expected = await renderExpected(model, DAY(2));
     expect(expected.notDrawn!.map((relation) => relation.relationId)).toEqual(['loop-retries', 'shop-runs-cart', 'ui-reports-to-shop']);
 
     const lines = answer.split('\n');
@@ -358,14 +358,14 @@ describe('POST /views names the relations LikeC4 cannot draw', () => {
   });
 
   test('a model with no relation LikeC4 cannot draw is answered unchanged: the workspace alone, no comment line', async () => {
-    start();
+    await start();
     expect((await sendReference()).status).toBe(201);
 
     const response = await post('/views', { source: REFERENCE_SOURCE, format: 'likec4' });
     expect(response.status).toBe(200);
     const answer = await response.text();
 
-    const expected = renderExpected(referenceModel(), REFERENCE_TIME);
+    const expected = await renderExpected(referenceModel(), REFERENCE_TIME);
     expect(expected.notDrawn).toEqual([]);
     expect(answer).toBe(expected.workspace!);
   });
@@ -373,7 +373,7 @@ describe('POST /views names the relations LikeC4 cannot draw', () => {
 
 describe('POST /views explains', () => {
   test('a source never sent is answered 404 saying so, listing the sources held in code point order and the send command', async () => {
-    start();
+    await start();
     expect((await sendDrillDown('shop')).status).toBe(201);
     expect((await sendDrillDown('a-first')).status).toBe(201);
 
@@ -388,7 +388,7 @@ describe('POST /views explains', () => {
   });
 
   test('a server holding nothing says so too', async () => {
-    start();
+    await start();
     const response = await post('/views', { source: 'github.com/acme/shop', format: 'mermaid' });
     expect(response.status).toBe(404);
     const error = await errorOf(response);
@@ -397,7 +397,7 @@ describe('POST /views explains', () => {
   });
 
   test('an element that does not exist in the source is answered 404 naming the element and the source', async () => {
-    start();
+    await start();
     expect((await sendDrillDown('shop')).status).toBe(201);
 
     const response = await post('/views', { source: 'shop', element: 'billing', format: 'mermaid' });
@@ -409,7 +409,7 @@ describe('POST /views explains', () => {
   });
 
   test('a bad depth or format, or a missing source or format, is answered 400 naming the field and what is accepted', async () => {
-    start();
+    await start();
     expect((await sendDrillDown('shop')).status).toBe(201);
 
     const bad: { body: Record<string, unknown>; field: string; fragments: string[]; accepted?: string[] }[] = [
@@ -443,7 +443,7 @@ describe('POST /views explains', () => {
   });
 
   test('a valid request answers 200: the landscape, an element, a depth, in both formats', async () => {
-    start();
+    await start();
     expect((await sendDrillDown('shop')).status).toBe(201);
 
     for (const request of [
@@ -462,7 +462,7 @@ describe('POST /views explains', () => {
   });
 
   test('a body that is not JSON is refused, and GET /views is not offered', async () => {
-    start();
+    await start();
     const notJson = await fetch(`${server!.url}/views`, { method: 'POST', body: '{not json', headers: { 'content-type': 'application/json' } });
     expect(notJson.status).toBe(400);
     expect((await errorOf(notJson)).message).toContain('not valid JSON');

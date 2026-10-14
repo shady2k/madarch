@@ -266,7 +266,7 @@ export async function buildWiki(repoPath: string, outPath: string, options: Wiki
   // The views, from the shared renderer at a version that never moves.
   // The same HEAD commit is what a document's outside links lead to.
   const version = renderVersion(repo);
-  const rendering = renderModel(model, version);
+  const rendering = await renderModel(model, version);
   if (rendering.pages === undefined || rendering.workspace === undefined) {
     return { code: 2, message: ['the model cannot be rendered:', ...rendering.errors].join('\n') };
   }

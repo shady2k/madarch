@@ -114,10 +114,10 @@ export function assigned(rows: string[][]): string[][] {
   return [...rows, ['madarch/', 'excluded', 'the model and its review']];
 }
 
-export function withRepo(run: (repo: Repo) => void): void {
+export async function withRepo(run: (repo: Repo) => void | Promise<void>): Promise<void> {
   const repo = new Repo();
   try {
-    run(repo);
+    await run(repo);
   } finally {
     rmSync(repo.path, { recursive: true, force: true });
   }

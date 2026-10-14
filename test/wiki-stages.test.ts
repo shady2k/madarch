@@ -24,8 +24,8 @@ import { startServer, type StartedServer } from '../src/index.js';
 let folder: string | undefined;
 let server: StartedServer | undefined;
 
-afterEach(() => {
-  server?.stop();
+afterEach(async () => {
+  await server?.stop();
   server = undefined;
   if (folder !== undefined) {
     rmSync(folder, { recursive: true, force: true });
@@ -144,7 +144,7 @@ function tracker(lines: unknown[]): void {
 }
 
 describe('the stage index of a product', () => {
-  test('custom stage ids receive declared task and section data, including multiple task expectations', () => {
+  test('custom stage ids receive declared task and section data, including multiple task expectations', async () => {
     draft();
     const registry = DEMO_REGISTRY.replace('  - id: design\n    name: Design\n    sections:\n      - architecture', '  - id: custom-architecture\n    name: Design\n    sections:\n      - architecture\n  - id: custom-architecture-two\n    sections:\n      - architecture')
       .replace('  - id: build\n    name: Build', '  - id: custom-build\n    name: Build')
@@ -163,7 +163,7 @@ describe('the stage index of a product', () => {
     expect(index.stages.find((stage) => stage.id === 'requirements')!.tasks).toBeUndefined();
   });
 
-  test('an export is ignored when no stage declares task expectations', () => {
+  test('an export is ignored when no stage declares task expectations', async () => {
     draft();
     write('docs/kinds.yaml', 'contract: 1\nstages:\n  - id: explore\nkinds: []\n');
     write('.beads/issues.jsonl', 'not-json\n');
@@ -172,21 +172,21 @@ describe('the stage index of a product', () => {
     expect(index.problems.some((problem) => problem.where.endsWith('issues.jsonl'))).toBe(false);
   });
 
-  test('a declared task expectation has no table before the tracker export exists', () => {
+  test('a declared task expectation has no table before the tracker export exists', async () => {
     draft();
     write('docs/kinds.yaml', 'contract: 1\nstages:\n  - id: custom-tasks\n    expected:\n      - task\nkinds: []\n');
     const index = readStagesIndex(folder!);
     expect(index.stages[0]!.tasks).toBeUndefined();
   });
 
-  test('a product with no registry has no built-in stage list', () => {
+  test('a product with no registry has no built-in stage list', async () => {
     draft(false);
     const index = readStagesIndex(folder!);
     expect(index.stages).toEqual([]);
     expect(index.problems).toEqual([]);
   });
 
-  test('the set-form documents land on their stage with their page paths and identity titles', () => {
+  test('the set-form documents land on their stage with their page paths and identity titles', async () => {
     draft();
     write('docs/vision.md', '# A cafe lists its leftovers\n\nWhy.\n');
     write('docs/sources/S-001-first-talk.md', '# S-001 — First talk\n\nKind: conversation\n');
@@ -215,7 +215,7 @@ describe('the stage index of a product', () => {
 
   });
 
-  test('a design spec lands on the Design stage beside the decisions', () => {
+  test('a design spec lands on the Design stage beside the decisions', async () => {
     draft();
     write('docs/specs/2026-10-01-reading.md', '# The reading spec\n\n## Behaviour\nCalm.\n');
     write('docs/decisions/0001-own-reader.md', '# Own the reader\n');
@@ -225,7 +225,7 @@ describe('the stage index of a product', () => {
 
   });
 
-  test("the Build stage's tasks are read from the tracker export, grouped by feature, counts carried", () => {
+  test("the Build stage's tasks are read from the tracker export, grouped by feature, counts carried", async () => {
     draft();
     tracker([CHILD, CHILD_DONE, CHILD_PROGRESS, EPIC, ORPHAN, GRANDCHILD]);
     const build = readStagesIndex(folder!).stages.find((stage) => stage.id === 'build')!;
@@ -243,7 +243,7 @@ describe('the stage index of a product', () => {
     expect(orphan.tasks.map((task) => task.id)).toEqual(['proj-aa1.1', 'proj-bb1']);
   });
 
-  test('the features stand in code point order of their ids, the group without a feature last', () => {
+  test('the features stand in code point order of their ids, the group without a feature last', async () => {
     draft();
     const epicB = { id: 'proj-ep2', title: 'Later alphabetically', issue_type: 'epic', status: 'open', dependencies: [] as unknown[] };
     const childB = { id: 'proj-cc1', title: "Another feature's task", issue_type: 'task', status: 'open', dependencies: [{ issue_id: 'proj-cc1', depends_on_id: 'proj-ep2', type: 'parent-child' }] };
@@ -252,7 +252,7 @@ describe('the stage index of a product', () => {
     expect(build.tasks!.map((feature) => feature.id)).toEqual(['proj-ep1', 'proj-ep2', 'none']);
   });
 
-  test('epics are never listed as tasks, and edges that are not parent-child group nothing', () => {
+  test('epics are never listed as tasks, and edges that are not parent-child group nothing', async () => {
     draft();
     const blocker = { id: 'proj-bb1', title: 'A blocker edge', issue_type: 'task', status: 'open', dependencies: [{ issue_id: 'proj-bb1', depends_on_id: 'proj-ep1', type: 'blocks' }] };
     const related = { id: 'proj-bb2', title: 'A related edge', issue_type: 'task', status: 'open', dependencies: [{ issue_id: 'proj-bb2', depends_on_id: 'proj-ep1', type: 'related' }] };
@@ -265,7 +265,7 @@ describe('the stage index of a product', () => {
     expect(build.tasks![0]!.tasks.map((task) => task.id)).toEqual(['proj-bb1', 'proj-bb2']);
   });
 
-  test('a tracker export that exists but cannot be parsed is a problem naming the file and the line, the rest stands', () => {
+  test('a tracker export that exists but cannot be parsed is a problem naming the file and the line, the rest stands', async () => {
     draft();
     write('.beads/issues.jsonl', '{"id": "proj-aa1"\nnot json at all\n\n[]\n');
     const index = readStagesIndex(folder!);
@@ -279,7 +279,7 @@ describe('the stage index of a product', () => {
     expect(index.problems[0]!.message).toContain('; ');
   });
 
-  test('an issue with no id, and a dependency edge that is not an object, are named and not served', () => {
+  test('an issue with no id, and a dependency edge that is not an object, are named and not served', async () => {
     draft();
     write(
       '.beads/issues.jsonl',
@@ -296,7 +296,7 @@ describe('the stage index of a product', () => {
     expect(build.tasks).toEqual([]);
   });
 
-  test('a task with a status the stages do not group is left out AND surfaced at its line', () => {
+  test('a task with a status the stages do not group is left out AND surfaced at its line', async () => {
     draft();
     tracker([{ id: 'proj-cc1', title: 'Deferred work', issue_type: 'task', status: 'deferred', dependencies: [] }]);
     const index = readStagesIndex(folder!);
@@ -312,7 +312,7 @@ describe('the stage index of a product', () => {
     // The empty Build stage names its missing task generically.
   });
 
-  test('a status the tracker spells differently is still a stage status', () => {
+  test('a status the tracker spells differently is still a stage status', async () => {
     draft();
     tracker([
       { id: 'proj-aa1', title: 'Done the other way', issue_type: 'task', status: 'done', dependencies: [{ issue_id: 'proj-aa1', depends_on_id: 'proj-ep1', type: 'parent-child' }] },
@@ -323,7 +323,7 @@ describe('the stage index of a product', () => {
     expect(build.tasks![0]!.open).toBe(0);
   });
 
-  test('an unreadable kind folder is a problem naming the folder, never a silently empty stage', () => {
+  test('an unreadable kind folder is a problem naming the folder, never a silently empty stage', async () => {
     draft();
     const folder = join(thisFolder(), 'docs', 'hypotheses');
     mkdirSync(join(thisFolder(), 'docs', 'hypotheses'), { recursive: true });
@@ -336,7 +336,7 @@ describe('the stage index of a product', () => {
     expect(idea.artifacts).toEqual([]);
   });
 
-  test('the other features\' sections are named where the product holds what they read, absent otherwise', () => {
+  test('the other features\' sections are named where the product holds what they read, absent otherwise', async () => {
     draft();
     const nothing = readStagesIndex(folder!);
     expect(nothing.stages.find((stage) => stage.id === 'design')!.sections).toEqual([]);
@@ -348,7 +348,7 @@ describe('the stage index of a product', () => {
     expect(held.stages.find((stage) => stage.id === 'build')!.sections).toEqual([{ kind: 'repositories', present: true }]);
   });
 
-  test('a cloned repos/ folder alone names the Repositories section, as a declared manifest alone does', () => {
+  test('a cloned repos/ folder alone names the Repositories section, as a declared manifest alone does', async () => {
     draft();
     mkdirSync(join(folder!, 'repos', 'api'), { recursive: true });
     let build = readStagesIndex(folder!).stages.find((stage) => stage.id === 'build')!;
@@ -356,13 +356,13 @@ describe('the stage index of a product', () => {
     // A manifest with no repos clause and no repos folder names nothing.
   });
 
-  test('the stages answer over the server at /api/stages, read-only like every wiki route', () => {
+  test('the stages answer over the server at /api/stages, read-only like every wiki route', async () => {
     draft();
     tracker([CHILD, EPIC]);
     write('docs/vision.md', '# Vision\n\nWhat it is for.\n');
     const app = mkdtempSync(join(tmpdir(), 'madarch-stages-app-'));
     writeFileSync(join(app, 'index.html'), '<!doctype html><title>wiki</title>');
-    server = startServer({ productFolder: folder!, appFolder: app, port: 0, log: () => {}, errorLog: () => {} });
+    server = await startServer({ productFolder: folder!, appFolder: app, port: 0, log: () => {}, errorLog: () => {} });
     return (async () => {
       const answer = await fetch(`${server!.url}/api/stages`);
       expect(answer.status).toBe(200);
@@ -374,7 +374,7 @@ describe('the stage index of a product', () => {
     })();
   });
 
-  test('a title inside a fence is not the artifact title, and a file with no heading takes the file name', () => {
+  test('a title inside a fence is not the artifact title, and a file with no heading takes the file name', async () => {
     draft();
     write('docs/sources/S-001-notes.md', '```\n# Not a heading\n```\nplain text\n');
     write('docs/questions/Q-009.md', 'no heading at all\n');
@@ -384,7 +384,7 @@ describe('the stage index of a product', () => {
   });
 
 
-  test('a prototype and a result land on the Idea stage from their folders, the vision file as itself', () => {
+  test('a prototype and a result land on the Idea stage from their folders, the vision file as itself', async () => {
     draft();
     write('docs/prototypes/P-001-map.md', '# P-001 — A page on a map\n\nTests: H-001\n');
     write('docs/results/R-001-week.md', '# R-001 — The first week\n\nVerdict: confirmed.\n');
@@ -398,14 +398,14 @@ describe('the stage index of a product', () => {
     ]);
   });
 
-  test('a heading that merely names an id is not read as the identity line', () => {
+  test('a heading that merely names an id is not read as the identity line', async () => {
     draft();
     write('docs/sources/S-001-talk.md', '# see FR-001 — fake title\n');
     const idea = readStagesIndex(folder!).stages.find((stage) => stage.id === 'idea')!;
     expect(idea.artifacts[0]!.title).toBe('see FR-001 — fake title');
   });
 
-  test('an unreadable export and a non-UTF-8 export are problems naming the file, never empty groups in silence', () => {
+  test('an unreadable export and a non-UTF-8 export are problems naming the file, never empty groups in silence', async () => {
     draft();
     mkdirSync(join(folder!, '.beads'), { recursive: true });
     const exportPath = join(folder!, '.beads', 'issues.jsonl');
@@ -421,7 +421,7 @@ describe('the stage index of a product', () => {
     expect(index.problems[0]!.message).toContain('not UTF-8');
   });
 
-  test('a parent edge naming a non-string id groups the task under no feature, never crashes the read', () => {
+  test('a parent edge naming a non-string id groups the task under no feature, never crashes the read', async () => {
     draft();
     const badParent = { id: 'proj-dd1', title: 'A numeric parent', issue_type: 'task', status: 'open', dependencies: [{ issue_id: 'proj-dd1', depends_on_id: 7, type: 'parent-child' }] };
     tracker([badParent, EPIC]);
@@ -431,7 +431,7 @@ describe('the stage index of a product', () => {
     expect(build.tasks![0]!.tasks.map((task) => task.id)).toEqual(['proj-dd1']);
   });
 
-  test('a row that is an array or null is a problem line, and healthy rows around it are named as unread too', () => {
+  test('a row that is an array or null is a problem line, and healthy rows around it are named as unread too', async () => {
     draft();
     write('.beads/issues.jsonl', '[1, 2]\nnull\n');
     const index = readStagesIndex(folder!);
@@ -440,7 +440,7 @@ describe('the stage index of a product', () => {
     expect(index.problems[0]!.message).toContain('line 2');
   });
 
-  test('an identity needs the spaced em dash: a cramped one leaves the whole heading as the title', () => {
+  test('an identity needs the spaced em dash: a cramped one leaves the whole heading as the title', async () => {
     draft();
     write('docs/sources/S-002-cramped.md', '# S-002—Cramped dash\n');
     write('docs/sources/S-003-keep.md', '# S-003 — Kept title\n');
@@ -449,7 +449,7 @@ describe('the stage index of a product', () => {
     expect(idea.artifacts.find((a) => a.path === 'docs/sources/S-003-keep.md')!.title).toBe('Kept title');
   });
 
-  test('the group without a feature stands last even when its id would sort first', () => {
+  test('the group without a feature stands last even when its id would sort first', async () => {
     draft();
     const zz = { id: 'zz-ep1', title: 'The only feature', issue_type: 'epic', status: 'open', dependencies: [] as unknown[] };
     const child = { id: 'zz-aa1', title: 'Its task', issue_type: 'task', status: 'open', dependencies: [{ issue_id: 'zz-aa1', depends_on_id: 'zz-ep1', type: 'parent-child' }] };
@@ -458,7 +458,7 @@ describe('the stage index of a product', () => {
     expect(build.tasks!.map((feature) => feature.id)).toEqual(['zz-ep1', 'none']);
   });
 
-  test('a repeated id keeps the first row and surfaces the later one', () => {
+  test('a repeated id keeps the first row and surfaces the later one', async () => {
     draft();
     tracker([CHILD, { ...CHILD, title: 'The duplicate row' }]);
     const build = readStagesIndex(folder!).stages.find((stage) => stage.id === 'build')!;
@@ -468,7 +468,7 @@ describe('the stage index of a product', () => {
     expect(build.notes![0]!.message).toContain('already held');
   });
 
-  test("a described repository's derived documents land on their stages beside the product's own", () => {
+  test("a described repository's derived documents land on their stages beside the product's own", async () => {
     draft();
     write('docs/stories/US-001-own.md', "# US-001 — The product's own story\nGrew from: H-001\n");
     write('docs/repositories/library/stories/US-002-parse.md', '# US-002 derived from code — parse the model\nGrew from: H-001\n');
@@ -498,7 +498,7 @@ describe('the stage index of a product', () => {
     expect(design.artifacts.find((a) => a.path === 'docs/repositories/library/decisions/0002-refine.md')!.kind).toBe('Decisions');
   });
 
-  test('a repository subtree that cannot be read is a problem naming the folder, never silence', () => {
+  test('a repository subtree that cannot be read is a problem naming the folder, never silence', async () => {
     draft();
     const repo = join(thisFolder(), 'docs', 'repositories', 'library', 'stories');
     mkdirSync(join(thisFolder(), 'docs', 'repositories', 'library', 'stories'), { recursive: true });
@@ -509,7 +509,7 @@ describe('the stage index of a product', () => {
     expect(index.problems.some((p) => p.where === repo && p.message.includes('could not be read'))).toBe(true);
   });
 
-  test('a set-form document is counted by its id wherever it lives', () => {
+  test('a set-form document is counted by its id wherever it lives', async () => {
     draft();
     write('docs/repositories/x/notes/FR-099-derived.md', '# FR-099 derived from code — anything it does\nServes: UC-001\n');
     write('docs/repositories/x/US-042-elsewhere.md', '# US-042 derived from code — another slice\nGrew from: H-001\n');
@@ -527,7 +527,7 @@ describe('the stage index of a product', () => {
     expect(idea.artifacts[0]!.kind).toBe('Open questions');
   });
 
-  test('reading the stages changes nothing in the product', () => {
+  test('reading the stages changes nothing in the product', async () => {
     draft();
     write('docs/vision.md', '# Vision\n');
     tracker([CHILD, EPIC]);
