@@ -37,7 +37,7 @@ afterAll(async () => {
 type Blade = { body: unknown; status?: number };
 type Answer = (target: string) => Blade;
 
-function answerFor(product: Product, list: PageList, pages: Record<string, Page>, questions: QuestionList = { questions: [], openCount: 0 }): Answer {
+function answerFor(product: ProductWithAudience, list: PageList, pages: Record<string, Page>, questions: QuestionList = { questions: [], openCount: 0 }): Answer {
   return (target: string): Blade => {
     if (target === '/api/product') return { body: product };
     if (target === '/api/pages') return { body: list };
@@ -224,7 +224,10 @@ describe('the home page', () => {
     };
     const typedPages: PageList = {
       ...listWithPages,
-      pages: listWithPages.pages.map((page) => page.path === 'docs/vision.md' ? { ...page, kind: 'Product vision' } : page),
+      pages: [
+        ...listWithPages.pages.map((page) => page.path === 'docs/vision.md' ? { ...page, kind: 'Product vision' } : page),
+        { path: 'docs/milestones/continuity.md', title: 'Reader continuity', url: '/p/docs/milestones/continuity.md' },
+      ],
     };
     const labels: RegistryOffer = {
       present: true,
@@ -245,7 +248,24 @@ describe('the home page', () => {
     expect(home.indexOf('Test return-to-work scenarios.')).toBeLessThan(home.indexOf('Vision'));
   });
 
-  test('empty overview values use localized missing-data copy and do not make blank links', async () => {
+  test('renders the server product overview projection on the production home route', async () => {
+    const overview: HomeOverviewProjection = {
+      audience: 'Teams that need a shared product record.',
+      problem: 'Context is scattered.',
+      outcome: 'Readers can resume work.',
+      currentMilestone: { title: 'Reader continuity', state: 'In progress', nextStep: 'Check the home page.', path: 'docs/vision.md' },
+    };
+    install(answerFor({ ...product, overview }, listWithPages, pagesAtR1));
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('[data-testid="home-next-step"]')?.textContent?.includes('Check the home page.') === true, 'the API-projected overview');
+    expect(document.querySelector('[data-testid="home-audience"]')?.textContent).toContain('Teams that need a shared product record.');
+    expect(document.querySelector('[data-testid="home-problem"]')?.textContent).toContain('Context is scattered.');
+    expect(document.querySelector('[data-testid="home-outcome"]')?.textContent).toContain('Readers can resume work.');
+    expect(document.querySelector('[data-testid="home-milestone"] a[href="/p/docs/vision.md"]')?.textContent).toBe('Reader continuity');
+  });
+
+  test('omits absent overview facts and never makes blank milestone links', async () => {
     const overview: HomeOverviewProjection = {
       audience: '   ',
       problem: '',
@@ -253,15 +273,29 @@ describe('the home page', () => {
       currentMilestone: { title: '', state: ' ', nextStep: '', path: 'docs/milestones/empty.md' },
     };
     await intoApp(createElement(HomePage, { product: { ...product, audience: '' }, list: listWithPages, overview }));
-    await until(() => document.querySelector('[data-testid="home-overview-facts"]') !== null, 'the empty overview facts');
-    const missing = 'Not declared in the product documents yet';
-    expect(document.querySelector('[data-testid="home-audience"]')?.textContent).toContain('The audience is not written yet');
-    expect(document.querySelector('[data-testid="home-problem"]')?.textContent).toContain(missing);
-    expect(document.querySelector('[data-testid="home-outcome"]')?.textContent).toContain(missing);
-    expect(document.querySelector('[data-testid="home-milestone"]')?.textContent).toContain(missing);
+    await until(() => document.querySelector('main#home') !== null, 'the home page');
+    expect(document.querySelector('[data-testid="home-overview-facts"]')).toBeNull();
+    expect(document.querySelector('[data-testid="home-audience"]')).toBeNull();
+    expect(document.querySelector('[data-testid="home-problem"]')).toBeNull();
+    expect(document.querySelector('[data-testid="home-outcome"]')).toBeNull();
+    expect(document.querySelector('[data-testid="home-milestone"]')).toBeNull();
     expect(document.querySelector('[data-testid="home-milestone"] a')).toBeNull();
-    expect(document.querySelector('[data-testid="home-milestone-state"]')?.textContent).toContain(missing);
-    expect(document.querySelector('[data-testid="home-next-step"]')?.textContent).toContain(missing);
+  });
+
+  test('does not link a milestone path that escapes the served product pages', async () => {
+    const unsafePath = '../../AGENTS.md';
+    const withUnsafePath: PageList = {
+      ...listWithPages,
+      pages: [...listWithPages.pages, { path: unsafePath, title: 'Outside', url: '/p/../../AGENTS.md' }],
+    };
+    await intoApp(createElement(HomePage, {
+      product,
+      list: withUnsafePath,
+      overview: { currentMilestone: { title: 'Outside milestone', path: unsafePath } },
+    }));
+    await until(() => document.querySelector('[data-testid="home-milestone"]') !== null, 'the milestone facts');
+    expect(document.querySelector('[data-testid="home-milestone"] a')).toBeNull();
+    expect(document.querySelector('[data-testid="home-milestone"]')?.textContent).toContain('Outside milestone');
   });
 
   test('says plainly that the product has no pages yet', async () => {
@@ -275,19 +309,24 @@ describe('the home page', () => {
     const guideText = guide?.textContent ?? '';
     expect(guideText).toContain('product repository');
     expect(guideText).toContain('madarch new');
+    expect(guideText).toContain('Clone an existing product repository with:');
+    expect(guideText).toContain('Connect a code repository with:');
     expect(guideText).toContain('setup-shady2k-skills');
     const guideCode = [...(guide?.querySelectorAll('code') ?? [])].map((node) => node.textContent);
     expect(guideCode).toContain('madarch new');
+    expect(guideCode).toContain('madarch clone <url>');
+    expect(guideCode).toContain('madarch repo add <name> <url> --product <folder>');
     expect(guideCode).toContain('setup-shady2k-skills');
     expect(guideCode).toContain('workspace.yaml');
     expect(guideText).not.toContain('`');
-    expect(guideText).toContain('Explore the Madarch product example on GitHub:');
+    expect(guideText).toContain('Try the Madarch product example:');
     expect(guideText).toContain('Madarch product example');
-    expect(guideText).toContain('git clone https://github.com/shady2k/madarch-product');
-    expect(guideText).toContain('madarch serve --product madarch-product');
-    expect(guideText.indexOf('git clone https://github.com/shady2k/madarch-product')).toBeLessThan(guideText.indexOf('madarch serve --product madarch-product'));
+    expect(guideText).toContain('madarch clone https://github.com/shady2k/madarch-product');
+    expect(guideText).toContain('madarch serve --product <folder>');
+    expect(guideText.indexOf('madarch clone https://github.com/shady2k/madarch-product')).toBeLessThan(guideText.indexOf('madarch serve --product <folder>'));
     expect(guide?.querySelector('a[href="https://github.com/shady2k/madarch-product"]')).not.toBeNull();
-    for (const unsupported of ['madarch clone', 'madarch repo add', 'madarch demo']) expect(guideText).not.toContain(unsupported);
+    expect(guideText).not.toContain('git clone');
+    expect(guideText).not.toContain('madarch demo');
   });
 
   test('gives a folder without manifest metadata a localized, actionable empty state', async () => {
@@ -316,19 +355,24 @@ describe('the home page', () => {
       expect(guide).toContain('workspace.yaml');
       expect(guide).toContain('его документы');
       expect(guide).toContain('madarch new');
+      expect(guide).toContain('Склонируйте существующий репозиторий продукта командой:');
+      expect(guide).toContain('Подключите репозиторий кода командой:');
       expect(guide).toContain('setup-shady2k-skills');
       const guideCode = [...(document.querySelector('[data-testid="empty-home-guidance"]')?.querySelectorAll('code') ?? [])].map((node) => node.textContent);
       expect(guideCode).toContain('madarch new');
+      expect(guideCode).toContain('madarch clone <url>');
+      expect(guideCode).toContain('madarch repo add <name> <url> --product <folder>');
       expect(guideCode).toContain('setup-shady2k-skills');
       expect(guideCode).toContain('workspace.yaml');
       expect(guide).not.toContain('`');
-      expect(guide).toContain('Посмотрите пример продукта Madarch на GitHub:');
+      expect(guide).toContain('Попробуйте пример продукта Madarch:');
       expect(guide).toContain('Пример продукта Madarch');
-      expect(guide).toContain('git clone https://github.com/shady2k/madarch-product');
-      expect(guide).toContain('madarch serve --product madarch-product');
-      expect(guide.indexOf('git clone https://github.com/shady2k/madarch-product')).toBeLessThan(guide.indexOf('madarch serve --product madarch-product'));
+      expect(guide).toContain('madarch clone https://github.com/shady2k/madarch-product');
+      expect(guide).toContain('madarch serve --product <folder>');
+      expect(guide.indexOf('madarch clone https://github.com/shady2k/madarch-product')).toBeLessThan(guide.indexOf('madarch serve --product <folder>'));
       expect(document.querySelector('[data-testid="empty-home-guidance"] a[href="https://github.com/shady2k/madarch-product"]')).not.toBeNull();
-      for (const unsupported of ['madarch clone', 'madarch repo add', 'madarch demo']) expect(guide).not.toContain(unsupported);
+      expect(guide).not.toContain('git clone');
+      expect(guide).not.toContain('madarch demo');
     } finally {
       await setWikiLanguage('en');
     }
@@ -1786,7 +1830,7 @@ describe('the open questions', () => {
     expect(stream.calls.filter((call) => call === EVENTS_PATH).length).toBe(1);
   });
 
-  test('the draft carries its audience on the home; a draft without a vision says so', async () => {
+  test('the draft carries a present legacy audience and omits an absent one', async () => {
     const withAudience: ProductWithAudience = { ...product, audience: 'Owners of small cafes with fewer than twenty seats.' };
     install(answerFor(withAudience, listWithPages, pagesAtR1));
     goto('/');
@@ -1799,7 +1843,8 @@ describe('the open questions', () => {
     install(answerFor(product, listWithPages, pagesAtR1));
     goto('/');
     await intoApp(createElement(App));
-    await until(() => document.querySelector('[data-testid="home-audience"]')?.textContent?.includes('not written yet'), 'the empty audience line');
+    await until(() => document.querySelector('main#home') !== null, 'the home page without an audience');
+    expect(document.querySelector('[data-testid="home-audience"]')).toBeNull();
     expect(document.querySelector('[data-testid="home-overview-facts"]')).toBeNull();
     expect(document.querySelector('[data-testid="home-problem"]')).toBeNull();
   });
@@ -1823,16 +1868,18 @@ describe('the open questions', () => {
     install(answerFor(manifestlessBlank, listWithPages, pagesAtR1));
     goto('/');
     await intoApp(createElement(App));
-    await until(() => document.querySelector('[data-testid="home-audience"]')?.textContent?.includes('not written yet'), 'the missing legacy audience copy');
+    await until(() => document.querySelector('main#home') !== null, 'the manifestless home without an audience');
+    expect(document.querySelector('[data-testid="home-audience"]')).toBeNull();
     expect(document.querySelector('[data-testid="home-overview-facts"]')).toBeNull();
   });
 
-  test('a blank legacy audience without a normalized overview uses localized missing-data copy', async () => {
+  test('a blank legacy audience without a normalized overview is omitted', async () => {
     const blankAudience: ProductWithAudience = { ...product, audience: ' 	 ' };
     install(answerFor(blankAudience, listWithPages, pagesAtR1));
     goto('/');
     await intoApp(createElement(App));
-    await until(() => document.querySelector('[data-testid="home-audience"]')?.textContent?.includes('not written yet'), 'the missing legacy audience copy');
+    await until(() => document.querySelector('main#home') !== null, 'the home page');
+    expect(document.querySelector('[data-testid="home-audience"]')).toBeNull();
     expect(document.querySelector('[data-testid="home-overview-facts"]')).toBeNull();
   });
 });

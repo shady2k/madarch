@@ -111,8 +111,19 @@ export const QuestionForm = Type.Object(
 );
 export type QuestionForm = Static<typeof QuestionForm>;
 
+const OverviewSource = Type.Object(
+  { document: Type.String({ minLength: 1 }), section: RegistryName },
+  { additionalProperties: false },
+);
 export const OverviewSources = Type.Object(
-  { audience: Type.Optional(Type.Object({ document: Type.String({ minLength: 1 }), section: RegistryName }, { additionalProperties: false })) },
+  {
+    audience: Type.Optional(OverviewSource),
+    problem: Type.Optional(OverviewSource),
+    outcome: Type.Optional(OverviewSource),
+    currentMilestone: Type.Optional(OverviewSource),
+    milestoneState: Type.Optional(OverviewSource),
+    nextStep: Type.Optional(OverviewSource),
+  },
   { additionalProperties: false },
 );
 export type OverviewSources = Static<typeof OverviewSources>;

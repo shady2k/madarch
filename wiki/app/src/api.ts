@@ -125,9 +125,19 @@ export type QuestionList = {
   concernsLabel?: string;
 };
 
-export type ProductWithAudience = Product & {
-  /** The audience the product's vision names; absent while the vision is not written. */
+export type ProductOverviewProjection = {
   audience?: string;
+  problem?: string;
+  outcome?: string;
+  currentMilestone?: { title?: string; state?: string; nextStep?: string; path?: string };
+  errors?: { role: string; document: string; section: string; message: string }[];
+};
+
+export type ProductWithAudience = Product & {
+  /** The legacy audience alias, equal to overview.audience when both are present. */
+  audience?: string;
+  /** Optional normalized facts projected from product-declared document sections. */
+  overview?: ProductOverviewProjection;
 };
 
 export type Page = {

@@ -29,7 +29,7 @@ import { lstatSync, readFileSync, readdirSync, realpathSync, statSync, type Dire
 import { basename as nameOf, isAbsolute, join as joinPath, relative, resolve } from 'node:path';
 import { scanDocument } from '../wiki/documents.js';
 import { modelSourceDigest } from './model.js';
-import { parseQuestion, changedAtOf, productAudience, type OpenQuestion } from './questions.js';
+import { parseQuestion, changedAtOf, audienceOf, type OpenQuestion } from './questions.js';
 import { stagesSourceDigest } from '../wiki/stages.js';
 import { readProduct, type ProductIdentity } from '../product/manifest.js';
 import { isExistingDirectoryWithoutManifest } from './manifestless.js';
@@ -161,6 +161,15 @@ export type ProductWikiIdentity =
   | (Pick<ProductIdentity, 'id' | 'name' | 'folder' | 'repos'> & { manifest: 'present' })
   | { manifest: 'absent'; name: string; folder: string; repos: [] };
 
+/** Normalized overview facts projected from the product's declared page sections. */
+export interface ProductWikiOverview {
+  audience?: string;
+  problem?: string;
+  outcome?: string;
+  currentMilestone?: { title?: string; state?: string; nextStep?: string; path?: string };
+  errors?: { role: string; document: string; section: string; message: string }[];
+}
+
 /** A read product folder's pages, asked one at a time, always fresh. */
 export interface ProductWiki {
   /** Manifest-backed identity or temporary, display-only name for a manifestless home. */
@@ -171,7 +180,9 @@ export interface ProductWiki {
   page(path: string): ProductWikiPage;
   /** The product's questions as the set's form computes their state, read from disk now. */
   questions(): ProductWikiQuestions;
-  /** The audience the product's vision names, when one is written. */
+  /** The normalized overview facts, read from the product's declared page sections. */
+  overview(): ProductWikiOverview | undefined;
+  /** The legacy audience alias, equal to `overview()?.audience`. */
   audience(): string | undefined;
 }
 
@@ -433,8 +444,58 @@ class FreshProductWiki implements ProductWiki {
     return { ok: true, questions: withChange, openCount: withChange.filter((question) => question.state === 'open').length, kindName: questionKind.name, ...(questionForm.answererField === undefined ? {} : { answererLabel: questionForm.answererField }), ...(questionForm.concernsField === undefined ? {} : { concernsLabel: questionForm.concernsField }) };
   }
 
+  overview(): ProductWikiOverview | undefined {
+    if (this.product.manifest !== 'present') return undefined;
+    const registry = readProductRegistry(this.product.folder);
+    if (!registry.present || 'refused' in registry || registry.overview === undefined) return undefined;
+
+    const pages = this.snapshot();
+    const errors: ProductWikiOverview['errors'] = [];
+    const readSource = (role: string, source: { document: string; section: string } | undefined): { value?: string; path?: string } => {
+      if (source === undefined) return {};
+      if (!safeOverviewDocumentPath(source.document)) {
+        errors.push({ role, ...source, message: 'the source is not a normalized product-relative page path' });
+        return {};
+      }
+      if (!pages.ok) {
+        errors.push({ role, ...source, message: pages.message });
+        return {};
+      }
+      if (!pages.snapshot.held.has(source.document)) {
+        errors.push({ role, ...source, message: `the wiki does not hold ${JSON.stringify(source.document)} as a page` });
+        return {};
+      }
+      const markdown = pages.snapshot.texts.get(source.document);
+      if (markdown === undefined) {
+        errors.push({ role, ...source, message: `the wiki could not read ${JSON.stringify(source.document)} from its page snapshot` });
+        return {};
+      }
+      const value = audienceOf(markdown, source.section);
+      return { value, path: source.document };
+    };
+    const audience = readSource('audience', registry.overview.audience).value;
+    const problem = readSource('problem', registry.overview.problem).value;
+    const outcome = readSource('outcome', registry.overview.outcome).value;
+    const milestone = readSource('currentMilestone', registry.overview.currentMilestone);
+    const state = readSource('milestoneState', registry.overview.milestoneState).value;
+    const nextStep = readSource('nextStep', registry.overview.nextStep).value;
+    const currentMilestone = {
+      ...(milestone.value === undefined ? {} : { title: milestone.value }),
+      ...(state === undefined ? {} : { state }),
+      ...(nextStep === undefined ? {} : { nextStep }),
+      ...(milestone.value === undefined || milestone.path === undefined ? {} : { path: milestone.path }),
+    };
+    return {
+      ...(audience === undefined ? {} : { audience }),
+      ...(problem === undefined ? {} : { problem }),
+      ...(outcome === undefined ? {} : { outcome }),
+      ...(Object.keys(currentMilestone).length === 0 ? {} : { currentMilestone }),
+      ...(errors.length === 0 ? {} : { errors }),
+    };
+  }
+
   audience(): string | undefined {
-    return productAudience(this.product.folder);
+    return this.overview()?.audience;
   }
 
     /** One page's bytes, read from disk now — or the refusal that reading gave. */
@@ -607,6 +668,13 @@ function inProductOrThrow(productFolder: string, path: string, within: string): 
     );
   }
   return statSync(real).isFile();
+}
+
+/** A declared overview source must be a normalized, product-relative POSIX page path. */
+function safeOverviewDocumentPath(path: string): boolean {
+  return path.length > 0 && !path.includes('\\') && !path.includes('\0') &&
+    !isAbsolute(path) && !/^[A-Za-z]:/.test(path) &&
+    path.split('/').every((part) => part !== '' && part !== '.' && part !== '..');
 }
 
 /** A page path the wiki refuses before it looks anything up: absolute, empty, or climbing out of the product. */

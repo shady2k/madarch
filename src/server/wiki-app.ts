@@ -180,14 +180,20 @@ export function createWikiPart(
 ): WikiPart {
   return {
     product: (): Handled => {
-      // The audience is the configured overview section, when the
-      // product's vision is written; the draft carries none, and its absence
-      // is the draft's own state the app reads.
-      const audience = wiki.audience();
+      // Every overview value comes from the product registry's declared page
+      // and section. The old top-level audience remains an exact alias.
+      const overview = wiki.overview();
       const identity = wiki.product.manifest === 'present'
         ? { id: wiki.product.id, name: wiki.product.name, folder: nameOf(wiki.product.folder) }
         : { name: wiki.product.name, folder: nameOf(wiki.product.folder) };
-      return { response: json(200, audience === undefined ? identity : { ...identity, audience }) };
+      const audience = overview?.audience;
+      return {
+        response: json(200, {
+          ...identity,
+          ...(overview === undefined ? {} : { overview }),
+          ...(audience === undefined ? {} : { audience }),
+        }),
+      };
     },
     questions: (): Handled => {
       const asked = wiki.questions();

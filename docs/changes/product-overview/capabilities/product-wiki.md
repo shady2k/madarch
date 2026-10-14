@@ -20,7 +20,14 @@ heading, else its file's name without its extension, and its address shall be
 `/p/` and its path within the product. A page shall show its Markdown as
 formatted text. A link from one page to another page of the wiki shall open
 that page; a link to anything else shall be shown as its text. A home page of
-a product with no pages shall say that it has none yet.
+a product with no pages shall say so and show a localized getting-started
+guide. The guide shall name `madarch new`, `madarch clone URL` for an existing product repository,
+`madarch repo add NAME URL --product FOLDER` to connect a code repository, and
+`setup-shady2k-skills` to create the product manifest and documents. It shall
+offer the Madarch product example through `madarch clone
+https://github.com/shady2k/madarch-product`, followed by
+`madarch serve --product FOLDER`. It shall not say `madarch clone` or
+`madarch repo add` are unavailable, or present `madarch demo` as shipped.
 
 
 
@@ -33,7 +40,12 @@ a product with no pages shall say that it has none yet.
 ### Scenario: no-pages-yet
 - Given: a draft whose `docs/` holds no Markdown file
 - When: its wiki is opened
-- Then: the home page names the product and says it has no pages yet
+- Then: the home page names the product, says it has no pages yet and shows the localized getting-started guide
+
+### Scenario: empty-home-supported-commands
+- Given: a product with no pages, with or without manifest metadata
+- When: its home is read in English or Russian
+- Then: the guide names `madarch new`, `madarch clone URL`, `madarch repo add NAME URL --product FOLDER` and `setup-shady2k-skills`, then offers the linked Madarch example via `madarch clone https://github.com/shady2k/madarch-product` and `madarch serve --product FOLDER` without presenting `madarch demo` as shipped
 ### Scenario: link-between-pages
 - Given: a product whose `docs/index.md` links to `vision.md` and to `../AGENTS.md`
 - When: its index page is read
@@ -43,8 +55,9 @@ a product with no pages shall say that it has none yet.
 When a product's wiki has a normalized overview projection, its home shall
 introduce the product on its first screen before listing document groups. The
 optional response shape is `overview?: { audience?: string; problem?: string;
-outcome?: string; currentMilestone?: { title: string; state?: string;
-nextStep?: string; path?: string } }`; the existing top-level
+outcome?: string; currentMilestone?: { title?: string; state?: string;
+nextStep?: string; path?: string }; errors?: { role: string; document: string;
+section: string; message: string }[] }`; the existing top-level
 `Product.audience` remains a compatible value and matches `overview.audience`
 when both are present. The overview shall show the product name and the
 audience, problem, outcome, current milestone title, state and next step
@@ -55,12 +68,9 @@ The projection is optional; when absent (including a manifestless product
 response), the wiki shall not render the overview-facts block. If the
 projection is absent but the legacy top-level audience exists, that audience
 shall remain visible without an overview-facts block. A blank or whitespace
-legacy audience shall use the selected locale's missing-audience copy. Missing
-or blank facts within a supplied projection shall use the selected locale's
-missing-data copy. A milestone title becomes a link only when both its title and safe
-product-relative path are nonblank; missing data shall never create a blank
-link. The existing empty-home guidance remains available when a product has no
-pages.
+legacy audience and missing or blank facts within a supplied projection shall
+be omitted without placeholder text. A milestone title becomes a link only when its path is safe and names a page
+in the current wiki page list; missing data shall never create a blank link. A source path that is unsafe or does not name a served page shall be reported in the projection's `errors`; absent or empty sections remain absent without a fabricated value. The existing empty-home guidance remains available when a product has no pages.
 
 ### Scenario: manifest-overview-before-groups
 - Given: a product whose response supplies audience, problem, outcome and a current milestone with title, state, next step and a safe page path
@@ -70,7 +80,17 @@ pages.
 ### Scenario: missing-overview-facts
 - Given: a product whose overview fields are absent, blank or whitespace-only
 - When: its home is read in English or Russian
-- Then: each missing fact uses the selected locale's missing-data copy, and the milestone has no blank link
+- Then: missing fact rows are omitted without placeholders, and a milestone has no blank or unsafe link
+
+### Scenario: production-overview-sources
+- Given: a registry with independent document-and-section mappings for all six overview roles
+- When: `GET /api/product` is read
+- Then: each first paragraph supplies only its declared role, `overview.audience` matches the top-level audience alias, and a milestone path is returned only for a served wiki page
+
+### Scenario: unsafe-overview-source
+- Given: a registry whose overview source contains traversal or names a page outside the wiki's served page set
+- When: `GET /api/product` is read
+- Then: that source contributes no fact or link and the projection reports the source error without reading outside the product
 
 ### Scenario: legacy-audience-compatibility
 - Given: a product response with the existing top-level audience and no `overview.audience`
@@ -90,7 +110,7 @@ pages.
 ### Scenario: blank-legacy-audience
 - Given: a product response, with or without manifest metadata, whose top-level legacy audience is blank or whitespace-only and has no normalized overview
 - When: its home is read in English or Russian
-- Then: the selected locale's missing-audience copy is shown without an overview-facts block
+- Then: no audience placeholder or overview-facts block is shown
 
 ## Requirement: shell — The reading shell holds the navigation, the document and the panel place
 When a product's wiki is served, its pages shall be shown in a reading shell: a left navigation holding the product's name and its documents grouped by kind — the kind a page's path names, pages outside a kind by themselves — with the current page marked visually and by its accessibility attributes, and every page of the wiki one click away from it; each group heading shall link to a generic page at `/g/` followed by the URI-encoded group identity, keyed by the existing `PageMeta.kind ?? groupOf(path)` identity, whose heading uses the existing localized/fallback group label and whose links list only that group's live pages in code point order; the sidebar brand `madarch вики` shall link to Product overview; a document breadcrumb shall link its first `Продукт` segment to Product overview and its group segment to that group page, providing the in-app way back without a separate Back button; the document in the centre as the main element; and a place for a right context panel, closed by default and empty until content fills it. A focus mode shall hide both panels and bring them back, and on a narrow screen the navigation shall open from a menu without narrowing the document's column. Language selection shall live in a globe menu in the top bar; the globe button shall have a localized accessible name and tooltip, and the menu shall mark the current language as checked.
@@ -374,12 +394,14 @@ The product registry may also declare an optional `overview` object with
 optional source mappings for `audience`, `problem`, `outcome`,
 `currentMilestone`, `milestoneState` and `nextStep`. Each mapping shall name a
 product-relative Markdown `document` and an exact `section`. The selected
-section supplies only the value for its declared semantic field; the
-`currentMilestone` mapping supplies the milestone title. The paths, sections
-and semantic roles are product data. An absent mapping leaves that value
-absent. Engine code shall not infer document paths, headings, milestone state
-or workflow, or fall back to another source. Configured unsafe or invalid
-sources shall be reported explicitly rather than silently replaced. When both
+section supplies its first non-empty paragraph as the value for its declared
+semantic field; the `currentMilestone` mapping supplies the milestone title.
+The paths, sections and semantic roles are product data. An absent mapping
+leaves that value absent. Engine code shall not infer document paths, headings,
+milestone state or workflow, or fall back to another source. Configured unsafe
+or unserved page sources shall be reported in `overview.errors` rather than
+silently replaced. A source path is returned as a milestone link only when it
+names a page the wiki serves. When both
 are present, the legacy top-level `Product.audience` shall match
 `overview.audience`. The Open questions sidebar entry is not built into the
 engine.

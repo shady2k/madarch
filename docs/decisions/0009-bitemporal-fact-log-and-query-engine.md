@@ -1,6 +1,6 @@
 # 0009. A bitemporal fact log in SQLite; LadybugDB as a rebuildable query engine
 
-Status: accepted
+Status: accepted; partly amended by 0023 and 0024
 Date: 2026-09-24
 
 ## Context and problem

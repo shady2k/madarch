@@ -168,6 +168,66 @@ describe('the server\'s product mode', () => {
     expect(named.audience).toBe('Cafe owners with waste.');
   });
 
+  test('GET /api/product projects every manifest-declared overview source independently', async () => {
+    draft();
+    writeFileSync(join(folder!, 'docs', 'kinds.yaml'), [
+      'contract: 1', 'overview:',
+      '  audience:', '    document: docs/vision.md', '    section: Audience',
+      '  problem:', '    document: docs/vision.md', '    section: Problem',
+      '  outcome:', '    document: docs/vision.md', '    section: Outcome',
+      '  currentMilestone:', '    document: docs/milestone.md', '    section: Milestone',
+      '  milestoneState:', '    document: docs/milestone.md', '    section: State',
+      '  nextStep:', '    document: docs/next.md', '    section: Next',
+      'stages:', '  - id: idea', 'kinds: []',
+    ].join('\n') + '\n');
+    writeFileSync(join(folder!, 'docs', 'vision.md'), [
+      '# Vision', '', '## Audience', 'Small product teams.', '',
+      '## Problem', 'Their decisions are hard to trace.', '',
+      '## Outcome', 'A shared, living product record.',
+    ].join('\n') + '\n');
+    writeFileSync(join(folder!, 'docs', 'milestone.md'), [
+      '# Roadmap', '', '## Milestone', 'A useful overview.', '',
+      '## State', 'In progress.',
+    ].join('\n') + '\n');
+    writeFileSync(join(folder!, 'docs', 'next.md'), '# Plan\n\n## Next\nReview the first screen.\n');
+    builtApp();
+    const url = startProduct();
+    const response = await fetch(`${url}/api/product`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      id: 'demo', name: 'Demo', folder: basename(folder!),
+      audience: 'Small product teams.',
+      overview: {
+        audience: 'Small product teams.',
+        problem: 'Their decisions are hard to trace.',
+        outcome: 'A shared, living product record.',
+        currentMilestone: {
+          title: 'A useful overview.', state: 'In progress.',
+          nextStep: 'Review the first screen.', path: 'docs/milestone.md',
+        },
+      },
+    });
+  });
+
+  test('GET /api/product omits unsafe configured overview sources without linking outside wiki pages', async () => {
+    draft();
+    writeFileSync(join(folder!, 'docs', 'kinds.yaml'), [
+      'contract: 1', 'overview:',
+      '  audience:', '    document: ../../AGENTS.md', '    section: Audience',
+      '  currentMilestone:', '    document: docs/missing.md', '    section: Milestone',
+      'stages:', '  - id: idea', 'kinds: []',
+    ].join('\n') + '\n');
+    builtApp();
+    const url = startProduct();
+    const body = await (await fetch(`${url}/api/product`)).json() as { audience?: string; overview?: { audience?: string; currentMilestone?: { path?: string }; errors?: { role: string; document: string }[] } };
+    expect(body.audience).toBeUndefined();
+    expect(body.overview?.audience).toBeUndefined();
+    expect(body.overview?.currentMilestone?.path).toBeUndefined();
+    expect(body.overview?.errors?.map((error) => [error.role, error.document])).toEqual([
+      ['audience', '../../AGENTS.md'], ['currentMilestone', 'docs/missing.md'],
+    ]);
+  });
+
   test('GET /api/questions lists the manifest-defined questions with their state and the open count', async () => {
     draft();
     writeFileSync(join(folder!, 'docs', 'kinds.yaml'), [
