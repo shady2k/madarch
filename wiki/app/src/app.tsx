@@ -26,6 +26,7 @@ import { wordCount } from './text.js';
 import { useArchitecture, ArchitectureIndex, ViewPage, ElementPage, elementLinksFor } from './architecture.js';
 import { StagePage, useStages } from './stages.js';
 import { QuestionsView } from './questions.js';
+import { HomeOverviewFacts, registryDisplayLabel, registryStageDisplayLabel, type HomeOverviewProjection } from './overview.js';
 export type RouteSnapshot = Route;
 
 /** How many times one page read is tried before the app gives up on it. */
@@ -245,7 +246,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
       <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, stage: route.name === 'stage' ? route.stage : undefined, group: route.name === 'group' ? route.group : undefined, architecture: architectureCrumb, heldPaths }}>
         <Shell product={data.product} list={list} architecture={architecture} reposCount={data.repos?.repos.length} reposOpen={route.name === 'repos'} offer={data.registry}>
         {route.name === 'home' ? (
-          <HomePage product={data.product} list={list} architecture={architecture} />
+          <HomePage product={data.product} list={list} architecture={architecture} offer={data.registry} overview={data.product.overview} />
         ) : route.name === 'group' ? (
           <GroupPage group={route.group} list={list} offer={data.registry} />
         ) : route.name === 'repos' && (data.repos?.repos.length ?? 0) > 0 ? (
@@ -253,7 +254,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
         ) : route.name === 'repos' ? (
           // `/r` of an undeclared product: no repositories section exists —
           // the server refuses the route and the reader sees the home.
-          <HomePage product={data.product} list={list} architecture={architecture} />
+          <HomePage product={data.product} list={list} architecture={architecture} offer={data.registry} overview={data.product.overview} />
         ) : route.name === 'architecture' ? (
           <ArchitectureReader key={'architecture:' + list.revision} revision={list.revision} routeName="index" />
         ) : route.name === 'view' ? (
@@ -261,7 +262,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
         ) : route.name === 'element' ? (
           <ArchitectureReader key={'element:' + route.id + ':' + list.revision} revision={list.revision} routeName="element" id={route.id} />
         ) : route.name === 'stage' ? (
-          <StageRoute key={"stage:" + route.stage + ":" + list.revision} stage={route.stage} revision={list.revision} />
+          <StageRoute key={"stage:" + route.stage + ":" + list.revision} stage={route.stage} revision={list.revision} offer={data.registry} />
         ) : route.name === 'questions' ? (
           <QuestionsView key={"questions:" + list.revision} questions={data.questions ?? null} />
 
@@ -272,6 +273,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
             heldPaths={heldPaths}
             retryMs={pageRetryMs}
             revision={list.revision}
+            offer={data.registry}
           />
         )}
         </Shell>
@@ -286,7 +288,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
  * read is refetched on every revision change and a refusal shows as the
  * stage's error line.
  */
-function StageRoute({ stage, revision }: { stage: string; revision: string }): ReactElement {
+function StageRoute({ stage, revision, offer }: { stage: string; revision: string; offer?: RegistryOffer | null }): ReactElement {
   const { t } = useTranslation();
   const index = useStages(revision);
   if (index === null) return <p className="loading">{t('loading.wiki')}</p>;
@@ -301,7 +303,7 @@ function StageRoute({ stage, revision }: { stage: string; revision: string }): R
       </main>
     );
   }
-  return <StagePage stage={section} index={index} />;
+  return <StagePage stage={section} index={index} offer={offer} />;
 }
 
 /** The home page's status is localized in its current UI language. */
@@ -332,8 +334,10 @@ export function StatusBridge({ children, streamConnected }: { children: ReactNod
 /** A generic group page: only live pages with this route's group identity, in code-point path order. */
 export function GroupPage({ group, list, offer }: { group: string; list: PageList; offer?: RegistryOffer | null }): ReactElement {
   const { publish } = useContext(statusContext);
-  const { t } = useTranslation();
-  const label = t('groups.' + group, { defaultValue: wordLabel(group) });
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage === 'ru' ? 'ru' : 'en';
+  const catalogueLabel = t('stages.kinds.' + group, { defaultValue: '' });
+  const label = catalogueLabel || registryDisplayLabel(offer, group, locale) || t('groups.' + group, { defaultValue: wordLabel(group) });
   const pages = groupNav(list.pages, offer ?? null).find((entry) => entry.name === group)?.pages ?? [];
   useEffect(() => {
     publish(pages.length === 0 ? null : [t('status.documents', { count: pages.length, unit: t('units.document', { count: pages.length }) })]);
@@ -366,12 +370,14 @@ export function GroupPage({ group, list, offer }: { group: string; list: PageLis
  * choosing between, the rows read like the sidebar's. A product with no
  * pages yet says so plainly in the lead.
  */
-export function HomePage({ product, list, architecture, offer }: { product: ProductWithAudience; list: PageList; architecture?: Architecture | null; offer?: RegistryOffer | null }): ReactElement {
+export function HomePage({ product, list, architecture, offer, overview }: { product: ProductWithAudience; list: PageList; architecture?: Architecture | null; offer?: RegistryOffer | null; overview?: HomeOverviewProjection }): ReactElement {
   const registryOffer = offer ?? null;
   const groups = groupNav(list.pages, registryOffer);
   const documents = list.pages.length;
   const { publish } = useContext(statusContext);
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage === 'ru' ? 'ru' : 'en';
+  const normalizedLegacyAudience = product.audience?.trim();
   const documentUnit = t('units.document', { count: documents });
   const groupUnit = t('units.group', { count: groups.length });
   useEffect(() => {
@@ -390,38 +396,37 @@ export function HomePage({ product, list, architecture, offer }: { product: Prod
       <p className="eyebrow">{t('home.overview')}</p>
       <h1 className="app-title">{product.name}</h1>
       <p className="home-lead" data-testid="home-lead">{lead}</p>
-      {product.audience === undefined ? (
-        <p className="home-audience home-audience-empty" data-testid="home-audience">{t('home.noAudience')}</p>
-      ) : (
-        <p className="home-audience" data-testid="home-audience">{t('home.audience', { audience: product.audience })}</p>
-      )}
-      {documents === 0 ? null : (
-        <div className="home-groups">
-          {groups.map((group) => (
-            <section key={group.name} data-kind={group.name} className="home-group mt-7 first:mt-0">
-              <header className="home-group-head">
-                <h2 className="text-ink">{t('kinds.' + group.name, { defaultValue: t('groups.' + group.name, { defaultValue: wordLabel(group.name) }) })}</h2>
-                <span className="home-count" data-testid="card-count">{group.pages.length}</span>
-              </header>
-              <ul className="home-rows">
-                {group.pages.map((meta) => (
-                  <li key={meta.path}>
-                    <PageLink path={meta.path} className="home-row">
-                      <FileTextIcon aria-hidden="true" className="home-row-icon" />
-                      <span className="home-row-title">{meta.title}</span>
-                    </PageLink>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
-        </div>
-      )}
+      {product.id !== undefined && overview !== undefined ? (
+        <HomeOverviewFacts overview={overview} legacyAudience={product.audience} pagePaths={list.pages.map((page) => page.path)} />
+      ) : normalizedLegacyAudience !== undefined && normalizedLegacyAudience.length > 0 ? (
+        <p className="home-audience" data-testid="home-audience">{t('home.audience', { audience: normalizedLegacyAudience })}</p>
+      ) : null}
+      {documents === 0 ? (
+        <section className="home-group mt-7" data-testid="empty-home-guidance" aria-labelledby="empty-home-guidance-title">
+          <h2 id="empty-home-guidance-title" className="text-h2 font-medium">{t(product.id === undefined ? 'home.noManifestTitle' : 'home.gettingStartedTitle')}</h2>
+          <p className="mt-3 text-secondary">{t(product.id === undefined ? 'home.noManifestDescription' : 'home.productRepository')}</p>
+          <ol className="mt-3 list-decimal pl-6">
+            <li>{t('home.newProduct')} <code>madarch new</code></li>
+            <li>{t('home.cloneProduct')} <code>{'madarch clone <url>'}</code></li>
+            <li>{t('home.addRepository')} <code>{'madarch repo add <name> <url> --product <folder>'}</code></li>
+            <li>{t('home.setupProduct')} <code>setup-shady2k-skills</code> {t('home.setupProductManifest')} <code>{t('home.workspaceFile')}</code> {t('home.setupProductEnd')}</li>
+            <li>
+              <p>{t('home.demoProduct')} <a href="https://github.com/shady2k/madarch-product" target="_blank" rel="noreferrer" className="text-link underline">{t('home.demoRepository')}</a></p>
+              <ol className="mt-2 list-decimal pl-6">
+                <li><code>{t('home.demoClone')}</code></li>
+                <li><code>{t('home.demoServe')}</code></li>
+              </ol>
+            </li>
+          </ol>
+        </section>
+      ) : null}
       <div className="home-groups">
         {documents === 0 ? null : groups.map((group) => (
           <section key={group.name} data-kind={group.name} className="home-group mt-7 first:mt-0">
             <header className="home-group-head">
-              <h2 className="text-ink">{t('groups.' + group.name, { defaultValue: wordLabel(group.name) })}</h2>
+              <h2 className="text-ink">{t('stages.kinds.' + group.name, { defaultValue: '' })
+                || registryDisplayLabel(registryOffer, group.name, locale)
+                || t('groups.' + group.name, { defaultValue: wordLabel(group.name) })}</h2>
               <span className="home-count" data-testid="card-count">{group.pages.length}</span>
             </header>
             <ul className="home-rows">
@@ -436,9 +441,8 @@ export function HomePage({ product, list, architecture, offer }: { product: Prod
             </ul>
           </section>
         ))}
-        {/* The Architecture group (feature E): the Design stage's part, the
-         * views of the product's model — or, where the model is missing or
-         * refuses to compile, the entry to the page that says so. */}
+        {/* The Architecture group is an entry to the product model even when
+            the model is absent or does not compile. */}
         <section data-kind="architecture" className="home-group mt-7" data-testid="home-architecture">
           <header className="home-group-head">
             <h2 className="text-ink">{t('architecture.title')}</h2>
@@ -470,12 +474,14 @@ export function PageReader({
   heldPaths,
   retryMs = 1000,
   revision,
+  offer,
 }: {
   path: string;
   heldPaths: ReadonlySet<string>;
   retryMs?: number;
   /** The wiki revision the page was read at; the Architecture bundle of the same revision links documents to elements. */
   revision?: string;
+  offer?: RegistryOffer | null;
 }): ReactElement {
   const { bundle } = useArchitecture(revision ?? '');
   const { t, i18n } = useTranslation();
@@ -550,10 +556,10 @@ export function PageReader({
   // header block reads the form's fields where the registry names the document,
   // and keeps the mockup's plain eyebrow where it does not.
   const doc = page.document;
-  const setKind = doc?.kind;
-  const kindLabel = setKind !== undefined
-    ? wordLabel(setKind)
-    : wordLabel(kindOf(path, groupOf(path)));
+  const kind = doc?.kind ?? kindOf(path, groupOf(path));
+  const locale = i18n.resolvedLanguage === 'ru' ? 'ru' : 'en';
+  const catalogueLabel = t('stages.kinds.' + kind, { defaultValue: '' });
+  const kindLabel = catalogueLabel || registryDisplayLabel(offer, kind, locale) || wordLabel(kind);
   return (
     <main id="page" ref={pageRef}>
       {/* The document's header: the kind as an eyebrow above the title, then

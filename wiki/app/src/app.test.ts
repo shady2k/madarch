@@ -18,7 +18,8 @@ import { groupNav } from './shell.js';
 import { languageStorageKey, setWikiLanguage } from './i18n.js';
 import { addressOfGroup, addressOfPage, routeOf } from './routes.js';
 
-import type { Product, ProductWithAudience, PageList, Page, QuestionList, QuestionEntry, RegistryOffer } from './api.js';
+import type { Product, ProductWithAudience, PageList, Page, QuestionList, QuestionEntry, RegistryOffer, StagesIndex } from './api.js';
+import { type HomeOverviewProjection, registryDisplayLabel } from './overview.js';
 
 beforeAll(async () => {
   GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -36,7 +37,7 @@ afterAll(async () => {
 type Blade = { body: unknown; status?: number };
 type Answer = (target: string) => Blade;
 
-function answerFor(product: Product, list: PageList, pages: Record<string, Page>, questions: QuestionList = { questions: [], openCount: 0 }): Answer {
+function answerFor(product: ProductWithAudience, list: PageList, pages: Record<string, Page>, questions: QuestionList = { questions: [], openCount: 0 }): Answer {
   return (target: string): Blade => {
     if (target === '/api/product') return { body: product };
     if (target === '/api/pages') return { body: list };
@@ -159,6 +160,144 @@ describe('the home page', () => {
     expect(link?.textContent).toBe('Vision');
   });
 
+  test('home and empty repositories fallback receive manifest kind labels', async () => {
+    const typedPages: PageList = {
+      ...listWithPages,
+      pages: listWithPages.pages.map((page) => page.path === 'docs/vision.md' ? { ...page, kind: 'Product vision' } : page),
+    };
+    const registry: RegistryOffer = {
+      present: true,
+      stages: [],
+      kinds: [{ name: 'Product vision', prefix: 'V', folder: 'custom/vision.md', stage: 'idea', hint: 'internal', labels: { en: 'North star', ru: 'Ориентир' } }],
+    };
+    const answer = answerFor(product, typedPages, pagesAtR1);
+    install((target) => target === '/api/registry' ? { body: registry } : answer(target));
+    try {
+      await setWikiLanguage('en');
+      for (const pathname of ['/', '/r']) {
+        goto(pathname);
+        await intoApp(createElement(App));
+        await until(() => document.querySelector('[data-kind="Product vision"] h2')?.textContent === 'North star', `the manifest kind label on ${pathname}`);
+        expect(document.querySelector('[data-kind="Product vision"] h2')?.textContent).toBe('North star');
+        unmount();
+      }
+      goto(addressOfGroup('Product vision'));
+      await intoApp(createElement(App));
+      await until(() => document.querySelector('main#group h1')?.textContent === 'North star', 'the registry label on the group heading');
+      expect(document.querySelector('main#group h1')?.textContent).toBe('North star');
+      unmount();
+
+      await setWikiLanguage('ru');
+      for (const pathname of ['/', '/r']) {
+        goto(pathname);
+        await intoApp(createElement(App));
+        await until(() => document.querySelector('[data-kind="Product vision"] h2')?.textContent === 'Ориентир', `the Russian manifest kind label on ${pathname}`);
+        expect(document.querySelector('[data-kind="Product vision"] h2')?.textContent).toBe('Ориентир');
+        unmount();
+      }
+      goto(addressOfGroup('Product vision'));
+      await intoApp(createElement(App));
+      await until(() => document.querySelector('main#group h1')?.textContent === 'Ориентир', 'the Russian registry label on the group heading');
+      expect(document.querySelector('main#group h1')?.textContent).toBe('Ориентир');
+      unmount();
+      goto(addressOfPage('docs/vision.md'));
+      await intoApp(createElement(App));
+      await until(() => document.querySelector('.eyebrow-kind')?.textContent === 'Ориентир', 'the active-locale document-kind label');
+      expect(document.querySelector('.eyebrow-kind')?.textContent).toBe('Ориентир');
+      unmount();
+    } finally {
+      await setWikiLanguage('en');
+    }
+  });
+
+  test('renders the fixture overview projection before document groups', async () => {
+    const overview: HomeOverviewProjection = {
+      audience: 'Independent makers who return to a project after a pause.',
+      problem: 'Important context is lost between work sessions.',
+      outcome: 'A returning reader can resume without reconstructing the context.',
+      currentMilestone: {
+        title: 'Reader continuity',
+        state: 'In progress',
+        nextStep: 'Test return-to-work scenarios.',
+        path: 'docs/milestones/continuity.md',
+      },
+    };
+    const typedPages: PageList = {
+      ...listWithPages,
+      pages: [
+        ...listWithPages.pages.map((page) => page.path === 'docs/vision.md' ? { ...page, kind: 'Product vision' } : page),
+        { path: 'docs/milestones/continuity.md', title: 'Reader continuity', url: '/p/docs/milestones/continuity.md' },
+      ],
+    };
+    const labels: RegistryOffer = {
+      present: true,
+      stages: [],
+      kinds: [{ name: 'Product vision', prefix: 'V', folder: 'some/product/declared/path.md', stage: 'idea', hint: 'internal only', labels: { en: 'North star', ru: 'Ориентир' } }],
+    };
+    await intoApp(createElement(HomePage, { product: { ...product, audience: undefined }, list: typedPages, overview, offer: labels }));
+    await until(() => document.querySelector('[data-testid="home-next-step"]')?.textContent?.includes('Test return-to-work scenarios.'), 'the complete product overview facts');
+    expect(document.querySelector('[data-kind="Product vision"] h2')?.textContent).toBe('North star');
+    expect(document.querySelector('[data-testid="home-audience"]')?.textContent).toContain('Independent makers');
+    expect(document.querySelector('[data-testid="home-problem"]')?.textContent).toContain('Important context is lost');
+    expect(document.querySelector('[data-testid="home-outcome"]')?.textContent).toContain('resume without reconstructing');
+    expect(document.querySelector('[data-testid="home-milestone"]')?.textContent).toContain('Reader continuity');
+    expect(document.querySelector('[data-testid="home-milestone-state"]')?.textContent).toContain('In progress');
+    expect(document.querySelector('[data-testid="home-milestone"] a[href="/p/docs/milestones/continuity.md"]')?.textContent).toBe('Reader continuity');
+    const home = document.querySelector('main#home')?.textContent ?? '';
+    expect(home.indexOf('Independent makers')).toBeLessThan(home.indexOf('Vision'));
+    expect(home.indexOf('Test return-to-work scenarios.')).toBeLessThan(home.indexOf('Vision'));
+  });
+
+  test('renders the server product overview projection on the production home route', async () => {
+    const overview: HomeOverviewProjection = {
+      audience: 'Teams that need a shared product record.',
+      problem: 'Context is scattered.',
+      outcome: 'Readers can resume work.',
+      currentMilestone: { title: 'Reader continuity', state: 'In progress', nextStep: 'Check the home page.', path: 'docs/vision.md' },
+    };
+    install(answerFor({ ...product, overview }, listWithPages, pagesAtR1));
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('[data-testid="home-next-step"]')?.textContent?.includes('Check the home page.') === true, 'the API-projected overview');
+    expect(document.querySelector('[data-testid="home-audience"]')?.textContent).toContain('Teams that need a shared product record.');
+    expect(document.querySelector('[data-testid="home-problem"]')?.textContent).toContain('Context is scattered.');
+    expect(document.querySelector('[data-testid="home-outcome"]')?.textContent).toContain('Readers can resume work.');
+    expect(document.querySelector('[data-testid="home-milestone"] a[href="/p/docs/vision.md"]')?.textContent).toBe('Reader continuity');
+  });
+
+  test('omits absent overview facts and never makes blank milestone links', async () => {
+    const overview: HomeOverviewProjection = {
+      audience: '   ',
+      problem: '',
+      outcome: '  ',
+      currentMilestone: { title: '', state: ' ', nextStep: '', path: 'docs/milestones/empty.md' },
+    };
+    await intoApp(createElement(HomePage, { product: { ...product, audience: '' }, list: listWithPages, overview }));
+    await until(() => document.querySelector('main#home') !== null, 'the home page');
+    expect(document.querySelector('[data-testid="home-overview-facts"]')).toBeNull();
+    expect(document.querySelector('[data-testid="home-audience"]')).toBeNull();
+    expect(document.querySelector('[data-testid="home-problem"]')).toBeNull();
+    expect(document.querySelector('[data-testid="home-outcome"]')).toBeNull();
+    expect(document.querySelector('[data-testid="home-milestone"]')).toBeNull();
+    expect(document.querySelector('[data-testid="home-milestone"] a')).toBeNull();
+  });
+
+  test('does not link a milestone path that escapes the served product pages', async () => {
+    const unsafePath = '../../AGENTS.md';
+    const withUnsafePath: PageList = {
+      ...listWithPages,
+      pages: [...listWithPages.pages, { path: unsafePath, title: 'Outside', url: '/p/../../AGENTS.md' }],
+    };
+    await intoApp(createElement(HomePage, {
+      product,
+      list: withUnsafePath,
+      overview: { currentMilestone: { title: 'Outside milestone', path: unsafePath } },
+    }));
+    await until(() => document.querySelector('[data-testid="home-milestone"]') !== null, 'the milestone facts');
+    expect(document.querySelector('[data-testid="home-milestone"] a')).toBeNull();
+    expect(document.querySelector('[data-testid="home-milestone"]')?.textContent).toContain('Outside milestone');
+  });
+
   test('says plainly that the product has no pages yet', async () => {
     install(
       answerFor(product, { revision: 'r0', pages: [] }, {}),
@@ -166,6 +305,138 @@ describe('the home page', () => {
     goto('/');
     await intoApp(createElement(App));
     await until(() => text().includes('has no pages yet'), 'the empty home page');
+    const guide = document.querySelector('[data-testid="empty-home-guidance"]');
+    const guideText = guide?.textContent ?? '';
+    expect(guideText).toContain('product repository');
+    expect(guideText).toContain('madarch new');
+    expect(guideText).toContain('Clone an existing product repository with:');
+    expect(guideText).toContain('Connect a code repository with:');
+    expect(guideText).toContain('setup-shady2k-skills');
+    const guideCode = [...(guide?.querySelectorAll('code') ?? [])].map((node) => node.textContent);
+    expect(guideCode).toContain('madarch new');
+    expect(guideCode).toContain('madarch clone <url>');
+    expect(guideCode).toContain('madarch repo add <name> <url> --product <folder>');
+    expect(guideCode).toContain('setup-shady2k-skills');
+    expect(guideCode).toContain('workspace.yaml');
+    expect(guideText).not.toContain('`');
+    expect(guideText).toContain('Try the Madarch product example:');
+    expect(guideText).toContain('Madarch product example');
+    expect(guideText).toContain('madarch clone https://github.com/shady2k/madarch-product');
+    expect(guideText).toContain('madarch serve --product <folder>');
+    expect(guideText.indexOf('madarch clone https://github.com/shady2k/madarch-product')).toBeLessThan(guideText.indexOf('madarch serve --product <folder>'));
+    expect(guide?.querySelector('a[href="https://github.com/shady2k/madarch-product"]')).not.toBeNull();
+    expect(guideText).not.toContain('git clone');
+    expect(guideText).not.toContain('madarch demo');
+  });
+
+  test('gives a folder without manifest metadata a localized, actionable empty state', async () => {
+    const noManifestProduct: Product = { name: 'No manifest folder', folder: 'empty-home' };
+    install(answerFor(noManifestProduct, { revision: 'r0', pages: [] }, {}));
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('[data-testid="empty-home-guidance"]') !== null, 'the no-manifest home guidance');
+    expect(text()).toContain('No manifest folder');
+    expect(text()).toContain('workspace.yaml');
+    expect(text()).toContain('its documents');
+    expect(document.querySelector('[data-testid="home-overview-facts"]')).toBeNull();
+  });
+
+  test('localizes no-manifest and empty-product guidance in Russian', async () => {
+    await setWikiLanguage('ru');
+    try {
+      const noManifestProduct: Product = { name: 'Папка без манифеста', folder: 'empty-home' };
+      install(answerFor(noManifestProduct, { revision: 'r0', pages: [] }, {}));
+      goto('/');
+      await intoApp(createElement(App));
+      await until(() => document.querySelector('[data-testid="empty-home-guidance"]') !== null, 'the Russian no-manifest home guidance');
+      const guide = document.querySelector('[data-testid="empty-home-guidance"]')?.textContent ?? '';
+      expect(text()).toContain('Папка без манифеста');
+      expect(guide).toContain('манифест продукта');
+      expect(guide).toContain('workspace.yaml');
+      expect(guide).toContain('его документы');
+      expect(guide).toContain('madarch new');
+      expect(guide).toContain('Склонируйте существующий репозиторий продукта командой:');
+      expect(guide).toContain('Подключите репозиторий кода командой:');
+      expect(guide).toContain('setup-shady2k-skills');
+      const guideCode = [...(document.querySelector('[data-testid="empty-home-guidance"]')?.querySelectorAll('code') ?? [])].map((node) => node.textContent);
+      expect(guideCode).toContain('madarch new');
+      expect(guideCode).toContain('madarch clone <url>');
+      expect(guideCode).toContain('madarch repo add <name> <url> --product <folder>');
+      expect(guideCode).toContain('setup-shady2k-skills');
+      expect(guideCode).toContain('workspace.yaml');
+      expect(guide).not.toContain('`');
+      expect(guide).toContain('Попробуйте пример продукта Madarch:');
+      expect(guide).toContain('Пример продукта Madarch');
+      expect(guide).toContain('madarch clone https://github.com/shady2k/madarch-product');
+      expect(guide).toContain('madarch serve --product <folder>');
+      expect(guide.indexOf('madarch clone https://github.com/shady2k/madarch-product')).toBeLessThan(guide.indexOf('madarch serve --product <folder>'));
+      expect(document.querySelector('[data-testid="empty-home-guidance"] a[href="https://github.com/shady2k/madarch-product"]')).not.toBeNull();
+      expect(guide).not.toContain('git clone');
+      expect(guide).not.toContain('madarch demo');
+    } finally {
+      await setWikiLanguage('en');
+    }
+  });
+
+  test('uses only the selected registry label or the manifest name, including blank labels', () => {
+    const offer: RegistryOffer = {
+      present: true,
+      stages: [],
+      kinds: [{ name: 'Product vision', prefix: 'V', folder: 'custom/location.md', stage: 'idea', hint: 'internal only', labels: { en: 'North star', ru: 'Ориентир' } }],
+    };
+    expect(registryDisplayLabel(offer, 'Product vision', 'en')).toBe('North star');
+    expect(registryDisplayLabel(offer, 'Product vision', 'ru')).toBe('Ориентир');
+    const legacy: RegistryOffer = {
+      present: true,
+      stages: [],
+      kinds: [{ name: 'Product vision', prefix: 'V', folder: 'custom/location.md', stage: 'idea', hint: 'internal only' }],
+    };
+    expect(registryDisplayLabel(legacy, 'Product vision', 'ru')).toBe('Product vision');
+    expect(registryDisplayLabel(legacy, 'Product vision', 'en')).toBe('Product vision');
+    const blankLabels: RegistryOffer = {
+      present: true,
+      stages: [],
+      kinds: [
+        { name: 'Empty label kind', prefix: 'E', folder: 'custom/empty.md', stage: 'idea', hint: 'internal only', labels: { en: '', ru: 'Видение продукта' } },
+        { name: 'Whitespace label kind', prefix: 'W', folder: 'custom/space.md', stage: 'idea', hint: 'internal only', labels: { en: '  ', ru: 'Этап продукта' } },
+      ],
+    };
+    expect(registryDisplayLabel(blankLabels, 'Empty label kind', 'en')).toBe('Empty label kind');
+    expect(registryDisplayLabel(blankLabels, 'Whitespace label kind', 'en')).toBe('Whitespace label kind');
+    expect(registryDisplayLabel(blankLabels, 'Empty label kind', 'ru')).toBe('Видение продукта');
+    expect(registryDisplayLabel(blankLabels, 'Whitespace label kind', 'ru')).toBe('Этап продукта');
+  });
+
+  test('built-in task and repository-architecture groups keep their localized labels', async () => {
+    const template = listWithPages.pages[0]!;
+    const list: PageList = {
+      revision: 'r1',
+      pages: [
+        { ...template, path: 'docs/tasks/task.md', title: 'A task', url: '/p/docs/tasks/task.md', kind: 'task' },
+        { ...template, path: 'docs/repositories/architecture.md', title: 'An architecture', url: '/p/docs/repositories/architecture.md', kind: 'repository architecture' },
+      ],
+    };
+    const offer: RegistryOffer = {
+      present: true,
+      stages: [],
+      kinds: [
+        { name: 'task', prefix: 'T', folder: 'docs/tasks', stage: 'idea', hint: 'internal', labels: { en: 'Manifest task', ru: 'Задача из реестра' } },
+        { name: 'repository architecture', prefix: 'RA', folder: 'docs/repository-architecture', stage: 'idea', hint: 'internal', labels: { en: 'Manifest architecture', ru: 'Архитектура из реестра' } },
+      ],
+    };
+    try {
+      await setWikiLanguage('en');
+      await intoApp(createElement(HomePage, { product, list, offer }));
+      await until(() => document.querySelector('[data-kind="task"] h2')?.textContent === 'Task', 'the English task group label');
+      expect(document.querySelector('[data-kind="repository architecture"] h2')?.textContent).toBe('Repository architecture');
+      unmount();
+      await setWikiLanguage('ru');
+      await intoApp(createElement(HomePage, { product, list, offer }));
+      await until(() => document.querySelector('[data-kind="task"] h2')?.textContent === 'Задача', 'the Russian task group label');
+      expect(document.querySelector('[data-kind="repository architecture"] h2')?.textContent).toBe('Архитектура репозитория');
+    } finally {
+      await setWikiLanguage('en');
+    }
   });
 
   test('a registry of a contract the wiki does not know is named by the banner on every view', async () => {
@@ -888,6 +1159,40 @@ describe('the reading shell', () => {
 
 
 
+  test('stage-page headings use only the active registry label, then its exact manifest name', async () => {
+    const registry: RegistryOffer = {
+      present: true,
+      stages: [{ id: 'idea', name: 'Manifest stage name', labels: { en: '   ', ru: 'Разработка' } }],
+      kinds: [],
+    };
+    const stages: StagesIndex = {
+      stages: [{ id: 'idea', name: 'Different /api/stages name', artifacts: [] }],
+      problems: [],
+    };
+    const answer = answerFor(product, shellList, shellPages);
+    const provide = (target: string): Blade => target === '/api/registry'
+      ? { body: registry }
+      : target === '/api/stages' ? { body: stages } : answer(target);
+    try {
+      await setWikiLanguage('en');
+      install(provide);
+      goto('/s/idea');
+      await intoApp(createElement(App));
+      await until(() => document.querySelector('main#stage h1')?.textContent === 'Manifest stage name', 'the exact manifest-name fallback');
+      expect(document.querySelector('main#stage h1')?.textContent).toBe('Manifest stage name');
+      unmount();
+
+      await setWikiLanguage('ru');
+      install(provide);
+      goto('/s/idea');
+      await intoApp(createElement(App));
+      await until(() => document.querySelector('main#stage h1')?.textContent === 'Разработка', 'the selected-locale stage label');
+      expect(document.querySelector('main#stage h1')?.textContent).toBe('Разработка');
+    } finally {
+      await setWikiLanguage('en');
+    }
+  });
+
   test('a stage route uses its manifest name in the breadcrumb and tab', async () => {
     const registry: RegistryOffer = { present: true, stages: [{ id: 'plan', name: 'Plan' }, { id: 'idea', name: 'Explore the idea' }], kinds: [] };
     const answer = answerFor(product, shellList, shellPages);
@@ -1525,17 +1830,56 @@ describe('the open questions', () => {
     expect(stream.calls.filter((call) => call === EVENTS_PATH).length).toBe(1);
   });
 
-  test('the draft carries its audience on the home; a draft without a vision says so', async () => {
+  test('the draft carries a present legacy audience and omits an absent one', async () => {
     const withAudience: ProductWithAudience = { ...product, audience: 'Owners of small cafes with fewer than twenty seats.' };
     install(answerFor(withAudience, listWithPages, pagesAtR1));
     goto('/');
     await intoApp(createElement(App));
     await until(() => document.querySelector('[data-testid="home-audience"]') !== null, 'the audience line');
     expect(document.querySelector('[data-testid="home-audience"]')?.textContent).toContain('Owners of small cafes');
+    expect(document.querySelector('[data-testid="home-overview-facts"]')).toBeNull();
+    expect(document.querySelector('[data-testid="home-problem"]')).toBeNull();
     unmount();
     install(answerFor(product, listWithPages, pagesAtR1));
     goto('/');
     await intoApp(createElement(App));
-    await until(() => document.querySelector('[data-testid="home-audience"]')?.textContent?.includes('not written yet'), 'the empty audience line');
+    await until(() => document.querySelector('main#home') !== null, 'the home page without an audience');
+    expect(document.querySelector('[data-testid="home-audience"]')).toBeNull();
+    expect(document.querySelector('[data-testid="home-overview-facts"]')).toBeNull();
+    expect(document.querySelector('[data-testid="home-problem"]')).toBeNull();
+  });
+
+  test('a manifestless product keeps the legacy audience without overview facts', async () => {
+    const manifestless: ProductWithAudience = {
+      ...product,
+      id: undefined,
+      audience: 'Owners of small cafes with fewer than twenty seats.',
+    };
+    install(answerFor(manifestless, listWithPages, pagesAtR1));
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('[data-testid="home-audience"]') !== null, 'the legacy audience line');
+    expect(document.querySelector('[data-testid="home-audience"]')?.textContent).toContain('Owners of small cafes');
+    expect(document.querySelector('[data-testid="home-overview-facts"]')).toBeNull();
+    expect(document.querySelector('[data-testid="home-problem"]')).toBeNull();
+
+    unmount();
+    const manifestlessBlank: ProductWithAudience = { ...manifestless, audience: '  	 ' };
+    install(answerFor(manifestlessBlank, listWithPages, pagesAtR1));
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('main#home') !== null, 'the manifestless home without an audience');
+    expect(document.querySelector('[data-testid="home-audience"]')).toBeNull();
+    expect(document.querySelector('[data-testid="home-overview-facts"]')).toBeNull();
+  });
+
+  test('a blank legacy audience without a normalized overview is omitted', async () => {
+    const blankAudience: ProductWithAudience = { ...product, audience: ' 	 ' };
+    install(answerFor(blankAudience, listWithPages, pagesAtR1));
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('main#home') !== null, 'the home page');
+    expect(document.querySelector('[data-testid="home-audience"]')).toBeNull();
+    expect(document.querySelector('[data-testid="home-overview-facts"]')).toBeNull();
   });
 });

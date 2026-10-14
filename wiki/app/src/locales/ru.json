@@ -32,7 +32,29 @@
     "lead": "Пространство продукта {{product}}: {{count}} {{documentUnit}} в {{groupCount}} {{groupUnit}}.",
     "noPages": "В {{product}} пока нет документов.",
     "audience": "Аудитория: {{audience}}",
-    "noAudience": "Аудитория ещё не описана"
+    "overviewFacts": "Сведения о продукте",
+    "audienceLabel": "Аудитория",
+    "problemLabel": "Проблема",
+    "outcomeLabel": "Результат",
+    "currentMilestoneLabel": "Текущий этап",
+    "milestoneState": "Состояние: {{state}}",
+    "nextStep": "Следующий шаг: {{step}}",
+    "gettingStartedTitle": "С чего начать",
+    "noManifestTitle": "В этой папке нет манифеста продукта",
+    "noManifestDescription": "Эта папка ещё не настроена как репозиторий продукта. Чтобы вики показала обзор продукта, нужны манифест продукта (workspace.yaml) и его документы.",
+    "productRepository": "Репозиторий продукта хранит документы продукта и связывает репозитории его кода.",
+    "newProduct": "Создайте новый продукт командой:",
+    "cloneProduct": "Склонируйте существующий репозиторий продукта командой:",
+    "addRepository": "Подключите репозиторий кода командой:",
+    "setupProduct": "Запустите",
+    "setupProductManifest": "— команда создаст манифест продукта",
+    "workspaceFile": "workspace.yaml",
+    "setupProductEnd": "и его документы.",
+    "demoProduct": "Попробуйте пример продукта Madarch:",
+    "demoRepository": "Пример продукта Madarch",
+    "demoClone": "madarch clone https://github.com/shady2k/madarch-product",
+    "demoServe": "madarch serve --product <folder>",
+    "otherDocumentsGroup": "Другие документы"
   },
   "questions": {
     "title": "Вопросы",
@@ -211,5 +233,9 @@
     "branchValue": "ветка {{branch}}",
     "lastCommit": "последний коммит {{when}}",
     "noReadme": "README в корне нет"
+  },
+  "registry": {
+    "unnamedKind": "Вид без названия",
+    "unnamedStage": "Этап без названия"
   }
 }

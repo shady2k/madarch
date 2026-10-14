@@ -167,6 +167,7 @@ describe('the pages a product holds', () => {
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
     expect(opened.wiki.product).toEqual({ manifest: 'absent', name: folder.split(/[\\/]/).pop()!, folder, repos: [] });
+    expect(opened.wiki.overview()).toBeUndefined();
     const pages = opened.wiki.pages();
     expect(pages.ok).toBe(true);
     if (pages.ok) expect(pages.pages).toEqual([]);
