@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { createSqliteHistory, type Clock, type CompiledElement, type CompiledModel, type HistoryStore } from '../src/index.js';
+import { createPGliteHistory, type Clock, type CompiledElement, type CompiledModel, type HistoryStore } from '../src/index.js';
 
 /**
  * Replays `store()`'s own `opened`/`closed` report as a literal patch —
@@ -48,7 +48,7 @@ describe('the repository test: store()\'s change report replays into exactly ass
     for (let seed = 1; seed <= 20; seed++) {
       const rnd = seededRandom(seed);
       const clock = fakeClock(100_000);
-      const h: HistoryStore = createSqliteHistory({ clock });
+      const h: HistoryStore = createPGliteHistory({ clock });
 
       // The replay: a plain map, patched only from `store()`'s own report —
       // never read from `h` directly — keyed so a literal `closed` remove and
@@ -82,5 +82,5 @@ describe('the repository test: store()\'s change report replays into exactly ass
 
       await h.close();
     }
-  });
+  }, 60_000);
 });

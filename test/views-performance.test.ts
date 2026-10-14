@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   buildViewSet,
   createLadybugEngine,
-  createSqliteHistory,
+  createPGliteHistory,
   renderMermaidPages,
   type CompiledElement,
   type CompiledModel,
@@ -59,7 +59,7 @@ describe('performance: every view of a 990-element model', () => {
     'is built and rendered as Mermaid pages in under ten seconds', async () => {
       const model = wideModel();
       expect(model.elements.length).toBe(990);
-      const history = createSqliteHistory({ clock: { now: () => AT } });
+      const history = createPGliteHistory({ clock: { now: () => AT } });
       expect((await history.store({ source: 'wide', commit: 'v1', committedAt: AT, model })).errors).toEqual([]);
       const engine = createLadybugEngine();
       engine.rebuild(await history.assertions());

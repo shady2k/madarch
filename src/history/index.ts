@@ -2,7 +2,7 @@
  * The model-history capability's interface: keeping every version of every
  * source's compiled model, with both time axes, from the first write. This
  * module and `assertions.ts` touch no Bun-specific API; the only
- * implementation so far, `src/adapters/sqlite-history.ts`, sits behind
+ * implementation, `src/adapters/pglite-history.ts`, sits behind
  * `HistoryStore`.
  *
  * The kinds the history keeps are `ASSERTION_KINDS` (see `assertions.ts`):

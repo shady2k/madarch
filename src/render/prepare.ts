@@ -13,7 +13,7 @@
  * need the same view set the pages are drawn from.
  */
 import { createLadybugEngine } from '../adapters/ladybug-engine.js';
-import { createSqliteHistory } from '../adapters/sqlite-history.js';
+import { createPGliteHistory } from '../adapters/pglite-history.js';
 import { loadAndCompileModel } from '../model/load-and-compile.js';
 import type { CompiledModel } from '../model/compile.js';
 import type { QueryEngine } from '../query/types.js';
@@ -63,7 +63,7 @@ export interface PreparedModel {
  * problems share, so neither keeps its own copy of the storing.
  */
 export async function prepareModel(model: CompiledModel, version: RenderedVersion): Promise<PreparedModel> {
-  const history = createSqliteHistory({ clock: { now: () => version.at } });
+  const history = createPGliteHistory({ clock: { now: () => version.at } });
   const engine = createLadybugEngine();
   const stored = await history.store({ source: version.source, commit: version.commit, committedAt: version.at, model });
   engine.rebuild(await history.assertions());

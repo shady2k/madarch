@@ -61,7 +61,7 @@ const DEPTH_ACCEPTED = 'a whole number from 1';
 const SEND_COMMAND = "bun scripts/send-model.ts <repository> --server <this server's address>";
 
 export interface ServerOptions {
-  /** The folder the histories and their sidecars live in; required with the model's routes, left out when only a product's wiki is served. */
+  /** The machine-local state folder for PGlite histories and sidecars, outside the product repository; required with the model routes, left out when only a product wiki is served. */
   dataFolder?: string;
   /** The product folder served as its wiki: read once, then read fresh at every ask — never written, never asked a git question. */
   productFolder?: string;

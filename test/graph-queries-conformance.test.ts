@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import {
   compileModel,
   createLadybugEngine,
-  createSqliteHistory,
+  createPGliteHistory,
   loadModel,
   type Clock,
   type CompiledElement,
@@ -34,7 +34,7 @@ function model(elements: CompiledElement[], relations: CompiledRelation[]): Comp
  * `transitive-dependents`, plus the intended-model capability's
  * `service-gains-internal-elements`, checked here through the view query
  * per stage3-brief.md): from a YAML fixture folder, through `loadModel` and
- * `compileModel`, stored in the (SQLite) model history with a fake clock,
+ * `compileModel`, stored in the (PGlite) model history with a fake clock,
  * to a `QueryEngine` built from that history's own `assertions()` — never
  * from the compiled model directly, so this also exercises `rebuild`.
  */
@@ -56,7 +56,7 @@ async function engineFor(fixtureName: string, commit: string, committedAt: numbe
   const compiled = compileModel(model!);
 
   const clock = fakeClock(storedAt);
-  const history = createSqliteHistory({ clock });
+  const history = createPGliteHistory({ clock });
   const stored = await history.store({ source: 's', commit, committedAt, model: compiled });
   expect(stored.errors).toEqual([]);
 
@@ -150,7 +150,7 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     // exactly the `rebuild`/`as-of` requirement, not two independent
     // histories compared side by side.
     const clock = fakeClock(DAY(2));
-    const history = createSqliteHistory({ clock });
+    const history = createPGliteHistory({ clock });
     expect((await history.store({ source: 's', commit: 'v1', committedAt: DAY(1), model: compileModel(v1.model!) })).errors).toEqual([]);
     clock.set(DAY(12));
     expect((await history.store({ source: 's', commit: 'v2', committedAt: DAY(10), model: compileModel(v2.model!) })).errors).toEqual([]);
@@ -218,7 +218,7 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
 
     const SEPTEMBER = (day: number) => Date.UTC(2026, 8, day);
     const clock = fakeClock(SEPTEMBER(1));
-    const history = createSqliteHistory({ clock });
+    const history = createPGliteHistory({ clock });
     expect((await history.store({ source: 's', commit: 'v1', committedAt: SEPTEMBER(1), model: compileModel(v1.model!) })).errors).toEqual([]);
     clock.set(SEPTEMBER(5));
     expect((await history.store({ source: 's', commit: 'v2', committedAt: SEPTEMBER(5), model: compileModel(v2.model!) })).errors).toEqual([]);
@@ -259,7 +259,7 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     }
 
     const clock = fakeClock(DAY(1));
-    const history = createSqliteHistory({ clock });
+    const history = createPGliteHistory({ clock });
 
     expect((await history.store({ source: 's', commit: 's1', committedAt: DAY(1), model: checkoutModel(false) })).errors).toEqual([]);
     clock.set(DAY(2));

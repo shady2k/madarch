@@ -8,7 +8,7 @@ import { checkLikeC4Workspaces, type LikeC4CheckResult } from '../scripts/likec4
 import {
   compileModel,
   createLadybugEngine,
-  createSqliteHistory,
+  createPGliteHistory,
   loadAndCompileModel,
   loadModel,
   renderOneViewMermaid,
@@ -127,7 +127,7 @@ function sendReference(): Promise<Response> {
 
 /** An engine built independently of the server: the same model stored in a history of its own. */
 async function independentEngine(model: CompiledModel, at: number): Promise<{ engine: QueryEngine; history: HistoryStore; close(): Promise<void> }> {
-  const history = createSqliteHistory({ clock: { now: () => at } });
+  const history = createPGliteHistory({ clock: { now: () => at } });
   expect((await history.store({ source: 'independent', commit: 'v1', committedAt: at, model })).errors).toEqual([]);
   const engine = createLadybugEngine();
   engine.rebuild(await history.assertions());

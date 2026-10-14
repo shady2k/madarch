@@ -102,7 +102,7 @@ export interface StoreResult {
    * assertion, a shortened replacement (the same content, its `validTo` now
    * corrected) written in place of a row `closed` reports, and a row
    * restored to cover a span a late commit would otherwise have erased (see
-   * `sqlite-history.ts`'s module doc). A caller can rebuild its own derived
+   * `pglite-history.ts`'s module doc). A caller can rebuild its own derived
    * index from `opened` and `closed` alone: together they name every row
    * this store wrote or superseded, each exactly as the database holds it.
    */
@@ -177,7 +177,7 @@ export interface CommitRecord {
 /**
  * Keeps every version of every source's compiled model, with both time
  * axes, from the first write: nothing is ever overwritten or deleted (see
- * the model-history capability). `src/adapters/sqlite-history.ts` is the
+ * the model-history capability). `src/adapters/pglite-history.ts` is the
  * only implementation so far; this interface itself touches no Bun-specific
  * API.
  */
@@ -201,9 +201,9 @@ export interface HistoryStore {
    * history holds anything but exactly the source being renamed.
    */
   renameSource(from: string, to: string, registry?: SourceRegistry): Promise<void>;
-  /** Stable server-assigned source identity and retired names kept inside this history file. */
+  /** Stable server-assigned source identity and retired names kept inside this history database. */
   registry(source: string): Promise<{ id: string; formerNames: string[] } | undefined>;
-  /** Records stable source identity and retired names in this history file. */
+  /** Records stable source identity and retired names in this history database. */
   setRegistry(source: string, id: string, formerNames: readonly string[]): Promise<void>;
   /** Whether a source's commit is already stored (regardless of what it asserts). */
   hasCommit(source: string, commit: string): Promise<boolean>;

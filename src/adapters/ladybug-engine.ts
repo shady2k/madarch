@@ -118,7 +118,7 @@ interface StateContent {
  * every row `assertions()` holds, current or not, for `known`-axis time
  * travel to work through the engine at all: the very "closed, then a
  * shortened replacement reopened at the same `validFrom`" pattern
- * `store()` itself produces (see `sqlite-history.ts`) can leave several
+ * `store()` itself produces (see `pglite-history.ts`) can leave several
  * historical rows sharing one `(source, kind, id, validFrom)`, told apart
  * only by `recordedFrom`. It is folded into the key so two such rows never
  * collide on a node table's own primary key.
@@ -334,7 +334,7 @@ function latestHistoryTimeAtOrBefore(t: number, sorted: readonly number[]): numb
  * LadybugDB behind `QueryEngine` (see design.md, "From files to answers"
  * and the graph-queries capability). Bun-specific in spirit only through
  * `@ladybugdb/core`'s native binding — this is the boundary decision 0008
- * draws for the query engine, the counterpart to `sqlite-history.ts` for
+ * draws for the query engine, the counterpart to `pglite-history.ts` for
  * the history.
  *
  * Three node tables and one relationship table, built from the history's
@@ -382,7 +382,7 @@ function latestHistoryTimeAtOrBefore(t: number, sorted: readonly number[]): numb
 export interface LadybugEngineOptions {
   /**
    * Supplies `valid`/`known`'s default when a query's own `at` leaves
-   * either out (the same convention `createSqliteHistory` uses, and the
+   * either out (the same convention `createPGliteHistory` uses, and the
    * same `Clock` interface): a test injects a fake one to hold time still
    * or move it by hand, the same way it would for the history this engine
    * is built from. Left out, `Date.now()` is used directly.

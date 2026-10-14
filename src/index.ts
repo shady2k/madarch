@@ -75,7 +75,7 @@ export {
   type ReadModel,
   type SharedEntity,
 } from './history/assertions.js';
-export { createSqliteHistory, type SqliteHistoryOptions } from './adapters/sqlite-history.js';
+export { createPGliteHistory, type PGliteHistoryOptions } from './adapters/pglite-history.js';
 export type {
   ChildrenResult,
   DependenciesInput,

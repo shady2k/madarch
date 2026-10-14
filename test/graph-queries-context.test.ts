@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
-import { compileModel, createLadybugEngine, createSqliteHistory, loadModel, type AssertionRecord, type Clock, type HistoryStore, type QueryEngine } from '../src/index.js';
+import { compileModel, createLadybugEngine, createPGliteHistory, loadModel, type AssertionRecord, type Clock, type HistoryStore, type QueryEngine } from '../src/index.js';
 
 /**
  * graph-queries/view asked with its context (the `context` scenario and the
@@ -23,7 +23,7 @@ const AT = { valid: DAY(2), known: DAY(2), state: 'as-is' };
 /** Loads and compiles each fixture in turn as one source's next commit, and builds a query engine from the history they produced. */
 async function engineFor(...versions: { name: string; committedAt: number; storedAt: number }[]): Promise<{ engine: QueryEngine; history: HistoryStore }> {
   const clock = fakeClock(versions[0]!.storedAt);
-  const history = createSqliteHistory({ clock });
+  const history = createPGliteHistory({ clock });
   for (const version of versions) {
     const { model, errors } = loadModel(fixture(version.name));
     expect(errors).toEqual([]);
