@@ -135,14 +135,14 @@ type Pair = { name: string; ours?: Shot; mockup?: Shot };
 let server: StartedServer | undefined;
 let reposServer: StartedServer | undefined;
 try {
-  server = startServer({ productFolder: product === '' ? join(repo, 'wiki', 'demo') : product, port: 0 });
+  server = await startServer({ productFolder: product === '' ? join(repo, 'wiki', 'demo') : product, port: 0 });
   const ours = server.url;
   // The repositories' own server: the demo product with its declared
   // checkout built under repos/, checked out, so the section shows the
   // checked-out state and the rendered README beside the row that stays
   // declared only.
   buildDemoCheckout(join(repo, 'wiki', 'demo'));
-  reposServer = startServer({ productFolder: join(repo, 'wiki', 'demo'), port: 0 });
+  reposServer = await startServer({ productFolder: join(repo, 'wiki', 'demo'), port: 0 });
   const reposOurs = reposServer.url;
   const browser = await puppeteer.launch({
     executablePath: CHROME,
@@ -331,6 +331,6 @@ try {
     await browser.close();
   }
 } finally {
-  server?.stop();
-  reposServer?.stop();
+  await server?.stop();
+  await reposServer?.stop();
 }

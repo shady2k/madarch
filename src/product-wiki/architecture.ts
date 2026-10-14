@@ -201,15 +201,15 @@ export function pagesNamingElement(pages: ReadonlyMap<string, string>, id: strin
 }
 
 /** The bundle of one compiled model plus the product's pages. */
-export function architectureBundle(
+export async function architectureBundle(
   model: CompiledModel,
   notes: readonly { file: string; line: number; path: string; message: string }[],
   warnings: ProductModelResult['warnings'],
   sources: readonly string[],
   pages: ReadonlyMap<string, string>,
-): ArchitectureBundle {
+): Promise<ArchitectureBundle> {
   // The views, from the shared renderer at the model's fixed moment.
-  const rendering = renderModel(model, { source: 'product-model', commit: 'product', at: 0 });
+  const rendering = await renderModel(model, { source: 'product-model', commit: 'product', at: 0 });
   if (rendering.pages === undefined || rendering.workspace === undefined) {
     return {
       notes: notes.map(noteOf),

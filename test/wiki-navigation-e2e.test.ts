@@ -129,7 +129,7 @@ function chromiumExecutable(): string {
   throw new Error('No Chromium executable found; set CHROME to a headless Chromium path.');
 }
 
-runDescribe('built wiki navigation (real server and Chromium)', () => {
+runDescribe('built wiki navigation (real server and Chromium)', async () => {
   let product: string | undefined;
   let server: StartedServer | undefined;
   let browser: Browser | undefined;
@@ -186,7 +186,7 @@ runDescribe('built wiki navigation (real server and Chromium)', () => {
     if (!existsSync(join(APP, 'index.html'))) throw new Error(`Built wiki app is missing: ${join(APP, 'index.html')}`);
     mkdirSync(SHOTS, { recursive: true });
     product = buildNavigationProduct();
-    server = startServer({
+    server = await startServer({
       productFolder: product,
       appFolder: APP,
       port: 0,
@@ -215,7 +215,7 @@ runDescribe('built wiki navigation (real server and Chromium)', () => {
       if (browser !== undefined) await browser.close();
     } finally {
       try {
-        server?.stop();
+        await server?.stop();
       } finally {
         if (product !== undefined) rmSync(product, { recursive: true, force: true });
       }

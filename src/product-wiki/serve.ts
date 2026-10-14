@@ -125,7 +125,7 @@ export function machineOpener(env: ServeEnv = process.env): Opener {
 }
 
 /** Serves one product's wiki; the command's own serving, to be stopped by the one who ran it. */
-export function serveWiki(options: ServeOptions = {}): ServeResult {
+export async function serveWiki(options: ServeOptions = {}): Promise<ServeResult> {
   const print = options.print ?? ((line: string) => console.log(line));
   const printError = options.printError ?? ((line: string) => console.error(line));
   const cwd = options.cwd ?? process.cwd();
@@ -141,7 +141,7 @@ export function serveWiki(options: ServeOptions = {}): ServeResult {
   const port = options.port ?? DEFAULT_PORT;
   let server: StartedServer;
   try {
-    server = startServer({ productFolder: folder, appFolder: built.dist, port, allowNoManifest: noManifest });
+    server = await startServer({ productFolder: folder, appFolder: built.dist, port, allowNoManifest: noManifest });
   } catch (error) {
     const message = (error as Error).message;
     // Bun's thrown error carries the POSIX code ("EADDRINUSE") rather than the

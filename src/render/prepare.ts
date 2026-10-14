@@ -54,7 +54,7 @@ export interface PreparedModel {
   at: { valid: number; known: number };
   /** Every problem that kept the model from being stored; while it is nonempty the engine answers nothing. */
   errors: string[];
-  close(): void;
+  close(): Promise<void>;
 }
 
 /**
@@ -62,19 +62,19 @@ export interface PreparedModel {
  * engine from that history: the seam the rendering and the model check's
  * problems share, so neither keeps its own copy of the storing.
  */
-export function prepareModel(model: CompiledModel, version: RenderedVersion): PreparedModel {
+export async function prepareModel(model: CompiledModel, version: RenderedVersion): Promise<PreparedModel> {
   const history = createSqliteHistory({ clock: { now: () => version.at } });
   const engine = createLadybugEngine();
-  const stored = history.store({ source: version.source, commit: version.commit, committedAt: version.at, model });
-  engine.rebuild(history.assertions());
+  const stored = await history.store({ source: version.source, commit: version.commit, committedAt: version.at, model });
+  engine.rebuild(await history.assertions());
   return {
     model,
     engine,
     at: { valid: version.at, known: version.at },
     errors: stored.errors.map((error) => `storing the model: ${error.message}`),
-    close: () => {
+    close: async () => {
       engine.close();
-      history.close();
+      await history.close();
     },
   };
 }
@@ -86,8 +86,8 @@ export function prepareModel(model: CompiledModel, version: RenderedVersion): Pr
  * compile; the model check reaches it with the model it already compiled,
  * so its views are drawn from exactly the model its findings are.
  */
-export function renderModel(model: CompiledModel, version: RenderedVersion): PreparedRendering {
-  const prepared = prepareModel(model, version);
+export async function renderModel(model: CompiledModel, version: RenderedVersion): Promise<PreparedRendering> {
+  const prepared = await prepareModel(model, version);
   try {
     if (prepared.errors.length > 0) return { model, errors: prepared.errors, notDrawn: [], warnings: [] };
     const viewSet = buildViewSet(prepared.engine, model, prepared.at);
@@ -98,7 +98,7 @@ export function renderModel(model: CompiledModel, version: RenderedVersion): Pre
     if (likec4.workspace === undefined) return { model, errors: likec4.errors.map((e) => e.message), notDrawn: [], warnings: [] };
     return { model, pages: rendered.pages, workspace: likec4.workspace, notDrawn: likec4.notDrawn!.map((relation) => relation.message), errors: [], warnings: [] };
   } finally {
-    prepared.close();
+    await prepared.close();
   }
 }
 
@@ -106,9 +106,9 @@ export function renderModel(model: CompiledModel, version: RenderedVersion): Pre
  * Loads, compiles, stores and renders one repository's model, closing the
  * engine and the history it borrows before returning.
  */
-export function prepareRendering(repoFolder: string, version: RenderedVersion): PreparedRendering {
+export async function prepareRendering(repoFolder: string, version: RenderedVersion): Promise<PreparedRendering> {
   const { model, errors, warnings } = loadAndCompileModel(repoFolder);
   const warningLines = warnings.map((w) => `${w.file}:${w.line}: ${w.path}: ${w.message}`);
   if (model === undefined) return { errors: errors.map((e) => `${e.file}:${e.line}: ${e.path}: ${e.message}`), notDrawn: [], warnings: warningLines };
-  return { ...renderModel(model, version), warnings: warningLines };
+  return { ...(await renderModel(model, version)), warnings: warningLines };
 }

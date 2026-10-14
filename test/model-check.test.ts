@@ -61,13 +61,13 @@ function staleRepo(): { repo: Repo; oldBlob: string } {
 
 describe('the model check', () => {
   describe('compiles', () => {
-    test('refused-model: an element naming a parent no element has fails the check, naming the element, its file and line, and reports nothing else', () => {
-      withRepo((repo) => {
+    test('refused-model: an element naming a parent no element has fails the check, naming the element, its file and line, and reports nothing else', async () => {
+      await withRepo(async (repo) => {
         const yaml = ['version: 1', '', 'elements:', '  - id: billing-web', '    kind: service', '    name: Billing web', '    parent: billing', ''].join('\n');
         repo.writeModel('model.yaml', yaml);
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         expect(report.errors).toHaveLength(1);
@@ -83,8 +83,8 @@ describe('the model check', () => {
       });
     });
 
-    test('an interface finding and a data entity finding each name their own path', () => {
-      withRepo((repo) => {
+    test('an interface finding and a data entity finding each name their own path', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/web.ts', 'export const web = 1;\n');
         const yaml = [
           'version: 1',
@@ -111,21 +111,21 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/web.ts', 'web', '']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.errors).toContainEqual(expect.objectContaining({ id: 'web-api', path: 'interfaces[0]' }));
         expect(report.errors).toContainEqual(expect.objectContaining({ id: 'session-id', path: 'entities[0].evidence[0]' }));
       });
     });
 
-    test('a loader error about a whole file carries no path at all', () => {
-      withRepo((repo) => {
+    test('a loader error about a whole file carries no path at all', async () => {
+      await withRepo(async (repo) => {
         repo.writeModel('other.yml', 'version: 1\n');
         repo.writeModel('model.yaml', ['version: 1', '', 'elements:', '  - id: web', '    kind: service', '    name: Web', ''].join('\n'));
         repo.writeReview([], assigned([]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         const yml = report.errors.find((finding) => finding.file.endsWith('other.yml'));
         expect(yml).toBeDefined();
@@ -133,13 +133,13 @@ describe('the model check', () => {
       });
     });
 
-    test('a warning the loader reports keeps its full path in the report', () => {
-      withRepo((repo) => {
+    test('a warning the loader reports keeps its full path in the report', async () => {
+      await withRepo(async (repo) => {
         const yaml = ['version: 1', '', 'elements:', '  - id: web', '    kind: service', '    name: Web', '', 'relations:', '  - id: web-calls-core', '    from: web', '    to: web', ''].join('\n');
         repo.writeModel('model.yaml', yaml);
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.warnings).toEqual([
           expect.objectContaining({ file: 'madarch/model.yaml', path: 'relations[0]', message: expect.stringContaining('has no name') }),
@@ -149,10 +149,10 @@ describe('the model check', () => {
   });
 
   describe('inputs that cannot be read', () => {
-    test('a path that is not a git repository is refused, saying which input is missing', () => {
+    test('a path that is not a git repository is refused, saying which input is missing', async () => {
       const path = mkdtempSync(join(tmpdir(), 'madarch-model-check-notgit-'));
       try {
-        const report = checkModel(path);
+        const report = await checkModel(path);
 
         expect(report.outcome).toBe('unreadable');
         expect(report.errors).toHaveLength(1);
@@ -164,12 +164,12 @@ describe('the model check', () => {
       }
     });
 
-    test('a git repository without a madarch folder is refused, saying which input is missing', () => {
-      withRepo((repo) => {
+    test('a git repository without a madarch folder is refused, saying which input is missing', async () => {
+      await withRepo(async (repo) => {
         repo.write('README.md', 'nothing but a readme\n');
         repo.commit('a repository with no model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('unreadable');
         expect(report.errors).toHaveLength(1);
@@ -177,12 +177,12 @@ describe('the model check', () => {
       });
     });
 
-    test('an unknown revision is refused, saying which input is missing', () => {
-      withRepo((repo) => {
+    test('an unknown revision is refused, saying which input is missing', async () => {
+      await withRepo(async (repo) => {
         repo.writeModel('model.yaml', 'version: 1\n\nelements: []\n');
         repo.commit('the model');
 
-        const report = checkModel(repo.path, { rev: 'no-such-revision' });
+        const report = await checkModel(repo.path, { rev: 'no-such-revision' });
 
         expect(report.outcome).toBe('unreadable');
         expect(report.errors).toHaveLength(1);
@@ -190,13 +190,13 @@ describe('the model check', () => {
       });
     });
 
-    test('a madarch folder holding no *.yaml file is unreadable, naming the folder', () => {
-      withRepo((repo) => {
+    test('a madarch folder holding no *.yaml file is unreadable, naming the folder', async () => {
+      await withRepo(async (repo) => {
         repo.write('README.md', 'nothing but a readme\n');
         repo.commit('a repository with an empty model folder');
         mkdirSync(join(repo.path, 'madarch'));
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('unreadable');
         expect(report.errors).toHaveLength(1);
@@ -205,8 +205,8 @@ describe('the model check', () => {
       });
     });
 
-    test('a madarch folder holding only *.yml files is unreadable too: the script exits 2', () => {
-      withRepo((repo) => {
+    test('a madarch folder holding only *.yml files is unreadable too: the script exits 2', async () => {
+      await withRepo(async (repo) => {
         repo.write('madarch/model.yml', 'version: 1\n\nelements: []\n');
         repo.commit('a repository with a .yml model');
 
@@ -214,14 +214,14 @@ describe('the model check', () => {
       });
     });
 
-    test('a folder named *.yaml in madarch is not a model file: without a regular *.yaml file the check is unreadable', () => {
-      withRepo((repo) => {
+    test('a folder named *.yaml in madarch is not a model file: without a regular *.yaml file the check is unreadable', async () => {
+      await withRepo(async (repo) => {
         repo.write('README.md', 'nothing but a readme\n');
         repo.commit('a repository whose model folder holds a folder named fake.yaml');
         mkdirSync(join(repo.path, 'madarch'));
         mkdirSync(join(repo.path, 'madarch', 'fake.yaml'));
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('unreadable');
         expect(report.errors).toHaveLength(1);
@@ -234,8 +234,8 @@ describe('the model check', () => {
   });
 
   describe('evidence-resolves', () => {
-    test('wrong-blob: an item whose blob is not the file\'s blob at its commit fails, naming the item, the blob it names and the blob the file has', () => {
-      withRepo((repo) => {
+    test('wrong-blob: an item whose blob is not the file\'s blob at its commit fails, naming the item, the blob it names and the blob the file has', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/web.ts', 'export const web = 1;\n');
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
@@ -258,7 +258,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/core.ts', 'core', ''], ['src/web.ts', 'excluded', 'not modelled']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         expect(report.errors).toHaveLength(1);
@@ -271,8 +271,8 @@ describe('the model check', () => {
       });
     });
 
-    test('line-past-end: an item naming lines past the blob\'s end fails, saying how many lines the file has', () => {
-      withRepo((repo) => {
+    test('line-past-end: an item naming lines past the blob\'s end fails, saying how many lines the file has', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
         const blob = repo.blob('src/core.ts', commit);
@@ -295,7 +295,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/core.ts', 'core', '']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         expect(report.errors).toHaveLength(1);
@@ -307,8 +307,8 @@ describe('the model check', () => {
       });
     });
 
-    test('line-past-end: a single line past the blob\'s end fails the same way', () => {
-      withRepo((repo) => {
+    test('line-past-end: a single line past the blob\'s end fails the same way', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
         const blob = repo.blob('src/core.ts', commit);
@@ -330,7 +330,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/core.ts', 'core', '']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         expect(report.errors).toHaveLength(1);
@@ -340,8 +340,8 @@ describe('the model check', () => {
       });
     });
 
-    test('a file the named commit does not have fails, naming the item', () => {
-      withRepo((repo) => {
+    test('a file the named commit does not have fails, naming the item', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/web.ts', 'export const web = 1;\n');
         const commitWithoutCore = repo.commit('web only');
         repo.write('src/core.ts', numberedLines(30));
@@ -364,7 +364,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/core.ts', 'core', ''], ['src/web.ts', 'excluded', 'not modelled']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         expect(report.errors).toHaveLength(1);
@@ -374,8 +374,8 @@ describe('the model check', () => {
       });
     });
 
-    test("an item whose file is a folder at its commit fails, saying it names a folder, not a file", () => {
-      withRepo((repo) => {
+    test("an item whose file is a folder at its commit fails, saying it names a folder, not a file", async () => {
+      await withRepo(async (repo) => {
         repo.write('src/lib/helper.ts', 'export const helper = 1;\n');
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
@@ -407,7 +407,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/', 'excluded', 'the sources']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         const folder = report.errors.find((f) => f.id === 'keeper');
@@ -419,8 +419,8 @@ describe('the model check', () => {
       });
     });
 
-    test('a folder an item names is not accepted through the history search either: only blob entries count', () => {
-      withRepo((repo) => {
+    test('a folder an item names is not accepted through the history search either: only blob entries count', async () => {
+      await withRepo(async (repo) => {
         repo.write('README.md', 'base\n');
         repo.commit('base');
         expect(repo.run(['checkout', '-b', 'feature']).ok).toBe(true);
@@ -452,7 +452,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['README.md', 'excluded', 'the readme'], ['src/', 'excluded', 'the library']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         const folder = report.errors.find((f) => f.id === 'keeper');
@@ -461,8 +461,8 @@ describe('the model check', () => {
       });
     });
 
-    test('squashed-commit: an item whose commit a squash merge removed is accepted, with a note saying where its blob was found', () => {
-      withRepo((repo) => {
+    test('squashed-commit: an item whose commit a squash merge removed is accepted, with a note saying where its blob was found', async () => {
+      await withRepo(async (repo) => {
         const { lostCommit: featureCommit, lostBlob: featureBlob, squashCommit } = squashFeature(repo);
 
         const yaml = [
@@ -482,7 +482,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/feature.ts', 'core', ''], ['README.md', 'excluded', 'the readme']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('passed');
         expect(report.errors).toEqual([]);
@@ -493,8 +493,8 @@ describe('the model check', () => {
         expect(report.notes[0]!.message).toBe(`commit missing, blob found at ${squashCommit}`);
       });
     });
-    test('a commit that is not in the repository and a blob nowhere in its history fails, naming the item', () => {
-      withRepo((repo) => {
+    test('a commit that is not in the repository and a blob nowhere in its history fails, naming the item', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/core.ts', numberedLines(30));
         repo.commit('the sources');
         const lostCommit = '0123456789abcdef0123456789abcdef01234567';
@@ -516,7 +516,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/core.ts', 'core', '']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         expect(report.errors).toHaveLength(1);
@@ -526,8 +526,8 @@ describe('the model check', () => {
       });
     });
 
-    test("entity-line-past-end: a data entity's item naming lines past the blob's end fails, naming the entity and saying how many lines the file has", () => {
-      withRepo((repo) => {
+    test("entity-line-past-end: a data entity's item naming lines past the blob's end fails, naming the entity and saying how many lines the file has", async () => {
+      await withRepo(async (repo) => {
         repo.write('src/web.ts', 'export const web = 1;\n');
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
@@ -561,7 +561,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/web.ts', 'web', ''], ['src/core.ts', 'web', '']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         expect(report.errors).toHaveLength(1);
@@ -578,8 +578,8 @@ describe('the model check', () => {
   });
 
   describe('evidence-complete', () => {
-    test('missing-evidence: a relation with no evidence and an item with no commit and blob are both reported, each with its file and line', () => {
-      withRepo((repo) => {
+    test('missing-evidence: a relation with no evidence and an item with no commit and blob are both reported, each with its file and line', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/web.ts', 'export const web = 1;\n');
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
@@ -622,7 +622,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/web.ts', 'web', ''], ['src/core.ts', 'core', '']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         expect(report.errors).toHaveLength(2);
@@ -641,8 +641,8 @@ describe('the model check', () => {
       });
     });
 
-    test('an entity with no evidence is not refused: only elements, interfaces and relations are asked for evidence', () => {
-      withRepo((repo) => {
+    test('an entity with no evidence is not refused: only elements, interfaces and relations are asked for evidence', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/web.ts', 'export const web = 1;\n');
         const commit = repo.commit('the sources');
         const webBlob = repo.blob('src/web.ts', commit);
@@ -668,15 +668,15 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/web.ts', 'web', '']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('passed');
         expect(report.errors).toEqual([]);
       });
     });
 
-    test('an entity\'s item without a commit and a blob is refused like any other item, naming the entity and its item line', () => {
-      withRepo((repo) => {
+    test('an entity\'s item without a commit and a blob is refused like any other item, naming the entity and its item line', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/web.ts', 'export const web = 1;\n');
         const commit = repo.commit('the sources');
         const webBlob = repo.blob('src/web.ts', commit);
@@ -704,7 +704,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/web.ts', 'web', '']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         expect(report.errors).toHaveLength(1);
@@ -716,11 +716,11 @@ describe('the model check', () => {
       });
     });
 
-    test('a complete and correct model passes with no errors, no warnings and no notes', () => {
-      withRepo((_) => {
+    test('a complete and correct model passes with no errors, no warnings and no notes', async () => {
+      await withRepo(async (_) => {
         const repo = completeRepo();
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('passed');
         expect(report.errors).toEqual([]);
@@ -732,8 +732,8 @@ describe('the model check', () => {
   });
 
   describe('compiles, warnings', () => {
-    test('warnings-reported: a model that compiles with one unnamed relation reports the warning with the relation, its file and line, and does not fail', () => {
-      withRepo((repo) => {
+    test('warnings-reported: a model that compiles with one unnamed relation reports the warning with the relation, its file and line, and does not fail', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/web.ts', 'export const web = 1;\n');
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
@@ -772,7 +772,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/web.ts', 'web', ''], ['src/core.ts', 'core', '']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('passed');
         expect(report.errors).toEqual([]);
@@ -786,7 +786,7 @@ describe('the model check', () => {
   });
 
   describe('result', () => {
-    test('exit-codes: the script exits 0 for a correct repository, printing no error lines', () => {
+    test('exit-codes: the script exits 0 for a correct repository, printing no error lines', async () => {
       const repo = completeRepo();
       try {
         const run = runScript(repo.path);
@@ -798,8 +798,8 @@ describe('the model check', () => {
       }
     });
 
-    test('exit-codes: the script exits 1 when something fails, listing the errors', () => {
-      withRepo((repo) => {
+    test('exit-codes: the script exits 1 when something fails, listing the errors', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/core.ts', numberedLines(30));
         repo.commit('the sources');
         const yaml = [
@@ -823,7 +823,7 @@ describe('the model check', () => {
       });
     });
 
-    test('exit-codes: the script exits 2 for a path that is not a git repository and for a repository without madarch', () => {
+    test('exit-codes: the script exits 2 for a path that is not a git repository and for a repository without madarch', async () => {
       const notGit = mkdtempSync(join(tmpdir(), 'madarch-model-check-notgit-'));
       try {
         expect(runScript(notGit).status).toBe(2);
@@ -831,7 +831,7 @@ describe('the model check', () => {
         rmSync(notGit, { recursive: true, force: true });
       }
 
-      withRepo((repo) => {
+      await withRepo(async (repo) => {
         repo.write('README.md', 'no model here\n');
         repo.commit('a repository with no model');
 
@@ -839,19 +839,19 @@ describe('the model check', () => {
       });
     });
 
-    test('--json prints the same report as one JSON object', () => {
+    test('--json prints the same report as one JSON object', async () => {
       const repo = completeRepo();
       try {
         const run = runScript(repo.path, '--json');
 
         expect(run.status).toBe(0);
-        expect(JSON.parse(run.stdout)).toEqual(checkModel(repo.path));
+        expect(JSON.parse(run.stdout)).toEqual(await checkModel(repo.path));
       } finally {
         rmSync(repo.path, { recursive: true, force: true });
       }
     });
 
-    test('exit-codes: the script exits 0 for a repository with a stale item, printing it under stale', () => {
+    test('exit-codes: the script exits 0 for a repository with a stale item, printing it under stale', async () => {
       const { repo, oldBlob } = staleRepo();
       try {
         const run = runScript(repo.path);
@@ -867,8 +867,8 @@ describe('the model check', () => {
   });
 
   describe('ordering and edge shapes', () => {
-    test('findings are sorted by file, then line, then id, whatever order the sections are written in', () => {
-      withRepo((repo) => {
+    test('findings are sorted by file, then line, then id, whatever order the sections are written in', async () => {
+      await withRepo(async (repo) => {
         const { lostCommit, lostBlob, squashCommit } = squashFeature(repo);
         // The relations section is written before the elements section, so
         // the order the check walks the model in is not the order a reader
@@ -912,7 +912,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/feature.ts', 'e2', ''], ['README.md', 'excluded', 'the readme']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         expect(report.errors.map((error) => error.id)).toEqual(['r2', 'e1', 'core-api']);
@@ -926,8 +926,8 @@ describe('the model check', () => {
       });
     });
 
-    test('compile problems are listed in file and line order, not in the order loading found them', () => {
-      withRepo((repo) => {
+    test('compile problems are listed in file and line order, not in the order loading found them', async () => {
+      await withRepo(async (repo) => {
         // a.yaml sorts first and holds a reference problem, which loading
         // only finds after every file's schema has been checked; b.yaml
         // sorts second and holds a schema problem, which loading finds
@@ -936,7 +936,7 @@ describe('the model check', () => {
         repo.writeModel('b.yaml', ['version: 1', '', 'elements:', '  - id: core', '    kind: service', '    name: Core', '    typoField: yes', ''].join('\n'));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         expect(report.errors.map((error) => [error.file, error.line])).toEqual([
@@ -946,8 +946,8 @@ describe('the model check', () => {
       });
     });
 
-    test('an evidence item that is an empty list counts as no evidence', () => {
-      withRepo((repo) => {
+    test('an evidence item that is an empty list counts as no evidence', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/core.ts', numberedLines(30));
         repo.commit('the sources');
         const yaml = [
@@ -964,7 +964,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/core.ts', 'core', '']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         expect(report.errors).toHaveLength(1);
@@ -973,8 +973,8 @@ describe('the model check', () => {
       });
     });
 
-    test('an empty file has zero lines, and an item naming line 1 of it fails', () => {
-      withRepo((repo) => {
+    test('an empty file has zero lines, and an item naming line 1 of it fails', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/empty.ts', '');
         const commit = repo.commit('the sources');
         const blob = repo.blob('src/empty.ts', commit);
@@ -996,7 +996,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/empty.ts', 'core', '']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         expect(report.errors).toHaveLength(1);
@@ -1006,8 +1006,8 @@ describe('the model check', () => {
       });
     });
 
-    test('an item without lines names the whole file, and an empty file has a whole to name', () => {
-      withRepo((repo) => {
+    test('an item without lines names the whole file, and an empty file has a whole to name', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/empty.ts', '');
         const commit = repo.commit('the sources');
         const blob = repo.blob('src/empty.ts', commit);
@@ -1028,7 +1028,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/empty.ts', 'core', '']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('passed');
         expect(report.errors).toEqual([]);
@@ -1036,8 +1036,8 @@ describe('the model check', () => {
       });
     });
 
-    test('a blob the history holds as the older side of a change is found there too', () => {
-      withRepo((repo) => {
+    test('a blob the history holds as the older side of a change is found there too', async () => {
+      await withRepo(async (repo) => {
         const { lostCommit, lostBlob } = squashFeature(repo);
         repo.write('src/feature.ts', 'export const feature = 1;\nexport const feature2 = 2;\n');
         const growCommit = repo.commit('the feature grows');
@@ -1059,7 +1059,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/feature.ts', 'core', ''], ['README.md', 'excluded', 'the readme']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('passed');
         expect(report.errors).toEqual([]);
@@ -1069,8 +1069,8 @@ describe('the model check', () => {
       });
     });
 
-    test('an item naming the blob\'s exact last line resolves', () => {
-      withRepo((repo) => {
+    test('an item naming the blob\'s exact last line resolves', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
         const blob = repo.blob('src/core.ts', commit);
@@ -1093,15 +1093,15 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/core.ts', 'core', '']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('passed');
         expect(report.errors).toEqual([]);
       });
     });
 
-    test('a range that starts within the blob but ends past it fails too', () => {
-      withRepo((repo) => {
+    test('a range that starts within the blob but ends past it fails too', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
         const blob = repo.blob('src/core.ts', commit);
@@ -1124,7 +1124,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/core.ts', 'core', '']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         expect(report.errors).toHaveLength(1);
@@ -1134,8 +1134,8 @@ describe('the model check', () => {
       });
     });
 
-    test('an item whose lines run past a blob that the history only holds because of the squash is still an error', () => {
-      withRepo((repo) => {
+    test('an item whose lines run past a blob that the history only holds because of the squash is still an error', async () => {
+      await withRepo(async (repo) => {
         const { lostCommit, lostBlob } = squashFeature(repo);
         const yaml = [
           'version: 1',
@@ -1156,7 +1156,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/feature.ts', 'core', ''], ['README.md', 'excluded', 'the readme']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         expect(report.errors).toHaveLength(1);
@@ -1167,8 +1167,8 @@ describe('the model check', () => {
       });
     });
 
-    test('a file whose last line has no newline counts by its lines, not by its newlines', () => {
-      withRepo((repo) => {
+    test('a file whose last line has no newline counts by its lines, not by its newlines', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/hand.ts', 'export const a = 1;\nexport const b = 2;');
         const commit = repo.commit('the sources');
         const blob = repo.blob('src/hand.ts', commit);
@@ -1191,7 +1191,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/hand.ts', 'core', '']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('passed');
         expect(report.errors).toEqual([]);
@@ -1200,10 +1200,10 @@ describe('the model check', () => {
   });
 
   describe('staleness', () => {
-    test("file-changed-since: an item on core whose file changed after the item's commit is reported stale with both blobs, and the check passes", () => {
+    test("file-changed-since: an item on core whose file changed after the item's commit is reported stale with both blobs, and the check passes", async () => {
       const { repo, oldBlob } = staleRepo();
       try {
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('passed');
         expect(report.errors).toEqual([]);
@@ -1216,15 +1216,15 @@ describe('the model check', () => {
         expect(report.stale[0]!.message).toContain(repo.blob('src/core.ts'));
         expect(report.notes).toEqual([]);
 
-        const atTheModelCommit = checkModel(repo.path, { rev: repo.run(['rev-parse', 'HEAD^']).stdout.trim() });
+        const atTheModelCommit = await checkModel(repo.path, { rev: repo.run(['rev-parse', 'HEAD^']).stdout.trim() });
         expect(atTheModelCommit.stale).toEqual([]);
       } finally {
         rmSync(repo.path, { recursive: true, force: true });
       }
     });
 
-    test("entity-file-changed-since: an item on the data entity session-id whose file changed after the item's commit is reported stale with both blobs, and the check passes", () => {
-      withRepo((repo) => {
+    test("entity-file-changed-since: an item on the data entity session-id whose file changed after the item's commit is reported stale with both blobs, and the check passes", async () => {
+      await withRepo(async (repo) => {
         repo.write('src/web.ts', 'export const web = 1;\n');
         repo.write('src/core.ts', numberedLines(10));
         const sourceCommit = repo.commit('the sources');
@@ -1258,7 +1258,7 @@ describe('the model check', () => {
         repo.write('src/core.ts', numberedLines(11));
         repo.commit('the file changes');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('passed');
         expect(report.errors).toEqual([]);
@@ -1274,8 +1274,8 @@ describe('the model check', () => {
       });
     });
 
-    test("a claim whose document changed after the report was written is reported stale, with the claim's text and the report's line", () => {
-      withRepo((repo) => {
+    test("a claim whose document changed after the report was written is reported stale, with the claim's text and the report's line", async () => {
+      await withRepo(async (repo) => {
         repo.write('docs/architecture.md', 'The backend is one process behind a WebSocket.\n');
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources and the document');
@@ -1306,7 +1306,7 @@ describe('the model check', () => {
         repo.write('docs/architecture.md', 'The backend is two processes behind a WebSocket.\n');
         repo.commit('the document changes');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('passed');
         expect(report.errors).toEqual([]);
@@ -1323,8 +1323,8 @@ describe('the model check', () => {
       });
     });
 
-    test('a file the checked revision no longer has makes its item stale, reported as file gone', () => {
-      withRepo((repo) => {
+    test('a file the checked revision no longer has makes its item stale, reported as file gone', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
         const blob = repo.blob('src/core.ts', commit);
@@ -1347,7 +1347,7 @@ describe('the model check', () => {
         expect(repo.run(['rm', 'src/core.ts']).ok).toBe(true);
         repo.commit('the file goes');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('passed');
         expect(report.errors).toEqual([]);
@@ -1358,8 +1358,8 @@ describe('the model check', () => {
       });
     });
 
-    test('a path that is a folder at the checked revision is stale as not a file, not as file gone', () => {
-      withRepo((repo) => {
+    test('a path that is a folder at the checked revision is stale as not a file, not as file gone', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/lib', 'export const lib = 1;\n');
         repo.write('src/core.ts', numberedLines(30));
         const oldCommit = repo.commit('lib is a file');
@@ -1392,7 +1392,7 @@ describe('the model check', () => {
         repo.write('src/lib/inner.ts', 'export const inner = 1;\n');
         repo.commit('lib becomes a folder');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         const stale = report.stale.find((f) => f.id === 'lib');
         expect(stale?.message).toContain('element "lib"');
@@ -1401,8 +1401,8 @@ describe('the model check', () => {
       });
     });
 
-    test('a claim whose document is a folder at the checked revision is stale as not a file too', () => {
-      withRepo((repo) => {
+    test('a claim whose document is a folder at the checked revision is stale as not a file too', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/lib', 'export const lib = 1;\n');
         repo.write('src/core.ts', numberedLines(30));
         const oldCommit = repo.commit('lib is a file');
@@ -1431,7 +1431,7 @@ describe('the model check', () => {
         repo.write('src/lib/inner.ts', 'export const inner = 1;\n');
         repo.commit('lib becomes a folder');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         const stale = report.stale.find((f) => f.file === 'madarch/review.md');
         expect(stale?.message).toContain('The library is one file');
@@ -1440,8 +1440,8 @@ describe('the model check', () => {
       });
     });
 
-    test('stale items are sorted by file, then line, then id, whatever order the sections are written in', () => {
-      withRepo((repo) => {
+    test('stale items are sorted by file, then line, then id, whatever order the sections are written in', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/core.ts', 'export const core = 1;\n');
         const commit = repo.commit('the sources');
         const blob = repo.blob('src/core.ts', commit);
@@ -1482,7 +1482,7 @@ describe('the model check', () => {
         repo.write('src/core.ts', 'export const core = 2;\n');
         repo.commit('the file changes');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('passed');
         expect(report.stale.map((item) => item.id)).toEqual(['r', 'e', 'e2']);
@@ -1491,8 +1491,8 @@ describe('the model check', () => {
   });
 
   describe('assignment', () => {
-    test('unassigned-package: files under a folder no row covers fail the check, grouped by folder and named in code-point order', () => {
-      withRepo((repo) => {
+    test('unassigned-package: files under a folder no row covers fail the check, grouped by folder and named in code-point order', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/web.ts', 'export const web = 1;\n');
         repo.write('src/core.ts', numberedLines(30));
         repo.write('internal/notify/ping.ts', 'export const ping = 1;\n');
@@ -1525,7 +1525,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/web.ts', 'web', ''], ['src/core.ts', 'core', '']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         expect(report.errors).toHaveLength(2);
@@ -1537,8 +1537,8 @@ describe('the model check', () => {
       });
     });
 
-    test('excluded-with-reason: a `docs/` row excluded with a reason keeps every file under docs/ unreported', () => {
-      withRepo((repo) => {
+    test('excluded-with-reason: a `docs/` row excluded with a reason keeps every file under docs/ unreported', async () => {
+      await withRepo(async (repo) => {
         repo.write('docs/architecture.md', 'The backend is one process.\n');
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
@@ -1563,7 +1563,7 @@ describe('the model check', () => {
         );
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('passed');
         expect(report.errors).toEqual([]);
@@ -1571,8 +1571,8 @@ describe('the model check', () => {
       });
     });
 
-    test("a row naming an element the model does not have fails, naming the row's line in the report", () => {
-      withRepo((repo) => {
+    test("a row naming an element the model does not have fails, naming the row's line in the report", async () => {
+      await withRepo(async (repo) => {
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
         const blob = repo.blob('src/core.ts', commit);
@@ -1593,7 +1593,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/core.ts', 'ghost', '']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         expect(report.errors).toHaveLength(1);
@@ -1603,8 +1603,8 @@ describe('the model check', () => {
       });
     });
 
-    test("an excluded row without a reason fails, naming the row's line", () => {
-      withRepo((repo) => {
+    test("an excluded row without a reason fails, naming the row's line", async () => {
+      await withRepo(async (repo) => {
         repo.write('docs/readme.md', 'docs\n');
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
@@ -1626,7 +1626,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/core.ts', 'core', ''], ['docs/', 'excluded', '']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         expect(report.errors).toHaveLength(1);
@@ -1637,8 +1637,8 @@ describe('the model check', () => {
       });
     });
 
-    test("duplicate rows for one path fail, naming the later row's line", () => {
-      withRepo((repo) => {
+    test("duplicate rows for one path fail, naming the later row's line", async () => {
+      await withRepo(async (repo) => {
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
         const blob = repo.blob('src/core.ts', commit);
@@ -1659,7 +1659,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['src/core.ts', 'core', ''], ['src/core.ts', 'excluded', 'not ours']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         expect(report.errors).toHaveLength(1);
@@ -1670,8 +1670,8 @@ describe('the model check', () => {
       });
     });
 
-    test('deepest row decides: a folder row internal/ excluded and a deeper internal/core/ to an element cover their files without error', () => {
-      withRepo((repo) => {
+    test('deepest row decides: a folder row internal/ excluded and a deeper internal/core/ to an element cover their files without error', async () => {
+      await withRepo(async (repo) => {
         repo.write('internal/core/engine.ts', 'export const engine = 1;\n');
         repo.write('internal/legacy.txt', 'legacy\n');
         repo.write('src/core.ts', numberedLines(30));
@@ -1694,7 +1694,7 @@ describe('the model check', () => {
         repo.writeReview([], assigned([['internal/', 'excluded', 'generated'], ['internal/core/', 'core', ''], ['src/core.ts', 'core', '']]));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('passed');
         expect(report.errors).toEqual([]);
@@ -1704,8 +1704,8 @@ describe('the model check', () => {
   });
 
   describe('the review report', () => {
-    test('a compiling model without a review report fails, saying the review is missing', () => {
-      withRepo((repo) => {
+    test('a compiling model without a review report fails, saying the review is missing', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
         const blob = repo.blob('src/core.ts', commit);
@@ -1725,7 +1725,7 @@ describe('the model check', () => {
         repo.writeModel('model.yaml', yaml);
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         expect(report.errors).toHaveLength(1);
@@ -1737,8 +1737,8 @@ describe('the model check', () => {
       });
     });
 
-    test('a review report that cannot be read is refused as unreadable', () => {
-      withRepo((repo) => {
+    test('a review report that cannot be read is refused as unreadable', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
         const blob = repo.blob('src/core.ts', commit);
@@ -1759,15 +1759,15 @@ describe('the model check', () => {
         repo.commit('the model');
         mkdirSync(join(repo.path, 'madarch', 'review.md'));
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('unreadable');
         expect(report.errors[0]!.message).toContain('could not be read');
       });
     });
 
-    test('an assignment row without a path fails, naming the row\'s line', () => {
-      withRepo((repo) => {
+    test('an assignment row without a path fails, naming the row\'s line', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
         const blob = repo.blob('src/core.ts', commit);
@@ -1788,7 +1788,7 @@ describe('the model check', () => {
         repo.writeReview([], [['', 'core', ''], ['madarch/', 'excluded', 'the model and its review']]);
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         const refusals = report.errors.filter((error) => error.file === 'madarch/review.md');
@@ -1798,8 +1798,8 @@ describe('the model check', () => {
       });
     });
 
-    test('a section heading followed by prose instead of a table fails, naming the prose line', () => {
-      withRepo((repo) => {
+    test('a section heading followed by prose instead of a table fails, naming the prose line', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
         const blob = repo.blob('src/core.ts', commit);
@@ -1830,7 +1830,7 @@ describe('the model check', () => {
         ].join('\n'));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         const refusals = report.errors.filter((error) => error.file === 'madarch/review.md');
@@ -1840,8 +1840,8 @@ describe('the model check', () => {
       });
     });
 
-    test('a claims row of another width than its header fails, naming the row line', () => {
-      withRepo((repo) => {
+    test('a claims row of another width than its header fails, naming the row line', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
         const blob = repo.blob('src/core.ts', commit);
@@ -1874,7 +1874,7 @@ describe('the model check', () => {
         ].join('\n'));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         const refusals = report.errors.filter((error) => error.file === 'madarch/review.md');
@@ -1884,8 +1884,8 @@ describe('the model check', () => {
       });
     });
 
-    test('a header row without its trailing pipe is not the decided header', () => {
-      withRepo((repo) => {
+    test('a header row without its trailing pipe is not the decided header', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
         const blob = repo.blob('src/core.ts', commit);
@@ -1917,7 +1917,7 @@ describe('the model check', () => {
         ].join('\n'));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         const refusals = report.errors.filter((error) => error.file === 'madarch/review.md');
@@ -1927,8 +1927,8 @@ describe('the model check', () => {
       });
     });
 
-    test('a separator row with a cell that is not dashes is no separator', () => {
-      withRepo((repo) => {
+    test('a separator row with a cell that is not dashes is no separator', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
         const blob = repo.blob('src/core.ts', commit);
@@ -1960,7 +1960,7 @@ describe('the model check', () => {
         ].join('\n'));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         const refusals = report.errors.filter((error) => error.file === 'madarch/review.md');
@@ -1970,8 +1970,8 @@ describe('the model check', () => {
       });
     });
 
-    test('a review without an assignment section fails', () => {
-      withRepo((repo) => {
+    test('a review without an assignment section fails', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
         const blob = repo.blob('src/core.ts', commit);
@@ -1997,7 +1997,7 @@ describe('the model check', () => {
         ].join('\n'));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         const refusals = report.errors.filter((error) => error.file === 'madarch/review.md');
@@ -2006,8 +2006,8 @@ describe('the model check', () => {
       });
     });
 
-    test('a review without a claims section is a note, not an error', () => {
-      withRepo((repo) => {
+    test('a review without a claims section is a note, not an error', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
         const blob = repo.blob('src/core.ts', commit);
@@ -2036,7 +2036,7 @@ describe('the model check', () => {
         ].join('\n'));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('passed');
         expect(report.errors).toEqual([]);
@@ -2045,8 +2045,8 @@ describe('the model check', () => {
       });
     });
 
-    test("a claims row with an unknown verdict, and one without a blob, each fail naming the row's line", () => {
-      withRepo((repo) => {
+    test("a claims row with an unknown verdict, and one without a blob, each fail naming the row's line", async () => {
+      await withRepo(async (repo) => {
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
         const blob = repo.blob('src/core.ts', commit);
@@ -2080,7 +2080,7 @@ describe('the model check', () => {
         );
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         expect(report.errors).toHaveLength(8);
@@ -2107,8 +2107,8 @@ describe('the model check', () => {
       });
     });
 
-    test("a table whose header is not the decided columns fails, naming the header's line", () => {
-      withRepo((repo) => {
+    test("a table whose header is not the decided columns fails, naming the header's line", async () => {
+      await withRepo(async (repo) => {
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
         const blob = repo.blob('src/core.ts', commit);
@@ -2140,7 +2140,7 @@ describe('the model check', () => {
         ].join('\n'));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         expect(report.errors).toHaveLength(1);
@@ -2150,8 +2150,8 @@ describe('the model check', () => {
       });
     });
 
-    test('a table without a separator row under its header fails, naming the line', () => {
-      withRepo((repo) => {
+    test('a table without a separator row under its header fails, naming the line', async () => {
+      await withRepo(async (repo) => {
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
         const blob = repo.blob('src/core.ts', commit);
@@ -2183,7 +2183,7 @@ describe('the model check', () => {
         ].join('\n'));
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('failed');
         expect(report.errors).toHaveLength(1);
@@ -2193,8 +2193,8 @@ describe('the model check', () => {
       });
     });
 
-    test('backticks around a path and an escaped pipe inside a cell are read as written', () => {
-      withRepo((repo) => {
+    test('backticks around a path and an escaped pipe inside a cell are read as written', async () => {
+      await withRepo(async (repo) => {
         repo.write('docs/readme.md', 'readme\n');
         repo.write('src/core.ts', numberedLines(30));
         const commit = repo.commit('the sources');
@@ -2219,7 +2219,7 @@ describe('the model check', () => {
         );
         repo.commit('the model');
 
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
 
         expect(report.outcome).toBe('passed');
         expect(report.errors).toEqual([]);

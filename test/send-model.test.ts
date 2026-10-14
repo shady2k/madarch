@@ -40,7 +40,7 @@ async function runSend(...args: string[]): Promise<{ status: number; stdout: str
  * request.
  */
 describe('the source name of a remote', () => {
-  test('the host and path survive; scheme, credentials, port and a trailing .git do not', () => {
+  test('the host and path survive; scheme, credentials, port and a trailing .git do not', async () => {
     const remotes: [string, string][] = [
       ['git@github.com:shady2k/nocx.git', 'github.com/shady2k/nocx'],
       ['https://user:token@github.com/shady2k/nocx.git', 'github.com/shady2k/nocx'],
@@ -62,7 +62,7 @@ describe('the source name of a remote', () => {
     }
   });
 
-  test('a remote with no host and path to name a repository by names nothing', () => {
+  test('a remote with no host and path to name a repository by names nothing', async () => {
     for (const remote of ['/srv/git/nocx.git', 'file:///srv/git/nocx.git', 'C:\\dev\\nocx', 'https://github.com/', 'git@github.com:', 'https://github.com', 'https:///x', '1https://github.com/shady2k/nocx']) {
       expect(sourceNameFromRemote(remote)).toBeUndefined();
     }
@@ -80,8 +80,8 @@ describe('the send command', () => {
   let server: StartedServer | undefined;
   let lines: string[];
 
-  afterEach(() => {
-    server?.stop();
+  afterEach(async () => {
+    await server?.stop();
     server = undefined;
     if (folder !== undefined) {
       rmSync(folder, { recursive: true, force: true });
@@ -90,10 +90,10 @@ describe('the send command', () => {
   });
 
   /** A real server on a free port over a scratch data folder, removed when the test ends; returns its URL. */
-  function start(): string {
+  async function start(): Promise<string> {
     folder = mkdtempSync(join(tmpdir(), 'madarch-send-model-'));
     lines = [];
-    server = startServer({
+    server = await startServer({
       dataFolder: folder,
       port: 0,
       clock: { now: () => NOW },
@@ -112,7 +112,7 @@ describe('the send command', () => {
   }
 
   test('sent-after-check: the origin git@github.com:shady2k/nocx.git is stored as github.com/shady2k/nocx at HEAD\'s commit and committer time, twice is already stored', async () => {
-    const url = start();
+    const url = await start();
     const repo = completeRepo();
     try {
       expect(repo.run(['remote', 'add', 'origin', 'git@github.com:shady2k/nocx.git']).ok).toBe(true);
@@ -139,7 +139,7 @@ describe('the send command', () => {
   });
 
   test('an https origin with credentials stores the same name, and no credential reaches the output, the request or the server log', async () => {
-    const url = start();
+    const url = await start();
     const repo = completeRepo();
     try {
       expect(repo.run(['remote', 'add', 'origin', 'https://user:token@github.com/shady2k/nocx.git']).ok).toBe(true);
@@ -160,7 +160,7 @@ describe('the send command', () => {
   });
 
   test('an https origin carrying a query and fragment stores the bare host and path, and none of it reaches the output, the request or the server log', async () => {
-    const url = start();
+    const url = await start();
     const repo = completeRepo();
     try {
       expect(repo.run(['remote', 'add', 'origin', 'https://github.com/acme/shop.git?access_token=secret#x']).ok).toBe(true);
@@ -180,7 +180,7 @@ describe('the send command', () => {
   });
 
   test('check-fails: a model naming evidence past the end of its file sends nothing and exits 1 with the finding\'s file and line', async () => {
-    const url = start();
+    const url = await start();
     const repo = completeRepo();
     try {
       const yaml = readFileSync(join(repo.path, 'madarch/model.yaml'), 'utf8');
@@ -201,7 +201,7 @@ describe('the send command', () => {
   });
 
   test('missing names, flags and repositories exit 2 naming what is missing', async () => {
-    const url = start();
+    const url = await start();
     // The subprocess is awaited before its repository is removed, and the
     // check must get past "unreadable" for the missing-name and bad-revision
     // cases to be reached, so each case builds a complete repository.
@@ -252,7 +252,7 @@ describe('the send command', () => {
   });
 
   test('--source names the source over the origin, and --rev sends that revision\'s commit and committer time', async () => {
-    const url = start();
+    const url = await start();
     const repo = completeRepo();
     try {
       expect(repo.run(['remote', 'add', 'origin', 'git@github.com:shady2k/nocx.git']).ok).toBe(true);
@@ -275,7 +275,7 @@ describe('the send command', () => {
   });
 
   test('a refusal from the server exits 2 printing its message', async () => {
-    const url = start();
+    const url = await start();
     const repo = completeRepo();
     try {
       expect(repo.run(['remote', 'add', 'origin', 'git@github.com:shady2k/nocx.git']).ok).toBe(true);
@@ -296,7 +296,7 @@ describe('the send command', () => {
   });
 
   test('a server answer that is not a send answer exits 2 naming the problem', async () => {
-    start();
+    await start();
     const repo = completeRepo();
     const fake = Bun.serve({
       port: 0,
@@ -314,7 +314,7 @@ describe('the send command', () => {
   });
 
   test('a server answer that is no object at all exits 2 naming the problem', async () => {
-    start();
+    await start();
     const repo = completeRepo();
     const fake = Bun.serve({
       port: 0,
@@ -332,7 +332,7 @@ describe('the send command', () => {
   });
 
   test('a refusal carries its field into the printed error', async () => {
-    start();
+    await start();
     const repo = completeRepo();
     const fake = Bun.serve({
       port: 0,
@@ -351,7 +351,7 @@ describe('the send command', () => {
   });
 
   test('a server address with trailing slashes is trimmed onto /models', async () => {
-    const url = start();
+    const url = await start();
     const repo = completeRepo();
     try {
       expect(repo.run(['remote', 'add', 'origin', 'git@github.com:shady2k/nocx.git']).ok).toBe(true);

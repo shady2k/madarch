@@ -32,25 +32,25 @@ const DAY = (day: number) => Date.UTC(2026, 8, day);
 const AT = { valid: DAY(2), known: DAY(2) };
 
 /** Loads, compiles and stores one fixture as one version, then renders its workspace from a query engine built from that history. */
-function renderFixture(name: string): LikeC4Result {
+async function renderFixture(name: string): Promise<LikeC4Result> {
   const { model, errors } = loadModel(fixture(name));
   expect(errors).toEqual([]);
   const compiled = compileModel(model!);
   const history = createSqliteHistory({ clock: { now: () => DAY(1) } });
   const engine = createLadybugEngine();
   try {
-    expect(history.store({ source: 's', commit: name, committedAt: DAY(1), model: compiled }).errors).toEqual([]);
-    engine.rebuild(history.assertions());
+    expect((await history.store({ source: 's', commit: name, committedAt: DAY(1), model: compiled })).errors).toEqual([]);
+    engine.rebuild(await history.assertions());
     return renderLikeC4Workspace(engine, compiled, AT);
   } finally {
     engine.close();
-    history.close();
+    await history.close();
   }
 }
 
 /** The workspace of a fixture every relation of which LikeC4 can draw. */
-function workspaceOf(name: string): string {
-  const { workspace, notDrawn, errors } = renderFixture(name);
+async function workspaceOf(name: string): Promise<string> {
+  const { workspace, notDrawn, errors } = await renderFixture(name);
   expect(errors).toEqual([]);
   expect(notDrawn).toEqual([]);
   return workspace!;
@@ -113,15 +113,15 @@ const DRILL_DOWN = [
 ].join('\n');
 
 describe('views/likec4', () => {
-  test('likec4-validates: the drill-down workspace validates and has the views index, shop, payments and checkout-web', () => {
-    const workspace = workspaceOf('views-drill-down');
+  test('likec4-validates: the drill-down workspace validates and has the views index, shop, payments and checkout-web', async () => {
+    const workspace = await workspaceOf('views-drill-down');
 
     expect(workspace).toBe(DRILL_DOWN);
     expect(validate(workspace)).toEqual({ files: 1, errors: [] });
   });
 
-  test('ids made LikeC4 identifiers, unique and never a keyword; strings escaped; technology; shapes per kind; one arrow per relation, each labelled, unnamed ones by contract or id', () => {
-    const workspace = workspaceOf('views-likec4');
+  test('ids made LikeC4 identifiers, unique and never a keyword; strings escaped; technology; shapes per kind; one arrow per relation, each labelled, unnamed ones by contract or id', async () => {
+    const workspace = await workspaceOf('views-likec4');
 
     expect(workspace).toBe(
       [
@@ -195,8 +195,8 @@ describe('views/likec4', () => {
     expect(validate(workspace)).toEqual({ files: 1, errors: [] });
   });
 
-  test('an element whose id is "index" still gets a view of its own beside the landscape\'s index', () => {
-    const workspace = workspaceOf('views-index');
+  test('an element whose id is "index" still gets a view of its own beside the landscape\'s index', async () => {
+    const workspace = await workspaceOf('views-index');
 
     expect(workspace).toContain('\n  index_ = domain "Search index" {\n    index-api = service "Index API"\n  }\n');
     expect(workspace).toContain('\n  view index {\n    title "Landscape"\n');
@@ -204,16 +204,16 @@ describe('views/likec4', () => {
     expect(validate(workspace)).toEqual({ files: 1, errors: [] });
   });
 
-  test('before the model existed the workspace is empty but still valid: no kinds, no elements, the landscape alone', () => {
+  test('before the model existed the workspace is empty but still valid: no kinds, no elements, the landscape alone', async () => {
     const { model } = loadModel(fixture('views-drill-down'));
     const compiled = compileModel(model!);
     const history = createSqliteHistory({ clock: { now: () => DAY(1) } });
     const engine = createLadybugEngine();
-    history.store({ source: 's', commit: 'c', committedAt: DAY(1), model: compiled });
-    engine.rebuild(history.assertions());
+    await history.store({ source: 's', commit: 'c', committedAt: DAY(1), model: compiled });
+    engine.rebuild(await history.assertions());
     const result = renderLikeC4Workspace(engine, compiled, { valid: DAY(1) - 1, known: DAY(2) });
     engine.close();
-    history.close();
+    await history.close();
 
     const empty = [HEADER, '', 'specification {', '}', '', 'model {', '}', '', 'views {', '  view index {', '    title "Landscape"', '    include *', '  }', '}', ''].join('\n');
     expect(result).toStrictEqual({ workspace: empty, notDrawn: [], errors: [] });
@@ -222,8 +222,8 @@ describe('views/likec4', () => {
 });
 
 describe('views/likec4 relations LikeC4 cannot draw', () => {
-  test('a relation between an element and its own descendant, either way, and one of an element to itself are listed apart, not drawn; the ordinary relation is drawn and the workspace validates', () => {
-    const { workspace, notDrawn, errors } = renderFixture('views-likec4-not-drawn');
+  test('a relation between an element and its own descendant, either way, and one of an element to itself are listed apart, not drawn; the ordinary relation is drawn and the workspace validates', async () => {
+    const { workspace, notDrawn, errors } = await renderFixture('views-likec4-not-drawn');
     expect(errors).toEqual([]);
 
     expect(notDrawn).toStrictEqual([
@@ -267,7 +267,7 @@ describe('views/likec4 relations LikeC4 cannot draw', () => {
     expect(validate(workspace!)).toEqual({ files: 1, errors: [] });
   });
 
-  test('a self-relation an engine does draw is still left out and listed once', () => {
+  test('a self-relation an engine does draw is still left out and listed once', async () => {
     const answers = [{ id: 'loop', kind: 'service' }];
     const engine = handEngine({
       landscape: { elements: answers, relations: [] },
@@ -281,7 +281,7 @@ describe('views/likec4 relations LikeC4 cannot draw', () => {
     expect(notDrawn!.map((relation) => [relation.relationId, relation.reason])).toEqual([['loop-retries', 'self']]);
   });
 
-  test('a relation the compiled model does not hold is an error even between an element and its descendant', () => {
+  test('a relation the compiled model does not hold is an error even between an element and its descendant', async () => {
     const elements = [
       { id: 'shop', kind: 'domain' },
       { id: 'cart', kind: 'service', parent: 'shop' },
@@ -299,7 +299,7 @@ describe('views/likec4 relations LikeC4 cannot draw', () => {
     expect(result.errors.map((error) => error.relationId)).toEqual(['ghost']);
   });
 
-  test('a self-relation of an element absent at the asked time is not listed: there is nothing to draw it on', () => {
+  test('a self-relation of an element absent at the asked time is not listed: there is nothing to draw it on', async () => {
     const { model } = loadModel(fixture('views-likec4-not-drawn'));
     const compiled = compileModel(model!);
     const engine = handEngine({
@@ -312,8 +312,8 @@ describe('views/likec4 relations LikeC4 cannot draw', () => {
 });
 
 describe('views/likec4 deterministic', () => {
-  test('twice: the same model rendered twice, from two engines built apart, gives the same bytes', () => {
-    expect(workspaceOf('views-likec4')).toBe(workspaceOf('views-likec4'));
+  test('twice: the same model rendered twice, from two engines built apart, gives the same bytes', async () => {
+    expect(await workspaceOf('views-likec4')).toBe(await workspaceOf('views-likec4'));
   });
 });
 
@@ -339,7 +339,7 @@ function handEngine(answers: { landscape: Answer; every: Answer; scoped?: (scope
 }
 
 describe('views/likec4 identifiers', () => {
-  test('every word LikeC4 reads as a keyword where an identifier stands, and "index", gets a trailing underscore, and the workspace validates', () => {
+  test('every word LikeC4 reads as a keyword where an identifier stands, and "index", gets a trailing underscore, and the workspace validates', async () => {
     // Keywords LikeC4 1.59.4's grammar has that its identifier rule does not
     // accept (found by validating each one as an element and a view name),
     // with "index", the landscape's view.
@@ -362,7 +362,7 @@ describe('views/likec4 identifiers', () => {
     expect(validate(workspace!)).toEqual({ files: 1, errors: [] });
   });
 
-  test('a keyword in another case, a word only starting like a keyword, and "view" or "model" stay as they are', () => {
+  test('a keyword in another case, a word only starting like a keyword, and "view" or "model" stay as they are', async () => {
     const elements = [element('Style', 'domain'), element('styles', 'domain'), element('view', 'domain'), element('model', 'domain')];
     const answers = elements.map(({ id, kind }) => ({ id, kind }));
     const engine = handEngine({ landscape: { elements: answers, relations: [] }, every: { elements: answers, relations: [] } });
@@ -372,7 +372,7 @@ describe('views/likec4 identifiers', () => {
     expect(workspace).toContain('\nmodel {\n  Style = domain "Style"\n  model = domain "model"\n  styles = domain "styles"\n  view = domain "view"\n}\n');
   });
 
-  test('clashing identifiers take _2, _3, ... in code point order of the element ids; a leading digit gets a leading underscore', () => {
+  test('clashing identifiers take _2, _3, ... in code point order of the element ids; a leading digit gets a leading underscore', async () => {
     const ids = ['a.b', 'a_b', 'a-b', '9.b', '9_b'];
     const elements = ids.map((id) => element(id, 'service'));
     const answers = elements.map(({ id, kind }) => ({ id, kind }));
@@ -386,7 +386,7 @@ describe('views/likec4 identifiers', () => {
     );
   });
 
-  test('every control character LikeC4 has an escape for is escaped; the others stay as they are', () => {
+  test('every control character LikeC4 has an escape for is escaped; the others stay as they are', async () => {
     const elements = [element('a', 'service', undefined, 'q"b\\ \b\f\n\r\t\v\u0000\u0001\u007f end')];
     const engine = handEngine({ landscape: { elements: [{ id: 'a', kind: 'service' }], relations: [] }, every: { elements: [{ id: 'a', kind: 'service' }], relations: [] } });
 
@@ -398,14 +398,14 @@ describe('views/likec4 identifiers', () => {
 });
 
 describe('views/likec4 refuses what it cannot render whole', () => {
-  test("the view set's errors are the workspace's, and no workspace comes back", () => {
+  test("the view set's errors are the workspace's, and no workspace comes back", async () => {
     const refusing = { message: 'refused' };
     const engine = handEngine({ landscape: { error: refusing }, every: { elements: [], relations: [] } });
 
     expect(renderLikeC4Workspace(engine, modelOf([]))).toStrictEqual({ errors: [{ message: 'the landscape: refused', query: refusing }] });
   });
 
-  test("a view set error keeps the view and the relation it names", () => {
+  test("a view set error keeps the view and the relation it names", async () => {
     const top = element('top', 'domain');
     const engine = handEngine({
       landscape: { elements: [{ id: 'top', kind: 'domain' }], relations: [] },
@@ -424,7 +424,7 @@ describe('views/likec4 refuses what it cannot render whole', () => {
     });
   });
 
-  test('the question for every element and relation refusing is named, and no workspace comes back', () => {
+  test('the question for every element and relation refusing is named, and no workspace comes back', async () => {
     // The view set asks first and is answered; the workspace's own question is refused.
     let asked = 0;
     const refusing = { message: 'refused' };
@@ -435,7 +435,7 @@ describe('views/likec4 refuses what it cannot render whole', () => {
     expect(renderLikeC4Workspace(engine, modelOf([]))).toStrictEqual({ errors: [{ message: 'the workspace: every element and relation: refused', query: refusing }] });
   });
 
-  test('an element or a relation the engine answers but the compiled model does not hold is an error naming it, and no workspace comes back', () => {
+  test('an element or a relation the engine answers but the compiled model does not hold is an error naming it, and no workspace comes back', async () => {
     const engine = handEngine({
       landscape: { elements: [{ id: 'a', kind: 'service' }, { id: 'ghost', kind: 'service' }], relations: [] },
       every: {
@@ -458,8 +458,8 @@ describe('views/likec4 refuses what it cannot render whole', () => {
 });
 
 describe("the reference system's committed LikeC4 workspace", () => {
-  test('rendering examples/reference-system again gives exactly the committed model.c4, and it validates', () => {
-    const { workspace, notDrawn, errors } = renderReferenceSystem();
+  test('rendering examples/reference-system again gives exactly the committed model.c4, and it validates', async () => {
+    const { workspace, notDrawn, errors } = await renderReferenceSystem();
     expect(errors).toEqual([]);
     expect(notDrawn).toEqual([]);
 
@@ -469,8 +469,8 @@ describe("the reference system's committed LikeC4 workspace", () => {
 });
 
 describe('views/likec4 for a topic or queue', () => {
-  test('a relation marking its action is labelled by its role and drawn dashed, from its initiator; the others as before; the workspace validates', () => {
-    const workspace = workspaceOf('views-events');
+  test('a relation marking its action is labelled by its role and drawn dashed, from its initiator; the others as before; the workspace validates', async () => {
+    const workspace = await workspaceOf('views-events');
     const block = workspace.slice(workspace.indexOf('  checkout-web -> '), workspace.indexOf('\n}\n\nviews {'));
 
     expect(block).toBe(

@@ -59,12 +59,12 @@ function commitSources(repo: Repo, ids: readonly string[]): string {
 }
 
 /** The problems section of the check of `repo`, the one thing every test here reads. */
-function problemsOf(repo: Repo): ModelCheckReport['problems'] {
-  return checkModel(repo.path).problems;
+async function problemsOf(repo: Repo): Promise<ModelCheckReport['problems']> {
+  return (await checkModel(repo.path)).problems;
 }
 
-test('cycle-between-siblings: three modules under one service form one cycle, naming them and their relations, citing the Acyclic Dependencies Principle', () => {
-  withRepo((repo) => {
+test('cycle-between-siblings: three modules under one service form one cycle, naming them and their relations, citing the Acyclic Dependencies Principle', async () => {
+  await withRepo(async (repo) => {
     const commit = commitSources(repo, ['svc', 'a', 'b', 'c']);
     const blob = (id: string): string => repo.blob(`src/${id}.ts`, commit);
     commitModel(
@@ -89,7 +89,7 @@ test('cycle-between-siblings: three modules under one service form one cycle, na
       ],
     );
 
-    const report = checkModel(repo.path);
+    const report = await checkModel(repo.path);
     expect(report.outcome).toBe('passed');
     expect(report.problems).toHaveLength(1);
     const cycle = report.problems[0]!;
@@ -106,8 +106,8 @@ test('cycle-between-siblings: three modules under one service form one cycle, na
   });
 });
 
-test('sink-without-reader: a topic one relation sends to and none receives from is a magic sink, naming the interface and the sending relation', () => {
-  withRepo((repo) => {
+test('sink-without-reader: a topic one relation sends to and none receives from is a magic sink, naming the interface and the sending relation', async () => {
+  await withRepo(async (repo) => {
     const commit = commitSources(repo, ['ui', 'core']);
     const blob = (id: string): string => repo.blob(`src/${id}.ts`, commit);
     commitModel(
@@ -121,7 +121,7 @@ test('sink-without-reader: a topic one relation sends to and none receives from 
       ],
     );
 
-    const report = checkModel(repo.path);
+    const report = await checkModel(repo.path);
     expect(report.outcome).toBe('passed');
     expect(report.problems).toHaveLength(1);
     const sink = report.problems[0]!;
@@ -134,8 +134,8 @@ test('sink-without-reader: a topic one relation sends to and none receives from 
   });
 });
 
-test('hidden-coupling: two unrelated modules whose files changed together in six commits are reported with the count and the three newest commits', () => {
-  withRepo((repo) => {
+test('hidden-coupling: two unrelated modules whose files changed together in six commits are reported with the count and the three newest commits', async () => {
+  await withRepo(async (repo) => {
     // The sources commit holds svc and x only, so x and y never share a commit but the six below.
     repo.write('src/svc.ts', 'export const svc = 1;\n');
     repo.write('src/x.ts', 'export const x = 1;\n');
@@ -167,7 +167,7 @@ test('hidden-coupling: two unrelated modules whose files changed together in six
       ],
     );
 
-    const report = checkModel(repo.path);
+    const report = await checkModel(repo.path);
     expect(report.outcome).toBe('passed');
     expect(report.problems).toHaveLength(1);
     const coupling = report.problems[0]!;
@@ -185,8 +185,8 @@ test('hidden-coupling: two unrelated modules whose files changed together in six
   });
 });
 
-test('a shallow clone whose boundary falls inside the window says hidden coupling was computed over the available history only', () => {
-  withRepo((repo) => {
+test('a shallow clone whose boundary falls inside the window says hidden coupling was computed over the available history only', async () => {
+  await withRepo(async (repo) => {
     repo.write('src/svc.ts', 'export const svc = 1;\n');
     repo.write('src/x.ts', 'export const x = 1;\n');
     const sources = repo.commit('the sources');
@@ -215,7 +215,7 @@ test('a shallow clone whose boundary falls inside the window says hidden couplin
     );
 
     // Control, the full history: six co-changes are reported, and nothing says shallow.
-    const whole = checkModel(repo.path);
+    const whole = await checkModel(repo.path);
     expect(whole.problems.map((p) => p.problem)).toEqual(['hidden-coupling']);
     expect(whole.notes.find((f) => f.message.includes('shallow'))).toBeUndefined();
 
@@ -228,7 +228,7 @@ test('a shallow clone whose boundary falls inside the window says hidden couplin
       expect(boundary.status).toBe(0);
       const boundarySeconds = Number(boundary.stdout.split('\n').find((line) => /^\d+$/.test(line)));
 
-      const report = checkModel(clonePath);
+      const report = await checkModel(clonePath);
 
       expect(report.problems).toEqual([]);
       const shallow = report.notes.find((f) => f.message.includes('shallow'));
@@ -240,8 +240,8 @@ test('a shallow clone whose boundary falls inside the window says hidden couplin
   });
 });
 
-test('a shallow clone of a history that merged an old unrelated root names the real shallow boundary, not the old root', () => {
-  withRepo((repo) => {
+test('a shallow clone of a history that merged an old unrelated root names the real shallow boundary, not the old root', async () => {
+  await withRepo(async (repo) => {
     // The model commit lands on the factory's fixed moment; every other
     // date is placed relative to it, so the window arithmetic never
     // depends on the wall clock.
@@ -277,7 +277,7 @@ test('a shallow clone of a history that merged an old unrelated root names the r
     commitModel(repo, [elementGroup('svc', 'service', cut, blob)], [], [], [['src/', 'svc', '']]);
 
     // Control, the full history: the check passes and nothing says shallow.
-    const whole = checkModel(repo.path);
+    const whole = await checkModel(repo.path);
     expect(whole.outcome).toBe('passed');
     expect(whole.notes.find((f) => f.message.includes('shallow'))).toBeUndefined();
 
@@ -291,7 +291,7 @@ test('a shallow clone of a history that merged an old unrelated root names the r
     try {
       expect(cloned.status).toBe(0);
 
-      const report = checkModel(clonePath);
+      const report = await checkModel(clonePath);
 
       expect(report.outcome).toBe('passed');
       expect(report.problems).toEqual([]);
@@ -306,8 +306,8 @@ test('a shallow clone of a history that merged an old unrelated root names the r
   });
 });
 
-test('unstable dependency: an element depending on a sibling less stable than itself is reported with both instability values', () => {
-  withRepo((repo) => {
+test('unstable dependency: an element depending on a sibling less stable than itself is reported with both instability values', async () => {
+  await withRepo(async (repo) => {
     // Instabilities by hand: a points at r and s (Ce=2, Ca=1, I=2/3); c is pointed at by p and points at a (Ce=1, Ca=1, I=1/2);
     // p (I=1), r and s (I=0). The only arrow to a less stable end is c -> a: 0.67 > 0.50.
     const commit = commitSources(repo, ['a', 'c', 'p', 'r', 's']);
@@ -326,7 +326,7 @@ test('unstable dependency: an element depending on a sibling less stable than it
       ],
     );
 
-    const problems = problemsOf(repo);
+    const problems = await problemsOf(repo);
     expect(problems).toHaveLength(1);
     const unstable = problems[0]!;
     expect(unstable.problem).toBe('unstable-dependency');
@@ -337,8 +337,8 @@ test('unstable dependency: an element depending on a sibling less stable than it
   });
 });
 
-test('hub: an element with five relations in and five out is reported with the threshold; four in and five out, or five in and four out, is not', () => {
-  withRepo((repo) => {
+test('hub: an element with five relations in and five out is reported with the threshold; four in and five out, or five in and four out, is not', async () => {
+  await withRepo(async (repo) => {
     // h takes five relations in and gives five out; h2 takes four in and gives five out, one short
     // of the threshold; h3 takes five in and gives four out, also one short.
     const inOfH = ['i1', 'i2', 'i3', 'i4', 'i5'];
@@ -361,7 +361,7 @@ test('hub: an element with five relations in and five out is reported with the t
     ];
     commitModel(repo, elements, [], relations, everyone.map((id) => [`src/${id}.ts`, id, '']));
 
-    const problems = problemsOf(repo);
+    const problems = await problemsOf(repo);
     expect(problems).toHaveLength(1);
     const hub = problems[0]!;
     expect(hub.problem).toBe('hub');
@@ -382,8 +382,8 @@ test('hub: an element with five relations in and five out is reported with the t
   });
 });
 
-test('store sink and source by transfers: a store all transfers move into is a sink, one they all leave is a source, one without transfers is neither', () => {
-  withRepo((repo) => {
+test('store sink and source by transfers: a store all transfers move into is a sink, one they all leave is a source, one without transfers is neither', async () => {
+  await withRepo(async (repo) => {
     const commit = commitSources(repo, ['w', 'db', 'w2', 'db2', 'w3', 'idle']);
     const blob = (id: string): string => repo.blob(`src/${id}.ts`, commit);
     commitModel(
@@ -412,7 +412,7 @@ test('store sink and source by transfers: a store all transfers move into is a s
       ],
     );
 
-    const problems = problemsOf(repo);
+    const problems = await problemsOf(repo);
     expect(problems).toHaveLength(2);
     const [sink, source] = problems;
     expect(sink!.problem).toBe('magic-source-or-sink');
@@ -425,8 +425,8 @@ test('store sink and source by transfers: a store all transfers move into is a s
   });
 });
 
-test('trust boundary by zones: an interaction whose ends sit in different zones is reported as a question to examine', () => {
-  withRepo((repo) => {
+test('trust boundary by zones: an interaction whose ends sit in different zones is reported as a question to examine', async () => {
+  await withRepo(async (repo) => {
     const commit = commitSources(repo, ['svc2', 'ext']);
     const blob = (id: string): string => repo.blob(`src/${id}.ts`, commit);
     const parts = ['version: 1', '', 'zones:', '  - id: internet', '    kind: network', '  - id: office', '    kind: network', '', 'elements:'];
@@ -445,7 +445,7 @@ test('trust boundary by zones: an interaction whose ends sit in different zones 
     repo.writeReview([], assigned([['src/svc2.ts', 'svc2', ''], ['src/ext.ts', 'ext', '']]));
     repo.commit('the model');
 
-    const problems = problemsOf(repo);
+    const problems = await problemsOf(repo);
     expect(problems).toHaveLength(1);
     const crossing = problems[0]!;
     expect(crossing.problem).toBe('trust-boundary-crossing');
@@ -458,8 +458,8 @@ test('trust boundary by zones: an interaction whose ends sit in different zones 
   });
 });
 
-test('confidential transfer to an external element is a question, forward or reverse; a public transfer to an external is not', () => {
-  withRepo((repo) => {
+test('confidential transfer to an external element is a question, forward or reverse; a public transfer to an external is not', async () => {
+  await withRepo(async (repo) => {
     const commit = commitSources(repo, ['b', 'ext2', 'ext3', 'ext4']);
     const blob = (id: string): string => repo.blob(`src/${id}.ts`, commit);
     commitModel(
@@ -489,7 +489,7 @@ test('confidential transfer to an external element is a question, forward or rev
       ],
     );
 
-    const problems = problemsOf(repo);
+    const problems = await problemsOf(repo);
     expect(problems).toHaveLength(2);
     const [forward, reverse] = problems;
     expect(forward!.problem).toBe('trust-boundary-crossing');
@@ -504,8 +504,8 @@ test('confidential transfer to an external element is a question, forward or rev
   });
 });
 
-test('a refinement is counted once: a relation and its own refinement are not a cycle', () => {
-  withRepo((repo) => {
+test('a refinement is counted once: a relation and its own refinement are not a cycle', async () => {
+  await withRepo(async (repo) => {
     // r carries P -> Q; s refines it as m -> n. Nothing reverses, so no kind may report anything.
     const commit = commitSources(repo, ['P', 'Q', 'm', 'n']);
     const blob = (id: string): string => repo.blob(`src/${id}.ts`, commit);
@@ -527,12 +527,12 @@ test('a refinement is counted once: a relation and its own refinement are not a 
       ],
     );
 
-    expect(problemsOf(repo)).toEqual([]);
+    expect(await problemsOf(repo)).toEqual([]);
   });
 });
 
-test('a bulk commit is ignored: five co-changes where one touches more than thirty files report nothing', () => {
-  withRepo((repo) => {
+test('a bulk commit is ignored: five co-changes where one touches more than thirty files report nothing', async () => {
+  await withRepo(async (repo) => {
     const filler = Array.from({ length: 29 }, (_, i) => `fill/f${String(i + 1).padStart(2, '0')}`);
     repo.write('src/svc2b.ts', 'export const svc2b = 1;\n');
     repo.write('src/x2.ts', 'export const x2 = 1;\n');
@@ -571,12 +571,12 @@ test('a bulk commit is ignored: five co-changes where one touches more than thir
       ],
     );
 
-    expect(problemsOf(repo)).toEqual([]);
+    expect(await problemsOf(repo)).toEqual([]);
   });
 });
 
-test('commits older than the window do not count: four co-changes inside 180 days and one outside report nothing', () => {
-  withRepo((repo) => {
+test('commits older than the window do not count: four co-changes inside 180 days and one outside report nothing', async () => {
+  await withRepo(async (repo) => {
     // The checked revision sits at the fixture's fixed moment (2025-09-01); the old round is about 212 days before it.
     // Each file arrives in its own commit, so the only commits touching x3 and y3 together
     // are the old round and the four recent ones.
@@ -611,13 +611,13 @@ test('commits older than the window do not count: four co-changes inside 180 day
       ],
     );
 
-    expect(problemsOf(repo)).toEqual([]);
+    expect(await problemsOf(repo)).toEqual([]);
   });
 });
 
 
-test('a store is read through its children: a transfer into a module inside a store makes the store a sink', () => {
-  withRepo((repo) => {
+test('a store is read through its children: a transfer into a module inside a store makes the store a sink', async () => {
+  await withRepo(async (repo) => {
     const commit = commitSources(repo, ['w', 'db', 'part']);
     const blob = (id: string): string => repo.blob(`src/${id}.ts`, commit);
     commitModel(
@@ -636,7 +636,7 @@ test('a store is read through its children: a transfer into a module inside a st
       ],
     );
 
-    const problems = problemsOf(repo);
+    const problems = await problemsOf(repo);
     expect(problems).toHaveLength(1);
     expect(problems[0]!.problem).toBe('magic-source-or-sink');
     expect(problems[0]!.ids).toEqual(['db', 'rwp']);
@@ -644,8 +644,8 @@ test('a store is read through its children: a transfer into a module inside a st
   });
 });
 
-test('a relation between the pair is not hidden coupling: two co-changing modules joined by a relation report nothing', () => {
-  withRepo((repo) => {
+test('a relation between the pair is not hidden coupling: two co-changing modules joined by a relation report nothing', async () => {
+  await withRepo(async (repo) => {
     // x sits under p, y under q, so the x -> y relation crosses levels and no level's
     // dependency problems fire; the pair itself is joined by that relation.
     const commit = commitSources(repo, ['p', 'q', 'x', 'y']);
@@ -673,12 +673,12 @@ test('a relation between the pair is not hidden coupling: two co-changing module
       ],
     );
 
-    expect(problemsOf(repo)).toEqual([]);
+    expect(await problemsOf(repo)).toEqual([]);
   });
 });
 
-test('an ancestor and its descendant are one line: six co-changes of a service and its module report nothing', () => {
-  withRepo((repo) => {
+test('an ancestor and its descendant are one line: six co-changes of a service and its module report nothing', async () => {
+  await withRepo(async (repo) => {
     repo.write('src/svc4.ts', 'export const svc4 = 1;\n');
     repo.commit('svc4 arrives');
     repo.write('src/x4.ts', 'export const x4 = 1;\n');
@@ -703,11 +703,11 @@ test('an ancestor and its descendant are one line: six co-changes of a service a
       ],
     );
 
-    expect(problemsOf(repo)).toEqual([]);
+    expect(await problemsOf(repo)).toEqual([]);
   });
 });
-test('problems print by kind in the fixed order: a cycle, then an unstable dependency, then a magic sink', () => {
-  withRepo((repo) => {
+test('problems print by kind in the fixed order: a cycle, then an unstable dependency, then a magic sink', async () => {
+  await withRepo(async (repo) => {
     // The cycle p -> q -> r -> p (I(p) = 1, I(q) = 1/2, I(r) = 1/3) leaves r -> p unstable;
     // the send-only topic on r adds the sink. The ids alone would order the findings the
     // other way round ("b-topic" before "p"), so the kind order is what this asserts.
@@ -736,14 +736,14 @@ test('problems print by kind in the fixed order: a cycle, then an unstable depen
       ],
     );
 
-    expect(problemsOf(repo).map((problem) => problem.problem)).toEqual(['cycle', 'unstable-dependency', 'magic-source-or-sink']);
+    expect(await (await problemsOf(repo)).map((problem) => problem.problem)).toEqual(['cycle', 'unstable-dependency', 'magic-source-or-sink']);
   });
 });
 
-test('a complete model with none of the six problems reports no problems at all', () => {
+test('a complete model with none of the six problems reports no problems at all', async () => {
   const repo = completeRepo();
   try {
-    const report = checkModel(repo.path);
+    const report = await checkModel(repo.path);
     expect(report.outcome).toBe('passed');
     expect(report.problems).toEqual([]);
   } finally {

@@ -136,17 +136,16 @@ function bfsDependentCount(id: string, relations: readonly CompiledRelation[]): 
 
 describe('performance: B2 — transitive dependents over a random 10 000-element, 30 000-relation graph with history, default maxHops', () => {
   test.skipIf(process.env['MADARCH_SKIP_PERF'] !== undefined)(
-    'answers in under one second',
-    () => {
+    'answers in under one second', async () => {
       const clock = fakeClock(DAY(2));
       const history = createSqliteHistory({ clock });
       const v1 = randomGraphWithHistory('v1');
-      expect(history.store({ source: 'big', commit: 'v1', committedAt: DAY(1), model: v1 }).errors).toEqual([]);
+      expect((await history.store({ source: 'big', commit: 'v1', committedAt: DAY(1), model: v1 })).errors).toEqual([]);
       clock.set(DAY(12));
-      expect(history.store({ source: 'big', commit: 'v2', committedAt: DAY(10), model: randomGraphWithHistory('v2') }).errors).toEqual([]);
+      expect((await history.store({ source: 'big', commit: 'v2', committedAt: DAY(10), model: randomGraphWithHistory('v2') })).errors).toEqual([]);
 
       const engine = createLadybugEngine();
-      engine.rebuild(history.assertions());
+      engine.rebuild(await history.assertions());
       const at = { valid: DAY(11), known: DAY(20), state: 'as-is' };
 
       const started = performance.now();
@@ -172,7 +171,7 @@ describe('performance: B2 — transitive dependents over a random 10 000-element
       }
 
       engine.close();
-      history.close();
+      await history.close();
     },
     // Building this fixture (store, rebuild) is not part of the performance
     // requirement (only the measured `dependents` call is — see the assert
@@ -191,18 +190,17 @@ describe('performance: a view and a transitive query over 10 000 elements with h
   // more than bun's default 5-second per-test timeout to finish at this
   // size, so this test is given a generous one of its own.
   test.skipIf(process.env['MADARCH_SKIP_PERF'] !== undefined)(
-    'both answer in under one second',
-    () => {
+    'both answer in under one second', async () => {
     const clock = fakeClock(DAY(2));
     const history = createSqliteHistory({ clock });
     // Two versions, so the history — and so the engine, built from its full
     // `assertions()` — carries real history, not only the current state.
-    expect(history.store({ source: 'big', commit: 'v1', committedAt: DAY(1), model: bigModel('v1') }).errors).toEqual([]);
+    expect((await history.store({ source: 'big', commit: 'v1', committedAt: DAY(1), model: bigModel('v1') })).errors).toEqual([]);
     clock.set(DAY(12));
-    expect(history.store({ source: 'big', commit: 'v2', committedAt: DAY(10), model: bigModel('v2') }).errors).toEqual([]);
+    expect((await history.store({ source: 'big', commit: 'v2', committedAt: DAY(10), model: bigModel('v2') })).errors).toEqual([]);
 
     const engine = createLadybugEngine();
-    engine.rebuild(history.assertions());
+    engine.rebuild(await history.assertions());
 
     const at = { valid: DAY(11), known: DAY(20), state: 'as-is' };
 
@@ -227,7 +225,7 @@ describe('performance: a view and a transitive query over 10 000 elements with h
     }
 
     engine.close();
-    history.close();
+    await history.close();
     },
     30000,
   );
@@ -279,8 +277,7 @@ describe('performance: B2 — the review\'s layered-graph shapes that made ALL S
   ];
 
   test.skipIf(process.env['MADARCH_SKIP_PERF'] !== undefined)(
-    'transitive dependencies from start answer without error on every shape',
-    () => {
+    'transitive dependencies from start answer without error on every shape', async () => {
       for (const shape of shapes) {
         const { model: shapeModel, relationCount } = layeredGraph(shape.w, shape.layers, shape.kk);
         const engine = createLadybugEngine();
