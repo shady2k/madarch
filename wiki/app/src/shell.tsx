@@ -1,14 +1,15 @@
 /**
  * The reading shell, restyled on the mockup's structure: the left navigation
- * panel (the madarch mark, the product block with its initial on a dark
- * square, the Product overview entry, the DOCUMENTS heading, kind groups with
- * collapse chevrons and document counts, lucide document icons and wrapped
- * titles, the open page on its grey pill, the product folder's name in the
- * footer), the top bar (a kind / title breadcrumb on the left, lucide focus
- * and context toggles on the right), the document in the centre, and the
- * closed context panel place. On narrow widths (<=700 px) the navigation
- * opens from the toolbar as a shadcn Sheet drawer; the document column is
- * never narrowed by the panel. Styling rides Tailwind v4 utilities and the
+ * panel (the madarch mark, the passive product block with its initial on a
+ * dark square, the Product overview entry, the DOCUMENTS heading, kind groups
+ * with collapse chevrons and document counts, lucide document icons and
+ * wrapped titles, the open page on its grey pill, the product folder's name
+ * in the sidebar footer), the top bar (product/group context only, lucide
+ * focus and context toggles on the right), the document in the centre, and
+ * the closed context panel place. There is no tab strip or bottom status
+ * strip, and the toolbar never repeats a document title. On narrow widths
+ * (<=700 px) the navigation opens from the toolbar as a shadcn Sheet drawer;
+ * the document column is never narrowed by the panel. Styling rides Tailwind v4 utilities and the
  * design tokens (styles/tokens.css stays the values source).
  *
  * Grouping rule (the coordinator's decision on the change): a page whose path
@@ -23,7 +24,6 @@ import { useEffect, useRef, useState, useContext, type ReactElement, type ReactN
 import {
   CheckIcon,
   ChevronDownIcon,
-  FileTextIcon,
   FolderGit2Icon,
   GlobeIcon,
   MenuIcon,
@@ -37,7 +37,7 @@ import { kindEntry, kindOrder, stageList, stagePosition, type RegistryOffer } fr
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { setWikiLanguage, type WikiLanguage } from './i18n.js';
-import { navigateTo, routeContext, statusContext } from './hold.js';
+import { navigateTo, routeContext } from './hold.js';
 import { PageLink } from './view.js';
 import { Button } from '@/components/ui/button.js';
 import { Toggle } from '@/components/ui/toggle.js';
@@ -377,7 +377,6 @@ function NavPanel({ product, groups, current, currentStage, onNavigate, architec
           <b className="block text-[13px] leading-5 text-ink">{product.name}</b>
           <small className="block text-[11px] leading-4 text-muted">{t('product.space')}</small>
         </span>
-        <ChevronDownIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
       </div>
       <a
         className="mb-3 flex items-center justify-between rounded-[var(--radius-row)] px-2.5 py-2 text-[13px] text-ink no-underline hover:bg-[var(--surface-hover)] focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
@@ -480,25 +479,6 @@ function NavPanel({ product, groups, current, currentStage, onNavigate, architec
   );
 }
 
-/** The shell's bottom status bar: what is open publishes its parts; nothing open shows nothing. */
-export function StatusBar(): ReactElement {
-  const { parts, connection } = useContext(statusContext);
-  const { t } = useTranslation();
-  return (
-    <footer className="statusbar" role="contentinfo">
-      <span className="status-connection" data-testid="connection-status" data-state={connection} aria-live="polite">
-        <span className="status-dot" aria-hidden="true" />
-        {connection === 'live' ? t('status.live') : t('status.reconnecting')}
-      </span>
-      <span className="status-details">
-        {parts?.map((part, at) => (
-          <span key={at} data-testid={at === 0 ? 'word-count' : undefined}>{part}</span>
-        ))}
-      </span>
-    </footer>
-  );
-}
-
 /**
  * The shell itself. Everything the app shows stands inside it: the navigation
  * panel, the toolbar (the breadcrumb on the left; the menu button, the focus
@@ -546,13 +526,6 @@ export function Shell({ product, list, children, architecture, reposCount, repos
   const groupLabel = (name: string): string => displayGroupLabel(name, registryOffer, language, t);
   const groups = groupNav(list.pages, registryOffer);
   const openPage = current === undefined ? undefined : list.pages.find((page) => page.path === current);
-  const documentTabTitle = (() => {
-    if (openPage !== undefined) return openPage.path.split('/').pop();
-    if (route.architecture !== undefined) return route.architecture.title;
-    if (route.stage !== undefined) return stageLabel(route.stage);
-    if (route.group !== undefined) return groupLabel(route.group);
-    return reposOpen === true ? t('navigation.repositories') : t('navigation.overview');
-  })();
   const classes = ['shell'];
   if (menuOpen) classes.push('nav-open');
   if (focused) classes.push('doc-only');
@@ -570,13 +543,13 @@ export function Shell({ product, list, children, architecture, reposCount, repos
         <div className="shell-main flex min-w-0 flex-1 flex-col">
           <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line px-4 wide:px-[35px]">
             <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
-              {openPage !== undefined ? (
+              {openPage !== undefined ? (openPage.kind ?? groupOf(openPage.path)) === 'product' ? (
+                <a href="/" data-testid="breadcrumb-product" className="text-muted no-underline hover:text-ink" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigateTo('/'); }}>{t('groups.product')}</a>
+              ) : (
                 <>
                   <a href="/" data-testid="breadcrumb-product" className="text-muted no-underline hover:text-ink" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigateTo('/'); }}>{t('groups.product')}</a>{' '}
                   <span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
-                  <a href={addressOfGroup(openPage.kind ?? groupOf(openPage.path))} data-testid="breadcrumb-group" className="text-muted no-underline hover:text-ink" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigateTo(addressOfGroup(openPage.kind ?? groupOf(openPage.path))); }}>{groupLabel(openPage.kind ?? groupOf(openPage.path))}</a>{' '}
-                  <span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
-                  <span className="text-ink">{openPage.title}</span>
+                  <a href={addressOfGroup(openPage.kind ?? groupOf(openPage.path))} data-testid="breadcrumb-group" className="text-muted no-underline hover:text-ink" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigateTo(addressOfGroup(openPage.kind ?? groupOf(openPage.path))); }}>{groupLabel(openPage.kind ?? groupOf(openPage.path))}</a>
                 </>
               ) : route.group !== undefined ? (
                 <>
@@ -693,15 +666,6 @@ export function Shell({ product, list, children, architecture, reposCount, repos
               {list.contract.message}
             </div>
           )}
-          {/* The tab strip row under the top bar: the open file's name on its
-           * tab. The mockup's view switch and history button stay out until
-           * they work (madarch-j0a); the row's structure stands now. */}
-          <div className="document-bar flex min-h-[45px] items-stretch bg-ground">
-            <div className="document-tab flex min-w-[182px] items-center gap-2 border-r border-line bg-page px-[25px] text-[13px] text-secondary" data-testid="document-tab">
-              <FileTextIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-              <span className="truncate">{documentTabTitle}</span>
-            </div>
-          </div>
           {/* The window-height shell: every panel and bar stays in place and
            * the ONLY scrolling lives in the document's own column — the home
            * page scrolls here too. */}
@@ -711,7 +675,6 @@ export function Shell({ product, list, children, architecture, reposCount, repos
             </div>
             <aside className="context-panel" aria-label={t('navigation.context')} hidden></aside>
           </div>
-          <StatusBar />
         </div>
       </div>
     </TooltipProvider>
