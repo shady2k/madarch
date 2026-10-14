@@ -37,9 +37,10 @@ Use the no-switcher option already supported by the noninteractive product block
 - Shell-only tests: `cd wiki/app && bun test src/shell.styles.test.ts` — exit 0 (14 passed).
 - Reader E2E (real server and Chromium, 1150×900): English `MADARCH_WIKI_E2E=1 MADARCH_WIKI_LANGUAGE=en MADARCH_WIKI_SCREENSHOT=/tmp/madarch-gj94-reader-en.png bun test test/wiki-chrome-e2e.test.ts` — exit 0 (1 passed, 9 assertions); Russian `MADARCH_WIKI_E2E=1 MADARCH_WIKI_LANGUAGE=ru MADARCH_WIKI_SCREENSHOT=/tmp/madarch-gj94-reader-ru.png bun test test/wiki-chrome-e2e.test.ts` — exit 0 (1 passed, 9 assertions). Both fresh screenshots were visually inspected outside the repository.
 - App checks: `cd wiki/app && bun install --frozen-lockfile && bun run check && bun test && bun run build` — exit 0; app suite: 150 passed, 0 failed. `cd wiki/app && bun test src/shell.styles.test.ts` — exit 0 (14 passed).
-- Root static check: `bun run check` — exit 0. The full root test suite was not rerun for this follow-up.
+- Final PR CI: run `38647906824` on head `9b5e97baede3124dcfbc23c793f5c29d0d770294` completed successfully (root install/check/test, views check, contract check, and wiki-app frozen install/check/test/build); product-documents run `38647906797` passed. The full root suite was intentionally left to PR CI and is not claimed as a local run.
 - Feature-document gate after rebase: `node .shady2k/documents.mjs check --phase feature --change wiki-chrome-gj94 --candidate worktree --target origin/main` — exit 0, clean.
 - Independent gpt-6-luna review found one breadcrumb-context defect; it was fixed, and the second review reported no findings.
+- Close-out gates: the final backlog gate, commit-link gate, present-documents gate, product-documents gate and close-document gate all exited 0. The close gate reported `not-made: mutation`; per Owner Addendum 11, per-task mutation is deferred to the milestone-end run and is not claimed passed.
 
 ## DONE WHEN
 The browser-rendered reader view has no tab strip, no repeated document title, no Fieldnote disclosure affordance, and no dead bottom status strip; a disjoint reader E2E test asserts these facts and captures a screenshot outside the repository.
