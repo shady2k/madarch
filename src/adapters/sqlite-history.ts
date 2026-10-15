@@ -558,13 +558,15 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
   }
 
   async function renameSource(from: string, to: string, registryInput?: SourceRegistry): Promise<void> {
-    const held = await sources();
-    if (held.length !== 1 || held[0] !== from) {
-      const holds = held.length === 0 ? 'no source' : `the sources ${held.join(', ')}`;
-      throw new Error(`the history holds ${holds}, but the rename asks to rename ${JSON.stringify(from)} to ${JSON.stringify(to)}: the one source a history holds is renamed whole, nothing beside it`);
-    }
-    // Keep the registry metadata and history rows under the same source name.
+    // Keep validation and mutation in one transaction. Yielding between them
+    // lets concurrent async callers both validate the same source.
     db.transaction(() => {
+      const held = selectSources.all().map((row) => row.source).sort(byCodePoint);
+      if (held.length !== 1 || held[0] !== from) {
+        const holds = held.length === 0 ? 'no source' : `the sources ${held.join(', ')}`;
+        throw new Error(`the history holds ${holds}, but the rename asks to rename ${JSON.stringify(from)} to ${JSON.stringify(to)}: the one source a history holds is renamed whole, nothing beside it`);
+      }
+      // Keep the registry metadata and history rows under the same source name.
       renameRegistry.run(to, from);
       if (registryInput !== undefined) {
         upsertRegistry.run(to, registryInput.id, JSON.stringify(registryInput.formerNames));

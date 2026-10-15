@@ -3,6 +3,9 @@ import { mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync } from 'node:fs
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/index.js';
+import { createGraphs } from '../src/server/graphs.js';
+import { createHandler } from '../src/server/http.js';
+import { createSourceStores, type SourceStores } from '../src/server/sources.js';
 import { Database } from 'bun:sqlite';
 import { canonicalJsonDigest } from '../src/model/canonical.js';
 
@@ -791,5 +794,83 @@ describe('a failing history read', () => {
     expect(response.status).toBe(500);
     expect((await errorOf(response)).message).toContain('could not be read');
     expect(errors.join('\n')).toContain('could not be read');
+  });
+});
+
+
+describe('concurrent model and view requests', () => {
+  test('a view waits for a stored model to reach its graph before reading', async () => {
+    const dataFolder = mkdtempSync(join(tmpdir(), 'madarch-server-http-race-'));
+    let now = DAY(10);
+    const clock = { now: () => now };
+    const realSources = await createSourceStores({ dataFolder, clock, log: () => {} });
+    let releaseStore!: () => void;
+    const storeGate = new Promise<void>((resolve) => { releaseStore = resolve; });
+    let signalStored!: () => void;
+    const storedAtGate = new Promise<void>((resolve) => { signalStored = resolve; });
+    const sources: SourceStores = {
+      ...realSources,
+      async store(input) {
+        const stored = await realSources.store(input);
+        if (input.commit === 'c2') {
+          // Hold after the history/head update but before the handler applies the graph report.
+          signalStored();
+          await storeGate;
+        }
+        return stored;
+      },
+    };
+    const graphs = createGraphs({ historyOf: (source) => realSources.historyOf(source), clock });
+    const handler = createHandler({ sources, graphs, log: () => {}, errorLog: () => {} });
+    let pendingStore: Promise<Response> | undefined;
+    let pendingView: Promise<Response> | undefined;
+    const request = (path: string, body: Record<string, unknown>) => new Request(`http://test${path}`, {
+      method: 'POST',
+      body: JSON.stringify({ protocol: 1, ...body }),
+      headers: { 'content-type': 'application/json' },
+    });
+    try {
+      const initial = await handler(request('/models', {
+        source: 'shop', commit: 'c1', committedAt: '2026-09-01T12:00:00Z', model: model([element('a')]),
+      }));
+      expect(initial.status).toBe(201);
+      const before = await handler(request('/views', { source: 'shop', format: 'mermaid' }));
+      expect(before.status).toBe(200);
+      const beforeText = await before.text();
+
+      now = DAY(11);
+      pendingStore = handler(request('/models', {
+        source: 'shop', commit: 'c2', committedAt: '2026-09-02T12:00:00Z', model: model([element('b')]),
+      }));
+      await storedAtGate;
+
+      let viewBodyRead = false;
+      const viewBody = JSON.stringify({ protocol: 1, source: 'shop', format: 'mermaid' });
+      const viewRequest = new Request('http://test/views', {
+        method: 'POST', body: viewBody, headers: { 'content-type': 'application/json' },
+      });
+      Object.defineProperty(viewRequest, 'text', {
+        value: async () => { viewBodyRead = true; return viewBody; },
+      });
+      pendingView = handler(viewRequest);
+      expect(viewBodyRead).toBe(false);
+
+      releaseStore();
+      const [stored, viewed] = await Promise.all([pendingStore, pendingView]);
+      expect(stored.status).toBe(201);
+      expect(viewed.status).toBe(200);
+      const current = await realSources.historyOf('shop').read({ source: 'shop', valid: now, known: now });
+      expect(current.model?.elements.map((each) => each.id)).toEqual(['b']);
+      const afterText = await (await handler(request('/views', { source: 'shop', format: 'mermaid' }))).text();
+      expect(await viewed.text()).toBe(afterText);
+      expect(afterText).not.toBe(beforeText);
+    } finally {
+      releaseStore();
+      await Promise.allSettled([...(pendingStore === undefined ? [] : [pendingStore]), ...(pendingView === undefined ? [] : [pendingView])]);
+      await handler.drain();
+      graphs.close();
+      await realSources.close();
+      rmSync(dataFolder, { recursive: true, force: true });
+    }
   });
 });

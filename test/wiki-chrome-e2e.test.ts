@@ -62,7 +62,7 @@ runDescribe('wiki reader chrome (built app and Chromium)', () => {
   beforeAll(async () => {
     if (!existsSync(join(APP, 'index.html'))) throw new Error(`Built wiki app is missing: ${join(APP, 'index.html')}`);
     fixture = buildFieldnote();
-    server = startServer({
+    server = await startServer({
       productFolder: fixture.product,
       appFolder: APP,
       port: 0,
@@ -94,7 +94,7 @@ runDescribe('wiki reader chrome (built app and Chromium)', () => {
       if (browser !== undefined) await browser.close();
     } finally {
       try {
-        server?.stop();
+        await server?.stop();
       } finally {
         if (fixture !== undefined) rmSync(fixture.root, { recursive: true, force: true });
       }

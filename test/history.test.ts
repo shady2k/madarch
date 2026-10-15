@@ -580,3 +580,27 @@ describe('performance: storing a new version of a 10 000-element model', () => {
     }
   });
 });
+
+describe('renameSource: one source can be renamed whole', () => {
+  test('concurrent renames validate and update atomically', async () => {
+    const h = history(fakeClock(DAY(2)));
+    try {
+      await h.store({ source: 'old', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
+
+      const results = await Promise.allSettled([
+        h.renameSource('old', 'left'),
+        h.renameSource('old', 'right'),
+      ]);
+      expect(results.map((result) => result.status)).toEqual(['fulfilled', 'rejected']);
+      const refused = results[1];
+      if (refused.status !== 'rejected') throw new Error('unreachable');
+      expect(refused.reason).toBeInstanceOf(Error);
+      expect(refused.reason.message).toContain('the history holds the sources left, but the rename asks to rename "old" to "right"');
+      expect(await h.sources()).toEqual(['left']);
+      expect(await h.commitRecord('left', 'c1')).toMatchObject({ commit: 'c1' });
+      expect(await h.commitRecord('right', 'c1')).toBeUndefined();
+    } finally {
+      await h.close();
+    }
+  });
+});

@@ -227,13 +227,14 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   };
 }
 
-interface ServerHandler {
+export interface ServerHandler {
   (request: Request): Promise<Response>;
-  /** Waits for in-flight model stores and rename claims before persistence closes. */
+  /** Waits for in-flight state requests before persistence closes. */
   drain(): Promise<void>;
 }
 
-function createHandler(dependencies: {
+/** The request handler used by Bun; exported so tests can drive HTTP requests with controlled async dependencies. */
+export function createHandler(dependencies: {
   sources?: SourceStores;
   graphs?: Graphs;
   log: (line: string) => void;
@@ -257,16 +258,15 @@ function createHandler(dependencies: {
     handle: (request: Request) => Handled | Promise<Handled>;
   }
 
-  // Before the store became asynchronous, storing a model, updating its
-  // graph, and answering the request all happened in one JS turn. Keep
-  // these server-level mutations in one order so a later history commit
-  // cannot reach the graph before an earlier store's report.
-  let mutationTail: Promise<void> = Promise.resolve();
-  async function serializeMutation<T>(operation: () => Promise<T>): Promise<T> {
-    const previous = mutationTail;
+  // A store commits history before applying its graph report. A view reads
+  // both, so allow model stores, rename claims and views one state operation
+  // at a time; no view can pair a new history snapshot with an old graph.
+  let stateTail: Promise<void> = Promise.resolve();
+  async function serializeState<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = stateTail;
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
-    mutationTail = previous.then(() => gate);
+    stateTail = previous.then(() => gate);
     await previous;
     try {
       return await operation();
@@ -280,9 +280,9 @@ function createHandler(dependencies: {
   const routes: Route[] = [
     ...(sources !== undefined
       ? ([
-          { method: 'POST', path: '/models', handle: (request) => serializeMutation(() => storeModel(request)) },
-          { method: 'POST', path: '/views', handle: answerView },
-          { method: 'POST', path: '/sources', handle: (request) => serializeMutation(() => claimRename(request)) },
+          { method: 'POST', path: '/models', handle: (request) => serializeState(() => storeModel(request)) },
+          { method: 'POST', path: '/views', handle: (request) => serializeState(() => answerView(request)) },
+          { method: 'POST', path: '/sources', handle: (request) => serializeState(() => claimRename(request)) },
           { method: 'GET', path: '/sources', handle: listSources },
         ] as Route[])
       : []),
@@ -820,7 +820,7 @@ function createHandler(dependencies: {
     headers.set('protocol', String(PROTOCOL_VERSION));
     return new Response(handled.response.body, { status: handled.response.status, statusText: handled.response.statusText, headers });
   };
-  return Object.assign(handle, { drain: async () => { await mutationTail; } });
+  return Object.assign(handle, { drain: async () => { await stateTail; } });
 }
 
 /** The escape itself: the readable forms for the line breaks and the tab, `\uXXXX` for every other control character. */

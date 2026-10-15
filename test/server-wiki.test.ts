@@ -191,7 +191,7 @@ describe('the server\'s product mode', () => {
     ].join('\n') + '\n');
     writeFileSync(join(folder!, 'docs', 'next.md'), '# Plan\n\n## Next\nReview the first screen.\n');
     builtApp();
-    const url = startProduct();
+    const url = await startProduct();
     const response = await fetch(`${url}/api/product`);
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
@@ -218,7 +218,7 @@ describe('the server\'s product mode', () => {
       'stages:', '  - id: idea', 'kinds: []',
     ].join('\n') + '\n');
     builtApp();
-    const url = startProduct();
+    const url = await startProduct();
     const body = await (await fetch(`${url}/api/product`)).json() as { audience?: string; overview?: { audience?: string; currentMilestone?: { path?: string }; errors?: { role: string; document: string }[] } };
     expect(body.audience).toBeUndefined();
     expect(body.overview?.audience).toBeUndefined();
