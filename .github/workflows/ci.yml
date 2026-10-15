@@ -32,14 +32,14 @@ jobs:
       - run: bun install --frozen-lockfile
       # Refresh the full-suite timings locally with:
       # bun test test/ --timings=.github/workflows/test-timings.json --update-timings
-      # The empty first timings file captures the files this shard actually ran;
-      # the committed second file supplies historical durations for balancing.
+      # Seed with historical durations for balancing; Bun's shard update writes
+      # this shard's measured file list to the artifact copy.
       - name: Run shard and record its file list
         run: |
           shard_files="$RUNNER_TEMP/shard-${{ matrix.shard }}.json"
-          printf '{"version":1,"files":{}}\n' > "$shard_files"
+          cp .github/workflows/test-timings.json "$shard_files"
           bun test test/ --shard=${{ matrix.shard }}/5 \
-            --timings="$shard_files,.github/workflows/test-timings.json" --update-timings
+            --timings="$shard_files" --update-timings
       - uses: actions/upload-artifact@v4
         if: always()
         with:
