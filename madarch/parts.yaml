@@ -1,9 +1,9 @@
 # The system's parts, grouped the way docs/system/architecture.md names
 # them and nested into layers so no page holds more than about five boxes:
-# authoring (the skill and the documents), the core (the model format and
-# the two stores behind it), delivery (the check, the renderer, the wiki,
-# the send command and the server), and the toolchain (tests, build
-# tooling, the reference system).
+# authoring (the model instructions and product documents), the core (model
+# format, per-source history and async query database), delivery (check,
+# renderer, static and served wikis, product lifecycle and send command),
+# and the toolchain (tests, build tooling and the reference system).
 version: 1
 
 elements:
@@ -16,24 +16,8 @@ elements:
       - file: docs/decisions/0016-product-knowledge-base-direction.md
         line: 40
         endLine: 44
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 1769f9f12c4e35099fec1c3fa77eb3cfca532ad5
-
-  - id: authoring-skill
-    kind: module
-    name: Model skill
-    parent: authoring
-    evidence:
-      - file: skills/write-intended-model/SKILL.md
-        line: 1
-        endLine: 7
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: c9edfc903b96fc44fa514ed047d03f4ae53a0f0a
-      - file: docs/system/capabilities/model-authoring.md
-        line: 1
-        endLine: 8
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 9a68942030f0af75dc54998633380fb97fa906ff
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 65aff9c7d1ef665a63b503c884ee8c7e89244483
 
   - id: product-docs
     kind: module
@@ -43,13 +27,13 @@ elements:
       - file: docs/system/index.md
         line: 1
         endLine: 8
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 124894bd4b3b42da457f89992f8c373d35ab6634
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 2f1171269edc19009e5d84b9d72072f619dbebdd
       - file: docs/glossary.md
         line: 1
         endLine: 4
-        commit: a6e119a003800c7c60637407ba12340018d67275
-        blob: 18ceb2ec3fd892d384093d8a719989f9f33089c4
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 46c72b452aca3a9a1b9a24ab023a93c523aa4e39
 
   # ---- layer: the core ----
   - id: core
@@ -60,8 +44,8 @@ elements:
       - file: docs/system/architecture.md
         line: 8
         endLine: 14
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 82a16d4439d31c0f4e920f84795b7666589817fd
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: e157846c9498d0ddfa62a756cca9c57b4dbb0949
 
   - id: model-format
     kind: module
@@ -72,42 +56,68 @@ elements:
       - file: src/model/load.ts
         line: 404
         endLine: 412
-        commit: 14f9156817d95351b49401af893d8c96b1138dec
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
         blob: 3316a69459a5e014733c40426475d95ed38a1cb6
       - file: src/model/compile.ts
         line: 43
-        commit: 14f9156817d95351b49401af893d8c96b1138dec
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
         blob: ddfc1098737943102e829ccf34e7865cf7ab35f7
 
   - id: history-store
     kind: store
     name: History store
     parent: core
-    technology: TypeScript, bun:sqlite
+    technology: TypeScript, PGlite
     evidence:
-      - file: src/adapters/sqlite-history.ts
-        line: 148
-        commit: 14f9156817d95351b49401af893d8c96b1138dec
-        blob: 9f325ee97e19a19a20f61553c601514a1430c31a
+      - file: src/adapters/pglite-history.ts
+        line: 182
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: e784f564a5cf6c0dcb9105bb1d6db1df2af1fb03
       - file: src/history/types.ts
         line: 189
-        commit: 14f9156817d95351b49401af893d8c96b1138dec
-        blob: ac06eb0a9f71005ebb3a44dd7ce68be0a0f61170
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: d3b50345aa1cef11522587dbb128806852626911
 
   - id: query-engine
     kind: module
-    name: Query engine
+    name: Query database
     parent: core
-    technology: TypeScript, LadybugDB
+    technology: TypeScript, asynchronous SQL, PGlite, PostgreSQL
     evidence:
-      - file: src/adapters/ladybug-engine.ts
-        line: 393
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: cadf34005a6f71b28048db2e32053064bafdec45
+      - file: src/adapters/sql-query-database.ts
+        line: 25
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 0b8513e1dfeff5308f8827380fb7181e53336c9b
       - file: src/query/types.ts
-        line: 129
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: db687951a26787bcf01985bf7e17463516c8af72
+        line: 130
+        endLine: 145
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 90f7a4a870970e40e970538058216454df213e89
+      - file: src/adapters/pglite-query-database.ts
+        line: 55
+        endLine: 60
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 4ff96c857438c2a551097033589e550a0b40cbd1
+      - file: src/adapters/postgres-query-database.ts
+        line: 55
+        endLine: 60
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: fa67447722ac6877de9b5b203c19713b38af5ed4
+
+  - id: product-repository
+    kind: store
+    name: Product repository
+    parent: madarch
+    technology: Git working tree
+    evidence:
+      - file: src/product/manifest.ts
+        line: 464
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: e371f00f45f90377986d72bc60956d3148b2837a
+      - file: src/product-wiki/pages.ts
+        line: 196
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 1158ffa61912da91a888a8c314dfe9f071cf052d
 
   # ---- layer: delivery ----
   - id: delivery
@@ -118,8 +128,8 @@ elements:
       - file: docs/system/architecture.md
         line: 54
         endLine: 72
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 82a16d4439d31c0f4e920f84795b7666589817fd
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: e157846c9498d0ddfa62a756cca9c57b4dbb0949
 
   - id: model-check
     kind: module
@@ -128,12 +138,12 @@ elements:
     evidence:
       - file: src/check/model-check.ts
         line: 756
-        commit: 14f9156817d95351b49401af893d8c96b1138dec
-        blob: e12e513727a0b5ca8016184faa7e558d20afc425
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: c9468c21afa49a4bb74b6d3fcac271722ddda399
       - file: scripts/check-model.ts
         line: 13
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 1d956856b0779878f3d5fb6e0dfe6e9307419125
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 0376ceae5a66e35c267e7de8df3a30915243c158
 
   - id: renderer
     kind: module
@@ -143,13 +153,13 @@ elements:
       - file: src/render/view-set.ts
         line: 1
         endLine: 8
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 1107841843d1c0064ff65792b385aa61f36df652
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 1c522b8549cd0fdfb0c113a9444d091b8fdb02f3
       - file: src/render/one-view.ts
         line: 1
         endLine: 9
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 7044548fb375c884969b96d409f91b403b77fcb8
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: a35aa0cf84b8c64fbbadaeb09884cdff243b248d
 
   - id: wiki
     kind: module
@@ -158,11 +168,11 @@ elements:
     evidence:
       - file: src/wiki/build.ts
         line: 274
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 5751ad7a1ccb193f84722bf245513b25ec00ef3a
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 41076fbb5b4741288fd936a40d77f76a01c3c2c5
       - file: scripts/wiki.ts
         line: 11
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
         blob: ced1ce759986dbc6e3b886df8df1a023ef373853
 
   - id: send-command
@@ -172,11 +182,11 @@ elements:
     evidence:
       - file: src/send/send-model.ts
         line: 44
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: efcbc13717dfc88d14cf2ee18ab309b7c65a820e
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 67b8649779fd8ab253e45deb09784765b689615c
       - file: scripts/send-model.ts
         line: 14
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
         blob: c8b1951ff2a07398112124dda5682944e2aa585b
 
   - id: server
@@ -188,12 +198,47 @@ elements:
       - file: src/server/http.ts
         line: 129
         endLine: 141
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 251cbd59fa60b3a6683f8f029b4ff212d6175adf
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 8cbd24d5fc50db7ddd07eb3eb2a127ef3c6caba1
       - file: scripts/serve.ts
         line: 12
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: c6b1c369977aa30a85f564758f18ce03e6815d12
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 551aa42b96703410edde88a0c6ce84892cb8b2ee
+
+  - id: product-lifecycle
+    kind: module
+    name: Product lifecycle
+    parent: delivery
+    technology: TypeScript
+    evidence:
+      - file: scripts/madarch.ts
+        line: 1
+        endLine: 10
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 270a971fb552374b18ac64f821aa19c0adf89646
+      - file: src/product/lifecycle.ts
+        line: 90
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 1ba502fa077c63bdc2bf0f68b4bb6e4209acbf9e
+
+  - id: product-wiki
+    kind: module
+    name: Product wiki
+    parent: delivery
+    technology: TypeScript, React, Vite
+    evidence:
+      - file: src/product-wiki/pages.ts
+        line: 196
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 1158ffa61912da91a888a8c314dfe9f071cf052d
+      - file: src/server/wiki-app.ts
+        line: 175
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: ea21c87a54e86885b81353e1b7d8a6385c23327e
+      - file: wiki/app/src/app.tsx
+        line: 1
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 5d0e8daa761bd26ddd09bb248f046b34e5ae3a4f
 
   # ---- layer: toolchain ----
   - id: toolchain
@@ -204,8 +249,8 @@ elements:
       - file: .github/workflows/ci.yml
         line: 1
         endLine: 10
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: bf414017c1a6fc4d2fdf5112336d926347db15ce
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 46f5a8f10c1ff567c6ea4d2719eee8f9064a6337
 
   - id: test-suite
     kind: module
@@ -216,12 +261,12 @@ elements:
       - file: test/model-check.test.ts
         line: 1
         endLine: 6
-        commit: 14f9156817d95351b49401af893d8c96b1138dec
-        blob: e1a87806788dc3d09e6d1053db2bf0b0426b919a
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: a3598cacabc794d235602081b5621ae6b75676b1
       - file: test/git-env.ts
         line: 1
         endLine: 10
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
         blob: 7cc4fd2a9157fabf4f5aadb5716b3addd6689bb0
 
   - id: build-tooling
@@ -232,13 +277,13 @@ elements:
       - file: scripts/generate-schemas.ts
         line: 1
         endLine: 10
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: c08f28271b6c1732625415b8a40152b64d9911a3
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 787c93ba4242eee9fb430567853dc0e0c1f02db7
       - file: .shady2k/integration.md
         line: 1
         endLine: 8
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 262d408269bb49e8c87fb35befcacd4e914c7a6d
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: e00ad090ecfe9004cce2126b3ec1d11e4c2ad921
 
   - id: reference-system
     kind: module
@@ -248,10 +293,10 @@ elements:
       - file: examples/reference-system/madarch/landscape.yaml
         line: 1
         endLine: 4
-        commit: 14f9156817d95351b49401af893d8c96b1138dec
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
         blob: fec16a0422556a3f0687e992d51c65bd5d9a1c15
       - file: scripts/render-views.ts
         line: 25
         endLine: 34
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 046784d9894eb624c378c8d7b307897a26329a2b
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 79fc2ca3248d844d290837252616eefc6f5b32f5

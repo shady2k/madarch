@@ -119,6 +119,9 @@ describe('server query database owner', () => {
         facadeCount++;
         return database.forSources(sources);
       },
+      vectorIndexForSources(sources: readonly string[]) {
+        return database.vectorIndexForSources(sources);
+      },
       async close() {
         closeCount++;
         await database.close();
