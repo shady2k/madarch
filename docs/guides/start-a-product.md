@@ -26,7 +26,7 @@ The release script is also available on Linux/macOS:
 
     curl -fsSL https://raw.githubusercontent.com/shady2k/madarch/main/scripts/install.sh | sh
 
-On Windows x64, run `scripts/install.ps1` from PowerShell. Windows arm64 is not supported. Linux needs OpenSSL 3 runtime libraries (`libssl.so.3` and `libcrypto.so.3`); the installer refuses with the missing library named when they are absent. `madarch new` writes the initial Git commit, so install Git and configure `user.name` and `user.email` before running it. madarch does not change your Git identity.
+On Windows x64, run `scripts/install.ps1` from PowerShell. Windows arm64 is not supported. `madarch new` writes the initial Git commit, so install Git and configure `user.name` and `user.email` before running it. madarch does not change your Git identity.
 
 For contributors who want to run from a source checkout instead:
 
