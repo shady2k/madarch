@@ -1,12 +1,12 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
 import { describe, expect, test } from 'bun:test';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SCAN_ROOTS = ['src', 'test', 'scripts', 'wiki/app/src', 'examples', 'docs/system'];
 const ROOT_DOCUMENTS = ['AGENTS.md', 'docs/glossary.md'];
-const CANDIDATE_SERVER_SPEC = 'docs/changes/madarch-l2f/capabilities/server.md';
 const HOME = String.fromCharCode(47) + 'home' + String.fromCharCode(47);
 const USERS = String.fromCharCode(47) + 'Users' + String.fromCharCode(47);
 const WINDOWS_USERS = 'C:' + String.fromCharCode(92) + 'Users' + String.fromCharCode(92);
@@ -47,15 +47,10 @@ function sourceIsAllowed(source: string): boolean {
   return (host === 'github.com' || host === 'raw.githubusercontent.com') && owner === 'shady2k' && ['madarch', 'madarch-product'].includes(repo);
 }
 
-function findings(): string[] {
+function findings(root = ROOT): string[] {
   const errors: string[] = [];
-  const currentServerSpec = join(ROOT, 'docs/system/capabilities/server.md');
-  const files = SCAN_ROOTS.flatMap((root) => filesUnder(join(ROOT, root)))
-    .concat(ROOT_DOCUMENTS.map((file) => join(ROOT, file)))
-    .filter((file) => file !== currentServerSpec)
-    // Until close-out replays the proposal into current specifications, scan
-    // the exact candidate that will become the current server capability.
-    .concat(join(ROOT, CANDIDATE_SERVER_SPEC))
+  const files = SCAN_ROOTS.flatMap((path) => filesUnder(join(root, path)))
+    .concat(ROOT_DOCUMENTS.map((file) => join(root, file)))
     .sort(compareCodePoints);
   for (const file of files) {
     const text = readFileSync(file, 'utf8');
@@ -63,13 +58,13 @@ function findings(): string[] {
       const source = match[0];
       if (sourceIsAllowed(source)) continue;
       const line = text.slice(0, match.index).split('\n').length;
-      errors.push(`${relative(ROOT, file)}:${line} (${file}): repository source is not an example or madarch repository: ${source}`);
+      errors.push(`${relative(root, file)}:${line} (${file}): repository source is not an example or madarch repository: ${source}`);
     }
     for (const forbidden of [HOME, USERS, WINDOWS_USERS]) {
       let index = text.indexOf(forbidden);
       while (index !== -1) {
         const line = text.slice(0, index).split('\n').length;
-        errors.push(`${relative(ROOT, file)}:${line} (${file}): absolute home path found`);
+        errors.push(`${relative(root, file)}:${line} (${file}): absolute home path found`);
         index = text.indexOf(forbidden, index + forbidden.length);
       }
     }
@@ -81,6 +76,27 @@ describe('neutral repository names', () => {
   test('the allow-list rejects an unrelated owner without naming a real repository', () => {
     const candidate = ['github.com', ['not', 'acme'].join('-'), 'install.sh'].join('/');
     expect(sourceIsAllowed(candidate)).toBe(false);
+  });
+
+  test('the scan catches a disallowed source in the current server capability', () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), 'madarch-neutral-repository-names-'));
+    try {
+      for (const path of SCAN_ROOTS) mkdirSync(join(fixtureRoot, path), { recursive: true });
+      for (const path of ROOT_DOCUMENTS) {
+        const document = join(fixtureRoot, path);
+        mkdirSync(dirname(document), { recursive: true });
+        writeFileSync(document, '');
+      }
+      const spec = join(fixtureRoot, 'docs/system/capabilities/server.md');
+      mkdirSync(dirname(spec), { recursive: true });
+      const source = ['github.com', ['not', 'acme'].join('-'), 'catalog'].join('/');
+      writeFileSync(spec, `Source: ${source}\n`);
+      expect(findings(fixtureRoot).some((error) =>
+        error.includes('docs/system/capabilities/server.md:1') && error.includes(source),
+      )).toBe(true);
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
   });
 
   test('only example and madarch repositories appear in product code and current documents', () => {
