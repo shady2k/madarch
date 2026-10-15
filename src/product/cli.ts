@@ -11,6 +11,7 @@
  * Facts go to standard output, one per line.
  */
 import { createDraft } from './draft.js';
+import { prepareDemo, type DemoOptions } from './demo.js';
 import { listProducts, type ProductList } from './list.js';
 import { runningVersion } from './version.js';
 import { upgrade, type UpgradeOptions } from './upgrade.js';
@@ -28,6 +29,7 @@ import {
 export const USAGE = [
   'usage: bun scripts/madarch.ts serve [--product <folder>] [--port <n>] [--no-open]',
   '   or: bun scripts/madarch.ts new [--home <folder>] [--port <n>] [--no-open]',
+  '   or: bun scripts/madarch.ts demo [--home <folder>] [--port <n>] [--no-open]',
   '   or: bun scripts/madarch.ts list [--home <folder>]',
   '   or: bun scripts/madarch.ts rename <name> [--product <folder>]',
   '   or: bun scripts/madarch.ts remote <url> [--product <folder>]',
@@ -36,7 +38,7 @@ export const USAGE = [
   '   or: bun scripts/madarch.ts clone <url> [--home <folder>]',
   '   or: bun scripts/madarch.ts version',
   '   or: bun scripts/madarch.ts upgrade [--yes]',
-  '   (the same commands after `bun link` in a checkout: madarch new, madarch serve, madarch list,',
+  '   (the same commands after `bun link` in a checkout: madarch demo, madarch new, madarch serve, madarch list,',
   '    madarch rename, madarch remote, madarch repo add, madarch bootstrap, madarch clone,',
   '    madarch version, madarch upgrade)',
 ].join('\n');
@@ -45,15 +47,17 @@ export const USAGE = [
 export const HELP = [
   'usage: bun scripts/madarch.ts serve [--product <folder>] [--port <n>] [--no-open]',
   '   or: bun scripts/madarch.ts new [--home <folder>] [--port <n>] [--no-open]',
+  '   or: bun scripts/madarch.ts demo [--home <folder>] [--port <n>] [--no-open]',
   '   or: bun scripts/madarch.ts list [--home <folder>]',
   '   or: bun scripts/madarch.ts rename <name> [--product <folder>]',
   '   or: bun scripts/madarch.ts remote <url> [--product <folder>]',
   '   or: bun scripts/madarch.ts repo add <name> <url> [--branch <b>] [--product <folder>]',
   '   or: bun scripts/madarch.ts bootstrap [--product <folder>]',
   '   or: bun scripts/madarch.ts clone <url> [--home <folder>]',
-  '   or: madarch serve|new|list|rename|remote|repo add|bootstrap|clone|version|upgrade — the same', 
+  '   or: madarch demo|serve|new|list|rename|remote|repo add|bootstrap|clone|version|upgrade — the same',
   '   commands after `bun link` in a checkout',
   '',
+  'demo clones or updates the Madarch product repository, then serves its wiki.',
   'new creates a draft product repository under the products home, then serves',
   "its wiki: the draft's folder and id, the address of the wiki, one fact per",
   'line, on standard output. serve serves a product that already exists: the',
@@ -97,6 +101,7 @@ export const HELP = [
   'and never builds again while the built files are there.',
   '',
   'subcommands:',
+  '  demo       clone or update the Madarch product repository and serve its wiki',
   '  new        create a draft product repository and serve its wiki',
   '  serve      serve the product of the given or the current folder',
   '  list       name the products the products home holds',
@@ -106,7 +111,7 @@ export const HELP = [
   '  bootstrap  clone what the manifest declares into repos/<name>',
   '  clone      clone a pushed product into the products home and bootstrap it',
   'options:',
-  '  --home <folder>       new, list and clone: the products home of this one command, over MADARCH_HOME',
+  '  --home <folder>       demo, new, list and clone: the products home of this one command, over MADARCH_HOME',
   '                        (without either, ~/madarch/products)',
   '  --product <folder>    serve, rename, remote, repo add and bootstrap: the product folder to work on;',
   '                        the product the command runs in when absent',
@@ -125,6 +130,7 @@ interface CommandSpec {
 
 /** The specs the subcommands answer to, whole. */
 export const COMMANDS: Record<string, CommandSpec> = {
+  demo: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
   new: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
   serve: { positionals: [], flags: { home: false, product: true, port: true, open: true, branch: false, yes: false } },
   list: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
@@ -347,6 +353,8 @@ function runClone(parsed: Parsed): number {
 export interface CliDeps {
   /** The app folder and build the serving is pointed at, over the process's environment. */
   app?: { appFolder?: string; buildCommand?: string; env?: Readonly<Record<string, string | undefined>> };
+  /** The demo repository and home, injectable for local-repository tests. */
+  demo?: DemoOptions;
   /** The upgrade's injected pieces: the releases API and its fetch, the yes, the replace target. */
   upgrade?: UpgradeOptions;
   /** The opener the serving uses, over the machine's own. */
@@ -355,7 +363,7 @@ export interface CliDeps {
 
 export async function main(args: readonly string[], deps: CliDeps = {}): Promise<number> {
   if (args.length === 0) {
-    console.error('no subcommand given: the subcommands are "new", "serve", "list", "rename", "remote", "repo add", "bootstrap", "version" and "upgrade"');
+    console.error('no subcommand given: the subcommands are "new", "demo", "serve", "list", "rename", "remote", "repo add", "bootstrap", "version" and "upgrade"');
     console.error(USAGE);
     return 2;
   }
@@ -365,12 +373,12 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
     return 0;
   }
   if (command.startsWith('--')) {
-    console.error(`unknown option "${command}" before the subcommand: the subcommands are "new", "serve", "list", "rename", "remote", "repo add", "bootstrap", "version" and "upgrade"`);
+    console.error(`unknown option "${command}" before the subcommand: the subcommands are "new", "demo", "serve", "list", "rename", "remote", "repo add", "bootstrap", "version" and "upgrade"`);
     console.error(USAGE);
     return 2;
   }
   if (!(command in COMMANDS)) {
-    console.error(`unknown subcommand "${command}": the subcommands are "new", "serve", "list", "rename", "remote", "repo add", "bootstrap", "version" and "upgrade"`);
+    console.error(`unknown subcommand "${command}": the subcommands are "new", "demo", "serve", "list", "rename", "remote", "repo add", "bootstrap", "version" and "upgrade"`);
     console.error(USAGE);
     return 2;
   }
@@ -390,6 +398,12 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
   }
   if (command === 'serve') {
     return await serve(serveOptions(parsed, deps), product);
+  }
+  if (command === 'demo') {
+    const demo = prepareDemo({ ...(deps.demo ?? {}), home: home ?? deps.demo?.home, env: deps.demo?.env ?? process.env });
+    if (!demo.ok) { console.error(demo.message); return 1; }
+    console.log(`folder: ${demo.folder}`);
+    return serve(serveOptions(parsed, deps), demo.folder);
   }
   if (command === 'clone') return runClone(parsed);
 

@@ -256,8 +256,9 @@ describe('madarch new', () => {
     // edited away would be a promise the command no longer keeps.
     for (const line of [
       '   or: bun scripts/madarch.ts list [--home <folder>]',
+      '  demo       clone or update the Madarch product repository and serve its wiki',
       '  list       name the products the products home holds',
-      '  --home <folder>       new, list and clone: the products home of this one command, over MADARCH_HOME',
+      '  --home <folder>       demo, new, list and clone: the products home of this one command, over MADARCH_HOME',
       '                        (without either, ~/madarch/products)',
       '  --product <folder>    serve, rename, remote, repo add and bootstrap: the product folder to work on;',
     ]) {

@@ -6,8 +6,7 @@
  * next-step hints drive what the pages and the stage index show; a product
  * with none keeps the plain reading; a file that stands but does not read
  * surfaces the contract's own refusals and keeps the pages plain. The
- * fixture product of the fixed reference — wiki/demo, the set-up case —
- * reads through the registry it carries.
+ * small products created by tests read through the registry they carry.
  */
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -198,26 +197,26 @@ describe('the kinds registry a product holds', () => {
   });
 });
 
-describe('the fixed reference: the set-up demo product reads through the registry it carries', () => {
-  test('the demo product\u2019s committed registry reads and its pages carry the registry\u2019s kinds', () => {
-    const demo = new URL('../wiki/demo/', import.meta.url).pathname;
-    const registry = readProductRegistry(demo);
-    if (!registry.present || !('stages' in registry)) throw new Error('the demo must carry a registry');
-    expect(registry.stages.map((s) => s.id)).toEqual(['idea', 'requirements', 'design', 'build', 'verify', 'release', 'operate']);
+describe('the product registry in small test fixtures', () => {
+  test('the committed compact registry fixture reads its labels and pages', () => {
+    const fixture = new URL('./fixtures/registry-product/', import.meta.url).pathname;
+    const registry = readProductRegistry(fixture);
+    if (!registry.present || !('stages' in registry)) throw new Error('the fixture registry must read');
+    expect(registry.stages.map((stage) => stage.id)).toEqual(['idea', 'requirements', 'design']);
     expect(registry.stages[0]?.labels).toEqual({ en: 'Idea', ru: 'Идея' });
+    expect(registry.kinds.map((kind) => kind.name)).toEqual(['Product vision', 'Sources', 'Product requirements', 'Decisions']);
     expect(registry.kinds[0]?.labels).toEqual({ en: 'Product vision', ru: 'Видение продукта' });
-    expect(registry.stages.every((stage) => Boolean(stage.labels?.en.trim()) && Boolean(stage.labels?.ru.trim()))).toBe(true);
-    expect(registry.kinds.every((kind) => Boolean(kind.labels?.en.trim()) && Boolean(kind.labels?.ru.trim()))).toBe(true);
-    const opened = openProductWiki(demo);
+    const opened = openProductWiki(fixture);
     if (!opened.ok) throw new Error(opened.message);
     const pages = opened.wiki.pages();
     if (!pages.ok) throw new Error(pages.message);
-    const kinds = new Map(pages.pages.filter((page) => page.kind !== undefined).map((page) => [page.kind as string, true]));
-    for (const name of ['Product vision', 'Sources', 'Hypotheses', 'User stories', 'Use cases', 'Product requirements', 'Decisions', 'Architecture', 'Capabilities', 'Open questions', 'Prototypes', 'Results', 'Practices']) {
-      expect(kinds.has(name)).toBe(true);
-    }
-    expect(pages.pages.find((page) => page.kind === 'Change records')).toBeDefined();
-    expect(pages.pages.every((page) => page.path !== 'docs/vision.md' || page.kind === 'Product vision')).toBe(true);
+    expect(pages.pages.map((page) => page.path)).toEqual([
+      'docs/decisions/D-001-choice.md',
+      'docs/requirements/FR-001-requirement.md',
+      'docs/sources/S-001-interview.md',
+      'docs/vision.md',
+    ]);
+    expect(pages.pages.map((page) => page.kind)).toEqual(['Decisions', 'Product requirements', 'Sources', 'Product vision']);
   });
 
   test('a place that cannot hold a registry file reads as one without: not an absence invented', () => {

@@ -1,0 +1,47 @@
+contract: 1
+stages:
+  - id: idea
+    labels:
+      en: Idea
+      ru: Идея
+  - id: requirements
+    labels:
+      en: Requirements
+      ru: Требования
+  - id: design
+    labels:
+      en: Design
+      ru: Проектирование
+kinds:
+  - name: Product vision
+    labels:
+      en: Product vision
+      ru: Видение продукта
+    prefix: V
+    folder: docs/vision
+    stage: idea
+    hint: describe the product purpose
+  - name: Sources
+    labels:
+      en: Sources
+      ru: Источники
+    prefix: S
+    folder: docs/sources
+    stage: idea
+    hint: record a source
+  - name: Product requirements
+    labels:
+      en: Product requirements
+      ru: Требования продукта
+    prefix: FR
+    folder: docs/requirements
+    stage: requirements
+    hint: state a requirement
+  - name: Decisions
+    labels:
+      en: Decisions
+      ru: Решения
+    prefix: D
+    folder: docs/decisions
+    stage: design
+    hint: record a decision

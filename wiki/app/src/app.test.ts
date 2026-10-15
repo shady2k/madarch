@@ -319,14 +319,10 @@ describe('the home page', () => {
     expect(guideCode).toContain('setup-shady2k-skills');
     expect(guideCode).toContain('workspace.yaml');
     expect(guideText).not.toContain('`');
-    expect(guideText).toContain('Try the Madarch product example:');
-    expect(guideText).toContain('Madarch product example');
-    expect(guideText).toContain('madarch clone https://github.com/shady2k/madarch-product');
-    expect(guideText).toContain('madarch serve --product <folder>');
-    expect(guideText.indexOf('madarch clone https://github.com/shady2k/madarch-product')).toBeLessThan(guideText.indexOf('madarch serve --product <folder>'));
-    expect(guide?.querySelector('a[href="https://github.com/shady2k/madarch-product"]')).not.toBeNull();
-    expect(guideText).not.toContain('git clone');
-    expect(guideText).not.toContain('madarch demo');
+    expect(guideText).toContain('Try the Madarch product wiki with:');
+    expect(guideCode).toContain('madarch demo');
+    expect(guideText).not.toContain('https://github.com/shady2k/madarch-product');
+    expect(guideText).not.toContain('madarch serve --product <folder>');
   });
 
   test('gives a folder without manifest metadata a localized, actionable empty state', async () => {
@@ -365,14 +361,10 @@ describe('the home page', () => {
       expect(guideCode).toContain('setup-shady2k-skills');
       expect(guideCode).toContain('workspace.yaml');
       expect(guide).not.toContain('`');
-      expect(guide).toContain('Попробуйте пример продукта Madarch:');
-      expect(guide).toContain('Пример продукта Madarch');
-      expect(guide).toContain('madarch clone https://github.com/shady2k/madarch-product');
-      expect(guide).toContain('madarch serve --product <folder>');
-      expect(guide.indexOf('madarch clone https://github.com/shady2k/madarch-product')).toBeLessThan(guide.indexOf('madarch serve --product <folder>'));
-      expect(document.querySelector('[data-testid="empty-home-guidance"] a[href="https://github.com/shady2k/madarch-product"]')).not.toBeNull();
-      expect(guide).not.toContain('git clone');
-      expect(guide).not.toContain('madarch demo');
+      expect(guide).toContain('Откройте вики продукта Madarch командой:');
+      expect(guide).toContain('madarch demo');
+      expect(guide).not.toContain('https://github.com/shady2k/madarch-product');
+      expect(guide).not.toContain('madarch serve --product <folder>');
     } finally {
       await setWikiLanguage('en');
     }
