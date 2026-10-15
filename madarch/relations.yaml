@@ -17,13 +17,13 @@ interfaces:
       - file: src/server/http.ts
         line: 169
         endLine: 174
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 251cbd59fa60b3a6683f8f029b4ff212d6175adf
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 8cbd24d5fc50db7ddd07eb3eb2a127ef3c6caba1
       - file: src/send/send-model.ts
         line: 44
         endLine: 60
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: efcbc13717dfc88d14cf2ee18ab309b7c65a820e
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 67b8649779fd8ab253e45deb09784765b689615c
   - id: server-views
     provider: server
     contract: http::POST::/views
@@ -31,8 +31,8 @@ interfaces:
       - file: src/server/http.ts
         line: 169
         endLine: 174
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 251cbd59fa60b3a6683f8f029b4ff212d6175adf
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 8cbd24d5fc50db7ddd07eb3eb2a127ef3c6caba1
   - id: server-sources
     provider: server
     contract: http::GET::/sources
@@ -40,8 +40,8 @@ interfaces:
       - file: src/server/http.ts
         line: 169
         endLine: 174
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 251cbd59fa60b3a6683f8f029b4ff212d6175adf
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 8cbd24d5fc50db7ddd07eb3eb2a127ef3c6caba1
   - id: server-rename
     provider: server
     contract: http::POST::/sources
@@ -49,8 +49,8 @@ interfaces:
       - file: src/server/http.ts
         line: 169
         endLine: 174
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 251cbd59fa60b3a6683f8f029b4ff212d6175adf
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 8cbd24d5fc50db7ddd07eb3eb2a127ef3c6caba1
   - id: intended-model-contract
     provider: model-format
     contract: data::madarch/intended-model
@@ -58,12 +58,12 @@ interfaces:
       - file: schema/intended-model.schema.json
         line: 1
         endLine: 8
-        commit: 14f9156817d95351b49401af893d8c96b1138dec
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
         blob: c19318d1d4bca20f90dbba0361f496fa2d3580e4
       - file: src/model/schema.ts
         line: 316
         endLine: 334
-        commit: 14f9156817d95351b49401af893d8c96b1138dec
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
         blob: e9a0d86dc0a9deb404acb5dd17e0bc69e4e04637
   - id: compiled-model-contract
     provider: model-format
@@ -72,12 +72,12 @@ interfaces:
       - file: src/model/compiled-schema.ts
         line: 4
         endLine: 12
-        commit: 14f9156817d95351b49401af893d8c96b1138dec
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
         blob: fe455a78d588ea0b3c9027345df65e9eb5329a5d
       - file: src/model/compile.ts
         line: 88
         endLine: 94
-        commit: 14f9156817d95351b49401af893d8c96b1138dec
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
         blob: ddfc1098737943102e829ccf34e7865cf7ab35f7
 
 relations:
@@ -90,8 +90,8 @@ relations:
       - file: scripts/check-model.ts
         line: 1
         endLine: 12
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 1d956856b0779878f3d5fb6e0dfe6e9307419125
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 0376ceae5a66e35c267e7de8df3a30915243c158
   - id: maintainer-builds-wiki
     name: builds a repository's wiki
     from: maintainer
@@ -100,7 +100,7 @@ relations:
       - file: scripts/wiki.ts
         line: 1
         endLine: 11
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
         blob: ced1ce759986dbc6e3b886df8df1a023ef373853
   - id: maintainer-serves
     name: starts the model server
@@ -110,18 +110,19 @@ relations:
       - file: scripts/serve.ts
         line: 1
         endLine: 12
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: c6b1c369977aa30a85f564758f18ce03e6815d12
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 551aa42b96703410edde88a0c6ce84892cb8b2ee
   - id: agent-writes-model
     name: writes a repository's model with the skill
     from: coding-agent
     to: authoring-skill
     evidence:
-      - file: skills/write-intended-model/SKILL.md
-        line: 9
-        endLine: 16
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: c9edfc903b96fc44fa514ed047d03f4ae53a0f0a
+      - file: docs/system/capabilities/model-authoring.md
+        line: 6
+        endLine: 11
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 9a68942030f0af75dc54998633380fb97fa906ff
+
   - id: reader-reads-wiki
     name: reads the built site
     from: reader
@@ -130,7 +131,7 @@ relations:
       - file: docs/system/capabilities/wiki.md
         line: 3
         endLine: 6
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
         blob: f6ad813153e83ebf34605df71392ab9d51248619
 
   # Authoring.
@@ -139,11 +140,12 @@ relations:
     from: authoring-skill
     to: model-check
     evidence:
-      - file: skills/write-intended-model/SKILL.md
-        line: 329
-        endLine: 344
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: c9edfc903b96fc44fa514ed047d03f4ae53a0f0a
+      - file: docs/system/capabilities/model-authoring.md
+        line: 19
+        endLine: 22
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 9a68942030f0af75dc54998633380fb97fa906ff
+
   - id: docs-describe-parts
     name: states what each part is and does
     from: product-docs
@@ -152,8 +154,8 @@ relations:
       - file: docs/system/architecture.md
         line: 6
         endLine: 8
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 82a16d4439d31c0f4e920f84795b7666589817fd
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: e157846c9498d0ddfa62a756cca9c57b4dbb0949
 
   # The pipeline, from the import graph.
   - id: check-reads-format
@@ -163,8 +165,8 @@ relations:
     evidence:
       - file: src/check/model-check.ts
         line: 27
-        commit: 14f9156817d95351b49401af893d8c96b1138dec
-        blob: e12e513727a0b5ca8016184faa7e558d20afc425
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: c9468c21afa49a4bb74b6d3fcac271722ddda399
   - id: check-renders-views
     name: renders the checked model's views
     from: model-check
@@ -172,8 +174,8 @@ relations:
     evidence:
       - file: src/check/model-check.ts
         line: 31
-        commit: 14f9156817d95351b49401af893d8c96b1138dec
-        blob: e12e513727a0b5ca8016184faa7e558d20afc425
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: c9468c21afa49a4bb74b6d3fcac271722ddda399
   - id: renderer-reads-format
     name: reads the compiled model's names and kinds
     from: renderer
@@ -181,17 +183,17 @@ relations:
     evidence:
       - file: src/render/view-set.ts
         line: 9
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 1107841843d1c0064ff65792b385aa61f36df652
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 1c522b8549cd0fdfb0c113a9444d091b8fdb02f3
   - id: renderer-asks-queries
-    name: asks the engine for views and dependencies
+    name: asks the async query database for views and dependencies
     from: renderer
     to: query-engine
     evidence:
       - file: src/render/view-set.ts
         line: 12
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 1107841843d1c0064ff65792b385aa61f36df652
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 1c522b8549cd0fdfb0c113a9444d091b8fdb02f3
   - id: wiki-reads-format
     name: loads and compiles the repository's model
     from: wiki
@@ -199,8 +201,8 @@ relations:
     evidence:
       - file: src/wiki/build.ts
         line: 40
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 5751ad7a1ccb193f84722bf245513b25ec00ef3a
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 41076fbb5b4741288fd936a40d77f76a01c3c2c5
   - id: wiki-renders
     name: renders the model's views for its pages
     from: wiki
@@ -208,8 +210,8 @@ relations:
     evidence:
       - file: src/wiki/build.ts
         line: 42
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 5751ad7a1ccb193f84722bf245513b25ec00ef3a
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 41076fbb5b4741288fd936a40d77f76a01c3c2c5
   # Storage and serving.
   - id: history-keeps-models
     name: stores each source's compiled model
@@ -218,8 +220,8 @@ relations:
     evidence:
       - file: src/history/types.ts
         line: 1
-        commit: 14f9156817d95351b49401af893d8c96b1138dec
-        blob: ac06eb0a9f71005ebb3a44dd7ce68be0a0f61170
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: d3b50345aa1cef11522587dbb128806852626911
   - id: engine-builds-from-history
     name: rebuilds from the history's assertions
     from: query-engine
@@ -232,31 +234,13 @@ relations:
       - file: src/render/prepare.ts
         line: 66
         endLine: 69
-        commit: 67c492b94fc04acdfa2b7cf7d44f6924d891b35e
-        blob: bd82461278e4933118647477c1ae30ccf5ab5185
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 80f189b724b33ab524a7bb24a084121d7b16ebd4
       - file: src/server/graphs.ts
         line: 128
         endLine: 132
-        commit: 67c492b94fc04acdfa2b7cf7d44f6924d891b35e
-        blob: 88e8a6f9342268c71479aed65697afcb68b7c92b
-  - id: engine-embeds-ladybugdb
-    name: embeds the LadybugDB database
-    from: query-engine
-    to: ladybugdb
-    evidence:
-      - file: src/adapters/ladybug-engine.ts
-        line: 1
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: cadf34005a6f71b28048db2e32053064bafdec45
-  - id: history-runs-on-bun-sqlite
-    name: keeps its tables through bun:sqlite
-    from: history-store
-    to: bun
-    evidence:
-      - file: src/adapters/sqlite-history.ts
-        line: 1
-        commit: 14f9156817d95351b49401af893d8c96b1138dec
-        blob: 9f325ee97e19a19a20f61553c601514a1430c31a
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: c1ab715e8ef9862772810ab195bd8b82ba37746a
   - id: server-stores-sent
     name: stores sent models in the source's history
     from: server
@@ -269,21 +253,21 @@ relations:
       - file: src/server/http.ts
         line: 238
         endLine: 243
-        commit: 67c492b94fc04acdfa2b7cf7d44f6924d891b35e
-        blob: 251cbd59fa60b3a6683f8f029b4ff212d6175adf
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 8cbd24d5fc50db7ddd07eb3eb2a127ef3c6caba1
       - file: src/server/sources.ts
         line: 404
-        commit: 67c492b94fc04acdfa2b7cf7d44f6924d891b35e
-        blob: 35d63424fd402fc7511c1a2764dfa82aea219a70
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 81c0bffa1ee38a6d9b65f3060d3822c524efa102
   - id: server-answers-from-engine
-    name: answers views from the graph's engine
+    name: answers views from the graph's SQL database
     from: server
     to: query-engine
     evidence:
       - file: src/server/graphs.ts
         line: 26
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 88e8a6f9342268c71479aed65697afcb68b7c92b
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: c1ab715e8ef9862772810ab195bd8b82ba37746a
   - id: server-renders-answers
     name: renders one view per request
     from: server
@@ -291,8 +275,8 @@ relations:
     evidence:
       - file: src/server/http.ts
         line: 31
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 251cbd59fa60b3a6683f8f029b4ff212d6175adf
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 8cbd24d5fc50db7ddd07eb3eb2a127ef3c6caba1
   - id: send-checks-then-posts
     name: sends a passing check's model
     from: send-command
@@ -306,13 +290,13 @@ relations:
       - file: src/send/send-model.ts
         line: 80
         endLine: 84
-        commit: 67c492b94fc04acdfa2b7cf7d44f6924d891b35e
-        blob: efcbc13717dfc88d14cf2ee18ab309b7c65a820e
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 67b8649779fd8ab253e45deb09784765b689615c
       - file: src/server/http.ts
         line: 169
         endLine: 174
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 251cbd59fa60b3a6683f8f029b4ff212d6175adf
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 8cbd24d5fc50db7ddd07eb3eb2a127ef3c6caba1
   - id: send-runs-check
     name: runs the model check first
     from: send-command
@@ -320,8 +304,8 @@ relations:
     evidence:
       - file: src/send/send-model.ts
         line: 10
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: efcbc13717dfc88d14cf2ee18ab309b7c65a820e
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 67b8649779fd8ab253e45deb09784765b689615c
   - id: send-reads-model
     name: reads the model the check read
     from: send-command
@@ -329,8 +313,116 @@ relations:
     evidence:
       - file: src/send/send-model.ts
         line: 11
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: efcbc13717dfc88d14cf2ee18ab309b7c65a820e
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 67b8649779fd8ab253e45deb09784765b689615c
+
+  # Product lifecycle and its served wiki.
+  - id: maintainer-creates-product
+    name: creates or manages a product repository
+    from: maintainer
+    to: product-lifecycle
+    evidence:
+      - file: scripts/madarch.ts
+        line: 1
+        endLine: 10
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 270a971fb552374b18ac64f821aa19c0adf89646
+      - file: src/product/cli.ts
+        line: 28
+        endLine: 38
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: e96eb63cf4ad3bb325d8f3527af54c5f4221230e
+  - id: product-lifecycle-manages-repository
+    name: creates and changes the product repository
+    from: product-lifecycle
+    to: product-repository
+    evidence:
+      - file: src/product/lifecycle.ts
+        line: 90
+        endLine: 109
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 1ba502fa077c63bdc2bf0f68b4bb6e4209acbf9e
+  - id: product-lifecycle-uses-git
+    name: runs Git commands for repository changes
+    from: product-lifecycle
+    to: git
+    evidence:
+      - file: src/product/lifecycle.ts
+        line: 105
+        endLine: 109
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 1ba502fa077c63bdc2bf0f68b4bb6e4209acbf9e
+      - file: src/product/git.ts
+        line: 58
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 472008a9c1bf8b479ae0b3cc5e12073eb10c7ab4
+  - id: product-wiki-reads-repository
+    name: reads the product repository's pages
+    from: product-wiki
+    to: product-repository
+    evidence:
+      - file: src/product-wiki/pages.ts
+        line: 196
+        endLine: 212
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 1158ffa61912da91a888a8c314dfe9f071cf052d
+  - id: server-serves-product-wiki
+    name: serves the product wiki and app
+    from: server
+    to: product-wiki
+    evidence:
+      - file: src/server/http.ts
+        line: 179
+        endLine: 221
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 8cbd24d5fc50db7ddd07eb3eb2a127ef3c6caba1
+      - file: src/server/wiki-app.ts
+        line: 174
+        endLine: 182
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: ea21c87a54e86885b81353e1b7d8a6385c23327e
+  - id: reader-reads-product-wiki
+    name: reads the served product wiki
+    from: reader
+    to: product-wiki
+    evidence:
+      - file: docs/system/capabilities/product-wiki.md
+        line: 6
+        endLine: 10
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: ca3f7af3d3fa4a83e6a1b0a18d4c920d9ffeedc6
+
+  # SQL runtime integrations.
+  - id: history-uses-pglite
+    name: stores histories in embedded PGlite
+    from: history-store
+    to: pglite
+    evidence:
+      - file: src/adapters/pglite-history.ts
+        line: 1
+        endLine: 2
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: e784f564a5cf6c0dcb9105bb1d6db1df2af1fb03
+  - id: query-uses-pglite
+    name: runs the local SQL projection in PGlite
+    from: query-engine
+    to: pglite
+    evidence:
+      - file: src/adapters/pglite-query-database.ts
+        line: 1
+        endLine: 5
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 4ff96c857438c2a551097033589e550a0b40cbd1
+  - id: query-uses-postgres
+    name: runs the server SQL projection in PostgreSQL
+    from: query-engine
+    to: postgres
+    evidence:
+      - file: src/adapters/postgres-query-database.ts
+        line: 1
+        endLine: 5
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: fa67447722ac6877de9b5b203c19713b38af5ed4
 
   # Toolchain.
   - id: tests-cover-format
@@ -341,7 +433,7 @@ relations:
       - file: test/model.test.ts
         line: 1
         endLine: 8
-        commit: 14f9156817d95351b49401af893d8c96b1138dec
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
         blob: 05c4af493ec8d8d648a3eee4d874df02afd567ed
   - id: tests-cover-pipeline
     name: test the check, views, wiki and server
@@ -351,8 +443,8 @@ relations:
       - file: test/model-check.test.ts
         line: 1
         endLine: 6
-        commit: 14f9156817d95351b49401af893d8c96b1138dec
-        blob: e1a87806788dc3d09e6d1053db2bf0b0426b919a
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: a3598cacabc794d235602081b5621ae6b75676b1
   - id: tooling-generates-schemas
     name: publishes the format's JSON Schemas
     from: build-tooling
@@ -361,8 +453,8 @@ relations:
       - file: scripts/generate-schemas.ts
         line: 10
         endLine: 20
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: c08f28271b6c1732625415b8a40152b64d9911a3
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 787c93ba4242eee9fb430567853dc0e0c1f02db7
   - id: reference-feeds-views
     name: holds the views the renderer is checked on
     from: reference-system
@@ -371,8 +463,8 @@ relations:
       - file: scripts/render-views.ts
         line: 25
         endLine: 34
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 046784d9894eb624c378c8d7b307897a26329a2b
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 79fc2ca3248d844d290837252616eefc6f5b32f5
   - id: reference-models-format
     name: exercises the format end to end
     from: reference-system
@@ -381,7 +473,7 @@ relations:
       - file: test/reference-system.test.ts
         line: 1
         endLine: 8
-        commit: 14f9156817d95351b49401af893d8c96b1138dec
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
         blob: d015a8965f24038eaf216008389b840975f4d414
 
   # The wiki's outside tools.
@@ -393,8 +485,8 @@ relations:
       - file: src/wiki/build.ts
         line: 256
         endLine: 258
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 5751ad7a1ccb193f84722bf245513b25ec00ef3a
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 41076fbb5b4741288fd936a40d77f76a01c3c2c5
   - id: wiki-via-uvx
     name: runs Zensical through uvx
     from: wiki
@@ -403,8 +495,8 @@ relations:
       - file: src/wiki/build.ts
         line: 311
         endLine: 314
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 5751ad7a1ccb193f84722bf245513b25ec00ef3a
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 41076fbb5b4741288fd936a40d77f76a01c3c2c5
   - id: wiki-generates-likec4
     name: generates the LikeC4 web component
     from: wiki
@@ -413,8 +505,8 @@ relations:
       - file: src/wiki/build.ts
         line: 320
         endLine: 322
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 5751ad7a1ccb193f84722bf245513b25ec00ef3a
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 41076fbb5b4741288fd936a40d77f76a01c3c2c5
   - id: wiki-runs-archify-on-node
     name: renders archify pages through Node
     from: wiki
@@ -423,8 +515,8 @@ relations:
       - file: src/wiki/build.ts
         line: 250
         endLine: 253
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
-        blob: 5751ad7a1ccb193f84722bf245513b25ec00ef3a
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
+        blob: 41076fbb5b4741288fd936a40d77f76a01c3c2c5
   - id: everything-runs-on-bun
     name: runs on the Bun runtime
     from: madarch
@@ -433,5 +525,5 @@ relations:
       - file: docs/decisions/0008-typescript-on-bun.md
         line: 18
         endLine: 21
-        commit: f556d016491ce8f8abcda8afdc12ed4cb20d4329
+        commit: 52991b993eaeb8e4661a6e1ac7ab117edb23a172
         blob: 2afba184449514c1bb0684497d199910bb4e81e1
