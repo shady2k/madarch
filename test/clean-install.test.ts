@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -36,6 +36,14 @@ describe('clean install platform contracts', () => {
     expect(wrapper).not.toContain('OpenSSL 3');
     expect(wrapper).not.toContain('LD_LIBRARY_PATH');
     expect(wrapperPackage.optionalDependencies['@madarch/win32-x64']).toBe('1.2.3');
+
+    const linuxBin = join(scratch, 'madarch-linux-x64');
+    const linuxOut = join(scratch, 'packages-linux');
+    writeFileSync(linuxBin, 'fixture binary');
+    const linuxMade = run('bun', ['scripts/build-npm-package.ts', '--version', '1.2.3', '--os', 'linux', '--arch', 'x64', '--packages-dir', linuxOut, '--binary', linuxBin]);
+    expect(linuxMade.status).toBe(0);
+    const { mode } = statSync(join(linuxOut, '@madarch-linux-x64', 'bin', 'madarch'));
+    expect(mode & 0o111).toBe(0o111);
   });
 
   test('Windows arm64 is refused by name in both binary and npm package builders', () => {

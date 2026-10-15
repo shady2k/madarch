@@ -17,7 +17,7 @@
  * Exit 0 written, 2 when an argument or the input (the binary) is not
  * there, every refusal naming what is wrong.
  */
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -198,7 +198,9 @@ function main(argv: readonly string[]): number {
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(join(dir, 'bin'), { recursive: true });
   const binaryFile = `madarch${options.os === 'win32' ? '.exe' : ''}`;
-  cpSync(artifact, join(dir, 'bin', binaryFile));
+  const packagedBinary = join(dir, 'bin', binaryFile);
+  cpSync(artifact, packagedBinary);
+  if (options.os !== 'win32') chmodSync(packagedBinary, 0o755);
   writeFileSync(join(dir, 'package.json'), JSON.stringify({
     name: `@madarch/${name}`,
     version: options.version,
