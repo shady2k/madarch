@@ -2,21 +2,26 @@ name: release
 
 # The release build (madarch-lfhu, decision 0021 item (e)): a tag push of
 # `vX.Y.Z` builds one madarch binary per platform (linux and macOS, amd64
-# and arm64), smoke-runs each, checks the wikis, and publishes them to the
-# GitHub release with their SHA256 sums, the npm packages and the Homebrew
-# formula. The run's own steps carry their exit statuses through Actions'
-# check UI; this workflow publishes nothing by itself to npm: the packed
-# tarballs ride the release, and registry publishing needs the owner's
-# npm token (see the publish job's `npm publish` step, skipped when the
-# token is unset).
+# and arm64), smoke-runs each, checks the wikis, prepares the release assets,
+# and creates a GitHub release. A PR or branch push that edits this workflow
+# validates the same read-only build and package preparation; its tag-gated
+# publish job is skipped. This change does not alter release or
+# registry-publishing policy.
 
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/release.yml'
   push:
+    branches:
+      - '**'
+    paths:
+      - '.github/workflows/release.yml'
     tags:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   binary:
@@ -25,7 +30,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runs-on: ubuntu-latest
+          - runs-on: ubuntu-24.04
             os: linux
             arch: x64
           - runs-on: ubuntu-24.04-arm
@@ -34,13 +39,13 @@ jobs:
           - runs-on: macos-15
             os: darwin
             arch: arm64
-          - runs-on: macos-13
+          - runs-on: macos-15-intel
             os: darwin
             arch: x64
     env:
-      VERSION: ${{ github.ref_name }}
+      VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v0.0.0' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
@@ -50,7 +55,11 @@ jobs:
         run: bun install --frozen-lockfile
       - name: check
         run: bun run check
+      # Product CI runs the full suite on Ubuntu x64 for workflow PRs. The PR
+      # release matrix still builds and smoke-tests every target; tag pushes
+      # retain the existing per-target test run.
       - name: test
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         run: MADARCH_SKIP_PERF=1 bun test test/
       # The wiki app is embedded into the binary: its build must be done
       # first, then its files ride with the build script's staging.
@@ -64,6 +73,10 @@ jobs:
       - name: prove the binary (version, list, new, serve)
         env:
           BINARY: ./dist/madarch-${{ matrix.os }}-${{ matrix.arch }}
+          GIT_AUTHOR_NAME: Madarch CI
+          GIT_AUTHOR_EMAIL: madarch-ci@example.invalid
+          GIT_COMMITTER_NAME: Madarch CI
+          GIT_COMMITTER_EMAIL: madarch-ci@example.invalid
         run: |
           tmp=$(mktemp -d)
           "$BINARY" version
@@ -83,7 +96,7 @@ jobs:
           cd dist
           { sha256sum madarch-${{ matrix.os }}-${{ matrix.arch }} || shasum -a 256 madarch-${{ matrix.os }}-${{ matrix.arch }}; } > madarch-${{ matrix.os }}-${{ matrix.arch }}.sha256
           cat madarch-${{ matrix.os }}-${{ matrix.arch }}.sha256
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: madarch-${{ matrix.os }}-${{ matrix.arch }}
           path: |
@@ -91,17 +104,17 @@ jobs:
             dist/madarch-${{ matrix.os }}-${{ matrix.arch }}.sha256
 
 
-  publish:
+  package:
     needs: binary
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
-      VERSION: ${{ github.ref_name }}
+      VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v0.0.0' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
       - name: gather the binaries and their sums
@@ -131,6 +144,25 @@ jobs:
         run: cp scripts/install.sh release/
       - name: the formula of the sums
         run: bun scripts/build-formula.ts --version "${VERSION#v}" --sums-file release/SHA256SUMS.txt --out tap && cp tap/Formula/madarch.rb release/madarch.rb
+      - uses: actions/upload-artifact@v7
+        with:
+          name: madarch-release-assets
+          path: release/
+
+  publish:
+    needs: package
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: madarch-release-assets
+          path: release
       - name: publish the release
         env:
           GH_TOKEN: ${{ github.token }}

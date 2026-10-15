@@ -1,12 +1,12 @@
 name: CI
 
 # The product's checks, once per push of any branch; a pull request from this
-# repository shows its branch's push run, so it is not run twice. A change that
-# touches only documents or the tracker cannot touch the product and runs
-# nothing. CI workflow changes run CI to exercise the changed workflow.
-# (see .shady2k/integration.md, "CI"). The product-documents check is separate
-# and runs on every push (documents.yml). Unfinished work skips a run with
-# [skip ci] in the pushed commit's message.
+# repository shows its branch's push run, so it is not run twice. Changes limited
+# to documents, tracker data or local hook tooling cannot touch the product and
+# are ignored here; see .shady2k/integration.md, "CI". Workflow changes are not
+# ignored: CI validates changes to its own actions and runner images. The
+# product-documents check is separate and runs on every push (documents.yml).
+# Unfinished work skips a run with [skip ci] in the pushed commit's message.
 on:
   push:
     paths-ignore:
@@ -19,13 +19,13 @@ on:
 jobs:
   test-shard:
     name: test shard ${{ matrix.shard }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4, 5]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
@@ -49,7 +49,7 @@ jobs:
           retention-days: 1
 
   checks:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: pgvector/pgvector:0.8.7-pg17
@@ -65,7 +65,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
@@ -87,9 +87,9 @@ jobs:
   test:
     if: always()
     needs: [test-shard, checks]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
         with:
           pattern: test-files-*
