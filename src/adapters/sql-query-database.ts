@@ -18,6 +18,7 @@ import type {
   ViewResult,
 } from '../query/types.js';
 import type { SqlExecutor, SqlQueryDriver } from '../query/sql-driver.js';
+import { createSqlVectorIndex, EXPECTED_PGVECTOR_VERSION, VECTOR_SCHEMA } from './sql-vector-index.js';
 
 const MAX_HOPS_CEILING = 30;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -69,6 +70,7 @@ const SCHEMA = [
   )`,
   `CREATE INDEX IF NOT EXISTS query_states_source_time ON query_states
     (source, valid_from, valid_to, recorded_from, recorded_to)`,
+  ...VECTOR_SCHEMA,
 ] as const;
 
 export interface SqlQueryDatabaseOptions {
@@ -321,6 +323,13 @@ export async function createSqlQueryDatabase(driver: SqlQueryDriver, options: Sq
   try {
     await driver.transaction('write', async (executor) => {
       for (const statement of SCHEMA) await executor.query(statement);
+      const installedVector = await executor.query<{ extversion: string }>(
+        `SELECT extversion FROM pg_extension WHERE extname = 'vector'`,
+      );
+      if (installedVector.rows.length !== 1 || installedVector.rows[0]!.extversion !== EXPECTED_PGVECTOR_VERSION) {
+        const found = installedVector.rows[0]?.extversion ?? 'not installed';
+        throw new Error(`the SQL query database requires pgvector ${EXPECTED_PGVECTOR_VERSION}; found ${found}`);
+      }
     });
   } catch (error) {
     await driver.close().catch(() => {});
@@ -335,6 +344,11 @@ export async function createSqlQueryDatabase(driver: SqlQueryDriver, options: Sq
   let ownerClosed = false;
   let ownerClosePromise: Promise<void> | undefined;
   const scopes = new Set<{ ownerClosed(): void }>();
+
+  function registerScope(scope: { ownerClosed(): void }): () => void {
+    scopes.add(scope);
+    return () => scopes.delete(scope);
+  }
 
   function ensureOutsideSnapshot(): void {
     if (snapshotContext.getStore() === ownerToken) {
@@ -716,6 +730,13 @@ export async function createSqlQueryDatabase(driver: SqlQueryDriver, options: Sq
 
   const database: AsyncQueryDatabase = {
     forSources: (sources) => makeEngine(sources),
+    vectorIndexForSources: (sources) => createSqlVectorIndex({
+      driver,
+      gate,
+      ensureOwnerOpen,
+      ensureOutsideSnapshot,
+      registerScope,
+    }, sources),
     close: () => {
       try {
         ensureOutsideSnapshot();

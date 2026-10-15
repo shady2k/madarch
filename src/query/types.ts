@@ -8,6 +8,7 @@
  * `opened`/`closed`).
  */
 import type { AssertionChange, AssertionRecord } from '../history/types.js';
+import type { AsyncVectorIndex } from '../vector/types.js';
 
 /**
  * The time and state every query answers for: both time axes, defaulting
@@ -171,6 +172,8 @@ export interface AsyncQueryEngine extends QuerySnapshot {
 export interface AsyncQueryDatabase {
   /** Creates a query engine restricted to the given source set. */
   forSources(sources: readonly string[]): AsyncQueryEngine;
+  /** Creates an exact vector index restricted to the given source set. */
+  vectorIndexForSources(sources: readonly string[]): AsyncVectorIndex;
   /** Rejects new scopes, drains active work and closes the shared database resources once. */
   close(): Promise<void>;
 }
