@@ -202,14 +202,18 @@ describe('POST /views of the reference system', () => {
     await start();
     expect((await sendReference()).status).toBe(201);
 
+    const workspaces: string[] = [];
     for (const request of [{ source: REFERENCE_SOURCE, format: 'likec4' }, { source: REFERENCE_SOURCE, element: 'ordering', format: 'likec4' }]) {
       const response = await post('/views', request);
       expect(response.status).toBe(200);
       expect(response.headers.get('content-type')).toBe('text/plain; charset=utf-8');
       const workspace = await response.text();
       expect(workspace).toContain('views {');
-      expect(validate(workspace).errors).toEqual([]);
+      workspaces.push(workspace);
     }
+    await server?.stop();
+    server = undefined;
+    for (const workspace of workspaces) expect(validate(workspace).errors).toEqual([]);
   }, 15_000);
 
   test('the same request twice, and after a restart on the same data folder, gives byte-identical text', async () => {
@@ -342,7 +346,12 @@ describe('POST /views names the relations LikeC4 cannot draw', () => {
     }
   }
 
-  test('the answer opens with one comment line per not-drawn relation, in code point order of relation id, and still validates', async () => {
+  /** The exact LikeC4 text the server's one-view result should contain, including explanatory comment lines. */
+  function expectedLikeC4Answer(rendered: LikeC4Result): string {
+    return [...rendered.notDrawn!.map((relation) => `// not drawn: ${relation.message}`), rendered.workspace!].join('\n');
+  }
+
+  test('the answer opens with one comment line per not-drawn relation, in code point order of relation id', async () => {
     await start();
     const model = notDrawnModel();
     expect((await post('/models', { source: 'not-drawn', commit: 'c1', committedAt: '2026-09-02T00:00:00Z', model })).status).toBe(201);
@@ -350,6 +359,8 @@ describe('POST /views names the relations LikeC4 cannot draw', () => {
     const response = await post('/views', { source: 'not-drawn', format: 'likec4' });
     expect(response.status).toBe(200);
     const answer = await response.text();
+    await server?.stop();
+    server = undefined;
 
     // The fixture's own relations in code point order of id, read off the model, not off the renderer.
     const expected = await renderExpected(model, DAY(2));
@@ -360,7 +371,12 @@ describe('POST /views names the relations LikeC4 cannot draw', () => {
       expect(lines[index]).toBe(`// not drawn: ${relation.message}`);
     }
     expect(lines.slice(expected.notDrawn!.length).join('\n')).toBe(expected.workspace!);
-    expect(validate(answer).errors).toEqual([]);
+    expect(answer).toBe(expectedLikeC4Answer(expected));
+  });
+
+  test('the full not-drawn answer passes likec4 validate without a running server', async () => {
+    const expected = await renderExpected(notDrawnModel(), DAY(2));
+    expect(validate(expectedLikeC4Answer(expected)).errors).toEqual([]);
   });
 
   test('a model with no relation LikeC4 cannot draw is answered unchanged: the workspace alone, no comment line', async () => {

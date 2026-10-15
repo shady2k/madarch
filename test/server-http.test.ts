@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import type { AsyncQueryDatabase } from '../src/query/types.js';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -80,18 +81,30 @@ async function startLocalServer(options: Omit<Parameters<typeof startServer>[0],
   return startServer({ ...options, queryDatabase: await createPGliteQueryDatabase({ clock: options.clock }) });
 }
 
+/** A history-only query owner that fails if a source-history test accidentally starts a graph query. */
+function historyOnlyQueryDatabase(): AsyncQueryDatabase {
+  return {
+    forSources: () => { throw new Error('history-only server test unexpectedly opened a graph query'); },
+    vectorIndexForSources: () => { throw new Error('history-only server test unexpectedly opened a vector index'); },
+    close: async () => {},
+  };
+}
+
 /** A server on a free port over a scratch folder, with a held clock and captured logs; returns its base URL. */
-async function start(): Promise<string> {
+async function start(queryDatabase?: AsyncQueryDatabase): Promise<string> {
   folder = mkdtempSync(join(tmpdir(), 'madarch-server-http-'));
   lines = [];
   errors = [];
-  server = await startLocalServer({
+  const options = {
     dataFolder: folder,
     port: 0,
     clock: { now: () => clockNow.value },
-    log: (line) => lines.push(line),
-    errorLog: (line) => errors.push(line),
-  });
+    log: (line: string) => lines.push(line),
+    errorLog: (line: string) => errors.push(line),
+  };
+  server = queryDatabase === undefined
+    ? await startLocalServer(options)
+    : await startServer({ ...options, queryDatabase });
   return server.url;
 }
 
@@ -644,7 +657,7 @@ describe('POST /sources — the rename claim', () => {
   });
 
   test('the rename survives a restart: the new name and the id stay, the old name stays retired', async () => {
-    await start();
+    await start(historyOnlyQueryDatabase());
     await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
     const { id } = (await sourcesOf(await fetch(`${server!.url}/sources`)))[0]!;
     expect((await post('/sources', { id, source: 'moved' })).status).toBe(200);
@@ -652,12 +665,13 @@ describe('POST /sources — the rename claim', () => {
     await server?.stop();
     server = undefined;
 
-    server = await startLocalServer({
+    server = await startServer({
       dataFolder: folder!,
       port,
       clock: { now: () => clockNow.value },
       log: (line) => lines.push(line),
       errorLog: (line) => errors.push(line),
+      queryDatabase: historyOnlyQueryDatabase(),
     });
 
     expect(await sourcesOf(await fetch(`${server!.url}/sources`))).toEqual([
@@ -843,7 +857,7 @@ describe('the log', () => {
 
 describe('a failing history read', () => {
   test('answers 500 and reaches the error log with its cause', async () => {
-    await start();
+    await start(historyOnlyQueryDatabase());
     await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
 
     // A row written outside the store: the read's clash safety net
@@ -859,7 +873,7 @@ describe('a failing history read', () => {
       [JSON.stringify({ id: 'a', kind: 'service', ancestors: [], zones: [], zonesByEnvironment: {}, environments: ['*'], states: ['as-is'], technology: 'injected' }), DAY(1), DAY(1)],
     );
     await raw.close();
-    server = await startLocalServer({ dataFolder, port: 0, clock: { now: () => clockNow.value }, log: (line) => lines.push(line), errorLog: (line) => errors.push(line) });
+    server = await startServer({ dataFolder, port: 0, clock: { now: () => clockNow.value }, log: (line) => lines.push(line), errorLog: (line) => errors.push(line), queryDatabase: historyOnlyQueryDatabase() });
 
     errors = [];
     const response = await post('/views', { source: 'shop', format: 'mermaid' });
