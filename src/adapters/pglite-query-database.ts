@@ -1,4 +1,5 @@
 import { PGlite, type Transaction } from '@electric-sql/pglite';
+import { vector } from '@electric-sql/pglite-pgvector';
 import type { Clock } from '../history/types.js';
 import type { AsyncQueryDatabase } from '../query/types.js';
 import type { SqlExecutor, SqlQueryDriver, SqlTransactionKind } from '../query/sql-driver.js';
@@ -53,7 +54,9 @@ class PGliteQueryDriver implements SqlQueryDriver {
 
 /** Opens one PGlite query database. Graph-scoped engines borrow this owner and never close its connection. */
 export async function createPGliteQueryDatabase(options: PGliteQueryDatabaseOptions = {}): Promise<AsyncQueryDatabase> {
-  const database = new PGlite(options.path);
+  const database = options.path === undefined
+    ? new PGlite({ extensions: { vector } })
+    : new PGlite(options.path, { extensions: { vector } });
   const driver = new PGliteQueryDriver(database);
   try {
     await database.waitReady;

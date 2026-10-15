@@ -76,6 +76,7 @@ export {
   type SharedEntity,
 } from './history/assertions.js';
 export { createPGliteHistory, type PGliteHistoryOptions } from './adapters/pglite-history.js';
+export type { AsyncVectorIndex, VectorDistanceMetric, VectorMatch, VectorRecord, VectorSearchInput } from './vector/types.js';
 export type {
   ChildrenResult,
   DependenciesInput,

@@ -115,3 +115,72 @@ test.skipIf(connectionString === undefined)(
   },
   30_000,
 );
+
+test.skipIf(connectionString === undefined)(
+  'PostgreSQL 17 pgvector is pinned and answers caller-supplied vector searches',
+  async () => {
+    const database = await createPostgresQueryDatabase({ connectionString: connectionString!, max: 4 });
+    const { Pool } = await import('pg');
+    const pool = new Pool({ connectionString: connectionString!, max: 1 });
+    const source = `vector-${crypto.randomUUID()}`;
+    const space = `vector-space-${crypto.randomUUID()}`;
+    const index = database.vectorIndexForSources([source]);
+    try {
+      const extension = await pool.query<{ extversion: string }>(
+        `SELECT extversion FROM pg_extension WHERE extname = 'vector'`,
+      );
+      expect(extension.rows).toEqual([{ extversion: '0.8.7' }]);
+      await index.rebuild([source], [
+        { source, space, itemId: 'nearest', vector: [1, 0] },
+        { source, space, itemId: 'other', vector: [0, 1] },
+      ]);
+      expect(await index.search({ space, vector: [0, 0], metric: 'l2', limit: 2 })).toEqual([
+        { source, itemId: 'nearest', distance: 1 },
+        { source, itemId: 'other', distance: 1 },
+      ]);
+      expect(await index.search({ space, vector: [1, 0], metric: 'cosine', limit: 2 })).toEqual([
+        { source, itemId: 'nearest', distance: 0 },
+        { source, itemId: 'other', distance: 1 },
+      ]);
+      expect(await index.search({ space, vector: [1, 2], metric: 'innerProduct', limit: 2 })).toEqual([
+        { source, itemId: 'other', distance: -2 },
+        { source, itemId: 'nearest', distance: -1 },
+      ]);
+
+      await index.rebuild([source], [{ source, space, itemId: 'kept', vector: [0, 1] }]);
+      const suffix = crypto.randomUUID().replaceAll('-', '_');
+      const functionName = `madarch_vector_fail_${suffix}`;
+      const triggerName = `madarch_vector_fail_${suffix}`;
+      let functionCreated = false;
+      let triggerCreated = false;
+      try {
+        await pool.query(`CREATE FUNCTION ${functionName}() RETURNS trigger LANGUAGE plpgsql AS $body$
+          BEGIN
+            IF NEW.item_id = 'force_failure' THEN RAISE EXCEPTION 'forced vector insert failure'; END IF;
+            RETURN NEW;
+          END
+        $body$`);
+        functionCreated = true;
+        await pool.query(`CREATE TRIGGER ${triggerName} BEFORE INSERT ON vector_items FOR EACH ROW EXECUTE FUNCTION ${functionName}()`);
+        triggerCreated = true;
+        await expect(index.rebuild([source], [{ source, space, itemId: 'force_failure', vector: [1, 0] }]))
+          .rejects.toThrow(/forced vector insert failure/);
+        expect(await index.search({ space, vector: [0, 1], metric: 'l2', limit: 1 })).toEqual([
+          { source, itemId: 'kept', distance: 0 },
+        ]);
+      } finally {
+        try {
+          if (triggerCreated) await pool.query(`DROP TRIGGER IF EXISTS ${triggerName} ON vector_items`);
+        } finally {
+          if (functionCreated) await pool.query(`DROP FUNCTION IF EXISTS ${functionName}()`);
+        }
+      }
+    } finally {
+      await index.rebuild([source], []).catch(() => {});
+      await index.close();
+      await database.close();
+      await pool.end();
+    }
+  },
+  30_000,
+);
