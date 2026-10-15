@@ -54,36 +54,36 @@ describe('the contract of a product repository kinds registry', () => {
     expect(read.stages.find((stage) => stage.id === 'idea')?.labels).toEqual({ en: 'Idea', ru: 'Идея' });
     expect(read.contract).toBe(1);
     expect(read.kinds).toHaveLength(7);
-    const p = read.kinds.find((k) => k.prefix === 'FR');
+    const p = read.kinds.find((k) => k.prefix === 'CAP');
     expect(p).toMatchObject({
-      name: 'product requirement',
-      folder: 'docs/requirements',
+      name: 'capability',
+      folder: 'docs/capabilities',
       stage: 'requirements',
-      labels: { en: 'Product requirement', ru: 'Требование к продукту' },
+      labels: { en: 'Capability', ru: 'Способность' },
     });
     expect(typeof p!.hint).toBe('string');
     expect(p!.hint.trim().length).toBeGreaterThan(0);
     // The owner's example, declared as data (the refinement of 2026-10-12):
-    // a user story serves a use case and grew from a source or a
-    // hypothesis, with the backlink the target's page shows.
-    const us = read.kinds.find((k) => k.prefix === 'US');
-    expect(us).toMatchObject({ name: 'user story', stage: 'requirements' });
+    // a work item relates to a scenario and derives from an observation or a
+    // proposal, with the backlink the target's page shows.
+    const us = read.kinds.find((k) => k.prefix === 'WI');
+    expect(us).toMatchObject({ name: 'work item', stage: 'requirements' });
     expect(us!.statuses).toEqual(['draft', 'ready']);
     expect(us!.links).toEqual([
-      { field: 'Grew from', targets: ['source', 'hypothesis'], backlink: 'Grew into', cardinality: 'many', required: false },
-      { field: 'Serves', targets: ['use case'], backlink: 'Served by', cardinality: 'one', required: true },
+      { field: 'Derived from', targets: ['observation', 'proposal'], backlink: 'Derived into', cardinality: 'many', required: false },
+      { field: 'Relates to', targets: ['scenario'], backlink: 'Related from', cardinality: 'one', required: true },
     ]);
     // The 0021 amendment's reservations, kept as data the example carries:
     // the fact storage form with its evidence shape, and the goals section
     // the engine names instead of dropping.
-    const ci = read.kinds.find((k) => k.prefix === 'CI');
-    expect(ci).toMatchObject({ name: 'configuration item', storage: 'fact', evidence: { source: 'Source', ref: 'Ref', record: 'Record' } });
+    const ci = read.kinds.find((k) => k.prefix === 'AST');
+    expect(ci).toMatchObject({ name: 'asset', storage: 'fact', evidence: { source: 'Origin', ref: 'Revision', record: 'Entry' } });
     expect(read.reservations.map((r) => r.path)).toEqual(['kinds[6].storage', 'kinds[6].evidence', 'goals']);
     expect(read.reservations.map((r) => r.line)).toEqual([147, 148, 156]);
     expect(read.reservations[2]!.message).toContain('reserved goals section');
     expect(read.goals).toEqual([
-      { name: 'grounded', perspective: 'business', rules: ['every use case links a user story', 'every product requirement serves a use case or a user story'] },
-      { name: 'true-to-the-systems', perspective: 'ops', rules: ['every imported fact names its source system and record'] },
+      { name: 'grounded', perspective: 'business', rules: ['every scenario links a work item', 'every capability serves a scenario or a work item'] },
+      { name: 'true-to-the-systems', perspective: 'ops', rules: ['every imported fact names its origin system and record'] },
     ]);
   });
 

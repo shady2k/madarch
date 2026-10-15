@@ -29,126 +29,126 @@ stages:
       en: Operate
       ru: Эксплуатация
 kinds:
-  - name: source
+  - name: observation
     labels:
-      en: Source
-      ru: Источник
-    prefix: S
-    folder: docs/sources
+      en: Observation
+      ru: Наблюдение
+    prefix: OBS
+    folder: docs/observations
     stage: idea
-    hint: have the first conversation with a customer, write it down
+    hint: capture an observation for later use
     statuses:
       - draft
       - heard
-  - name: hypothesis
+  - name: proposal
     labels:
-      en: Hypothesis
-      ru: Гипотеза
-    prefix: H
-    folder: docs/hypotheses
+      en: Proposal
+      ru: Предложение
+    prefix: PRP
+    folder: docs/proposals
     stage: idea
-    hint: turn a source into one checkable sentence
+    hint: turn an observation into one checkable sentence
     statuses:
       - draft
       - confirmed
       - refuted
       - unclear
     links:
-      - field: Grew from
+      - field: Derived from
         targets:
-          - source
-        backlink: Grew into
+          - observation
+        backlink: Derived into
         cardinality: one
         required: true
-  - name: user story
+  - name: work item
     labels:
-      en: User story
-      ru: Пользовательская история
-    prefix: US
-    folder: docs/stories
+      en: Work item
+      ru: Рабочий элемент
+    prefix: WI
+    folder: docs/work-items
     stage: requirements
-    hint: write one user's step in the product's words
+    hint: describe one person's interaction with the system
     statuses:
       - draft
       - ready
     links:
-      - field: Grew from
+      - field: Derived from
         targets:
-          - source
-          - hypothesis
-        backlink: Grew into
+          - observation
+          - proposal
+        backlink: Derived into
         cardinality: many
         required: false
-      - field: Serves
+      - field: Relates to
         targets:
-          - use case
-        backlink: Served by
+          - scenario
+        backlink: Related from
         cardinality: one
         required: true
-  - name: use case
+  - name: scenario
     labels:
-      en: Use case
-      ru: Сценарий использования
-    prefix: UC
-    folder: docs/use-cases
+      en: Scenario
+      ru: Сценарий
+    prefix: SCN
+    folder: docs/scenarios
     stage: design
-    hint: walk one story through the product
+    hint: walk one work item through the product
     statuses:
       - draft
       - ready
     links:
-      - field: Serves
+      - field: Relates to
         targets:
-          - user story
-        backlink: Served by
+          - work item
+        backlink: Related from
         cardinality: many
         required: false
-  - name: product requirement
+  - name: capability
     labels:
-      en: Product requirement
-      ru: Требование к продукту
-    prefix: FR
-    folder: docs/requirements
+      en: Capability
+      ru: Способность
+    prefix: CAP
+    folder: docs/capabilities
     stage: requirements
-    hint: write what the product does, one requirement at a time
+    hint: describe one system capability
     statuses:
       - draft
       - ready
     links:
-      - field: Serves
+      - field: Relates to
         targets:
-          - use case
-          - user story
-        backlink: Served by
+          - scenario
+          - work item
+        backlink: Related from
         cardinality: many
         required: false
-  - name: decision
+  - name: choice
     labels:
-      en: Decision
-      ru: Решение
-    prefix: D
-    folder: docs/decisions
+      en: Choice
+      ru: Выбор
+    prefix: CH
+    folder: docs/choices
     stage: design
     hint: record the choice between the options on the table
     statuses:
       - proposed
       - accepted
       - superseded
-  - name: configuration item
+  - name: asset
     labels:
-      en: Configuration item
-      ru: Элемент конфигурации
-    prefix: CI
-    folder: docs/configuration
+      en: Asset
+      ru: Объект
+    prefix: AST
+    folder: docs/assets
     stage: operate
-    hint: keep what the system already holds, read and read again
+    hint: reference an asset maintained by an external system
     # The reserved fact storage form (the 0021 amendment): the record's truth
     # stays with the system it was imported from, read-only in the wiki.
     storage: fact
     evidence:
-      source: Source
-      ref: Ref
-      record: Record
+      source: Origin
+      ref: Revision
+      record: Entry
 
 # The reserved goals section (the 0021 amendment, 2026-10-12): the shape's
 # place, one level per perspective; this engine version keeps the section as
@@ -157,9 +157,9 @@ goals:
   - name: grounded
     perspective: business
     rules:
-      - every use case links a user story
-      - every product requirement serves a use case or a user story
+      - every scenario links a work item
+      - every capability serves a scenario or a work item
   - name: true-to-the-systems
     perspective: ops
     rules:
-      - every imported fact names its source system and record
+      - every imported fact names its origin system and record

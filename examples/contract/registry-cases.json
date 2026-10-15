@@ -1,9 +1,9 @@
 {
-  "about": "The kinds registry's own cases: the file the contract examples run through parseContractText, with every refusal and the line it was raised, in the set's fixture-cases style.",
+  "about": "The registry cases for madarch’s contract reader. Each case keeps the complete registry text and, for a refusal, the expected line and message. Kinds, prefixes, and link field names in these examples are neutral and are not the skill set’s vocabulary.",
   "cases": [
     {
       "name": "the set-out stages and kinds",
-      "text": "contract: 1\nstages:\n  - id: idea\n  - id: requirements\n  - id: design\n  - id: build\n  - id: verify\n  - id: release\n  - id: operate\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: have the first conversation with a customer, write it down\n  - name: hypothesis\n    prefix: H\n    folder: docs/hypotheses\n    stage: idea\n    hint: turn a source into one checkable sentence\n  - name: product requirement\n    prefix: FR\n    folder: docs/requirements\n    stage: requirements\n    hint: write what the product does, one requirement at a time\n  - name: decision\n    prefix: D\n    folder: docs/decisions\n    stage: design\n    hint: record the choice between the options on the table\n"
+      "text": "contract: 1\nstages:\n  - id: discovery\n  - id: planning\n  - id: design\n  - id: delivery\n  - id: validation\n  - id: release\n  - id: operations\nkinds:\n  - name: record\n    prefix: REC\n    folder: docs/records\n    stage: discovery\n    hint: capture an observation for later use\n  - name: proposal\n    prefix: PROP\n    folder: docs/proposals\n    stage: planning\n    hint: describe a possible change\n  - name: capability\n    prefix: CAP\n    folder: docs/capabilities\n    stage: design\n    hint: describe a system ability\n  - name: outcome\n    prefix: OUT\n    folder: docs/outcomes\n    stage: validation\n    hint: record a measured result\n"
     },
     {
       "name": "nothing registered yet",
@@ -38,49 +38,49 @@
     },
     {
       "name": "kind-without-a-name",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - prefix: OBS\n    folder: docs/observations\n    stage: idea\n    hint: talk to a customer\n",
       "line": 5,
       "message": "",
       "path": "kinds[0]"
     },
     {
       "name": "prefix-lowercase",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: s\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: observation\n    prefix: r\n    folder: docs/observations\n    stage: idea\n    hint: talk to a customer\n",
       "line": 6,
       "message": "is not an id prefix",
       "path": "kinds[0].prefix"
     },
     {
       "name": "prefix-named-twice",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n  - name: second\n    prefix: S\n    folder: docs/other\n    stage: idea\n    hint: another\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: observation\n    prefix: OBS\n    folder: docs/observations\n    stage: idea\n    hint: talk to a customer\n  - name: second\n    prefix: OBS\n    folder: docs/other\n    stage: idea\n    hint: another\n",
       "line": 11,
-      "message": "the id prefix \"S\" is named twice, first on line 6: each kind is given one prefix",
+      "message": "the id prefix \"OBS\" is named twice, first on line 6: each kind is given one prefix",
       "path": "kinds[1].prefix"
     },
     {
       "name": "folder-outside-docs",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: sources\n    stage: idea\n    hint: talk to a customer\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: observation\n    prefix: OBS\n    folder: observations\n    stage: idea\n    hint: talk to a customer\n",
       "line": 7,
       "message": "not a place under the documents",
       "path": "kinds[0].folder"
     },
     {
       "name": "folder-absolute",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: /etc/sources\n    stage: idea\n    hint: talk to a customer\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: observation\n    prefix: OBS\n    folder: /etc/observations\n    stage: idea\n    hint: talk to a customer\n",
       "line": 7,
       "message": "not a place under the documents",
       "path": "kinds[0].folder"
     },
     {
       "name": "stage-unknown",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: build\n    hint: talk to a customer\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: observation\n    prefix: OBS\n    folder: docs/observations\n    stage: build\n    hint: talk to a customer\n",
       "line": 8,
       "message": "is not a stage of the list",
       "path": "kinds[0].stage"
     },
     {
       "name": "hint-empty",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: \"\"\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: observation\n    prefix: OBS\n    folder: docs/observations\n    stage: idea\n    hint: \"\"\n",
       "line": 9,
       "message": "must not have fewer than 1 characters",
       "path": "kinds[0].hint"
@@ -121,28 +121,28 @@
     },
     {
       "name": "kind-name-with-a-digit",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: 2source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: 2observation\n    prefix: OBS\n    folder: docs/observations\n    stage: idea\n    hint: talk to a customer\n",
       "line": 5,
       "message": "must match pattern",
       "path": "kinds[0].name"
     },
     {
       "name": "prefix-too-long",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: ABCDE\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: observation\n    prefix: ABCDE\n    folder: docs/observations\n    stage: idea\n    hint: talk to a customer\n",
       "line": 6,
       "message": "is not an id prefix",
       "path": "kinds[0].prefix"
     },
     {
       "name": "prefix-with-a-digit",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: A1\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: observation\n    prefix: A1\n    folder: docs/observations\n    stage: idea\n    hint: talk to a customer\n",
       "line": 6,
       "message": "is not an id prefix",
       "path": "kinds[0].prefix"
     },
     {
       "name": "hint-only-spaces",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: \"   \"\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: observation\n    prefix: OBS\n    folder: docs/observations\n    stage: idea\n    hint: \"   \"\n",
       "line": 9,
       "message": "the hint is empty",
       "path": "kinds[0].hint"
@@ -156,14 +156,14 @@
     },
     {
       "name": "prefix-named-third",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: a\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n  - name: b\n    prefix: S\n    folder: docs/other\n    stage: idea\n    hint: two\n  - name: c\n    prefix: S\n    folder: docs/more\n    stage: idea\n    hint: three\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: a\n    prefix: OBS\n    folder: docs/observations\n    stage: idea\n    hint: one\n  - name: b\n    prefix: OBS\n    folder: docs/other\n    stage: idea\n    hint: two\n  - name: c\n    prefix: OBS\n    folder: docs/more\n    stage: idea\n    hint: three\n",
       "line": 11,
       "path": "kinds[1].prefix",
-      "message": "the id prefix \"S\" is named twice, first on line 6: each kind is given one prefix"
+      "message": "the id prefix \"OBS\" is named twice, first on line 6: each kind is given one prefix"
     },
     {
       "name": "folder-escapes-docs",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/../../outside\n    stage: idea\n    hint: talk to a customer\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: observation\n    prefix: OBS\n    folder: docs/../../outside\n    stage: idea\n    hint: talk to a customer\n",
       "line": 7,
       "path": "kinds[0].folder",
       "message": "climbs out of the documents"
@@ -198,112 +198,112 @@
     },
     {
       "name": "statuses-with-links-read",
-      "text": "contract: 1\nstages:\n  - id: idea\n  - id: requirements\n  - id: design\nkinds:\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: requirements\n    hint: write one user's step in the product's words\n    statuses:\n      - draft\n      - ready\n    links:\n      - field: Serves\n        targets:\n          - use case\n        backlink: Served by\n        cardinality: many\n        required: true\n  - name: use case\n    prefix: UC\n    folder: docs/use-cases\n    stage: design\n    hint: walk one story through the product\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: have the first conversation with a customer, write it down\n"
+      "text": "contract: 1\nstages:\n  - id: idea\n  - id: requirements\n  - id: design\nkinds:\n  - name: work item\n    prefix: WI\n    folder: docs/stories\n    stage: requirements\n    hint: write one user's step in the product's words\n    statuses:\n      - draft\n      - ready\n    links:\n      - field: Relates to\n        targets:\n          - scenario\n        backlink: Related from\n        cardinality: many\n        required: true\n  - name: scenario\n    prefix: SC\n    folder: docs/use-cases\n    stage: design\n    hint: walk one story through the product\n  - name: observation\n    prefix: OBS\n    folder: docs/observations\n    stage: idea\n    hint: have the first conversation with a customer, write it down\n"
     },
     {
       "name": "statuses-named-twice",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n    statuses:\n      - draft\n      - draft\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: observation\n    prefix: OBS\n    folder: docs/observations\n    stage: idea\n    hint: talk to a customer\n    statuses:\n      - draft\n      - draft\n",
       "line": 12,
       "message": "the status \"draft\" is named twice: each allowed status is given once",
       "path": "kinds[0].statuses[1]"
     },
     {
       "name": "statuses-not-a-list",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n    statuses: draft\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: observation\n    prefix: OBS\n    folder: docs/observations\n    stage: idea\n    hint: talk to a customer\n    statuses: draft\n",
       "line": 10,
       "message": "must be array",
       "path": "kinds[0].statuses"
     },
     {
       "name": "statuses-empty",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n    statuses: []\n"
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: observation\n    prefix: OBS\n    folder: docs/observations\n    stage: idea\n    hint: talk to a customer\n    statuses: []\n"
     },
     {
       "name": "link-target-unknown",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - source\n          - hypothesis\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: work item\n    prefix: WI\n    folder: docs/stories\n    stage: idea\n    hint: one\n    links:\n      - field: Derived from\n        targets:\n          - observation\n          - proposal\n",
       "line": 13,
-      "message": "\"source\" names no kind of the registry: a link goes to a kind the registry declares",
+      "message": "\"observation\" names no kind of the registry: a link goes to a kind the registry declares",
       "path": "kinds[0].links[0].targets[0]"
     },
     {
       "name": "link-target-second-unknown",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: idea\n    hint: two\n    links:\n      - field: Grew from\n        targets:\n          - source\n          - hypothesis\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: observation\n    prefix: OBS\n    folder: docs/observations\n    stage: idea\n    hint: one\n  - name: work item\n    prefix: WI\n    folder: docs/stories\n    stage: idea\n    hint: two\n    links:\n      - field: Derived from\n        targets:\n          - observation\n          - proposal\n",
       "line": 19,
-      "message": "\"hypothesis\" names no kind of the registry: a link goes to a kind the registry declares",
+      "message": "\"proposal\" names no kind of the registry: a link goes to a kind the registry declares",
       "path": "kinds[1].links[0].targets[1]"
     },
     {
       "name": "link-target-names-declared-after",
-      "text": "contract: 1\nstages:\n  - id: idea\n  - id: design\nkinds:\n  - name: use case\n    prefix: UC\n    folder: docs/use-cases\n    stage: design\n    hint: one\n    links:\n      - field: Serves\n        targets:\n          - user story\n        backlink: Served by\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: idea\n    hint: two\n"
+      "text": "contract: 1\nstages:\n  - id: idea\n  - id: design\nkinds:\n  - name: scenario\n    prefix: SC\n    folder: docs/use-cases\n    stage: design\n    hint: one\n    links:\n      - field: Relates to\n        targets:\n          - work item\n        backlink: Related from\n  - name: work item\n    prefix: WI\n    folder: docs/stories\n    stage: idea\n    hint: two\n"
     },
     {
       "name": "link-field-named-twice",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - source\n      - field: Grew from\n        targets:\n          - hypothesis\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: work item\n    prefix: WI\n    folder: docs/stories\n    stage: idea\n    hint: one\n    links:\n      - field: Derived from\n        targets:\n          - observation\n      - field: Derived from\n        targets:\n          - proposal\n",
       "line": 13,
-      "message": "\"source\" names no kind of the registry: a link goes to a kind the registry declares",
+      "message": "\"observation\" names no kind of the registry: a link goes to a kind the registry declares",
       "path": "kinds[0].links[0].targets[0]"
     },
     {
       "name": "a-link-field-never-carries-a-generic-name",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Links\n        targets:\n          - source\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: observation\n    prefix: OBS\n    folder: docs/observations\n    stage: idea\n    hint: one\n    links:\n      - field: Links\n        targets:\n          - observation\n",
       "line": 11,
       "path": "kinds[0].links[0].field",
       "message": "\"Links\" is one of the generic fields madarch reads itself (id, kind, status, links): a kind declares one link a field of its own, never one of these"
     },
     {
       "name": "link-cardinality-unknown-word",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - source\n        cardinality: some\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: observation\n    prefix: OBS\n    folder: docs/observations\n    stage: idea\n    hint: one\n    links:\n      - field: Derived from\n        targets:\n          - observation\n        cardinality: some\n",
       "line": 14,
       "message": "must be equal to constant",
       "path": "kinds[0].links[0].cardinality"
     },
     {
       "name": "link-required-not-boolean",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - source\n        required: yes\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: observation\n    prefix: OBS\n    folder: docs/observations\n    stage: idea\n    hint: one\n    links:\n      - field: Derived from\n        targets:\n          - observation\n        required: yes\n",
       "line": 14,
       "message": "must be boolean",
       "path": "kinds[0].links[0].required"
     },
     {
       "name": "link-field-empty",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: \"\"\n        targets:\n          - source\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: observation\n    prefix: OBS\n    folder: docs/observations\n    stage: idea\n    hint: one\n    links:\n      - field: \"\"\n        targets:\n          - observation\n",
       "line": 11,
       "message": "must not have fewer than 1 characters",
       "path": "kinds[0].links[0].field"
     },
     {
       "name": "link-targets-empty",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets: []\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: observation\n    prefix: OBS\n    folder: docs/observations\n    stage: idea\n    hint: one\n    links:\n      - field: Derived from\n        targets: []\n",
       "line": 12,
       "message": "must not have fewer than 1 items",
       "path": "kinds[0].links[0].targets"
     },
     {
       "name": "link-unknown-field",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - source\n        via: reached\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: observation\n    prefix: OBS\n    folder: docs/observations\n    stage: idea\n    hint: one\n    links:\n      - field: Derived from\n        targets:\n          - observation\n        via: reached\n",
       "line": 14,
       "message": "schema is false",
       "path": "kinds[0].links[0].via"
     },
     {
       "name": "link-backlink-empty",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: one\n    links:\n      - field: Grew from\n        targets:\n          - source\n        backlink: \"\"\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: observation\n    prefix: OBS\n    folder: docs/observations\n    stage: idea\n    hint: one\n    links:\n      - field: Derived from\n        targets:\n          - observation\n        backlink: \"\"\n",
       "line": 14,
       "message": "must not have fewer than 1 characters",
       "path": "kinds[0].links[0].backlink"
     },
     {
       "name": "a-kind-may-name-its-document-storage",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: idea\n    hint: one\n    storage: document\n"
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: work item\n    prefix: WI\n    folder: docs/stories\n    stage: idea\n    hint: one\n    storage: document\n"
     },
     {
       "name": "reserved-storage-forms-and-goals-are-read-and-named",
-      "text": "contract: 1\nstages:\n  - id: idea\n  - id: operate\nkinds:\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: idea\n    hint: one\n  - name: configuration item\n    prefix: CI\n    folder: docs/configuration\n    stage: operate\n    storage: fact\n    hint: keep what the system holds\n    evidence:\n      source: Source\n      ref: Ref\n      record: Record\ngoals:\n  - name: grounded\n    perspective: business\n    rules:\n      - every use case links a user story\n",
+      "text": "contract: 1\nstages:\n  - id: idea\n  - id: operate\nkinds:\n  - name: work item\n    prefix: WI\n    folder: docs/stories\n    stage: idea\n    hint: one\n  - name: asset\n    prefix: AST\n    folder: docs/assets\n    stage: operate\n    storage: fact\n    hint: reference an asset maintained externally\n    evidence:\n      source: Origin\n      ref: Revision\n      record: Entry\ngoals:\n  - name: grounded\n    perspective: business\n    rules:\n      - every scenario links a work item\n",
       "reservations": [
         {
           "line": 15,
           "path": "kinds[1].storage",
-          "message": "the kind \"configuration item\" declares the storage form \"fact\""
+          "message": "the kind \"asset\" declares the storage form \"fact\""
         },
         {
           "line": 17,
@@ -319,7 +319,7 @@
     },
     {
       "name": "an-evidence-shape-without-the-fact-form-is-refused",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: user story\n    prefix: US\n    folder: docs/stories\n    stage: idea\n    hint: one\n    evidence:\n      source: Source\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: work item\n    prefix: WI\n    folder: docs/stories\n    stage: idea\n    hint: one\n    evidence:\n      source: Origin\n",
       "line": 10,
       "path": "kinds[0].evidence",
       "message": "the evidence shape rides the fact storage form: a kind carrying its evidence fields declares \"storage: fact\""
@@ -334,7 +334,7 @@
     },
     {
       "name": "localized kind and stage labels accept English and Russian text",
-      "text": "contract: 1\nstages:\n  - id: idea\n    labels:\n      en: Idea\n      ru: Идея\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n    labels:\n      en: Source\n      ru: Источник\n"
+      "text": "contract: 1\nstages:\n  - id: idea\n    labels:\n      en: Idea\n      ru: Идея\nkinds:\n  - name: observation\n    prefix: OBS\n    folder: docs/observations\n    stage: idea\n    hint: talk to a customer\n    labels:\n      en: Observation\n      ru: Источник\n"
     },
     {
       "name": "localized labels require a Russian value when they are present",
@@ -359,7 +359,7 @@
     },
     {
       "name": "kind localized labels use the same complete bilingual shape",
-      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: source\n    prefix: S\n    folder: docs/sources\n    stage: idea\n    hint: talk to a customer\n    labels:\n      en: Source\n",
+      "text": "contract: 1\nstages:\n  - id: idea\nkinds:\n  - name: observation\n    prefix: OBS\n    folder: docs/observations\n    stage: idea\n    hint: talk to a customer\n    labels:\n      en: Observation\n",
       "line": 10,
       "path": "kinds[0].labels",
       "message": "must have required properties ru"
