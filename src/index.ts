@@ -82,6 +82,7 @@ export type {
   DependenciesResult,
   DependencyAnswer,
   ElementAnswer,
+  AsyncQueryDatabase,
   AsyncQueryEngine,
   QueryEngine,
   QueryError,
@@ -97,6 +98,8 @@ export { renderLikeC4Workspace, type LikeC4Error, type LikeC4Result, type NotDra
 export { renderOneViewMermaid, renderOneViewLikeC4, type OneViewError, type OneViewLikeC4Result, type OneViewRequest, type OneViewMermaidResult } from './render/one-view.js';
 export { createLadybugEngine, executionThreadsForTests, preparedStatementCacheSizeForTests, type LadybugEngineOptions } from './adapters/ladybug-engine.js';
 export { createAsyncLadybugEngine } from './adapters/async-ladybug-engine.js';
+export { createPGliteQueryDatabase, type PGliteQueryDatabaseOptions } from './adapters/pglite-query-database.js';
+export { createPostgresQueryDatabase, type PostgresQueryDatabaseOptions } from './adapters/postgres-query-database.js';
 export { createSourceStores, sourceNameProblem, type SourceHead, type SourceStores, type SourceStoresOptions, type SourceStoreResult } from './server/sources.js';
 export { createGraphs, type Graph, type Graphs, type GraphsOptions } from './server/graphs.js';
 export { startServer, type ServerOptions, type StartedServer } from './server/http.js';

@@ -20,6 +20,20 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: madarch_test
+          POSTGRES_USER: madarch_test
+          POSTGRES_PASSWORD: madarch_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U madarch_test -d madarch_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -31,6 +45,9 @@ jobs:
       # app has its own package and lockfile, discovered only after its own
       # install step below — the root job must not run its tests before that.
       - run: bun run test
+      - run: bun test test/postgres-query-database.test.ts
+        env:
+          MADARCH_TEST_POSTGRES_URL: postgres://madarch_test:madarch_test@127.0.0.1:5432/madarch_test
       - run: bun run views:check
       # The product repository's contract cases (decision 0021): every example and every refusal.
       - run: bun run contract:check

@@ -2,73 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import type { AssertionChange, AssertionRecord } from '../history/types.js';
 import type { AsyncQueryEngine, QueryEngine, QuerySnapshot } from './types.js';
 
-type Operation = 'snapshot' | 'write';
-
-interface Waiter {
-  operation: Operation;
-  grant(): void;
-}
-
-/**
- * A fair writer-preferring gate. Snapshots already admitted may overlap; once
- * a writer queues, later snapshots wait behind it. Consecutive queued
- * snapshots are admitted together, and queued writers keep arrival order.
- */
-function createOperationGate(): {
-  snapshot<T>(work: () => Promise<T>): Promise<T>;
-  write<T>(work: () => T | Promise<T>): Promise<T>;
-} {
-  let activeSnapshots = 0;
-  let activeWriter = false;
-  const waiting: Waiter[] = [];
-
-  function acquire(operation: Operation): Promise<void> {
-    return new Promise<void>((grant) => {
-      if (operation === 'snapshot' && !activeWriter && waiting.length === 0) {
-        activeSnapshots++;
-        grant();
-        return;
-      }
-      if (operation === 'write' && !activeWriter && activeSnapshots === 0 && waiting.length === 0) {
-        activeWriter = true;
-        grant();
-        return;
-      }
-      waiting.push({ operation, grant });
-    });
-  }
-
-  function drain(): void {
-    if (activeWriter || activeSnapshots > 0 || waiting.length === 0) return;
-    if (waiting[0]!.operation === 'write') {
-      const next = waiting.shift()!;
-      activeWriter = true;
-      next.grant();
-      return;
-    }
-    while (waiting[0]?.operation === 'snapshot') {
-      const next = waiting.shift()!;
-      activeSnapshots++;
-      next.grant();
-    }
-  }
-
-  async function run<T>(operation: Operation, work: () => T | Promise<T>): Promise<T> {
-    await acquire(operation);
-    try {
-      return await work();
-    } finally {
-      if (operation === 'snapshot') activeSnapshots--;
-      else activeWriter = false;
-      drain();
-    }
-  }
-
-  return {
-    snapshot: <T>(work: () => Promise<T>) => run('snapshot', work),
-    write: <T>(work: () => T | Promise<T>) => run('write', work),
-  };
-}
+import { createOperationGate } from './operation-gate.js';
 
 /**
  * Transitional bridge for a synchronous query engine. It preserves the old
@@ -76,7 +10,7 @@ function createOperationGate(): {
  * `AsyncQueryEngine` directly rather than use this adapter.
  */
 export function adaptSynchronousQueryEngine(engine: QueryEngine): AsyncQueryEngine {
-  const gate = createOperationGate();
+  const gate = createOperationGate({ allowConcurrentSnapshots: true });
   let closing = false;
   let closed = false;
   let closePromise: Promise<void> | undefined;

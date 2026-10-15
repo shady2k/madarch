@@ -163,6 +163,14 @@ export interface AsyncQueryEngine extends QuerySnapshot {
   rebuild(assertions: readonly AssertionRecord[]): Promise<void>;
   /** Applies one store report instead of a full rebuild. */
   update(opened: readonly AssertionChange[], closed: readonly AssertionChange[]): Promise<void>;
-  /** Waits for active snapshots and releases the underlying connection. */
+  /** Waits for this scope's in-flight work and closes it. A borrowed scope leaves the shared connection to its database owner. */
+  close(): Promise<void>;
+}
+
+/** Owner of a shared query database from which graph-scoped query engines borrow access. */
+export interface AsyncQueryDatabase {
+  /** Creates a query engine restricted to the given source set. */
+  forSources(sources: readonly string[]): AsyncQueryEngine;
+  /** Rejects new scopes, drains active work and closes the shared database resources once. */
   close(): Promise<void>;
 }
