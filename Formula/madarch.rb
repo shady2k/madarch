@@ -30,19 +30,12 @@ class Madarch < Formula
   url "https://github.com/shady2k/madarch/releases/download/v#{version}/#{@artifact}"
   sha256 sha256sum
 
-  # Linux LadybugDB links against OpenSSL 3. Homebrew supplies it and the
-  # launcher exposes its keg library directory to the binary.
-  depends_on "openssl@3" => :linux
+  # The binary is self-contained and needs no system OpenSSL.
 
   def install
     libexec.install @artifact => "madarch-bin"
     (libexec / "madarch-bin").chmod 0755
-    if OS.linux?
-      (bin / "madarch").write_env_script libexec / "madarch-bin",
-        LD_LIBRARY_PATH: "#{Formula["openssl@3"].opt_lib}:#{ENV["LD_LIBRARY_PATH"]}"
-    else
-      (bin / "madarch").write_exec_script libexec / "madarch-bin"
-    end
+    (bin / "madarch").write_exec_script libexec / "madarch-bin"
   end
 
   test do
