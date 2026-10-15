@@ -12,14 +12,14 @@
  * itself (`prepareModel`) are shared with the model check's problems, which
  * need the same view set the pages are drawn from.
  */
-import { createLadybugEngine } from '../adapters/ladybug-engine.js';
+import { createPGliteQueryDatabase } from '../adapters/pglite-query-database.js';
 import { createPGliteHistory } from '../adapters/pglite-history.js';
 import { loadAndCompileModel } from '../model/load-and-compile.js';
 import type { CompiledModel } from '../model/compile.js';
-import type { QueryEngine } from '../query/types.js';
-import { buildViewSet } from './view-set.js';
+import type { AsyncQueryEngine } from '../query/types.js';
+import { buildAsyncViewSet } from './view-set.js';
 import { renderMermaidPages, type MermaidPage } from './mermaid.js';
-import { renderLikeC4Workspace } from './likec4.js';
+import { writeAsyncLikeC4Workspace } from './likec4.js';
 
 /** The one version a model is stored and rendered at, named by the caller. */
 export interface RenderedVersion {
@@ -49,7 +49,7 @@ export interface PreparedRendering {
 /** A compiled model stored in a history of its own, with the query engine built from that history. `close` releases both. */
 export interface PreparedModel {
   model: CompiledModel;
-  engine: QueryEngine;
+  engine: AsyncQueryEngine;
   /** The time and state the model is stored and answered at. */
   at: { valid: number; known: number };
   /** Every problem that kept the model from being stored; while it is nonempty the engine answers nothing. */
@@ -64,16 +64,32 @@ export interface PreparedModel {
  */
 export async function prepareModel(model: CompiledModel, version: RenderedVersion): Promise<PreparedModel> {
   const history = createPGliteHistory({ clock: { now: () => version.at } });
-  const engine = createLadybugEngine();
-  const stored = await history.store({ source: version.source, commit: version.commit, committedAt: version.at, model });
-  engine.rebuild(await history.assertions());
+  let database;
+  try {
+    database = await createPGliteQueryDatabase();
+  } catch (error) {
+    await history.close().catch(() => {});
+    throw error;
+  }
+  const engine = database.forSources([version.source]);
+  let stored;
+  try {
+    stored = await history.store({ source: version.source, commit: version.commit, committedAt: version.at, model });
+    await engine.rebuild(await history.assertions({ source: version.source }));
+  } catch (error) {
+    await engine.close().catch(() => {});
+    await database.close().catch(() => {});
+    await history.close().catch(() => {});
+    throw error;
+  }
   return {
     model,
     engine,
     at: { valid: version.at, known: version.at },
     errors: stored.errors.map((error) => `storing the model: ${error.message}`),
     close: async () => {
-      engine.close();
+      await engine.close();
+      await database.close();
       await history.close();
     },
   };
@@ -90,11 +106,16 @@ export async function renderModel(model: CompiledModel, version: RenderedVersion
   const prepared = await prepareModel(model, version);
   try {
     if (prepared.errors.length > 0) return { model, errors: prepared.errors, notDrawn: [], warnings: [] };
-    const viewSet = buildViewSet(prepared.engine, model, prepared.at);
+    const preparedViews = await prepared.engine.withSnapshot(async (snapshot) => {
+      const viewSet = await buildAsyncViewSet(snapshot, model, prepared.at);
+      if (viewSet.views === undefined) return { viewSet };
+      return { viewSet, likec4: await writeAsyncLikeC4Workspace(snapshot, model, prepared.at, viewSet.views) };
+    });
+    const { viewSet } = preparedViews;
     if (viewSet.views === undefined) return { model, errors: viewSet.errors.map((e) => e.message), notDrawn: [], warnings: [] };
     const rendered = renderMermaidPages(viewSet.views);
     if (rendered.pages === undefined) return { model, errors: rendered.errors.map((e) => e.message), notDrawn: [], warnings: [] };
-    const likec4 = renderLikeC4Workspace(prepared.engine, model, prepared.at);
+    const likec4 = preparedViews.likec4!;
     if (likec4.workspace === undefined) return { model, errors: likec4.errors.map((e) => e.message), notDrawn: [], warnings: [] };
     return { model, pages: rendered.pages, workspace: likec4.workspace, notDrawn: likec4.notDrawn!.map((relation) => relation.message), errors: [], warnings: [] };
   } finally {
