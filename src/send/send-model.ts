@@ -42,7 +42,7 @@ export interface SendOptions {
  * reached, and a refusal or a non-answer from the server.
  */
 export async function sendModel(options: SendOptions): Promise<SendResult> {
-  const report = await checkModel(options.repoPath, { rev: options.rev });
+  const report = await checkModel(options.repoPath, { rev: options.rev, problems: 'on-failure' });
   if (report.outcome === 'failed') return { outcome: 'check-failed', report };
   if (report.outcome === 'unreadable') return { outcome: 'unreadable', report };
 

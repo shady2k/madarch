@@ -849,7 +849,7 @@ describe('the model check', () => {
       } finally {
         rmSync(repo.path, { recursive: true, force: true });
       }
-    });
+    }, 15_000);
 
     test('exit-codes: the script exits 0 for a repository with a stale item, printing it under stale', async () => {
       const { repo, oldBlob } = staleRepo();

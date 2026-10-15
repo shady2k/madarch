@@ -10,9 +10,9 @@
  */
 import type { CompiledElement, CompiledModel } from '../model/compile.js';
 import { byCodePoint } from '../model/order.js';
-import type { ElementAnswer, QueryEngine, QueryError, QueryTime } from '../query/types.js';
+import type { AsyncQueryEngine, ElementAnswer, QueryEngine, QueryError, QuerySnapshot, QueryTime } from '../query/types.js';
 import { uniqueSafeIds } from './safe-ids.js';
-import { buildViewSet, childrenByParent, EVERY_LEVEL, namer, type View } from './view-set.js';
+import { buildAsyncViewSet, buildViewSet, childrenByParent, EVERY_LEVEL, namer, type View } from './view-set.js';
 
 /** One problem that kept the workspace from being rendered. */
 export interface LikeC4Error {
@@ -174,8 +174,140 @@ export function renderLikeC4Workspace(engine: QueryEngine, model: CompiledModel,
  * present then. Every error is collected, and a workspace with any error
  * is not returned at all.
  */
+
+/** Async renderer used by production paths; all query reads share one revision. */
+export async function renderAsyncLikeC4Workspace(engine: AsyncQueryEngine, model: CompiledModel, at?: QueryTime): Promise<LikeC4Result> {
+  return engine.withSnapshot(async (snapshot) => {
+    const viewSet = await buildAsyncViewSet(snapshot, model, at);
+    if (viewSet.views === undefined) return { errors: viewSet.errors };
+    return writeAsyncLikeC4Workspace(snapshot, model, at, viewSet.views);
+  });
+}
+
 export function writeLikeC4Workspace(engine: QueryEngine, model: CompiledModel, at: QueryTime | undefined, views: readonly View[]): LikeC4Result {
   const every = engine.view({ depth: EVERY_LEVEL }, at);
+  if (every.error !== undefined) return { errors: [{ message: `the workspace: every element and relation: ${every.error.message}`, query: every.error }] };
+
+  const errors: LikeC4Error[] = [];
+  const compiled = new Map(model.elements.map((element) => [element.id, element]));
+  const elements = every.elements!;
+  for (const element of elements) {
+    if (compiled.has(element.id)) continue;
+    errors.push({ message: `the workspace: the element "${element.id}" is shown by the query engine but the compiled model does not hold it`, elementId: element.id });
+  }
+
+  // The workspace writes every element nested under its parent, so an
+  // element whose parent the engine does not answer at this time would be
+  // left unwritten: an error, never a smaller workspace.
+  const held = new Set(elements.map((element) => element.id));
+  for (const element of elements) {
+    if (element.parent !== undefined && !held.has(element.parent)) {
+      errors.push({ message: `the workspace: the element "${element.id}" cannot be written under its parent "${element.parent}", which does not exist at this time`, elementId: element.id });
+    }
+  }
+
+  const notDrawn = new Map<string, NotDrawn>();
+  const leaveOut = (relationId: string, from: string, to: string, reason: NotDrawn['reason']): void => {
+    const why = reason === 'self' ? 'a relation of an element to itself' : 'a relation between an element and its own descendant';
+    notDrawn.set(relationId, {
+      relationId,
+      from,
+      to,
+      reason,
+      message: `the relation "${relationId}" from "${from}" to "${to}" is not drawn in the LikeC4 workspace: LikeC4 cannot draw ${why}`,
+    });
+  };
+  // The full-depth view never draws a relation of an element to itself, so
+  // those are read from the compiled model, for an element shown at this time.
+  const shownIds = new Set(elements.map((element) => element.id));
+  for (const relation of model.relations) {
+    if (relation.from === relation.to && shownIds.has(relation.from)) leaveOut(relation.id, relation.from, relation.to, 'self');
+  }
+  const parents = new Map(elements.map((element) => [element.id, element.parent]));
+  const isAncestor = (ancestor: string, id: string): boolean => {
+    for (let up = parents.get(id); up !== undefined; up = parents.get(up)) if (up === ancestor) return true;
+    return false;
+  };
+
+  const namesOf = namer(model);
+  const relations: WorkspaceRelation[] = [];
+  for (const pair of every.relations!) {
+    const reason = pair.from === pair.to ? 'self' : isAncestor(pair.from, pair.to) || isAncestor(pair.to, pair.from) ? 'descendant' : undefined;
+    for (const id of pair.relationIds) {
+      // Labelled first, drawn or not: a relation the compiled model does not
+      // hold is an error even where LikeC4 could not draw it anyway.
+      const words = namesOf([id], (relationId, problem) => {
+        errors.push({ message: `the workspace: the arrow from "${pair.from}" to "${pair.to}" stands for the relation "${relationId}", ${problem}`, relationId });
+      });
+      const label = words.map((word) => word.label).join('; ');
+      const dashed = words.length === 1 && words[0]!.marked;
+      if (reason !== undefined) {
+        leaveOut(id, pair.from, pair.to, reason);
+        continue;
+      }
+      relations.push({ id, from: pair.from, to: pair.to, label, dashed });
+    }
+  }
+  if (errors.length > 0) return { errors };
+
+  const names = uniqueSafeIds(
+    elements.map((element) => element.id),
+    identifier,
+  );
+  const fqns = fullNames(elements, names);
+  const shown = elements.map((element) => compiled.get(element.id)!);
+
+  const lines = [HEADER, '', 'specification {'];
+  for (const kind of [...new Set(shown.map((element) => element.kind))].sort(byCodePoint)) lines.push(...kindLines(kind));
+  lines.push('}', '', 'model {');
+  const children = childrenByParent(elements);
+  const nest = (parent: string | undefined, indent: string): void => {
+    for (const element of children.get(parent) ?? []) {
+      const own = compiled.get(element.id)!;
+      const head = `${indent}${names.get(element.id)} = ${own.kind} ${text(own.name ?? own.id)}`;
+      if (own.technology === undefined && !children.has(element.id)) {
+        lines.push(head);
+        continue;
+      }
+      lines.push(`${head} {`);
+      if (own.technology !== undefined) lines.push(`${indent}  technology ${text(own.technology)}`);
+      nest(element.id, `${indent}  `);
+      lines.push(`${indent}}`);
+    }
+  };
+  nest(undefined, '  ');
+  if (relations.length > 0) lines.push('');
+  for (const relation of relations.sort((a, b) => byCodePoint(a.id, b.id))) {
+    const line = `  ${fqns.get(relation.from)} -> ${fqns.get(relation.to)} ${text(relation.label)}`;
+    if (relation.dashed) lines.push(`${line} {`, '    style {', '      line dashed', '    }', '  }');
+    else lines.push(line);
+  }
+  lines.push('}', '', 'views {');
+  for (const view of views) {
+    const scope = view.scope === undefined ? undefined : compiled.get(view.scope)!;
+    const head = scope === undefined ? 'view index' : `view ${names.get(scope.id)} of ${fqns.get(scope.id)}`;
+    // The children of every frame among the shown elements, one wildcard
+    // each (views/one-view, a depth above 1); a scoped view's own children
+    // come with `*`, the landscape's roots do.
+    const frames = new Set(view.elements.filter((element) => element.parent !== undefined).map((element) => element.parent!));
+    const wildcards = view.elements
+      .filter((element) => frames.has(element.id) && element.id !== view.scope)
+      .map((element) => `${fqns.get(element.id)}.*`)
+      .sort(byCodePoint);
+    lines.push(`  ${head} {`, `    title ${text(scope === undefined ? 'Landscape' : (scope.name ?? scope.id))}`, `    include ${['*', ...wildcards].join(', ')}`, '  }');
+  }
+  lines.push('}', '');
+  return { workspace: lines.join('\n'), notDrawn: [...notDrawn.values()].sort((a, b) => byCodePoint(a.relationId, b.relationId)), errors: [] };
+}
+
+/**
+ * An element id made a LikeC4 identifier: every character outside letters,
+ * digits, `_` and `-` replaced by `_`, a leading `_` before one that does not
+ * start with a letter (a madarch id starts with a letter or a digit), and a
+ * keyword given a trailing `_`.
+ */
+export async function writeAsyncLikeC4Workspace(engine: QuerySnapshot, model: CompiledModel, at: QueryTime | undefined, views: readonly View[]): Promise<LikeC4Result> {
+  const every = await engine.view({ depth: EVERY_LEVEL }, at);
   if (every.error !== undefined) return { errors: [{ message: `the workspace: every element and relation: ${every.error.message}`, query: every.error }] };
 
   const errors: LikeC4Error[] = [];

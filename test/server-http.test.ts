@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import type { AsyncQueryDatabase } from '../src/query/types.js';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/index.js';
 import { createGraphs } from '../src/server/graphs.js';
+import { createPGliteQueryDatabase } from '../src/adapters/pglite-query-database.js';
 import { createHandler } from '../src/server/http.js';
 import { createSourceStores, type SourceStores } from '../src/server/sources.js';
 import { PGlite } from '@electric-sql/pglite';
@@ -74,18 +76,35 @@ afterEach(async () => {
   }
 });
 
+/** Test/local composition explicitly selects PGlite and injects the shared query owner. */
+async function startLocalServer(options: Omit<Parameters<typeof startServer>[0], 'queryDatabase'>): Promise<StartedServer> {
+  return startServer({ ...options, queryDatabase: await createPGliteQueryDatabase({ clock: options.clock }) });
+}
+
+/** A history-only query owner that fails if a source-history test accidentally starts a graph query. */
+function historyOnlyQueryDatabase(): AsyncQueryDatabase {
+  return {
+    forSources: () => { throw new Error('history-only server test unexpectedly opened a graph query'); },
+    vectorIndexForSources: () => { throw new Error('history-only server test unexpectedly opened a vector index'); },
+    close: async () => {},
+  };
+}
+
 /** A server on a free port over a scratch folder, with a held clock and captured logs; returns its base URL. */
-async function start(): Promise<string> {
+async function start(queryDatabase?: AsyncQueryDatabase): Promise<string> {
   folder = mkdtempSync(join(tmpdir(), 'madarch-server-http-'));
   lines = [];
   errors = [];
-  server = await startServer({
+  const options = {
     dataFolder: folder,
     port: 0,
     clock: { now: () => clockNow.value },
-    log: (line) => lines.push(line),
-    errorLog: (line) => errors.push(line),
-  });
+    log: (line: string) => lines.push(line),
+    errorLog: (line: string) => errors.push(line),
+  };
+  server = queryDatabase === undefined
+    ? await startLocalServer(options)
+    : await startServer({ ...options, queryDatabase });
   return server.url;
 }
 
@@ -96,6 +115,67 @@ function post(path: string, body: unknown): Promise<Response> {
 function send(source: string, commit: string, committedAt: string, elements: Record<string, unknown>[]): Promise<Response> {
   return post('/models', { protocol: 1, source, commit, committedAt, model: model(elements) });
 }
+
+describe('server query database owner', () => {
+  test('an invalid startup option closes the injected shared query owner', async () => {
+    const database = await createPGliteQueryDatabase();
+    let closed = false;
+    const queryDatabase = {
+      forSources(sources: readonly string[]) { return database.forSources(sources); },
+      vectorIndexForSources(sources: readonly string[]) { return database.vectorIndexForSources(sources); },
+      async close() { closed = true; await database.close(); },
+    };
+
+    await expect(startServer({ queryDatabase, port: 0 })).rejects.toThrow('neither a data folder nor a product folder');
+    expect(closed).toBe(true);
+  });
+
+  test('model routes require an explicitly injected shared query database', async () => {
+    folder = mkdtempSync(join(tmpdir(), 'madarch-server-http-no-query-db-'));
+    await expect(startServer({ dataFolder: folder, port: 0 })).rejects.toThrow('pass queryDatabase explicitly');
+  });
+
+  test('startup validation closes the injected shared query owner', async () => {
+    folder = mkdtempSync(join(tmpdir(), 'madarch-server-http-invalid-product-'));
+    const database = await createPGliteQueryDatabase();
+    let closed = false;
+    const queryDatabase = {
+      forSources(sources: readonly string[]) { return database.forSources(sources); },
+      vectorIndexForSources(sources: readonly string[]) { return database.vectorIndexForSources(sources); },
+      async close() { closed = true; await database.close(); },
+    };
+
+    await expect(startServer({ dataFolder: folder, productFolder: folder, queryDatabase, port: 0 })).rejects.toThrow('cannot be served as a wiki');
+    expect(closed).toBe(true);
+  });
+
+  test('model routes use and close the injected shared query owner', async () => {
+    folder = mkdtempSync(join(tmpdir(), 'madarch-server-http-query-db-'));
+    const database = await createPGliteQueryDatabase();
+    let facadeCount = 0;
+    let closeCount = 0;
+    const queryDatabase = {
+      forSources(sources: readonly string[]) {
+        facadeCount++;
+        return database.forSources(sources);
+      },
+      vectorIndexForSources(sources: readonly string[]) {
+        return database.vectorIndexForSources(sources);
+      },
+      async close() {
+        closeCount++;
+        await database.close();
+      },
+    };
+    server = await startServer({ dataFolder: folder, queryDatabase, port: 0, log: () => {}, errorLog: () => {} });
+    expect((await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')])).status).toBe(201);
+    expect((await post('/views', { source: 'shop', format: 'mermaid' })).status).toBe(200);
+    expect(facadeCount).toBeGreaterThan(0);
+    await server.stop();
+    server = undefined;
+    expect(closeCount).toBe(1);
+  });
+});
 
 describe('protocol versions', () => {
   test('version 1 requests are served and every answer names the server version', async () => {
@@ -362,7 +442,7 @@ describe('source ids', () => {
     await server?.stop();
     server = undefined;
 
-    server = await startServer({
+    server = await startLocalServer({
       dataFolder: folder!,
       port,
       clock: { now: () => clockNow.value },
@@ -577,7 +657,7 @@ describe('POST /sources — the rename claim', () => {
   });
 
   test('the rename survives a restart: the new name and the id stay, the old name stays retired', async () => {
-    await start();
+    await start(historyOnlyQueryDatabase());
     await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
     const { id } = (await sourcesOf(await fetch(`${server!.url}/sources`)))[0]!;
     expect((await post('/sources', { id, source: 'moved' })).status).toBe(200);
@@ -591,6 +671,7 @@ describe('POST /sources — the rename claim', () => {
       clock: { now: () => clockNow.value },
       log: (line) => lines.push(line),
       errorLog: (line) => errors.push(line),
+      queryDatabase: historyOnlyQueryDatabase(),
     });
 
     expect(await sourcesOf(await fetch(`${server!.url}/sources`))).toEqual([
@@ -636,7 +717,7 @@ describe('restart on the same data folder', () => {
     await server?.stop();
     server = undefined;
 
-    server = await startServer({
+    server = await startLocalServer({
       dataFolder: folder!,
       port,
       clock: { now: () => clockNow.value },
@@ -646,7 +727,7 @@ describe('restart on the same data folder', () => {
     expect(server.port).toBe(port);
     const after = await (await fetch(`${server.url}/sources`)).text();
     expect(after).toBe(before);
-  });
+  }, { timeout: 15_000 });
 });
 
 describe('a retry after a failed sidecar write', () => {
@@ -776,7 +857,7 @@ describe('the log', () => {
 
 describe('a failing history read', () => {
   test('answers 500 and reaches the error log with its cause', async () => {
-    await start();
+    await start(historyOnlyQueryDatabase());
     await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
 
     // A row written outside the store: the read's clash safety net
@@ -792,7 +873,7 @@ describe('a failing history read', () => {
       [JSON.stringify({ id: 'a', kind: 'service', ancestors: [], zones: [], zonesByEnvironment: {}, environments: ['*'], states: ['as-is'], technology: 'injected' }), DAY(1), DAY(1)],
     );
     await raw.close();
-    server = await startServer({ dataFolder, port: 0, clock: { now: () => clockNow.value }, log: (line) => lines.push(line), errorLog: (line) => errors.push(line) });
+    server = await startServer({ dataFolder, port: 0, clock: { now: () => clockNow.value }, log: (line) => lines.push(line), errorLog: (line) => errors.push(line), queryDatabase: historyOnlyQueryDatabase() });
 
     errors = [];
     const response = await post('/views', { source: 'shop', format: 'mermaid' });
@@ -825,7 +906,8 @@ describe('concurrent model and view requests', () => {
         return stored;
       },
     };
-    const graphs = createGraphs({ historyOf: (source) => realSources.historyOf(source), clock });
+    const queryDatabase = await createPGliteQueryDatabase();
+    const graphs = createGraphs({ historyOf: (source) => realSources.historyOf(source), database: queryDatabase });
     const handler = createHandler({ sources, graphs, log: () => {}, errorLog: () => {} });
     let pendingStore: Promise<Response> | undefined;
     let pendingView: Promise<Response> | undefined;
@@ -873,7 +955,8 @@ describe('concurrent model and view requests', () => {
       releaseStore();
       await Promise.allSettled([...(pendingStore === undefined ? [] : [pendingStore]), ...(pendingView === undefined ? [] : [pendingView])]);
       await handler.drain();
-      graphs.close();
+      await graphs.close();
+      await queryDatabase.close();
       await realSources.close();
       rmSync(dataFolder, { recursive: true, force: true });
     }

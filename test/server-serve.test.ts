@@ -94,6 +94,31 @@ describe('the server command line', () => {
       const response = await fetch(`${url}/sources`);
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual([]);
+
+      const sent = await fetch(`${url}/models`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          protocol: 1,
+          source: 'example',
+          commit: 'c1',
+          committedAt: '2026-10-15T06:00:00Z',
+          model: {
+            schemaVersion: 1,
+            elements: [{ id: 'service', kind: 'service', ancestors: [], zones: [], zonesByEnvironment: {}, environments: ['*'], states: ['as-is'] }],
+            interfaces: [], relations: [], categories: [], entities: [], scenarios: [], zones: [], environments: [], states: [{ id: 'as-is' }],
+          },
+        }),
+      });
+      expect(sent.status).toBe(201);
+      const view = await fetch(`${url}/views`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ protocol: 1, source: 'example', format: 'mermaid' }),
+      });
+      expect(view.status).toBe(200);
+      expect(view.headers.get('content-type')).toStartWith('text/markdown');
+      expect(await view.text()).toContain('service');
     } finally {
       proc.kill();
       await proc.exited;

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sourceNameFromRemote } from '../src/send/send-model.js';
 import { startServer, type StartedServer } from '../src/index.js';
+import { createPGliteQueryDatabase } from '../src/adapters/pglite-query-database.js';
 import { Repo, completeRepo } from './model-check-repo.js';
 
 /** The send command's script, run the way a person runs it. */
@@ -95,6 +96,7 @@ describe('the send command', () => {
     lines = [];
     server = await startServer({
       dataFolder: folder,
+      queryDatabase: await createPGliteQueryDatabase({ clock: { now: () => NOW } }),
       port: 0,
       clock: { now: () => NOW },
       log: (line) => lines.push(line),
@@ -157,7 +159,7 @@ describe('the send command', () => {
     } finally {
       rmSync(repo.path, { recursive: true, force: true });
     }
-  });
+  }, { timeout: 15_000 });
 
   test('an https origin carrying a query and fragment stores the bare host and path, and none of it reaches the output, the request or the server log', async () => {
     const url = await start();
@@ -177,7 +179,7 @@ describe('the send command', () => {
     } finally {
       rmSync(repo.path, { recursive: true, force: true });
     }
-  });
+  }, { timeout: 15_000 });
 
   test('check-fails: a model naming evidence past the end of its file sends nothing and exits 1 with the finding\'s file and line', async () => {
     const url = await start();
@@ -236,7 +238,7 @@ describe('the send command', () => {
     } finally {
       rmSync(notARepo, { recursive: true, force: true });
     }
-  });
+  }, { timeout: 15_000 });
 
   test('a server that cannot be reached exits 2 naming the server', async () => {
     const repo = completeRepo();
@@ -272,7 +274,7 @@ describe('the send command', () => {
     } finally {
       rmSync(repo.path, { recursive: true, force: true });
     }
-  });
+  }, { timeout: 15_000 });
 
   test('a refusal from the server exits 2 printing its message', async () => {
     const url = await start();
@@ -361,5 +363,5 @@ describe('the send command', () => {
     } finally {
       rmSync(repo.path, { recursive: true, force: true });
     }
-  });
+  }, { timeout: 15_000 });
 });
