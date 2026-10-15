@@ -21,9 +21,10 @@
  * take). Facts go to standard output one per line; errors go to standard
  * error, one message per error, whole.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, join, resolve } from 'node:path';
-import { ownRepository, runGit, type GitEnv } from './git.js';
+import { ownRepository, runGit, sameFolder, type GitEnv } from './git.js';
 import {
   lineOf,
   lineOfIndex,
@@ -257,10 +258,31 @@ function whyNotARepositoryName(name: unknown): string | null {
 }
 
 /** How entering one code repository in the manifest ended; the entry is one commit and clones nothing. */
+export type RepoConnectMode = 'link' | 'move' | 'clone';
+
 export type RepoEntryResult =
   | { outcome: 'entered'; folder: string; name: string; url: string; branch?: string }
   | { outcome: 'refused'; message: string; file?: string; line?: number }
-  | { outcome: 'failed'; message: string };
+  | { outcome: 'failed'; message: string; keepConnection?: boolean };
+
+type PreparedConnection =
+  | { mode: 'link' }
+  | { mode: 'clone' }
+  | { mode: 'move'; kind: 'renamed'; source: string }
+  | { mode: 'move'; kind: 'worktree'; source: string }
+  | { mode: 'move'; kind: 'copied'; source: string; backup: string };
+
+/** Writes a whole file by renaming a complete sibling into place. */
+function writeFileAtomically(file: string, content: string): void {
+  const temporary = `${file}.madarch-${randomUUID()}.tmp`;
+  const mode = statSync(file).mode & 0o777;
+  try {
+    writeFileSync(temporary, content, { flag: 'wx', mode });
+    renameSync(temporary, file);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
+}
 
 /**
  * Enters one code repository in the manifest and commits it, as one commit of
@@ -321,23 +343,37 @@ export function addCodeRepository(options: { folder?: string; name?: string; url
     return { outcome: 'refused', message: `the folder ${folder} holds changes that are not committed: commit them first, since entering a code repository is a commit of its own and would take them with it` };
 
   const manifest = readFileSync(manifestFile, 'utf8');
+  let manifestInstalled = false;
   try {
-    writeFileSync(manifestFile, manifestWithRepo(manifest, { name: repoName, url: wanted, branch: wantedBranch }));
+    writeFileAtomically(manifestFile, manifestWithRepo(manifest, { name: repoName, url: wanted, branch: wantedBranch }));
+    manifestInstalled = true;
     const add = runGit(folder, ['add', '--', MANIFEST_FILE], options.gitEnv);
     if (!add.ok) throw new Error(`git add failed in ${folder}: ${add.output}`);
     const commit = runGit(folder, ['commit', '--quiet', '-m', `Enter the code repository ${repoName}`], options.gitEnv);
     if (!commit.ok) throw new Error(`git commit failed in ${folder}: ${commit.output}`);
   } catch (error) {
-    // The manifest goes back byte for byte, and out of the index: a step that
-    // failed leaves the product exactly as this command found it.
+    // Restore a whole previous manifest through an atomic rename, then remove
+    // any staged version. Keep the prepared checkout if either part of that
+    // product state could not be restored.
     let left: string | undefined;
+    let keepConnection = manifestInstalled;
     try {
-      writeFileSync(manifestFile, manifest);
-      runGit(folder, ['reset', '--quiet', '--', MANIFEST_FILE], options.gitEnv);
+      writeFileAtomically(manifestFile, manifest);
+      manifestInstalled = false;
+      keepConnection = false;
     } catch (restore) {
-      left = `the failed entry left the manifest written: ${(restore as Error).message}`;
+      left = `the manifest at ${manifestFile} could not be restored: ${(restore as Error).message}`;
     }
-    return { outcome: 'failed', message: left === undefined ? (error as Error).message : `${(error as Error).message}; ${left}` };
+    const reset = runGit(folder, ['reset', '--quiet', '--', MANIFEST_FILE], options.gitEnv);
+    if (!reset.ok) {
+      left = [left, `the index in ${folder} could not be restored: ${reset.output}`].filter(Boolean).join('; ');
+      keepConnection = true;
+    }
+    return {
+      outcome: 'failed',
+      message: left === undefined ? (error as Error).message : `${(error as Error).message}; ${left}`,
+      ...(keepConnection ? { keepConnection: true } : {}),
+    };
   }
   return { outcome: 'entered', folder, name: repoName, url: wanted, branch: wantedBranch };
 }
@@ -498,32 +534,245 @@ export function remoteLife(options: { url?: string; folder?: string; cwd: string
   return failed1([], result.message);
 }
 
-/** Enters one code repository in the manifest, then clones it with the bootstrap step. */
+/** Connects one selected code checkout and records the remote repository in the product manifest. */
+function pathExists(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+/** A directory link that selects a junction on Windows. */
+export function createDirectoryLink(
+  source: string,
+  target: string,
+  platform: NodeJS.Platform = process.platform,
+  link: typeof symlinkSync = symlinkSync,
+): void {
+  link(source, target, platform === 'win32' ? 'junction' : 'dir');
+}
+
+/** Hashes a checkout's names, file bytes, modes and symlink targets in code-point order. */
+function directoryDigest(root: string): string {
+  const digest = createHash('sha256');
+  const walk = (folder: string, relative: string): void => {
+    const entries = readdirSync(folder, { withFileTypes: true }).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+    for (const entry of entries) {
+      const path = join(folder, entry.name);
+      const name = relative === '' ? entry.name : `${relative}/${entry.name}`;
+      const info = lstatSync(path);
+      if (entry.isSymbolicLink()) {
+        digest.update(`link\0${name}\0${readlinkSync(path)}\0`);
+      } else if (entry.isDirectory()) {
+        digest.update(`directory\0${name}\0${info.mode & 0o777}\0`);
+        walk(path, name);
+      } else if (entry.isFile()) {
+        digest.update(`file\0${name}\0${info.mode & 0o777}\0`);
+        digest.update(readFileSync(path));
+        digest.update('\0');
+      } else {
+        throw new Error(`cannot verify special file ${path} during a cross-device move`);
+      }
+    }
+  };
+  walk(root, '');
+  return digest.digest('hex');
+}
+
+/** The Git state that a cross-device copy must retain before the source is moved aside. */
+function checkoutGitState(folder: string): string {
+  const required = (args: readonly string[]): string => {
+    const result = runGit(folder, args);
+    if (!result.ok) throw new Error(`git ${args.join(' ')} failed in ${folder}: ${result.output}`);
+    return result.output;
+  };
+  const head = required(['rev-parse', 'HEAD']);
+  const branch = runGit(folder, ['symbolic-ref', '--short', '-q', 'HEAD']);
+  const status = required(['status', '--porcelain=v1', '-z']);
+  const unstaged = required(['diff', '--binary']);
+  const staged = required(['diff', '--cached', '--binary']);
+  const untracked = required(['ls-files', '--others', '--exclude-standard', '-z']);
+  const stash = required(['stash', 'list', '--format=%H']);
+  return JSON.stringify({ head, branch: branch.ok ? branch.output : null, status, unstaged, staged, untracked, stash });
+}
+
+/** Prepares a move and retains enough state to roll it back if the manifest commit fails. */
+function prepareMove(source: string, target: string, gitEnv?: GitEnv): PreparedConnection {
+  const gitMarker = join(source, '.git');
+  if (pathExists(gitMarker) && lstatSync(gitMarker).isFile()) {
+    const moved = runGit(source, ['worktree', 'move', source, target], gitEnv);
+    if (!moved.ok) throw new Error(`git worktree move failed for ${source} to ${target}: ${moved.output}`);
+    return { mode: 'move', kind: 'worktree', source };
+  }
+  try {
+    renameSync(source, target);
+    return { mode: 'move', kind: 'renamed', source };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EXDEV') throw error;
+  }
+
+  try {
+    cpSync(source, target, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true });
+    if (directoryDigest(source) !== directoryDigest(target) || checkoutGitState(source) !== checkoutGitState(target))
+      throw new Error(`the cross-device copy at ${target} does not match the source checkout ${source}`);
+    const backup = `${source}.madarch-${randomUUID()}.bak`;
+    renameSync(source, backup);
+    return { mode: 'move', kind: 'copied', source, backup };
+  } catch (error) {
+    let cleanup: string | undefined;
+    try { rmSync(target, { recursive: true, force: true }); }
+    catch (removeError) { cleanup = `the incomplete copy at ${target} could not be removed: ${(removeError as Error).message}`; }
+    throw new Error(cleanup === undefined ? (error as Error).message : `${(error as Error).message}; ${cleanup}`);
+  }
+}
+
+/** Restores the selected local checkout after the manifest commit refuses. */
+function rollbackConnection(prepared: PreparedConnection, target: string, gitEnv?: GitEnv): string | undefined {
+  try {
+    if (prepared.mode === 'link') unlinkSync(target);
+    else if (prepared.mode === 'clone') rmSync(target, { recursive: true, force: true });
+    else if (prepared.kind === 'renamed') renameSync(target, prepared.source);
+    else if (prepared.kind === 'worktree') {
+      const moved = runGit(target, ['worktree', 'move', target, prepared.source], gitEnv);
+      if (!moved.ok) throw new Error(moved.output);
+    } else {
+      renameSync(prepared.backup, prepared.source);
+      rmSync(target, { recursive: true, force: true });
+    }
+    return undefined;
+  } catch (error) {
+    return (error as Error).message;
+  }
+}
+
+/** Removes the cross-device backup after a successful manifest commit. */
+function finishMove(prepared: PreparedConnection): string | undefined {
+  if (prepared.mode !== 'move' || prepared.kind !== 'copied') return undefined;
+  try {
+    rmSync(prepared.backup, { recursive: true });
+    return undefined;
+  } catch (error) {
+    return `${prepared.backup}: ${(error as Error).message}`;
+  }
+}
+
+/** The explicitly supplied path, or the Git checkout the command runs from when it differs from the selected product. */
+export function repoAddSource(options: { source?: string; folder?: string; cwd: string }): string | undefined {
+  if (options.source !== undefined) return resolve(options.cwd, options.source);
+  const place = productFolder(options.folder, options.cwd);
+  if ('refused' in place) return undefined;
+  const top = runGit(options.cwd, ['rev-parse', '--show-toplevel']);
+  if (!top.ok) return undefined;
+  const source = resolve(top.output);
+  return sameFolder(source, place.folder) ? undefined : source;
+}
+
 export function repoAddLife(options: {
   name?: string;
   url?: string;
   branch?: string;
   folder?: string;
   cwd: string;
+  source?: string;
+  mode?: RepoConnectMode;
 }): LifecycleOutcome {
   const place = productFolder(options.folder, options.cwd);
   if ('refused' in place) return refused2([], place.refused);
-  const urlGiven = options.url;
-  if (urlGiven === undefined) return refused2([], 'no url was given: a code repository is entered with the url it is cloned from');
-  const entered = addCodeRepository({
-    folder: place.folder,
-    ...(options.name === undefined ? {} : { name: options.name }),
-    url: urlGiven,
-    ...(options.branch === undefined ? {} : { branch: options.branch }),
-  });
-  if (entered.outcome === 'refused') return refused2([`folder: ${options.folder ?? resolve(options.cwd)}`], refusalText(entered));
-  if (entered.outcome === 'failed') return failed1([`folder: ${place.folder}`], entered.message);
+  const name = options.name;
+  const nameProblem = whyNotARepositoryName(name);
+  if (nameProblem !== null) return refused2([], `the name "${name}" cannot be a code repository's: ${nameProblem}`);
+  const url = typeof options.url === 'string' ? options.url.trim() : '';
+  if (url === '') return refused2([], 'no url was given: a code repository is entered with the url it is cloned from');
+  if (url.startsWith('-')) return refused2([], `the url "${url}" begins with "-", which a command line reads as an option: write the url itself`);
+  const branch = typeof options.branch === 'string' ? options.branch.trim() : undefined;
+  if (branch === '') return refused2([], "the branch was given empty: a clone is taken from the branch it names, and the option is left out where the repository's own is taken");
+
+  const productRead = readFor(place.folder);
+  if (!productRead.ok) return refused2([], refusalText(productRead));
+  if (productRead.product.repos.some((repo) => repo.name === name)) {
+    const duplicate = addCodeRepository({ folder: place.folder, name, url, ...(branch === undefined ? {} : { branch }) });
+    return refused2([], duplicate.outcome === 'refused' ? refusalText(duplicate) : `the manifest already declares the code repository "${name}"`);
+  }
+  if (!ownRepository(place.folder)) return refused2([], `the folder ${place.folder} is not a git repository of its own: entering a code repository is one commit of the product's history, and a commit made here would land in the repository around it`);
+  const productStatus = runGit(place.folder, ['status', '--porcelain']);
+  if (!productStatus.ok) return failed1([`folder: ${place.folder}`], `git status failed in ${place.folder}: ${productStatus.output}`);
+  if (productStatus.output !== '') return refused2([`folder: ${place.folder}`], `the folder ${place.folder} holds changes that are not committed: commit them first, since entering a code repository is a commit of its own and would take them with it`);
+
+  let sourceRoot: string | undefined;
+  const sourceCandidate = repoAddSource(options);
+  if (sourceCandidate !== undefined) {
+    const top = runGit(sourceCandidate, ['rev-parse', '--show-toplevel']);
+    if (!top.ok) {
+      if (options.source !== undefined) return refused2([], `the local source ${sourceCandidate} is not a Git checkout: ${top.output}`);
+    } else {
+      const root = resolve(top.output);
+      if (sameFolder(root, place.folder)) {
+        if (options.source !== undefined) return refused2([], `the product folder ${place.folder} cannot also be the local code checkout`);
+      } else sourceRoot = root;
+    }
+  }
+  const mode = options.mode ?? (sourceRoot === undefined ? 'clone' : undefined);
+  if (mode === undefined) return refused2([], `the local source ${sourceRoot} needs a connection choice: use --mode link, --mode move or --mode clone`);
+  if (mode !== 'link' && mode !== 'move' && mode !== 'clone') return refused2([], `unknown connection mode ${JSON.stringify(mode)}: choose link, move or clone`);
+  if (sourceRoot === undefined && mode !== 'clone') return refused2([], `--mode ${mode} needs a local source path or a Git checkout as the command's current folder`);
+  if (branch !== undefined && mode !== 'clone') return refused2([], `--branch is only used when the repository is cloned; it cannot be used with --mode ${mode}`);
+
+  const target = join(place.folder, 'repos', name!);
+  try {
+    if (pathExists(target)) return refused2([`folder: ${place.folder}`], `the destination ${target} already exists: it is left alone`);
+    mkdirSync(dirname(target), { recursive: true });
+  } catch (error) {
+    return failed1([`folder: ${place.folder}`], `the destination ${target} could not be prepared: ${(error as Error).message}`);
+  }
+
+  let prepared: PreparedConnection;
+  try {
+    if (mode === 'clone') {
+      const args = ['clone', '--quiet'];
+      if (branch !== undefined) args.push('--branch', branch);
+      args.push(url, target);
+      const cloned = runGit(place.folder, args);
+      if (!cloned.ok) {
+        let cleanup: string | undefined;
+        try { rmSync(target, { recursive: true, force: true }); }
+        catch (removeError) { cleanup = `the incomplete clone at ${target} could not be removed: ${(removeError as Error).message}`; }
+        return failed1([`folder: ${place.folder}`], `git clone failed for ${url} into ${target}: ${cloned.output}${cleanup === undefined ? '' : `; ${cleanup}`}`);
+      }
+      prepared = { mode: 'clone' };
+    } else if (mode === 'link') {
+      createDirectoryLink(sourceRoot!, target);
+      prepared = { mode: 'link' };
+    } else {
+      prepared = prepareMove(sourceRoot!, target);
+    }
+  } catch (error) {
+    const sourceLabel = sourceRoot ?? url;
+    const alternative = mode === 'link' ? '; choose --mode move or --mode clone instead' : '';
+    return failed1([`folder: ${place.folder}`], `${mode} failed for ${sourceLabel} at ${target}: ${(error as Error).message}${alternative}`);
+  }
+
+  const entered = addCodeRepository({ folder: place.folder, name, url, ...(branch === undefined ? {} : { branch }) });
+  if (entered.outcome !== 'entered') {
+    const sourceLabel = mode === 'clone' ? url : sourceRoot ?? url;
+    const operation = `${mode} from ${sourceLabel} for ${url} at ${target}`;
+    if (entered.outcome === 'failed' && entered.keepConnection === true)
+      return failed1([`folder: ${place.folder}`, `connection: ${target}`], `${entered.message}; ${operation} remains at ${target} because the product manifest or index could not be fully restored`);
+    const rollback = rollbackConnection(prepared, target);
+    const suffix = rollback === undefined ? '' : `; connection rollback failed at ${target}: ${rollback}`;
+    if (entered.outcome === 'refused') return refused2([`folder: ${place.folder}`], `${refusalText(entered)}; ${operation} was not recorded${suffix}`);
+    return failed1([`folder: ${place.folder}`], `${entered.message}; ${operation}${suffix}`);
+  }
+
   const prints = [`folder: ${entered.folder}`, `repo: ${entered.name}`, `url: ${entered.url}`];
   if (entered.branch !== undefined) prints.push(`branch: ${entered.branch}`);
-  const bootstrapped = bootstrapProduct({ folder: place.folder });
-  if (bootstrapped.outcome === 'refused') return refused2(prints, refusalText(bootstrapped));
-  const reported = reportLines(entered.folder, bootstrapped.repos, 'clone');
-  return withFailures([...prints, ...reported.prints], reported.failures);
+  prints.push(`${mode === 'clone' ? 'cloned' : mode === 'link' ? 'linked' : 'moved'}: ${target}`);
+  if (sourceRoot !== undefined && mode === 'clone') prints.push(`source left unchanged: ${sourceRoot}`);
+  const cleanup = finishMove(prepared);
+  if (cleanup !== undefined) prints.push(`move cleanup required: ${cleanup}`);
+  return { prints, errors: [], exit: 0 };
 }
 
 /** Clones what the manifest declares; a checkout standing there is left as it is and named. */
