@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { createTestQueryEngine } from './query-test-engine.js';
 import {
-  createLadybugEngine,
   createPGliteHistory,
   type Clock,
   type CompiledElement,
@@ -16,7 +16,7 @@ import {
  * `assertions()`, at many `(valid, known)` pairs — earlier known times
  * included, since a `known` time before a later commit closed a row must
  * still see it (the very axis `update()` used to drop by deleting a closed
- * row outright instead of closing it — see `ladybug-engine.ts`'s own doc).
+ * row outright instead of closing it — as the bitemporal query contract requires).
  * `await history.read()` is the independent oracle neither engine is built from
  * directly.
  */
@@ -49,7 +49,7 @@ function model(elements: CompiledElement[], relations: CompiledRelation[]): Comp
   return { schemaVersion: 1, elements, interfaces: [], relations, categories: [], entities: [], scenarios: [], zones: [], environments: [], states: [{ id: 'as-is' }] };
 }
 
-describe('M1: an engine kept in step through update() answers exactly like a rebuilt one, at every known time the history could report', () => {
+describe('M1: an engine kept in step through update() answers exactly like a rebuilt one, at every known time the history could report', async () => {
   test(
     'over 8 seeded random sequences of two sources (with late and same-time commits), children/dependencies agree between update() and rebuild(), and both agree with await history.read()', async () => {
       for (let seed = 1; seed <= 8; seed++) {
@@ -57,8 +57,8 @@ describe('M1: an engine kept in step through update() answers exactly like a reb
         let now = 100_000;
         const clock = fakeClock(now);
         const history = createPGliteHistory({ clock });
-        const updated = createLadybugEngine();
-        updated.rebuild([]);
+        const updated = await createTestQueryEngine();
+        await updated.rebuild([]);
 
         const storeTimes: number[] = [];
         for (let i = 0; i < 12; i++) {
@@ -90,11 +90,11 @@ describe('M1: an engine kept in step through update() answers exactly like a reb
           const committedAt = 1000 * (1 + rnd.int(5));
           const result = await history.store({ source, commit: `c${i}`, committedAt, model: model(elements, relations) });
           expect(result.errors).toEqual([]);
-          updated.update(result.opened, result.closed);
+          await updated.update(result.opened, result.closed);
         }
 
-        const rebuilt = createLadybugEngine();
-        rebuilt.rebuild(await history.assertions());
+        const rebuilt = await createTestQueryEngine();
+        await rebuilt.rebuild(await history.assertions());
 
         // Sparse but deliberate sampling: the earliest and latest store
         // moments, one from the middle, and just after/before the whole
@@ -113,8 +113,8 @@ describe('M1: an engine kept in step through update() answers exactly like a reb
               const wantDependencies = knownElements.has(id) ? readModel.relations.filter((r) => r.from === id).map((r) => r.to).sort() : undefined;
 
               for (const engine of [rebuilt, updated]) {
-                const children = engine.children(id, at);
-                const dependencies = engine.dependencies(id, {}, at);
+                const children = await engine.children(id, at);
+                const dependencies = await engine.dependencies(id, {}, at);
                 if (wantChildren === undefined) {
                   expect(children.error).toBeDefined();
                   expect(dependencies.error).toBeDefined();
@@ -127,8 +127,8 @@ describe('M1: an engine kept in step through update() answers exactly like a reb
           }
         }
 
-        rebuilt.close();
-        updated.close();
+        await rebuilt.close();
+        await updated.close();
         await history.close();
       }
     },

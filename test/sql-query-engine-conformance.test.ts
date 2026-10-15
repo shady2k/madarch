@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { createPGliteQueryDatabase } from '../src/adapters/pglite-query-database.js';
-import { createLadybugEngine } from '../src/adapters/ladybug-engine.js';
 import type { AssertionRecord } from '../src/history/types.js';
 
 const DAY = (day: number) => Date.UTC(2026, 8, day);
@@ -32,7 +31,7 @@ function state(source: string, id: string, after?: string): AssertionRecord {
   return record(source, 'state', JSON.stringify({ id, ...(after === undefined ? {} : { after }) }));
 }
 
-describe('SQL query engine compatibility with the retained graph semantics', () => {
+describe('SQL query engine fixed graph-query outcomes', () => {
   let database: Awaited<ReturnType<typeof createPGliteQueryDatabase>> | undefined;
 
   beforeAll(async () => {
@@ -43,38 +42,34 @@ describe('SQL query engine compatibility with the retained graph semantics', () 
     await database?.close();
   });
 
-  test('children, unknown-element errors, and bitemporal update match the reference engine', async () => {
+  test('children, unknown-element errors, and bitemporal update have fixed expected outcomes', async () => {
     const source = 'conformance-bitemporal';
     const sql = database!.forSources([source]);
-    const reference = createLadybugEngine();
     const root = element(source, 'payments', 'domain', []);
     const oldChild = element(source, 'payments-api', 'service', ['payments'], { name: 'Old', parent: 'payments' }, { recordedFrom: DAY(1) });
     const initial = [root, oldChild];
-    reference.rebuild(initial);
     await sql.rebuild(initial);
     try {
-      expect(await sql.children('payments', { valid: DAY(2), known: DAY(2), state: 'as-is' })).toEqual(reference.children('payments', { valid: DAY(2), known: DAY(2), state: 'as-is' }));
-      expect(await sql.children('missing', { valid: DAY(2), known: DAY(2), state: 'as-is' })).toEqual(reference.children('missing', { valid: DAY(2), known: DAY(2), state: 'as-is' }));
+      expect(await sql.children('payments', { valid: DAY(2), known: DAY(2), state: 'as-is' })).toEqual({ elements: [{ id: 'payments-api', kind: 'service', name: 'Old', parent: 'payments' }] });
+      expect(await sql.children('missing', { valid: DAY(2), known: DAY(2), state: 'as-is' })).toEqual({ error: { message: '"missing" does not exist at this time', id: 'missing', time: DAY(2) } });
 
       const closed = { ...oldChild, recordedTo: DAY(10) };
       const opened = element(source, 'payments-api', 'service', ['payments'], { name: 'New', parent: 'payments' }, { recordedFrom: DAY(10) });
       await sql.update([opened], [closed]);
-      reference.update([opened], [closed]);
       for (const known of [DAY(5), DAY(11)]) {
         const at = { valid: DAY(2), known, state: 'as-is' };
-        expect(await sql.children('payments', at)).toEqual(reference.children('payments', at));
+        expect(await sql.children('payments', at)).toEqual({ elements: [{ id: 'payments-api', kind: 'service', name: known === DAY(5) ? 'Old' : 'New', parent: 'payments' }] });
       }
       const updated = await sql.children('payments', { valid: DAY(2), known: DAY(11), state: 'as-is' });
       await sql.rebuild([root, closed, opened]);
       expect(await sql.children('payments', { valid: DAY(2), known: DAY(11), state: 'as-is' })).toEqual(updated);
-      expect(await sql.children('payments', { valid: DAY(2), known: DAY(11), state: 'as-is' })).toEqual(reference.children('payments', { valid: DAY(2), known: DAY(11), state: 'as-is' }));
+      expect(await sql.children('payments', { valid: DAY(2), known: DAY(11), state: 'as-is' })).toEqual({ elements: [{ id: 'payments-api', kind: 'service', name: 'New', parent: 'payments' }] });
     } finally {
-      reference.close();
       await sql.close();
     }
   }, 20_000);
 
-  test('state-chain defaults, agreeing duplicate declarations, and disagreements match the reference engine', async () => {
+  test('state-chain defaults, agreeing duplicate declarations, and disagreements have fixed expected outcomes', async () => {
     const sourceX = 'conformance-states-x';
     const sourceY = 'conformance-states-y';
     const records = [
@@ -86,15 +81,13 @@ describe('SQL query engine compatibility with the retained graph semantics', () 
       state(sourceY, 'other', 'as-is'),
     ];
     const sql = database!.forSources([sourceX, sourceY]);
-    const reference = createLadybugEngine();
-    reference.rebuild(records);
     await sql.rebuild(records);
     try {
       const defaulted = { valid: DAY(2), known: DAY(2) };
-      expect(await sql.children('root', defaulted)).toEqual(reference.children('root', defaulted));
+      expect(await sql.children('root', defaulted)).toEqual({ error: { message: 'the state chains disagree at this time; a query with no explicit state cannot choose one — pass one of: as-is, other, to-be', time: DAY(2), states: ['as-is', 'other', 'to-be'] } });
       expect((await sql.children('root', defaulted)).error?.states).toEqual(['as-is', 'other', 'to-be']);
       const explicit = { ...defaulted, state: 'to-be' };
-      expect(await sql.children('root', explicit)).toEqual(reference.children('root', explicit));
+      expect(await sql.children('root', explicit)).toEqual({ elements: [{ id: 'child', kind: 'service', parent: 'root' }] });
 
       const duplicateSources = [
         element(sourceX, 'duplicate-root', 'service', []),
@@ -102,22 +95,18 @@ describe('SQL query engine compatibility with the retained graph semantics', () 
         state(sourceY, 'as-is'),
       ];
       const duplicateSql = database!.forSources([sourceX, sourceY]);
-      const duplicateReference = createLadybugEngine();
-      duplicateReference.rebuild(duplicateSources);
-      await duplicateSql.rebuild(duplicateSources);
+          await duplicateSql.rebuild(duplicateSources);
       try {
-        expect(await duplicateSql.children('duplicate-root', defaulted)).toEqual(duplicateReference.children('duplicate-root', defaulted));
+        expect(await duplicateSql.children('duplicate-root', defaulted)).toEqual({ elements: [] });
       } finally {
-        duplicateReference.close();
         await duplicateSql.close();
       }
     } finally {
-      reference.close();
       await sql.close();
     }
   }, 20_000);
 
-  test('collapsed views and context neighbours match the reference engine', async () => {
+  test('collapsed views and context neighbours have fixed expected outcomes', async () => {
     const source = 'conformance-view';
     const records = [
       element(source, 'checkout-web', 'service', []),
@@ -131,40 +120,40 @@ describe('SQL query engine compatibility with the retained graph semantics', () 
       relation(source, 'checkout-charges-card', 'checkout-cart', 'payments-api', { refines: 'checkout-uses-payments' }),
     ];
     const sql = database!.forSources([source]);
-    const reference = createLadybugEngine();
-    reference.rebuild(records);
     await sql.rebuild(records);
     try {
       for (const input of [{ depth: 0 }, { scope: 'checkout-web', depth: 1 }, { scope: 'checkout-web', depth: 1, context: true }]) {
-        expect(await sql.view(input, AT)).toEqual(reference.view(input, AT));
+        if (input.scope === undefined) {
+          expect(await sql.view(input, AT)).toEqual({ elements: [{ id: 'checkout-web', kind: 'service' }, { id: 'payments', kind: 'domain' }], relations: [{ from: 'checkout-web', to: 'payments', relationIds: ['cart-calls-payments', 'checkout-uses-payments', 'ui-calls-payments'] }] });
+        } else if (input.context) {
+          expect(await sql.view(input, AT)).toEqual({ elements: [{ id: 'checkout-cart', kind: 'module', parent: 'checkout-web' }, { id: 'checkout-ui', kind: 'module', parent: 'checkout-web' }, { id: 'checkout-web', kind: 'service' }], neighbours: [{ id: 'payments', kind: 'domain' }], relations: [{ from: 'checkout-cart', to: 'payments', relationIds: ['cart-calls-payments', 'checkout-charges-card'] }, { from: 'checkout-ui', to: 'payments', relationIds: ['ui-calls-payments'] }] });
+        } else {
+          expect(await sql.view(input, AT)).toEqual({ elements: [{ id: 'checkout-cart', kind: 'module', parent: 'checkout-web' }, { id: 'checkout-ui', kind: 'module', parent: 'checkout-web' }, { id: 'checkout-web', kind: 'service' }], relations: [] });
+        }
       }
     } finally {
-      reference.close();
       await sql.close();
     }
   }, 20_000);
 
-  test('view rejects raw model ids outside the id pattern like the reference engine', async () => {
+  test('view rejects raw model ids outside the id pattern', async () => {
     const source = 'conformance-invalid-id';
     const invalidId = "bad'id; DROP";
     const records = [element(source, invalidId, 'service', [])];
     const sql = database!.forSources([source]);
-    const reference = createLadybugEngine();
-    reference.rebuild(records);
     await sql.rebuild(records);
     try {
       const result = await sql.view({ depth: 0 }, AT);
-      expect(result).toEqual(reference.view({ depth: 0 }, AT));
+      expect(result).toEqual({ error: { message: `the query engine could not answer: refusing to build a query around an id outside the model's own id pattern: ${JSON.stringify(invalidId)}` } });
       expect(result.error).toBeDefined();
       expect(result.elements).toBeUndefined();
       expect(result.relations).toBeUndefined();
     } finally {
-      reference.close();
       await sql.close();
     }
   }, 20_000);
 
-  test('recursive dependencies and dependents match the reference engine through a cycle', async () => {
+  test('recursive dependencies and dependents have fixed expected outcomes through a cycle', async () => {
     const source = 'conformance-paths';
     const records = [
       ...['a', 'b', 'c', 'd', 'z'].map((id) => element(source, id, 'service', [])),
@@ -176,13 +165,11 @@ describe('SQL query engine compatibility with the retained graph semantics', () 
       relation(source, 'd-to-a', 'd', 'a'),
     ];
     const sql = database!.forSources([source]);
-    const reference = createLadybugEngine();
-    reference.rebuild(records);
     await sql.rebuild(records);
     try {
       const options = { transitive: true };
       const dependencies = await sql.dependencies('a', options, AT);
-      expect(dependencies).toEqual(reference.dependencies('a', options, AT));
+      expect(dependencies).toEqual({ elements: [{ id: 'b', chain: ['a-to-b'] }, { id: 'c', chain: ['a-to-c'] }, { id: 'd', chain: ['a-to-b', 'b-to-d'] }, { id: 'z', chain: ['a-to-z'] }] });
       expect(dependencies.elements).toEqual([
         { id: 'b', chain: ['a-to-b'] },
         { id: 'c', chain: ['a-to-c'] },
@@ -190,11 +177,10 @@ describe('SQL query engine compatibility with the retained graph semantics', () 
         { id: 'z', chain: ['a-to-z'] },
       ]);
       const dependents = await sql.dependents('a', options, AT);
-      expect(dependents).toEqual(reference.dependents('a', options, AT));
+      expect(dependents).toEqual({ elements: [{ id: 'b', chain: ['b-to-d', 'd-to-a'] }, { id: 'c', chain: ['c-to-d', 'd-to-a'] }, { id: 'd', chain: ['d-to-a'] }] });
       expect(dependencies.elements?.some(({ id }) => id === 'a')).toBe(false);
       expect(dependents.elements?.some(({ id }) => id === 'a')).toBe(false);
     } finally {
-      reference.close();
       await sql.close();
     }
   }, 20_000);
@@ -226,20 +212,16 @@ describe('SQL query engine compatibility with the retained graph semantics', () 
     for (let i = 0; i < count; i++) records.push(relation(source, `ring${i}`, `e${i}`, `e${(i + 1) % count}`));
     for (let i = 0; i < count; i += 2) records.push(relation(source, `chord${i}`, `e${i}`, `e${(i + 5) % count}`));
     const sql = database!.forSources([source]);
-    const reference = createLadybugEngine();
-    reference.rebuild(records);
     await sql.rebuild(records);
     try {
       const options = { transitive: true, maxHops: 30 };
       const result = await sql.dependencies('e0', options, AT);
-      const referenceResult = reference.dependencies('e0', options, AT);
       expect(result.error).toBeUndefined();
-      expect(result.elements?.map(({ id }) => id)).toEqual(referenceResult.elements?.map(({ id }) => id));
-      expect(result.elements?.map(({ id, chain }) => [id, chain.length])).toEqual(referenceResult.elements?.map(({ id, chain }) => [id, chain.length]));
+      expect(result.elements?.map(({ id }) => id)).toEqual(['e1', 'e2', 'e3', 'e4', 'e5', 'e6', 'e7', 'e8', 'e9']);
+      expect(result.elements?.map(({ id, chain }) => [id, chain.length])).toEqual([['e1', 1], ['e2', 2], ['e3', 3], ['e4', 4], ['e5', 1], ['e6', 2], ['e7', 3], ['e8', 4], ['e9', 5]]);
       expect(result.elements?.map(({ id }) => id).sort()).toEqual(['e1', 'e2', 'e3', 'e4', 'e5', 'e6', 'e7', 'e8', 'e9']);
       expect(result.elements?.some(({ id }) => id === 'e0')).toBe(false);
     } finally {
-      reference.close();
       await sql.close();
     }
   }, 20_000);

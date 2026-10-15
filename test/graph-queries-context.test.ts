@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import { createTestQueryEngine } from './query-test-engine.js';
 import { fileURLToPath } from 'node:url';
-import { compileModel, createLadybugEngine, createPGliteHistory, loadModel, type AssertionRecord, type Clock, type HistoryStore, type QueryEngine } from '../src/index.js';
+import { compileModel, createPGliteHistory, loadModel, type AssertionRecord, type Clock, type HistoryStore, type AsyncQueryEngine } from '../src/index.js';
 
 /**
  * graph-queries/view asked with its context (the `context` scenario and the
@@ -21,7 +22,7 @@ const DAY = (day: number) => Date.UTC(2026, 8, day);
 const AT = { valid: DAY(2), known: DAY(2), state: 'as-is' };
 
 /** Loads and compiles each fixture in turn as one source's next commit, and builds a query engine from the history they produced. */
-async function engineFor(...versions: { name: string; committedAt: number; storedAt: number }[]): Promise<{ engine: QueryEngine; history: HistoryStore }> {
+async function engineFor(...versions: { name: string; committedAt: number; storedAt: number }[]): Promise<{ engine: AsyncQueryEngine; history: HistoryStore }> {
   const clock = fakeClock(versions[0]!.storedAt);
   const history = createPGliteHistory({ clock });
   for (const version of versions) {
@@ -30,20 +31,20 @@ async function engineFor(...versions: { name: string; committedAt: number; store
     clock.set(version.storedAt);
     expect((await history.store({ source: 's', commit: version.name, committedAt: version.committedAt, model: compileModel(model!) })).errors).toEqual([]);
   }
-  const engine = createLadybugEngine();
-  engine.rebuild(await history.assertions());
+  const engine = await createTestQueryEngine();
+  await engine.rebuild(await history.assertions());
   return { engine, history };
 }
 
-async function oneVersion(name: string): Promise<{ engine: QueryEngine; history: HistoryStore }> {
+async function oneVersion(name: string): Promise<{ engine: AsyncQueryEngine; history: HistoryStore }> {
   return await engineFor({ name, committedAt: DAY(1), storedAt: DAY(2) });
 }
 
-describe('graph-queries/view asked with its context', () => {
+describe('graph-queries/view asked with its context', async () => {
   test('context: shop at depth one shows checkout-web and catalog-api inside, payments as a neighbour, and one relation from checkout-web to payments', async () => {
     const { engine, history } = await oneVersion('gq-context');
 
-    const result = engine.view({ scope: 'shop', depth: 1, context: true }, AT);
+    const result = await engine.view({ scope: 'shop', depth: 1, context: true }, AT);
     expect(result).toEqual({
       elements: [
         { id: 'catalog-api', kind: 'service', parent: 'shop' },
@@ -54,14 +55,14 @@ describe('graph-queries/view asked with its context', () => {
       relations: [{ from: 'checkout-web', to: 'payments', relationIds: ['checkout-calls-payments'] }],
     });
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
   test('asked without its context, the same scoped view answers exactly as before: no neighbours field, no crossing relation', async () => {
     const { engine, history } = await oneVersion('gq-context');
 
-    const result = engine.view({ scope: 'shop', depth: 1 }, AT);
+    const result = await engine.view({ scope: 'shop', depth: 1 }, AT);
     expect(result).not.toHaveProperty('neighbours');
     expect(result).toEqual({
       elements: [
@@ -71,22 +72,22 @@ describe('graph-queries/view asked with its context', () => {
       ],
       relations: [],
     });
-    expect(engine.view({ scope: 'shop', depth: 1, context: false }, AT)).toEqual(result);
+    expect(await engine.view({ scope: 'shop', depth: 1, context: false }, AT)).toEqual(result);
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
   test('a scope with no relation crossing it answers an empty neighbour list, not a missing one', async () => {
     const { engine, history } = await oneVersion('gq-context');
 
-    expect(engine.view({ scope: 'catalog-api', depth: 0, context: true }, AT)).toEqual({
+    expect(await engine.view({ scope: 'catalog-api', depth: 0, context: true }, AT)).toEqual({
       elements: [{ id: 'catalog-api', kind: 'service', parent: 'shop' }],
       neighbours: [],
       relations: [],
     });
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
@@ -94,19 +95,19 @@ describe('graph-queries/view asked with its context', () => {
     const { engine, history } = await oneVersion('gq-context-nested');
 
     for (const depth of [0, 1, 2]) {
-      const plain = engine.view({ depth }, AT);
+      const plain = await engine.view({ depth }, AT);
       expect(plain.error).toBeUndefined();
-      expect(engine.view({ depth, context: true }, AT)).toStrictEqual(plain);
+      expect(await engine.view({ depth, context: true }, AT)).toStrictEqual(plain);
     }
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
   test('a service inside a domain: a sibling service stays itself, another domain lifts to that domain, an element with no parent stays itself; incoming and outgoing crossings both show', async () => {
     const { engine, history } = await oneVersion('gq-context-nested');
 
-    const result = engine.view({ scope: 'checkout-web', depth: 1, context: true }, AT);
+    const result = await engine.view({ scope: 'checkout-web', depth: 1, context: true }, AT);
     expect(result.error).toBeUndefined();
     expect(result.elements?.map((e) => e.id)).toEqual(['checkout-cart', 'checkout-ui', 'checkout-web']);
     expect(result.neighbours).toEqual([
@@ -131,14 +132,14 @@ describe('graph-queries/view asked with its context', () => {
       { from: 'payments', to: 'checkout-web', relationIds: ['payments-calls-back'] },
     ]);
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
   test('at depth zero the crossing relations merge per shown pair, drawn from the scope itself; a refinement whose own end is hidden is not counted beside the relation it refines', async () => {
     const { engine, history } = await oneVersion('gq-context-nested');
 
-    const result = engine.view({ scope: 'checkout-web', depth: 0, context: true }, AT);
+    const result = await engine.view({ scope: 'checkout-web', depth: 0, context: true }, AT);
     expect(result.error).toBeUndefined();
     expect(result.elements?.map((e) => e.id)).toEqual(['checkout-web']);
     expect(result.neighbours?.map((e) => e.id)).toEqual(['mail-gateway', 'orders-api', 'payments']);
@@ -150,14 +151,14 @@ describe('graph-queries/view asked with its context', () => {
       { from: 'payments', to: 'checkout-web', relationIds: ['payments-calls-back'] },
     ]);
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
   test('a domain scope: a relation declared at the scope\'s own level crosses it, and its refinement from a service shown below the scope is drawn instead of it', async () => {
     const { engine, history } = await oneVersion('gq-context-nested');
 
-    const result = engine.view({ scope: 'shop', depth: 1, context: true }, AT);
+    const result = await engine.view({ scope: 'shop', depth: 1, context: true }, AT);
     expect(result.error).toBeUndefined();
     expect(result.elements?.map((e) => e.id)).toEqual(['checkout-web', 'orders-api', 'shop']);
     expect(result.neighbours?.map((e) => e.id)).toEqual(['mail-gateway', 'payments']);
@@ -170,14 +171,14 @@ describe('graph-queries/view asked with its context', () => {
       { from: 'payments', to: 'checkout-web', relationIds: ['payments-calls-back'] },
     ]);
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
   test('the sibling service seen from the other side: checkout-web stays itself, and the refinement into orders-core is drawn instead of checkout-uses-orders', async () => {
     const { engine, history } = await oneVersion('gq-context-nested');
 
-    const result = engine.view({ scope: 'orders-api', depth: 1, context: true }, AT);
+    const result = await engine.view({ scope: 'orders-api', depth: 1, context: true }, AT);
     expect(result.error).toBeUndefined();
     expect(result.elements?.map((e) => e.id)).toEqual(['orders-api', 'orders-core']);
     expect(result.neighbours).toEqual([
@@ -190,14 +191,14 @@ describe('graph-queries/view asked with its context', () => {
       { from: 'orders-core', to: 'payments', relationIds: ['orders-pays'] },
     ]);
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
   test('a scope two levels down: every end in another domain lifts to that domain, and a relation between two of the scope\'s ancestors is not drawn', async () => {
     const { engine, history } = await oneVersion('gq-context-nested');
 
-    const service = engine.view({ scope: 'payments-api', depth: 0, context: true }, AT);
+    const service = await engine.view({ scope: 'payments-api', depth: 0, context: true }, AT);
     expect(service.error).toBeUndefined();
     expect(service.elements?.map((e) => e.id)).toEqual(['payments-api']);
     expect(service.neighbours).toEqual([{ id: 'shop', kind: 'domain' }]);
@@ -206,20 +207,20 @@ describe('graph-queries/view asked with its context', () => {
       { from: 'shop', to: 'payments-api', relationIds: ['cart-charges-card', 'checkout-pays', 'orders-pays', 'ui-shows-payments'] },
     ]);
 
-    const module = engine.view({ scope: 'payments-core', depth: 0, context: true }, AT);
+    const module = await engine.view({ scope: 'payments-core', depth: 0, context: true }, AT);
     expect(module.error).toBeUndefined();
     expect(module.elements?.map((e) => e.id)).toEqual(['payments-core']);
     expect(module.neighbours).toEqual([{ id: 'shop', kind: 'domain' }]);
     expect(module.relations).toEqual([{ from: 'shop', to: 'payments-core', relationIds: ['cart-charges-card'] }]);
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
   test("an ancestor of the scope is itself a neighbour when a relation joins it to the scope's inside, and a refinement with both ends shown is drawn beside it", async () => {
     const { engine, history } = await oneVersion('gq-scoped');
 
-    const result = engine.view({ scope: 'checkout-web', depth: 1, context: true }, AT);
+    const result = await engine.view({ scope: 'checkout-web', depth: 1, context: true }, AT);
     expect(result.error).toBeUndefined();
     expect(result.elements?.map((e) => e.id)).toEqual(['checkout-cart', 'checkout-ui', 'checkout-web']);
     expect(result.neighbours).toEqual([
@@ -232,19 +233,19 @@ describe('graph-queries/view asked with its context', () => {
       { from: 'shop', to: 'checkout-ui', relationIds: ['shop-uses-ui'] },
     ]);
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
   test('refinement-counted-once with context: the crossing relation and its refinement are one relation to payments', async () => {
     const { engine, history } = await oneVersion('gq-refinement-once');
 
-    const result = engine.view({ scope: 'shop', depth: 1, context: true }, AT);
+    const result = await engine.view({ scope: 'shop', depth: 1, context: true }, AT);
     expect(result.error).toBeUndefined();
     expect(result.neighbours).toEqual([{ id: 'payments', kind: 'domain' }]);
     expect(result.relations).toEqual([{ from: 'checkout-web', to: 'payments', relationIds: ['checkout-uses-payments'] }]);
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
@@ -255,14 +256,14 @@ describe('graph-queries/view asked with its context', () => {
     );
     const input = { scope: 'checkout-web', depth: 0, context: true };
 
-    const before = engine.view(input, { valid: DAY(5), known: DAY(20), state: 'as-is' });
+    const before = await engine.view(input, { valid: DAY(5), known: DAY(20), state: 'as-is' });
     expect(before).toEqual({
       elements: [{ id: 'checkout-web', kind: 'service', parent: 'shop' }],
       neighbours: [{ id: 'legacy-billing', kind: 'external' }],
       relations: [{ from: 'checkout-web', to: 'legacy-billing', relationIds: ['checkout-bills'] }],
     });
 
-    const after = engine.view(input, { valid: DAY(15), known: DAY(20), state: 'as-is' });
+    const after = await engine.view(input, { valid: DAY(15), known: DAY(20), state: 'as-is' });
     expect(after).toEqual({
       elements: [{ id: 'checkout-web', kind: 'service', parent: 'shop' }],
       neighbours: [{ id: 'payments', kind: 'domain' }],
@@ -271,9 +272,9 @@ describe('graph-queries/view asked with its context', () => {
 
     // Valid after the second commit, but known before it was stored: the
     // history then still held the first version as open-ended.
-    expect(engine.view(input, { valid: DAY(15), known: DAY(5), state: 'as-is' })).toEqual(before);
+    expect(await engine.view(input, { valid: DAY(15), known: DAY(5), state: 'as-is' })).toEqual(before);
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
@@ -288,8 +289,8 @@ describe('graph-queries/view asked with its context', () => {
       validTo,
     });
     const relation = (id: string, from: string, to: string): AssertionRecord => ({ source: 'a', kind: 'relation', id, content: JSON.stringify({ id, from, to, states: ['as-is'] }), ...DAY1 });
-    const engine = createLadybugEngine();
-    engine.rebuild([
+    const engine = await createTestQueryEngine();
+    await engine.rebuild([
       element('a', 'shop', 'domain', []),
       element('a', 'checkout-web', 'service', ['shop']),
       element('b', 'payments', 'domain', [], DAY(3)),
@@ -301,38 +302,38 @@ describe('graph-queries/view asked with its context', () => {
       relation('books-shop', 'ledger-api', 'shop'),
     ]);
 
-    expect(engine.view({ scope: 'shop', depth: 1, context: true }, AT).neighbours).toEqual([
+    expect((await engine.view({ scope: 'shop', depth: 1, context: true }, AT)).neighbours).toEqual([
       { id: 'ledger', kind: 'domain' },
       { id: 'payments', kind: 'domain' },
     ]);
     // Both are gone on 4 September; the first by code point is named, with
     // every relation drawn to it, also by code point.
-    expect(engine.view({ scope: 'shop', depth: 1, context: true }, { valid: DAY(4), known: DAY(4), state: 'as-is' })).toEqual({
+    expect(await engine.view({ scope: 'shop', depth: 1, context: true }, { valid: DAY(4), known: DAY(4), state: 'as-is' })).toEqual({
       error: { message: '"ledger", the neighbour the relations books-shop, posts-orders are drawn to or from, does not exist at this time', id: 'ledger', time: DAY(4) },
     });
 
-    engine.close();
+    await engine.close();
   });
 
   test('a scope id outside the model\'s id pattern that still reached the engine is refused before it is built into query text', async () => {
-    const engine = createLadybugEngine();
-    engine.rebuild([
+    const engine = await createTestQueryEngine();
+    await engine.rebuild([
       { source: 's', kind: 'element', id: 'the shop', content: JSON.stringify({ id: 'the shop', kind: 'domain', ancestors: [], states: ['as-is'] }), validFrom: DAY(1), validTo: null, recordedFrom: DAY(1), recordedTo: null },
     ]);
 
-    const result = engine.view({ scope: 'the shop', depth: 0, context: true }, AT);
+    const result = await engine.view({ scope: 'the shop', depth: 0, context: true }, AT);
     expect(result.elements).toBeUndefined();
     expect(result.error?.message).toContain('refusing to build a query around an id outside the model\'s own id pattern: "the shop"');
 
-    engine.close();
+    await engine.close();
   });
 
   test('a scope that does not exist is the same error with or without context', async () => {
     const { engine, history } = await oneVersion('gq-context');
 
-    expect(engine.view({ scope: 'ghost', depth: 1, context: true }, AT)).toEqual({ error: { message: '"ghost" does not exist at this time', id: 'ghost', time: DAY(2) } });
+    expect(await engine.view({ scope: 'ghost', depth: 1, context: true }, AT)).toEqual({ error: { message: '"ghost" does not exist at this time', id: 'ghost', time: DAY(2) } });
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 });
