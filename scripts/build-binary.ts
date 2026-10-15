@@ -16,7 +16,7 @@
  * --os and --arch name the artifact (`madarch-<os>-<arch>`, `.exe` on
  * Windows); the defaults are this machine's own. The script smoke-runs
  * `version`, then runs `new`, verifies the served product API (which opens
- * LadybugDB), and lists the graph-backed draft before it reports done.
+ * the embedded PGlite store), and lists the graph-backed draft before it reports done.
  *
  * Exit 0 built, 1 when a step of the build fails, 2 when an argument or
  * the input (the wiki app's dist) cannot be used; every refusal names what
