@@ -12,6 +12,12 @@ function run(command: string, args: string[], env: Record<string, string | undef
 }
 
 describe('clean install platform contracts', () => {
+  test('Linux installer has no system OpenSSL prerequisite', () => {
+    const installer = readFileSync('scripts/install.sh', 'utf8');
+    expect(installer).not.toContain('OpenSSL 3');
+    expect(installer).not.toContain('libssl.so.3');
+  });
+
   test('Windows x64 package uses the exe artifact and wrapper selects the Windows package', () => {
     const bin = join(scratch, 'madarch-windows-x64.exe');
     const out = join(scratch, 'packages-windows');
@@ -27,6 +33,8 @@ describe('clean install platform contracts', () => {
     const wrapperPackage = JSON.parse(readFileSync(join(out, 'madarch', 'package.json'), 'utf8')) as { optionalDependencies: Record<string, string> };
     expect(wrapper).toContain("win32: 'win32'");
     expect(wrapper).toContain('Windows arm64');
+    expect(wrapper).not.toContain('OpenSSL 3');
+    expect(wrapper).not.toContain('LD_LIBRARY_PATH');
     expect(wrapperPackage.optionalDependencies['@madarch/win32-x64']).toBe('1.2.3');
   });
 
