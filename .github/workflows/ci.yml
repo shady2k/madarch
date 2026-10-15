@@ -40,7 +40,7 @@ jobs:
           cp .github/workflows/test-timings.json "$shard_files"
           bun test test/ --shard=${{ matrix.shard }}/5 \
             --timings="$shard_files" --update-timings
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: test-files-${{ matrix.shard }}
@@ -90,7 +90,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: test-files-*
           path: ${{ runner.temp }}/shard-files
