@@ -46,6 +46,15 @@ const npxArgs = ['--yes', 'madarch'];
 const home = join(work, 'products');
 const firstPort = 20000 + Math.floor(Math.random() * 20000);
 const env = { ...process.env, GIT_AUTHOR_NAME: 'Madarch Clean Walk', GIT_AUTHOR_EMAIL: 'walk@example.invalid', GIT_COMMITTER_NAME: 'Madarch Clean Walk', GIT_COMMITTER_EMAIL: 'walk@example.invalid' };
+async function removeWork(): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    try { rmSync(work, { recursive: true, force: true }); return; }
+    catch (error) {
+      if (attempt === 19 || process.platform !== 'win32') throw error;
+      await new Promise((done) => setTimeout(done, 100));
+    }
+  }
+}
 async function serveCheck(): Promise<void> {
   const start = (command: string, extra: string[], port: number) => spawn(npx, [...npxArgs, command, ...extra, '--port', String(port), '--no-open'], { cwd: install, env, stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32', detached: process.platform !== 'win32' });
   const stop = (process_: ReturnType<typeof spawn>) => {
@@ -98,6 +107,6 @@ async function serveCheck(): Promise<void> {
   process.stdout.write(serveOut);
   process.stderr.write(serveErr);
   console.log(`walk passed: npx madarch new --home ${home}, then npx madarch serve --product ${product}; both served /api/product with its id`);
-  rmSync(work, { recursive: true, force: true });
+  await removeWork();
 }
-serveCheck().catch((error: unknown) => { console.error((error as Error).message); rmSync(work, { recursive: true, force: true }); process.exit(1); });
+serveCheck().catch(async (error: unknown) => { console.error((error as Error).message); try { await removeWork(); } catch (cleanupError) { console.error(`could not remove walk scratch ${work}: ${(cleanupError as Error).message}`); } process.exit(1); });
