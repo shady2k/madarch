@@ -137,10 +137,10 @@ describe('protocol versions', () => {
 describe('POST /models', () => {
   test('a new model is stored, answering 201 with the source and the commit', async () => {
     await start();
-    const response = await send('github.com/shady2k/nocx', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    const response = await send('github.com/acme/shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
     expect(response.status).toBe(201);
     expect(response.headers.get('content-type')).toStartWith('application/json');
-    expect(await response.json()).toEqual({ stored: true, source: 'github.com/shady2k/nocx', commit: 'c1' });
+    expect(await response.json()).toEqual({ stored: true, source: 'github.com/acme/shop', commit: 'c1' });
   });
 
   test('sending the same commit again answers already stored and changes nothing', async () => {
@@ -328,12 +328,12 @@ describe('unknown request fields', () => {
 describe('two sources that both declare core', () => {
   test('both are stored, each in its own graph, and both are listed in code point order', async () => {
     await start();
-    await send('github.com/b/second', 'c2', '2026-09-02T12:00:00Z', [element('core')]);
-    await send('github.com/a/first', 'c1', '2026-09-01T12:00:00Z', [element('core')]);
+    await send('github.com/acme/second', 'c2', '2026-09-02T12:00:00Z', [element('core')]);
+    await send('github.com/acme/first', 'c1', '2026-09-01T12:00:00Z', [element('core')]);
 
     const sources = await sourcesOf(await fetch(`${server!.url}/sources`));
-    expect(sources.map((s) => s.source)).toEqual(['github.com/a/first', 'github.com/b/second']);
-    expect(sources[0]).toEqual({ id: expect.any(String), source: 'github.com/a/first', commit: 'c1', committedAt: '2026-09-01T12:00:00.000Z', storedAt: '2026-09-10T00:00:00.000Z' });
+    expect(sources.map((s) => s.source)).toEqual(['github.com/acme/first', 'github.com/acme/second']);
+    expect(sources[0]).toEqual({ id: expect.any(String), source: 'github.com/acme/first', commit: 'c1', committedAt: '2026-09-01T12:00:00.000Z', storedAt: '2026-09-10T00:00:00.000Z' });
     expect(sources[1]!.storedAt).toBe('2026-09-10T00:00:00.000Z');
   });
 });
@@ -341,8 +341,8 @@ describe('two sources that both declare core', () => {
 describe('source ids', () => {
   test('GET /sources lists the id beside the name, and two sources hold different ids', async () => {
     await start();
-    await send('github.com/shady2k/nocx', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
-    await send('github.com/acme/shop', 'c2', '2026-09-02T12:00:00Z', [element('b')]);
+    await send('github.com/acme/first', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    await send('github.com/acme/second', 'c2', '2026-09-02T12:00:00Z', [element('b')]);
 
     const sources = await sourcesOf(await fetch(`${server!.url}/sources`));
     for (const each of sources) {
@@ -355,8 +355,8 @@ describe('source ids', () => {
 
   test('a source keeps its id across sends and a restart', async () => {
     await start();
-    await send('github.com/shady2k/nocx', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
-    await send('github.com/shady2k/nocx', 'c2', '2026-09-02T12:00:00Z', [element('b')]);
+    await send('github.com/acme/shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    await send('github.com/acme/shop', 'c2', '2026-09-02T12:00:00Z', [element('b')]);
     const id = (await sourcesOf(await fetch(`${server!.url}/sources`)))[0]!.id;
     const port = server!.port;
     await server?.stop();
@@ -371,7 +371,7 @@ describe('source ids', () => {
     });
     const sources = await sourcesOf(await fetch(`${server!.url}/sources`));
     expect(sources).toHaveLength(1);
-    expect(sources[0]!.source).toBe('github.com/shady2k/nocx');
+    expect(sources[0]!.source).toBe('github.com/acme/shop');
     expect(sources[0]!.id).toBe(id);
   });
 });
@@ -382,12 +382,12 @@ describe('POST /sources — the rename claim', () => {
     await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
     const id = (await sourcesOf(await fetch(`${server!.url}/sources`)))[0]!.id;
 
-    const response = await post('/sources', { id, source: 'github.com/shady2k/nocx' });
+    const response = await post('/sources', { id, source: 'github.com/acme/shop' });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ renamed: true, source: 'github.com/shady2k/nocx', formerSource: 'shop', id });
+    expect(await response.json()).toEqual({ renamed: true, source: 'github.com/acme/shop', formerSource: 'shop', id });
 
     const sources = await sourcesOf(await fetch(`${server!.url}/sources`));
-    expect(sources).toEqual([{ id, source: 'github.com/shady2k/nocx', commit: 'c1', committedAt: '2026-09-01T12:00:00.000Z', storedAt: '2026-09-10T00:00:00.000Z' }]);
+    expect(sources).toEqual([{ id, source: 'github.com/acme/shop', commit: 'c1', committedAt: '2026-09-01T12:00:00.000Z', storedAt: '2026-09-10T00:00:00.000Z' }]);
   });
 
   test('a claim for an unknown id is refused naming it and what the server holds', async () => {
@@ -406,19 +406,19 @@ describe('POST /sources — the rename claim', () => {
 
   test('a claim whose new name is another source\'s name is refused naming both, and nothing moves', async () => {
     await start();
-    await send('github.com/a/first', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
-    await send('github.com/b/second', 'c1', '2026-09-01T12:00:00Z', [element('b')]);
+    await send('github.com/acme/first', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    await send('github.com/acme/second', 'c1', '2026-09-01T12:00:00Z', [element('b')]);
     const sources = await sourcesOf(await fetch(`${server!.url}/sources`));
-    const first = sources.find((each) => each.source === 'github.com/a/first')!;
+    const first = sources.find((each) => each.source === 'github.com/acme/first')!;
 
-    const response = await post('/sources', { id: first.id, source: 'github.com/b/second' });
+    const response = await post('/sources', { id: first.id, source: 'github.com/acme/second' });
     expect(response.status).toBe(409);
     const error = await errorOf(response);
     expect(error.field).toBe('source');
-    expect(error.message).toContain('github.com/a/first');
-    expect(error.message).toContain('github.com/b/second');
+    expect(error.message).toContain('github.com/acme/first');
+    expect(error.message).toContain('github.com/acme/second');
 
-    expect((await sourcesOf(await fetch(`${server!.url}/sources`))).map((each) => each.source)).toEqual(['github.com/a/first', 'github.com/b/second']);
+    expect((await sourcesOf(await fetch(`${server!.url}/sources`))).map((each) => each.source)).toEqual(['github.com/acme/first', 'github.com/acme/second']);
   });
 
   test('a claim repeating the source\'s own name answers already the name and changes nothing', async () => {
@@ -629,7 +629,7 @@ describe('unknown paths and methods', () => {
 describe('restart on the same data folder', () => {
   test('the sources are listed the same after a stop and a new start on the same port', async () => {
     await start();
-    await send('github.com/shady2k/nocx', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
+    await send('github.com/acme/shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
     await send('github.com/acme/shop', 'c2', '2026-09-02T12:00:00Z', [element('b')]);
     const before = await (await fetch(`${server!.url}/sources`)).text();
     const port = server!.port;

@@ -122,7 +122,7 @@ _Avoid_: diagram (a view rendered)
 **Source**:
 Where facts come from: a repository at a ref, read by one plugin at one version.
 In the MVP, a repository whose compiled model is sent to the server, named by
-its `origin` remote as host and path (`github.com/shady2k/nocx`).
+its `origin` remote as host and path (`github.com/acme/shop`).
 
 **Fact**:
 One atomic statement a plugin makes about what it sees (`provides`, `consumes`,
