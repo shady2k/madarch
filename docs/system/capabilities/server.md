@@ -24,9 +24,9 @@ there is no name to give the source, no server address, or the server cannot
 be reached, it exits 2 naming what is missing.
 
 ### Scenario: sent-after-check
-- Given: a repository whose `origin` is `git@github.com:shady2k/nocx.git` and whose model passes the check at `HEAD`
+- Given: a repository whose `origin` is `git@github.com:acme/shop.git` and whose model passes the check at `HEAD`
 - When: the send command is run with the server's address
-- Then: the server stores the model as source `github.com/shady2k/nocx` at `HEAD`'s commit and commit time, and the command prints the source, the commit and that it was stored
+- Then: the server stores the model as source `github.com/acme/shop` at `HEAD`'s commit and commit time, and the command prints the source, the commit and that it was stored
 
 ### Scenario: check-fails
 - Given: a repository whose model names evidence past the end of a file
@@ -73,7 +73,7 @@ model, element, depth and format give the same bytes.
 - Then: the answer is a Markdown fragment whose flowchart Mermaid's parser accepts, framing the children of `ordering` with its neighbours outside it, and its table lists every arrow
 
 ### Scenario: module-view-as-likec4
-- Given: nocx's model sent
+- Given: shop's model sent
 - When: the view of its core is requested as LikeC4
 - Then: the answer, saved as a file, passes `likec4 validate` and holds a view of the core showing its modules
 
@@ -86,9 +86,9 @@ naming the value and what it accepts. Every refusal names the request's
 fields at fault; none is answered with an empty diagram.
 
 ### Scenario: unknown-source
-- Given: a server holding only `github.com/shady2k/nocx`
-- When: a view of source `github.com/acme/shop` is requested
-- Then: the answer is "not found", saying no model has been sent for `github.com/acme/shop`, listing `github.com/shady2k/nocx`, and naming the send command with its arguments
+- Given: a server holding only `github.com/acme/shop`
+- When: a view of source `github.com/acme/unknown` is requested
+- Then: the answer is "not found", saying no model has been sent for `github.com/acme/unknown`, listing `github.com/acme/shop`, and naming the send command with its arguments
 
 ### Scenario: unknown-element
 - Given: the reference system sent
@@ -101,7 +101,7 @@ commit and commit time of its latest stored version and when that was stored,
 in code point order of the source names.
 
 ### Scenario: list
-- Given: nocx and the reference system each sent once
+- Given: shop and the reference system each sent once
 - When: the sources are asked
 - Then: both are listed with their commits and times
 
@@ -131,7 +131,7 @@ shall answer every view request exactly as before it stopped, rebuilding its
 query engines from the stored histories.
 
 ### Scenario: restart
-- Given: nocx sent and one view's answer recorded
+- Given: shop sent and one view's answer recorded
 - When: the server is stopped and started again on the same data folder
 - Then: the same request gets byte-identical text
 
@@ -143,12 +143,12 @@ shall keep the same id once the rename is recorded as a claim, and the server
 shall never hold two ids for one repository.
 
 ### Scenario: id-is-stable
-- Given: nocx sent once
-- When: the sources are listed, and nocx is sent again after a restart
-- Then: both listings show the same id for nocx
+- Given: shop sent once
+- When: the sources are listed, and shop is sent again after a restart
+- Then: both listings show the same id for shop
 
 ### Scenario: rename-keeps-identity
-- Given: nocx sent once, with its id recorded
+- Given: shop sent once, with its id recorded
 - When: the same repository is sent under a new name, with the rename claimed
 - Then: the source keeps its id, its histories and its view answers; the old name no longer creates a second source
 
@@ -160,12 +160,12 @@ send otherwise, naming both digests and the source and commit, without
 changing what is stored.
 
 ### Scenario: identical-bytes
-- Given: nocx's model stored at commit c1
+- Given: shop's model stored at commit c1
 - When: the same model bytes are sent again for c1
 - Then: the answer is already stored and every stored answer is byte-identical
 
 ### Scenario: different-bytes
-- Given: nocx's model stored at commit c1
+- Given: shop's model stored at commit c1
 - When: different model bytes are sent for the same source and c1
 - Then: the send is refused, both digests are named, and what is stored is unchanged
 
