@@ -63,6 +63,14 @@ async function problemsOf(repo: Repo): Promise<ModelCheckReport['problems']> {
   return (await checkModel(repo.path)).problems;
 }
 
+const EXPECTED_SIBLING_CYCLE: ModelCheckReport['problems'][number] = {
+  problem: 'cycle',
+  method: 'Acyclic Dependencies Principle; Arcan Cyclic Dependency',
+  source: 'R. C. Martin, Design Principles and Design Patterns (2000); F. Arcelli Fontana et al., Arcan (ICSA 2017)',
+  ids: ['a', 'b', 'c', 'ra', 'rb', 'rc'],
+  message: 'elements "a", "b", "c" form a cycle through relations "ra", "rb", "rc"',
+};
+
 function commitSiblingCycle(repo: Repo): void {
   const commit = commitSources(repo, ['svc', 'a', 'b', 'c']);
   const blob = (id: string): string => repo.blob(`src/${id}.ts`, commit);
@@ -102,11 +110,7 @@ test('cycle-between-siblings: three modules under one service form one cycle, na
     expect(report.outcome).toBe('passed');
     expect(report.problems).toHaveLength(1);
     const cycle = report.problems[0]!;
-    expect(cycle.problem).toBe('cycle');
-    expect(cycle.ids).toEqual(['a', 'b', 'c', 'ra', 'rb', 'rc']);
-    expect(cycle.method).toBe('Acyclic Dependencies Principle; Arcan Cyclic Dependency');
-    expect(cycle.source).toBe('R. C. Martin, Design Principles and Design Patterns (2000); F. Arcelli Fontana et al., Arcan (ICSA 2017)');
-    for (const relation of ['ra', 'rb', 'rc']) expect(cycle.message).toContain(relation);
+    expect(cycle).toEqual(EXPECTED_SIBLING_CYCLE);
 
     // The passing on-failure check does not initialize PGlite or analyze
     // advisory problems; the default CLI invocation above does both.
@@ -123,12 +127,7 @@ test('a failed on-failure check still computes advisory cycle findings', async (
 
     const report = await checkModel(repo.path, { problems: 'on-failure' });
     expect(report.outcome).toBe('failed');
-    expect(report.problems).toHaveLength(1);
-    expect(report.problems[0]).toMatchObject({
-      problem: 'cycle',
-      ids: ['a', 'b', 'c', 'ra', 'rb', 'rc'],
-      method: 'Acyclic Dependencies Principle; Arcan Cyclic Dependency',
-    });
+    expect(report.problems).toEqual([EXPECTED_SIBLING_CYCLE]);
   });
 });
 
