@@ -9,7 +9,7 @@ Kind: no-behavior
 Migrate production server graph serving, HTTP rendering, model rendering and model-check view preparation to the asynchronous SQL query port. Keep user-visible graph answers, rendered text, HTTP responses and refusal/error shapes unchanged while using the SQL projection selected by decision 0024.
 
 ## Rationale
-The existing contracts already specify the query, render, server and model-check behavior. This migration changes the implementation behind those contracts only; keeping the existing interfaces and regression checks preserves observable results while replacing synchronous production use with the asynchronous SQL port.
+The existing contracts already specify the query, render, server and model-check behavior. Decision 0024 selects PGlite locally and PostgreSQL on the server. The composition root must supply that shared query-database owner explicitly; a history `dataFolder` is not a backend selector. The local CLI constructs file-backed PGlite explicitly, and other server compositions can inject PostgreSQL without the HTTP layer hiding a backend choice.
 
 ## Out of scope
 Removing LadybugDB and its package/build/install dependencies; changing per-source PGlite HistoryStore files or legacy `.sqlite` refusal; vector providers; publishing; clean-install walks; changing graph, rendering or model-check requirements.
@@ -41,7 +41,7 @@ None. This change preserves existing behavior.
 None.
 
 ## Design and decisions
-Use one file-backed PGlite `AsyncQueryDatabase` owner for each server data folder, with source-scoped query facades. Rebuild a graph from its HistoryStore assertions on first use, apply successful store reports incrementally, clear a removed source through a facade scoped only to that source, and close facades before the owner. Wrap multi-query rendering and model-check preparation in `withSnapshot`. Decision 0024 remains the query-store choice; no synchronous Ladybug production caller remains.
+`startServer` receives a shared `AsyncQueryDatabase` owner through `ServerOptions.queryDatabase`; model routes require it, `dataFolder` selects only the source-history folder, and `startServer.stop()` closes the owner after graph facades. Each graph receives a source-scoped facade. Rebuild a graph from its HistoryStore assertions on first use, apply successful store reports incrementally, clear a removed source through a facade scoped only to that source, and wrap multi-query rendering and model-check preparation in `withSnapshot`. The local `scripts/serve.ts` composition explicitly creates file-backed PGlite at `<dataFolder>/.query-graph`; server callers inject `createPostgresQueryDatabase`. This repository has no deployment composition for injecting the server database, so this task adds no connection URL, environment variable or deployment setup. Per-source HistoryStore PGlite files remain unchanged; Ladybug has no synchronous production caller.
 
 ## Acceptance evidence
 See the worker report and task records for focused tests, `bun run check`, feature-document gate and independent review. PostgreSQL adapter integration was skipped because `MADARCH_TEST_POSTGRES_URL` was not configured; no CI result is claimed.

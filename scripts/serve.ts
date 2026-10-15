@@ -1,7 +1,9 @@
 /**
  * The server's command line: `bun scripts/serve.ts --data <folder>
  * [--host 127.0.0.1] [--port 4180]`. The folder is required. It names
- * machine-local source-history state outside the product repository; there
+ * machine-local per-source history state outside the product repository. This
+ * local composition explicitly uses file-backed PGlite for the shared graph-query
+ * projection too; a server composition injects a PostgreSQL query database; there
  * is no temporary default. The server listens on 127.0.0.1 unless
  * `--host` says otherwise (decision 0012). One line per request goes to
  * standard output; a failure of the server itself is logged at error
@@ -10,6 +12,8 @@
  * it is killed.
  */
 import { startServer } from '../src/index.js';
+import { createPGliteQueryDatabase } from '../src/adapters/pglite-query-database.js';
+import { join } from 'node:path';
 
 const USAGE = 'usage: bun scripts/serve.ts --data <folder> [--host 127.0.0.1] [--port 4180]';
 
@@ -74,7 +78,8 @@ async function main(args: readonly string[]): Promise<number> {
   }
 
   try {
-    const server = await startServer({ dataFolder: data, host, port });
+    const queryDatabase = await createPGliteQueryDatabase({ path: join(data, '.query-graph') });
+    const server = await startServer({ dataFolder: data, queryDatabase, host, port });
     console.log(`the server listens on ${server.url} — POST /models, GET /sources, POST /views`);
   } catch (error) {
     console.error((error as Error).message);
