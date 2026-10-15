@@ -63,6 +63,7 @@ jobs:
       # retain the existing per-target test run.
       - name: test
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        shell: bash
         run: MADARCH_SKIP_PERF=1 bun test test/
       # The wiki app is embedded into the binary: its build must be done
       # first, then its files ride with the build script's staging.
@@ -123,6 +124,7 @@ jobs:
             if (-not $served) { throw 'madarch new did not serve a graph-backed product' }
           } finally { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
       - name: checksum
+        shell: bash
         env:
           BINARY: dist/madarch-${{ matrix.os == 'windows' && 'windows' || matrix.os }}-${{ matrix.arch }}${{ matrix.os == 'windows' && '.exe' || '' }}
         run: bun scripts/write-sha256.ts "$BINARY"
