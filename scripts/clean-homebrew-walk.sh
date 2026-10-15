@@ -4,7 +4,9 @@ set -eu
 BINARY=${1:?usage: clean-homebrew-walk.sh <macOS artifact>}
 BINARY=$(cd "$(dirname "$BINARY")" && pwd)/$(basename "$BINARY")
 TMP=$(mktemp -d)
-trap 'if [ -n "${PID:-}" ]; then kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; fi; rm -rf "$TMP"' EXIT
+TAP_NAME="madarch-walk/local-$$"
+TAP_CREATED=0
+trap 'if [ -n "${PID:-}" ]; then kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; fi; if [ "$TAP_CREATED" -eq 1 ]; then brew uninstall --formula madarch >/dev/null 2>&1 || true; brew untap "$TAP_NAME" >/dev/null 2>&1 || true; fi; rm -rf "$TMP"' EXIT
 SUM=$(shasum -a 256 "$BINARY" | awk '{print $1}')
 printf '%s  madarch-linux-x64\n' "$(printf '0%.0s' $(seq 1 64))" > "$TMP/SHA256SUMS.txt"
 printf '%s  madarch-linux-arm64\n' "$(printf '0%.0s' $(seq 1 64))" >> "$TMP/SHA256SUMS.txt"
@@ -14,7 +16,11 @@ bun scripts/build-formula.ts --version 0.0.1 --sums-file "$TMP/SHA256SUMS.txt" -
 FORMULA="$TMP/formula/Formula/madarch.rb"
 sed -i '' "s|^  url .*|  url \"file://$BINARY\"|" "$FORMULA"
 
-brew install --formula "$FORMULA"
+brew tap-new --no-git "$TAP_NAME"
+TAP_CREATED=1
+TAP=$(brew --repo "$TAP_NAME")
+cp "$FORMULA" "$TAP/Formula/madarch.rb"
+brew install "$TAP_NAME/madarch"
 madarch version
 export GIT_AUTHOR_NAME='Madarch Homebrew Walk' GIT_AUTHOR_EMAIL='walk@example.invalid' GIT_COMMITTER_NAME='Madarch Homebrew Walk' GIT_COMMITTER_EMAIL='walk@example.invalid'
 HOME="$TMP/home"; PORT=$((20000 + RANDOM % 20000)); mkdir -p "$HOME"
