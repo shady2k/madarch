@@ -3,6 +3,7 @@ name: clean install walks
 on:
   push:
     branches: ['**']
+  workflow_dispatch:
 
 permissions:
   contents: read
