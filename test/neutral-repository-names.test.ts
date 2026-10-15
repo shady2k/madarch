@@ -44,7 +44,8 @@ function sourceIsAllowed(source: string): boolean {
   if (host === 'json-schema.org' && owner === 'draft') return true;
   if (host === 'astral.sh' && owner === 'uv' && repo === 'install.sh') return true;
   if (host === 'viewscreen.githubusercontent.com' && owner === 'markdown' && repo === 'mermaid') return true;
-  return (host === 'github.com' || host === 'raw.githubusercontent.com') && owner === 'shady2k' && ['madarch', 'madarch-product'].includes(repo);
+  // Madarch's own Homebrew tap is a release channel, not an outside repository.
+  return (host === 'github.com' || host === 'raw.githubusercontent.com') && owner === 'shady2k' && ['madarch', 'madarch-product', 'homebrew-tap'].includes(repo);
 }
 
 function findings(root = ROOT): string[] {

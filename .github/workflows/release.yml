@@ -110,9 +110,9 @@ jobs:
           GIT_COMMITTER_EMAIL: madarch-ci@example.invalid
         run: |
           $binary = Resolve-Path ./dist/madarch-windows-x64.exe
-          $home = Join-Path $env:RUNNER_TEMP 'madarch-smoke'
+          $smokeHome = Join-Path $env:RUNNER_TEMP 'madarch-smoke'
           $port = 18127
-          $proc = Start-Process -FilePath $binary -ArgumentList @('new', '--home', (Join-Path $home 'products'), '--port', "$port", '--no-open') -PassThru -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'madarch-out.txt') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'madarch-err.txt')
+          $proc = Start-Process -FilePath $binary -ArgumentList @('new', '--home', (Join-Path $smokeHome 'products'), '--port', "$port", '--no-open') -PassThru -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'madarch-out.txt') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'madarch-err.txt')
           try {
             $served = $false
             for ($i = 0; $i -lt 200; $i++) {
