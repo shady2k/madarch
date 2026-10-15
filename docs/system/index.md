@@ -75,3 +75,8 @@ Its run's decisions are in `docs/changes/draft-product/change.md`, "Design and d
   graph without a restartable process (madarch-ti6.1). The update path is
   not bounded yet: about 115 KB per update, the buffer pool full after about
   5 000 updates without a rebuild (madarch-8iw, the live-graph charter's exclusions).
+
+
+Added 2026-10-15 with the change clean-install-platforms (`docs/changes/clean-install-platforms/`):
+
+- [release-binary](capabilities/release-binary.md): install, upgrade, and use the self-contained release binary across supported platforms.
