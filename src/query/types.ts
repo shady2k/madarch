@@ -138,3 +138,31 @@ export interface QueryEngine {
   /** Releases the underlying database connection. */
   close(): void;
 }
+
+/**
+ * Query-only view of one stable graph revision. The reader is valid only for
+ * the lifetime of `AsyncQueryEngine.withSnapshot`'s callback; every method is
+ * asynchronous so a database adapter never has to pretend its queries are
+ * synchronous.
+ */
+export interface QuerySnapshot {
+  children(elementId: string, at?: QueryTime): Promise<ChildrenResult>;
+  view(input: ViewInput, at?: QueryTime): Promise<ViewResult>;
+  dependents(elementId: string, options: DependenciesInput, at?: QueryTime): Promise<DependenciesResult>;
+  dependencies(elementId: string, options: DependenciesInput, at?: QueryTime): Promise<DependenciesResult>;
+}
+
+/** The asynchronous graph-query port, added beside `QueryEngine` for staged migration. */
+export interface AsyncQueryEngine extends QuerySnapshot {
+  /**
+   * Runs several reads against one revision; use only the supplied reader
+   * inside the callback, and prevent queued writes from starving.
+   */
+  withSnapshot<T>(work: (snapshot: QuerySnapshot) => Promise<T>): Promise<T>;
+  /** Replaces everything the engine holds, built from a full assertion list. */
+  rebuild(assertions: readonly AssertionRecord[]): Promise<void>;
+  /** Applies one store report instead of a full rebuild. */
+  update(opened: readonly AssertionChange[], closed: readonly AssertionChange[]): Promise<void>;
+  /** Waits for active snapshots and releases the underlying connection. */
+  close(): Promise<void>;
+}
