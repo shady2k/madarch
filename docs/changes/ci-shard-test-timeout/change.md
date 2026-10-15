@@ -32,7 +32,7 @@ None.
 Set the test timeout to 15,000 ms on the repeated-render test alone. Keep the 5-second default for all other tests. The focused test and `bun run check` are run locally; PR CI verifies all test files, preserved workflow checks, and shard coverage.
 
 ## Acceptance evidence
-The task `madarch-o83b` carries passed `static`, `test`, `mutation`, and `review` receipts at revision `5dcb760532a9f253`. PR run `38749252649` verified exact-once coverage for 89 root test files and recorded every shard below 10 minutes, but failed the old 5-second timeout. Final post-fix PR CI integration evidence is pending.
+The task `madarch-o83b` carries passed `static`, `test`, `mutation`, and `review` receipts for revision `5dcb760532a9f253`. PR run `38751837878` passed all shards, checks, and exact-once coverage for all 89 root test files; its slowest shard took 8m45s, below the 10-minute criterion. The first run's default-timeout miss and the final run's passing result are recorded on the task.
 
 ## DONE WHEN
 The focused rendering assertion passes under the explicit 15-second deadline; the PR CI suite and exact-once check pass; all five shard job times remain below 10 minutes.
