@@ -60,7 +60,7 @@ async function main(args: readonly string[]): Promise<number> {
     }
   }
   if (data === undefined) {
-    console.error(`the --data flag is required: it names the local state folder for source histories, outside the product repository`);
+    console.error(`the --data flag is required: it names the local state folder for source history, outside the product repository`);
     console.error(USAGE);
     return 2;
   }

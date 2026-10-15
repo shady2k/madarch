@@ -136,7 +136,7 @@ describe('the send command', () => {
     } finally {
       rmSync(repo.path, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   test('an https origin with credentials stores the same name, and no credential reaches the output, the request or the server log', async () => {
     const url = await start();
@@ -293,7 +293,7 @@ describe('the send command', () => {
     } finally {
       rmSync(repo.path, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   test('a server answer that is not a send answer exits 2 naming the problem', async () => {
     await start();

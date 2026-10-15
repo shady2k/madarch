@@ -214,10 +214,10 @@ export async function createSourceStores(options: SourceStoresOptions): Promise<
   try {
     stat = statSync(dataFolder);
   } catch (error) {
-    throw new Error(`the data folder "${dataFolder}" cannot be read: ${(error as Error).message}; the server keeps its sources' history directorys there`, { cause: error });
+    throw new Error(`the data folder "${dataFolder}" cannot be read: ${(error as Error).message}; the server keeps its sources' history directories there`, { cause: error });
   }
   if (!stat.isDirectory()) {
-    throw new Error(`the data folder "${dataFolder}" is not a folder; the server keeps its sources' history directorys there`);
+    throw new Error(`the data folder "${dataFolder}" is not a folder; the server keeps its sources' history directories there`);
   }
 
   const folderEntries = readdirSync(dataFolder);

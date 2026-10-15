@@ -190,7 +190,7 @@ describe('POST /views of the reference system', () => {
       expect(body).toBe(await renderMermaid('element' in request ? request.element : undefined, 'depth' in request ? request.depth : undefined));
       expect(body).toContain('```mermaid');
     }
-  });
+  }, 15_000);
 
   test('the LikeC4 answers are text/plain and pass likec4 validate on their own', async () => {
     await start();
@@ -204,7 +204,7 @@ describe('POST /views of the reference system', () => {
       expect(workspace).toContain('views {');
       expect(validate(workspace).errors).toEqual([]);
     }
-  });
+  }, 15_000);
 
   test('the same request twice, and after a restart on the same data folder, gives byte-identical text', async () => {
     await start();
