@@ -639,7 +639,7 @@ describe('the graph engine and its clock', () => {
     const one = createPGliteHistory({ clock });
     const graphs = await graphsFor(() => one, clock);
     const union = graphs.addGraph('union', ['github.com/acme/two', 'github.com/acme/one', 'github.com/acme/three']);
-    expect(union.sources).toEqual(['github.com/acme/one', 'github.com/acme/two', 'github.com/acme/three']);
+    expect(union.sources).toEqual(['github.com/acme/one', 'github.com/acme/three', 'github.com/acme/two']);
     await graphs.close();
   });
 

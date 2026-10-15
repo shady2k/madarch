@@ -167,32 +167,41 @@ interface ClaimedRename {
 }
 
 export async function startServer(options: ServerOptions): Promise<StartedServer> {
+  const queryDatabase = options.queryDatabase;
   if (options.dataFolder === undefined && options.productFolder === undefined) {
+    await queryDatabase?.close().catch(() => {});
     throw new Error("the server is started with neither a data folder nor a product folder: give --data <folder> for the sources' histories, --product <folder> for a product's wiki, or both");
   }
   if (options.dataFolder !== undefined && options.queryDatabase === undefined) {
     throw new Error('the server model routes need a shared graph-query database owner: pass queryDatabase explicitly (PostgreSQL in server mode, or PGlite in local mode); dataFolder selects only the source-history folder');
   }
   if (options.dataFolder === undefined && options.queryDatabase !== undefined) {
+    await queryDatabase?.close().catch(() => {});
     throw new Error('a shared graph-query database owner is only used with the model routes: give dataFolder with queryDatabase');
   }
-  const wiki = options.productFolder === undefined ? undefined : openProductWiki(options.productFolder, { allowNoManifest: options.allowNoManifest });
-  if (wiki !== undefined && !wiki.ok) {
-    throw new Error(`the product ${JSON.stringify(options.productFolder!)} cannot be served as a wiki: ${wiki.message}`);
-  }
-  const productWiki = wiki !== undefined && wiki.ok ? wiki.wiki : undefined;
-  // A product folder means the product's wiki, its app included (requirement
-  // serves-wiki): the app folder defaults to the checkout's built app. A
-  // checkout whose app was never built refuses here with what to do, rather
-  // than start a server that answers 404 at `/`.
+  let wiki: ReturnType<typeof openProductWiki> | undefined;
   let appFolder = options.appFolder;
-  if (options.productFolder !== undefined && appFolder === undefined) {
-    const candidate = joinPath(dirname(fileURLToPath(import.meta.url)), '..', '..', 'wiki', 'app', 'dist');
-    if (existsSync(joinPath(candidate, 'index.html'))) {
-      appFolder = candidate;
-    } else {
-      throw new Error(`the product ${JSON.stringify(options.productFolder)} cannot be served as a wiki: the app's built files are not at ${JSON.stringify(candidate)} — build the app first (bun install --frozen-lockfile && bun run build in wiki/app of the madarch checkout), or name the built folder with the app folder option`);
+  try {
+    wiki = options.productFolder === undefined ? undefined : openProductWiki(options.productFolder, { allowNoManifest: options.allowNoManifest });
+    if (wiki !== undefined && !wiki.ok) {
+      throw new Error(`the product ${JSON.stringify(options.productFolder!)} cannot be served as a wiki: ${wiki.message}`);
     }
+
+    // A product folder means the product's wiki, its app included (requirement
+    // serves-wiki): the app folder defaults to the checkout's built app. A
+    // checkout whose app was never built refuses here with what to do, rather
+    // than start a server that answers 404 at `/`.
+    if (options.productFolder !== undefined && appFolder === undefined) {
+      const candidate = joinPath(dirname(fileURLToPath(import.meta.url)), '..', '..', 'wiki', 'app', 'dist');
+      if (existsSync(joinPath(candidate, 'index.html'))) {
+        appFolder = candidate;
+      } else {
+        throw new Error(`the product ${JSON.stringify(options.productFolder)} cannot be served as a wiki: the app's built files are not at ${JSON.stringify(candidate)} — build the app first (bun install --frozen-lockfile && bun run build in wiki/app of the madarch checkout), or name the built folder with the app folder option`);
+      }
+    }
+  } catch (error) {
+    await queryDatabase?.close().catch(() => {});
+    throw error;
   }
   const clock: Clock = options.clock ?? { now: () => Date.now() };
   // The writer is the safe place: every line is escaped here once, so a
@@ -202,7 +211,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   const errorSink = options.errorLog ?? ((line: string) => console.error(line));
   const log = (line: string) => sink(escapeControlCharacters(line));
   const errorLog = (line: string) => errorSink(escapeControlCharacters(line));
-  const queryDatabase = options.queryDatabase;
+  const productWiki = wiki !== undefined && wiki.ok ? wiki.wiki : undefined;
   let sources: SourceStores | undefined;
   try {
     sources = options.dataFolder === undefined ? undefined : await createSourceStores({ dataFolder: options.dataFolder, clock, log });

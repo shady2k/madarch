@@ -104,9 +104,36 @@ function send(source: string, commit: string, committedAt: string, elements: Rec
 }
 
 describe('server query database owner', () => {
+  test('an invalid startup option closes the injected shared query owner', async () => {
+    const database = await createPGliteQueryDatabase();
+    let closed = false;
+    const queryDatabase = {
+      forSources(sources: readonly string[]) { return database.forSources(sources); },
+      vectorIndexForSources(sources: readonly string[]) { return database.vectorIndexForSources(sources); },
+      async close() { closed = true; await database.close(); },
+    };
+
+    await expect(startServer({ queryDatabase, port: 0 })).rejects.toThrow('neither a data folder nor a product folder');
+    expect(closed).toBe(true);
+  });
+
   test('model routes require an explicitly injected shared query database', async () => {
     folder = mkdtempSync(join(tmpdir(), 'madarch-server-http-no-query-db-'));
     await expect(startServer({ dataFolder: folder, port: 0 })).rejects.toThrow('pass queryDatabase explicitly');
+  });
+
+  test('startup validation closes the injected shared query owner', async () => {
+    folder = mkdtempSync(join(tmpdir(), 'madarch-server-http-invalid-product-'));
+    const database = await createPGliteQueryDatabase();
+    let closed = false;
+    const queryDatabase = {
+      forSources(sources: readonly string[]) { return database.forSources(sources); },
+      vectorIndexForSources(sources: readonly string[]) { return database.vectorIndexForSources(sources); },
+      async close() { closed = true; await database.close(); },
+    };
+
+    await expect(startServer({ dataFolder: folder, productFolder: folder, queryDatabase, port: 0 })).rejects.toThrow('cannot be served as a wiki');
+    expect(closed).toBe(true);
   });
 
   test('model routes use and close the injected shared query owner', async () => {
@@ -118,6 +145,9 @@ describe('server query database owner', () => {
       forSources(sources: readonly string[]) {
         facadeCount++;
         return database.forSources(sources);
+      },
+      vectorIndexForSources(sources: readonly string[]) {
+        return database.vectorIndexForSources(sources);
       },
       async close() {
         closeCount++;
