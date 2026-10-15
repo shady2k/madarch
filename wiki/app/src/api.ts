@@ -270,6 +270,25 @@ export const getPages = (signal?: AbortSignal): Promise<PageList> =>
 export const getPage = (path: string, signal?: AbortSignal): Promise<Page> =>
   readJson<Page>(`read the page ${path}`, `/api/page?path=${encodeURIComponent(path)}`, signal);
 
+export type DiscussionRange = { start: number; end: number; quote: string; before: string; after: string; paragraph: number; from: number; to: number };
+export type DiscussionEntry = { thread: string; message: string; document: string; anchor: Record<string, unknown>; author: string; time: string; status: string; body: string };
+export const getDiscussions = (path: string, signal?: AbortSignal): Promise<{ discussions: DiscussionEntry[] }> =>
+  readJson<{ discussions: DiscussionEntry[] }>(`read discussions on ${path}`, `/api/discussions?path=${encodeURIComponent(path)}`, signal);
+export async function postDiscussion(input: { document: string; range: DiscussionRange; body: string }): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch('/api/discussions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) });
+  } catch (error) {
+    throw new RequestError('send the discussion', error instanceof Error ? error.message : String(error));
+  }
+  if (!response.ok) {
+    let message = `the server answered ${response.status}`;
+    try { const body = await response.json() as { message?: unknown }; if (typeof body.message === 'string') message = body.message; } catch { /* status is enough */ }
+    throw new RequestError('send the discussion', message);
+  }
+}
+
+
 /** The manifest stage sections and task groups the server read. */
 export type StageArtifact = {
   path: string;

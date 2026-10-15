@@ -234,5 +234,13 @@
   "registry": {
     "unnamedKind": "Unlabelled kind",
     "unnamedStage": "Unlabelled stage"
+  },
+  "discussion": {
+    "composer": "Add a comment",
+    "message": "Message",
+    "saving": "Saving…",
+    "save": "Save comment",
+    "cancel": "Cancel",
+    "threads": "Discussion"
   }
 }

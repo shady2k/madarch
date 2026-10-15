@@ -721,6 +721,68 @@ describe('the server\'s product mode', () => {
     streamOn.abort();
   });
 
+
+  test('POST /api/discussions validates, commits and pushes one comment action', async () => {
+    draft();
+    builtApp();
+    const base = join(tmpdir(), 'madarch-wiki-server-remote-' + crypto.randomUUID());
+    mkdirSync(base, { recursive: true });
+    const remote = join(base, 'remote.git');
+    const env = gitEnv({ GIT_AUTHOR_NAME: 'Wiki Fixture', GIT_AUTHOR_EMAIL: 'wiki@example.test', GIT_COMMITTER_NAME: 'Wiki Fixture', GIT_COMMITTER_EMAIL: 'wiki@example.test' });
+    const run = (cwd: string, args: string[]): void => {
+      const step = spawnSync('git', args, { cwd, encoding: 'utf8', env });
+      if (step.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${step.stderr}${step.stdout}`);
+    };
+    run(folder!, ['init', '--quiet', '--initial-branch=main']);
+    run(folder!, ['config', 'user.name', 'Wiki Fixture']);
+    run(folder!, ['config', 'user.email', 'wiki@example.test']);
+    run(folder!, ['add', '--', 'workspace.yaml', 'docs/vision.md']);
+    run(folder!, ['commit', '--quiet', '-m', 'fixture']);
+    run(base, ['init', '--quiet', '--bare', '--initial-branch=main', remote]);
+    run(folder!, ['remote', 'add', 'origin', remote]);
+    run(folder!, ['push', '--quiet', '-u', 'origin', 'HEAD']);
+    const url = await startProduct();
+    const response = await fetch(`${url}/api/discussions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+      document: 'docs/vision.md', range: { start: 10, end: 25, quote: 'What it is for.', before: '', after: '', paragraph: 0, from: 0, to: 15 }, body: 'A useful first comment.'
+    }) });
+    expect(response.status).toBe(201);
+    const saved = await response.json() as { thread: string; message: string; markdown: string };
+    expect(readFileSync(join(folder!, 'docs/vision.md'), 'utf8')).toContain(`<!--c:${saved.thread}-->What it is for.<!--/c:${saved.thread}-->`);
+    const message = readFileSync(join(folder!, 'comments', saved.thread, `${saved.message}.md`), 'utf8');
+    expect(message).toContain('contract: 1');
+    expect(message).toContain('A useful first comment.');
+    const read = await fetch(`${url}/api/discussions?path=docs%2Fvision.md`);
+    expect(read.status).toBe(200);
+    const readBody = await read.json() as { discussions: { thread: string; body: string }[] };
+    expect(readBody.discussions).toHaveLength(1);
+    expect(readBody.discussions[0]).toMatchObject({ thread: saved.thread, anchor: { kind: 'selection', quote: 'What it is for.' }, body: '\nA useful first comment.\n', status: 'open' });
+    expect(spawnSync('git', ['show', '--pretty=format:', '--name-only', 'HEAD'], { cwd: folder!, encoding: 'utf8', env }).stdout.trim().split('\n').sort()).toEqual([`comments/${saved.thread}/${saved.message}.md`, 'docs/vision.md'].sort());
+    const pushed = spawnSync('git', ['rev-parse', 'refs/heads/main'], { cwd: remote, encoding: 'utf8', env });
+    expect(pushed.status).toBe(0);
+    expect(pushed.stdout.trim()).toBe(spawnSync('git', ['rev-parse', 'HEAD'], { cwd: folder!, encoding: 'utf8', env }).stdout.trim());
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  test('GET /api/discussions refuses a one-sided source marker with path and line', async () => {
+    draft(); builtApp();
+    writeFileSync(join(folder!, 'docs/vision.md'), '# Vision\n\n<!--c:01ARZ3NDEKTSV4RRFFQ69G5FAV-->unpaired\n');
+    const url = await startProduct();
+    const response = await fetch(`${url}/api/discussions?path=docs%2Fvision.md`);
+    expect(response.status).toBe(409);
+    expect((await response.json() as { message: string }).message).toContain('docs/vision.md:3');
+  });
+
+  test('POST /api/discussions refuses dirty product and traversal without changing HEAD', async () => {
+    draft();
+    builtApp();
+    const before = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: folder!, encoding: 'utf8' }).stdout;
+    const url = await startProduct();
+    const response = await fetch(`${url}/api/discussions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ document: '../workspace.yaml', range: { start: 0, end: 1, quote: 'x', before: '', after: '', paragraph: 0, from: 0, to: 1 }, body: 'No' }) });
+    expect(response.status).toBe(400);
+    expect((await response.json() as { message: string }).message).toContain('normalized Markdown page');
+    expect(spawnSync('git', ['rev-parse', 'HEAD'], { cwd: folder!, encoding: 'utf8' }).stdout).toBe(before);
+  });
+
   test('GET /api/page gives one page whole; asking twice after a save gives the new bytes', async () => {
     draft();
     builtApp();

@@ -18,6 +18,7 @@
  */
 import { basename as nameOf } from 'node:path';
 import type { ProductWiki } from '../product-wiki/pages.js';
+import { readProductDiscussions, writeProductDiscussion } from '../product/discussion-writer.js';
 import { readProductRepos } from '../product-wiki/repos.js';
 import { readProductModel } from '../product-wiki/model.js';
 import { architectureBundle } from '../product-wiki/architecture.js';
@@ -157,6 +158,10 @@ export interface WikiPart {
   pages: () => Handled;
   /** `GET /api/page?path=...`: one page, whole. */
   page: (request: Request) => Promise<Handled>;
+  /** `GET /api/discussions?path=...`: read valid comments for one product page. */
+  discussions: (request: Request) => Handled;
+  /** `POST /api/discussions`: validate and write one first comment. */
+  discussion: (request: Request) => Promise<Handled>;
   /** `GET /api/stages`: the stage index, read from the product's files now. */
   stages: () => Handled;
   /** `GET /api/registry`: the product's kinds registry as the wiki reads it — the kinds and stages, or the refusals, or absence. */
@@ -252,6 +257,38 @@ export function createWikiPart(
       return asked.contract === undefined
         ? { response: json(200, { revision: asked.revision, pages: asked.pages }) }
         : { response: json(200, { revision: asked.revision, pages: asked.pages, contract: asked.contract }) };
+    },
+    discussions: (request: Request): Handled => {
+      const document = new URL(request.url).searchParams.get('path');
+      if (document === null) return refused(400, { field: 'path', message: 'path is required: name a product-relative Markdown page under docs/' });
+      const result = readProductDiscussions(wiki.product.folder, document);
+      if (!result.ok) return refused(result.status, { field: 'path', message: result.message });
+      return { response: json(200, { discussions: result.entries }) };
+    },
+    discussion: async (request: Request): Promise<Handled> => {
+      const declared = request.headers.get('content-length');
+      if (declared !== null && Number(declared) > 1_000_000) return refused(413, { message: 'the discussion request is larger than 1 MB' });
+      const text = await request.text();
+      if (Buffer.byteLength(text) > 1_000_000) return refused(413, { message: 'the discussion request is larger than 1 MB' });
+      let body: unknown;
+      try { body = JSON.parse(text); } catch { return refused(400, { message: 'the discussion request body must be valid JSON' }); }
+      if (body === null || typeof body !== 'object' || Array.isArray(body)) return refused(400, { message: 'the discussion request must be an object' });
+      const value = body as Record<string, unknown>;
+      const document = value.document;
+      const range = value.range;
+      const messageBody = value.body;
+      if (typeof document !== 'string' || range === null || typeof range !== 'object' || Array.isArray(range) || typeof messageBody !== 'string')
+        return refused(400, { message: 'the discussion request needs document, range and body fields' });
+      const mapped = range as Record<string, unknown>;
+      if (typeof mapped.start !== 'number' || typeof mapped.end !== 'number' || typeof mapped.quote !== 'string' || typeof mapped.before !== 'string' || typeof mapped.after !== 'string' || typeof mapped.paragraph !== 'number' || typeof mapped.from !== 'number' || typeof mapped.to !== 'number')
+        return refused(400, { message: 'the discussion range needs numeric start/end offsets and quote/before/after text' });
+      const result = writeProductDiscussion(wiki.product.folder, {
+        document,
+        range: { start: mapped.start, end: mapped.end, quote: mapped.quote, before: mapped.before, after: mapped.after, paragraph: mapped.paragraph, from: mapped.from, to: mapped.to },
+        body: messageBody,
+      });
+      if (!result.ok) return refused(result.status, { field: 'document', message: result.message });
+      return { response: json(201, result) };
     },
     page: async (request: Request): Promise<Handled> => {
       const askedFor = new URL(request.url).searchParams.get('path');
