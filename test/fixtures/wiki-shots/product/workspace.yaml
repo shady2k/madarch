@@ -1,0 +1,6 @@
+schemaVersion: 1
+id: wiki-shots
+name: Wiki shots fixture
+repos:
+  - name: fixture-core
+    url: https://example.invalid/fixture-core.git

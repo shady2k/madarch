@@ -115,6 +115,6 @@ relations in and out and the documents naming it; a document's first
 standalone mention of an element id opens the element's page; a product
 whose model does not compile shows the errors with file, line and path on
 the Architecture page while every document page still renders. Where it is
-seen: the served wiki of wiki/demo and of a broken-model fixture, in a
+seen: the served wiki of the then-current committed sample and of a broken-model fixture, in a
 headless Chromium walk, both themes at 1000 and 1440 (the pairs in
 /tmp/madarch-run-iuc/shots-diagrams/).

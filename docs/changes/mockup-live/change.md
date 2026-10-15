@@ -47,7 +47,7 @@ None.
 - The home loses the boxed cards: quiet sections, compact grid, icon+title rows, counts small and muted.
 - The tab strip row is structure only: the open file's name; the switch and history buttons do not render.
 - Search stays OUT and its slot stays OUT; the task madarch-o0d holds it.
-- The demo product lives in `wiki/demo/`, committed, in the mockup's spirit (vision, requirements, decisions, research; every reading element; links between pages) — nothing writes outside the repository. Root scripts: `wiki:demo` serves and opens it, `wiki:shots` renders the side-by-side pairs into a scratch folder; documented under AGENTS.md Checks.
+- At the time of this change, a committed sample product supplied the mockup's reading material (vision, requirements, decisions, research; every reading element; links between pages), so nothing wrote outside the repository. The demo runner served and opened it; `wiki:shots` rendered side-by-side pairs into a scratch folder, as documented under AGENTS.md Checks.
 - The acceptance compares side by side at the owner's window and at 1440x900, 1150, 390, light dark, plus a tall window (1440x1400) and a scrolled home page; a vision-capable reviewer (gpt-6.1-sol with the images) must find no difference that is not on the named-keepers list.
 
 ## Acceptance evidence

@@ -28,9 +28,9 @@ registry; the YAML data joins the grouping (a file kind is addressed by its
 file stem's word the way the form's link lines spell it, like `VISION`).
 A product that holds no registry renders the plain pages it had: no invented
 kind, the path groups, the generic life cycle, generic next-step hints, and no
-kind word on any page. The reference demo product (`wiki/demo`, Fieldnote) keeps
-today's groups, hints and eyebrow kinds through the kinds registry it now
-commits, written in the set's writer shape. No kind name or id prefix of any
+kind word on any page. At the time of this change, the reference product sample kept its groups,
+hints and eyebrow kinds through a committed kinds registry written in the
+set's writer shape. No kind name or id prefix of any
 set is left in `src/`, `src/product-wiki/`, `src/wiki/`, `src/server/` or
 `wiki/app/src/`.
 
@@ -117,11 +117,10 @@ None.
   `KIND_BY_PREFIX` and the app's `kinds.ts` are gone; the locales keep only the
   shell's fixed words. The status computation reads the document's own
   sections, never a prefix.
-- The demo product's committed registry `wiki/demo/docs/kinds.yaml` carries the
-  set's writer shape (the contract's fields, the stages as an ordered id list)
-  with the product's own kind words, prefixes and places, so the served demo
-  reads as it did through the registry alone; `bun run contract:check --src`
-  accepts it.
+- At the time of this change, the reference product sample's committed
+  registry carried the set's writer shape (the contract's fields, the stages
+  as an ordered id list) with the product's own kind words, prefixes and
+  places; `bun run contract:check --src` accepted it.
 
 ## Acceptance evidence
 Recorded on the task in the tracker: the static, test, mutation and review
@@ -136,8 +135,8 @@ receipts at the revisions they read.
   come from the registry, the YAML tags with them;
 - a product without a registry renders plain pages with generic hints and no
   kind word anywhere;
-- the demo product (wiki/demo, Fieldnote) keeps today's groups, hints and
-  eyebrow kinds through its committed kinds.yaml in the set's writer shape;
+- the then-current reference product sample kept its groups, hints and
+  eyebrow kinds through its committed kinds registry;
 - the document's links are the kinds' declared links with their backlink
   labels, cardinalities and required flags, and the structural findings show
   on the pages they name;

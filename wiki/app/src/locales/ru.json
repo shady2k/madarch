@@ -50,10 +50,7 @@
     "setupProductManifest": "— команда создаст манифест продукта",
     "workspaceFile": "workspace.yaml",
     "setupProductEnd": "и его документы.",
-    "demoProduct": "Попробуйте пример продукта Madarch:",
-    "demoRepository": "Пример продукта Madarch",
-    "demoClone": "madarch clone https://github.com/shady2k/madarch-product",
-    "demoServe": "madarch serve --product <folder>",
+    "demoProduct": "Откройте вики продукта Madarch командой:",
     "otherDocumentsGroup": "Другие документы"
   },
   "questions": {

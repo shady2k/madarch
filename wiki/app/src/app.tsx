@@ -410,13 +410,7 @@ export function HomePage({ product, list, architecture, offer, overview }: { pro
             <li>{t('home.cloneProduct')} <code>{'madarch clone <url>'}</code></li>
             <li>{t('home.addRepository')} <code>{'madarch repo add <name> <url> --product <folder>'}</code></li>
             <li>{t('home.setupProduct')} <code>setup-shady2k-skills</code> {t('home.setupProductManifest')} <code>{t('home.workspaceFile')}</code> {t('home.setupProductEnd')}</li>
-            <li>
-              <p>{t('home.demoProduct')} <a href="https://github.com/shady2k/madarch-product" target="_blank" rel="noreferrer" className="text-link underline">{t('home.demoRepository')}</a></p>
-              <ol className="mt-2 list-decimal pl-6">
-                <li><code>{t('home.demoClone')}</code></li>
-                <li><code>{t('home.demoServe')}</code></li>
-              </ol>
-            </li>
+            <li>{t('home.demoProduct')} <code>madarch demo</code></li>
           </ol>
         </section>
       ) : null}

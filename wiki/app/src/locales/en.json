@@ -50,10 +50,7 @@
     "setupProductManifest": "to create the product manifest",
     "workspaceFile": "workspace.yaml",
     "setupProductEnd": "and its documents.",
-    "demoProduct": "Try the Madarch product example:",
-    "demoRepository": "Madarch product example",
-    "demoClone": "madarch clone https://github.com/shady2k/madarch-product",
-    "demoServe": "madarch serve --product <folder>",
+    "demoProduct": "Try the Madarch product wiki with:",
     "otherDocumentsGroup": "Other documents"
   },
   "questions": {

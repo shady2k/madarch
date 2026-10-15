@@ -13,7 +13,7 @@ hoists it, so only a `wiki/app`-alone install breaks. After this change
 `wiki/app` declares mermaid 12.0.0 (the version the code is tested
 against, the root's own pin), the lock carries it, and
 `rm -rf wiki/app/node_modules && bun install --frozen-lockfile && bun run
-build` inside `wiki/app` is green; `bun run wiki:demo` works from a clean
+build` inside `wiki/app` is green; the demo runner worked from a clean
 clone. No behaviour changes: the app already resolved mermaid through the
 hoist; the declaration only makes the app's own install self-sufficient.
 
