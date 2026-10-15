@@ -87,7 +87,7 @@ export interface StartedServer {
   /** The base URL, no trailing slash. */
   url: string;
   /** Stops serving and closes the graphs and the sources' histories. */
-  stop(): void;
+  stop(): Promise<void>;
 }
 
 /** One refusal's content, the shape the error answers carry. */
@@ -163,7 +163,7 @@ interface ClaimedRename {
   source: string;
 }
 
-export function startServer(options: ServerOptions): StartedServer {
+export async function startServer(options: ServerOptions): Promise<StartedServer> {
   if (options.dataFolder === undefined && options.productFolder === undefined) {
     throw new Error("the server is started with neither a data folder nor a product folder: give --data <folder> for the sources' histories, --product <folder> for a product's wiki, or both");
   }
@@ -193,7 +193,7 @@ export function startServer(options: ServerOptions): StartedServer {
   const errorSink = options.errorLog ?? ((line: string) => console.error(line));
   const log = (line: string) => sink(escapeControlCharacters(line));
   const errorLog = (line: string) => errorSink(escapeControlCharacters(line));
-  const sources = options.dataFolder === undefined ? undefined : createSourceStores({ dataFolder: options.dataFolder, clock, log });
+  const sources = options.dataFolder === undefined ? undefined : await createSourceStores({ dataFolder: options.dataFolder, clock, log });
   const graphs = sources === undefined
     ? undefined
     : createGraphs({ historyOf: (source) => sources.historyOf(source), clock });
@@ -218,15 +218,23 @@ export function startServer(options: ServerOptions): StartedServer {
     hostname: server.url.hostname,
     port: server.url.port === '' ? (options.port ?? 4180) : Number(server.url.port),
     url: server.url.origin,
-    stop() {
+    async stop(): Promise<void> {
       server.stop(true);
+      await handle.drain();
       graphs?.close();
-      sources?.close();
+      await sources?.close();
     },
   };
 }
 
-function createHandler(dependencies: {
+export interface ServerHandler {
+  (request: Request): Promise<Response>;
+  /** Waits for in-flight state requests before persistence closes. */
+  drain(): Promise<void>;
+}
+
+/** The request handler used by Bun; exported so tests can drive HTTP requests with controlled async dependencies. */
+export function createHandler(dependencies: {
   sources?: SourceStores;
   graphs?: Graphs;
   log: (line: string) => void;
@@ -234,7 +242,7 @@ function createHandler(dependencies: {
   /** The product's wiki routes and app files, when a product folder was given. */
   wiki?: WikiPart;
   appFolder?: string;
-}): (request: Request) => Promise<Response> {
+}): ServerHandler {
   const { log, errorLog, wiki } = dependencies;
   // The model routes are put in the table only when a data folder was
   // given, so their handlers below can never be entered without the
@@ -250,14 +258,31 @@ function createHandler(dependencies: {
     handle: (request: Request) => Handled | Promise<Handled>;
   }
 
+  // A store commits history before applying its graph report. A view reads
+  // both, so allow model stores, rename claims and views one state operation
+  // at a time; no view can pair a new history snapshot with an old graph.
+  let stateTail: Promise<void> = Promise.resolve();
+  async function serializeState<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = stateTail;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    stateTail = previous.then(() => gate);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  }
+
   // The model routes are the server's own; the wiki's answer beside them,
   // both kept apart by what the server was given.
   const routes: Route[] = [
     ...(sources !== undefined
       ? ([
-          { method: 'POST', path: '/models', handle: storeModel },
-          { method: 'POST', path: '/views', handle: answerView },
-          { method: 'POST', path: '/sources', handle: claimRename },
+          { method: 'POST', path: '/models', handle: (request) => serializeState(() => storeModel(request)) },
+          { method: 'POST', path: '/views', handle: (request) => serializeState(() => answerView(request)) },
+          { method: 'POST', path: '/sources', handle: (request) => serializeState(() => claimRename(request)) },
           { method: 'GET', path: '/sources', handle: listSources },
         ] as Route[])
       : []),
@@ -337,7 +362,7 @@ function createHandler(dependencies: {
 
     let stored: SourceStoreResult;
     try {
-      stored = sources.store({
+      stored = await sources.store({
         source: sent.source,
         commit: sent.commit,
         committedAt: sent.committedAtMs,
@@ -497,7 +522,7 @@ function createHandler(dependencies: {
       };
     }
     if (claimed.source === claim.source) {
-      sources.rename(claim.id, claim.source);
+      await sources.rename(claim.id, claim.source);
       graphs.remove(claim.source);
       return { response: json(200, { renamed: false, reason: 'already the name', source: claim.source, id: claim.id }), source: claim.source };
     }
@@ -523,7 +548,7 @@ function createHandler(dependencies: {
     }
 
     try {
-      sources.rename(claim.id, claim.source);
+      await sources.rename(claim.id, claim.source);
     } finally {
       const current = sources.heads().find((head) => head.id === claim.id);
       if (current?.source === claim.source) graphs.remove(claimed.source);
@@ -612,7 +637,7 @@ function createHandler(dependencies: {
       };
     }
 
-    const read = sources.historyOf(asked.source).read({ source: asked.source });
+    const read = await sources.historyOf(asked.source).read({ source: asked.source });
     if (read.model === undefined || read.errors.length > 0) {
       const why = read.errors.map((error) => error.message).join('; ');
       // The failure of the server itself is logged at error level with
@@ -627,7 +652,7 @@ function createHandler(dependencies: {
     // A source-filtered read returns that source's own compiled model,
     // byte for byte what its store was given (the history's lossless rule).
     const model = read.model as CompiledModel;
-    const engine = graphs.graphForSource(asked.source).engine();
+    const engine = await graphs.graphForSource(asked.source).engine();
     const one: OneViewRequest = asked.element === undefined ? { depth: asked.depth } : { element: asked.element, depth: asked.depth };
 
     if (asked.format === 'mermaid') {
@@ -745,7 +770,7 @@ function createHandler(dependencies: {
     return { response: json(200, list) };
   }
 
-  return async (request: Request): Promise<Response> => {
+  const handle = async (request: Request): Promise<Response> => {
     const started = performance.now();
     const pathname = new URL(request.url).pathname;
     let handled: Handled;
@@ -795,6 +820,7 @@ function createHandler(dependencies: {
     headers.set('protocol', String(PROTOCOL_VERSION));
     return new Response(handled.response.body, { status: handled.response.status, statusText: handled.response.statusText, headers });
   };
+  return Object.assign(handle, { drain: async () => { await stateTail; } });
 }
 
 /** The escape itself: the readable forms for the line breaks and the tab, `\uXXXX` for every other control character. */

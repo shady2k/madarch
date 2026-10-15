@@ -36,7 +36,9 @@
  * write) are ignored.
  *
  * One `createSourceStores` per folder; a second instance on the same
- * folder is not supported. Not multi-process safe: the sidecar is
+ * folder is not supported. Stores and renames are serialized within the
+ * instance so asynchronous persistence preserves their former single-turn
+ * ordering. Not multi-process safe: the sidecar is
  * written after the history's own transaction has committed, so a crash
  * between the two can leave a history file without its sidecar or with
  * a stale one — which the next start repairs from the history, since
@@ -103,7 +105,7 @@ export interface SourceStores {
    * store reached with a name failing either is a caller defect and
    * throws, naming what must be refused.
    */
-  store(input: StoreInput): SourceStoreResult;
+  store(input: StoreInput): Promise<SourceStoreResult>;
   /**
    * Records a rename claim: binds the new name to the id, moving the
    * history and its sidecar to the new name and retiring the old one —
@@ -113,13 +115,13 @@ export interface SourceStores {
    * caller defect and throws, naming what must be refused. Renaming a
    * source to one of its own former names is a claim like any other.
    */
-  rename(id: string, to: string): { formerSource: string };
+  rename(id: string, to: string): Promise<{ formerSource: string }>;
   /** The head of the source a retired name used to name, or `undefined` when no rename gave the name up. */
   retiredHead(name: string): SourceHead | undefined;
   /** Every source's head, in code point order of the names. */
   heads(): SourceHead[];
   /** Closes every open history. */
-  close(): void;
+  close(): Promise<void>;
 }
 
 /**
@@ -204,7 +206,7 @@ interface SidecarFile {
   storedAt: unknown;
 }
 
-export function createSourceStores(options: SourceStoresOptions): SourceStores {
+export async function createSourceStores(options: SourceStoresOptions): Promise<SourceStores> {
   const { dataFolder, clock } = options;
   const log = options.log ?? ((line: string) => console.log(line));
 
@@ -234,6 +236,24 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
 
   const heads = new Map<string, SourceHead>();
   const histories = new Map<string, HistoryStore>();
+  // A store and its sidecar update were one synchronous JS turn before
+  // HistoryStore became asynchronous. Keep mutations linear here so two
+  // concurrent requests cannot both claim the same commit is new or race
+  // a source rename against a store.
+  let mutationTail: Promise<void> = Promise.resolve();
+  async function serializeMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = mutationTail;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    mutationTail = previous.then(() => gate);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  }
+
   /** Every source's former names, its current name left out, in code point order — what the sidecar holds and a restart reads back. */
   const formerNames = new Map<string, string[]>();
   /** A retired name — one a rename gave up — and the head of the source it used to name: a store reached with it is refused, so the old name never grows a second id. */
@@ -249,8 +269,8 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
   }
 
   /** The head a history itself holds: the newest of its commits by the history's own commit order. */
-  function newestCommit(source: string, id: string, history: HistoryStore): SourceHead {
-    const commits = history.commits(source);
+  async function newestCommit(source: string, id: string, history: HistoryStore): Promise<SourceHead> {
+    const commits = await history.commits(source);
     const last = commits[commits.length - 1]!;
     return { source, id, commit: last.commit, committedAt: last.committedAt, storedAt: last.storedAt };
   }
@@ -276,9 +296,9 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
       throw new Error(`the sidecar "${path}" has a file name that does not decode to a source name; the folder was not written by this server`);
     }
     const history = openHistory(stem);
-    const held = history.sources();
+    const held = await history.sources();
     if (held.length !== 1) {
-      history.close();
+      await history.close();
       if (decoded !== sidecarHead.source) {
         throw new Error(`the sidecar "${path}" names its source "${sidecarHead.source}" but its file name decodes to "${decoded}": the sidecar and the file name disagree`);
       }
@@ -286,9 +306,9 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
       throw new Error(`the history file "${stem}.sqlite" holds ${holds}, but its sidecar "${stem}.json" names "${sidecarHead.source}": the sidecar and the history disagree`);
     }
     const source = held[0]!;
-    const persisted = history.registry(source);
+    const persisted = await history.registry(source);
     if (decoded !== source || (sidecarHead.source !== source && persisted === undefined)) {
-      history.close();
+      await history.close();
       if (decoded !== sidecarHead.source) {
         throw new Error(`the sidecar "${path}" names its source "${sidecarHead.source}" but its file name decodes to "${decoded}": the sidecar and the file name disagree`);
       }
@@ -296,8 +316,8 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
     }
     const id = persisted?.id ?? sidecarId ?? randomUUID();
     const names = persisted?.formerNames ?? sidecarNames;
-    const trueHead = newestCommit(source, id, history);
-    history.setRegistry(source, id, names);
+    const trueHead = await newestCommit(source, id, history);
+    await history.setRegistry(source, id, names);
     const namesDiffer = sidecarNames.length !== names.length || sidecarNames.some((name, index) => name !== names[index]);
     if (sidecarHead.source !== source || !sameHead(trueHead, sidecarHead) || persisted === undefined || sidecarId !== id || namesDiffer) {
       writeSidecar(stem, trueHead, names);
@@ -313,24 +333,24 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
   for (const stem of sqliteStems) {
     if (jsonStems.has(stem)) continue;
     const history = openHistory(stem);
-    const names = history.sources();
+    const names = await history.sources();
     if (names.length !== 1) {
-      history.close();
+      await history.close();
       const holds = names.length === 0 ? 'no source it could be named from' : `the sources ${names.join(', ')}`;
       throw new Error(`the data folder holds the history file "${stem}.sqlite" but no "${stem}.json" beside it, and the history holds ${holds}: a history one sidecar is to name must hold exactly that one source`);
     }
     const source = names[0]!;
     const decoded = decodeSourceName(stem);
     if (decoded === undefined || decoded !== source) {
-      history.close();
+      await history.close();
       throw new Error(`the data folder holds the history file "${stem}.sqlite" but no "${stem}.json" beside it, and the file name does not decode to the history's source "${source}": the folder was not written by this server`);
     }
-    const registry = history.registry(source);
+    const registry = await history.registry(source);
     if (registry === undefined) {
-      history.close();
+      await history.close();
       throw new Error(`the data folder holds the history file "${stem}.sqlite" but no "${stem}.json" beside it, and the history has no persisted source id or former names to rebuild identity faithfully`);
     }
-    const head = newestCommit(source, registry.id, history);
+    const head = await newestCommit(source, registry.id, history);
     writeSidecar(stem, head, registry.formerNames);
     log(`repaired the data folder: the history file "${stem}.sqlite" had no sidecar beside it; it holds the source "${source}" at its head ${JSON.stringify(head.commit)} at ${new Date(head.committedAt).toISOString()}`);
     heads.set(source, head);
@@ -388,7 +408,11 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
     renameSync(tmp, join(dataFolder, `${stem}.json`));
   }
 
-  function store(input: StoreInput): SourceStoreResult {
+  function store(input: StoreInput): Promise<SourceStoreResult> {
+    return serializeMutation(() => storeNow(input));
+  }
+
+  async function storeNow(input: StoreInput): Promise<SourceStoreResult> {
     const problem = sourceNameProblem(input.source);
     if (problem !== undefined) throw new Error(`the store was called with a source that must be refused first: ${problem}`);
     const renamedTo = retired.get(input.source);
@@ -397,16 +421,16 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
     }
 
     const history = historyOf(input.source);
-    const identity = history.registry(input.source);
+    const identity = await history.registry(input.source);
     const id = heads.get(input.source)?.id ?? identity?.id ?? randomUUID();
     const former = formerNames.get(input.source) ?? identity?.formerNames ?? [];
-    const wasNew = !history.hasCommit(input.source, input.commit);
-    const result = history.store(input, { id, formerNames: former });
+    const wasNew = !(await history.hasCommit(input.source, input.commit));
+    const result = await history.store(input, { id, formerNames: former });
 
     if (result.errors.length === 0) {
       // Reconcile from the history's commit order, not the possibly stale
       // in-memory head: a prior sidecar write may have failed.
-      const latest = history.latestCommit(input.source)!;
+      const latest = (await history.latestCommit(input.source))!;
       const candidate: SourceHead = {
         source: input.source,
         id,
@@ -430,7 +454,11 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
    * the derived sidecar. A sidecar-write failure after commit is repaired
    * by retrying the same rename from the authoritative history.
    */
-  function rename(id: string, to: string): { formerSource: string } {
+  function rename(id: string, to: string): Promise<{ formerSource: string }> {
+    return serializeMutation(() => renameNow(id, to));
+  }
+
+  async function renameNow(id: string, to: string): Promise<{ formerSource: string }> {
     const problem = sourceNameProblem(to);
     if (problem !== undefined) throw new Error(`the rename was called with a name that must be refused first: ${problem}`);
     const head = [...heads.values()].find((each) => each.id === id);
@@ -440,11 +468,11 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
     const from = head.source;
     if (from === to) {
       const history = historyOf(from);
-      const registry = history.registry(from);
+      const registry = await history.registry(from);
       if (registry === undefined || registry.id !== id) {
         throw new Error(`the history for "${from}" does not hold the source id ${JSON.stringify(id)} needed to repair its sidecar`);
       }
-      const current = newestCommit(from, id, history);
+      const current = await newestCommit(from, id, history);
       heads.set(from, current);
       formerNames.set(from, registry.formerNames);
       writeSidecar(encodeSourceName(from), current, registry.formerNames);
@@ -462,7 +490,7 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
     const newHead: SourceHead = { ...head, source: to };
     const history = historyOf(from);
     const former = [...new Set([...(formerNames.get(from) ?? []), from])].filter((name) => name !== to).sort(byCodePoint);
-    history.close();
+    await history.close();
     let sqliteMoved = false;
     let sidecarMoved = false;
     let renamedHistory: HistoryStore | undefined;
@@ -472,9 +500,9 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
       renameSync(join(dataFolder, `${encodeSourceName(from)}.json`), join(dataFolder, `${encodeSourceName(to)}.json`));
       sidecarMoved = true;
       renamedHistory = openHistory(encodeSourceName(to));
-      renamedHistory.renameSource(from, to, { id: newHead.id, formerNames: former });
+      await renamedHistory.renameSource(from, to, { id: newHead.id, formerNames: former });
     } catch (error) {
-      renamedHistory?.close();
+      await renamedHistory?.close();
       if (sidecarMoved) renameSync(join(dataFolder, `${encodeSourceName(to)}.json`), join(dataFolder, `${encodeSourceName(from)}.json`));
       if (sqliteMoved) renameSync(join(dataFolder, `${encodeSourceName(to)}.sqlite`), join(dataFolder, `${encodeSourceName(from)}.sqlite`));
       histories.set(from, openHistory(encodeSourceName(from)));
@@ -499,8 +527,9 @@ export function createSourceStores(options: SourceStoresOptions): SourceStores {
     return retired.get(name);
   }
 
-  function close(): void {
-    for (const history of histories.values()) history.close();
+  async function close(): Promise<void> {
+    await mutationTail;
+    await Promise.all([...histories.values()].map((history) => history.close()));
     histories.clear();
   }
 

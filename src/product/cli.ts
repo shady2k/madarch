@@ -305,8 +305,8 @@ function list(home: string | undefined): number {
 }
 
 /** The serving of one subcommand's product: its prints and its exit code; 0 once the address stands. */
-function serve(options: ServeOptions, productFolder: string | undefined): number {
-  const result = serveWiki({ ...options, productFolder });
+async function serve(options: ServeOptions, productFolder: string | undefined): Promise<number> {
+  const result = await serveWiki({ ...options, productFolder });
   if (result.outcome === 'serving') return 0;
   console.error(result.message);
   return result.outcome === 'refused' ? 2 : 1;
@@ -389,7 +389,7 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
     return result.exit;
   }
   if (command === 'serve') {
-    return serve(serveOptions(parsed, deps), product);
+    return await serve(serveOptions(parsed, deps), product);
   }
   if (command === 'clone') return runClone(parsed);
 
@@ -404,7 +404,7 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
   }
   console.log(`folder: ${draft.folder}`);
   console.log(`id: ${draft.id}`);
-  return serve(serveOptions(parsed, deps), draft.folder);
+  return await serve(serveOptions(parsed, deps), draft.folder);
 }
 
 /** `madarch version`: one fact the release answers with (or `dev` in a checkout); 0, always. */

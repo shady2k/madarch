@@ -27,8 +27,8 @@ function serving(result: ServeResult): Extract<ServeResult, { outcome: 'serving'
   return result;
 }
 
-afterEach(() => {
-  for (const server of servers.splice(0)) server.stop();
+afterEach(async () => {
+  for (const server of servers.splice(0)) await server.stop();
   for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true });
 });
 
@@ -38,7 +38,7 @@ describe('serveWiki with a product or a manifestless directory', () => {
     const folder = join(base, 'empty-home');
     mkdirSync(folder);
     const before = readdirSync(folder);
-    const result = serving(serveWiki({ cwd: folder, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
+    const result = serving(await serveWiki({ cwd: folder, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
     const product = await (await fetch(`${result.url}/api/product`)).json() as { id?: string; name: string; folder: string };
     expect(product).toEqual({ name: 'empty-home', folder: 'empty-home' });
     const pages = await (await fetch(`${result.url}/api/pages`)).json() as { revision: string; pages: unknown[] };
@@ -52,7 +52,7 @@ describe('serveWiki with a product or a manifestless directory', () => {
     const folder = join(base, 'valid-product');
     mkdirSync(folder);
     writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: manifest-id\nname: Manifest name\n');
-    const result = serving(serveWiki({ productFolder: folder, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
+    const result = serving(await serveWiki({ productFolder: folder, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
     const product = await (await fetch(`${result.url}/api/product`)).json() as { id: string; name: string; folder: string };
     expect(product).toEqual({ id: 'manifest-id', name: 'Manifest name', folder: 'valid-product' });
   });
@@ -63,7 +63,7 @@ describe('serveWiki with a product or a manifestless directory', () => {
     mkdirSync(folder);
     writeFileSync(join(folder, 'notes.txt'), 'not a wiki page');
     const before = readdirSync(folder);
-    const result = serving(serveWiki({ productFolder: folder, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
+    const result = serving(await serveWiki({ productFolder: folder, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
     const product = await (await fetch(`${result.url}/api/product`)).json() as { id?: string; name: string; folder: string };
     expect(product).toEqual({ name: 'no-manifest', folder: 'no-manifest' });
     const pages = await (await fetch(`${result.url}/api/pages`)).json() as { pages: unknown[] };
@@ -71,11 +71,11 @@ describe('serveWiki with a product or a manifestless directory', () => {
     expect(readdirSync(folder)).toEqual(before);
   });
 
-  test('does not fall back for a missing path, non-directory, invalid manifest or dangling manifest symlink', () => {
+  test('does not fall back for a missing path, non-directory, invalid manifest or dangling manifest symlink', async () => {
     const base = scratch();
     const appFolder = builtApp(base);
     const missingPath = join(base, 'missing');
-    const absent = serveWiki({ productFolder: missingPath, appFolder, port: 0, open: false, print: () => {}, printError: () => {} });
+    const absent = await serveWiki({ productFolder: missingPath, appFolder, port: 0, open: false, print: () => {}, printError: () => {} });
     expect(absent.outcome).toBe('refused');
     if (absent.outcome === 'refused') {
       expect(absent.message).toContain(missingPath);
@@ -84,16 +84,16 @@ describe('serveWiki with a product or a manifestless directory', () => {
 
     const file = join(base, 'file');
     writeFileSync(file, 'not a directory');
-    expect(serveWiki({ productFolder: file, appFolder, port: 0, open: false, print: () => {}, printError: () => {} }).outcome).toBe('refused');
+    expect((await serveWiki({ productFolder: file, appFolder, port: 0, open: false, print: () => {}, printError: () => {} })).outcome).toBe('refused');
 
     const invalid = join(base, 'invalid');
     mkdirSync(invalid);
     writeFileSync(join(invalid, 'workspace.yaml'), 'schemaVersion: 999\n');
-    expect(serveWiki({ productFolder: invalid, appFolder, port: 0, open: false, print: () => {}, printError: () => {} }).outcome).toBe('refused');
+    expect((await serveWiki({ productFolder: invalid, appFolder, port: 0, open: false, print: () => {}, printError: () => {} })).outcome).toBe('refused');
 
     const dangling = join(base, 'dangling');
     mkdirSync(dangling);
     symlinkSync(join(dangling, 'missing-target.yaml'), join(dangling, 'workspace.yaml'));
-    expect(serveWiki({ productFolder: dangling, appFolder, port: 0, open: false, print: () => {}, printError: () => {} }).outcome).toBe('refused');
+    expect((await serveWiki({ productFolder: dangling, appFolder, port: 0, open: false, print: () => {}, printError: () => {} })).outcome).toBe('refused');
   });
 });

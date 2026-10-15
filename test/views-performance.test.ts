@@ -56,14 +56,13 @@ function wideModel(): CompiledModel {
 
 describe('performance: every view of a 990-element model', () => {
   test.skipIf(process.env['MADARCH_SKIP_PERF'] !== undefined)(
-    'is built and rendered as Mermaid pages in under ten seconds',
-    () => {
+    'is built and rendered as Mermaid pages in under ten seconds', async () => {
       const model = wideModel();
       expect(model.elements.length).toBe(990);
       const history = createSqliteHistory({ clock: { now: () => AT } });
-      expect(history.store({ source: 'wide', commit: 'v1', committedAt: AT, model }).errors).toEqual([]);
+      expect((await history.store({ source: 'wide', commit: 'v1', committedAt: AT, model })).errors).toEqual([]);
       const engine = createLadybugEngine();
-      engine.rebuild(history.assertions());
+      engine.rebuild(await history.assertions());
 
       const started = performance.now();
       const { views, errors } = buildViewSet(engine, model, { valid: AT, known: AT });
@@ -81,7 +80,7 @@ describe('performance: every view of a 990-element model', () => {
       }
 
       engine.close();
-      history.close();
+      await history.close();
     },
     60_000,
   );

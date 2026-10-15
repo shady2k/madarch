@@ -57,12 +57,11 @@ function perfRepo(): Repo {
 
 describe('performance: checking a 3 000-file repository with a 200-element model', () => {
   test.skipIf(process.env['MADARCH_SKIP_PERF'] !== undefined)(
-    'finishes in under one minute, history included',
-    () => {
+    'finishes in under one minute, history included', async () => {
       const repo = perfRepo();
       try {
         const started = performance.now();
-        const report = checkModel(repo.path);
+        const report = await checkModel(repo.path);
         const elapsed = performance.now() - started;
 
         expect(report.outcome).toBe('passed');

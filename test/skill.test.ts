@@ -107,7 +107,7 @@ function byId<T extends { id: string }>(items: T[]): Map<string, T> {
 }
 
 describe('the worked model example the model-writing machinery runs on', () => {
-  test('the example model reads as the published schema shape, every item evidenced', () => {
+  test('the example model reads as the published schema shape, every item evidenced', async () => {
     const model = parseYaml(readFileSync(join(EXAMPLE_DIR, 'model', 'madarch', 'model.yaml'), 'utf8')) as ExampleModel;
     expect(model.elements?.length).toBeGreaterThan(0);
     for (const item of [...(model.elements ?? []), ...(model.interfaces ?? []), ...(model.relations ?? [])]) {
@@ -119,7 +119,7 @@ describe('the worked model example the model-writing machinery runs on', () => {
     }
   });
 
-  test('documents every schema field of evidence, element, interface and relation', () => {
+  test('documents every schema field of evidence, element, interface and relation', async () => {
     const reference = readFileSync(join(EXAMPLE_DIR, 'model', 'madarch', 'model-format-reference.md'), 'utf8');
     for (const [heading, fields] of Object.entries(DOCUMENTED_FIELDS)) {
       const text = sectionOf(reference, heading);
@@ -129,8 +129,8 @@ describe('the worked model example the model-writing machinery runs on', () => {
     }
   });
 
-  test('checks the worked example: substituted placeholders, a passing check, rendered views', () => {
-    withRepo((repo) => {
+  test('checks the worked example: substituted placeholders, a passing check, rendered views', async () => {
+    await withRepo(async (repo) => {
       cpSync(join(EXAMPLE_DIR, 'repo'), repo.path, { recursive: true });
       cpSync(join(EXAMPLE_DIR, 'model', 'madarch'), join(repo.path, 'madarch'), { recursive: true });
       const base = repo.commit('the receipts archiver');
@@ -148,7 +148,7 @@ describe('the worked model example the model-writing machinery runs on', () => {
       repo.commit('the model of the receipts repository');
 
       const views = join(repo.path, 'madarch', 'views');
-      const report = checkModel(repo.path, { views });
+      const report = await checkModel(repo.path, { views });
       expect(report.outcome).toBe('passed');
       expect(report.errors).toEqual([]);
       expect(report.stale).toEqual([]);
@@ -156,7 +156,7 @@ describe('the worked model example the model-writing machinery runs on', () => {
     });
   });
 
-  test('model-format-reference.md writes the check\'s table headers, and the example review names the report\'s four headings', () => {
+  test('model-format-reference.md writes the check\'s table headers, and the example review names the report\'s four headings', async () => {
     const reference = readFileSync(join(EXAMPLE_DIR, 'model', 'madarch', 'model-format-reference.md'), 'utf8');
     for (const [heading, columns] of [['Claims', CLAIMS_COLUMNS], ['Assignment', ASSIGNMENT_COLUMNS]] as const) {
       const at = reference.indexOf(`### \`## ${heading}\``);
@@ -174,8 +174,8 @@ describe('the worked model example the model-writing machinery runs on', () => {
 });
 
 describe('the model-writing machinery updating a model', () => {
-  test('a branch that adds a folder the core imports: the example update passes with the element added and the rest unchanged', () => {
-    withRepo((repo) => {
+  test('a branch that adds a folder the core imports: the example update passes with the element added and the rest unchanged', async () => {
+    await withRepo(async (repo) => {
       const { pinned, base, substituteBase } = baseExample(repo);
 
       // The branch: the update's repository changes, committed.
@@ -194,7 +194,7 @@ describe('the model-writing machinery updating a model', () => {
       expect(updatedReview).toContain('`export`');
 
       const views = join(repo.path, 'madarch', 'views');
-      const report = checkModel(repo.path, { views });
+      const report = await checkModel(repo.path, { views });
       expect(report.outcome).toBe('passed');
       expect(report.errors).toEqual([]);
       expect(report.stale).toEqual([]);
@@ -228,8 +228,8 @@ describe('the model-writing machinery updating a model', () => {
     });
   });
 
-  test('a branch that changes only a function body: identical ids and relations, re-pinned evidence, no stale items', () => {
-    withRepo((repo) => {
+  test('a branch that changes only a function body: identical ids and relations, re-pinned evidence, no stale items', async () => {
+    await withRepo(async (repo) => {
       const { pinned, base, substituteBase } = baseExample(repo);
 
       // The branch: the body of one function in an already-modelled file.
@@ -256,7 +256,7 @@ describe('the model-writing machinery updating a model', () => {
           'No architectural change: the branch touches only the body of `findReceipt` in `src/store.ts`; the `archive` element\'s evidence is re-pinned.\n',
       );
 
-      const report = checkModel(repo.path, {});
+      const report = await checkModel(repo.path, {});
       expect(report.outcome).toBe('passed');
       expect(report.errors).toEqual([]);
       expect(report.stale).toEqual([]);

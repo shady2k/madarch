@@ -333,7 +333,7 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
     return JSON.stringify(sorted.map((a) => [a.kind, a.id, a.content]));
   }
 
-  function store(input: StoreInput, registryInput?: SourceRegistry): StoreResult {
+  async function store(input: StoreInput, registryInput?: SourceRegistry): Promise<StoreResult> {
     const { source, commit, committedAt, model } = input;
 
     let newAssertions: Assertion[];
@@ -524,7 +524,7 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
     }
   }
 
-  function read(input: ReadInput = {}): ReadResult {
+  async function read(input: ReadInput = {}): Promise<ReadResult> {
     const now = clock.now();
     const valid = input.valid ?? now;
     const known = input.known ?? now;
@@ -539,7 +539,7 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
     return assembleCompiledModel(rows.map((row) => ({ kind: row.kind, id: row.entity_id, content: row.content, source: row.source })));
   }
 
-  function assertions(input: AssertionsInput = {}): AssertionRecord[] {
+  async function assertions(input: AssertionsInput = {}): Promise<AssertionRecord[]> {
     const rows = input.source !== undefined ? selectAllAssertions.all(input.source, input.source) : selectAllAssertions.all(null, null);
     return rows.map((row) => ({
       source: row.source,
@@ -553,18 +553,20 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
     }));
   }
 
-  function sources(): string[] {
+  async function sources(): Promise<string[]> {
     return selectSources.all().map((row) => row.source).sort(byCodePoint);
   }
 
-  function renameSource(from: string, to: string, registryInput?: SourceRegistry): void {
-    const held = sources();
-    if (held.length !== 1 || held[0] !== from) {
-      const holds = held.length === 0 ? 'no source' : `the sources ${held.join(', ')}`;
-      throw new Error(`the history holds ${holds}, but the rename asks to rename ${JSON.stringify(from)} to ${JSON.stringify(to)}: the one source a history holds is renamed whole, nothing beside it`);
-    }
-    // Keep the registry metadata and history rows under the same source name.
+  async function renameSource(from: string, to: string, registryInput?: SourceRegistry): Promise<void> {
+    // Keep validation and mutation in one transaction. Yielding between them
+    // lets concurrent async callers both validate the same source.
     db.transaction(() => {
+      const held = selectSources.all().map((row) => row.source).sort(byCodePoint);
+      if (held.length !== 1 || held[0] !== from) {
+        const holds = held.length === 0 ? 'no source' : `the sources ${held.join(', ')}`;
+        throw new Error(`the history holds ${holds}, but the rename asks to rename ${JSON.stringify(from)} to ${JSON.stringify(to)}: the one source a history holds is renamed whole, nothing beside it`);
+      }
+      // Keep the registry metadata and history rows under the same source name.
       renameRegistry.run(to, from);
       if (registryInput !== undefined) {
         upsertRegistry.run(to, registryInput.id, JSON.stringify(registryInput.formerNames));
@@ -575,24 +577,24 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
   }
 
   /** Every commit of one source, oldest first in the history's own commit order. */
-  function commits(source: string): CommitRecord[] {
+  async function commits(source: string): Promise<CommitRecord[]> {
     return selectCommits.all(source).map((row) => ({ commit: row.commit_id, committedAt: row.committed_at, storedAt: row.recorded_at, canonicalDigest: row.canonical_digest }));
   }
 
-  function commitRecord(source: string, commit: string): CommitRecord | undefined {
+  async function commitRecord(source: string, commit: string): Promise<CommitRecord | undefined> {
     const row = selectCommitRecord.get(source, commit);
     return row === null ? undefined : { commit: row.commit_id, committedAt: row.committed_at, storedAt: row.recorded_at, canonicalDigest: row.canonical_digest };
   }
-  function latestCommit(source: string): CommitRecord | undefined {
+  async function latestCommit(source: string): Promise<CommitRecord | undefined> {
     const row = selectLatestCommit.get(source);
     return row === null ? undefined : { commit: row.commit_id, committedAt: row.committed_at, storedAt: row.recorded_at, canonicalDigest: row.canonical_digest };
   }
 
-  function hasCommit(source: string, commit: string): boolean {
+  async function hasCommit(source: string, commit: string): Promise<boolean> {
     return selectCommit.get(source, commit) !== null;
   }
 
-  function registry(source: string): { id: string; formerNames: string[] } | undefined {
+  async function registry(source: string): Promise<{ id: string; formerNames: string[] } | undefined> {
     const row = selectRegistry.get(source);
     if (row === null) return undefined;
     const path = options.path ?? ':memory:';
@@ -618,10 +620,10 @@ export function createSqliteHistory(options: SqliteHistoryOptions): HistoryStore
     return { id: row.id, formerNames: names };
   }
 
-  function setRegistry(source: string, id: string, formerNames: readonly string[]): void {
+  async function setRegistry(source: string, id: string, formerNames: readonly string[]): Promise<void> {
     upsertRegistry.run(source, id, JSON.stringify(formerNames));
   }
-  function close(): void {
+  async function close(): Promise<void> {
     db.close();
   }
 

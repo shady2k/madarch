@@ -23,22 +23,22 @@ const DAY = (day: number) => Date.UTC(2026, 8, day);
 const AT = { valid: DAY(2), known: DAY(2), state: 'as-is' };
 
 /** Loads and compiles each fixture in turn as one source's next commit, and builds a query engine from the history they produced. */
-function engineFor(...versions: { name: string; committedAt: number; storedAt: number }[]): { engine: QueryEngine; history: HistoryStore } {
+async function engineFor(...versions: { name: string; committedAt: number; storedAt: number }[]): Promise<{ engine: QueryEngine; history: HistoryStore }> {
   const clock = fakeClock(versions[0]!.storedAt);
   const history = createSqliteHistory({ clock });
   for (const version of versions) {
     const { model, errors } = loadModel(fixture(version.name));
     expect(errors).toEqual([]);
     clock.set(version.storedAt);
-    expect(history.store({ source: 's', commit: version.name, committedAt: version.committedAt, model: compileModel(model!) }).errors).toEqual([]);
+    expect((await history.store({ source: 's', commit: version.name, committedAt: version.committedAt, model: compileModel(model!) })).errors).toEqual([]);
   }
   const engine = createLadybugEngine();
-  engine.rebuild(history.assertions());
+  engine.rebuild(await history.assertions());
   return { engine, history };
 }
 
-function oneVersion(name: string): { engine: QueryEngine; history: HistoryStore } {
-  return engineFor({ name, committedAt: DAY(1), storedAt: DAY(2) });
+async function oneVersion(name: string): Promise<{ engine: QueryEngine; history: HistoryStore }> {
+  return await engineFor({ name, committedAt: DAY(1), storedAt: DAY(2) });
 }
 
 const OWN_VIEW = {
@@ -51,17 +51,17 @@ const OWN_VIEW = {
 };
 
 describe('graph-queries/view: a refinement in its element\'s own view', () => {
-  test('refinement-in-own-view: the payment step is drawn to the neighbour payments, and nothing from checkout-api itself', () => {
-    const { engine, history } = oneVersion('gq-refinement-own-view');
+  test('refinement-in-own-view: the payment step is drawn to the neighbour payments, and nothing from checkout-api itself', async () => {
+    const { engine, history } = await oneVersion('gq-refinement-own-view');
 
     expect(engine.view({ scope: 'checkout-api', depth: 1, context: true }, AT)).toEqual(OWN_VIEW);
 
     engine.close();
-    history.close();
+    await history.close();
   });
 
-  test('at depth zero nothing below the scope is shown, so the relation it refines is drawn from the scope, standing for the refinement', () => {
-    const { engine, history } = oneVersion('gq-refinement-own-view');
+  test('at depth zero nothing below the scope is shown, so the relation it refines is drawn from the scope, standing for the refinement', async () => {
+    const { engine, history } = await oneVersion('gq-refinement-own-view');
 
     expect(engine.view({ scope: 'checkout-api', depth: 0, context: true }, AT)).toEqual({
       elements: [{ id: 'checkout-api', kind: 'service', parent: 'shop' }],
@@ -70,11 +70,11 @@ describe('graph-queries/view: a refinement in its element\'s own view', () => {
     });
 
     engine.close();
-    history.close();
+    await history.close();
   });
 
-  test('a domain view, where the refined relation\'s end inside is a service below the scope and not the scope itself, keeps counting the refinement once under it', () => {
-    const { engine, history } = oneVersion('gq-refinement-own-view');
+  test('a domain view, where the refined relation\'s end inside is a service below the scope and not the scope itself, keeps counting the refinement once under it', async () => {
+    const { engine, history } = await oneVersion('gq-refinement-own-view');
 
     for (const depth of [1, 2]) {
       const result = engine.view({ scope: 'shop', depth, context: true }, AT);
@@ -84,11 +84,11 @@ describe('graph-queries/view: a refinement in its element\'s own view', () => {
     }
 
     engine.close();
-    history.close();
+    await history.close();
   });
 
-  test('without context nothing changes: the element\'s own view draws no crossing relation, and a whole-graph view draws the refinement beside the relation it refines once its own ends are shown', () => {
-    const { engine, history } = oneVersion('gq-refinement-own-view');
+  test('without context nothing changes: the element\'s own view draws no crossing relation, and a whole-graph view draws the refinement beside the relation it refines once its own ends are shown', async () => {
+    const { engine, history } = await oneVersion('gq-refinement-own-view');
 
     expect(engine.view({ scope: 'checkout-api', depth: 1 }, AT)).toEqual({
       elements: [
@@ -103,11 +103,11 @@ describe('graph-queries/view: a refinement in its element\'s own view', () => {
     ]);
 
     engine.close();
-    history.close();
+    await history.close();
   });
 
-  test('as-of: before the refinement exists the relation it refines is drawn from the scope; after, the payment step is', () => {
-    const { engine, history } = engineFor(
+  test('as-of: before the refinement exists the relation it refines is drawn from the scope; after, the payment step is', async () => {
+    const { engine, history } = await engineFor(
       { name: 'gq-refinement-own-view-asof-v1', committedAt: DAY(1), storedAt: DAY(2) },
       { name: 'gq-refinement-own-view', committedAt: DAY(10), storedAt: DAY(12) },
     );
@@ -123,11 +123,11 @@ describe('graph-queries/view: a refinement in its element\'s own view', () => {
     expect(engine.view(input, { valid: DAY(15), known: DAY(5), state: 'as-is' })).toEqual(before);
 
     engine.close();
-    history.close();
+    await history.close();
   });
 
-  test('two modules refining one relation are both drawn and the relation they refine is not; an incoming relation is replaced the same way; a refinement from the scope itself changes nothing', () => {
-    const { engine, history } = oneVersion('gq-refinement-own-view-cases');
+  test('two modules refining one relation are both drawn and the relation they refine is not; an incoming relation is replaced the same way; a refinement from the scope itself changes nothing', async () => {
+    const { engine, history } = await oneVersion('gq-refinement-own-view-cases');
 
     expect(engine.view({ scope: 'checkout-api', depth: 1, context: true }, AT)).toEqual({
       elements: [
@@ -149,10 +149,10 @@ describe('graph-queries/view: a refinement in its element\'s own view', () => {
     });
 
     engine.close();
-    history.close();
+    await history.close();
   });
 
-  test('once the relation is replaced, another refinement of it from the scope itself stands for itself, since the relation it refines is no longer drawn', () => {
+  test('once the relation is replaced, another refinement of it from the scope itself stands for itself, since the relation it refines is no longer drawn', async () => {
     const DAY1 = { validFrom: DAY(1), validTo: null, recordedFrom: DAY(1), recordedTo: null };
     const element = (id: string, kind: string, ancestors: string[]): AssertionRecord => ({
       source: 's',

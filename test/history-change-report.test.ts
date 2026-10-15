@@ -44,7 +44,7 @@ function seededRandom(seed: number): { next(): number; int(bound: number): numbe
 const key = (a: { source: string; kind: string; id: string; validFrom: number }) => [a.source, a.kind, a.id, a.validFrom].join('\u0000');
 
 describe('the repository test: store()\'s change report replays into exactly assertions() (a literal patch)', () => {
-  test('over 20 random seeds, each driving up to 3000 stores across two sources, the replayed set of currently-open rows matches assertions() after every store', () => {
+  test('over 20 random seeds, each driving up to 3000 stores across two sources, the replayed set of currently-open rows matches assertions() after every store', async () => {
     for (let seed = 1; seed <= 20; seed++) {
       const rnd = seededRandom(seed);
       const clock = fakeClock(100_000);
@@ -64,7 +64,7 @@ describe('the repository test: store()\'s change report replays into exactly ass
         const zones = rnd.next() < 0.5 ? [{ id: 'pci', kind: `k${rnd.int(2)}` }] : [];
 
         clock.set(100_000 + i * 10);
-        const result = h.store({
+        const result = await h.store({
           source,
           commit: `c${rnd.int(50)}_${i}`,
           committedAt: 1000 * (1 + rnd.int(5)),
@@ -75,12 +75,12 @@ describe('the repository test: store()\'s change report replays into exactly ass
         for (const change of result.closed) replayed.delete(key(change));
         for (const change of result.opened) replayed.set(key(change), `${change.content}|${change.validTo}`);
 
-        const truth = new Map(h.assertions().filter((a) => a.recordedTo === null).map((a) => [key(a), `${a.content}|${a.validTo}`]));
+        const truth = new Map((await h.assertions()).filter((a) => a.recordedTo === null).map((a) => [key(a), `${a.content}|${a.validTo}`]));
         expect(replayed.size).toBe(truth.size);
         for (const [k, v] of truth) expect(replayed.get(k)).toBe(v);
       }
 
-      h.close();
+      await h.close();
     }
   });
 });

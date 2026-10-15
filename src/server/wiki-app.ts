@@ -150,9 +150,9 @@ export interface WikiPart {
   /** `GET /api/questions`: the product's questions as the set's form computes them. */
   questions: () => Handled;
   /** `GET /api/architecture`: the whole Architecture bundle, read fresh. */
-  architecture: () => Handled;
+  architecture: () => Handled | Promise<Handled>;
   /** `GET /api/architecture/likec4.js`: the LikeC4 webcomponent bundle of the rendered workspace. */
-  likec4Script: () => Handled;
+  likec4Script: () => Handled | Promise<Handled>;
   /** `GET /api/pages`: the pages with the wiki's revision. */
   pages: () => Handled;
   /** `GET /api/page?path=...`: one page, whole. */
@@ -200,7 +200,7 @@ export function createWikiPart(
       if (!asked.ok) return { response: json(500, { message: asked.message }) };
       return { response: json(200, { questions: asked.questions, openCount: asked.openCount }) };
     },
-    architecture: (): Handled => {
+    architecture: async (): Promise<Handled> => {
       const product = readProductModel(wiki.product);
       const pages = new Map<string, string>();
       const listed = wiki.pages();
@@ -212,10 +212,10 @@ export function createWikiPart(
       }
       const bundle = product.model === undefined
         ? { notes: product.notes, errors: product.errors, warnings: product.warnings, sources: product.sources }
-        : architectureBundle(product.model, product.notes, product.warnings, product.sources, pages);
+        : await architectureBundle(product.model, product.notes, product.warnings, product.sources, pages);
       return { response: json(200, bundle) };
     },
-    likec4Script: (): Handled => {
+    likec4Script: async (): Promise<Handled> => {
       const product = readProductModel(wiki.product);
       if (product.model === undefined) {
         return refused(200, {
@@ -225,7 +225,7 @@ export function createWikiPart(
           ].join('\n'),
         });
       }
-      const rendering = renderModel(product.model, { source: 'product-model', commit: 'product', at: 0 });
+      const rendering = await renderModel(product.model, { source: 'product-model', commit: 'product', at: 0 });
       if (rendering.workspace === undefined) {
         return refused(200, {
           message: [

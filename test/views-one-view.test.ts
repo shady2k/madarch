@@ -40,20 +40,20 @@ interface Built {
 }
 
 /** Loads and compiles one fixture, stores it as one version, and builds a query engine from that history. */
-function build(name: string): Built {
+async function build(name: string): Promise<Built> {
   const { model, errors } = loadModel(fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url)));
   expect(errors).toEqual([]);
   const compiled = compileModel(model!);
   const history = createSqliteHistory({ clock: { now: () => DAY(1) } });
-  expect(history.store({ source: 's', commit: name, committedAt: DAY(1), model: compiled }).errors).toEqual([]);
+  expect((await history.store({ source: 's', commit: name, committedAt: DAY(1), model: compiled })).errors).toEqual([]);
   const engine = createLadybugEngine();
-  engine.rebuild(history.assertions());
+  engine.rebuild(await history.assertions());
   return { engine, history, model: compiled };
 }
 
-function close(built: Built): void {
+async function close(built: Built): Promise<void> {
   built.engine.close();
-  built.history.close();
+  await built.history.close();
 }
 
 /** The view set's page without its links to other pages: the "Up:" and "Open:" lines and the blank line each leaves. */
@@ -211,8 +211,8 @@ const LANDSCAPE_DEPTH2_PAGE = [
 ].join('\n');
 
 describe('views/one-view mermaid', () => {
-  test('depth-one-equals-page: the asked view is the view set page of it without its Up and Open lines', () => {
-    const built = build('views-drill-down');
+  test('depth-one-equals-page: the asked view is the view set page of it without its Up and Open lines', async () => {
+    const built = await build('views-drill-down');
     try {
       const { views, errors } = buildViewSet(built.engine, built.model, AT);
       expect(errors).toEqual([]);
@@ -225,30 +225,30 @@ describe('views/one-view mermaid', () => {
         expect(asked.page).toBe(withoutLinks(byFile.get(file)!));
       }
     } finally {
-      close(built);
+      await close(built);
     }
   });
 
-  test('the page of shop, written by hand from the fixture: the frame, its neighbour, numbered arrows and the table, no links', () => {
-    const built = build('views-drill-down');
+  test('the page of shop, written by hand from the fixture: the frame, its neighbour, numbered arrows and the table, no links', async () => {
+    const built = await build('views-drill-down');
     try {
       const asked = renderOneViewMermaid(built.engine, built.model, { element: 'shop' }, AT);
 
       expect(asked).toStrictEqual({ page: SHOP_PAGE, errors: [] });
     } finally {
-      close(built);
+      await close(built);
     }
   });
 
   test('the view of an element without children shows it as a frame with nothing inside, its neighbours outside, and it parses', async () => {
-    const built = build('views-drill-down');
+    const built = await build('views-drill-down');
     let page: string;
     try {
       const asked = renderOneViewMermaid(built.engine, built.model, { element: 'catalog-api' }, AT);
       expect(asked.errors).toEqual([]);
       page = asked.page!;
     } finally {
-      close(built);
+      await close(built);
     }
 
     expect(page).toBe(CATALOG_PAGE);
@@ -261,26 +261,26 @@ describe('views/one-view mermaid', () => {
     }
   });
 
-  test('a depth below 1 is an error naming the depth and the element, and no page comes back', () => {
-    const built = build('views-drill-down');
+  test('a depth below 1 is an error naming the depth and the element, and no page comes back', async () => {
+    const built = await build('views-drill-down');
     try {
       expect(renderOneViewMermaid(built.engine, built.model, { element: 'shop', depth: 0 }, AT)).toStrictEqual({
         errors: [{ message: 'the depth 0 is below 1: the smallest depth rendered is 1', depth: 0, element: 'shop' }],
       });
     } finally {
-      close(built);
+      await close(built);
     }
   });
 
   test('depth-two-frames: the view of shop at depth 2 frames the modules inside checkout-web inside shop, draws payments outside, and parses', async () => {
-    const built = build('views-drill-down');
+    const built = await build('views-drill-down');
     let page: string;
     try {
       const asked = renderOneViewMermaid(built.engine, built.model, { element: 'shop', depth: 2 }, AT);
       expect(asked.errors).toEqual([]);
       page = asked.page!;
     } finally {
-      close(built);
+      await close(built);
     }
 
     expect(page).toBe(SHOP_DEPTH2_PAGE);
@@ -294,14 +294,14 @@ describe('views/one-view mermaid', () => {
   });
 
   test('the landscape at depth 2 frames every root around its children, and parses', async () => {
-    const built = build('views-drill-down');
+    const built = await build('views-drill-down');
     let page: string;
     try {
       const asked = renderOneViewMermaid(built.engine, built.model, { depth: 2 }, AT);
       expect(asked.errors).toEqual([]);
       page = asked.page!;
     } finally {
-      close(built);
+      await close(built);
     }
 
     expect(page).toBe(LANDSCAPE_DEPTH2_PAGE);
@@ -314,8 +314,8 @@ describe('views/one-view mermaid', () => {
     }
   });
 
-  test('a depth that is not a whole number is an error naming it, in both formats', () => {
-    const built = build('views-drill-down');
+  test('a depth that is not a whole number is an error naming it, in both formats', async () => {
+    const built = await build('views-drill-down');
     try {
       expect(renderOneViewMermaid(built.engine, built.model, { element: 'shop', depth: 1.5 }, AT)).toStrictEqual({
         errors: [{ message: 'the depth 1.5 is not a whole number: the depth is how many levels to draw', depth: 1.5, element: 'shop' }],
@@ -324,12 +324,12 @@ describe('views/one-view mermaid', () => {
         errors: [{ message: 'the depth 1.5 is not a whole number: the depth is how many levels to draw', depth: 1.5, element: 'shop' }],
       });
     } finally {
-      close(built);
+      await close(built);
     }
   });
 
-  test('without a depth the view is asked at depth 1', () => {
-    const built = build('views-drill-down');
+  test('without a depth the view is asked at depth 1', async () => {
+    const built = await build('views-drill-down');
     try {
       const defaulted = renderOneViewMermaid(built.engine, built.model, { element: 'shop' }, AT);
       const asked = renderOneViewMermaid(built.engine, built.model, { element: 'shop', depth: 1 }, AT);
@@ -337,12 +337,12 @@ describe('views/one-view mermaid', () => {
       expect(defaulted).toStrictEqual(asked);
       expect(defaulted.errors).toEqual([]);
     } finally {
-      close(built);
+      await close(built);
     }
   });
 
-  test('an element that does not exist at the asked time is an error naming it and the time', () => {
-    const built = build('views-drill-down');
+  test('an element that does not exist at the asked time is an error naming it and the time', async () => {
+    const built = await build('views-drill-down');
     try {
       expect(renderOneViewMermaid(built.engine, built.model, { element: 'ghost' }, AT)).toStrictEqual({
         errors: [
@@ -357,21 +357,21 @@ describe('views/one-view mermaid', () => {
       expect(before.errors[0]!.message).toBe('the view of "shop": "shop" does not exist at this time');
       expect(before.errors[0]!.query).toStrictEqual({ message: '"shop" does not exist at this time', id: 'shop', time: DAY(0) });
     } finally {
-      close(built);
+      await close(built);
     }
   });
 });
 
 describe('views/one-view likec4', () => {
-  test('one-view-likec4: the workspace of checkout-web validates alone and holds exactly that one view', () => {
-    const built = build('views-drill-down');
+  test('one-view-likec4: the workspace of checkout-web validates alone and holds exactly that one view', async () => {
+    const built = await build('views-drill-down');
     let workspace: string;
     try {
       const asked = renderOneViewLikeC4(built.engine, built.model, { element: 'checkout-web' }, AT);
       expect(asked.errors).toEqual([]);
       workspace = asked.workspace!;
     } finally {
-      close(built);
+      await close(built);
     }
 
     expect(workspace).toBe(drillDownWorkspace(['  view checkout-web of shop.checkout-web {', '    title "Checkout web"', '    include *', '  }']));
@@ -379,56 +379,56 @@ describe('views/one-view likec4', () => {
     expect(validate(workspace)).toEqual({ files: 1, errors: [] });
   });
 
-  test('the landscape asked with no element is the workspace whose views block holds only index', () => {
-    const built = build('views-drill-down');
+  test('the landscape asked with no element is the workspace whose views block holds only index', async () => {
+    const built = await build('views-drill-down');
     let workspace: string;
     try {
       const asked = renderOneViewLikeC4(built.engine, built.model, {}, AT);
       expect(asked.errors).toEqual([]);
       workspace = asked.workspace!;
     } finally {
-      close(built);
+      await close(built);
     }
 
     expect(workspace).toBe(drillDownWorkspace(['  view index {', '    title "Landscape"', '    include *', '  }']));
     expect(validate(workspace)).toEqual({ files: 1, errors: [] });
   });
 
-  test('the view of an element without children is `view x of <fqn> { include * }` and validates', () => {
-    const built = build('views-drill-down');
+  test('the view of an element without children is `view x of <fqn> { include * }` and validates', async () => {
+    const built = await build('views-drill-down');
     let workspace: string;
     try {
       const asked = renderOneViewLikeC4(built.engine, built.model, { element: 'payments-api' }, AT);
       expect(asked.errors).toEqual([]);
       workspace = asked.workspace!;
     } finally {
-      close(built);
+      await close(built);
     }
 
     expect(workspace).toBe(drillDownWorkspace(['  view payments-api of payments.payments-api {', '    title "Payments API"', '    include *', '  }']));
     expect(validate(workspace)).toEqual({ files: 1, errors: [] });
   });
 
-  test('a depth below 1 is an error, and no workspace comes back', () => {
-    const built = build('views-drill-down');
+  test('a depth below 1 is an error, and no workspace comes back', async () => {
+    const built = await build('views-drill-down');
     try {
       expect(renderOneViewLikeC4(built.engine, built.model, { depth: -1 }, AT)).toStrictEqual({
         errors: [{ message: 'the depth -1 is below 1: the smallest depth rendered is 1', depth: -1 }],
       });
     } finally {
-      close(built);
+      await close(built);
     }
   });
 
-  test('depth-two-frames: the view of shop at depth 2 includes the grandchildren, validates, and LikeC4 draws the frames and the collapsed arrows', () => {
-    const built = build('views-drill-down');
+  test('depth-two-frames: the view of shop at depth 2 includes the grandchildren, validates, and LikeC4 draws the frames and the collapsed arrows', async () => {
+    const built = await build('views-drill-down');
     let workspace: string;
     try {
       const asked = renderOneViewLikeC4(built.engine, built.model, { element: 'shop', depth: 2 }, AT);
       expect(asked.errors).toEqual([]);
       workspace = asked.workspace!;
     } finally {
-      close(built);
+      await close(built);
     }
 
     expect(workspace).toBe(drillDownWorkspace(['  view shop of shop {', '    title "Shop"', '    include *, shop.checkout-web.*', '  }']));
@@ -465,23 +465,23 @@ describe('views/one-view likec4', () => {
     }
   });
 
-  test('the landscape at depth 2 includes the children of every root and validates', () => {
-    const built = build('views-drill-down');
+  test('the landscape at depth 2 includes the children of every root and validates', async () => {
+    const built = await build('views-drill-down');
     let workspace: string;
     try {
       const asked = renderOneViewLikeC4(built.engine, built.model, { depth: 2 }, AT);
       expect(asked.errors).toEqual([]);
       workspace = asked.workspace!;
     } finally {
-      close(built);
+      await close(built);
     }
 
     expect(workspace).toBe(drillDownWorkspace(['  view index {', '    title "Landscape"', '    include *, payments.*, shop.*', '  }']));
     expect(validate(workspace)).toEqual({ files: 1, errors: [] });
   });
 
-  test('an element that does not exist at the asked time is an error naming it and the time', () => {
-    const built = build('views-drill-down');
+  test('an element that does not exist at the asked time is an error naming it and the time', async () => {
+    const built = await build('views-drill-down');
     try {
       expect(renderOneViewLikeC4(built.engine, built.model, { element: 'ghost' }, AT)).toStrictEqual({
         errors: [
@@ -493,7 +493,7 @@ describe('views/one-view likec4', () => {
         ],
       });
     } finally {
-      close(built);
+      await close(built);
     }
   });
 });
@@ -521,7 +521,7 @@ describe('views/one-view from any query engine', () => {
     return { schemaVersion: 1, elements, relations: [], interfaces: [], categories: [], zones: [], environments: [], states: [] } as unknown as CompiledModel;
   }
 
-  test('the question for the landscape refusing is named, and no element is named where none was asked', () => {
+  test('the question for the landscape refusing is named, and no element is named where none was asked', async () => {
     const refusing = { message: 'refused' };
     const engine = handEngine({ landscape: { error: refusing } });
     const model = modelOf([]);
@@ -530,7 +530,7 @@ describe('views/one-view from any query engine', () => {
     expect(renderOneViewLikeC4(engine, model, {})).toStrictEqual({ errors: [{ message: 'the landscape: refused', query: refusing }] });
   });
 
-  test('a view whose arrows name a relation the compiled model does not hold is an error naming it, in both formats', () => {
+  test('a view whose arrows name a relation the compiled model does not hold is an error naming it, in both formats', async () => {
     const engine = handEngine({
       scoped: () => ({ elements: [element('top', 'domain'), element('low', 'service', 'top')], neighbours: [], relations: [{ from: 'low', to: 'top', relationIds: ['ghost'] }] }),
     });
@@ -545,7 +545,7 @@ describe('views/one-view from any query engine', () => {
     expect(renderOneViewLikeC4(engine, model, { element: 'top' })).toStrictEqual({ errors: [expected] });
   });
 
-  test('a view with no arrows carries no table, and ends with the blank line a page leaves before its links', () => {
+  test('a view with no arrows carries no table, and ends with the blank line a page leaves before its links', async () => {
     const engine = handEngine({ landscape: { elements: [element('top', 'domain')], relations: [] } });
     const model = modelOf([element('top', 'domain')]);
 
@@ -555,7 +555,7 @@ describe('views/one-view from any query engine', () => {
     });
   });
 
-  test('a view that does not show its own element as its scope is refused as Mermaid, and no page comes back', () => {
+  test('a view that does not show its own element as its scope is refused as Mermaid, and no page comes back', async () => {
     const engine = handEngine({ scoped: () => ({ elements: [], neighbours: [], relations: [] }) });
     const model = modelOf([element('top', 'domain')]);
 
@@ -564,7 +564,7 @@ describe('views/one-view from any query engine', () => {
     });
   });
 
-  test('an element whose parent does not exist at this time is an error in the workspace, which would not hold it', () => {
+  test('an element whose parent does not exist at this time is an error in the workspace, which would not hold it', async () => {
     const engine = handEngine({
       landscape: { elements: [element('top', 'domain')], relations: [] },
       every: { elements: [element('top', 'domain'), element('lost', 'service', 'nope')], relations: [] },
@@ -578,18 +578,18 @@ describe('views/one-view from any query engine', () => {
 });
 
 describe("the reference system's one view", () => {
-  function reference(): { engine: QueryEngine; model: CompiledModel; at: { valid: number; known: number }; close(): void } {
+  async function reference(): Promise<{ engine: QueryEngine; model: CompiledModel; at: { valid: number; known: number }; close(): Promise<void> }> {
     const { model, errors } = loadAndCompileModel(REFERENCE_SYSTEM);
     expect(errors).toEqual([]);
     const history = createSqliteHistory({ clock: { now: () => REFERENCE_TIME } });
-    expect(history.store({ source: 'reference-system', commit: 'working-tree', committedAt: REFERENCE_TIME, model: model! }).errors).toEqual([]);
+    expect((await history.store({ source: 'reference-system', commit: 'working-tree', committedAt: REFERENCE_TIME, model: model! })).errors).toEqual([]);
     const engine = createLadybugEngine();
-    engine.rebuild(history.assertions());
-    return { engine, model: model!, at: { valid: REFERENCE_TIME, known: REFERENCE_TIME }, close: () => { engine.close(); history.close(); } };
+    engine.rebuild(await history.assertions());
+    return { engine, model: model!, at: { valid: REFERENCE_TIME, known: REFERENCE_TIME }, close: async () => { engine.close(); await history.close(); } };
   }
 
-  test('at depth 1 the answer for the landscape and for every element with children is its committed page without its links', () => {
-    const ref = reference();
+  test('at depth 1 the answer for the landscape and for every element with children is its committed page without its links', async () => {
+    const ref = await reference();
     try {
       const committed = readdirSync(MERMAID_FOLDER).filter((file) => file.endsWith('.md'));
       expect(committed.length).toBeGreaterThan(1);
@@ -600,12 +600,12 @@ describe("the reference system's one view", () => {
         expect(asked.page).toBe(withoutLinks(readFileSync(join(MERMAID_FOLDER, file), 'utf8')));
       }
     } finally {
-      ref.close();
+      await ref.close();
     }
   });
 
-  test('the LikeC4 answer for the landscape and for every element with children validates alone, holding exactly one view', () => {
-    const ref = reference();
+  test('the LikeC4 answer for the landscape and for every element with children validates alone, holding exactly one view', async () => {
+    const ref = await reference();
     try {
       const parents = new Set(ref.model.elements.map((element) => element.parent).filter((parent) => parent !== undefined));
       const askedOf = [undefined, ...parents].map((element) => (element === undefined ? {} : { element }));
@@ -622,12 +622,12 @@ describe("the reference system's one view", () => {
         expect(validate(answer.workspace!)).toEqual({ files: 1, errors: [] });
       }
     } finally {
-      ref.close();
+      await ref.close();
     }
   }, 120_000);
 
   test('the landscape and ordering asked at depth 2 and 3 parse as Mermaid and validate as LikeC4', async () => {
-    const ref = reference();
+    const ref = await reference();
     const pages: { name: string; text: string }[] = [];
     const workspaces: string[] = [];
     try {
@@ -642,7 +642,7 @@ describe("the reference system's one view", () => {
         }
       }
     } finally {
-      ref.close();
+      await ref.close();
     }
 
     const dir = mkdtempSync(join(tmpdir(), 'madarch-one-view-'));

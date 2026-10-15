@@ -17,7 +17,7 @@ import {
  * included, since a `known` time before a later commit closed a row must
  * still see it (the very axis `update()` used to drop by deleting a closed
  * row outright instead of closing it — see `ladybug-engine.ts`'s own doc).
- * `history.read()` is the independent oracle neither engine is built from
+ * `await history.read()` is the independent oracle neither engine is built from
  * directly.
  */
 
@@ -51,8 +51,7 @@ function model(elements: CompiledElement[], relations: CompiledRelation[]): Comp
 
 describe('M1: an engine kept in step through update() answers exactly like a rebuilt one, at every known time the history could report', () => {
   test(
-    'over 8 seeded random sequences of two sources (with late and same-time commits), children/dependencies agree between update() and rebuild(), and both agree with history.read()',
-    () => {
+    'over 8 seeded random sequences of two sources (with late and same-time commits), children/dependencies agree between update() and rebuild(), and both agree with await history.read()', async () => {
       for (let seed = 1; seed <= 8; seed++) {
         const rnd = seededRandom(seed);
         let now = 100_000;
@@ -89,13 +88,13 @@ describe('M1: an engine kept in step through update() answers exactly like a reb
           clock.set(now);
           storeTimes.push(now);
           const committedAt = 1000 * (1 + rnd.int(5));
-          const result = history.store({ source, commit: `c${i}`, committedAt, model: model(elements, relations) });
+          const result = await history.store({ source, commit: `c${i}`, committedAt, model: model(elements, relations) });
           expect(result.errors).toEqual([]);
           updated.update(result.opened, result.closed);
         }
 
         const rebuilt = createLadybugEngine();
-        rebuilt.rebuild(history.assertions());
+        rebuilt.rebuild(await history.assertions());
 
         // Sparse but deliberate sampling: the earliest and latest store
         // moments, one from the middle, and just after/before the whole
@@ -106,7 +105,7 @@ describe('M1: an engine kept in step through update() answers exactly like a reb
         for (const known of knowns) {
           for (const valid of [500, 1500, 2500, 3500, 4500]) {
             const at = { valid, known, state: 'as-is' };
-            const readModel = history.read({ valid, known }).model!;
+            const readModel = (await history.read({ valid, known })).model!;
             const knownElements = new Set(readModel.elements.filter((e) => e.states.includes('as-is')).map((e) => e.id));
 
             for (const id of ['sA', 'sC', 'pA', 'pC']) {
@@ -130,7 +129,7 @@ describe('M1: an engine kept in step through update() answers exactly like a reb
 
         rebuilt.close();
         updated.close();
-        history.close();
+        await history.close();
       }
     },
     60000,

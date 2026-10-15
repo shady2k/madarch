@@ -73,10 +73,10 @@ function shopRepo(): Repo {
 }
 
 /** Runs the shop fixture's repository, removing it when the test is over. */
-function withShopRepo(run: (repo: Repo) => void): void {
+async function withShopRepo(run: (repo: Repo) => void | Promise<void>): Promise<void> {
   const repo = shopRepo();
   try {
-    run(repo);
+    await run(repo);
   } finally {
     rmSync(repo.path, { recursive: true, force: true });
   }
@@ -103,11 +103,11 @@ function viewsFolder(): { base: string; views: string } {
 }
 
 describe("the model check's views", () => {
-  test('views-rendered: the folder holds the landscape page, one page per element with children and the workspace', () => {
-    withShopRepo((repo) => {
+  test('views-rendered: the folder holds the landscape page, one page per element with children and the workspace', async () => {
+    await withShopRepo(async (repo) => {
       const { base, views } = viewsFolder();
       try {
-        const report = checkModel(repo.path, { views });
+        const report = await checkModel(repo.path, { views });
 
         expect(report.outcome).toBe('passed');
         expect(readdirSync(join(views, 'mermaid')).sort()).toEqual(['_landscape.md', 'core.md', 'shop.md']);
@@ -131,15 +131,15 @@ describe("the model check's views", () => {
     });
   });
 
-  test('checking the same repository twice renders byte-identical files, whatever the clock says', () => {
-    withShopRepo((repo) => {
+  test('checking the same repository twice renders byte-identical files, whatever the clock says', async () => {
+    await withShopRepo(async (repo) => {
       const { base, views } = viewsFolder();
       try {
-        checkModel(repo.path, { views });
+        await checkModel(repo.path, { views });
         const first = treeOf(views);
         expect(first.length).toBeGreaterThan(0);
 
-        checkModel(repo.path, { views });
+        await checkModel(repo.path, { views });
 
         expect(treeOf(views)).toEqual(first);
       } finally {
@@ -148,15 +148,15 @@ describe("the model check's views", () => {
     });
   });
 
-  test("a page whose view is gone is removed by a later run; the caller's own files stay", () => {
-    withShopRepo((repo) => {
+  test("a page whose view is gone is removed by a later run; the caller's own files stay", async () => {
+    await withShopRepo(async (repo) => {
       const { base, views } = viewsFolder();
       try {
         mkdirSync(join(views, 'mermaid'), { recursive: true });
         writeFileSync(join(views, 'mermaid', 'gone.md'), '# A view that no longer exists\n');
         writeFileSync(join(views, 'mermaid', 'notes.txt'), 'not a page\n');
 
-        checkModel(repo.path, { views });
+        await checkModel(repo.path, { views });
 
         expect(existsSync(join(views, 'mermaid', 'gone.md'))).toBe(false);
         expect(existsSync(join(views, 'mermaid', 'notes.txt'))).toBe(true);
@@ -167,25 +167,25 @@ describe("the model check's views", () => {
     });
   });
 
-  test('without views nothing is written anywhere', () => {
-    withShopRepo((repo) => {
+  test('without views nothing is written anywhere', async () => {
+    await withShopRepo(async (repo) => {
       const { base } = viewsFolder();
 
-      const report = checkModel(repo.path);
+      const report = await checkModel(repo.path);
 
       expect(report.outcome).toBe('passed');
       expect(readdirSync(base)).toEqual([]);
     });
   });
 
-  test('a model that does not compile writes nothing', () => {
+  test('a model that does not compile writes nothing', async () => {
     const repo = new Repo();
     try {
       repo.writeModel('model.yaml', ['version: 1', '', 'elements:', '  - id: billing-web', '    kind: service', '    name: Billing web', '    parent: billing', ''].join('\n'));
       repo.commit('the model');
       const { base, views } = viewsFolder();
       try {
-        const report = checkModel(repo.path, { views });
+        const report = await checkModel(repo.path, { views });
 
         expect(report.outcome).toBe('failed');
         expect(report.errors[0]!.message).toContain('billing');
@@ -199,8 +199,8 @@ describe("the model check's views", () => {
     }
   });
 
-  test('the script writes the views when --views names a folder, and exits 0', () => {
-    withShopRepo((repo) => {
+  test('the script writes the views when --views names a folder, and exits 0', async () => {
+    await withShopRepo(async (repo) => {
       const { base, views } = viewsFolder();
       try {
         const run = runScript(repo.path, '--views', views);
@@ -214,14 +214,14 @@ describe("the model check's views", () => {
     });
   });
 
-  test('a views folder that cannot be written is an error of the report, naming the folder and the cause, never a note', () => {
-    withShopRepo((repo) => {
+  test('a views folder that cannot be written is an error of the report, naming the folder and the cause, never a note', async () => {
+    await withShopRepo(async (repo) => {
       const { base, views } = viewsFolder();
       try {
         writeFileSync(join(base, 'blocker'), 'a regular file where a folder is needed\n');
         const blocked = join(base, 'blocker', 'views');
 
-        const report = checkModel(repo.path, { views: blocked });
+        const report = await checkModel(repo.path, { views: blocked });
 
         expect(report.outcome).toBe('failed');
         const viewsError = report.errors.find((f) => f.message.includes(blocked));
@@ -233,8 +233,8 @@ describe("the model check's views", () => {
     });
   });
 
-  test('the script prints that views error and exits 1, without a stack trace', () => {
-    withShopRepo((repo) => {
+  test('the script prints that views error and exits 1, without a stack trace', async () => {
+    await withShopRepo(async (repo) => {
       const { base, views } = viewsFolder();
       try {
         writeFileSync(join(base, 'blocker'), 'a regular file where a folder is needed\n');

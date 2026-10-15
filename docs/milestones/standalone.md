@@ -142,6 +142,7 @@ walks.
 - First wave started 2026-10-12: the contract (a), the skills move (d with
 7), the binary (e), reviewed as they land (gpt-6-luna), no --no-verify,
 standing permission to land into main.
+- The owner decided on 2026-10-15 to replace the fact log, graph queries and vector index with PostgreSQL everywhere, using PGlite locally; first leaf: madarch-24sy.2.1.
 - Taken in by the owner on 2026-10-14 ("Пока мы ждем, нужно реализовать
 добавление комментария"): comments on selected text in the wiki,
 madarch-y781 (views). The design agreed the same day: two invisible markers

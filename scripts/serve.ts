@@ -13,7 +13,7 @@ import { startServer } from '../src/index.js';
 
 const USAGE = 'usage: bun scripts/serve.ts --data <folder> [--host 127.0.0.1] [--port 4180]';
 
-function main(args: readonly string[]): number {
+async function main(args: readonly string[]): Promise<number> {
   let data: string | undefined;
   let host: string | undefined;
   let portText: string | undefined;
@@ -74,7 +74,7 @@ function main(args: readonly string[]): number {
   }
 
   try {
-    const server = startServer({ dataFolder: data, host, port });
+    const server = await startServer({ dataFolder: data, host, port });
     console.log(`the server listens on ${server.url} — POST /models, GET /sources, POST /views`);
   } catch (error) {
     console.error((error as Error).message);
@@ -83,4 +83,4 @@ function main(args: readonly string[]): number {
   return 0;
 }
 
-process.exitCode = main(process.argv.slice(2));
+process.exitCode = await main(process.argv.slice(2));

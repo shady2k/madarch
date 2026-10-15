@@ -187,12 +187,12 @@ export interface SourceRegistry {
 }
 
 export interface HistoryStore {
-  store(input: StoreInput, registry?: SourceRegistry): StoreResult;
-  read(input?: ReadInput): ReadResult;
+  store(input: StoreInput, registry?: SourceRegistry): Promise<StoreResult>;
+  read(input?: ReadInput): Promise<ReadResult>;
   /** The raw assertions behind every read, with their four times, for a source or for all of them. */
-  assertions(input?: AssertionsInput): AssertionRecord[];
+  assertions(input?: AssertionsInput): Promise<AssertionRecord[]>;
   /** Every source name that has ever stored a commit. */
-  sources(): string[];
+  sources(): Promise<string[]>;
   /**
    * Renames one source inside the history, moving every assertion and
    * commit row to the new name — the times, contents and digests are
@@ -200,19 +200,19 @@ export interface HistoryStore {
    * name answered. Refuses, leaving the history untouched, when the
    * history holds anything but exactly the source being renamed.
    */
-  renameSource(from: string, to: string, registry?: SourceRegistry): void;
+  renameSource(from: string, to: string, registry?: SourceRegistry): Promise<void>;
   /** Stable server-assigned source identity and retired names kept inside this history file. */
-  registry(source: string): { id: string; formerNames: string[] } | undefined;
+  registry(source: string): Promise<{ id: string; formerNames: string[] } | undefined>;
   /** Records stable source identity and retired names in this history file. */
-  setRegistry(source: string, id: string, formerNames: readonly string[]): void;
+  setRegistry(source: string, id: string, formerNames: readonly string[]): Promise<void>;
   /** Whether a source's commit is already stored (regardless of what it asserts). */
-  hasCommit(source: string, commit: string): boolean;
+  hasCommit(source: string, commit: string): Promise<boolean>;
   /** One commit's own record with its times, read as one row rather than through the source's whole `commits` list; `undefined` when the source never stored that commit. */
-  commitRecord(source: string, commit: string): CommitRecord | undefined;
+  commitRecord(source: string, commit: string): Promise<CommitRecord | undefined>;
   /** The newest commit by the history's own order, without loading the full list. */
-  latestCommit(source: string): CommitRecord | undefined;
+  latestCommit(source: string): Promise<CommitRecord | undefined>;
   /** Every commit of one source, with its times, oldest first in the history's own commit order: commit time, then commit id in code point order to break a tie. */
-  commits(source: string): CommitRecord[];
+  commits(source: string): Promise<CommitRecord[]>;
   /** Releases the underlying database connection. */
-  close(): void;
+  close(): Promise<void>;
 }
