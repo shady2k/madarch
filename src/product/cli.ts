@@ -10,6 +10,7 @@
  * `refused` and `failed` carry the message, printed whole on standard error.
  * Facts go to standard output, one per line.
  */
+import { createInterface } from 'node:readline/promises';
 import { createDraft } from './draft.js';
 import { prepareDemo, type DemoOptions } from './demo.js';
 import { listProducts, type ProductList } from './list.js';
@@ -22,7 +23,9 @@ import {
   remoteLife,
   renameLife,
   repoAddLife,
+  repoAddSource,
   type LifecycleOutcome,
+  type RepoConnectMode,
 } from './lifecycle.js';
 
 /** The usage lines, shaped the way `scripts/serve.ts` and `scripts/wiki.ts` print theirs. */
@@ -33,7 +36,7 @@ export const USAGE = [
   '   or: bun scripts/madarch.ts list [--home <folder>]',
   '   or: bun scripts/madarch.ts rename <name> [--product <folder>]',
   '   or: bun scripts/madarch.ts remote <url> [--product <folder>]',
-  '   or: bun scripts/madarch.ts repo add <name> <url> [--branch <b>] [--product <folder>]',
+  '   or: bun scripts/madarch.ts repo add <name> <url> [--source <path>] [--mode <link|move|clone>] [--branch <b>] [--product <folder>]',
   '   or: bun scripts/madarch.ts bootstrap [--product <folder>]',
   '   or: bun scripts/madarch.ts clone <url> [--home <folder>]',
   '   or: bun scripts/madarch.ts version',
@@ -51,7 +54,7 @@ export const HELP = [
   '   or: bun scripts/madarch.ts list [--home <folder>]',
   '   or: bun scripts/madarch.ts rename <name> [--product <folder>]',
   '   or: bun scripts/madarch.ts remote <url> [--product <folder>]',
-  '   or: bun scripts/madarch.ts repo add <name> <url> [--branch <b>] [--product <folder>]',
+  '   or: bun scripts/madarch.ts repo add <name> <url> [--source <path>] [--mode <link|move|clone>] [--branch <b>] [--product <folder>]',
   '   or: bun scripts/madarch.ts bootstrap [--product <folder>]',
   '   or: bun scripts/madarch.ts clone <url> [--home <folder>]',
   '   or: madarch demo|serve|new|list|rename|remote|repo add|bootstrap|clone|version|upgrade — the same',
@@ -79,10 +82,14 @@ export const HELP = [
   "product the command runs in. It never pushes: pushing is the person's own",
   'git. An origin already there is refused, never replaced.',
   '',
-  'repo add enters one code repository in the manifest (name, url, the',
-  'optional --branch) and clones it into repos/<name> with the same step the',
-  'bootstrap command runs; a checkout standing there is never replaced: it',
-  'is named and left as it is.',
+  'repo add records one code repository in the manifest (name, remote url,',
+  'optional --branch) and connects it at repos/<name>. With no local checkout',
+  'selected, it clones the url and never searches another folder. --source',
+  'names a local Git checkout; otherwise a distinct checkout the command runs',
+  'from can be used. Interactive use asks link (the default), move or clone;',
+  'a non-interactive run must give --mode. Link leaves the checkout in place;',
+  'move preserves its branch, uncommitted work and stash; clone leaves it',
+  'untouched. A Windows link is a directory junction.',
   '',
   'bootstrap clones what the manifest declares into repos/<name>: what a',
   "--product folder declares, the product the command runs in, or a checkout's",
@@ -125,7 +132,7 @@ interface CommandSpec {
   /** The positional words it takes, in order, by their label for the refusals. */
   positionals: readonly string[];
   /** The flags it takes, beside the ones they both share. */
-  flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean; yes: boolean };
+  flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean; yes: boolean; source?: boolean; mode?: boolean };
 }
 
 /** The specs the subcommands answer to, whole. */
@@ -136,7 +143,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   list: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
   rename: { positionals: ['name'], flags: { home: false, product: true, port: false, open: false, branch: false, yes: false } },
   remote: { positionals: ['url'], flags: { home: false, product: true, port: false, open: false, branch: false, yes: false } },
-  repo: { positionals: ['verb', 'name', 'url'], flags: { home: false, product: true, port: false, open: false, branch: true, yes: false } },
+  repo: { positionals: ['verb', 'name', 'url'], flags: { home: false, product: true, port: false, open: false, branch: true, yes: false, source: true, mode: true } },
   bootstrap: { positionals: [], flags: { home: false, product: true, port: false, open: false, branch: false, yes: false } },
   clone: { positionals: ['url'], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
   version: { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
@@ -153,6 +160,8 @@ interface Parsed {
   open: boolean;
   branch: string | undefined;
   yes: boolean;
+  source: string | undefined;
+  mode: RepoConnectMode | undefined;
 }
 
 /** The flags one subcommand takes, for the refusals to name them. */
@@ -163,7 +172,9 @@ function flagNamesFor(flags: CommandSpec['flags']): readonly string[] {
     ...(flags.port ? ['--port'] : []),
     ...(flags.open ? ['--no-open'] : []),
     ...(flags.branch ? ['--branch'] : []),
-  ...(flags.yes ? ['--yes'] : []),
+    ...(flags.source ? ['--source'] : []),
+    ...(flags.mode ? ['--mode'] : []),
+    ...(flags.yes ? ['--yes'] : []),
   ];
 }
 
@@ -175,7 +186,7 @@ function flagNamesFor(flags: CommandSpec['flags']): readonly string[] {
  * Returns the parse, or the number of the exit a refusal needs.
  */
 function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
-  const parsed: Parsed = { words: [], home: undefined, product: undefined, port: undefined, open: true, branch: undefined, yes: false };
+  const parsed: Parsed = { words: [], home: undefined, product: undefined, port: undefined, open: true, branch: undefined, yes: false, source: undefined, mode: undefined };
   const seen = new Set<string>();
   const flags = flagNamesFor(spec.flags).map((name) => `${name}${name === '--no-open' ? '' : ' <value>'}`).join(', ');
   for (let i = 0; i < given.length; i++) {
@@ -268,6 +279,16 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
     if (name === '--home') parsed.home = value!.trim();
     else if (name === '--product') parsed.product = value!.trim();
     else if (name === '--branch') parsed.branch = value!.trim();
+    else if (name === '--source') parsed.source = value!;
+    else if (name === '--mode') {
+      const mode = value!.trim();
+      if (mode !== 'link' && mode !== 'move' && mode !== 'clone') {
+        console.error(`--mode ${JSON.stringify(mode)} is not a repository connection choice: choose link, move or clone`);
+        console.error(USAGE);
+        return 2;
+      }
+      parsed.mode = mode;
+    }
   }
   // The words the surface promises, each taken once: a word the subcommand
   // needs and did not get is refused as plainly as one it did not expect.
@@ -359,6 +380,29 @@ export interface CliDeps {
   upgrade?: UpgradeOptions;
   /** The opener the serving uses, over the machine's own. */
   opener?: Opener;
+  /** The interactive choice for an explicitly selected local checkout. */
+  chooseRepoMode?: (source: string) => Promise<RepoConnectMode>;
+}
+
+export function repoModeFromAnswer(answer: string): RepoConnectMode | undefined {
+  const choice = answer.trim().toLowerCase();
+  if (choice === '' || choice === 'link') return 'link';
+  if (choice === 'move' || choice === 'clone') return choice;
+  return undefined;
+}
+
+async function askRepoMode(): Promise<RepoConnectMode> {
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    while (true) {
+      const answer = await prompt.question('Connect this checkout by link, move or clone? [link/move/clone] (link): ');
+      const choice = repoModeFromAnswer(answer);
+      if (choice !== undefined) return choice;
+      console.error('choose link, move or clone');
+    }
+  } finally {
+    prompt.close();
+  }
 }
 
 export async function main(args: readonly string[], deps: CliDeps = {}): Promise<number> {
@@ -395,6 +439,17 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
     for (const fact of result.prints) console.log(fact);
     for (const error of result.errors) console.error(error);
     return result.exit;
+  }
+  if (command === 'repo') {
+    const verb = repoVerb(parsed.words);
+    if (!verb.ok) return verb.exit;
+    const source = repoAddSource({ source: parsed.source, folder: parsed.product, cwd: process.cwd() });
+    let mode = parsed.mode;
+    if (source !== undefined && mode === undefined) {
+      if (deps.chooseRepoMode !== undefined) mode = await deps.chooseRepoMode(source);
+      else if (process.stdin.isTTY && process.stdout.isTTY) mode = await askRepoMode();
+    }
+    return report(lifecycleRepo(parsed, mode, source));
   }
   if (command === 'serve') {
     return await serve(serveOptions(parsed, deps), product);
@@ -450,13 +505,13 @@ function runWrapper(command: string, parsed: Parsed): LifecycleOutcome {
 }
 
 /** The repo subcommand's work: the verb is decided first, whole and named. */
-function lifecycleRepo(parsed: Parsed): LifecycleOutcome {
-  const verb = repoVerb(parsed.words);
-  if (!verb.ok) return { prints: [], errors: [], exit: 2 };
+function lifecycleRepo(parsed: Parsed, mode: RepoConnectMode | undefined = parsed.mode, source?: string): LifecycleOutcome {
   const outcome = repoAddLife({
     name: parsed.words[1],
     url: parsed.words[2],
     ...(parsed.branch === undefined ? {} : { branch: parsed.branch }),
+    ...(source === undefined ? {} : { source }),
+    ...(mode === undefined ? {} : { mode }),
     folder: parsed.product,
     cwd: process.cwd(),
   });

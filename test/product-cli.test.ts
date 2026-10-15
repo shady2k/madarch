@@ -9,13 +9,14 @@
  * use (MADARCH_APP at a ready dist), so no test runs bun's real build.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, cpSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, chmodSync } from 'node:fs';
+import { existsSync, cpSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { readProduct } from '../src/product/manifest.js';
-import { addCodeRepository, bootstrapProduct } from '../src/product/lifecycle.js';
+import { addCodeRepository, bootstrapProduct, createDirectoryLink } from '../src/product/lifecycle.js';
+import { main, repoModeFromAnswer } from '../src/product/cli.js';
 import { createDraft } from '../src/product/draft.js';
 import { listProducts } from '../src/product/list.js';
 import { gitEnv } from './git-env.js';
@@ -825,12 +826,245 @@ describe('madarch remote', () => {
 });
 
 describe('madarch repo add', () => {
+  test('uses a Windows directory junction for a directory link', () => {
+    let received: string | null | undefined;
+    createDirectoryLink('source', 'target', 'win32', (_source, _target, type) => { received = type; });
+    expect(received).toBe('junction');
+  });
+
+  test('defaults a blank interactive choice to link', () => {
+    expect(repoModeFromAnswer('')).toBe('link');
+    expect(repoModeFromAnswer('  ')).toBe('link');
+    expect(repoModeFromAnswer('move')).toBe('move');
+    expect(repoModeFromAnswer('clone')).toBe('clone');
+    expect(repoModeFromAnswer('other')).toBeUndefined();
+  });
+
+  test('links an explicit local checkout without changing its branch, work or stash', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const url = sourceRepo(base, 'library-source');
+    const source = join(base, 'existing-checkout');
+    const clone = spawnSync(realGit(), ['clone', '--quiet', url, source], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
+    if (clone.status !== 0) throw new Error(`fixture clone failed: ${clone.stderr}`);
+    writeFileSync(join(source, 'stash-me.txt'), 'stashed fixture work\n');
+    const stashed = spawnSync(realGit(), ['-C', source, 'stash', 'push', '--include-untracked', '-m', 'fixture stash'], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
+    if (stashed.status !== 0) throw new Error(`fixture stash failed: ${stashed.stderr}`);
+    writeFileSync(join(source, 'uncommitted.txt'), 'working fixture file\n');
+    const branch = spawnSync(realGit(), ['-C', source, 'branch', '--show-current'], { encoding: 'utf8', env: gitEnv(GIT_ENV) }).stdout.trim();
+    const stash = spawnSync(realGit(), ['-C', source, 'stash', 'list', '--format=%H'], { encoding: 'utf8', env: gitEnv(GIT_ENV) }).stdout.trim();
+
+    const missingMode = runCommand(['repo', 'add', 'library', url, '--source', source, '--product', draft.folder], {});
+    expect(missingMode.status).toBe(2);
+    expect(missingMode.stderr).toContain('--mode');
+    expect(existsSync(join(draft.folder, 'repos', 'library'))).toBe(false);
+    const run = runCommand(['repo', 'add', 'library', url, '--source', source, '--mode', 'link', '--product', draft.folder], {});
+    expect(run.status).toBe(0);
+    const target = join(draft.folder, 'repos', 'library');
+    expect(realpathSync(target)).toBe(realpathSync(source));
+    expect(spawnSync(realGit(), ['-C', source, 'branch', '--show-current'], { encoding: 'utf8', env: gitEnv(GIT_ENV) }).stdout.trim()).toBe(branch);
+    expect(readFileSync(join(source, 'uncommitted.txt'), 'utf8')).toBe('working fixture file\n');
+    expect(spawnSync(realGit(), ['-C', source, 'stash', 'list', '--format=%H'], { encoding: 'utf8', env: gitEnv(GIT_ENV) }).stdout.trim()).toBe(stash);
+    const read = readProduct(draft.folder);
+    expect(read).toMatchObject({ ok: true, product: { repos: [{ name: 'library', url }] } });
+    expect(readFileSync(join(draft.folder, 'workspace.yaml'), 'utf8')).not.toContain(source);
+    expect(existsSync(join(source, 'workspace.yaml'))).toBe(false);
+  });
+
+  test('asks for the local connection mode and uses the interactive choice', async () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const url = sourceRepo(base, 'library-source');
+    const source = join(base, 'selected-checkout');
+    const cloned = spawnSync(realGit(), ['clone', '--quiet', url, source], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
+    if (cloned.status !== 0) throw new Error(`fixture clone failed: ${cloned.stderr}`);
+    // main runs in-process here, so set identity on the product repository instead of relying on the runner's global git config.
+    const name = spawnSync(realGit(), ['-C', draft.folder, 'config', '--local', 'user.name', GIT_ENV.GIT_AUTHOR_NAME], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
+    if (name.status !== 0) throw new Error(`fixture user.name config failed: ${name.stderr}`);
+    const email = spawnSync(realGit(), ['-C', draft.folder, 'config', '--local', 'user.email', GIT_ENV.GIT_AUTHOR_EMAIL], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
+    if (email.status !== 0) throw new Error(`fixture user.email config failed: ${email.stderr}`);
+    let asked: string | undefined;
+    const exit = await main(['repo', 'add', 'library', url, '--source', source, '--product', draft.folder], {
+      chooseRepoMode: async (selected) => { asked = selected; return 'link'; },
+    });
+    expect(exit).toBe(0);
+    expect(asked).toBe(source);
+    expect(realpathSync(join(draft.folder, 'repos', 'library'))).toBe(realpathSync(source));
+  });
+
+  test('uses the checkout the command runs from when a product is selected', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const url = sourceRepo(base, 'library-source');
+    const source = join(base, 'current-checkout');
+    const cloned = spawnSync(realGit(), ['clone', '--quiet', url, source], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
+    if (cloned.status !== 0) throw new Error(`fixture clone failed: ${cloned.stderr}`);
+    const missingMode = runCommand(['repo', 'add', 'library', url, '--product', draft.folder], {}, source);
+    expect(missingMode.status).toBe(2);
+    expect(missingMode.stderr).toContain('--mode');
+    const run = runCommand(['repo', 'add', 'library', url, '--mode', 'link', '--product', draft.folder], {}, source);
+    expect(run.status).toBe(0);
+    expect(realpathSync(join(draft.folder, 'repos', 'library'))).toBe(realpathSync(source));
+    expect(readProduct(draft.folder)).toMatchObject({ ok: true, product: { repos: [{ name: 'library', url }] } });
+  });
+
+  test('does not treat a symlink alias of the product as its own local source', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const url = sourceRepo(base, 'library-source');
+    const alias = join(base, 'product-link');
+    symlinkSync(draft.folder, alias, process.platform === 'win32' ? 'junction' : 'dir');
+    const manifest = readFileSync(join(draft.folder, 'workspace.yaml'), 'utf8');
+
+    const implicit = runCommand(['repo', 'add', 'library', url, '--mode', 'move'], {}, alias);
+    expect(implicit.status).toBe(2);
+    expect(implicit.stderr).toContain('needs a local source');
+    expect(readFileSync(join(draft.folder, 'workspace.yaml'), 'utf8')).toBe(manifest);
+    expect(existsSync(join(draft.folder, 'repos', 'library'))).toBe(false);
+
+    const explicit = runCommand(['repo', 'add', 'library', url, '--source', alias, '--mode', 'move', '--product', alias], {}, base);
+    expect(explicit.status).toBe(2);
+    expect(explicit.stderr).toContain('cannot also be the local code checkout');
+    expect(existsSync(alias)).toBe(true);
+    expect(readFileSync(join(draft.folder, 'workspace.yaml'), 'utf8')).toBe(manifest);
+  });
+
+  test('moves the selected checkout and preserves its branch, uncommitted work and stash', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const url = sourceRepo(base, 'library-source');
+    const source = join(base, 'existing-checkout');
+    const clone = spawnSync(realGit(), ['clone', '--quiet', url, source], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
+    if (clone.status !== 0) throw new Error(`fixture clone failed: ${clone.stderr}`);
+    writeFileSync(join(source, 'stash-me.txt'), 'stashed fixture work\n');
+    const stashed = spawnSync(realGit(), ['-C', source, 'stash', 'push', '--include-untracked', '-m', 'fixture stash'], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
+    if (stashed.status !== 0) throw new Error(`fixture stash failed: ${stashed.stderr}`);
+    writeFileSync(join(source, 'uncommitted.txt'), 'working fixture file\n');
+    const branch = spawnSync(realGit(), ['-C', source, 'branch', '--show-current'], { encoding: 'utf8', env: gitEnv(GIT_ENV) }).stdout.trim();
+    const stash = spawnSync(realGit(), ['-C', source, 'stash', 'list', '--format=%H'], { encoding: 'utf8', env: gitEnv(GIT_ENV) }).stdout.trim();
+
+    const run = runCommand(['repo', 'add', 'library', url, '--source', source, '--mode', 'move', '--product', draft.folder], {});
+    expect(run.status).toBe(0);
+    const target = join(draft.folder, 'repos', 'library');
+    expect(existsSync(source)).toBe(false);
+    expect(spawnSync(realGit(), ['-C', target, 'branch', '--show-current'], { encoding: 'utf8', env: gitEnv(GIT_ENV) }).stdout.trim()).toBe(branch);
+    expect(readFileSync(join(target, 'uncommitted.txt'), 'utf8')).toBe('working fixture file\n');
+    expect(spawnSync(realGit(), ['-C', target, 'stash', 'list', '--format=%H'], { encoding: 'utf8', env: gitEnv(GIT_ENV) }).stdout.trim()).toBe(stash);
+    expect(readProduct(draft.folder)).toMatchObject({ ok: true, product: { repos: [{ name: 'library', url }] } });
+  });
+
+  test('restores a moved checkout and leaves the manifest unchanged when its commit fails', () => {
+    if (process.platform === 'win32') return; // the fixture hook is a POSIX script.
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const url = sourceRepo(base, 'library-source');
+    const source = join(base, 'existing-checkout');
+    const clone = spawnSync(realGit(), ['clone', '--quiet', url, source], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
+    if (clone.status !== 0) throw new Error(`fixture clone failed: ${clone.stderr}`);
+    writeFileSync(join(source, 'uncommitted.txt'), 'keep after refusal\n');
+    const hooks = join(base, 'hooks'); mkdirSync(hooks);
+    const hook = join(hooks, 'pre-commit');
+    writeFileSync(hook, '#!/bin/sh\nexit 1\n');
+    chmodSync(hook, 0o755);
+    const configured = spawnSync(realGit(), ['-C', draft.folder, 'config', 'core.hooksPath', hooks], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
+    if (configured.status !== 0) throw new Error(`fixture hook config failed: ${configured.stderr}`);
+    const manifest = readFileSync(join(draft.folder, 'workspace.yaml'), 'utf8');
+
+    const run = runCommand(['repo', 'add', 'library', url, '--source', source, '--mode', 'move', '--product', draft.folder], {}, base);
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain(source);
+    expect(existsSync(source)).toBe(true);
+    expect(existsSync(join(draft.folder, 'repos', 'library'))).toBe(false);
+    expect(readFileSync(join(source, 'uncommitted.txt'), 'utf8')).toBe('keep after refusal\n');
+    expect(readFileSync(join(draft.folder, 'workspace.yaml'), 'utf8')).toBe(manifest);
+    expect(spawnSync(realGit(), ['-C', draft.folder, 'status', '--porcelain'], { encoding: 'utf8', env: gitEnv(GIT_ENV) }).stdout.trim()).toBe('');
+  });
+
+  test('keeps a moved checkout in place when the manifest index cannot be reset', () => {
+    if (process.platform === 'win32') return; // The Git wrapper and commit hook are POSIX scripts.
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const url = sourceRepo(base, 'library-source');
+    const source = join(base, 'existing-checkout');
+    const clone = spawnSync(realGit(), ['clone', '--quiet', url, source], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
+    if (clone.status !== 0) throw new Error(`fixture clone failed: ${clone.stderr}`);
+    writeFileSync(join(source, 'uncommitted.txt'), 'keep at the connection path\n');
+    const hooks = join(base, 'hooks'); mkdirSync(hooks);
+    const hook = join(hooks, 'pre-commit');
+    writeFileSync(hook, '#!/bin/sh\nexit 1\n');
+    chmodSync(hook, 0o755);
+    const configured = spawnSync(realGit(), ['-C', draft.folder, 'config', 'core.hooksPath', hooks], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
+    if (configured.status !== 0) throw new Error(`fixture hook config failed: ${configured.stderr}`);
+    const gitWrapper = join(base, 'git-wrapper'); mkdirSync(gitWrapper);
+    const gitShim = join(gitWrapper, 'git');
+    writeFileSync(gitShim, `#!/bin/sh\nif [ "$1" = "reset" ]; then\n  printf 'injected reset failure\n' >&2\n  exit 1\nfi\nexec "${realGit()}" "$@"\n`);
+    chmodSync(gitShim, 0o755);
+    const manifest = readFileSync(join(draft.folder, 'workspace.yaml'), 'utf8');
+    const target = join(draft.folder, 'repos', 'library');
+
+    const run = runCommand(['repo', 'add', 'library', url, '--source', source, '--mode', 'move', '--product', draft.folder], {
+      PATH: `${gitWrapper}:${process.env.PATH ?? ''}`,
+    }, base);
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain(`the index in ${draft.folder} could not be restored`);
+    expect(run.stdout).toContain(`connection: ${target}`);
+    expect(existsSync(source)).toBe(false);
+    expect(existsSync(target)).toBe(true);
+    expect(readFileSync(join(target, 'uncommitted.txt'), 'utf8')).toBe('keep at the connection path\n');
+    expect(readFileSync(join(draft.folder, 'workspace.yaml'), 'utf8')).toBe(manifest);
+    expect(spawnSync(realGit(), ['-C', draft.folder, 'status', '--porcelain'], { encoding: 'utf8', env: gitEnv(GIT_ENV) }).stdout.trim()).toContain('MM workspace.yaml');
+  });
+
+  test('removes a failed clone without recording a manifest entry', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const missingUrl = join(base, 'missing-origin.git');
+    const manifest = readFileSync(join(draft.folder, 'workspace.yaml'), 'utf8');
+    const run = runCommand(['repo', 'add', 'library', missingUrl, '--product', draft.folder], {}, base);
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain(missingUrl);
+    expect(existsSync(join(draft.folder, 'repos', 'library'))).toBe(false);
+    expect(readFileSync(join(draft.folder, 'workspace.yaml'), 'utf8')).toBe(manifest);
+  });
+
+  test('clones the remote for clone mode and leaves the selected dirty checkout unchanged', () => {
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const url = sourceRepo(base, 'library-source');
+    const source = join(base, 'existing-checkout');
+    const clone = spawnSync(realGit(), ['clone', '--quiet', url, source], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
+    if (clone.status !== 0) throw new Error(`fixture clone failed: ${clone.stderr}`);
+    writeFileSync(join(source, 'stash-me.txt'), 'stashed fixture work\n');
+    const stashed = spawnSync(realGit(), ['-C', source, 'stash', 'push', '--include-untracked', '-m', 'fixture stash'], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
+    if (stashed.status !== 0) throw new Error(`fixture stash failed: ${stashed.stderr}`);
+    writeFileSync(join(source, 'uncommitted.txt'), 'working fixture file\n');
+    const stash = spawnSync(realGit(), ['-C', source, 'stash', 'list', '--format=%H'], { encoding: 'utf8', env: gitEnv(GIT_ENV) }).stdout.trim();
+
+    const run = runCommand(['repo', 'add', 'library', url, '--source', source, '--mode', 'clone', '--product', draft.folder], {});
+    expect(run.status).toBe(0);
+    const target = join(draft.folder, 'repos', 'library');
+    expect(readFileSync(join(target, 'README.md'), 'utf8')).toContain('a repository the tests clone from');
+    expect(existsSync(join(target, 'uncommitted.txt'))).toBe(false);
+    expect(readFileSync(join(source, 'uncommitted.txt'), 'utf8')).toBe('working fixture file\n');
+    expect(spawnSync(realGit(), ['-C', source, 'stash', 'list', '--format=%H'], { encoding: 'utf8', env: gitEnv(GIT_ENV) }).stdout.trim()).toBe(stash);
+    expect(readProduct(draft.folder)).toMatchObject({ ok: true, product: { repos: [{ name: 'library', url }] } });
+  });
+
   test('enters the repository in the manifest and clones it into repos/<name>', () => {
     const base = scratchFolder('madarch-cli-lc-');
     const home = join(base, 'home'); mkdirSync(home, { recursive: true });
     const draft = madeDraft(home);
     const url = sourceRepo(base, 'library-source');
-    const run = runCommand(['repo', 'add', 'library', url, '--product', draft.folder], {});
+    const run = runCommand(['repo', 'add', 'library', url, '--product', draft.folder], {}, base);
     expect(run.status).toBe(0);
     expect(run.stdout).toContain(`repo: library`);
     expect(run.stdout).toContain('cloned:');
@@ -844,7 +1078,7 @@ describe('madarch repo add', () => {
     const home = join(base, 'home'); mkdirSync(home, { recursive: true });
     const draft = madeDraft(home);
     const url = sourceRepo(base, 'library-source');
-    const run = runCommand(['repo', 'add', 'library', url, '--branch', 'main', '--product', draft.folder], {});
+    const run = runCommand(['repo', 'add', 'library', url, '--branch', 'main', '--product', draft.folder], {}, base);
     expect(run.status).toBe(0);
     const read = readProduct(draft.folder);
     expect(read).toMatchObject({ ok: true, product: { repos: [{ name: 'library', branch: 'main' }] } });
@@ -855,8 +1089,8 @@ describe('madarch repo add', () => {
     const home = join(base, 'home'); mkdirSync(home, { recursive: true });
     const draft = madeDraft(home);
     const url = sourceRepo(base, 'library-source');
-    runCommand(['repo', 'add', 'library', url, '--product', draft.folder], {});
-    const run = runCommand(['repo', 'add', 'library', url, '--product', draft.folder], {});
+    runCommand(['repo', 'add', 'library', url, '--product', draft.folder], {}, base);
+    const run = runCommand(['repo', 'add', 'library', url, '--product', draft.folder], {}, base);
     expect(run.status).toBe(2);
     expect(run.stderr).toContain('already declares the code repository');
   });
@@ -866,11 +1100,11 @@ describe('madarch repo add', () => {
     const home = join(base, 'home'); mkdirSync(home, { recursive: true });
     const draft = madeDraft(home);
     const url = sourceRepo(base, 'library-source');
-    runCommand(['repo', 'add', 'library', url, '--product', draft.folder], {});
+    runCommand(['repo', 'add', 'library', url, '--product', draft.folder], {}, base);
     // The second command is refused for the manifest, before any clone: the
     // checkout standing there keeps whatever a person did with it.
     const changed = writeFileSync(join(draft.folder, 'repos', 'library', 'note.txt'), 'someone worked here\n');
-    const run = runCommand(['repo', 'add', 'library', url, '--product', draft.folder], {});
+    const run = runCommand(['repo', 'add', 'library', url, '--product', draft.folder], {}, base);
     expect(run.status).toBe(2);
     expect(readFileSync(join(draft.folder, 'repos', 'library', 'note.txt'), 'utf8')).toContain('someone worked here');
   });
@@ -881,7 +1115,7 @@ describe('madarch repo add', () => {
     const draft = madeDraft(home);
     const url = sourceRepo(base, 'library-source');
     writeFileSync(join(draft.folder, 'docs', 'vision.md'), 'uncommitted work\n');
-    const run = runCommand(['repo', 'add', 'library', url, '--product', draft.folder], {});
+    const run = runCommand(['repo', 'add', 'library', url, '--product', draft.folder], {}, base);
     expect(run.status).toBe(2);
     expect(run.stderr).toContain('not committed');
   });
@@ -892,7 +1126,7 @@ describe('madarch repo add', () => {
     const draft = madeDraft(home);
     const first = sourceRepo(base, 'alpha-source');
     const second = sourceRepo(base, 'beta-source');
-    const run = runCommand(['repo', 'add', 'beta', second, '--product', draft.folder], {});
+    const run = runCommand(['repo', 'add', 'beta', second, '--product', draft.folder], {}, base);
     expect(run.status).toBe(0);
     expect(statSync(join(draft.folder, 'repos', 'beta')).isDirectory()).toBe(true);
     expect(first).toContain('alpha-source'); // the unrelated one is untouched
