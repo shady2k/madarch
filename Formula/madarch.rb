@@ -13,22 +13,23 @@ class Madarch < Formula
   homepage "https://github.com/shady2k/madarch"
   version "0.1.0"
 
-  if OS.mac? && Hardware::CPU.arm?
-    @artifact = "madarch-darwin-arm64"
-    sha256sum = "RELEASE_SHA256_DARWIN_ARM64"
+  artifact = if OS.mac? && Hardware::CPU.arm?
+    "madarch-darwin-arm64"
   elsif OS.mac?
-    @artifact = "madarch-darwin-x64"
-    sha256sum = "RELEASE_SHA256_DARWIN_X64"
+    "madarch-darwin-x64"
   elsif Hardware::CPU.arm?
-    @artifact = "madarch-linux-arm64"
-    sha256sum = "RELEASE_SHA256_LINUX_ARM64"
+    "madarch-linux-arm64"
   else
-    @artifact = "madarch-linux-x64"
-    sha256sum = "RELEASE_SHA256_LINUX_X64"
+    "madarch-linux-x64"
   end
-
-  url "https://github.com/shady2k/madarch/releases/download/v#{version}/#{@artifact}"
-  sha256 sha256sum
+  url "https://github.com/shady2k/madarch/releases/download/v#{version}/#{artifact}"
+  checksum = case artifact
+  when "madarch-darwin-arm64" then "RELEASE_SHA256_DARWIN_ARM64"
+  when "madarch-darwin-x64" then "RELEASE_SHA256_DARWIN_X64"
+  when "madarch-linux-arm64" then "RELEASE_SHA256_LINUX_ARM64"
+  else "RELEASE_SHA256_LINUX_X64"
+  end
+  sha256 checksum
 
   # The binary is self-contained and needs no system OpenSSL.
 
