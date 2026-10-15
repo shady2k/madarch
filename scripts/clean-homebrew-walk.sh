@@ -14,7 +14,8 @@ printf '%s  madarch-darwin-x64\n' "$(printf '0%.0s' $(seq 1 64))" >> "$TMP/SHA25
 printf '%s  madarch-darwin-arm64\n' "$SUM" >> "$TMP/SHA256SUMS.txt"
 bun scripts/build-formula.ts --version 0.0.1 --sums-file "$TMP/SHA256SUMS.txt" --out "$TMP/formula"
 FORMULA="$TMP/formula/Formula/madarch.rb"
-sed -i '' "s|^    url .*|    url \"file://$BINARY\"|" "$FORMULA"
+sed -i '' "/^  url /c\
+  url \"file://$BINARY\"" "$FORMULA"
 
 brew tap-new --no-git "$TAP_NAME"
 TAP_CREATED=1
