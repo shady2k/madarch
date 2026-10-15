@@ -33,7 +33,16 @@ class Madarch < Formula
   # The binary is self-contained and needs no system OpenSSL.
 
   def install
-    libexec.install @artifact => "madarch-bin"
+    artifact = if OS.mac? && Hardware::CPU.arm?
+      "madarch-darwin-arm64"
+    elsif OS.mac?
+      "madarch-darwin-x64"
+    elsif Hardware::CPU.arm?
+      "madarch-linux-arm64"
+    else
+      "madarch-linux-x64"
+    end
+    libexec.install artifact => "madarch-bin"
     (libexec / "madarch-bin").chmod 0755
     (bin / "madarch").write_exec_script libexec / "madarch-bin"
   end
