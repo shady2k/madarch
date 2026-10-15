@@ -1,15 +1,11 @@
-/**
- * The graph-queries capability's interface: answering what a view or an
- * agent asks of the graph at a time, from the model history (see
- * design.md, "From files to answers"). This module touches no Bun-specific
- * API and no LadybugDB import; `src/adapters/ladybug-engine.ts` is the only
- * implementation so far, built from `HistoryStore`'s `AssertionRecord`s and
- * kept in step with `AssertionChange`s (see `HistoryStore.store`'s
- * `opened`/`closed`).
- */
 import type { AssertionChange, AssertionRecord } from '../history/types.js';
 import type { AsyncVectorIndex } from '../vector/types.js';
 
+/**
+ * The graph-queries capability's asynchronous interface: answering what a view or an
+ * agent asks of the graph at a time, from the model history. This module touches no
+ * database-specific API.
+ */
 /**
  * The time and state every query answers for: both time axes, defaulting
  * to the clock's current moment (the `as-of` requirement), and a state,
@@ -119,28 +115,6 @@ export interface DependenciesResult {
 }
 
 /**
- * Built from the model history and kept in step with it (the `rebuild`
- * requirement): `rebuild` replaces everything the engine holds from a full
- * `AssertionRecord` list; `update` applies one store's own `opened`/`closed`
- * report instead of a full rebuild, for the common case of keeping step
- * after every stored version. Every query answers `{ valid, known, state }`
- * (see `QueryTime`); an element the query cannot find at that time is a
- * `QueryError`, never a thrown exception.
- */
-export interface QueryEngine {
-  children(elementId: string, at?: QueryTime): ChildrenResult;
-  view(input: ViewInput, at?: QueryTime): ViewResult;
-  dependents(elementId: string, options: DependenciesInput, at?: QueryTime): DependenciesResult;
-  dependencies(elementId: string, options: DependenciesInput, at?: QueryTime): DependenciesResult;
-  /** Replaces everything the engine holds, built from scratch from a full assertions list. */
-  rebuild(assertions: readonly AssertionRecord[]): void;
-  /** Applies one `store()` call's own report instead of a full rebuild. */
-  update(opened: readonly AssertionChange[], closed: readonly AssertionChange[]): void;
-  /** Releases the underlying database connection. */
-  close(): void;
-}
-
-/**
  * Query-only view of one stable graph revision. The reader is valid only for
  * the lifetime of `AsyncQueryEngine.withSnapshot`'s callback; every method is
  * asynchronous so a database adapter never has to pretend its queries are
@@ -153,7 +127,7 @@ export interface QuerySnapshot {
   dependencies(elementId: string, options: DependenciesInput, at?: QueryTime): Promise<DependenciesResult>;
 }
 
-/** The asynchronous graph-query port, added beside `QueryEngine` for staged migration. */
+/** The asynchronous graph-query port. */
 export interface AsyncQueryEngine extends QuerySnapshot {
   /**
    * Runs several reads against one revision; use only the supplied reader

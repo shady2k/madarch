@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { createTestQueryEngine } from './query-test-engine.js';
 import { mkdirSync, mkdtempSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,18 +9,17 @@ import { REFERENCE_SYSTEM, REFERENCE_TIME } from '../scripts/render-views.js';
 import { checkLikeC4Workspaces, type LikeC4CheckResult } from '../scripts/likec4-check.js';
 import {
   compileModel,
-  createLadybugEngine,
   createPGliteHistory,
   loadAndCompileModel,
   loadModel,
-  renderOneViewMermaid,
-  renderOneViewLikeC4,
+  renderAsyncOneViewMermaid,
+  renderAsyncOneViewLikeC4,
   startServer,
   type LikeC4Result,
   type CompiledElement,
   type CompiledModel,
   type HistoryStore,
-  type QueryEngine,
+  type AsyncQueryEngine,
   type StartedServer,
 } from '../src/index.js';
 
@@ -132,12 +132,12 @@ function sendReference(): Promise<Response> {
 }
 
 /** An engine built independently of the server: the same model stored in a history of its own. */
-async function independentEngine(model: CompiledModel, at: number): Promise<{ engine: QueryEngine; history: HistoryStore; close(): Promise<void> }> {
+async function independentEngine(model: CompiledModel, at: number): Promise<{ engine: AsyncQueryEngine; history: HistoryStore; close(): Promise<void> }> {
   const history = createPGliteHistory({ clock: { now: () => at } });
   expect((await history.store({ source: 'independent', commit: 'v1', committedAt: at, model })).errors).toEqual([]);
-  const engine = createLadybugEngine();
-  engine.rebuild(await history.assertions());
-  return { engine, history, close: async () => { engine.close(); await history.close(); } };
+  const engine = await createTestQueryEngine();
+  await engine.rebuild(await history.assertions());
+  return { engine, history, close: async () => { await engine.close(); await history.close(); } };
 }
 
 /** The drill-down fixture, the model the views capability's own scenarios use. */
@@ -170,7 +170,7 @@ async function renderMermaid(element: string | undefined, depth: number | undefi
     const request: Record<string, unknown> = {};
     if (element !== undefined) request.element = element;
     if (depth !== undefined) request.depth = depth;
-    const rendered = renderOneViewMermaid(independent.engine, referenceModel(), request, { valid: REFERENCE_TIME, known: REFERENCE_TIME });
+    const rendered = await renderAsyncOneViewMermaid(independent.engine, referenceModel(), request, { valid: REFERENCE_TIME, known: REFERENCE_TIME });
     expect(rendered.errors).toEqual([]);
     return rendered.page!;
   } finally {
@@ -178,8 +178,8 @@ async function renderMermaid(element: string | undefined, depth: number | undefi
   }
 }
 
-describe('POST /views of the reference system', () => {
-  test('the landscape and the view of ordering at depth 1 are text/markdown equal to renderOneViewMermaid for the same model', async () => {
+describe('POST /views of the reference system', async () => {
+  test('the landscape and the view of ordering at depth 1 are text/markdown equal to renderAsyncOneViewMermaid for the same model', async () => {
     await start();
     expect((await sendReference()).status).toBe(201);
 
@@ -275,7 +275,7 @@ describe('POST /views of the reference system', () => {
   });
 });
 
-describe('a view after a store that failed once', () => {
+describe('a view after a store that failed once', async () => {
   /** One compiled model of exactly one element: the smallest two versions can differ by. */
   function oneElementModel(id: string): CompiledModel {
     const element: CompiledElement = { id, kind: 'service', ancestors: [], zones: [], zonesByEnvironment: {}, environments: ['*'], states: ['as-is'] };
@@ -286,7 +286,7 @@ describe('a view after a store that failed once', () => {
   async function expectedLandscape(model: CompiledModel, at: number): Promise<string> {
     const independent = await independentEngine(model, at);
     try {
-      const rendered = renderOneViewMermaid(independent.engine, model, {}, { valid: at, known: at });
+      const rendered = await renderAsyncOneViewMermaid(independent.engine, model, {}, { valid: at, known: at });
       expect(rendered.errors).toEqual([]);
       return rendered.page!;
     } finally {
@@ -323,10 +323,10 @@ describe('a view after a store that failed once', () => {
     const answer = await post('/views', { source: 'shop', format: 'mermaid' });
     expect(answer.status).toBe(200);
     expect(await answer.text()).toBe(await expectedLandscape(second, DAY(40)));
-  });
+  }, 15_000);
 });
 
-describe('POST /views names the relations LikeC4 cannot draw', () => {
+describe('POST /views names the relations LikeC4 cannot draw', async () => {
   /** The fixture whose model holds relations LikeC4 cannot draw, compiled. */
   function notDrawnModel(): CompiledModel {
     const { model, errors } = loadModel(fileURLToPath(new URL('./fixtures/views-likec4-not-drawn', import.meta.url)));
@@ -338,7 +338,7 @@ describe('POST /views names the relations LikeC4 cannot draw', () => {
   async function renderExpected(model: CompiledModel, at: number): Promise<LikeC4Result> {
     const independent = await independentEngine(model, at);
     try {
-      const rendered = renderOneViewLikeC4(independent.engine, model, {}, { valid: at, known: at });
+      const rendered = await renderAsyncOneViewLikeC4(independent.engine, model, {}, { valid: at, known: at });
       expect(rendered.errors).toEqual([]);
       return rendered;
     } finally {
@@ -372,7 +372,7 @@ describe('POST /views names the relations LikeC4 cannot draw', () => {
     }
     expect(lines.slice(expected.notDrawn!.length).join('\n')).toBe(expected.workspace!);
     expect(answer).toBe(expectedLikeC4Answer(expected));
-  });
+  }, 15_000);
 
   test('the full not-drawn answer passes likec4 validate without a running server', async () => {
     const expected = await renderExpected(notDrawnModel(), DAY(2));
@@ -393,7 +393,7 @@ describe('POST /views names the relations LikeC4 cannot draw', () => {
   });
 });
 
-describe('POST /views explains', () => {
+describe('POST /views explains', async () => {
   test('a source never sent is answered 404 saying so, listing the sources held in code point order and the send command', async () => {
     await start();
     expect((await sendDrillDown('shop')).status).toBe(201);

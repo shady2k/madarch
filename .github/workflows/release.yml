@@ -49,8 +49,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
-      # The product's dependencies; @ladybugdb/core's postinstall lays the
-      # platform's native module the compiled binary embeds.
+      # Install the product's platform-independent runtime dependencies.
       - name: install
         run: bun install --frozen-lockfile
       - name: check

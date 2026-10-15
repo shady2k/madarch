@@ -189,8 +189,9 @@ LikeC4, a graph database). Not built yet; the renderer does this in process.
 **Fact log**:
 The append-only, bitemporal store of all assertions; the server's source of truth.
 
-**Query engine**:
-The store built from the fact log to answer traversals and ad-hoc queries;
+**Query database**:
+The asynchronous SQL projection built from the fact log for graph traversals.
+Local use runs on PGlite; server compositions inject PostgreSQL. It is
 rebuildable at any time.
 
 **Compiled model**:

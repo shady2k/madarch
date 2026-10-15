@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test';
+import { buildTestViewSet, createTestQueryEngine } from './query-test-engine.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MERMAID_FOLDER, REFERENCE_SYSTEM, renderReferenceSystem } from '../scripts/render-views.js';
 import {
-  buildViewSet,
+  buildAsyncViewSet,
   compileModel,
-  createLadybugEngine,
   createPGliteHistory,
   loadAndCompileModel,
   loadModel,
@@ -14,7 +14,7 @@ import {
   type Clock,
   type CompiledModel,
   type HistoryStore,
-  type QueryEngine,
+  type AsyncQueryEngine,
   type View,
 } from '../src/index.js';
 
@@ -36,7 +36,7 @@ const DAY = (day: number) => Date.UTC(2026, 8, day);
 const AT = { valid: DAY(2), known: DAY(2) };
 
 interface Built {
-  engine: QueryEngine;
+  engine: AsyncQueryEngine;
   history: HistoryStore;
   model: CompiledModel;
 }
@@ -48,19 +48,19 @@ async function build(name: string): Promise<Built> {
   const compiled = compileModel(model!);
   const history = createPGliteHistory({ clock: fakeClock(DAY(1)) });
   expect((await history.store({ source: 's', commit: name, committedAt: DAY(1), model: compiled })).errors).toEqual([]);
-  const engine = createLadybugEngine();
-  engine.rebuild(await history.assertions());
+  const engine = await createTestQueryEngine();
+  await engine.rebuild(await history.assertions());
   return { engine, history, model: compiled };
 }
 
 async function close(built: Built): Promise<void> {
-  built.engine.close();
+  await await built.engine.close();
   await built.history.close();
 }
 
 async function viewsOf(name: string): Promise<View[]> {
   const built = await build(name);
-  const { views, errors } = buildViewSet(built.engine, built.model, AT);
+  const { views, errors } = await built.engine.withSnapshot((snapshot) => buildAsyncViewSet(snapshot, built.model, AT));
   await close(built);
   expect(errors).toEqual([]);
   return views!;
@@ -78,7 +78,7 @@ async function pagesOf(name: string): Promise<Map<string, string>> {
   return new Map(pages!.map((page) => [page.file, page.content]));
 }
 
-describe('views/view-set', () => {
+describe('views/view-set', async () => {
   test('drill-down: a landscape, a view of shop, of payments and of checkout-web, and none of payments-api', async () => {
     const views = await viewsOf('views-drill-down');
 
@@ -132,7 +132,7 @@ describe('views/view-set', () => {
 
   test('the views are computed at the asked time: before the model existed there is an empty landscape and nothing else', async () => {
     const built = await build('views-drill-down');
-    const { views, errors } = buildViewSet(built.engine, built.model, { valid: DAY(1) - 1, known: DAY(2) });
+    const { views, errors } = await buildTestViewSet(built.engine, built.model, { valid: DAY(1) - 1, known: DAY(2) });
     await close(built);
 
     expect(errors).toEqual([]);
@@ -141,7 +141,7 @@ describe('views/view-set', () => {
 
   test('a query error is surfaced, naming the view it stopped, never swallowed', async () => {
     const built = await build('views-drill-down');
-    const result = buildViewSet(built.engine, built.model, { ...AT, state: 'not a state' });
+    const result = await buildTestViewSet(built.engine, built.model, { ...AT, state: 'not a state' });
     await close(built);
 
     expect(result.views).toBeUndefined();
@@ -156,7 +156,7 @@ describe('views/view-set', () => {
   test('a relation the engine draws but the compiled model does not hold is an error naming the view, the arrow and the relation', async () => {
     const built = await build('views-drill-down');
     const other = compileModel(loadModel(fixture('views-labels')).model!);
-    const result = buildViewSet(built.engine, other, AT);
+    const result = await buildTestViewSet(built.engine, other, AT);
     await close(built);
 
     expect(result.views).toBeUndefined();
@@ -196,7 +196,7 @@ describe('views/view-set', () => {
   });
 });
 
-describe('views/labels', () => {
+describe('views/labels', async () => {
   test('an arrow stands for every relation between its two shown elements, their names in relation-id order', async () => {
     const shop = viewOf(await viewsOf('views-labels'), 'shop');
 
@@ -243,7 +243,7 @@ describe('views/labels', () => {
   test("an unnamed relation whose interface the compiled model does not hold is an error naming the relation and the interface", async () => {
     const built = await build('views-unnamed');
     const model: CompiledModel = { ...built.model, interfaces: [] };
-    const result = buildViewSet(built.engine, model, AT);
+    const result = await buildTestViewSet(built.engine, model, AT);
     await close(built);
 
     expect(result.views).toBeUndefined();
@@ -257,7 +257,7 @@ describe('views/labels', () => {
   });
 });
 
-describe('views/mermaid', () => {
+describe('views/mermaid', async () => {
   test('mermaid-page: the page of shop frames checkout-web and catalog-api inside shop, draws payments outside, and links to checkout-web and the landscape', async () => {
     expect((await pagesOf('views-drill-down')).get('shop.md')).toBe(
       [
@@ -450,7 +450,7 @@ describe('views/mermaid', () => {
   });
 });
 
-describe('views/mermaid on hand-built views', () => {
+describe('views/mermaid on hand-built views', async () => {
   test('a control character is a numeric entity code in the diagram and a space in the Markdown; an unnamed parent goes up by its id', async () => {
     const view: View = {
       scope: 'svc',
@@ -525,7 +525,7 @@ describe('views/mermaid on hand-built views', () => {
   });
 });
 
-describe('views/mermaid refuses a view without its own scope', () => {
+describe('views/mermaid refuses a view without its own scope', async () => {
   test('a view whose scope is missing, shown only as a neighbour, or another element in its place, is an error naming it, and no pages', async () => {
     const missing: View = { scope: 'shop', elements: [{ id: 'cart', kind: 'service', parent: 'shop', place: 'inside', hasView: false }], arrows: [] };
     const asNeighbour: View = { scope: 'pay', elements: [{ id: 'pay', kind: 'domain', place: 'neighbour', hasView: true }], arrows: [] };
@@ -541,7 +541,7 @@ describe('views/mermaid refuses a view without its own scope', () => {
   });
 });
 
-describe('views/mermaid node ids', () => {
+describe('views/mermaid node ids', async () => {
   function nodeLines(ids: readonly string[]): string[] {
     const view: View = { elements: ids.map((id) => ({ id, kind: 'service', place: 'inside', hasView: false })), arrows: [] };
     return renderMermaidPages([view])
@@ -586,14 +586,16 @@ describe('views/mermaid node ids', () => {
  * empty view) for a scope. It has no `children`, so a view set that asked
  * for children element by element would fail here.
  */
-function handEngine(answers: { landscape: object; every: object; scoped?: (scope: string) => object }): QueryEngine {
-  return {
-    view: (input: { scope?: string; depth: number }) =>
+function handEngine(answers: { landscape: object; every: object; scoped?: (scope: string) => object }): AsyncQueryEngine {
+  const engine = {
+    view: async (input: { scope?: string; depth: number }) =>
       input.scope !== undefined ? (answers.scoped?.(input.scope) ?? { elements: [], neighbours: [], relations: [] }) : input.depth === 0 ? answers.landscape : answers.every,
-  } as unknown as QueryEngine;
+  } as unknown as AsyncQueryEngine;
+  engine.withSnapshot = async (work) => work(engine);
+  return engine;
 }
 
-describe('views/view-set from any query engine', () => {
+describe('views/view-set from any query engine', async () => {
   test('arrows by from then to and relation ids in code point order, whatever order the engine answers in; an unnamed parent goes up by its id alone', async () => {
     const model = compileModel(loadModel(fixture('views-labels')).model!);
     const top = { id: 'top', kind: 'domain' };
@@ -609,7 +611,7 @@ describe('views/view-set from any query engine', () => {
       every: { elements: [{ id: 'low', kind: 'module', parent: 'mid' }, { id: 'mid', kind: 'service', parent: 'top' }, top], relations: [] },
     });
 
-    expect(buildViewSet(engine, model)).toStrictEqual({
+    expect(await buildTestViewSet(engine, model)).toStrictEqual({
       views: [
         {
           elements: [{ id: 'top', kind: 'domain', place: 'inside', hasView: true }],
@@ -632,18 +634,18 @@ describe('views/view-set from any query engine', () => {
       every: { elements: [{ id: 'lost', kind: 'service', parent: 'gone' }, { id: 'top', kind: 'domain' }], relations: [] },
     });
 
-    expect(buildViewSet(engine, compileModel(loadModel(fixture('views-labels')).model!))).toStrictEqual({
+    expect(await buildTestViewSet(engine, compileModel(loadModel(fixture('views-labels')).model!))).toStrictEqual({
       errors: [{ message: 'the element "lost" is shown in no view: its parent "gone" does not exist at this time', scope: 'gone' }],
     });
   });
 });
 
-describe('views/view-set with a query engine that refuses', () => {
+describe('views/view-set with a query engine that refuses', async () => {
   test('the query for every element refusing is named, and no view set comes back', async () => {
     const refusing = { message: 'refused' };
     const engine = handEngine({ landscape: { elements: [], relations: [] }, every: { error: refusing } });
 
-    expect(buildViewSet(engine, compileModel(loadModel(fixture('views-drill-down')).model!))).toStrictEqual({
+    expect(await buildTestViewSet(engine, compileModel(loadModel(fixture('views-drill-down')).model!))).toStrictEqual({
       errors: [{ message: 'every element: refused', query: refusing }],
     });
   });
@@ -659,7 +661,7 @@ describe('views/view-set with a query engine that refuses', () => {
       scoped: () => ({ error: refusing }),
     });
 
-    expect(buildViewSet(engine, compileModel(loadModel(fixture('views-drill-down')).model!))).toStrictEqual({
+    expect(await buildTestViewSet(engine, compileModel(loadModel(fixture('views-drill-down')).model!))).toStrictEqual({
       errors: [
         { message: 'the view of "a": refused', scope: 'a', query: refusing },
         { message: 'the view of "b": refused', scope: 'b', query: refusing },
@@ -668,7 +670,7 @@ describe('views/view-set with a query engine that refuses', () => {
   });
 });
 
-describe('views/deterministic', () => {
+describe('views/deterministic', async () => {
   test('twice: the same model rendered twice, from two engines built apart, gives byte-identical pages', async () => {
     const first = await pagesOf('views-shapes');
     const second = await pagesOf('views-shapes');
@@ -677,7 +679,7 @@ describe('views/deterministic', () => {
   });
 });
 
-describe("the reference system's committed views", () => {
+describe("the reference system's committed views", async () => {
   test('rendering examples/reference-system again gives exactly the committed pages under views/mermaid/, byte for byte, no more and no fewer', async () => {
     const { pages, errors, warnings } = await renderReferenceSystem();
     expect(errors).toEqual([]);
@@ -698,7 +700,7 @@ describe("the reference system's committed views", () => {
   });
 });
 
-describe('views/labels for a topic or queue', () => {
+describe('views/labels for a topic or queue', async () => {
   test('event-labels: a relation marking its action is entered by its role and its name, and an arrow of such relations only is dashed, still from the initiator', async () => {
     const landscape = viewOf(await viewsOf('views-events'), undefined);
 
@@ -744,10 +746,10 @@ describe('views/labels for a topic or queue', () => {
     restock.action = 'receive';
     const history = createPGliteHistory({ clock: fakeClock(DAY(1)) });
     expect((await history.store({ source: 's', commit: 'receive', committedAt: DAY(1), model: compiled })).errors).toEqual([]);
-    const engine = createLadybugEngine();
-    engine.rebuild(await history.assertions());
-    const { views } = buildViewSet(engine, compiled, AT);
-    engine.close();
+    const engine = await createTestQueryEngine();
+    await engine.rebuild(await history.assertions());
+    const { views } = await buildTestViewSet(engine, compiled, AT);
+    await engine.close();
     await history.close();
 
     expect(viewOf(views!, undefined).arrows.find((arrow) => arrow.to === 'jobs')?.names).toEqual(['receives from restock: asks for restock']);
