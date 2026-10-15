@@ -14,8 +14,21 @@ printf '%s  madarch-darwin-x64\n' "$(printf '0%.0s' $(seq 1 64))" >> "$TMP/SHA25
 printf '%s  madarch-darwin-arm64\n' "$SUM" >> "$TMP/SHA256SUMS.txt"
 bun scripts/build-formula.ts --version 0.0.1 --sums-file "$TMP/SHA256SUMS.txt" --out "$TMP/formula"
 FORMULA="$TMP/formula/Formula/madarch.rb"
-sed -i '' "/^  url /c\
-  url \"file://$BINARY\"" "$FORMULA"
+python3 - "$FORMULA" "$BINARY" <<'PY'
+from pathlib import Path
+import sys
+formula = Path(sys.argv[1])
+binary = Path(sys.argv[2]).resolve()
+text = formula.read_text()
+lines = text.splitlines()
+for index, line in enumerate(lines):
+    if line.startswith('    url '):
+        lines[index] = f'    url "file://{binary}"'
+        break
+else:
+    raise SystemExit('generated formula has no platform url line')
+formula.write_text('\n'.join(lines) + '\n')
+PY
 
 brew tap-new --no-git "$TAP_NAME"
 TAP_CREATED=1
