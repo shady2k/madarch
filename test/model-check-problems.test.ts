@@ -63,33 +63,42 @@ async function problemsOf(repo: Repo): Promise<ModelCheckReport['problems']> {
   return (await checkModel(repo.path)).problems;
 }
 
+function commitSiblingCycle(repo: Repo): void {
+  const commit = commitSources(repo, ['svc', 'a', 'b', 'c']);
+  const blob = (id: string): string => repo.blob(`src/${id}.ts`, commit);
+  commitModel(
+    repo,
+    [
+      elementGroup('svc', 'service', commit, blob('svc')),
+      elementGroup('a', 'module', commit, blob('a'), ['    parent: svc']),
+      elementGroup('b', 'module', commit, blob('b'), ['    parent: svc']),
+      elementGroup('c', 'module', commit, blob('c'), ['    parent: svc']),
+    ],
+    [],
+    [
+      relationGroup('ra', 'a', 'b', commit, blob('a')),
+      relationGroup('rb', 'b', 'c', commit, blob('b')),
+      relationGroup('rc', 'c', 'a', commit, blob('c')),
+    ],
+    [
+      ['src/svc.ts', 'svc', ''],
+      ['src/a.ts', 'a', ''],
+      ['src/b.ts', 'b', ''],
+      ['src/c.ts', 'c', ''],
+    ],
+  );
+}
+
 test('cycle-between-siblings: three modules under one service form one cycle, naming them and their relations, citing the Acyclic Dependencies Principle', async () => {
   await withRepo(async (repo) => {
-    const commit = commitSources(repo, ['svc', 'a', 'b', 'c']);
-    const blob = (id: string): string => repo.blob(`src/${id}.ts`, commit);
-    commitModel(
-      repo,
-      [
-        elementGroup('svc', 'service', commit, blob('svc')),
-        elementGroup('a', 'module', commit, blob('a'), ['    parent: svc']),
-        elementGroup('b', 'module', commit, blob('b'), ['    parent: svc']),
-        elementGroup('c', 'module', commit, blob('c'), ['    parent: svc']),
-      ],
-      [],
-      [
-        relationGroup('ra', 'a', 'b', commit, blob('a')),
-        relationGroup('rb', 'b', 'c', commit, blob('b')),
-        relationGroup('rc', 'c', 'a', commit, blob('c')),
-      ],
-      [
-        ['src/svc.ts', 'svc', ''],
-        ['src/a.ts', 'a', ''],
-        ['src/b.ts', 'b', ''],
-        ['src/c.ts', 'c', ''],
-      ],
-    );
+    commitSiblingCycle(repo);
 
-    const report = await checkModel(repo.path);
+    // One real CLI invocation checks the entire fixture path. The direct
+    // API's failing on-failure mode is covered separately below, so it does
+    // not reopen PGlite during this end-to-end case.
+    const run = runScript(repo.path, '--json');
+    expect(run.status).toBe(0);
+    const report = JSON.parse(run.stdout) as ModelCheckReport;
     expect(report.outcome).toBe('passed');
     expect(report.problems).toHaveLength(1);
     const cycle = report.problems[0]!;
@@ -99,22 +108,27 @@ test('cycle-between-siblings: three modules under one service form one cycle, na
     expect(cycle.source).toBe('R. C. Martin, Design Principles and Design Patterns (2000); F. Arcelli Fontana et al., Arcan (ICSA 2017)');
     for (const relation of ['ra', 'rb', 'rc']) expect(cycle.message).toContain(relation);
 
-    // The send path's on-failure mode skips advisory problems for a model
-    // that passes; the default check and script still report them.
+    // The passing on-failure check does not initialize PGlite or analyze
+    // advisory problems; the default CLI invocation above does both.
     const passingSendCheck = await checkModel(repo.path, { problems: 'on-failure' });
     expect(passingSendCheck.outcome).toBe('passed');
     expect(passingSendCheck.problems).toEqual([]);
+  });
+});
 
-    // Problems never fail the check: the script still exits 0 and prints the problem between stale and warnings.
-    const run = runScript(repo.path);
-    expect(run.status).toBe(0);
-    expect(run.stdout).toContain('problem cycle:');
-
-    // A failed check still computes the same advisory findings for its report.
+test('a failed on-failure check still computes advisory cycle findings', async () => {
+  await withRepo(async (repo) => {
+    commitSiblingCycle(repo);
     rmSync(join(repo.path, 'madarch/review.md'));
-    const failingSendCheck = await checkModel(repo.path, { problems: 'on-failure' });
-    expect(failingSendCheck.outcome).toBe('failed');
-    expect(failingSendCheck.problems).toEqual(report.problems);
+
+    const report = await checkModel(repo.path, { problems: 'on-failure' });
+    expect(report.outcome).toBe('failed');
+    expect(report.problems).toHaveLength(1);
+    expect(report.problems[0]).toMatchObject({
+      problem: 'cycle',
+      ids: ['a', 'b', 'c', 'ra', 'rb', 'rc'],
+      method: 'Acyclic Dependencies Principle; Arcan Cyclic Dependency',
+    });
   });
 });
 
