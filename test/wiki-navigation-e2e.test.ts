@@ -1,9 +1,10 @@
 /// <reference lib="dom" />
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import puppeteer, { type Browser, type Page } from 'puppeteer-core';
+import puppeteer, { type Browser, type Page } from 'puppeteer';
+import { resolveBrowserExecutable } from '../scripts/chromium.js';
 import { startServer, type StartedServer } from '../src/index.js';
 
 /**
@@ -13,7 +14,7 @@ import { startServer, type StartedServer } from '../src/index.js';
  */
 const ROOT = new URL('..', import.meta.url).pathname;
 const APP = join(ROOT, 'wiki', 'app', 'dist');
-const SHOTS = '/tmp/madarch-0n3p-luna/screens';
+const SHOTS = join(tmpdir(), 'madarch-wiki-navigation');
 const VISION = '/p/docs/vision/vision.md';
 const NOTE = '/p/docs/notes/N-001-target.md';
 const USE_CASE = '/p/docs/use-cases/UC-001-follow-the-reference.md';
@@ -25,6 +26,7 @@ const NOTE_TITLE = 'N-001 — Linked note';
 const USE_CASE_TITLE = 'UC-001 — Follow the reference';
 const enabled = process.env.MADARCH_WIKI_E2E === '1';
 const runDescribe = enabled ? describe.serial : describe.skip;
+if (!enabled) console.info('Wiki Chromium E2E tests skipped: set MADARCH_WIKI_E2E=1 after building wiki/app to run them.');
 
 const REGISTRY = [
   'contract: 1',
@@ -109,25 +111,6 @@ function buildNavigationProduct(): string {
   return product;
 }
 
-/** Use the configured Chromium, or a known system/Nix Chromium installation. */
-function chromiumExecutable(): string {
-  const configured = process.env.CHROME ?? process.env.PUPPETEER_EXECUTABLE_PATH;
-  if (configured !== undefined) {
-    if (!existsSync(configured)) throw new Error(`CHROME does not name an existing browser: ${configured}`);
-    return configured;
-  }
-  const common = ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome'];
-  const found = common.find(existsSync);
-  if (found !== undefined) return found;
-  const store = '/nix/store';
-  if (existsSync(store)) {
-    const candidates = readdirSync(store).filter((name) => name.includes('chromium')).sort();
-    const executable = candidates.map((name) => join(store, name, 'chrome-linux64', 'chrome')).find(existsSync);
-    if (executable !== undefined) return executable;
-  }
-  throw new Error('No Chromium executable found; set CHROME to a headless Chromium path.');
-}
-
 runDescribe('built wiki navigation (real server and Chromium)', async () => {
   let product: string | undefined;
   let server: StartedServer | undefined;
@@ -194,7 +177,7 @@ runDescribe('built wiki navigation (real server and Chromium)', async () => {
       errorLog: (line) => console.error(line),
     });
     browser = await puppeteer.launch({
-      executablePath: chromiumExecutable(),
+      executablePath: resolveBrowserExecutable(),
       headless: true,
       args: ['--no-sandbox', '--disable-dev-shm-usage'],
     });

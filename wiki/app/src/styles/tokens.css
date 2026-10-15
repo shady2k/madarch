@@ -1,8 +1,6 @@
 /**
  * The wiki's design tokens: type scale, rhythm, measure and neutral graphite
- * colour pairs. The values implement the accepted research note
- * (/tmp/madarch-run-iuc/research/tokens.md, sections 4.1-4.5, as corrected in
- * the review of 2026-10-10); every token names its section there.
+ * colour pairs. Each token documents its intended use below.
  *
  * Layout, element spacing and the page markup are NOT here: spacing selectors
  * belong to the reading sheet (owned by the reading lane), page layout to the shell

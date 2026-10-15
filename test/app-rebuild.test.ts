@@ -148,7 +148,7 @@ describe('ensureBuilt: the sources hash and its scope', () => {
     expect(calls.split('\n').filter((line) => line !== '')).toHaveLength(1);
   });
 
-  // Sample note (Stryker 9.6.1, /tmp/stryker-stale-a, config stryker.conf.json, src/product-wiki/app.ts:59-81
+  // Sample note (Stryker 9.6.1, config stryker.conf.json, src/product-wiki/app.ts:59-81
   // against this file): one survivor, the `entry.isFile()` conditional in the walker's else-if (line 62),
   // is equivalent — that branch runs only after `entry.isDirectory()` is false, so `true` and `isFile()`
   // decide the same way for every entry the branch can see.
