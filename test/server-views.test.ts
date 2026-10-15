@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, rmdirSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createPGliteQueryDatabase } from '../src/adapters/pglite-query-database.js';
 import { REFERENCE_SYSTEM, REFERENCE_TIME } from '../scripts/render-views.js';
 import { checkLikeC4Workspaces, type LikeC4CheckResult } from '../scripts/likec4-check.js';
 import {
@@ -75,13 +76,18 @@ afterEach(async () => {
   }
 });
 
+/** Test/local composition explicitly selects PGlite and injects the shared query owner. */
+async function startLocalServer(options: Omit<Parameters<typeof startServer>[0], 'queryDatabase'>): Promise<StartedServer> {
+  return startServer({ ...options, queryDatabase: await createPGliteQueryDatabase({ clock: options.clock }) });
+}
+
 /** A server on a free port over a scratch folder, with a held clock and captured logs; returns its base URL. */
 async function start(): Promise<string> {
   folder = mkdtempSync(join(tmpdir(), 'madarch-server-views-'));
   lines = [];
   errors = [];
   clockNow.value = NOW;
-  server = await startServer({
+  server = await startLocalServer({
     dataFolder: folder,
     port: 0,
     clock: { now: () => clockNow.value },
@@ -100,7 +106,7 @@ function post(path: string, body: unknown): Promise<Response> {
 async function restart(): Promise<void> {
   const port = server!.port;
   await server?.stop();
-  server = await startServer({
+  server = await startLocalServer({
     dataFolder: folder!,
     port,
     clock: { now: () => clockNow.value },

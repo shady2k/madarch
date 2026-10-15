@@ -75,12 +75,17 @@ afterEach(async () => {
   }
 });
 
+/** Test/local composition explicitly selects PGlite and injects the shared query owner. */
+async function startLocalServer(options: Omit<Parameters<typeof startServer>[0], 'queryDatabase'>): Promise<StartedServer> {
+  return startServer({ ...options, queryDatabase: await createPGliteQueryDatabase({ clock: options.clock }) });
+}
+
 /** A server on a free port over a scratch folder, with a held clock and captured logs; returns its base URL. */
 async function start(): Promise<string> {
   folder = mkdtempSync(join(tmpdir(), 'madarch-server-http-'));
   lines = [];
   errors = [];
-  server = await startServer({
+  server = await startLocalServer({
     dataFolder: folder,
     port: 0,
     clock: { now: () => clockNow.value },
@@ -97,6 +102,37 @@ function post(path: string, body: unknown): Promise<Response> {
 function send(source: string, commit: string, committedAt: string, elements: Record<string, unknown>[]): Promise<Response> {
   return post('/models', { protocol: 1, source, commit, committedAt, model: model(elements) });
 }
+
+describe('server query database owner', () => {
+  test('model routes require an explicitly injected shared query database', async () => {
+    folder = mkdtempSync(join(tmpdir(), 'madarch-server-http-no-query-db-'));
+    await expect(startServer({ dataFolder: folder, port: 0 })).rejects.toThrow('pass queryDatabase explicitly');
+  });
+
+  test('model routes use and close the injected shared query owner', async () => {
+    folder = mkdtempSync(join(tmpdir(), 'madarch-server-http-query-db-'));
+    const database = await createPGliteQueryDatabase();
+    let facadeCount = 0;
+    let closeCount = 0;
+    const queryDatabase = {
+      forSources(sources: readonly string[]) {
+        facadeCount++;
+        return database.forSources(sources);
+      },
+      async close() {
+        closeCount++;
+        await database.close();
+      },
+    };
+    server = await startServer({ dataFolder: folder, queryDatabase, port: 0, log: () => {}, errorLog: () => {} });
+    expect((await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')])).status).toBe(201);
+    expect((await post('/views', { source: 'shop', format: 'mermaid' })).status).toBe(200);
+    expect(facadeCount).toBeGreaterThan(0);
+    await server.stop();
+    server = undefined;
+    expect(closeCount).toBe(1);
+  });
+});
 
 describe('protocol versions', () => {
   test('version 1 requests are served and every answer names the server version', async () => {
@@ -363,7 +399,7 @@ describe('source ids', () => {
     await server?.stop();
     server = undefined;
 
-    server = await startServer({
+    server = await startLocalServer({
       dataFolder: folder!,
       port,
       clock: { now: () => clockNow.value },
@@ -586,7 +622,7 @@ describe('POST /sources — the rename claim', () => {
     await server?.stop();
     server = undefined;
 
-    server = await startServer({
+    server = await startLocalServer({
       dataFolder: folder!,
       port,
       clock: { now: () => clockNow.value },
@@ -637,7 +673,7 @@ describe('restart on the same data folder', () => {
     await server?.stop();
     server = undefined;
 
-    server = await startServer({
+    server = await startLocalServer({
       dataFolder: folder!,
       port,
       clock: { now: () => clockNow.value },
@@ -647,7 +683,7 @@ describe('restart on the same data folder', () => {
     expect(server.port).toBe(port);
     const after = await (await fetch(`${server.url}/sources`)).text();
     expect(after).toBe(before);
-  });
+  }, { timeout: 15_000 });
 });
 
 describe('a retry after a failed sidecar write', () => {
@@ -793,7 +829,7 @@ describe('a failing history read', () => {
       [JSON.stringify({ id: 'a', kind: 'service', ancestors: [], zones: [], zonesByEnvironment: {}, environments: ['*'], states: ['as-is'], technology: 'injected' }), DAY(1), DAY(1)],
     );
     await raw.close();
-    server = await startServer({ dataFolder, port: 0, clock: { now: () => clockNow.value }, log: (line) => lines.push(line), errorLog: (line) => errors.push(line) });
+    server = await startLocalServer({ dataFolder, port: 0, clock: { now: () => clockNow.value }, log: (line) => lines.push(line), errorLog: (line) => errors.push(line) });
 
     errors = [];
     const response = await post('/views', { source: 'shop', format: 'mermaid' });

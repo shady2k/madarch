@@ -28,12 +28,12 @@ import { dirname, join as joinPath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Value } from 'typebox/value';
 import type { Clock } from '../history/types.js';
+import type { AsyncQueryDatabase } from '../query/types.js';
 import type { CompiledModel } from '../model/compile.js';
 import { CompiledModel as CompiledModelSchema } from '../model/compiled-schema.js';
 import { byCodePoint } from '../model/order.js';
 import { renderAsyncOneViewLikeC4, renderAsyncOneViewMermaid, type OneViewError, type OneViewRequest } from '../render/one-view.js';
 import type { Graphs } from './graphs.js';
-import { createPGliteQueryDatabase } from '../adapters/pglite-query-database.js';
 import { createGraphs } from './graphs.js';
 import type { SourceStoreResult, SourceStores } from './sources.js';
 import { createSourceStores, sourceNameProblem } from './sources.js';
@@ -62,8 +62,10 @@ const DEPTH_ACCEPTED = 'a whole number from 1';
 const SEND_COMMAND = "bun scripts/send-model.ts <repository> --server <this server's address>";
 
 export interface ServerOptions {
-  /** The machine-local state folder for PGlite histories and sidecars, outside the product repository; required with the model routes, left out when only a product wiki is served. */
+  /** The machine-local state folder for per-source PGlite histories and sidecars, outside the product repository; required with the model routes, left out when only a product wiki is served. */
   dataFolder?: string;
+  /** Shared owner of the server's graph-query database. Required with `dataFolder`; the caller chooses PostgreSQL for server mode or explicitly constructs PGlite for local mode. `startServer` owns and closes it. */
+  queryDatabase?: AsyncQueryDatabase;
   /** The product folder served as its wiki: read once, then read fresh at every ask — never written, never asked a git question. */
   productFolder?: string;
   /** Serving-only opt-in for an existing directory with no manifest; defaults to strict product recognition. */
@@ -168,6 +170,12 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   if (options.dataFolder === undefined && options.productFolder === undefined) {
     throw new Error("the server is started with neither a data folder nor a product folder: give --data <folder> for the sources' histories, --product <folder> for a product's wiki, or both");
   }
+  if (options.dataFolder !== undefined && options.queryDatabase === undefined) {
+    throw new Error('the server model routes need a shared graph-query database owner: pass queryDatabase explicitly (PostgreSQL in server mode, or PGlite in local mode); dataFolder selects only the source-history folder');
+  }
+  if (options.dataFolder === undefined && options.queryDatabase !== undefined) {
+    throw new Error('a shared graph-query database owner is only used with the model routes: give dataFolder with queryDatabase');
+  }
   const wiki = options.productFolder === undefined ? undefined : openProductWiki(options.productFolder, { allowNoManifest: options.allowNoManifest });
   if (wiki !== undefined && !wiki.ok) {
     throw new Error(`the product ${JSON.stringify(options.productFolder!)} cannot be served as a wiki: ${wiki.message}`);
@@ -194,12 +202,12 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   const errorSink = options.errorLog ?? ((line: string) => console.error(line));
   const log = (line: string) => sink(escapeControlCharacters(line));
   const errorLog = (line: string) => errorSink(escapeControlCharacters(line));
-  const sources = options.dataFolder === undefined ? undefined : await createSourceStores({ dataFolder: options.dataFolder, clock, log });
-  let queryDatabase;
+  const queryDatabase = options.queryDatabase;
+  let sources: SourceStores | undefined;
   try {
-    queryDatabase = options.dataFolder === undefined ? undefined : await createPGliteQueryDatabase({ path: joinPath(options.dataFolder, '.query-graph'), clock });
+    sources = options.dataFolder === undefined ? undefined : await createSourceStores({ dataFolder: options.dataFolder, clock, log });
   } catch (error) {
-    await sources?.close().catch(() => {});
+    await queryDatabase?.close().catch(() => {});
     throw error;
   }
   const graphs = sources === undefined || queryDatabase === undefined
@@ -213,15 +221,23 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     wiki: productWiki === undefined ? undefined : createWikiPart(makeJson, wikiRefused, productWiki, appFolder),
     appFolder,
   });
-  const server = Bun.serve({
-    hostname: options.host ?? '127.0.0.1',
-    port: options.port ?? 4180,
-    fetch: handle,
-    // A wiki's change stream goes quiet for minutes; the idle default would
-    // end it. 255 s between incoming frames, plus the stream's own 30 s
-    // comments, keeps one long-lived request alive without polling.
-    idleTimeout: 255,
-  });
+  let server: ReturnType<typeof Bun.serve>;
+  try {
+    server = Bun.serve({
+      hostname: options.host ?? '127.0.0.1',
+      port: options.port ?? 4180,
+      fetch: handle,
+      // A wiki's change stream goes quiet for minutes; the idle default would
+      // end it. 255 s between incoming frames, plus the stream's own 30 s
+      // comments, keeps one long-lived request alive without polling.
+      idleTimeout: 255,
+    });
+  } catch (error) {
+    await graphs?.close().catch(() => {});
+    await queryDatabase?.close().catch(() => {});
+    await sources?.close().catch(() => {});
+    throw error;
+  }
   return {
     hostname: server.url.hostname,
     port: server.url.port === '' ? (options.port ?? 4180) : Number(server.url.port),

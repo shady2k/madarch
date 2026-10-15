@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { startServer, type StartedServer } from '../src/index.js';
+import { createPGliteQueryDatabase } from '../src/adapters/pglite-query-database.js';
 import { gitEnv } from './git-env.js';
 
 /** One real git repository checked out under the product's repos/, committed with a sealed identity. */
@@ -974,6 +975,7 @@ describe('the server\'s product mode', () => {
     builtApp();
     server = await startServer({
       dataFolder: (dataFolder = mkdtempSync(join(tmpdir(), 'madarch-wiki-data-'))),
+      queryDatabase: await createPGliteQueryDatabase(),
       productFolder: folder!,
       appFolder,
       port: 0,
