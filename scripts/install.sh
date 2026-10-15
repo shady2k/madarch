@@ -2,6 +2,7 @@
 # Installs the madarch release binary for this platform (madarch-lfhu).
 #
 #   curl -fsSL https://raw.githubusercontent.com/shady2k/madarch/main/scripts/install.sh | sh -s -- [version]
+#   brew install shady2k/tap/madarch (macOS)
 #
 # or with a checkout: sh scripts/install.sh [version]
 #
@@ -26,7 +27,8 @@ ARCH=$(uname -m)
 case "$OS" in
   Linux) RELEASE_OS=linux ;;
   Darwin) RELEASE_OS=darwin ;;
-  *) echo "madarch publishes binaries for linux and macOS, amd64 and arm64 (https://github.com/$REPO/releases): this runs $OS" >&2; exit 2 ;;
+  *) echo "madarch publishes binaries for Linux and macOS, amd64 and arm64 (https://github.com/$REPO/releases): this runs $OS" >&2; exit 2 ;;
+
 esac
 case "$ARCH" in
   x86_64) RELEASE_ARCH=x64 ;;

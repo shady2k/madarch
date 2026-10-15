@@ -7,6 +7,18 @@ joins into it the code repositories it spans, and serves its wiki; the same
 repository, cloned by a colleague, comes with its code checked out under
 `repos/` already.
 
+## Install
+
+The primary install is npm (Node.js 18 or newer):
+
+    npx madarch new
+
+On macOS, Homebrew is also supported:
+
+    brew install shady2k/tap/madarch
+
+Or install from the release script: `curl -fsSL https://raw.githubusercontent.com/shady2k/madarch/main/scripts/install.sh | sh` (Linux/macOS), or run `scripts/install.ps1` in PowerShell (Windows x64). `madarch new` creates and commits a Git repository, so Git and a configured Git author identity are required. Windows arm64 is not supported.
+
 ## Existing
 
 - [Start a product from the repositories you already have](docs/guides/start-a-product.md):

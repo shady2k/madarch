@@ -9,27 +9,26 @@
  * script, so the layout the binary reads is checked here and not in the
  * workflow's steps.
  *
- *   bun scripts/build-binary.ts --version 1.2.3 [--os linux] [--arch x64] [--out dist]
+ *   bun scripts/build-binary.ts --version 1.2.3 [--os linux|darwin|windows] [--arch x64] [--out dist]
  *
  * --version is what `madarch version` answers and the name `madarch
  * upgrade` matches against the release tag (`v` and what the file holds).
- * --os and --arch name the artifact (`madarch-<os>-<arch>`); the defaults
- * are this machine's own. The result is `<out>/madarch-<os>-<arch>`, and
- * the script smoke-runs it (`version`, `list` with a scratch home) before
- * it reports done: a binary that cannot start its own command is not a
- * done build.
+ * --os and --arch name the artifact (`madarch-<os>-<arch>`, `.exe` on
+ * Windows); the defaults are this machine's own. The script smoke-runs
+ * `version`, then runs `new`, verifies the served product API (which opens
+ * LadybugDB), and lists the graph-backed draft before it reports done.
  *
  * Exit 0 built, 1 when a step of the build fails, 2 when an argument or
  * the input (the wiki app's dist) cannot be used; every refusal names what
  * is wrong.
  */
 import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync, statSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 
-const USAGE = 'usage: bun scripts/build-binary.ts --version <x.y.z> [--os linux|darwin] [--arch x64|arm64] [--out <folder>]';
+const USAGE = 'usage: bun scripts/build-binary.ts --version <x.y.z> [--os linux|darwin|windows] [--arch x64|arm64] [--out <folder>]';
 
 interface BuildOptions {
   version: string;
@@ -78,10 +77,14 @@ function parseArgs(argv: readonly string[]): BuildOptions | number {
     console.error(USAGE);
     return 2;
   }
-  if (parsed.os === '') parsed.os = process.platform;
+  if (parsed.os === '') parsed.os = process.platform === 'win32' ? 'windows' : process.platform;
   if (parsed.arch === '') parsed.arch = process.arch;
-  if (parsed.os !== 'linux' && parsed.os !== 'darwin') {
-    console.error(`--os ${JSON.stringify(parsed.os)} names no released platform: the release builds linux and darwin`);
+  if (parsed.os !== 'linux' && parsed.os !== 'darwin' && parsed.os !== 'windows') {
+    console.error(`--os ${JSON.stringify(parsed.os)} names no released platform: the release builds linux, darwin and windows`);
+    return 2;
+  }
+  if (parsed.os === 'windows' && parsed.arch === 'arm64') {
+    console.error('Windows arm64 is not supported: this release does not include a Windows arm64 binary');
     return 2;
   }
   if (parsed.arch !== 'x64' && parsed.arch !== 'arm64') {
@@ -114,7 +117,7 @@ function stageAssets(stage: string, options: BuildOptions): { ok: true } | { ok:
   return { ok: true };
 }
 
-function main(argv: readonly string[]): number {
+async function main(argv: readonly string[]): Promise<number> {
   const options = parseArgs(argv);
   if (typeof options === 'number') return options;
   const stage = mkdtempSync(join(tmpdir(), 'madarch-build-binary-'));
@@ -124,9 +127,9 @@ function main(argv: readonly string[]): number {
       console.error(staged.message);
       return 2;
     }
-    const artifact = `madarch-${options.os}-${options.arch}`;
+    const artifact = `madarch-${options.os}-${options.arch}${options.os === 'windows' ? '.exe' : ''}`;
     const outfile = resolve(options.out, artifact);
-    const target = options.os === 'darwin' ? `bun-darwin-${options.arch}` : `bun-linux-${options.arch}`;
+    const target = options.os === 'darwin' ? `bun-darwin-${options.arch}` : options.os === 'windows' ? `bun-windows-${options.arch}` : `bun-linux-${options.arch}`;
     const run = spawnSync('bun', [
       'build', '--compile', join(REPO_ROOT, 'scripts', 'madarch.ts'),
       '--asset', join(stage, 'wiki-app'), '--asset', join(stage, 'version'),
@@ -145,16 +148,40 @@ function main(argv: readonly string[]): number {
       console.error(`the built binary answered no version (exit ${String(version.status)}): ${version.stdout.trim() || version.stderr.trim()}`);
       return 1;
     }
-    const list = spawnSync(outfile, ['list', '--home', smokeHome], { encoding: 'utf8' });
-    if (list.status !== 0) {
-      console.error(`the built binary could not list a scratch products home (exit ${String(list.status)}): ${list.stderr.trim()}`);
+    const port = 18000 + Math.floor(Math.random() * 20000);
+    const child = spawn(outfile, ['new', '--home', join(smokeHome, 'products'), '--port', String(port), '--no-open'], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, GIT_AUTHOR_NAME: 'Madarch Build Smoke', GIT_AUTHOR_EMAIL: 'build@example.invalid', GIT_COMMITTER_NAME: 'Madarch Build Smoke', GIT_COMMITTER_EMAIL: 'build@example.invalid' } });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8').on('data', (chunk: string) => { stdout += chunk; });
+    child.stderr.setEncoding('utf8').on('data', (chunk: string) => { stderr += chunk; });
+    let served = false;
+    const deadline = Date.now() + 20_000;
+    try {
+      while (Date.now() < deadline) {
+        if (child.exitCode !== null) break;
+        try {
+          const response = await fetch(`http://127.0.0.1:${port}/api/product`);
+          if (response.ok && (await response.text()).includes('"id"')) { served = true; break; }
+        } catch { /* server is still starting */ }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    } finally {
+      child.kill();
+    }
+    if (!served) {
+      console.error(`the built binary could not create a draft, open the graph store and serve it (exit ${String(child.exitCode)}): ${stderr.trim()} ${stdout.trim()}`);
       return 1;
     }
-    console.log(`built ${outfile} (version ${options.version}, smoke ok)`);
+    const list = spawnSync(outfile, ['list', '--home', join(smokeHome, 'products')], { encoding: 'utf8' });
+    if (list.status !== 0 || !list.stdout.includes('idea-')) {
+      console.error(`the built binary could not list the graph-backed draft (exit ${String(list.status)}): ${list.stderr.trim()}`);
+      return 1;
+    }
+    console.log(`built ${outfile} (version ${options.version}, graph-store smoke ok)`);
     return 0;
   } finally {
     rmSync(stage, { recursive: true, force: true });
   }
 }
 
-process.exitCode = main(process.argv.slice(2));
+process.exitCode = await main(process.argv.slice(2));

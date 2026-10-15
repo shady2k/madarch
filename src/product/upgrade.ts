@@ -10,10 +10,10 @@
  *
  * The flow is a release contract, not a conversation: the newest release
  * is one GET on the API, the artifact and the checksum file are two
- * downloads off the named release, and the replace is one rename over the
- * running executable's path (the running process keeps its old pages; the
- * next launch runs the new binary). Windows has no release artifact, and
- * the refusal names that instead of promising a download.
+ * downloads off the named release. Unix replaces the executable by rename;
+ * Windows schedules a detached PowerShell helper that waits for this process
+ * to exit before replacing the `.exe`. Windows arm64 has no artifact and is
+ * refused by the npm launcher before the upgrade command can run.
  *
  * Exit codes: 0 when nothing needed doing or the replace is done; 2 when a
  * refusal names what is wrong (a source checkout, an unknown platform, an
@@ -22,6 +22,7 @@
  * not match, a rename refused).
  */
 import { chmodSync, mkdtempSync, readSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { basename, dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { runningVersion } from './version.js';
@@ -34,6 +35,8 @@ export const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/release
 
 /** The artifact name of one platform: the release build lays every binary under this name. */
 export function artifactName(platform: string, arch: string): string {
+  if (platform === 'win32' && arch === 'arm64') return 'madarch-windows-arm64.exe';
+  if (platform === 'win32') return `madarch-windows-${arch}.exe`;
   return `madarch-${platform}-${arch}`;
 }
 
@@ -220,11 +223,29 @@ export async function upgrade(options: UpgradeOptions = {}): Promise<UpgradeOutc
   const stage = join(dirname(target), (basename(target) as string) + '.upgrade-new');
   writeFileSync(stage, binary.body);
   chmodSync(stage, 0o755);
-  try {
-    renameSync(stage, target);
-  } catch (error) {
-    rmSync(stage, { force: true });
-    return { prints: [], errors: [`the binary at ${target} could not be replaced: ${(error as Error).message}`], exit: 1 };
+  if (process.platform === 'win32' && options.targetPath === undefined) {
+    const helper = [
+      '$ErrorActionPreference = "Stop"',
+      '$deadline = [DateTime]::UtcNow.AddSeconds(30)',
+      'while ([DateTime]::UtcNow -lt $deadline) {',
+      '  if (-not (Get-Process -Id $env:MADARCH_UPGRADE_PARENT -ErrorAction SilentlyContinue)) { break }',
+      '  Start-Sleep -Milliseconds 100',
+      '}',
+      'try { Move-Item -LiteralPath $env:MADARCH_UPGRADE_STAGE -Destination $env:MADARCH_UPGRADE_TARGET -Force } catch { exit 1 }',
+    ].join('; ');
+    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', helper], {
+      detached: true,
+      stdio: 'ignore',
+      env: { ...process.env, MADARCH_UPGRADE_STAGE: stage, MADARCH_UPGRADE_TARGET: target, MADARCH_UPGRADE_PARENT: String(process.pid) },
+    });
+    child.unref();
+  } else {
+    try {
+      renameSync(stage, target);
+    } catch (error) {
+      rmSync(stage, { force: true });
+      return { prints: [], errors: [`the binary at ${target} could not be replaced: ${(error as Error).message}`], exit: 1 };
+    }
   }
   return {
     prints: [`upgraded to ${release.tag}: the next launch runs it (this process still runs ${current})`],
