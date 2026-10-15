@@ -425,3 +425,27 @@ A discussion message is a Markdown file at `comments/{thread ULID}/{message ULID
 - Given: source Markdown with paired selection markers, including overlapping pairs with distinct ids
 - When: its markers are checked
 - Then: it is accepted; a selection with both markers absent is accepted as lost; a one-sided or mismatched pair is refused with source file and line
+
+
+## Requirement: demo — `madarch demo` clones and serves the Madarch product wiki
+`madarch demo` shall use the upstream Madarch product repository, clone it to `madarch-product` in the products home when no clone exists, and serve its wiki through the same server as `madarch serve`. A later run shall update that clone with a fast-forward-only pull and serve it. It shall not replace a folder that is not the expected repository clone, and it shall not ship or copy product content into the engine. If cloning fails, the error shall include Git’s cause, tell the reader to check network availability, and offer `madarch new` as the offline alternative without claiming the network caused every failure. If updating fails, the error shall say the product working tree remains unchanged and tell the reader to check the network or clone state. The home shall resolve through `--home`, `MADARCH_HOME` and the normal products-home default.
+
+### Scenario: demo-clone
+- Given: a usable products home with no `madarch-product` folder and an upstream product repository
+- When: `madarch demo` is run
+- Then: the repository is cloned into the products home and its wiki is served
+
+### Scenario: demo-update
+- Given: the products home holds the expected demo clone and upstream has advanced
+- When: `madarch demo` is run again
+- Then: the clone fast-forwards to the upstream revision and its wiki is served
+
+### Scenario: demo-offline
+- Given: the initial demo clone cannot reach the network
+- When: `madarch demo` is run
+- Then: it reports the network failure, offers `madarch new`, and leaves no partial clone
+
+### Scenario: demo-conflict
+- Given: the products home holds an unrelated folder named `madarch-product`
+- When: `madarch demo` is run
+- Then: it refuses to change that folder

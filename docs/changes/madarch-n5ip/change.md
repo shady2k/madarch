@@ -1,7 +1,7 @@
 # madarch demo clones and serves the Madarch product repository
 
 Change: madarch-n5ip
-Base: 38a17e39
+Base: 4fcd04fd9d790bb0983377bdafe4670ee8022850
 Tasks: madarch-n5ip
 Kind: behavior
 
@@ -13,17 +13,18 @@ Shipping product content in the engine; changing the generic `madarch clone` lif
 
 ## Changes to requirements
 - `product-repository`: add the `demo` requirement and the `demo-clone`, `demo-update`, `demo-offline` and `demo-conflict` scenarios in `capabilities/product-repository.md`.
-- `product-wiki`: add the `empty-home-guidance` requirement and its English and Russian scenarios in `capabilities/product-wiki.md`.
+- `product-wiki`: change `pages` so it only promises the empty-state message, replacing its old clone-and-serve guide; add `empty-home-guidance` to offer `madarch demo` in English or Russian for products with no pages, with or without a manifest.
 
 ## Preserved contracts
 - product-repository/manifest: the upstream product remains a normal product repository read by the existing manifest reader.
 - product-wiki/serve: the existing server serves the clone without changing its read-only behavior.
 
 ## Coverage
-- product-repository/demo: product-demo.
-- product-wiki/empty-home-guidance: app-demo-guide.
-- product-repository/manifest: product-lifecycle.
-- product-wiki/serve: product-cli, server-wiki.
+- product-repository/demo: product-demo
+- product-wiki/pages: app-demo-guide
+- product-wiki/empty-home-guidance: app-demo-guide
+- product-repository/manifest: product-lifecycle
+- product-wiki/serve: product-cli, server-wiki
 
 ## Blocking questions
 None.

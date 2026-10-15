@@ -19,15 +19,7 @@ and every other folder are neither pages of the wiki nor read by it. A page's ti
 heading, else its file's name without its extension, and its address shall be
 `/p/` and its path within the product. A page shall show its Markdown as
 formatted text. A link from one page to another page of the wiki shall open
-that page; a link to anything else shall be shown as its text. A home page of
-a product with no pages shall say so and show a localized getting-started
-guide. The guide shall name `madarch new`, `madarch clone URL` for an existing product repository,
-`madarch repo add NAME URL --product FOLDER` to connect a code repository, and
-`setup-shady2k-skills` to create the product manifest and documents. It shall
-offer the Madarch product example through `madarch clone
-https://github.com/shady2k/madarch-product`, followed by
-`madarch serve --product FOLDER`. It shall not say `madarch clone` or
-`madarch repo add` are unavailable, or present `madarch demo` as shipped.
+that page; a link to anything else shall be shown as its text. A home page of a product with no pages shall say that the product has no pages yet.
 
 
 
@@ -38,14 +30,10 @@ https://github.com/shady2k/madarch-product`, followed by
 - When: its wiki is opened
 - Then: the home page names the product and lists `Vision` and `notes`, and `/p/docs/vision.md` shows the document's text as formatted text
 ### Scenario: no-pages-yet
-- Given: a draft whose `docs/` holds no Markdown file
+- Given: a product with no Markdown documents, with or without a product manifest
 - When: its wiki is opened
-- Then: the home page names the product, says it has no pages yet and shows the localized getting-started guide
+- Then: the home page names the product and says it has no pages yet
 
-### Scenario: empty-home-supported-commands
-- Given: a product with no pages, with or without manifest metadata
-- When: its home is read in English or Russian
-- Then: the guide names `madarch new`, `madarch clone URL`, `madarch repo add NAME URL --product FOLDER` and `setup-shady2k-skills`, then offers the linked Madarch example via `madarch clone https://github.com/shady2k/madarch-product` and `madarch serve --product FOLDER` without presenting `madarch demo` as shipped
 ### Scenario: link-between-pages
 - Given: a product whose `docs/index.md` links to `vision.md` and to `../AGENTS.md`
 - When: its index page is read
@@ -631,3 +619,17 @@ they are.
 - Given: a served fixture product whose repository has been described by the skill, its wiki open
 - When: one of the description's pages is saved again
 - Then: the open page shows the new text within two seconds, without a reload, and the page is in the navigation's groups
+
+
+## Requirement: empty-home-guidance — The empty home offers the demo command in the reader's language
+When the wiki shows its getting-started guidance for a product with no pages, with or without a product manifest, it shall offer `madarch demo` as the one-command way to open the Madarch product wiki. The offer shall be written in the selected chrome language, English or Russian, and shall not ask the reader to clone and serve the product manually.
+
+### Scenario: empty-home-demo-english
+- Given: the reader selected English and the served product has no pages, with or without a product manifest
+- When: the home page's getting-started guidance is read
+- Then: it offers `madarch demo` and does not show manual clone-and-serve instructions
+
+### Scenario: empty-home-demo-russian
+- Given: the reader selected Russian and the served product has no pages, with or without a product manifest
+- When: the home page's getting-started guidance is read
+- Then: it offers `madarch demo` in Russian and does not show manual clone-and-serve instructions

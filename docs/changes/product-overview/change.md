@@ -38,7 +38,7 @@ Use an optional normalized projection on `/api/product`; retain top-level `audie
 
 ## Acceptance evidence
 - The rendered English/Russian reader walk on the public `madarch-product` clone passed the overview, document, registry labels and shell cases; the localized empty-folder guide also passed in both languages. See reader-walk comment #3296 and screenshots under `/tmp/madarch-readerwalk-shots/`.
-- The manual walk's Fieldnote cases 7 and 8 failed on the old `wiki/demo` fixture. The owner explicitly accepted `madarch-n5ip` replacing that demo with `madarch-product`; these Fieldnote failures are not claimed as passes or as this task's continuing acceptance target.
+- The manual walk's Fieldnote cases 7 and 8 failed on the old embedded Fieldnote fixture. The owner explicitly accepted `madarch-n5ip` replacing that demo with `madarch-product`; these Fieldnote failures are not claimed as passes or as this task's continuing acceptance target.
 - The authoritative pinned ten-case list was not found. The numbered matrix in #3296 is the walk performed, not a claim that it is canonical. The owner accepts this as a recorded limitation for close-out.
 - PR #12 merged at `bb9d75a8420c0c87b7a493c07879868bcbf8e8b7`; PR CI 38641772495 and product-documents 38641772458 passed. Post-merge main CI 38643634842 and product-documents 38643634934 passed. Independent review is recorded in comment #3207.
 - Per Owner Addendum 11, mutation testing is deferred to the milestone-end run; it is not claimed as passed here.

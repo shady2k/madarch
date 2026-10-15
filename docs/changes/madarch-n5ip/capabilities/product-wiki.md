@@ -19,8 +19,7 @@ and every other folder are neither pages of the wiki nor read by it. A page's ti
 heading, else its file's name without its extension, and its address shall be
 `/p/` and its path within the product. A page shall show its Markdown as
 formatted text. A link from one page to another page of the wiki shall open
-that page; a link to anything else shall be shown as its text. A home page of
-a product with no pages shall say that it has none yet.
+that page; a link to anything else shall be shown as its text. A home page of a product with no pages shall say that the product has no pages yet.
 
 
 
@@ -31,23 +30,85 @@ a product with no pages shall say that it has none yet.
 - When: its wiki is opened
 - Then: the home page names the product and lists `Vision` and `notes`, and `/p/docs/vision.md` shows the document's text as formatted text
 ### Scenario: no-pages-yet
-- Given: a draft whose `docs/` holds no Markdown file
+- Given: a product with no Markdown documents, with or without a product manifest
 - When: its wiki is opened
 - Then: the home page names the product and says it has no pages yet
+
 ### Scenario: link-between-pages
 - Given: a product whose `docs/index.md` links to `vision.md` and to `../AGENTS.md`
 - When: its index page is read
 - Then: the link to `vision.md` opens the vision page, and the link to `AGENTS.md` is not a page of the wiki
 
+## Requirement: overview — A product's home explains it before listing its groups
+When a product's wiki has a normalized overview projection, its home shall
+introduce the product on its first screen before listing document groups. The
+optional response shape is `overview?: { audience?: string; problem?: string;
+outcome?: string; currentMilestone?: { title?: string; state?: string;
+nextStep?: string; path?: string }; errors?: { role: string; document: string;
+section: string; message: string }[] }`; the existing top-level
+`Product.audience` remains a compatible value and matches `overview.audience`
+when both are present. The overview shall show the product name and the
+audience, problem, outcome, current milestone title, state and next step
+supplied by product data. Their normative document-and-section source mappings
+are defined by `questions-and-overview`; the UI shall not infer identity,
+vision facts, milestone state, document paths or workflow from engine defaults.
+The projection is optional; when absent (including a manifestless product
+response), the wiki shall not render the overview-facts block. If the
+projection is absent but the legacy top-level audience exists, that audience
+shall remain visible without an overview-facts block. A blank or whitespace
+legacy audience and missing or blank facts within a supplied projection shall
+be omitted without placeholder text. A milestone title becomes a link only when its path is safe and names a page
+in the current wiki page list; missing data shall never create a blank link. A source path that is unsafe or does not name a served page shall be reported in the projection's `errors`; absent or empty sections remain absent without a fabricated value. The existing empty-home guidance remains available when a product has no pages.
+
+### Scenario: manifest-overview-before-groups
+- Given: a product whose response supplies audience, problem, outcome and a current milestone with title, state, next step and a safe page path
+- When: its home is read
+- Then: the first screen shows the product's supplied audience, problem, outcome, milestone title, milestone state and next step before the document groups, and the milestone title links to the supplied page
+
+### Scenario: missing-overview-facts
+- Given: a product whose overview fields are absent, blank or whitespace-only
+- When: its home is read in English or Russian
+- Then: missing fact rows are omitted without placeholders, and a milestone has no blank or unsafe link
+
+### Scenario: production-overview-sources
+- Given: a registry with independent document-and-section mappings for all six overview roles
+- When: `GET /api/product` is read
+- Then: each first paragraph supplies only its declared role, `overview.audience` matches the top-level audience alias, and a milestone path is returned only for a served wiki page
+
+### Scenario: unsafe-overview-source
+- Given: a registry whose overview source contains traversal or names a page outside the wiki's served page set
+- When: `GET /api/product` is read
+- Then: that source contributes no fact or link and the projection reports the source error without reading outside the product
+
+### Scenario: legacy-audience-compatibility
+- Given: a product response with the existing top-level audience and no `overview.audience`
+- When: its home is read
+- Then: the audience remains visible without requiring a nested projection
+
+### Scenario: no-manifest-overview
+- Given: an existing directory without manifest metadata and no pages
+- When: its home is read
+- Then: no overview-facts block is shown and the existing localized empty-home guidance remains
+
+### Scenario: manifestless-legacy-audience
+- Given: a manifestless product response with a top-level legacy audience and no normalized overview
+- When: its home is read
+- Then: the legacy audience remains visible and no overview-facts block is shown
+
+### Scenario: blank-legacy-audience
+- Given: a product response, with or without manifest metadata, whose top-level legacy audience is blank or whitespace-only and has no normalized overview
+- When: its home is read in English or Russian
+- Then: no audience placeholder or overview-facts block is shown
+
 ## Requirement: shell — The reading shell holds the navigation, the document and the panel place
-When a product's wiki is served, its pages shall be shown in a reading shell: a left navigation holding the product's name and its documents grouped by kind — the kind a page's path names, pages outside a kind by themselves — with the current page marked visually and by its accessibility attributes, and every page of the wiki one click away from it; each group heading shall link to a generic page at `/g/` followed by the URI-encoded group identity, keyed by the existing `PageMeta.kind ?? groupOf(path)` identity, whose heading uses the existing localized/fallback group label and whose links list only that group's live pages in code point order; the sidebar brand `madarch вики` shall link to Product overview; a document breadcrumb shall link its first `Продукт` segment to Product overview and its group segment to that group page, providing the in-app way back without a separate Back button; the document in the centre as the main element; and a place for a right context panel, closed by default and empty until content fills it. A focus mode shall hide both panels and bring them back, and on a narrow screen the navigation shall open from a menu without narrowing the document's column. Language selection shall live in a globe menu in the top bar; the globe button shall have a localized accessible name and tooltip, and the menu shall mark the current language as checked.
+When a product's wiki is served, its pages shall be shown in a reading shell: a left navigation holding the product's name and its documents grouped by kind — the kind a page's path names, pages outside a kind by themselves — with the current page marked visually and by its accessibility attributes, and every page of the wiki one click away from it; each group heading shall link to a generic page at `/g/` followed by the URI-encoded group identity, keyed by the existing `PageMeta.kind ?? groupOf(path)` identity, whose heading uses the matching registry entry's current-locale `labels` value when the optional pair is present; if absent, the manifest's own name is shown unchanged, never the other locale; the stage navigator and document-kind labels follow the same rule (a stage uses its own `id` only when it has no display name or label); and whose links list only that group's live pages in code point order; the sidebar brand `madarch вики` shall link to Product overview; a document breadcrumb shall link its first `Продукт` segment to Product overview and its group segment to that group page, providing the in-app way back without a separate Back button; the document in the centre as the main element; and a place for a right context panel, closed by default and empty until content fills it. A focus mode shall hide both panels and bring them back, and on a narrow screen the navigation shall open from a menu without narrowing the document's column. Language selection shall live in a globe menu in the top bar; the globe button shall have a localized accessible name and tooltip, and the menu shall mark the current language as checked.
 
 The sidebar carries an Architecture entry in the life-cycle order — after the decisions, before the research kinds — with the model's views' count; the entry stands even where the product holds no model. The shell shall fill the window at any window height: its sidebar and top bar stay while only the document work area scrolls. No tab strip or bottom status strip shall be rendered. On a document page, the top bar shall not repeat that page's title; the page title belongs to the document content. The document surface shall be flush across the work area, from the sidebar edge to the window edge, with no inset page or raised frame. The chrome reads as the mockup lays it: the brand as the product's own mark, a product block naming the product with its "Product space" line and an initial square about 36 px, the product block has no disclosure chevron or switcher affordance, no trailing chevron on the product overview row, the sidebar's group heading in small muted uppercase, and a breadcrumb whose parent sits muted around a spaced slash without repeating the document title.
 
 ### Scenario: group-page-and-group-navigation
 - Given: a served product whose pages carry more than one group identity, including two pages in one group
 - When: the group heading in the sidebar or that group's breadcrumb segment is clicked
-- Then: the app opens `/g/` followed by the URI-encoded group identity, uses the localized/fallback group label as its heading, and lists only that group's live pages as links in code point path order
+- Then: the app opens `/g/` followed by the URI-encoded group identity, uses the registry entry’s current-locale label as its heading, or its own name unchanged when the optional pair is absent, never the other locale, and lists only that group’s live pages as links in code point path order
 
 ### Scenario: brand-and-product-breadcrumb
 - Given: a document page is open
@@ -316,11 +377,23 @@ names live once in the registry and are not duplicated in engine code.
 A kind may declare a question form in `docs/kinds.yaml`, including its
 identity prefix, title separator, field names, section names and the text that
 marks a not-applicable answer. Only documents of that declared kind feed the
-questions view. The overview may declare the document and section from which
-the audience is read. Madarch reads these values as product data and carries
-them through the wiki; it has no fixed question prefix, question fields,
-audience document or audience section. The Open questions sidebar entry is
-not built into the engine.
+questions view.
+
+The product registry may also declare an optional `overview` object with
+optional source mappings for `audience`, `problem`, `outcome`,
+`currentMilestone`, `milestoneState` and `nextStep`. Each mapping shall name a
+product-relative Markdown `document` and an exact `section`. The selected
+section supplies its first non-empty paragraph as the value for its declared
+semantic field; the `currentMilestone` mapping supplies the milestone title.
+The paths, sections and semantic roles are product data. An absent mapping
+leaves that value absent. Engine code shall not infer document paths, headings,
+milestone state or workflow, or fall back to another source. Configured unsafe
+or unserved page sources shall be reported in `overview.errors` rather than
+silently replaced. A source path is returned as a milestone link only when it
+names a page the wiki serves. When both
+are present, the legacy top-level `Product.audience` shall match
+`overview.audience`. The Open questions sidebar entry is not built into the
+engine.
 
 ### Scenario: manifest-question-form
 - Given: a registry that declares a question kind with non-default prefix, fields and section names
@@ -331,6 +404,16 @@ not built into the engine.
 - Given: a registry that names a document and section for the overview audience
 - When: the product overview is read
 - Then: it reads that section's first paragraph and no other document or section
+
+### Scenario: manifest-overview-field-sources
+- Given: a registry with separate document-and-section mappings for all overview fields
+- When: the normalized overview is produced
+- Then: each value comes only from its mapped section, an undeclared source remains absent, and no engine default or alternate source is used
+
+### Scenario: invalid-overview-source
+- Given: a configured overview source that is unsafe or cannot be resolved
+- When: the normalized overview is produced
+- Then: the source error is reported explicitly and no other document or section is used as a fallback
 
 ## Requirement: live — A page follows its file as it is saved
 When a page is asked for, its text shall be read from the product's working
@@ -370,12 +453,18 @@ The server watches the product working tree and answers one Server-Sent Events s
 When a local madarch is given a product folder, it shall serve that product's
 wiki at its address and print the address; `madarch new` shall create the
 draft and serve its wiki in one command, and `madarch serve` shall serve the
-product of the current folder when it is given none. `madarch new` shall open
-the address in the browser the machine uses; where no browser can be opened,
-it shall say so and print the address without failing. The server shall serve
-the app's built files and answer the wiki's pages; a request it cannot answer
-shall be refused with a message naming what was asked for, and no document's
-content shall be logged.
+product of the current folder when it is given none. `madarch serve` shall
+also serve an existing directory with no `workspace.yaml` as a temporary,
+read-only empty home so its reader can see the getting-started guide. The
+folder's name supplies only the temporary display name; no manifest, product
+id or sample document is written or treated as manifest data. A directory
+that does not exist, a manifest that cannot be read, or a manifest that does
+not parse remains refused with its cause. Manifest reading and lifecycle
+commands remain strict. `madarch new` shall open the address in the browser the
+machine uses; where no browser can be opened, it shall say so and print the
+address without failing. The server shall serve the app's built files and
+answer the wiki's pages; a request it cannot answer shall be refused with a
+message naming what was asked for, and no document's content shall be logged.
 
 
 
@@ -389,6 +478,17 @@ content shall be logged.
 - Given: a draft created earlier and no server running
 - When: `madarch serve` is run in the product's root
 - Then: the same wiki answers at the address it prints
+
+### Scenario: serve-empty-folder-without-manifest
+- Given: an existing empty directory with no `workspace.yaml` and no server running
+- When: `madarch serve` is run in that directory
+- Then: the command prints an address, the home page answers with the localized getting-started guide, and the directory is unchanged — no manifest or product data is written
+
+### Scenario: invalid-manifest-still-refused
+- Given: an existing directory whose `workspace.yaml` is unreadable or malformed
+- When: `madarch serve` is run in that directory
+- Then: it remains refused with the manifest's file, line and cause; the no-manifest fallback does not mask it
+
 ### Scenario: unknown-page
 - Given: a served draft
 - When: a page of a path the product does not hold, and a path outside its `docs/`, are asked for
@@ -416,11 +516,13 @@ command shall stop with exit 2 and print what the builder said.
 
 ## Requirement: result — Served, opened or refused, and why
 When a product's wiki is served, the command shall serve until it is stopped.
+An existing directory without a `workspace.yaml` is the one exception to the
+manifest requirement: it serves an empty home with the getting-started guide.
 It shall exit 2 when its input cannot be read — an argument it does not know,
-a product folder that is not there, a product whose manifest cannot be read, an
-address already taken, or an app that cannot be built — naming what is wrong;
-and 1 when a step it takes fails. Serving shall change neither the product's
-files nor its repository.
+a path that is not an existing directory, a manifest entry that cannot be
+read, an invalid manifest, an address already taken, or an app that cannot be
+built — naming what is wrong; and 1 when a step it takes fails. Serving shall
+change neither the product's files nor its repository.
 
 
 
@@ -428,9 +530,14 @@ files nor its repository.
 
 
 ### Scenario: no-product
-- Given: a folder that holds no `workspace.yaml`
-- When: `madarch serve --product` naming that folder is run
-- Then: it exits 2 naming the folder and the manifest it looked for
+- Given: a path that does not exist or does not name a directory
+- When: `madarch serve --product` naming that path is run
+- Then: it exits 2 naming the path and refusing to serve it
+
+### Scenario: present-manifest-refused
+- Given: an existing directory whose `workspace.yaml` entry is present but unreadable or invalid
+- When: `madarch serve --product` naming that directory is run
+- Then: it exits 2 naming the manifest and its cause rather than using the no-manifest fallback
 ### Scenario: address-taken
 - Given: a server already answering on the default port
 - When: another product's wiki is served on it
@@ -459,6 +566,13 @@ loading and error states, tooltips and accessible labels. Counts and relative
 file-change times shall follow the selected language through `Intl.PluralRules`
 and `Intl.RelativeTimeFormat`. The document's changed-time label shall use the
 file's real modification time, never placeholder content.
+
+Kind, group and stage names that come from the product registry are displayed using that entry's label for the selected locale when its optional paired labels are present. When the pair is absent, the wiki displays the manifest's own name unchanged (or a stage's own id when it has no name); it never substitutes the other locale. These registry labels do not translate the product's authored document content.
+
+### Scenario: registry-labels-follow-the-selected-locale
+- Given: a contract-v1 registry with paired English and Russian labels for kinds and stages, and a legacy registry whose entries have no labels
+- When: each product is read in English and Russian
+- Then: the labeled entries use the selected locale; the legacy entries use their own manifest name unchanged (or a stage id if no name exists); no entry falls back to the other locale, and product document content stays as authored
 
 ### Scenario: browser-language-default
 - Given: the wiki is opened with no saved choice in a browser whose language is `ru-RU`, and then in one whose language is `en-US`
@@ -508,14 +622,14 @@ they are.
 
 
 ## Requirement: empty-home-guidance — The empty home offers the demo command in the reader's language
-When the wiki shows its getting-started guidance for a folder without a product manifest, it shall offer `madarch demo` as the one-command way to open the Madarch product wiki. The offer shall be written in the selected chrome language, English or Russian, and shall not ask the reader to clone and serve the product manually.
+When the wiki shows its getting-started guidance for a product with no pages, with or without a product manifest, it shall offer `madarch demo` as the one-command way to open the Madarch product wiki. The offer shall be written in the selected chrome language, English or Russian, and shall not ask the reader to clone and serve the product manually.
 
 ### Scenario: empty-home-demo-english
-- Given: the reader selected English and the served folder has no product manifest
+- Given: the reader selected English and the served product has no pages, with or without a product manifest
 - When: the home page's getting-started guidance is read
 - Then: it offers `madarch demo` and does not show manual clone-and-serve instructions
 
 ### Scenario: empty-home-demo-russian
-- Given: the reader selected Russian and the served folder has no product manifest
+- Given: the reader selected Russian and the served product has no pages, with or without a product manifest
 - When: the home page's getting-started guidance is read
 - Then: it offers `madarch demo` in Russian and does not show manual clone-and-serve instructions
