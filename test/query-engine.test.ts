@@ -606,11 +606,11 @@ describe('the SQL query engine', async () => {
     }
   });
 
-  // Keep all 40 independent PGlite owners: the repeated open/close cycle
-  // catches resource leaks that a smaller sample could miss. Startup dominates
-  // this stress case, so it has a 30s bound instead of Bun's default.
+  // Keep all 40 independent query-engine scopes: the warmed test database
+  // avoids measuring PGlite startup here, while the owner-close contract is
+  // covered separately in sql-query-database.test.ts.
   test.skipIf(process.env['MADARCH_SKIP_PERF'] !== undefined)(
-    'close: releases the underlying database so many engines can be opened and closed in one process without exhausting it, and each one still answers correctly before its own close',
+    'close: releases each engine scope so many engines can be opened and closed in one process, and each one still answers correctly before its own close',
     async () => {
       const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
       for (let i = 0; i < 40; i++) {
