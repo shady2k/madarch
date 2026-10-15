@@ -1,5 +1,9 @@
 name: CI
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && github.run_id || 'branch' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
 # The product's checks, once per push of any branch; a pull request from this
 # repository shows its branch's push run, so it is not run twice. Changes limited
 # to documents, tracker data or local hook tooling cannot touch the product and

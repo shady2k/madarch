@@ -2,8 +2,23 @@ name: clean install walks
 
 on:
   push:
-    branches: ['**']
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    paths:
+      - 'scripts/install*'
+      - 'Formula/**'
+      - 'scripts/publish-homebrew-tap.sh'
+      - '.github/workflows/release.yml'
+      - '.github/workflows/clean-installs.yml'
+      - 'scripts/clean-install-walk.ts'
+      - 'scripts/clean-homebrew-walk.sh'
+      - 'package.json'
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && github.run_id || 'branch' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
 
 permissions:
   contents: read
