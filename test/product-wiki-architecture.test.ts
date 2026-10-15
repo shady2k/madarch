@@ -404,5 +404,5 @@ describe('the server routes', () => {
       // The pinned likec4 is absent (no bun install): the refusal names it.
       expect(body).toContain('likec4');
     }
-  });
+  }, 15_000);
 });

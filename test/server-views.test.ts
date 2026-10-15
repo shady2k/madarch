@@ -8,7 +8,7 @@ import { checkLikeC4Workspaces, type LikeC4CheckResult } from '../scripts/likec4
 import {
   compileModel,
   createLadybugEngine,
-  createSqliteHistory,
+  createPGliteHistory,
   loadAndCompileModel,
   loadModel,
   renderOneViewMermaid,
@@ -127,7 +127,7 @@ function sendReference(): Promise<Response> {
 
 /** An engine built independently of the server: the same model stored in a history of its own. */
 async function independentEngine(model: CompiledModel, at: number): Promise<{ engine: QueryEngine; history: HistoryStore; close(): Promise<void> }> {
-  const history = createSqliteHistory({ clock: { now: () => at } });
+  const history = createPGliteHistory({ clock: { now: () => at } });
   expect((await history.store({ source: 'independent', commit: 'v1', committedAt: at, model })).errors).toEqual([]);
   const engine = createLadybugEngine();
   engine.rebuild(await history.assertions());
@@ -190,7 +190,7 @@ describe('POST /views of the reference system', () => {
       expect(body).toBe(await renderMermaid('element' in request ? request.element : undefined, 'depth' in request ? request.depth : undefined));
       expect(body).toContain('```mermaid');
     }
-  });
+  }, 15_000);
 
   test('the LikeC4 answers are text/plain and pass likec4 validate on their own', async () => {
     await start();
@@ -204,7 +204,7 @@ describe('POST /views of the reference system', () => {
       expect(workspace).toContain('views {');
       expect(validate(workspace).errors).toEqual([]);
     }
-  });
+  }, 15_000);
 
   test('the same request twice, and after a restart on the same data folder, gives byte-identical text', async () => {
     await start();

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  createSqliteHistory,
+  createPGliteHistory,
   type Clock,
   type CompiledElement,
   type CompiledInterface,
@@ -23,7 +23,7 @@ function fakeClock(initial: number): Clock & { set(t: number): void } {
 }
 
 function history(clock: Clock): HistoryStore {
-  return createSqliteHistory({ clock });
+  return createPGliteHistory({ clock });
 }
 
 async function readModel(h: HistoryStore, input?: Parameters<HistoryStore['read']>[0]): Promise<ReadModel> {

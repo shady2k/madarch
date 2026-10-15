@@ -19,8 +19,8 @@ assigned, the recognised problems are looked for — and renders the model's
 views into a folder when asked. It is the gate a model passes before anything
 is sent anywhere.
 
-**History** (`src/history/`, `src/adapters/sqlite-history.ts`): keeps every
-version of every source's compiled model as a bitemporal fact log in SQLite:
+**History** (`src/history/`, `src/adapters/pglite-history.ts`): keeps every
+version of every source's compiled model as a bitemporal fact log in PGlite:
 each assertion carries when it was true (the commit's time) and when the
 history held it. Nothing is overwritten; a store is idempotent, orders a
 source's commits by time, not arrival, and is refused when a commit comes
@@ -114,11 +114,14 @@ message; a refusal about a request field also names the field and, where it
 can, what is accepted.
 One line per request goes to the log; no model content ever does.
 
-The data folder holds one SQLite history file per source
-(`src/server/sources.ts`), its name derived from the source's name by
-encoding every byte a file name should not carry, and a small sidecar beside
-each history naming its source and its head, so a restart knows every file's
-source and answers the same as before it stopped.
+The machine-local state folder holds one file-backed PGlite database directory
+per source (`src/server/sources.ts`), outside the product repository. Its name
+is derived from the source's name by encoding every byte a file name should not
+carry. A small sidecar beside each database names its source and head, so a
+restart answers the same as before it stopped. The local source store
+serializes its HistoryStore operations to respect PGlite's single connection
+(decision 0024). A legacy SQLite history is not migrated; resend source models
+to rebuild the fact log.
 
 A graph is a named set of sources, and each graph has one query engine built
 from the assertions of every source the graph lists

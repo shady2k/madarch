@@ -10,7 +10,7 @@ import { checkMermaidPages } from '../scripts/mermaid-check.js';
 import {
   compileModel,
   createLadybugEngine,
-  createSqliteHistory,
+  createPGliteHistory,
   loadAndCompileModel,
   loadModel,
   renderMermaidPages,
@@ -44,7 +44,7 @@ async function build(name: string): Promise<Built> {
   const { model, errors } = loadModel(fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url)));
   expect(errors).toEqual([]);
   const compiled = compileModel(model!);
-  const history = createSqliteHistory({ clock: { now: () => DAY(1) } });
+  const history = createPGliteHistory({ clock: { now: () => DAY(1) } });
   expect((await history.store({ source: 's', commit: name, committedAt: DAY(1), model: compiled })).errors).toEqual([]);
   const engine = createLadybugEngine();
   engine.rebuild(await history.assertions());
@@ -581,7 +581,7 @@ describe("the reference system's one view", () => {
   async function reference(): Promise<{ engine: QueryEngine; model: CompiledModel; at: { valid: number; known: number }; close(): Promise<void> }> {
     const { model, errors } = loadAndCompileModel(REFERENCE_SYSTEM);
     expect(errors).toEqual([]);
-    const history = createSqliteHistory({ clock: { now: () => REFERENCE_TIME } });
+    const history = createPGliteHistory({ clock: { now: () => REFERENCE_TIME } });
     expect((await history.store({ source: 'reference-system', commit: 'working-tree', committedAt: REFERENCE_TIME, model: model! })).errors).toEqual([]);
     const engine = createLadybugEngine();
     engine.rebuild(await history.assertions());

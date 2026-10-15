@@ -264,7 +264,7 @@ export function assembleSourceModel(rows: readonly Assertion[]): { model?: Compi
  * `entity`, `scenario`): a real
  * disagreement here is a safety net's finding, not the ordinary case — a
  * clash for these kinds is always refused before it reaches storage (see
- * `sqlite-history.ts`'s `store`) — so it is reported in `errors`, exactly
+ * `pglite-history.ts`'s `store`) — so it is reported in `errors`, exactly
  * as before this rule change (only the shared kinds' handling moved from
  * refusing to recording a `Discrepancy`).
  */

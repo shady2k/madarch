@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { createLadybugEngine, createSqliteHistory, type AssertionRecord, type Clock, type CompiledElement, type CompiledModel, type CompiledRelation, type ElementKind } from '../src/index.js';
+import { createLadybugEngine, createPGliteHistory, type AssertionRecord, type Clock, type CompiledElement, type CompiledModel, type CompiledRelation, type ElementKind } from '../src/index.js';
 
 /**
  * Performance requirement (graph-queries.md's "Quality requirements"): a
@@ -138,7 +138,7 @@ describe('performance: B2 — transitive dependents over a random 10 000-element
   test.skipIf(process.env['MADARCH_SKIP_PERF'] !== undefined)(
     'answers in under one second', async () => {
       const clock = fakeClock(DAY(2));
-      const history = createSqliteHistory({ clock });
+      const history = createPGliteHistory({ clock });
       const v1 = randomGraphWithHistory('v1');
       expect((await history.store({ source: 'big', commit: 'v1', committedAt: DAY(1), model: v1 })).errors).toEqual([]);
       clock.set(DAY(12));
@@ -192,7 +192,7 @@ describe('performance: a view and a transitive query over 10 000 elements with h
   test.skipIf(process.env['MADARCH_SKIP_PERF'] !== undefined)(
     'both answer in under one second', async () => {
     const clock = fakeClock(DAY(2));
-    const history = createSqliteHistory({ clock });
+    const history = createPGliteHistory({ clock });
     // Two versions, so the history — and so the engine, built from its full
     // `assertions()` — carries real history, not only the current state.
     expect((await history.store({ source: 'big', commit: 'v1', committedAt: DAY(1), model: bigModel('v1') })).errors).toEqual([]);
