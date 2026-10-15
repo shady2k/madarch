@@ -10,13 +10,32 @@ export type SelectionMap = { ok: true; range: SourceRange } | { ok: false; reaso
 type TextSpan = { node: Text; start: number; end: number; value: string; groupStart?: number; groupEnd?: number };
 const parser = unified().use(remarkParse).use(remarkGfm);
 
+/** Renders paragraph text in document order using the same Markdown AST rules as the source mapper. */
+export function renderedMarkdownParagraphs(markdown: string): string[] {
+  const tree = parser.parse(markdown) as Root;
+  const paragraphs: Extract<Root['children'][number], { type: 'paragraph' }>[] = [];
+  const walk = (node: { type: string; children?: unknown[] }): void => {
+    if (node.type === 'paragraph') { paragraphs.push(node as Extract<Root['children'][number], { type: 'paragraph' }>); return; }
+    if (Array.isArray(node.children)) for (const child of node.children) if (child !== null && typeof child === 'object') walk(child as { type: string; children?: unknown[] });
+  };
+  for (const child of tree.children) walk(child as { type: string; children?: unknown[] });
+  const render = (node: PhrasingContent): string => {
+    if (node.type === 'text') return node.value;
+    if (node.type === 'inlineCode') return node.value;
+    if (node.type === 'break') return '\n';
+    if ('children' in node) return node.children.map((child) => render(child as PhrasingContent)).join('');
+    return '';
+  };
+  return paragraphs.map((paragraph) => paragraph.children.map((child) => render(child as PhrasingContent)).join(''));
+}
+
 /**
  * Maps UTF-16 DOM text offsets in one rendered paragraph to UTF-16 Markdown
  * source offsets. Only plain text leaves are eligible; formatting boundaries
  * are expanded to their complete containing inline node. Any non-bijective
  * decoded entity/escape boundary is rejected rather than guessed.
  */
-export function mapParagraphSelection(markdown: string, from: number, to: number): SelectionMap {
+export function mapParagraphSelection(markdown: string, from: number, to: number, paragraphIndex = 0): SelectionMap {
   const tree = parser.parse(markdown) as Root;
   const spans: TextSpan[] = [];
   let rendered = '';
@@ -68,8 +87,14 @@ export function mapParagraphSelection(markdown: string, from: number, to: number
       }
     }
   };
-  const paragraph = tree.children.find((node) => node.type === 'paragraph');
-  if (paragraph?.type !== 'paragraph') return { ok: false, reason: 'the selection is not inside a Markdown paragraph' };
+  const paragraphs: Extract<Root['children'][number], { type: 'paragraph' }>[] = [];
+  const walk = (node: { type: string; children?: unknown[] }): void => {
+    if (node.type === 'paragraph') { paragraphs.push(node as Extract<Root['children'][number], { type: 'paragraph' }>); return; }
+    if (Array.isArray(node.children)) for (const child of node.children) if (child !== null && typeof child === 'object') walk(child as { type: string; children?: unknown[] });
+  };
+  for (const child of tree.children) walk(child as { type: string; children?: unknown[] });
+  const paragraph = paragraphs[paragraphIndex];
+  if (paragraph === undefined) return { ok: false, reason: 'the selection is not inside a Markdown paragraph' };
   for (const child of paragraph.children) collect(child as PhrasingContent);
   if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to <= from || to > rendered.length)
     return { ok: false, reason: 'the selection boundaries are outside the rendered paragraph' };
