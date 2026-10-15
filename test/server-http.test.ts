@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/index.js';
 import { createGraphs } from '../src/server/graphs.js';
+import { createPGliteQueryDatabase } from '../src/adapters/pglite-query-database.js';
 import { createHandler } from '../src/server/http.js';
 import { createSourceStores, type SourceStores } from '../src/server/sources.js';
 import { PGlite } from '@electric-sql/pglite';
@@ -825,7 +826,8 @@ describe('concurrent model and view requests', () => {
         return stored;
       },
     };
-    const graphs = createGraphs({ historyOf: (source) => realSources.historyOf(source), clock });
+    const queryDatabase = await createPGliteQueryDatabase();
+    const graphs = createGraphs({ historyOf: (source) => realSources.historyOf(source), database: queryDatabase });
     const handler = createHandler({ sources, graphs, log: () => {}, errorLog: () => {} });
     let pendingStore: Promise<Response> | undefined;
     let pendingView: Promise<Response> | undefined;
@@ -873,7 +875,8 @@ describe('concurrent model and view requests', () => {
       releaseStore();
       await Promise.allSettled([...(pendingStore === undefined ? [] : [pendingStore]), ...(pendingView === undefined ? [] : [pendingView])]);
       await handler.drain();
-      graphs.close();
+      await graphs.close();
+      await queryDatabase.close();
       await realSources.close();
       rmSync(dataFolder, { recursive: true, force: true });
     }

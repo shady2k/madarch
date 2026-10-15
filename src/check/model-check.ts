@@ -29,7 +29,7 @@ import { byCodePoint, sortedByCodePoint } from '../model/order.js';
 import type { Evidence } from '../model/schema.js';
 import type { PositionedModel, PositionedScenario } from '../model/validate.js';
 import { prepareModel, renderModel } from '../render/prepare.js';
-import { buildViewSet } from '../render/view-set.js';
+import { buildAsyncViewSet } from '../render/view-set.js';
 import { writeViews, type WrittenViews } from '../render/write.js';
 import {
   BULK_COMMIT_FILES,
@@ -678,7 +678,7 @@ async function problemFindings(repo: string, revCommit: string, model: CompiledM
     if (prepared.errors.length > 0) {
       notes.push({ file: repo, line: 0, message: `${prepared.errors[0]}; the problems that read the levels were skipped` });
     } else {
-      const viewSet = buildViewSet(prepared.engine, model, prepared.at);
+      const viewSet = await prepared.engine.withSnapshot((snapshot) => buildAsyncViewSet(snapshot, model, prepared.at));
       if (viewSet.views === undefined) {
         notes.push({ file: repo, line: 0, message: `the view set could not be built: ${viewSet.errors[0]?.message ?? 'no error named'}; the problems that read the levels were skipped` });
       } else {

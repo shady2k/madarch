@@ -23,16 +23,15 @@
  * on them.
  */
 import { CLASHABLE_KINDS } from '../history/assertions.js';
-import { createLadybugEngine } from '../adapters/ladybug-engine.js';
-import type { AssertionRecord, Clock, HistoryStore, StoreResult } from '../history/types.js';
-import type { QueryEngine } from '../query/types.js';
+import type { AsyncQueryDatabase, AsyncQueryEngine } from '../query/types.js';
+import type { AssertionRecord, HistoryStore, StoreResult } from '../history/types.js';
 import { byCodePoint } from '../model/order.js';
 
 export interface GraphsOptions {
   /** The history of one source, where a graph's engine reads its assertions. */
   historyOf(source: string): HistoryStore;
-  /** The clock the engine answers queries for by default; tests inject a fake clock. */
-  clock?: Clock;
+  /** One owner shared by every source-scoped graph facade. */
+  database: AsyncQueryDatabase;
 }
 
 /** One named set of sources with its one query engine. */
@@ -41,9 +40,9 @@ export interface Graph {
   /** The sources the graph is built from, in code point order. */
   readonly sources: readonly string[];
   /** The engine, built on first use from every listed source's assertions. */
-  engine(): Promise<QueryEngine>;
+  engine(): Promise<AsyncQueryEngine>;
   /** Closes this graph permanently, invalidating a pending build and releasing its engine if built. */
-  close(): void;
+  close(): Promise<void>;
 }
 
 export interface Graphs {
@@ -62,7 +61,7 @@ export interface Graphs {
    * listing the source are dropped for the next use to rebuild from the
    * histories, and the throw is passed on to the caller.
    */
-  applyStore(source: string, result: StoreResult): void;
+  applyStore(source: string, result: StoreResult): Promise<void>;
   /**
    * Drops the built engines of every graph listing the source, so their
    * next use rebuilds them from the histories through the clash check; a
@@ -72,16 +71,16 @@ export interface Graphs {
    * apply, so a built engine must not be left answering from the older
    * model the history has already moved past.
    */
-  dropBuilt(source: string): void;
+  dropBuilt(source: string): Promise<void>;
   /**
    * Removes every graph listing the source, closing each built engine:
    * after a rename no graph is asked about the old name again, and a
    * graph of it left behind would hold the rows of a name no source
    * holds. A source no graph lists changes nothing.
    */
-  remove(source: string): void;
+  remove(source: string): Promise<void>;
   /** Closes every graph permanently and invalidates pending engine builds. */
-  close(): void;
+  close(): Promise<void>;
 }
 
 /** What the set of graphs knows about each of its graphs beside `Graph` itself. */
@@ -89,16 +88,19 @@ interface GraphEntry extends Graph {
   /** Whether one store's report concerns this graph at all. */
   lists(source: string): boolean;
   /** Applies one store's report to a built engine; a graph that was never built changes nothing. */
-  applyIfBuilt(result: StoreResult): void;
+  applyIfBuilt(result: StoreResult): Promise<void>;
   /** Invalidates a pending build and drops the built engine, if there is one; the next use rebuilds through the clash check. */
-  dropIfBuilt(): void;
+  dropIfBuilt(): Promise<void>;
+  /** Clears the retired source scope from the shared SQL projection before closing this graph. */
+  clear(source: string): Promise<void>;
 }
 
 /** One graph: the engine built lazily from the assertions of every listed source. */
-function newGraph(name: string, sources: readonly string[], historyOf: (source: string) => HistoryStore, clock: Clock): GraphEntry {
+function newGraph(name: string, sources: readonly string[], historyOf: (source: string) => HistoryStore, database: AsyncQueryDatabase): GraphEntry {
   const listed = [...sources].sort(byCodePoint);
-  let engineInstance: QueryEngine | undefined;
-  let enginePromise: Promise<QueryEngine> | undefined;
+  let engineInstance: AsyncQueryEngine | undefined;
+  let enginePromise: Promise<AsyncQueryEngine> | undefined;
+  let facade: AsyncQueryEngine | undefined;
   let generation = 0;
   let retired = false;
   /**
@@ -112,33 +114,36 @@ function newGraph(name: string, sources: readonly string[], historyOf: (source: 
    * original one — the engine's memory goes back to the runtime once
    * this cache held its last reference anyway.
    */
-  const dropIfBuilt = (): void => {
+  const dropIfBuilt = async (): Promise<void> => {
     generation++;
     enginePromise = undefined;
-    const engine = engineInstance;
-    if (engine === undefined) return;
+    const engine = facade;
     engineInstance = undefined;
+    facade = undefined;
+    if (engine === undefined) return;
     try {
-      engine.close();
+      await engine.close();
     } catch {
       // Swallowed on purpose; see above.
     }
   };
-  const engine = (): Promise<QueryEngine> => {
+  const engine = (): Promise<AsyncQueryEngine> => {
     if (retired) return Promise.reject(new Error(`the graph "${name}" is closed`));
     if (engineInstance !== undefined) return Promise.resolve(engineInstance);
     if (enginePromise !== undefined) return enginePromise;
 
     const buildGeneration = generation;
-    let pending!: Promise<QueryEngine>;
+    let pending!: Promise<AsyncQueryEngine>;
     pending = (async () => {
       try {
         const assertions = (await Promise.all(listed.map((source) => historyOf(source).assertions({ source })))).flat();
         if (buildGeneration !== generation) return engine();
         const clash = clashingId(assertions);
         if (clash !== undefined) throw new Error(clash);
-        const built = createLadybugEngine({ clock });
-        built.rebuild(assertions);
+        const built = database.forSources(listed);
+        facade = built;
+        await built.rebuild(assertions);
+        if (buildGeneration !== generation) return engine();
         engineInstance = built;
         return built;
       } catch (error) {
@@ -151,32 +156,49 @@ function newGraph(name: string, sources: readonly string[], historyOf: (source: 
     enginePromise = pending;
     return pending;
   };
-  const close = (): void => {
+  const close = async (): Promise<void> => {
+    if (retired) return;
     retired = true;
-    dropIfBuilt();
+    await dropIfBuilt();
   };
   return {
     name,
     sources: listed,
     engine,
     lists: (source) => listed.includes(source),
-    applyIfBuilt: (result) => {
+    applyIfBuilt: async (result) => {
       // A graph of one source cannot take a clash: its rows are the only
       // rows, and the incremental update keeps the engine in step. A
       // graph of several can — the clash is decided only when the engine
       // is built — so its built engine is dropped and the next use
       // rebuilds it through the check instead of adding the rows blind.
       if (listed.length > 1) {
-        dropIfBuilt();
+        await dropIfBuilt();
         return;
       }
       if (enginePromise !== undefined) {
-        dropIfBuilt();
+        await dropIfBuilt();
         return;
       }
-      engineInstance?.update(result.opened, result.closed);
+      if (engineInstance !== undefined) await engineInstance.update(result.opened, result.closed);
     },
     dropIfBuilt,
+    clear: async (source) => {
+      retired = true;
+      generation++;
+      enginePromise = undefined;
+      const old = facade;
+      facade = undefined;
+      engineInstance = undefined;
+      // Clear only the removed source. A graph can represent a union, but
+      // its borrowed facade must not erase unrelated sources' shared rows.
+      const clearer = database.forSources([source]);
+      let failure: unknown;
+      try { await clearer.rebuild([]); } catch (error) { failure = error; }
+      try { await clearer.close(); } catch (error) { failure ??= error; }
+      try { await old?.close(); } catch (error) { failure ??= error; }
+      if (failure !== undefined) throw failure;
+    },
     close,
   };
 }
@@ -226,8 +248,7 @@ function clashingId(assertions: readonly AssertionRecord[]): string | undefined 
 }
 
 export function createGraphs(options: GraphsOptions): Graphs {
-  const { historyOf } = options;
-  const clock: Clock = options.clock ?? { now: () => Date.now() };
+  const { historyOf, database } = options;
   const graphs = new Map<string, GraphEntry>();
 
   function addGraph(name: string, sources: readonly string[]): Graph {
@@ -242,16 +263,16 @@ export function createGraphs(options: GraphsOptions): Graphs {
     if (duplicated.size > 0) {
       throw new Error(`the graph "${name}" lists ${[...duplicated].sort(byCodePoint).map((each) => `"${each}"`).join(', ')} more than once: a graph is a set of sources, each listed once`);
     }
-    const graph = newGraph(name, sources, historyOf, clock);
+    const graph = newGraph(name, sources, historyOf, database);
     graphs.set(name, graph);
     return graph;
   }
 
-  function applyStore(source: string, result: StoreResult): void {
+  async function applyStore(source: string, result: StoreResult): Promise<void> {
     if (result.opened.length === 0 && result.closed.length === 0) return;
     try {
       for (const graph of graphs.values()) {
-        if (graph.lists(source)) graph.applyIfBuilt(result);
+        if (graph.lists(source)) await graph.applyIfBuilt(result);
       }
     } catch (error) {
       // A built engine failed to take the report — after the history
@@ -262,19 +283,19 @@ export function createGraphs(options: GraphsOptions): Graphs {
       // them from the history through the clash check, never from a
       // half-updated or older model. The throw passes on unchanged, so
       // the server's own failure answer stays what it was.
-      dropBuilt(source);
+      await dropBuilt(source);
       throw error;
     }
   }
 
-  function dropBuilt(source: string): void {
+  async function dropBuilt(source: string): Promise<void> {
     for (const graph of graphs.values()) {
-      if (graph.lists(source)) graph.dropIfBuilt();
+      if (graph.lists(source)) await graph.dropIfBuilt();
     }
   }
 
-  function remove(source: string): void {
-    const removed: Graph[] = [];
+  async function remove(source: string): Promise<void> {
+    const removed: GraphEntry[] = [];
     for (const [name, graph] of graphs) {
       if (!graph.lists(source)) continue;
       graphs.delete(name);
@@ -283,7 +304,7 @@ export function createGraphs(options: GraphsOptions): Graphs {
     let failure: unknown;
     for (const graph of removed) {
       try {
-        graph.close();
+        await graph.clear(source);
       } catch (error) {
         failure ??= error;
       }
@@ -291,8 +312,12 @@ export function createGraphs(options: GraphsOptions): Graphs {
     if (failure !== undefined) throw failure;
   }
 
-  function close(): void {
-    for (const graph of graphs.values()) graph.close();
+  async function close(): Promise<void> {
+    let failure: unknown;
+    for (const graph of graphs.values()) {
+      try { await graph.close(); } catch (error) { failure ??= error; }
+    }
+    if (failure !== undefined) throw failure;
   }
 
   return {
