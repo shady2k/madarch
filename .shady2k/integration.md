@@ -363,18 +363,22 @@ are the repository's installation, and each person's plugin and hooks are theirs
   owner's public email, then run `sh .shady2k/connect.sh`.
 - **CI:** GitHub Actions on every push of any branch, once (a pull request from
   this repository shows its branch's push run; `[skip ci]` in the pushed
-  commit's message skips unfinished work). `.github/workflows/ci.yml` runs
-  `bun install --frozen-lockfile`, `bun run check`, `bun run test` (the root's
-  tests in `test/`) and `bun run views:check` on Linux, about 7 minutes, and
-  the wiki app's own `bun install --frozen-lockfile`, `bun run check`,
-  `bun test` and `bun run build` inside `wiki/app`; a change touching only
-  `docs/`, `.beads/`, `.shady2k/`, `.githooks/`, `.github/workflows/` or root
-  `*.md` files runs nothing there (`paths-ignore`): it cannot touch the product.
-  `.github/workflows/documents.yml` runs the product-documents check on every
-  push whatever the paths, about 15 seconds, as the set requires it in CI
-  whatever the project's scope. In personal scope the backlog, commit-link and
-  document gates stay in the local hooks only; the product-documents check is
-  the one that runs both.
+  commit's message skips unfinished work). `.github/workflows/ci.yml` runs the
+  root suite in five `bun test --shard=i/5` jobs balanced by
+  `.github/workflows/test-timings.json`; refresh the timings with
+  `bun test test/ --timings=.github/workflows/test-timings.json --update-timings`.
+  The stable `test` job is green only when all five shards, the separate checks
+  job and the union-of-test-files check pass. The checks job keeps
+  `bun install --frozen-lockfile`, `bun run check`, the PostgreSQL service and
+  test, `bun run views:check`, `bun run contract:check`, and the wiki app's own
+  install, checks, tests and build. Workflow changes run CI so the workflow
+  judging the branch is itself tested. Changes touching only `docs/`, `.beads/`,
+  `.shady2k/`, `.githooks/` or root `*.md` files run nothing there
+  (`paths-ignore`). `.github/workflows/documents.yml` runs the product-documents
+  check on every push whatever the paths, about 15 seconds, as the set requires
+  it in CI whatever the project's scope. In personal scope the backlog,
+  commit-link and document gates stay in the local hooks only; the
+  product-documents check is the one that runs both.
 - **Bulk-edit age correction:** `check.mjs --ages-from <before.json> --ages-through <after.json>`
   with adapter snapshots taken before and after the edit.
 - **Runtime:** Bun 1.4.2 (`packageManager` in `package.json`), TypeScript 7

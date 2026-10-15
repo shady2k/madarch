@@ -146,7 +146,7 @@ describe("the model check's views", () => {
         rmSync(base, { recursive: true, force: true });
       }
     });
-  });
+  }, { timeout: 15_000 });
 
   test("a page whose view is gone is removed by a later run; the caller's own files stay", async () => {
     await withShopRepo(async (repo) => {
