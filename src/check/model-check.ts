@@ -28,8 +28,8 @@ import { loadAndCompileModel } from '../model/load-and-compile.js';
 import { byCodePoint, sortedByCodePoint } from '../model/order.js';
 import type { Evidence } from '../model/schema.js';
 import type { PositionedModel, PositionedScenario } from '../model/validate.js';
-import { prepareModel, renderModel } from '../render/prepare.js';
-import { buildAsyncViewSet } from '../render/view-set.js';
+import { prepareModel, renderPreparedModel, type PreparedModel } from '../render/prepare.js';
+import { buildAsyncViewSet, type ViewSetResult } from '../render/view-set.js';
 import { writeViews, type WrittenViews } from '../render/write.js';
 import {
   BULK_COMMIT_FILES,
@@ -89,6 +89,11 @@ export interface ModelCheckOptions {
    * the model does not compile: nothing is written anywhere.
    */
   views?: string;
+  /**
+   * `on-failure` skips advisory graph problems on a passing check. The send
+   * command uses it because only failing findings prevent a send.
+   */
+  problems?: 'always' | 'on-failure';
 }
 
 /** An element, interface, relation or data entity of the model, named as the loader positions it. */
@@ -664,34 +669,19 @@ function touchedCommits(repo: string, revCommit: string, committedAt: number, fi
  * the history unreadable, the model unstorable, the view set unbuildable)
  * the rest is still reported and a note says what was skipped.
  */
-async function problemFindings(repo: string, revCommit: string, model: CompiledModel, assignment: readonly { path: string; element: string }[], elementIds: ReadonlySet<string>, notes: ModelCheckFinding[]): Promise<ProblemFinding[]> {
+async function problemFindings(repo: string, revCommit: string, model: CompiledModel, assignment: readonly { path: string; element: string }[], elementIds: ReadonlySet<string>, notes: ModelCheckFinding[]): Promise<{ findings: ProblemFinding[]; prepared?: PreparedModel; viewSet?: ViewSetResult }> {
   const findings: ProblemFinding[] = [];
   findings.push(...magicSourceOrSinkProblems(model), ...trustBoundaryProblems(model));
 
   const committedAt = committedTime(repo, revCommit);
   if (committedAt === undefined) {
     notes.push({ file: repo, line: 0, message: `the checked revision ${revCommit} has no readable commit time; the problems that read the levels or the history were skipped` });
-    return findings;
-  }
-  const prepared = await prepareModel(model, { source: 'model-check', commit: revCommit, at: committedAt });
-  try {
-    if (prepared.errors.length > 0) {
-      notes.push({ file: repo, line: 0, message: `${prepared.errors[0]}; the problems that read the levels were skipped` });
-    } else {
-      const viewSet = await prepared.engine.withSnapshot((snapshot) => buildAsyncViewSet(snapshot, model, prepared.at));
-      if (viewSet.views === undefined) {
-        notes.push({ file: repo, line: 0, message: `the view set could not be built: ${viewSet.errors[0]?.message ?? 'no error named'}; the problems that read the levels were skipped` });
-      } else {
-        const levels = levelsOf(viewSet.views);
-        findings.push(...cycleProblems(levels), ...unstableDependencyProblems(levels), ...hubProblems(levels));
-      }
-    }
-  } finally {
-    await prepared.close();
+    return { findings };
   }
 
-  // A file belongs to the element of the deepest assignment row covering
-  // it; an excluded file belongs to no element.
+  // Hidden coupling is read from Git, not the query engine. Do it before
+  // preparing the temporary database so that it does not hold that database
+  // open while Git walks the available history.
   const deepestFirst = [...assignment].sort((a, b) => b.path.length - a.path.length);
   const fileElement = (file: string): string | undefined => {
     const row = deepestFirst.find((candidate) => (candidate.path.endsWith('/') ? file.startsWith(candidate.path) : file === candidate.path));
@@ -700,20 +690,37 @@ async function problemFindings(repo: string, revCommit: string, model: CompiledM
   const commits = touchedCommits(repo, revCommit, committedAt, fileElement, elementIds);
   if (commits === undefined) {
     notes.push({ file: repo, line: 0, message: 'the commit history could not be read; hidden coupling was skipped' });
-    return findings;
-  }
-  // A shallow clone holds less history than the window asks for: say so,
-  // with the date the available history reaches back to, never quietly
-  // over less.
-  const shallow = git(repo, ['rev-parse', '--is-shallow-repository']);
-  if (shallow.ok && shallow.stdout.trim() === 'true') {
-    const boundary = shallowBoundaryTime(repo, revCommit);
-    if (boundary !== undefined && committedAt - boundary < HIDDEN_COUPLING_WINDOW_DAYS * 24 * 60 * 60 * 1000) {
-      notes.push({ file: repo, line: 0, message: `the repository is a shallow clone: the history reaches back only to ${new Date(boundary).toISOString()}; hidden coupling was computed over the available history only` });
+  } else {
+    // A shallow clone holds less history than the window asks for: say so,
+    // with the date the available history reaches back to, never quietly
+    // over less.
+    const shallow = git(repo, ['rev-parse', '--is-shallow-repository']);
+    if (shallow.ok && shallow.stdout.trim() === 'true') {
+      const boundary = shallowBoundaryTime(repo, revCommit);
+      if (boundary !== undefined && committedAt - boundary < HIDDEN_COUPLING_WINDOW_DAYS * 24 * 60 * 60 * 1000) {
+        notes.push({ file: repo, line: 0, message: `the repository is a shallow clone: the history reaches back only to ${new Date(boundary).toISOString()}; hidden coupling was computed over the available history only` });
+      }
     }
+    findings.push(...hiddenCouplingProblems(model, commits));
   }
-  findings.push(...hiddenCouplingProblems(model, commits));
-  return findings;
+
+  // Keep this one prepared engine alive for the optional render below: both
+  // the level findings and the pages use the same stored model and snapshot.
+  const prepared = await prepareModel(model, { source: 'model-check', commit: revCommit, at: committedAt });
+  let viewSet: ViewSetResult | undefined;
+  try {
+    viewSet = await prepared.engine.withSnapshot((snapshot) => buildAsyncViewSet(snapshot, model, prepared.at));
+    if (viewSet.views === undefined) {
+      notes.push({ file: repo, line: 0, message: `the view set could not be built: ${viewSet.errors[0]?.message ?? 'no error named'}; the problems that read the levels were skipped` });
+    } else {
+      const levels = levelsOf(viewSet.views);
+      findings.push(...cycleProblems(levels), ...unstableDependencyProblems(levels), ...hubProblems(levels));
+    }
+    return { findings, prepared, viewSet };
+  } catch (error) {
+    await prepared.close();
+    throw error;
+  }
 }
 
 /**
@@ -726,14 +733,13 @@ async function problemFindings(repo: string, revCommit: string, model: CompiledM
  * were asked for, so their absence fails the check. The folder stays the
  * only place the check writes.
  */
-async function writeViewFolder(repo: string, revCommit: string, model: CompiledModel, folder: string, errors: ModelCheckFinding[], notes: ModelCheckFinding[]): Promise<void> {
-  const committedAt = committedTime(repo, revCommit);
-  if (committedAt === undefined) {
+async function writeViewFolder(repo: string, revCommit: string, folder: string, prepared: PreparedModel | undefined, viewSet: ViewSetResult | undefined, errors: ModelCheckFinding[], notes: ModelCheckFinding[]): Promise<void> {
+  if (prepared === undefined) {
     errors.push({ file: repo, line: 0, message: `the views for ${folder} were not rendered: the checked revision ${revCommit} has no readable commit time` });
     return;
   }
   try {
-    const rendered = await renderModel(model, { source: 'model-check', commit: revCommit, at: committedAt });
+    const rendered = await renderPreparedModel(prepared, viewSet);
     if (rendered.pages === undefined || rendered.workspace === undefined) {
       errors.push({ file: repo, line: 0, message: `the views for ${folder} could not be rendered: ${rendered.errors[0] ?? 'no error named'}` });
       return;
@@ -868,13 +874,19 @@ export async function checkModel(repoPath: string, options: ModelCheckOptions = 
   report.stale.push(...review.stale);
   report.notes.push(...review.notes);
 
-  // Problems never fail the check: they are computed from the compiled
-  // model and the history whenever both could be read.
-  report.problems = (await problemFindings(repo, revCommit, model!, review.assignment, elementIds, report.notes)).sort(compareProblems);
-
-  // The views, when the caller asked for them: the model compiled, so
-  // every view of it is rendered and written into the folder they named.
-  if (options.views !== undefined) await writeViewFolder(repo, revCommit, model!, options.views, report.errors, report.notes);
+  // Problems never fail the check. The send command needs them only when
+  // another finding rejects the model; rendering still uses the same prepared
+  // engine and therefore runs the analysis when views were requested.
+  const shouldAnalyzeProblems = options.problems !== 'on-failure' || report.errors.length > 0 || options.views !== undefined;
+  if (shouldAnalyzeProblems) {
+    const analysis = await problemFindings(repo, revCommit, model!, review.assignment, elementIds, report.notes);
+    try {
+      report.problems = analysis.findings.sort(compareProblems);
+      if (options.views !== undefined) await writeViewFolder(repo, revCommit, options.views, analysis.prepared, analysis.viewSet, report.errors, report.notes);
+    } finally {
+      await analysis.prepared?.close();
+    }
+  }
 
   // Warnings arrive ordered from the loader (file order, then the order
   // written); errors, stale items and notes are sorted here whatever order
