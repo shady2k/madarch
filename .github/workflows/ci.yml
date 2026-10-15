@@ -2,8 +2,8 @@ name: CI
 
 # The product's checks, once per push of any branch; a pull request from this
 # repository shows its branch's push run, so it is not run twice. A change that
-# touches only documents, the tracker or the workflow's own tooling cannot
-# touch the product and runs nothing; that tooling is checked by the local hooks
+# touches only documents or the tracker cannot touch the product and runs
+# nothing. CI workflow changes run CI to exercise the changed workflow.
 # (see .shady2k/integration.md, "CI"). The product-documents check is separate
 # and runs on every push (documents.yml). Unfinished work skips a run with
 # [skip ci] in the pushed commit's message.
@@ -14,11 +14,41 @@ on:
       - '.beads/**'
       - '.shady2k/**'
       - '.githooks/**'
-      - '.github/workflows/**'
       - '*.md'
 
 jobs:
-  test:
+  test-shard:
+    name: test shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      # Refresh the full-suite timings locally with:
+      # bun test test/ --timings=.github/workflows/test-timings.json --update-timings
+      # The empty first timings file captures the files this shard actually ran;
+      # the committed second file supplies historical durations for balancing.
+      - name: Run shard and record its file list
+        run: |
+          shard_files="$RUNNER_TEMP/shard-${{ matrix.shard }}.json"
+          printf '{"version":1,"files":{}}\n' > "$shard_files"
+          bun test test/ --shard=${{ matrix.shard }}/5 \
+            --timings="$shard_files,.github/workflows/test-timings.json" --update-timings
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-files-${{ matrix.shard }}
+          path: ${{ runner.temp }}/shard-${{ matrix.shard }}.json
+          if-no-files-found: error
+          retention-days: 1
+
+  checks:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -41,10 +71,6 @@ jobs:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
       - run: bun run check
-      # The root's tests only (`bun run test` = `bun test test/`): the wiki
-      # app has its own package and lockfile, discovered only after its own
-      # install step below — the root job must not run its tests before that.
-      - run: bun run test
       - run: bun test test/postgres-query-database.test.ts
         env:
           MADARCH_TEST_POSTGRES_URL: postgres://madarch_test:madarch_test@127.0.0.1:5432/madarch_test
@@ -55,3 +81,29 @@ jobs:
       # the product's: a broken app fails CI.
       - run: bun install --frozen-lockfile && bun run check && bun test && bun run build
         working-directory: wiki/app
+
+  # Keep the stable "test" status required by branch protection. always() makes
+  # this run after a failed, skipped, or cancelled dependency; none can go green.
+  test:
+    if: always()
+    needs: [test-shard, checks]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: test-files-*
+          path: ${{ runner.temp }}/shard-files
+          merge-multiple: true
+      - name: Verify every root test file ran exactly once
+        run: node .shady2k/check-test-shards.mjs "$RUNNER_TEMP/shard-files" 5
+      - name: Require every shard and CI check to pass
+        if: always()
+        env:
+          SHARDS_RESULT: ${{ needs.test-shard.result }}
+          CHECKS_RESULT: ${{ needs.checks.result }}
+        run: |
+          if [[ "$SHARDS_RESULT" != success || "$CHECKS_RESULT" != success ]]; then
+            echo "test-shard result: $SHARDS_RESULT; checks result: $CHECKS_RESULT" >&2
+            exit 1
+          fi
