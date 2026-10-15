@@ -46,6 +46,13 @@ describe('discussion selection source mapping', () => {
     expect(result).toEqual({ ok: true, range: { start: 6, end: 12, quote: 'second', before: 'first\n', after: '' } });
   });
 
+  test('maps text after hard breaks in both Markdown forms', () => {
+    for (const [markdown, sourceStart] of [['first  \nsecond', 8], ['first\\\nsecond', 7]] as const) {
+      const result = mapParagraphSelection(markdown, 6, 12);
+      expect(result).toEqual({ ok: true, range: { start: sourceStart, end: sourceStart + 6, quote: 'second', before: 'first\n', after: '' } });
+    }
+  });
+
   test('rejects boundaries inside combining and joined emoji graphemes', () => {
     expect(mapParagraphSelection('e\u0301 text', 1, 2).ok).toBe(false);
     expect(mapParagraphSelection('👍🏽 text', 2, 4).ok).toBe(false);

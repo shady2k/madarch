@@ -30,9 +30,6 @@ export function mapParagraphSelection(markdown: string, from: number, to: number
       rendered += '\n';
       const nodeStart = node.position?.start.offset;
       const nodeEnd = node.position?.end.offset;
-      if (nodeStart !== undefined && nodeEnd !== undefined) {
-        spans.push({ node: { type: 'text', value: '\n', position: node.position } as Text, start, end: rendered.length, value: '\n', ...(boundaryStart === undefined ? {} : { groupStart: boundaryStart }), ...(boundaryEnd === undefined ? {} : { groupEnd: boundaryEnd }) });
-      }
       return;
     }
     if (node.type === 'text') {
