@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import { createTestQueryEngine } from './query-test-engine.js';
 import { fileURLToPath } from 'node:url';
-import { compileModel, createLadybugEngine, createPGliteHistory, loadModel, type AssertionRecord, type Clock, type HistoryStore, type QueryEngine } from '../src/index.js';
+import { compileModel, createPGliteHistory, loadModel, type AssertionRecord, type Clock, type HistoryStore, type AsyncQueryEngine } from '../src/index.js';
 
 /**
  * graph-queries/view, the `refinement-in-own-view` scenario and the sentence
@@ -23,7 +24,7 @@ const DAY = (day: number) => Date.UTC(2026, 8, day);
 const AT = { valid: DAY(2), known: DAY(2), state: 'as-is' };
 
 /** Loads and compiles each fixture in turn as one source's next commit, and builds a query engine from the history they produced. */
-async function engineFor(...versions: { name: string; committedAt: number; storedAt: number }[]): Promise<{ engine: QueryEngine; history: HistoryStore }> {
+async function engineFor(...versions: { name: string; committedAt: number; storedAt: number }[]): Promise<{ engine: AsyncQueryEngine; history: HistoryStore }> {
   const clock = fakeClock(versions[0]!.storedAt);
   const history = createPGliteHistory({ clock });
   for (const version of versions) {
@@ -32,12 +33,12 @@ async function engineFor(...versions: { name: string; committedAt: number; store
     clock.set(version.storedAt);
     expect((await history.store({ source: 's', commit: version.name, committedAt: version.committedAt, model: compileModel(model!) })).errors).toEqual([]);
   }
-  const engine = createLadybugEngine();
-  engine.rebuild(await history.assertions());
+  const engine = await createTestQueryEngine();
+  await engine.rebuild(await history.assertions());
   return { engine, history };
 }
 
-async function oneVersion(name: string): Promise<{ engine: QueryEngine; history: HistoryStore }> {
+async function oneVersion(name: string): Promise<{ engine: AsyncQueryEngine; history: HistoryStore }> {
   return await engineFor({ name, committedAt: DAY(1), storedAt: DAY(2) });
 }
 
@@ -50,26 +51,26 @@ const OWN_VIEW = {
   relations: [{ from: 'checkout-payment-step', to: 'payments', relationIds: ['payment-step-authorizes'] }],
 };
 
-describe('graph-queries/view: a refinement in its element\'s own view', () => {
+describe('graph-queries/view: a refinement in its element\'s own view', async () => {
   test('refinement-in-own-view: the payment step is drawn to the neighbour payments, and nothing from checkout-api itself', async () => {
     const { engine, history } = await oneVersion('gq-refinement-own-view');
 
-    expect(engine.view({ scope: 'checkout-api', depth: 1, context: true }, AT)).toEqual(OWN_VIEW);
+    expect(await engine.view({ scope: 'checkout-api', depth: 1, context: true }, AT)).toEqual(OWN_VIEW);
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
   test('at depth zero nothing below the scope is shown, so the relation it refines is drawn from the scope, standing for the refinement', async () => {
     const { engine, history } = await oneVersion('gq-refinement-own-view');
 
-    expect(engine.view({ scope: 'checkout-api', depth: 0, context: true }, AT)).toEqual({
+    expect(await engine.view({ scope: 'checkout-api', depth: 0, context: true }, AT)).toEqual({
       elements: [{ id: 'checkout-api', kind: 'service', parent: 'shop' }],
       neighbours: [{ id: 'payments', kind: 'domain' }],
       relations: [{ from: 'checkout-api', to: 'payments', relationIds: ['checkout-pays-through-payments'] }],
     });
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
@@ -77,32 +78,32 @@ describe('graph-queries/view: a refinement in its element\'s own view', () => {
     const { engine, history } = await oneVersion('gq-refinement-own-view');
 
     for (const depth of [1, 2]) {
-      const result = engine.view({ scope: 'shop', depth, context: true }, AT);
+      const result = await engine.view({ scope: 'shop', depth, context: true }, AT);
       expect(result.error).toBeUndefined();
       expect(result.neighbours).toEqual([{ id: 'payments', kind: 'domain' }]);
       expect(result.relations).toEqual([{ from: 'checkout-api', to: 'payments', relationIds: ['checkout-pays-through-payments'] }]);
     }
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
   test('without context nothing changes: the element\'s own view draws no crossing relation, and a whole-graph view draws the refinement beside the relation it refines once its own ends are shown', async () => {
     const { engine, history } = await oneVersion('gq-refinement-own-view');
 
-    expect(engine.view({ scope: 'checkout-api', depth: 1 }, AT)).toEqual({
+    expect(await engine.view({ scope: 'checkout-api', depth: 1 }, AT)).toEqual({
       elements: [
         { id: 'checkout-api', kind: 'service', parent: 'shop' },
         { id: 'checkout-payment-step', kind: 'module', parent: 'checkout-api' },
       ],
       relations: [],
     });
-    expect(engine.view({ depth: 2 }, AT).relations).toEqual([
+    expect((await engine.view({ depth: 2 }, AT)).relations).toEqual([
       { from: 'checkout-api', to: 'payments', relationIds: ['checkout-pays-through-payments'] },
       { from: 'checkout-payment-step', to: 'payments-api', relationIds: ['payment-step-authorizes'] },
     ]);
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
@@ -113,23 +114,23 @@ describe('graph-queries/view: a refinement in its element\'s own view', () => {
     );
     const input = { scope: 'checkout-api', depth: 1, context: true };
 
-    const before = engine.view(input, { valid: DAY(5), known: DAY(20), state: 'as-is' });
+    const before = await engine.view(input, { valid: DAY(5), known: DAY(20), state: 'as-is' });
     expect(before).toEqual({
       ...OWN_VIEW,
       relations: [{ from: 'checkout-api', to: 'payments', relationIds: ['checkout-pays-through-payments'] }],
     });
-    expect(engine.view(input, { valid: DAY(15), known: DAY(20), state: 'as-is' })).toEqual(OWN_VIEW);
+    expect(await engine.view(input, { valid: DAY(15), known: DAY(20), state: 'as-is' })).toEqual(OWN_VIEW);
     // Valid after the second commit, but known before it was stored.
-    expect(engine.view(input, { valid: DAY(15), known: DAY(5), state: 'as-is' })).toEqual(before);
+    expect(await engine.view(input, { valid: DAY(15), known: DAY(5), state: 'as-is' })).toEqual(before);
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
   test('two modules refining one relation are both drawn and the relation they refine is not; an incoming relation is replaced the same way; a refinement from the scope itself changes nothing', async () => {
     const { engine, history } = await oneVersion('gq-refinement-own-view-cases');
 
-    expect(engine.view({ scope: 'checkout-api', depth: 1, context: true }, AT)).toEqual({
+    expect(await engine.view({ scope: 'checkout-api', depth: 1, context: true }, AT)).toEqual({
       elements: [
         { id: 'checkout-api', kind: 'service', parent: 'shop' },
         { id: 'checkout-cart', kind: 'module', parent: 'checkout-api' },
@@ -148,7 +149,7 @@ describe('graph-queries/view: a refinement in its element\'s own view', () => {
       ],
     });
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
@@ -168,8 +169,8 @@ describe('graph-queries/view: a refinement in its element\'s own view', () => {
       content: JSON.stringify({ id, from, to, states: ['as-is'], ...(refines !== undefined ? { refines } : {}) }),
       ...DAY1,
     });
-    const engine = createLadybugEngine();
-    engine.rebuild([
+    const engine = await createTestQueryEngine();
+    await engine.rebuild([
       element('checkout-api', 'service', []),
       element('checkout-payment-step', 'module', ['checkout-api']),
       element('payments', 'domain', []),
@@ -179,11 +180,11 @@ describe('graph-queries/view: a refinement in its element\'s own view', () => {
       relation('step-authorizes', 'checkout-payment-step', 'payments-api', 'checkout-pays'),
     ]);
 
-    expect(engine.view({ scope: 'checkout-api', depth: 1, context: true }, AT).relations).toEqual([
+    expect((await engine.view({ scope: 'checkout-api', depth: 1, context: true }, AT)).relations).toEqual([
       { from: 'checkout-api', to: 'payments', relationIds: ['api-authorizes'] },
       { from: 'checkout-payment-step', to: 'payments', relationIds: ['step-authorizes'] },
     ]);
 
-    engine.close();
+    await engine.close();
   });
 });

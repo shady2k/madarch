@@ -34,11 +34,6 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   code are load, not a defect: check `free` and `df`, rerun the failing files alone,
   and never blame the change before that. The wiki's real builds run only with
   `MADARCH_WIKI_E2E=1`; point `MADARCH_WIKI_CACHE` at a scratch folder in tests.
-- LadybugDB 0.20.4: close every query result, or the buffer pool fills after a few
-  hundred queries. `$parameters` are refused inside list lambdas and recursive
-  relationship filters, so validated literals go into the query text; bound any
-  statement cache. Transitive queries use `SHORTEST` with the per-hop filter
-  (`*1..N (r, n | WHERE ...)`), never "match every path, then filter".
 - A check on an outside repository is a one-time walk at acceptance, recorded
   in the acceptance record. Committed tests use only fixtures the project holds
   or creates; none needs a checkout, commit or variable naming another

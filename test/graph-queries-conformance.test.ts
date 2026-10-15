@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
+import { createTestQueryEngine } from './query-test-engine.js';
 import { fileURLToPath } from 'node:url';
 import {
   compileModel,
-  createLadybugEngine,
   createPGliteHistory,
   loadModel,
   type Clock,
@@ -11,7 +11,7 @@ import {
   type CompiledRelation,
   type ElementKind,
   type HistoryStore,
-  type QueryEngine,
+  type AsyncQueryEngine,
 } from '../src/index.js';
 
 function element(id: string, kind: ElementKind, parent?: string): CompiledElement {
@@ -35,7 +35,7 @@ function model(elements: CompiledElement[], relations: CompiledRelation[]): Comp
  * `service-gains-internal-elements`, checked here through the view query
  * per stage3-brief.md): from a YAML fixture folder, through `loadModel` and
  * `compileModel`, stored in the (PGlite) model history with a fake clock,
- * to a `QueryEngine` built from that history's own `assertions()` — never
+ * to a `AsyncQueryEngine` built from that history's own `assertions()` — never
  * from the compiled model directly, so this also exercises `rebuild`.
  */
 function fixture(name: string): string {
@@ -50,7 +50,7 @@ function fakeClock(initial: number): Clock & { set(t: number): void } {
 const DAY = (day: number) => Date.UTC(2026, 8, day);
 
 /** Loads and compiles a fixture, stores it as one source's one commit, and builds a query engine from the history it produced. */
-async function engineFor(fixtureName: string, commit: string, committedAt: number, storedAt: number): Promise<{ engine: QueryEngine; history: HistoryStore }> {
+async function engineFor(fixtureName: string, commit: string, committedAt: number, storedAt: number): Promise<{ engine: AsyncQueryEngine; history: HistoryStore }> {
   const { model, errors } = loadModel(fixture(fixtureName));
   expect(errors).toEqual([]);
   const compiled = compileModel(model!);
@@ -60,22 +60,22 @@ async function engineFor(fixtureName: string, commit: string, committedAt: numbe
   const stored = await history.store({ source: 's', commit, committedAt, model: compiled });
   expect(stored.errors).toEqual([]);
 
-  const engine = createLadybugEngine();
-  engine.rebuild(await history.assertions());
+  const engine = await createTestQueryEngine();
+  await engine.rebuild(await history.assertions());
   return { engine, history };
 }
 
-describe('the graph-queries capability, end to end from YAML fixtures to query answers', () => {
+describe('the graph-queries capability, end to end from YAML fixtures to query answers', async () => {
   test('collapse: two modules calling one service, viewed at the depth of services, show one relation with both calls behind it', async () => {
     const { engine, history } = await engineFor('gq-collapse', 'c1', DAY(1), DAY(2));
     const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
 
-    const result = engine.view({ depth: 0 }, at);
+    const result = await engine.view({ depth: 0 }, at);
     expect(result.error).toBeUndefined();
     expect(result.elements?.map((e) => e.id).sort()).toEqual(['checkout-web', 'payments-api']);
     expect(result.relations).toEqual([{ from: 'checkout-web', to: 'payments-api', relationIds: ['cart-calls-payments', 'ui-calls-payments'] }]);
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
@@ -92,21 +92,21 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     // already stands for the refinement too: exactly graph-queries.md's
     // `refinement-counted-once` scenario, "one relation ... standing for
     // both, not two".
-    const atDepth1 = engine.view({ depth: 1 }, at);
+    const atDepth1 = await engine.view({ depth: 1 }, at);
     expect(atDepth1.error).toBeUndefined();
     expect(atDepth1.relations).toEqual([{ from: 'checkout-web', to: 'payments', relationIds: ['checkout-uses-payments'] }]);
 
     // Depth 2 (down to modules): checkout-cart is shown too now — both the
     // refinement's own ends (checkout-cart, payments-api) are shown — so it
     // draws its own full-detail pair beside the general relation it refines.
-    const atDepth2 = engine.view({ depth: 2 }, at);
+    const atDepth2 = await engine.view({ depth: 2 }, at);
     expect(atDepth2.error).toBeUndefined();
     expect(atDepth2.relations).toEqual([
       { from: 'checkout-cart', to: 'payments-api', relationIds: ['checkout-charges-card'] },
       { from: 'checkout-web', to: 'payments', relationIds: ['checkout-uses-payments'] },
     ]);
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
@@ -114,12 +114,12 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     const { engine, history } = await engineFor('gq-inside-one-box', 'c1', DAY(1), DAY(2));
     const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
 
-    const result = engine.view({ depth: 0 }, at);
+    const result = await engine.view({ depth: 0 }, at);
     expect(result.error).toBeUndefined();
     expect(result.elements?.map((e) => e.id)).toEqual(['checkout-web']);
     expect(result.relations).toEqual([]);
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
@@ -127,14 +127,14 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     const { engine, history } = await engineFor('gq-transitive-dependents', 'c1', DAY(1), DAY(2));
     const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
 
-    const result = engine.dependents('event-bus', { transitive: true }, at);
+    const result = await engine.dependents('event-bus', { transitive: true }, at);
     expect(result.error).toBeUndefined();
     const byId = new Map(result.elements?.map((e) => [e.id, e.chain]));
     expect(byId.get('orders-api')).toEqual(['orders-publishes']);
     expect(byId.get('checkout-web')).toEqual(['checkout-calls-orders', 'orders-publishes']);
     expect(byId.size).toBe(2);
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
@@ -155,26 +155,26 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     clock.set(DAY(12));
     expect((await history.store({ source: 's', commit: 'v2', committedAt: DAY(10), model: compileModel(v2.model!) })).errors).toEqual([]);
 
-    const engine = createLadybugEngine();
-    engine.rebuild(await history.assertions());
+    const engine = await createTestQueryEngine();
+    await engine.rebuild(await history.assertions());
 
     // Before v2's commit: the relation is still checkout-web's own direct
     // call (checkout-cart, the internal module it later moves to, does not
     // exist yet).
-    const before = engine.view({ depth: 0 }, { valid: DAY(5), known: DAY(20), state: 'as-is' });
+    const before = await engine.view({ depth: 0 }, { valid: DAY(5), known: DAY(20), state: 'as-is' });
     expect(before.error).toBeUndefined();
     expect(before.relations).toEqual([{ from: 'checkout-web', to: 'payments-api', relationIds: ['checkout-calls-payments'] }]);
 
     // After v2's commit: the same relation id now runs from the new
     // internal module, but still lifts to the very same single relation
     // from checkout-web to payments-api.
-    const after = engine.view({ depth: 0 }, { valid: DAY(15), known: DAY(20), state: 'as-is' });
+    const after = await engine.view({ depth: 0 }, { valid: DAY(15), known: DAY(20), state: 'as-is' });
     expect(after.error).toBeUndefined();
     expect(after.relations).toEqual([{ from: 'checkout-web', to: 'payments-api', relationIds: ['checkout-calls-payments'] }]);
 
     expect(after.relations).toEqual(before.relations);
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
@@ -189,12 +189,12 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     // nothing else in this view does. Depth 1 (not 0): checkout-cart and
     // checkout-ui are checkout-web's own immediate children, one level
     // below the scope (depth 0 would show checkout-web alone).
-    const scoped = engine.view({ scope: 'checkout-web', depth: 1 }, at);
+    const scoped = await engine.view({ scope: 'checkout-web', depth: 1 }, at);
     expect(scoped.error).toBeUndefined();
     expect(scoped.elements?.map((e) => e.id).sort()).toEqual(['checkout-cart', 'checkout-ui', 'checkout-web']);
     expect(scoped.relations).toEqual([{ from: 'checkout-cart', to: 'checkout-ui', relationIds: ['cart-calls-ui'] }]);
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
@@ -202,11 +202,11 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     const { engine, history } = await engineFor('gq-children', 'c1', DAY(1), DAY(2));
     const at = { valid: DAY(2), known: DAY(2), state: 'as-is' };
 
-    const result = engine.children('payments', at);
+    const result = await engine.children('payments', at);
     expect(result.error).toBeUndefined();
     expect(result.elements?.map((e) => e.id).sort()).toEqual(['payments-api', 'payments-stub']);
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
@@ -223,18 +223,18 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     clock.set(SEPTEMBER(5));
     expect((await history.store({ source: 's', commit: 'v2', committedAt: SEPTEMBER(5), model: compileModel(v2.model!) })).errors).toEqual([]);
 
-    const engine = createLadybugEngine();
-    engine.rebuild(await history.assertions());
+    const engine = await createTestQueryEngine();
+    await engine.rebuild(await history.assertions());
 
-    const before = engine.dependents('event-bus', { transitive: false }, { valid: SEPTEMBER(3), known: SEPTEMBER(20), state: 'as-is' });
+    const before = await engine.dependents('event-bus', { transitive: false }, { valid: SEPTEMBER(3), known: SEPTEMBER(20), state: 'as-is' });
     expect(before.error).toBeUndefined();
     expect(before.elements?.map((e) => e.id)).toEqual([]);
 
-    const after = engine.dependents('event-bus', { transitive: false }, { valid: SEPTEMBER(7), known: SEPTEMBER(20), state: 'as-is' });
+    const after = await engine.dependents('event-bus', { transitive: false }, { valid: SEPTEMBER(7), known: SEPTEMBER(20), state: 'as-is' });
     expect(after.error).toBeUndefined();
     expect(after.elements?.map((e) => e.id)).toEqual(['orders-api']);
 
-    engine.close();
+    await engine.close();
     await history.close();
   });
 
@@ -274,25 +274,25 @@ describe('the graph-queries capability, end to end from YAML fixtures to query a
     expect((await history.store({ source: 'p', commit: 'p3', committedAt: DAY(6), model: billingModel(2) })).errors).toEqual([]);
 
     const at = { valid: DAY(6), known: DAY(6), state: 'as-is' };
-    const fixedQueries = (engine: QueryEngine) => ({
-      view: engine.view({ depth: 0 }, at),
-      children: engine.children('checkout-web', at),
-      dependents: engine.dependents('ledger-svc', { transitive: true }, at),
+    const fixedQueries = async (engine: AsyncQueryEngine) => ({
+      view: await engine.view({ depth: 0 }, at),
+      children: await engine.children('checkout-web', at),
+      dependents: await engine.dependents('ledger-svc', { transitive: true }, at),
     });
 
-    const first = createLadybugEngine();
-    first.rebuild(await history.assertions());
-    const before = fixedQueries(first);
+    const first = await createTestQueryEngine();
+    await first.rebuild(await history.assertions());
+    const before = await fixedQueries(first);
     expect(before.view.error).toBeUndefined();
     expect(before.view.relations).toEqual([{ from: 'billing-api', to: 'ledger-svc', relationIds: ['billing-calls-ledger'] }, { from: 'checkout-web', to: 'payments-api', relationIds: ['checkout-calls-payments'] }]);
     expect(before.dependents.elements?.map((e) => e.id)).toEqual(['billing-api']);
-    first.close();
+    await first.close();
 
     // Thrown away and rebuilt from the very same history.
-    const second = createLadybugEngine();
-    second.rebuild(await history.assertions());
-    const after = fixedQueries(second);
-    second.close();
+    const second = await createTestQueryEngine();
+    await second.rebuild(await history.assertions());
+    const after = await fixedQueries(second);
+    await second.close();
 
     expect(after).toEqual(before);
     await history.close();
