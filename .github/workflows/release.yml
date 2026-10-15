@@ -3,15 +3,20 @@ name: release
 # The release build (madarch-lfhu, decision 0021 item (e)): a tag push of
 # `vX.Y.Z` builds one madarch binary per platform (linux and macOS, amd64
 # and arm64), smoke-runs each, checks the wikis, prepares the release assets,
-# and creates a GitHub release. A PR that edits this workflow validates the
-# same read-only build and package preparation; its tag-gated publish job is
-# skipped. This change does not alter release or registry-publishing policy.
+# and creates a GitHub release. A PR or branch push that edits this workflow
+# validates the same read-only build and package preparation; its tag-gated
+# publish job is skipped. This change does not alter release or
+# registry-publishing policy.
 
 on:
   pull_request:
     paths:
       - '.github/workflows/release.yml'
   push:
+    branches:
+      - '**'
+    paths:
+      - '.github/workflows/release.yml'
     tags:
       - 'v*'
 
@@ -38,7 +43,7 @@ jobs:
             os: darwin
             arch: x64
     env:
-      VERSION: ${{ github.event_name == 'push' && github.ref_name || 'v0.0.0' }}
+      VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v0.0.0' }}
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -54,7 +59,7 @@ jobs:
       # release matrix still builds and smoke-tests every target; tag pushes
       # retain the existing per-target test run.
       - name: test
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         run: MADARCH_SKIP_PERF=1 bun test test/
       # The wiki app is embedded into the binary: its build must be done
       # first, then its files ride with the build script's staging.
@@ -103,7 +108,7 @@ jobs:
     needs: binary
     runs-on: ubuntu-24.04
     env:
-      VERSION: ${{ github.event_name == 'push' && github.ref_name || 'v0.0.0' }}
+      VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v0.0.0' }}
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
