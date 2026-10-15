@@ -425,12 +425,13 @@ describe('the set check at serve time', () => {
 
   test('runProductCheck refuses a missing script by name', () => {
     const held = process.env['MADARCH_PRODUCT_CHECK'];
-    process.env['MADARCH_PRODUCT_CHECK'] = '/tmp/madarch-no-such-check.mjs';
+    const missingCheck = join(tmpdir(), 'madarch-no-such-check.mjs');
+    process.env['MADARCH_PRODUCT_CHECK'] = missingCheck;
     try {
       const run = runProductCheck(folder ?? '.');
       expect(run.ran).toBe(false);
       if (!run.ran) {
-        expect(run.message).toContain('/tmp/madarch-no-such-check.mjs');
+        expect(run.message).toContain(missingCheck);
         expect(run.message).toContain('MADARCH_PRODUCT_CHECK');
       }
     } finally {

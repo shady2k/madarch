@@ -27,6 +27,7 @@ import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync, statSync } from
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
 
 const USAGE = 'usage: bun scripts/build-binary.ts --version <x.y.z> [--os linux|darwin] [--arch x64|arm64] [--out <folder>]';
 
@@ -116,7 +117,7 @@ function stageAssets(stage: string, options: BuildOptions): { ok: true } | { ok:
 function main(argv: readonly string[]): number {
   const options = parseArgs(argv);
   if (typeof options === 'number') return options;
-  const stage = mkdtempSync(join('/tmp', 'madarch-build-binary-'));
+  const stage = mkdtempSync(join(tmpdir(), 'madarch-build-binary-'));
   try {
     const staged = stageAssets(stage, options);
     if (!staged.ok) {

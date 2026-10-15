@@ -44,7 +44,7 @@ if [ -z "$VERSION" ]; then
 fi
 BASE=${MADARCH_RELEASE_BASE:-https://github.com/$REPO/releases/download/$VERSION}
 
-TMPDIR=$(mktemp -d /tmp/madarch-install-XXXXXX)
+TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/madarch-install-XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 
 echo "downloading $BASE/$ARTIFACT"

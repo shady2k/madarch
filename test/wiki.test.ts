@@ -512,7 +512,7 @@ describe('scripts/wiki.ts', () => {
     const scratch = join(cache.MADARCH_WIKI_CACHE, scratchName);
     expect(existsSync(join(scratch, 'model.c4'))).toBe(true);
     expect(statSync(scratch).mode & 0o777).toBe(0o700);
-    // And no predictable scratch of the old shape is created in /tmp.
+    // And no predictable scratch of the old shape is created in the system temp directory.
     expect(readdirSync(tmpdir()).some((name) => name.startsWith('madarch-wiki-likec4-'))).toBe(false);
   }, { timeout: 60_000 });
 

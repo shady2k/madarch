@@ -27,11 +27,12 @@
     "debug": "^4.4.3",
     "likec4": "1.59.4",
     "mermaid": "12.0.0",
-    "puppeteer-core": "24.43.1",
+    "puppeteer": "24.43.1",
     "typescript": "7.0.2"
   },
   "trustedDependencies": [
-    "@ladybugdb/core"
+    "@ladybugdb/core",
+    "puppeteer"
   ],
   "bin": {
     "madarch": "./scripts/madarch.ts"
