@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { readProduct } from '../src/product/manifest.js';
 import { addCodeRepository, bootstrapProduct } from '../src/product/lifecycle.js';
-import { createDraft } from '../src/product/draft.js';
+import { createDraft, whyNotDraftName } from '../src/product/draft.js';
 import { listProducts } from '../src/product/list.js';
 import { gitEnv } from './git-env.js';
 import { GIT_IDENTITY, GIT_ENV } from './model-check-repo.js';
@@ -211,6 +211,39 @@ describe('madarch new', () => {
     await serve.finish();
   });
 
+  test('a positional name creates exactly that draft and serves it', async () => {
+    const base = scratchFolder('madarch-cli-named-app-');
+    const home = scratchFolder();
+    const serve = serveNew(['new', 'named-product', '--home', home, '--port', '0', '--no-open'],
+      { MADARCH_APP: builtApp(base) });
+    const { folder, id } = await printedLiveFacts(serve);
+    expect(folder).toBe(join(home, 'named-product'));
+    expect(readProduct(folder)).toMatchObject({ ok: true, product: { id, name: 'named-product' } });
+    expect(serve.exitCode).toBe(null);
+    await serve.finish();
+  });
+
+  test('new refuses non-portable names before creating a product folder', () => {
+    const home = scratchFolder('madarch-cli-invalid-name-');
+    const invalidNames = ['', '   ', 'nested/name', 'nested\\name', '.', '..', ' bad', ' bad ', 'trailing.', 'CON', 'COM1', 'COM¹', 'COM²', 'COM³', 'LPT1', 'LPT9', 'LPT¹', 'LPT²', 'LPT³', 'a'.repeat(256), '💩'.repeat(64)];
+    expect(whyNotDraftName('a'.repeat(255))).toBe(null);
+    expect(whyNotDraftName('my.CON')).toBe(null);
+    expect(whyNotDraftName('prefix-CON')).toBe(null);
+    for (const name of invalidNames) {
+      expect(whyNotDraftName(name)).not.toBe(null);
+      const { status, stdout, stderr } = runCommand(['new', name, '--home', home]);
+      expect(status).toBe(2);
+      expect(stdout).toBe('');
+      expect(stderr).toContain('requested product name');
+      expect(readdirSync(home)).toEqual([]);
+    }
+    mkdirSync(join(home, 'occupied'));
+    const collision = runCommand(['new', 'occupied', '--home', home]);
+    expect(collision.status).toBe(2);
+    expect(collision.stderr).toContain('already exists');
+    expect(readdirSync(home)).toEqual(['occupied']);
+  });
+
   test("--home moves this one command's products home, over MADARCH_HOME", async () => {
     const madarchHome = scratchFolder();
     const home = scratchFolder('madarch-cli-elsewhere-');
@@ -255,6 +288,7 @@ describe('madarch new', () => {
     // The lines each subcommand's surface promises, whole: a help that was
     // edited away would be a promise the command no longer keeps.
     for (const line of [
+      '   or: bun scripts/madarch.ts new [<name>] [--home <folder>] [--port <n>] [--no-open]',
       '   or: bun scripts/madarch.ts list [--home <folder>]',
       '  demo       clone or update the Madarch product repository and serve its wiki',
       '  list       name the products the products home holds',
@@ -306,10 +340,10 @@ describe('madarch new', () => {
     expect(stderr).toContain('"version"');
   });
 
-  test('a stray argument to new exits 2 naming it', () => {
-    const { status, stderr } = runCommand(['new', 'somewhere'], { MADARCH_HOME: scratchFolder() });
+  test('a second positional argument to new exits 2 naming it', () => {
+    const { status, stderr } = runCommand(['new', 'named-product', 'another'], { MADARCH_HOME: scratchFolder() });
     expect(status).toBe(2);
-    expect(stderr).toContain('somewhere');
+    expect(stderr).toContain('another');
     expect(stderr).toContain('unexpected argument');
   });
 
@@ -322,6 +356,12 @@ describe('madarch new', () => {
     expect(run.stderr).toContain('--product');
     expect(run.stderr).toContain('unknown option');
     expect(readdirSync(home).filter((name) => name.startsWith('idea-'))).toEqual([]);
+    for (const args of [['new', '--branch', 'main', '--home', home], ['new', '--yes', '--home', home]]) {
+      const unsupported = runCommand(args, { MADARCH_HOME: home });
+      expect(unsupported.status).toBe(2);
+      expect(unsupported.stderr).toContain('unknown option');
+      expect(readdirSync(home).filter((name) => name.startsWith('idea-'))).toEqual([]);
+    }
 
     const serveRun = runCommand(['serve', '--home', home], { MADARCH_HOME: home });
     expect(serveRun.status).toBe(2);

@@ -6,7 +6,7 @@
  * forwards its exit. The packages stay wheels of the binary: they carry no
  * JavaScript from the project, and nothing in them reads a skill set.
  *
- *   bun scripts/build-npm-package.ts --version 0.1.0 --os linux --arch x64 [--packages-dir npm]
+ *   bun scripts/build-npm-package.ts --version 0.1.0 --os linux|darwin|win32 --arch x64 [--packages-dir npm]
  *   bun scripts/build-npm-package.ts --version 0.1.0 --wrapper [--packages-dir npm]
  *
  * The result under `--packages-dir` is one npm-packable folder per run;
@@ -17,11 +17,11 @@
  * Exit 0 written, 2 when an argument or the input (the binary) is not
  * there, every refusal naming what is wrong.
  */
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const USAGE = 'usage: bun scripts/build-npm-package.ts --version <x.y.z> (--os <linux|darwin> --arch <x64|arm64> | --wrapper) [--packages-dir <folder>] [--binary <the built artifact>]';
+const USAGE = 'usage: bun scripts/build-npm-package.ts --version <x.y.z> (--os <linux|darwin|win32> --arch <x64|arm64> | --wrapper) [--packages-dir <folder>] [--binary <the built artifact>]';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -32,10 +32,12 @@ interface NpmOptions {
   wrapper: boolean;
   packagesDir: string;
   binary: string;
+  localWalk: boolean;
+  localPlatform: string;
 }
 
 function parseArgs(argv: readonly string[]): NpmOptions | number {
-  const parsed: NpmOptions = { version: '', os: '', arch: '', wrapper: false, packagesDir: 'npm', binary: '' };
+  const parsed: NpmOptions = { version: '', os: '', arch: '', wrapper: false, packagesDir: 'npm', binary: '', localWalk: false, localPlatform: '' };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     const takes = (name: string): string | undefined => {
@@ -71,6 +73,16 @@ function parseArgs(argv: readonly string[]): NpmOptions | number {
       parsed.wrapper = true;
       continue;
     }
+    if (arg === '--local-walk') {
+      parsed.localWalk = true;
+      continue;
+    }
+    const localPlatform = takes('local-platform');
+    if (localPlatform !== undefined) {
+      parsed.localPlatform = localPlatform;
+      if (arg === '--local-platform') i++;
+      continue;
+    }
     const binary = takes('binary');
     if (binary !== undefined) {
       parsed.binary = binary;
@@ -93,7 +105,7 @@ function parseArgs(argv: readonly string[]): NpmOptions | number {
   return parsed;
 }
 
-const PLATFORM_HINT = 'madarch publishes binaries for linux and macOS, amd64 and arm64 (https://github.com/shady2k/madarch/releases)';
+const PLATFORM_HINT = 'madarch publishes Linux and macOS x64/arm64 binaries and Windows x64 (https://github.com/shady2k/madarch/releases)';
 
 /** The wrapper's one job: start the running platform's binary, forward its exit. */
 const WRAPPER = [
@@ -107,11 +119,24 @@ const WRAPPER = [
   ' * with what to do instead.',
   ' */',
   'const { platform, arch } = process;',
-  "const osName = { linux: 'linux', darwin: 'darwin' }[platform];",
+  "const osName = { linux: 'linux', darwin: 'darwin', win32: 'win32' }[platform];",
   'if (osName === undefined) {',
   '  console.error(`madarch publishes no binary for ${platform}/${arch}:`);',
   '  console.error(' + JSON.stringify(PLATFORM_HINT) + ');',
   '  process.exit(2);',
+  '}',
+  "if (platform === 'win32' && arch === 'arm64') {",
+  "  console.error('madarch does not support Windows arm64: LadybugDB 0.20.4 has no Windows arm64 package');",
+  '  process.exit(2);',
+  '}',
+  "if (platform === 'linux') {",
+  "  const { existsSync } = require('node:fs');",
+  "  const { execFileSync } = require('node:child_process');",
+  "  const { delimiter, join } = require('node:path');",
+  "  const dirs = [...(process.env.LD_LIBRARY_PATH || '').split(delimiter), '/lib', '/usr/lib', '/lib64', '/usr/lib64', '/lib/x86_64-linux-gnu', '/usr/lib/x86_64-linux-gnu', '/lib/aarch64-linux-gnu', '/usr/lib/aarch64-linux-gnu'];",
+  "  let cache = ''; try { cache = execFileSync('ldconfig', ['-p'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch {}",
+  "  const missing = ['libssl.so.3', 'libcrypto.so.3'].filter(name => !dirs.some(dir => dir && existsSync(join(dir, name))) && !cache.includes(name));",
+  "  if (missing.length) { console.error(`madarch on Linux requires OpenSSL 3 runtime libraries (${missing.join(', ')}); install your distribution's OpenSSL 3 runtime package, then try again`); process.exit(2); }",
   '}',
   'const packageName = `@madarch/${osName}-${arch}`;',
   'let binaryPath;',
@@ -140,13 +165,15 @@ function main(argv: readonly string[]): number {
     'linux-arm64',
     'darwin-arm64',
     'darwin-x64',
+    'win32-x64',
   ];
   if (options.wrapper) {
     const wrapperDir = join(out, 'madarch');
     rmSync(wrapperDir, { recursive: true, force: true });
     mkdirSync(join(wrapperDir, 'bin'), { recursive: true });
     writeFileSync(join(wrapperDir, 'bin', 'madarch.js'), WRAPPER);
-    const optionalDependencies = Object.fromEntries(platforms.map((one) => [`@madarch/${one}`, options.version]));
+    const selectedPlatforms = options.localWalk && options.localPlatform !== '' ? platforms.filter((one) => one === options.localPlatform) : platforms;
+    const optionalDependencies = Object.fromEntries(selectedPlatforms.map((one) => [`@madarch/${one}`, options.localWalk ? `file:../@madarch-${one}` : options.version]));
     writeFileSync(join(wrapperDir, 'package.json'), JSON.stringify({
       name: 'madarch',
       version: options.version,
@@ -160,23 +187,35 @@ function main(argv: readonly string[]): number {
     console.log(`wrote ${join(wrapperDir)}`);
     return 0;
   }
+  if (options.os === 'win32' && options.arch === 'arm64') {
+    console.error('Windows arm64 is not supported: LadybugDB 0.20.4 has no Windows arm64 package');
+    return 2;
+  }
+  if (!['linux', 'darwin', 'win32'].includes(options.os) || !['x64', 'arm64'].includes(options.arch)) {
+    console.error(`no platform package is built for ${options.os}/${options.arch}`);
+    return 2;
+  }
   const name = `${options.os}-${options.arch}`;
-  const short = options.os === 'darwin' ? 'darwin' : 'linux';
-  const artifact = resolve(options.binary || join(REPO_ROOT, 'dist', `madarch-${options.os}-${options.arch}`));
+  const short = options.os === 'darwin' ? 'macOS' : options.os === 'win32' ? 'Windows' : 'Linux';
+  const artifactName = `madarch-${options.os === 'win32' ? 'windows' : options.os}-${options.arch}${options.os === 'win32' ? '.exe' : ''}`;
+  const artifact = resolve(options.binary || join(REPO_ROOT, 'dist', artifactName));
   if (!existsSync(artifact)) {
-    console.error(`the binary ${artifact} is not there: build it first ("bun scripts/build-binary.ts --version ${options.version} --os ${options.os} --arch ${options.arch}")`);
+    console.error(`the binary ${artifact} is not there: build it first ("bun scripts/build-binary.ts --version ${options.version} --os ${options.os === 'win32' ? 'windows' : options.os} --arch ${options.arch}")`);
     return 2;
   }
   const dir = join(out, `@madarch-${name}`);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(join(dir, 'bin'), { recursive: true });
-  cpSync(artifact, join(dir, 'bin', 'madarch'));
+  const binaryFile = `madarch${options.os === 'win32' ? '.exe' : ''}`;
+  const packageBinary = join(dir, 'bin', binaryFile);
+  cpSync(artifact, packageBinary);
+  if (options.os !== 'win32') chmodSync(packageBinary, 0o755);
   writeFileSync(join(dir, 'package.json'), JSON.stringify({
     name: `@madarch/${name}`,
     version: options.version,
     description: `The madarch release binary for ${short} on ${options.arch}.`,
     license: 'MIT',
-    main: 'bin/madarch',
+    main: `bin/${binaryFile}`,
     files: ['bin'],
     os: [options.os],
     cpu: [options.arch],

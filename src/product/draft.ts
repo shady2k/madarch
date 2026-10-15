@@ -103,6 +103,11 @@ export interface DraftOptions {
    */
   home?: string;
   /**
+   * The requested draft folder and manifest name. Left out, the local date
+   * names it as `idea-YYYY-MM-DD`, with a suffix when that name is taken.
+   */
+  name?: string;
+  /**
    * The moment the draft's name is folded from. Left out, the local clock
    * decides the day; tests give the day so a run does not depend on the
    * clock or the machine's zone.
@@ -148,6 +153,18 @@ export function whyNotADay(date: string): string | null {
   return null;
 }
 
+/** A requested draft name must be one portable folder name, not a path. */
+export function whyNotDraftName(name: string): string | null {
+  if (name.trim() === '') return 'is empty';
+  if (name !== name.trim()) return 'has leading or trailing whitespace';
+  if (Buffer.byteLength(name, 'utf8') > 255) return 'exceeds the portable 255-byte folder-name limit';
+  if (name === '.' || name === '..') return 'is a reserved path name';
+  if (/[<>:"/\\|?*\u0000-\u001f]/.test(name)) return 'contains a character not allowed in folder names';
+  if (/[. ]$/.test(name)) return 'ends with a dot or space';
+  if (/^(CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?:\.|$)/i.test(name)) return 'is reserved by Windows';
+  return null;
+}
+
 /** A draft's day, as `YYYY-MM-DD`, from the caller's word or the local clock. */
 function dayOf(date?: string): { ok: true; day: string } | { ok: false; message: string } {
   if (typeof date === 'string') {
@@ -166,7 +183,12 @@ function dayOf(date?: string): { ok: true; day: string } | { ok: false; message:
  * reserved. A recursive reservation would succeed into another run's folder,
  * and its cleanup would then delete that run's work.
  */
-export function reserveDraftFolder(home: string, day: string): { folder: string; name: string } {
+export function reserveDraftFolder(home: string, day: string, requestedName?: string): { folder: string; name: string } {
+  if (requestedName !== undefined) {
+    const folder = join(home, requestedName);
+    mkdirSync(folder);
+    return { folder, name: requestedName };
+  }
   for (let attempt = 1; ; attempt++) {
     const name = attempt === 1 ? `idea-${day}` : `idea-${day}-${attempt}`;
     const candidate = join(home, name);
@@ -198,6 +220,13 @@ function removeDraftFolder(folder: string): string | undefined {
  * left behind, so a failed run never leaves one without saying where.
  */
 export function createDraft(options: DraftOptions = {}): DraftResult {
+  // The requested name is judged before anything at all is made: a refused
+  // argument leaves no folder behind, not even the products home.
+  if (options.name !== undefined) {
+    const why = whyNotDraftName(options.name);
+    if (why !== null) return { outcome: 'refused', message: `the requested product name "${options.name}" ${why}` };
+  }
+
   // The home is madarch's own decision: the `--home` the command was given,
   // over `MADARCH_HOME`, over the machine's default (productsHome).
   // productsHome itself trims: the home it names is the folder, never shell whitespace.
@@ -229,11 +258,13 @@ export function createDraft(options: DraftOptions = {}): DraftResult {
     // The draft's name is the reserved candidate's own name, read once here
     // for the manifest and the result — never again from a slice of the path,
     // which a home of `/` would cut a letter off.
-    const reserved = reserveDraftFolder(products, day.day);
+    const reserved = reserveDraftFolder(products, day.day, options.name);
     folder = reserved.folder;
     name = reserved.name;
   } catch (error) {
     const code = (error as { code?: string }).code;
+    if (options.name !== undefined && code === 'EEXIST')
+      return { outcome: 'refused', message: `the product folder ${join(products, options.name)} already exists` };
     if (['EACCES', 'EPERM', 'EROFS'].includes(code ?? ''))
       return { outcome: 'refused', message: `the products home ${products} cannot be written into: ${(error as Error).message}` };
     return { outcome: 'failed', message: `the draft could not be created in ${products}: ${(error as Error).message}` };

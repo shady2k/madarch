@@ -14,6 +14,23 @@ error: `0` when done, `2` when something you typed or named cannot be used
 
 ## Install madarch
 
+On a machine with Node.js 18 or newer, use the primary install:
+
+    npx madarch new
+
+The command creates a draft and serves its wiki. Add a positional name, as in
+`npx madarch new gadgets`, to use that name for the draft folder. On macOS, Homebrew can install it with:
+
+    brew install shady2k/tap/madarch
+
+The release script is also available on Linux/macOS:
+
+    curl -fsSL https://raw.githubusercontent.com/shady2k/madarch/main/scripts/install.sh | sh
+
+On Windows x64, run `scripts/install.ps1` from PowerShell. Windows arm64 is not supported. Linux needs OpenSSL 3 runtime libraries (`libssl.so.3` and `libcrypto.so.3`); the installer refuses with the missing library named when they are absent. `madarch new` writes the initial Git commit, so install Git and configure `user.name` and `user.email` before running it. madarch does not change your Git identity.
+
+For contributors who want to run from a source checkout instead:
+
 madarch runs with Bun, from a checkout of the madarch repository:
 
     git clone <your-fork-or-the-madarch-url> madarch
@@ -42,6 +59,8 @@ and a product folder for one command).
 makes the draft product repository under the products home, `~/madarch/products`
 (and opens its wiki in your browser). The folder is named for the day:
 `idea-2026-10-09`, then `idea-2026-10-09-2` for the second draft that day.
+A positional name, as in `madarch new gadgets`, instead creates the folder
+`products/gadgets`.
 It prints the draft's folder and id, then serves the wiki:
 
     folder: /home/you/madarch/products/idea-2026-10-11

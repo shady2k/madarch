@@ -102,6 +102,33 @@ describe('productsHome', () => {
 });
 
 describe('createDraft', () => {
+  test('a requested name is the draft folder and manifest name', () => {
+    const home = tempFolder('madarch-products-');
+    const draft = createDraft({ home: refuseNonScratchHome(home, 'named draft'), name: 'example-product', today: EXAMPLE_DAY, gitEnv: gitEnv(GIT_ENV) });
+    if (draft.outcome !== 'created') throw new Error(`the named draft was not created: ${JSON.stringify(draft)}`);
+    expect(draft.folder).toBe(join(home, 'example-product'));
+    expect(readProduct(draft.folder)).toMatchObject({ ok: true, product: { name: 'example-product' } });
+  });
+
+  test('a requested name already in use is refused without changing the existing product', () => {
+    const home = tempFolder('madarch-products-');
+    const first = createDraft({ home: refuseNonScratchHome(home, 'named collision'), name: 'example-product', today: EXAMPLE_DAY, gitEnv: gitEnv(GIT_ENV) });
+    if (first.outcome !== 'created') throw new Error('the first named draft was not created');
+    const second = createDraft({ home: refuseNonScratchHome(home, 'named collision'), name: 'example-product', today: EXAMPLE_DAY, gitEnv: gitEnv(GIT_ENV) });
+    expect(second).toMatchObject({ outcome: 'refused' });
+    expect(readProduct(first.folder)).toMatchObject({ ok: true, product: { name: 'example-product' } });
+    expect(readdirSync(home)).toEqual(['example-product']);
+  });
+
+  test('a requested name must be a safe cross-platform folder name', () => {
+    const home = tempFolder('madarch-products-');
+    for (const name of ['', '   ', '.', '..', 'nested/name', 'nested\\name', 'trailing.', 'CON', 'COM¹', 'COM²', 'COM³', 'LPT¹', 'LPT²', 'LPT³', 'a'.repeat(256)]) {
+      const result = createDraft({ home: join(home, name || 'empty-home'), name, today: EXAMPLE_DAY, gitEnv: gitEnv(GIT_ENV) });
+      expect(result.outcome).toBe('refused');
+    }
+    expect(readdirSync(home)).toEqual([]);
+  });
+
   test('one draft a day sits at idea-YYYY-MM-DD of the local date, a git repository with one skeleton commit', () => {
     const home = tempFolder('madarch-products-');
     const draft = draftIn(home);

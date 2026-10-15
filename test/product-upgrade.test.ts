@@ -14,6 +14,12 @@ import { fileURLToPath } from 'node:url';
 import { artifactName, CHECKSUMS_FILE, upgrade, sha256, checksumFor, parseReleases } from '../src/product/upgrade.js';
 import { releaseVersion } from '../src/product-wiki/release-assets.js';
 
+describe('release artifact platform names', () => {
+  test('Windows x64 uses the Windows executable asset name', () => {
+    expect(artifactName('win32', 'x64')).toBe('madarch-windows-x64.exe');
+  });
+});
+
 describe('the version the running release answers', () => {
   test('a checkout answers dev and releaseVersion reads the embedded file, where it is', () => {
     // The test process is a source checkout: the version file the release

@@ -1,19 +1,10 @@
 name: release
 
-# The release build (madarch-lfhu, decision 0021 item (e)): a tag push of
-# `vX.Y.Z` builds one madarch binary per platform (linux and macOS, amd64
-# and arm64), smoke-runs each, checks the wikis, and publishes them to the
-# GitHub release with their SHA256 sums, the npm packages and the Homebrew
-# formula. The run's own steps carry their exit statuses through Actions'
-# check UI; this workflow publishes nothing by itself to npm: the packed
-# tarballs ride the release, and registry publishing needs the owner's
-# npm token (see the publish job's `npm publish` step, skipped when the
-# token is unset).
-
+# Tag pushes publish release assets and update the Homebrew tap. Branch clean-install
+# walks live in clean-installs.yml and never publish.
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
 
 permissions:
   contents: write
@@ -31,11 +22,14 @@ jobs:
           - runs-on: ubuntu-24.04-arm
             os: linux
             arch: arm64
-          - runs-on: macos-15
+          - runs-on: macos-14
             os: darwin
             arch: arm64
           - runs-on: macos-13
             os: darwin
+            arch: x64
+          - runs-on: windows-latest
+            os: windows
             arch: x64
     env:
       VERSION: ${{ github.ref_name }}
@@ -44,52 +38,77 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
-      # The product's dependencies; @ladybugdb/core's postinstall lays the
-      # platform's native module the compiled binary embeds.
       - name: install
         run: bun install --frozen-lockfile
       - name: check
         run: bun run check
       - name: test
-        run: MADARCH_SKIP_PERF=1 bun test test/
-      # The wiki app is embedded into the binary: its build must be done
-      # first, then its files ride with the build script's staging.
+        run: bun test test/clean-install.test.ts test/product-upgrade.test.ts test/product-draft.test.ts
+      - name: install wiki app dependencies
+        run: bun install --frozen-lockfile
+        working-directory: wiki/app
       - name: build the wiki app
-        run: |
-          cd wiki/app
-          bun install --frozen-lockfile
-          bun run build
+        run: bun run build
+        working-directory: wiki/app
       - name: build the binary
         run: bun scripts/build-binary.ts --version "${VERSION#v}" --os ${{ matrix.os }} --arch ${{ matrix.arch }} --out dist
-      - name: prove the binary (version, list, new, serve)
+        if: runner.os != 'Windows'
+      - name: build the Windows binary
+        run: bun scripts/build-binary.ts --version "$($env:VERSION.Substring(1))" --os windows --arch x64 --out dist
+        if: runner.os == 'Windows'
+      - name: prove the Windows binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GIT_AUTHOR_NAME: Madarch CI
+          GIT_AUTHOR_EMAIL: ci@users.noreply.github.com
+          GIT_COMMITTER_NAME: Madarch CI
+          GIT_COMMITTER_EMAIL: ci@users.noreply.github.com
+        run: |
+          $binary = Resolve-Path ./dist/madarch-windows-x64.exe
+          $home = Join-Path $env:RUNNER_TEMP 'madarch-smoke'
+          $port = 18127
+          $proc = Start-Process -FilePath $binary -ArgumentList @('new', 'clean-install-product', '--home', (Join-Path $home 'products'), '--port', "$port", '--no-open') -PassThru -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'madarch-out.txt') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'madarch-err.txt')
+          try {
+            $served = $false
+            for ($i = 0; $i -lt 200; $i++) {
+              if ($proc.HasExited) { throw "madarch new exited $($proc.ExitCode): $(Get-Content (Join-Path $env:RUNNER_TEMP 'madarch-err.txt') -Raw)" }
+              try { $answer = Invoke-RestMethod "http://127.0.0.1:$port/api/product"; if ($answer.id) { $served = $true; break } } catch {}
+              Start-Sleep -Milliseconds 100
+            }
+            if (-not $served) { throw 'madarch new did not serve a graph-backed product' }
+          } finally { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+      - name: prove the binary
+        if: runner.os != 'Windows'
         env:
           BINARY: ./dist/madarch-${{ matrix.os }}-${{ matrix.arch }}
+          GIT_AUTHOR_NAME: Madarch CI
+          GIT_AUTHOR_EMAIL: ci@users.noreply.github.com
+          GIT_COMMITTER_NAME: Madarch CI
+          GIT_COMMITTER_EMAIL: ci@users.noreply.github.com
         run: |
+          set -e
           tmp=$(mktemp -d)
           "$BINARY" version
           "$BINARY" list --home "$tmp/home"
-          # a real product: the draft is created and its wiki is served on a port of this run's own
           port=$((10000 + RANDOM % 20000))
-          "$BINARY" new --home "$tmp/home" --port $port --no-open &
+          "$BINARY" new clean-install-product --home "$tmp/home" --port "$port" --no-open &
           pid=$!
-          sleep 12
-          curl -fsS "http://127.0.0.1:$port/" >/dev/null
-          curl -fsS "http://127.0.0.1:$port/api/product" | grep '"id"'
-          kill $pid 2>/dev/null || true
-          wait "$pid" 2>/dev/null || true
-          rm -rf "$tmp"
+          trap 'kill "$pid" 2>/dev/null || true; rm -rf "$tmp"' EXIT
+          for n in $(seq 1 200); do
+            if curl -fsS "http://127.0.0.1:$port/api/product" | grep -q '"id"'; then exit 0; fi
+            sleep .1
+          done
+          echo 'madarch new did not serve a graph-backed product' >&2
+          exit 1
       - name: checksum
-        run: |
-          cd dist
-          { sha256sum madarch-${{ matrix.os }}-${{ matrix.arch }} || shasum -a 256 madarch-${{ matrix.os }}-${{ matrix.arch }}; } > madarch-${{ matrix.os }}-${{ matrix.arch }}.sha256
-          cat madarch-${{ matrix.os }}-${{ matrix.arch }}.sha256
+        env:
+          BINARY: dist/madarch-${{ matrix.os == 'windows' && 'windows' || matrix.os }}-${{ matrix.arch }}${{ matrix.os == 'windows' && '.exe' || '' }}
+        run: bun scripts/write-sha256.ts "$BINARY"
       - uses: actions/upload-artifact@v4
         with:
           name: madarch-${{ matrix.os }}-${{ matrix.arch }}
-          path: |
-            dist/madarch-${{ matrix.os }}-${{ matrix.arch }}
-            dist/madarch-${{ matrix.os }}-${{ matrix.arch }}.sha256
-
+          path: dist/*
 
   publish:
     needs: binary
@@ -108,30 +127,38 @@ jobs:
         run: |
           set -e
           mkdir release
-          cp artifacts/madarch-*/madarch-* release/
-          cd release
-          cat madarch-*.sha256 > SHA256SUMS.txt
-          rm madarch-*.sha256
-          chmod 0755 madarch-linux-x64 madarch-linux-arm64 madarch-darwin-arm64 madarch-darwin-x64
+          cp artifacts/madarch-*/* release/
+          cat release/*.sha256 > release/SHA256SUMS.txt
+          rm release/*.sha256
+          chmod 0755 release/madarch-linux-x64 release/madarch-linux-arm64 release/madarch-darwin-arm64 release/madarch-darwin-x64
       - name: the npm packages
         run: |
           set -e
           bun install --frozen-lockfile
           bun scripts/build-npm-package.ts --version "${VERSION#v}" --wrapper --packages-dir npm
-          for pair in "linux x64" "linux arm64" "darwin arm64" "darwin x64"; do
+          for pair in "linux x64" "linux arm64" "darwin arm64" "darwin x64" "win32 x64"; do
             set -- $pair
-            bun scripts/build-npm-package.ts --version "${VERSION#v}" --os "$1" --arch "$2" --packages-dir npm --binary "release/madarch-$1-$2"
+            artifact_os=$1
+            [ "$artifact_os" != win32 ] || artifact_os=windows
+            suffix=
+            [ "$artifact_os" != windows ] || suffix=.exe
+            bun scripts/build-npm-package.ts --version "${VERSION#v}" --os "$1" --arch "$2" --packages-dir npm --binary "release/madarch-$artifact_os-$2$suffix"
           done
           ( cd npm/madarch && npm pack --silent --pack-destination ../.. )
-          ( cd npm/@madarch-linux-x64 && npm pack --silent --pack-destination ../.. )
-          ( cd npm/@madarch-linux-arm64 && npm pack --silent --pack-destination ../.. )
-          ( cd npm/@madarch-darwin-arm64 && npm pack --silent --pack-destination ../.. )
-          ( cd npm/@madarch-darwin-x64 && npm pack --silent --pack-destination ../.. )
-      - name: the install script
-        run: cp scripts/install.sh release/
+          for dir in npm/@madarch-*; do ( cd "$dir" && npm pack --silent --pack-destination ../.. ); done
+      - name: the install scripts
+        run: cp scripts/install.sh scripts/install.ps1 release/
       - name: the formula of the sums
         run: bun scripts/build-formula.ts --version "${VERSION#v}" --sums-file release/SHA256SUMS.txt --out tap && cp tap/Formula/madarch.rb release/madarch.rb
       - name: publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$VERSION" release/* --title "$VERSION" --generate-notes
+      - name: Require HOMEBREW_TAP_TOKEN
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: test -n "$HOMEBREW_TAP_TOKEN" || { echo 'HOMEBREW_TAP_TOKEN is required to update shady2k/homebrew-tap' >&2; exit 1; }
+      - name: push the formula to the Homebrew tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: sh scripts/publish-homebrew-tap.sh release/madarch.rb "${VERSION#v}"

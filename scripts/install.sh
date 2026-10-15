@@ -2,6 +2,7 @@
 # Installs the madarch release binary for this platform (madarch-lfhu).
 #
 #   curl -fsSL https://raw.githubusercontent.com/shady2k/madarch/main/scripts/install.sh | sh -s -- [version]
+#   brew install shady2k/tap/madarch (macOS)
 #
 # or with a checkout: sh scripts/install.sh [version]
 #
@@ -26,13 +27,28 @@ ARCH=$(uname -m)
 case "$OS" in
   Linux) RELEASE_OS=linux ;;
   Darwin) RELEASE_OS=darwin ;;
-  *) echo "madarch publishes binaries for linux and macOS, amd64 and arm64 (https://github.com/$REPO/releases): this runs $OS" >&2; exit 2 ;;
+  *) echo "madarch publishes binaries for Linux and macOS, amd64 and arm64 (https://github.com/$REPO/releases): this runs $OS" >&2; exit 2 ;;
+
 esac
 case "$ARCH" in
   x86_64) RELEASE_ARCH=x64 ;;
   aarch64|arm64) RELEASE_ARCH=arm64 ;;
   *) echo "madarch publishes binaries for amd64 and arm64: this machine's architecture is $ARCH" >&2; exit 2 ;;
 esac
+if [ "$RELEASE_OS" = linux ]; then
+  LIBS="${LD_LIBRARY_PATH:-}:/lib:/usr/lib:/lib64:/usr/lib64:/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu:/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu"
+  CACHE=$(ldconfig -p 2>/dev/null || true)
+  for LIB in libssl.so.3 libcrypto.so.3; do
+    FOUND=0
+    for DIR in $(printf '%s' "$LIBS" | tr ':' ' '); do
+      if [ -e "$DIR/$LIB" ]; then FOUND=1; break; fi
+    done
+    if [ "$FOUND" -eq 0 ] && ! printf '%s' "$CACHE" | grep -Fq "$LIB"; then
+      echo "madarch on Linux requires OpenSSL 3 runtime library $LIB; install your distribution's OpenSSL 3 runtime package, then try again" >&2
+      exit 2
+    fi
+  done
+fi
 ARTIFACT=madarch-$RELEASE_OS-$RELEASE_ARCH
 
 if [ -z "$VERSION" ]; then

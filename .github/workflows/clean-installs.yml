@@ -1,0 +1,264 @@
+name: clean install walks
+
+on:
+  push:
+    branches: ['**']
+
+permissions:
+  contents: read
+
+jobs:
+  build-linux-fixture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile
+        working-directory: wiki/app
+      - run: bun run build
+        working-directory: wiki/app
+      - run: bun scripts/build-binary.ts --version 0.0.1 --os linux --arch x64 --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clean-walk-linux-x64
+          path: dist/madarch-linux-x64
+
+  linux-supported:
+    needs: build-linux-fixture
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/download-artifact@v4
+        with:
+          name: clean-walk-linux-x64
+          path: dist
+      - name: assert clean runner has no checkout dependencies
+        run: test ! -e node_modules && test ! -e wiki/app/node_modules
+      - name: install script on Linux x64
+        run: |
+          bun scripts/write-sha256.ts dist/madarch-linux-x64
+          cp dist/madarch-linux-x64.sha256 dist/SHA256SUMS.txt
+          MADARCH_RELEASE_BASE="file://$(pwd)/dist" MADARCH_INSTALL_PREFIX="$RUNNER_TEMP/madarch-install" sh scripts/install.sh v0.0.1
+          "$RUNNER_TEMP/madarch-install/bin/madarch" version
+      - name: npx new then serve on Linux x64
+        run: bun scripts/clean-install-walk.ts --binary dist/madarch-linux-x64 --os linux --arch x64
+
+  linux-without-openssl3:
+    needs: build-linux-fixture
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: clean-walk-linux-x64
+          path: dist
+      - name: install script refuses before download without OpenSSL 3
+        run: |
+          docker run --rm --volume "$PWD:/work:ro" --workdir /work ubuntu:20.04 bash -ec '
+            set +e
+            output=$(MADARCH_RELEASE_BASE=file:///work/dist MADARCH_INSTALL_PREFIX=/tmp/madarch-install-refusal sh scripts/install.sh v0.0.1 2>&1)
+            status=$?
+            set -e
+            printf "%s\n" "$output"
+            if [ "$status" -ne 2 ] || [[ "$output" != *"OpenSSL 3 runtime library"* ]]; then
+              echo "expected an OpenSSL 3 refusal before downloading (exit $status)" >&2
+              exit 1
+            fi
+          '
+      - name: binary names the unsupported OpenSSL runtime
+        run: |
+          docker run --rm --volume "$PWD/dist/madarch-linux-x64:/madarch-artifact:ro" ubuntu:20.04 bash -ec '
+            cp /madarch-artifact /tmp/madarch
+            chmod +x /tmp/madarch
+            set +e
+            output=$(/tmp/madarch new clean-install-product --home /tmp/madarch-products --no-open 2>&1)
+            status=$?
+            set -e
+            printf "%s\n" "$output"
+            if [ "$status" -ne 2 ] || [[ "$output" != *"OpenSSL 3 runtime libraries"* ]]; then
+              echo "expected a named OpenSSL 3 refusal (exit $status)" >&2
+              exit 1
+            fi
+          '
+
+  build-macos-fixture:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile
+        working-directory: wiki/app
+      - run: bun run build
+        working-directory: wiki/app
+      - run: bun scripts/build-binary.ts --version 0.0.1 --os darwin --arch arm64 --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clean-walk-darwin-arm64
+          path: dist/madarch-darwin-arm64
+
+  macos-arm64:
+    needs: build-macos-fixture
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/download-artifact@v4
+        with:
+          name: clean-walk-darwin-arm64
+          path: dist
+      - name: assert clean runner has no checkout dependencies
+        run: test ! -e node_modules && test ! -e wiki/app/node_modules
+      - name: install script on macOS arm64
+        run: |
+          bun scripts/write-sha256.ts dist/madarch-darwin-arm64
+          cp dist/madarch-darwin-arm64.sha256 dist/SHA256SUMS.txt
+          MADARCH_RELEASE_BASE="file://$(pwd)/dist" MADARCH_INSTALL_PREFIX="$RUNNER_TEMP/madarch-install" sh scripts/install.sh v0.0.1
+          "$RUNNER_TEMP/madarch-install/bin/madarch" version
+      - name: npx new then serve on macOS arm64
+        run: bun scripts/clean-install-walk.ts --binary dist/madarch-darwin-arm64 --os darwin --arch arm64
+      - name: Homebrew install and graph-backed walk
+        run: sh scripts/clean-homebrew-walk.sh dist/madarch-darwin-arm64
+
+  build-windows-fixture:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile
+        working-directory: wiki/app
+      - run: bun run build
+        working-directory: wiki/app
+      - name: Probe LadybugDB from its installed Windows npm package
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          Get-ChildItem node_modules/@ladybugdb -Recurse -File | Where-Object { $_.Extension -in '.node', '.dll' } | ForEach-Object { Write-Host "PACKAGE_NATIVE_FILE=$($_.FullName)" }
+          node -e "const {Database}=require('@ladybugdb/core'); (async()=>{ const db=new Database(':memory:'); await db.init(); await db.close(); console.log('LadybugDB package graph initialization passed'); })().catch(error=>{ console.error(error); process.exitCode=1; })"
+          $directStatus = $LASTEXITCODE
+          Write-Host "DIRECT_PACKAGE_GRAPH_EXIT=$directStatus"
+          $global:LASTEXITCODE = 0
+          exit 0
+      - name: Compile binary and run its embedded-addon graph smoke
+        id: windows_binary_build
+        continue-on-error: true
+        run: bun scripts/build-binary.ts --version 0.0.1 --os windows --arch x64 --out dist
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: clean-walk-windows-x64
+          path: dist/madarch-windows-x64.exe
+          if-no-files-found: error
+      - name: Report embedded-addon build smoke failure
+        if: steps.windows_binary_build.outcome == 'failure'
+        run: exit 1
+
+  windows-x64:
+    if: always() && needs.build-windows-fixture.result != 'cancelled'
+    needs: build-windows-fixture
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/download-artifact@v4
+        with:
+          name: clean-walk-windows-x64
+          path: dist
+      - name: assert clean runner has no checkout dependencies
+        shell: pwsh
+        run: |
+          if (Test-Path node_modules) { throw 'checkout node_modules unexpectedly exists' }
+          if (Test-Path wiki/app/node_modules) { throw 'wiki checkout node_modules unexpectedly exists' }
+      - name: install script on Windows x64
+        shell: pwsh
+        run: |
+          bun scripts/write-sha256.ts dist/madarch-windows-x64.exe
+          Copy-Item dist/madarch-windows-x64.exe.sha256 dist/SHA256SUMS.txt
+          $env:MADARCH_RELEASE_BASE = 'file:///' + (Resolve-Path dist).Path.Replace('\', '/')
+          $env:MADARCH_INSTALL_PREFIX = Join-Path $env:RUNNER_TEMP 'madarch-install'
+          & ./scripts/install.ps1 v0.0.1
+          & (Join-Path $env:MADARCH_INSTALL_PREFIX 'madarch.exe') version
+      - name: npx new then serve on Windows x64
+        shell: pwsh
+        env:
+          GIT_AUTHOR_NAME: Madarch Clean Walk
+          GIT_AUTHOR_EMAIL: walk@example.invalid
+          GIT_COMMITTER_NAME: Madarch Clean Walk
+          GIT_COMMITTER_EMAIL: walk@example.invalid
+        run: bun scripts/clean-install-walk.ts --binary dist/madarch-windows-x64.exe --os windows --arch x64
+
+  windows-addon-diagnosis:
+    if: always() && needs.build-windows-fixture.result != 'cancelled'
+    needs: build-windows-fixture
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: clean-walk-windows-x64
+          path: dist
+      - name: Compare direct LadybugDB package and embedded binary graph initialization
+        shell: pwsh
+        env:
+          GIT_AUTHOR_NAME: Madarch Windows Diagnosis
+          GIT_AUTHOR_EMAIL: windows-diagnosis@example.invalid
+          GIT_COMMITTER_NAME: Madarch Windows Diagnosis
+          GIT_COMMITTER_EMAIL: windows-diagnosis@example.invalid
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          Write-Host "NODE_VERSION=$(node --version)"
+          Write-Host "BUN_VERSION=$(bun --version)"
+          $packageAddon = Join-Path $PWD 'node_modules/@ladybugdb/core-win32-x64/lbugjs.node'
+          Write-Host "DIRECT_PACKAGE_ADDON=$packageAddon"
+          if (Test-Path $packageAddon) { Get-FileHash $packageAddon -Algorithm SHA256 | ForEach-Object { Write-Host "DIRECT_PACKAGE_ADDON_SHA256=$($_.Hash)" } }
+          node -e "const {Database}=require('@ladybugdb/core'); (async()=>{ const db=new Database(':memory:'); await db.init(); await db.close(); console.log('direct package graph initialization passed'); })().catch(error=>{ console.error(error); process.exitCode=1; })"
+          $directStatus = $LASTEXITCODE
+          Write-Host "DIRECT_PACKAGE_GRAPH_EXIT=$directStatus"
+          $global:LASTEXITCODE = 0
+          bun -e "const {Database}=require('@ladybugdb/core'); (async()=>{ const db=new Database(':memory:'); await db.init(); await db.close(); console.log('Bun direct package graph initialization passed'); })().catch(error=>{ console.error(error); process.exitCode=1; })"
+          $bunStatus = $LASTEXITCODE
+          Write-Host "BUN_PACKAGE_GRAPH_EXIT=$bunStatus"
+          $global:LASTEXITCODE = 0
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'madarch-embedded-addon-cache'
+          $productHome = Join-Path $env:RUNNER_TEMP 'madarch-embedded-probe-products'
+          $stdout = Join-Path $env:RUNNER_TEMP 'madarch-embedded-probe.stdout.txt'
+          $stderr = Join-Path $env:RUNNER_TEMP 'madarch-embedded-probe.stderr.txt'
+          $process = Start-Process -FilePath (Join-Path $PWD 'dist/madarch-windows-x64.exe') -ArgumentList @('new', 'windows-probe', '--home', $productHome, '--port', '29131', '--no-open') -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          $served = $false
+          for ($attempt = 0; $attempt -lt 200; $attempt++) {
+            if ($process.HasExited) { break }
+            try { $null = Invoke-RestMethod 'http://127.0.0.1:29131/api/product'; $served = $true; break } catch { Start-Sleep -Milliseconds 100 }
+          }
+          if ($served) { $binaryStatus = 0; Stop-Process -Id $process.Id -Force }
+          elseif ($process.HasExited) { $binaryStatus = $process.ExitCode }
+          else { $binaryStatus = 124; Stop-Process -Id $process.Id -Force }
+          Write-Host "EMBEDDED_BINARY_GRAPH_EXIT=$binaryStatus"
+          if (Test-Path $stdout) { Get-Content $stdout }
+          if (Test-Path $stderr) { Get-Content $stderr }
+          Get-ChildItem $env:LOCALAPPDATA -Recurse -File -Filter lbugjs.node -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "EMBEDDED_EXTRACTED_ADDON=$($_.FullName)"
+            Get-FileHash $_.FullName -Algorithm SHA256 | ForEach-Object { Write-Host "EMBEDDED_EXTRACTED_ADDON_SHA256=$($_.Hash)" }
+          }
+          $dumpbin = Get-Command dumpbin.exe -ErrorAction SilentlyContinue
+          if ($dumpbin -and (Test-Path $packageAddon)) { & $dumpbin.Source /DEPENDENTS $packageAddon }
+          $global:LASTEXITCODE = 0
+          exit 0

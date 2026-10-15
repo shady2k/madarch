@@ -15,7 +15,8 @@ import { prepareDemo, type DemoOptions } from './demo.js';
 import { listProducts, type ProductList } from './list.js';
 import { runningVersion } from './version.js';
 import { upgrade, type UpgradeOptions } from './upgrade.js';
-import { serveWiki, type Opener, type ServeOptions } from '../product-wiki/serve.js';
+import type { Opener, ServeOptions } from '../product-wiki/serve.js';
+import { installEmbeddedLadybugAddon } from './native-addon.js';
 import {
   cloneLife,
   bootstrapLife,
@@ -28,7 +29,7 @@ import {
 /** The usage lines, shaped the way `scripts/serve.ts` and `scripts/wiki.ts` print theirs. */
 export const USAGE = [
   'usage: bun scripts/madarch.ts serve [--product <folder>] [--port <n>] [--no-open]',
-  '   or: bun scripts/madarch.ts new [--home <folder>] [--port <n>] [--no-open]',
+  '   or: bun scripts/madarch.ts new [<name>] [--home <folder>] [--port <n>] [--no-open]',
   '   or: bun scripts/madarch.ts demo [--home <folder>] [--port <n>] [--no-open]',
   '   or: bun scripts/madarch.ts list [--home <folder>]',
   '   or: bun scripts/madarch.ts rename <name> [--product <folder>]',
@@ -46,7 +47,7 @@ export const USAGE = [
 /** The text `--help` prints: the subcommands and the options each does what. */
 export const HELP = [
   'usage: bun scripts/madarch.ts serve [--product <folder>] [--port <n>] [--no-open]',
-  '   or: bun scripts/madarch.ts new [--home <folder>] [--port <n>] [--no-open]',
+  '   or: bun scripts/madarch.ts new [<name>] [--home <folder>] [--port <n>] [--no-open]',
   '   or: bun scripts/madarch.ts demo [--home <folder>] [--port <n>] [--no-open]',
   '   or: bun scripts/madarch.ts list [--home <folder>]',
   '   or: bun scripts/madarch.ts rename <name> [--product <folder>]',
@@ -59,8 +60,9 @@ export const HELP = [
   '',
   'demo clones or updates the Madarch product repository, then serves its wiki.',
   'new creates a draft product repository under the products home, then serves',
-  "its wiki: the draft's folder and id, the address of the wiki, one fact per",
-  'line, on standard output. serve serves a product that already exists: the',
+  "its wiki: a positional name chooses the folder, or the day names it when omitted.",
+  'The folder and id, then the wiki address, are printed one fact per line. serve',
+  'serves a product that already exists: the',
   '--product folder, or the folder the command runs in (the folder the working',
   "agent is in). Both serve until they are stopped.",
   '',
@@ -124,6 +126,8 @@ export const HELP = [
 interface CommandSpec {
   /** The positional words it takes, in order, by their label for the refusals. */
   positionals: readonly string[];
+  /** The trailing positional words a subcommand permits callers to omit. */
+  optionalPositionals?: number;
   /** The flags it takes, beside the ones they both share. */
   flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean; yes: boolean };
 }
@@ -131,7 +135,7 @@ interface CommandSpec {
 /** The specs the subcommands answer to, whole. */
 export const COMMANDS: Record<string, CommandSpec> = {
   demo: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
-  new: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
+  new: { positionals: ['name'], optionalPositionals: 1, flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
   serve: { positionals: [], flags: { home: false, product: true, port: true, open: true, branch: false, yes: false } },
   list: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
   rename: { positionals: ['name'], flags: { home: false, product: true, port: false, open: false, branch: false, yes: false } },
@@ -272,7 +276,8 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
   // The words the surface promises, each taken once: a word the subcommand
   // needs and did not get is refused as plainly as one it did not expect.
   const givenWords = parsed.words.length;
-  if (givenWords < spec.positionals.length) {
+  const requiredWords = spec.positionals.length - (spec.optionalPositionals ?? 0);
+  if (givenWords < requiredWords) {
     const label = spec.positionals[givenWords]!;
     console.error(`the ${label} is missing: this subcommand takes ${spec.positionals.join(' ')}`);
     console.error(USAGE);
@@ -312,10 +317,17 @@ function list(home: string | undefined): number {
 
 /** The serving of one subcommand's product: its prints and its exit code; 0 once the address stands. */
 async function serve(options: ServeOptions, productFolder: string | undefined): Promise<number> {
-  const result = await serveWiki({ ...options, productFolder });
-  if (result.outcome === 'serving') return 0;
-  console.error(result.message);
-  return result.outcome === 'refused' ? 2 : 1;
+  try {
+    await installEmbeddedLadybugAddon();
+    const { serveWiki } = await import('../product-wiki/serve.js');
+    const result = await serveWiki({ ...options, productFolder });
+    if (result.outcome === 'serving') return 0;
+    console.error(result.message);
+    return result.outcome === 'refused' ? 2 : 1;
+  } catch (error) {
+    console.error(`the LadybugDB native addon could not be prepared: ${(error as Error).message}`);
+    return 1;
+  }
 }
 
 /** Prints one wrapper outcome the way every subcommand prints: facts whole on stdout, errors whole on stderr. */
@@ -411,7 +423,7 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
   if (command !== 'new') return report(runWrapper(command, parsed));
 
   // new: the draft is created by madarch's own creation code (decision 0021), then its wiki is served.
-  const draft = createDraft(home === undefined ? {} : { home });
+  const draft = createDraft({ ...(home === undefined ? {} : { home }), ...(parsed.words[0] === undefined ? {} : { name: parsed.words[0] }) });
   if (draft.outcome !== 'created') {
     console.error(draft.message);
     return draft.outcome === 'refused' ? 2 : 1;
