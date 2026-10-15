@@ -23,13 +23,6 @@
  */
 process.argv[1] = process.execPath;
 
-const { linuxRuntimeRefusal } = await import('../src/product/linux-runtime.js');
-const refusal = linuxRuntimeRefusal();
-if (refusal !== undefined) {
-  console.error(refusal);
-  process.exit(2);
-}
-
 const { main } = await import('../src/product/cli.js');
 
 process.exitCode = await main(process.argv.slice(2));
