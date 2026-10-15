@@ -36,7 +36,9 @@ TAP_CREATED=1
 TAP=$(brew --repo "$TAP_NAME")
 cp "$FORMULA" "$TAP/Formula/madarch.rb"
 brew install "$TAP_NAME/madarch"
-MADARCH="$(brew --prefix madarch)/bin/madarch"
+PREFIX=$(brew --prefix madarch)
+MADARCH="$PREFIX/bin/madarch"
+if [ -d "$MADARCH" ]; then MADARCH="$PREFIX/libexec/madarch-bin"; fi
 [ -x "$MADARCH" ] || { echo "Homebrew installed no executable at $MADARCH" >&2; exit 1; }
 "$MADARCH" version
 export GIT_AUTHOR_NAME='Madarch Homebrew Walk' GIT_AUTHOR_EMAIL='walk@example.invalid' GIT_COMMITTER_NAME='Madarch Homebrew Walk' GIT_COMMITTER_EMAIL='walk@example.invalid'
