@@ -468,7 +468,7 @@ describe('keeping a built graph in step', () => {
     const result = await one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('b')]) });
     expect(result.errors).toEqual([]);
     expect(result.opened.length + result.closed.length).toBeGreaterThan(0);
-    // Sabotage the built engine's own update, as a failing Ladybug write
+    // Sabotage the built engine's own update, as a failing SQL update
     // would: the history has the commit, the engine cannot take it.
     const engine = await graph.engine();
     engine.update = () => {

@@ -85,7 +85,6 @@ export type {
   ElementAnswer,
   AsyncQueryDatabase,
   AsyncQueryEngine,
-  QueryEngine,
   QueryError,
   QuerySnapshot,
   QueryTime,
@@ -93,12 +92,10 @@ export type {
   ViewRelation,
   ViewResult,
 } from './query/types.js';
-export { buildViewSet, buildAsyncViewSet, buildAsyncView, type Arrow, type Place, type ShownElement, type View, type ViewSetError, type ViewSetResult } from './render/view-set.js';
+export { buildAsyncViewSet, buildAsyncView, type Arrow, type Place, type ShownElement, type View, type ViewSetError, type ViewSetResult } from './render/view-set.js';
 export { renderMermaidPages, type MermaidError, type MermaidPage, type MermaidResult } from './render/mermaid.js';
-export { renderLikeC4Workspace, renderAsyncLikeC4Workspace, type LikeC4Error, type LikeC4Result, type NotDrawn } from './render/likec4.js';
-export { renderOneViewMermaid, renderOneViewLikeC4, renderAsyncOneViewMermaid, renderAsyncOneViewLikeC4, type OneViewError, type OneViewLikeC4Result, type OneViewRequest, type OneViewMermaidResult } from './render/one-view.js';
-export { createLadybugEngine, executionThreadsForTests, preparedStatementCacheSizeForTests, type LadybugEngineOptions } from './adapters/ladybug-engine.js';
-export { createAsyncLadybugEngine } from './adapters/async-ladybug-engine.js';
+export { renderAsyncLikeC4Workspace, type LikeC4Error, type LikeC4Result, type NotDrawn } from './render/likec4.js';
+export { renderAsyncOneViewMermaid, renderAsyncOneViewLikeC4, type OneViewError, type OneViewLikeC4Result, type OneViewRequest, type OneViewMermaidResult } from './render/one-view.js';
 export { createPGliteQueryDatabase, type PGliteQueryDatabaseOptions } from './adapters/pglite-query-database.js';
 export { createPostgresQueryDatabase, type PostgresQueryDatabaseOptions } from './adapters/postgres-query-database.js';
 export { createSourceStores, sourceNameProblem, type SourceHead, type SourceStores, type SourceStoresOptions, type SourceStoreResult } from './server/sources.js';

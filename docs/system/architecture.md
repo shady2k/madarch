@@ -26,12 +26,14 @@ history held it. Nothing is overwritten; a store is idempotent, orders a
 source's commits by time, not arrival, and is refused when a commit comes
 back with another model or time. One history holds any number of sources.
 
-**Query engine** (`src/query/`, `src/adapters/ladybug-engine.ts`): the store
-built from the history's assertions to answer what views and agents ask —
-children, views with collapsed relations, dependents and dependencies, as of
-any time on either axis. It is derived state: `rebuild` builds it from a
-history's assertions, `update` applies one store's own report, and it is
-rebuildable at any time (decision 0009). LadybugDB 0.20.4 carries it.
+**Query database** (`src/query/`, `src/adapters/sql-query-database.ts`): the
+asynchronous SQL projection built from history assertions to answer what views
+and agents ask — children, views with collapsed relations, dependents and
+dependencies, as of any time on either axis. It is derived state: `rebuild`
+builds it from a history's assertions, `update` applies one store's own report,
+and it can be rebuilt at any time. Local commands use embedded PGlite; server
+compositions inject a PostgreSQL query database. Graphs borrow source-scoped
+query facades from that shared owner.
 
 **Renderer** (`src/render/`): turns views into text a reader sees — the view
 set's Mermaid pages and LikeC4 workspace (`src/render/view-set.ts`,
@@ -91,7 +93,7 @@ A repository's intended model is compiled, the check passes on it, and the
 compiled model is sent to the server with the source's name, the commit id
 and the commit time. The server checks it against the compiled model's
 schema and stores it in that source's history. Whoever can reach the server
-asks for a view of that source; the server's query engine answers, and the
+asks for a view of that source; the server's SQL query facade answers, and the
 renderer renders the answer as Mermaid or LikeC4 text.
 
 ## The server
@@ -120,20 +122,23 @@ is derived from the source's name by encoding every byte a file name should not
 carry. A small sidecar beside each database names its source and head, so a
 restart answers the same as before it stopped. The local source store
 serializes its HistoryStore operations to respect PGlite's single connection
-(decision 0024). A legacy SQLite history is not migrated; resend source models
-to rebuild the fact log.
+(decision 0024). The local command also stores the rebuildable query projection
+in one PGlite database at `<data>/.query-graph`; it is shared by graph-scoped
+facades. Server compositions inject PostgreSQL for the query projection. A
+legacy `.sqlite` history is not migrated; resend source models to rebuild the
+fact log.
 
-A graph is a named set of sources, and each graph has one query engine built
-from the assertions of every source the graph lists
-(`src/server/graphs.ts`). In this milestone every graph lists exactly one
+A graph is a named set of sources, and each graph borrows one asynchronous,
+source-scoped query facade from the injected shared SQL database and builds it
+from the assertions of every source the graph lists (`src/server/graphs.ts`). In this milestone every graph lists exactly one
 source and is named after it (decision 0013, amended), so repositories
 declaring the same id never refuse each other. Joining a product's
 repositories adds graphs that list several sources, where a clashing id is
 reported when the graph is built (decision 0003); how a source is sent and
-stored does not change. The engine is built lazily on first use and kept in
-step with each store's own report; a test builds a graph from two sources'
-histories and gets the union's view.
+stored does not change. The facade is built lazily on first use and kept in step with each store's
+own report; a test builds a graph from two sources' histories and gets the
+union's view.
 
-A view of a sent source is answered from its graph's engine by the one-view
+A view of a sent source is answered from its graph's SQL facade by the one-view
 renderer (`src/render/one-view.ts`), at the current time and the first state;
 a LikeC4 answer lists, as comment lines, the relations LikeC4 cannot draw.
