@@ -22,7 +22,7 @@ binary = Path(sys.argv[2]).resolve()
 text = formula.read_text()
 lines = text.splitlines()
 for index, line in enumerate(lines):
-    if line.startswith('    url '):
+    if line.startswith('  url '):
         lines[index] = f'    url "file://{binary}"'
         break
 else:
