@@ -880,6 +880,11 @@ describe('madarch repo add', () => {
     const source = join(base, 'selected-checkout');
     const cloned = spawnSync(realGit(), ['clone', '--quiet', url, source], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
     if (cloned.status !== 0) throw new Error(`fixture clone failed: ${cloned.stderr}`);
+    // main runs in-process here, so set identity on the product repository instead of relying on the runner's global git config.
+    const name = spawnSync(realGit(), ['-C', draft.folder, 'config', '--local', 'user.name', GIT_ENV.GIT_AUTHOR_NAME], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
+    if (name.status !== 0) throw new Error(`fixture user.name config failed: ${name.stderr}`);
+    const email = spawnSync(realGit(), ['-C', draft.folder, 'config', '--local', 'user.email', GIT_ENV.GIT_AUTHOR_EMAIL], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
+    if (email.status !== 0) throw new Error(`fixture user.email config failed: ${email.stderr}`);
     let asked: string | undefined;
     const exit = await main(['repo', 'add', 'library', url, '--source', source, '--product', draft.folder], {
       chooseRepoMode: async (selected) => { asked = selected; return 'link'; },
