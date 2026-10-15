@@ -265,3 +265,16 @@ above; the acceptance walk it settles (the registry lane's):
 Revisit if a link type needs more than the declaration carries (a label
 per target kind, a direction the field cannot say), or if a version bump
 is needed for the drawing the registry lane builds.
+
+
+## Contract conformance copies
+
+The `shady2k-skills` repository pins copies at
+`test/schemas/product-registry.schema.json` and
+`test/schemas/registry-cases.json`.
+Those copies are intentionally maintained by the set, not generated from this
+repository at test time: when madarch changes either contract artifact, the
+matching pinned copy in the set must be reviewed and updated deliberately in
+the same contract change. The set's conformance check uses its own reader and these pinned files; a
+contract change must be mirrored there deliberately, and the set does not
+check out or run madarch.
