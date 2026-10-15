@@ -8,8 +8,7 @@ import { startServer, type StartedServer } from '../src/index.js';
 
 /**
  * Reader navigation against the production-built wiki app and its real server.
- * Run with MADARCH_WIKI_E2E=1; the product is a small factory fixture, not
- * wiki/demo, which later work removes. The fixture gives each link one known
+ * Run with MADARCH_WIKI_E2E=1; the product is a small factory fixture, built in a scratch folder, not copied into the engine. The fixture gives each link one known
  * route and heading so the browser check verifies both after every click.
  */
 const ROOT = new URL('..', import.meta.url).pathname;

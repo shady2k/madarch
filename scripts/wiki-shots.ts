@@ -1,28 +1,27 @@
 /**
  * wiki:shots — the side-by-side renderer for the mockup-fidelity acceptance:
  * for every screen of the wiki it renders OUR wiki (the built app in
- * wiki/app, serving the committed demo product wiki/demo) and, when a
+ * wiki/app, serving a small product fixture under test/) and, when a
  * --mockup dist folder is given, the mockup at the same width and colour
  * scheme, then puts the two shots of a pair into ONE image on a scratch
  * folder OUTSIDE the repository (default /tmp/madarch-wiki-shots, named with
  * --out) and prints the folder.
  *
  * The pairs cover the home and a document page carrying every element (the
- * demo wiki/demo/docs/vision.md) at the owner's 1000x700 light and dark size,
+ * fixture docs/vision.md) at the owner's 1000x700 light and dark size,
  * 1440x900 dark and light, 1150x900, 1110x900 and 390x844 light, plus tall
  * 1440x1400 windows. Ours-only shots include the phone drawer, language menu,
  * and scrolled home; the mockup has no counterparts. Headless chrome at the
  * machine's path (CHROME names another) drives every window through
  * puppeteer-core; this script writes nothing in the repository.
  */
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync, writeFileSync, mkdtempSync, cpSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { join, resolve as resolvePath } from 'node:path';
 import puppeteer from 'puppeteer-core';
 import { startServer, type StartedServer } from '../src/index.js';
 
-const here = new URL('.', import.meta.url).pathname;
-const repo = resolvePath(here, '..');
 const product = argument('product', '');
 if (product !== '' && !existsSync(join(product, 'workspace.yaml'))) {
   console.error(`no product at ${product}: give the folder of a product repository (its workspace.yaml is read)`);
@@ -46,14 +45,21 @@ const REPOS_SCREENS = [
   { name: 'repositories-declared', address: '/r' },
 ] as const;
 
+/** Copy the compact product fixture from test/ into a disposable location. */
+function buildProductFixture(): string {
+  const folder = mkdtempSync(join(tmpdir(), 'madarch-wiki-shots-fixture-'));
+  cpSync(new URL('../test/fixtures/wiki-shots/product/', import.meta.url), folder, { recursive: true });
+  return folder;
+}
+
 /**
- * Builds the demo product's own checkout fixture under wiki/demo/repos/ with
+ * Builds a small code-repository fixture under the product fixture's repos/ with
  * the machine's git in a sealed environment: one real repository, one
  * commit, a README with the elements the section renders. Writes only inside
  * the gitignored repos/ folder, and never inside anyone else's repository.
  */
 function buildDemoCheckout(product: string): string {
-  const target = join(product, 'repos', 'fieldnote-core');
+  const target = join(product, 'repos', 'fixture-core');
   mkdirSync(join(target, 'src'), { recursive: true });
   // The fixture's own sealed environment: git's configuration sources off
   // and the fixture's identity, with NO loader variables (`GIT_DIR`,
@@ -64,10 +70,10 @@ function buildDemoCheckout(product: string): string {
     PATH: process.env.PATH ?? '',
     GIT_CONFIG_GLOBAL: '/dev/null',
     GIT_CONFIG_NOSYSTEM: '1',
-    GIT_AUTHOR_NAME: 'Fieldnote Fixture',
-    GIT_AUTHOR_EMAIL: 'fieldnote-fixture@example.com',
-    GIT_COMMITTER_NAME: 'Fieldnote Fixture',
-    GIT_COMMITTER_EMAIL: 'fieldnote-fixture@example.com',
+    GIT_AUTHOR_NAME: 'Wiki Fixture',
+    GIT_AUTHOR_EMAIL: 'wiki-fixture@example.com',
+    GIT_COMMITTER_NAME: 'Wiki Fixture',
+    GIT_COMMITTER_EMAIL: 'wiki-fixture@example.com',
   };
   for (const name of ['GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE'] as const) delete env[name];
   const run = (args: string[]): string => {
@@ -79,10 +85,10 @@ function buildDemoCheckout(product: string): string {
   // with the seeded commit, so rebuilding would commit nothing.
   if (existsSync(join(target, '.git'))) return target;
   run(['init', '--quiet', '--initial-branch=main']);
-  writeFileSync(join(target, 'README.md'), '# fieldnote-core\n\nThe demo product\'s core library, a checkout the wiki reads as it stands.\n\n## What lives here\n\n- the notes store and its formats\n- the reader\'s own sync, none for now\n');
+  writeFileSync(join(target, 'README.md'), '# fixture-core\n\nA small fixture repository the wiki reads as it stands.\n\n## What lives here\n\n- the notes store and its formats\n- the reader\'s own sync, none for now\n');
   writeFileSync(join(target, 'src', 'store.ts'), 'export const store = 1;\n');
   run(['add', '-A']);
-  run(['commit', '--quiet', '-m', 'Seed the demo checkout: the store and its README']);
+  run(['commit', '--quiet', '-m', 'Seed the fixture checkout']);
   return target;
 }
 
@@ -135,14 +141,16 @@ type Pair = { name: string; ours?: Shot; mockup?: Shot };
 let server: StartedServer | undefined;
 let reposServer: StartedServer | undefined;
 try {
-  server = await startServer({ productFolder: product === '' ? join(repo, 'wiki', 'demo') : product, port: 0 });
+  const fixture = product === '' ? buildProductFixture() : product;
+  server = await startServer({ productFolder: fixture, port: 0 });
   const ours = server.url;
-  // The repositories' own server: the demo product with its declared
+  // The repositories' own server: the fixture product with its declared
   // checkout built under repos/, checked out, so the section shows the
   // checked-out state and the rendered README beside the row that stays
   // declared only.
-  buildDemoCheckout(join(repo, 'wiki', 'demo'));
-  reposServer = await startServer({ productFolder: join(repo, 'wiki', 'demo'), port: 0 });
+  const reposFixture = buildProductFixture();
+  buildDemoCheckout(reposFixture);
+  reposServer = await startServer({ productFolder: reposFixture, port: 0 });
   const reposOurs = reposServer.url;
   const browser = await puppeteer.launch({
     executablePath: CHROME,

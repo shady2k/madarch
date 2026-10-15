@@ -7,7 +7,6 @@ node_modules/
 # The wiki app build output, rebuilt on first use by madarch serve
 *.tsbuildinfo
 /wiki/app/dist/
-/wiki/demo/repos/
 stryker.log
 
 # The tracker lives off the branches: .beads is each checkout's link to the machine store.

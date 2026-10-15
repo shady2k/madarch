@@ -15,7 +15,7 @@ repository, cloned by a colleague, comes with its code checked out under
   work with your agent.
 - `AGENTS.md`: the way this repository itself is worked — the skill set's
   tracker, gates and checks.
-- `wiki/demo`: the committed demo product; `bun run wiki:demo` serves and
-  opens its wiki.
+- `madarch demo`: clones or updates the Madarch product repository and serves
+  its wiki.
 - `docs/system/index.md`: the capability specifications, one file per
   capability. `docs/decisions/`: the decisions the system stands on.

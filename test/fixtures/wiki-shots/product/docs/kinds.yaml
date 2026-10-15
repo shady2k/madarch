@@ -1,0 +1,27 @@
+contract: 1
+stages:
+  - id: requirements
+    labels:
+      en: Requirements
+      ru: Требования
+kinds:
+  - name: Product requirements
+    labels:
+      en: Product requirements
+      ru: Требования к продукту
+    prefix: FR
+    folder: docs/requirements
+    stage: requirements
+    hint: state a requirement
+    links:
+      - field: Serves
+        targets:
+          - Use cases
+  - name: Use cases
+    labels:
+      en: Use cases
+      ru: Сценарии использования
+    prefix: UC
+    folder: docs/use-cases
+    stage: requirements
+    hint: describe a use case
