@@ -695,12 +695,12 @@ describe("document links to the repository's host, encoded and judged at the bui
   });
 
   test('a gitlab subgroup splits into owner segments and links through the -/blob address, in both spellings', () => {
-    for (const origin of ['ssh://git@gitlab.com/group/sub/repo.git', 'https://gitlab.com/group/sub/repo.git', 'git@gitlab.com:group/sub/repo.git']) {
+    for (const origin of ['ssh://git@gitlab.com/acme/sub/repo.git', 'https://gitlab.com/acme/sub/repo.git', 'git@gitlab.com:acme/sub/repo.git']) {
       const pages = documentsOf(
         { 'docs/guide.md': '[Code](../src/app.ts)\n', 'src/app.ts': 'export {};\n' },
         { commit: 'c0ffee0', origin },
       );
-      expect(pageOf(pages, 'docs/guide.md').links[0]!.url).toBe('https://gitlab.com/group/sub/repo/-/blob/c0ffee0/src/app.ts');
+      expect(pageOf(pages, 'docs/guide.md').links[0]!.url).toBe('https://gitlab.com/acme/sub/repo/-/blob/c0ffee0/src/app.ts');
     }
   });
 });

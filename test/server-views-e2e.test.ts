@@ -7,42 +7,31 @@ import { fileURLToPath } from 'node:url';
 import { checkLikeC4Workspaces } from '../scripts/likec4-check.js';
 import { checkMermaidPages } from '../scripts/mermaid-check.js';
 import { loadAndCompileModel } from '../src/index.js';
-import { sourceNameFromRemote } from '../src/send/send-model.js';
+import { completeRepo, type Repo } from './model-check-repo.js';
 import { gitEnv } from './git-env.js';
 
 /**
  * The server-views acceptance end to end, against real processes: a server
- * started as `bun scripts/serve.ts` on a scratch data folder, the reference
- * system's compiled model sent straight through POST /models (the
- * coordinator's decision of 2026-09-30: the invented system carries no
- * evidence and no review report, so the send command's check gate — a
- * correct gate — refuses it), nocx's model sent with the real send command,
- * then every view both sources owe, the idempotent resend, the refusal for
- * a source never sent, and the table of what each answer cost.
+ * started on a scratch data folder, the reference system sent through POST
+ * /models, a checked model built in a scratch git repository and sent with
+ * the real command, then every view both sources owe, idempotent resends,
+ * an unknown-source refusal, and the table of what each answer cost.
  *
- * The file runs only under MADARCH_SERVER_E2E=1, as the wiki's real builds
- * run only under MADARCH_WIKI_E2E=1; the tests that need nocx's checkout
- * also need MADARCH_NOCX to name it. Every test name says which variables
- * it requires — bun's runner prints no skip reason of its own, so the name
- * is the reason. When MADARCH_SERVER_E2E_CAPTURE names a file, the twelve
- * answers are written there as JSON for the GitHub-render measurement
- * outside the repository; unset, nothing is left behind.
+ * It runs only under MADARCH_SERVER_E2E=1. When MADARCH_SERVER_E2E_CAPTURE
+ * names a file, the twelve answers are written there for an external render
+ * measurement; otherwise nothing is left behind.
  */
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const SERVE = join(ROOT, 'scripts', 'serve.ts');
 const SEND = join(ROOT, 'scripts', 'send-model.ts');
 const REFERENCE_SYSTEM = join(ROOT, 'examples', 'reference-system');
-/** The source name the reference system is sent under (its git origin is madarch's own, so it cannot name the source). */
+/** The reference system is sent under a local source name. */
 const REFERENCE_SOURCE = 'examples/reference-system';
-/** The source nocx's accepted run is held to; its HEAD must start with this. */
-const NOCX_SOURCE = 'github.com/shady2k/nocx';
-const NOCX_COMMIT_PREFIX = '3f0e46e';
-
+/** The second source is created by the test and names its neutral origin. */
+const SECOND_SOURCE = 'github.com/acme/shop';
 const GATE = 'MADARCH_SERVER_E2E=1';
-const FULL = 'MADARCH_SERVER_E2E=1 and MADARCH_NOCX';
 const gated = process.env.MADARCH_SERVER_E2E !== undefined;
-const withNocx = gated && process.env.MADARCH_NOCX !== undefined;
 
 /** One read-only git question in a repository, answered or thrown with the question and the refusal. */
 function git(repo: string, args: string[]): string {
@@ -53,32 +42,15 @@ function git(repo: string, args: string[]): string {
   return run.stdout.trim();
 }
 
-/** The source name nocx's `origin` remote gives, derived once by the send command's own `sourceNameFromRemote`. */
-let nocxName: string | undefined;
-function nocxSource(): string {
-  if (nocxName === undefined) {
-    const name = sourceNameFromRemote(git(process.env.MADARCH_NOCX!, ['remote', 'get-url', 'origin']));
-    expect(name).toBeDefined();
-    nocxName = name!;
-  }
-  return nocxName;
-}
-
-/**
- * The twelve view requests: the landscape, a domain or top element with
- * children, and the modules of a core — on the reference system (`ordering`,
- * `checkout-api`) and on nocx (`nocx`, `runtime`, the module whose children
- * wire-transport, session-runtime and terminals are its modules).
- */
+/** Two views of the scratch model: its landscape and its web element. */
 function allViews(): Array<{ source: string; element: string | undefined; label: string }> {
-  const nocx = nocxSource();
   return [
     { source: REFERENCE_SOURCE, element: undefined, label: 'landscape' },
     { source: REFERENCE_SOURCE, element: 'ordering', label: 'ordering' },
     { source: REFERENCE_SOURCE, element: 'checkout-api', label: 'checkout-api' },
-    { source: nocx, element: undefined, label: 'landscape' },
-    { source: nocx, element: 'nocx', label: 'nocx' },
-    { source: nocx, element: 'runtime', label: 'runtime' },
+    { source: SECOND_SOURCE, element: undefined, label: 'landscape' },
+    { source: SECOND_SOURCE, element: 'web', label: 'web' },
+    { source: SECOND_SOURCE, element: 'core', label: 'core' },
   ];
 }
 
@@ -95,6 +67,7 @@ const removeMadeFolders = (): void => {
 afterEach(removeMadeFolders);
 
 let folder: string | undefined;
+let secondRepo: Repo | undefined;
 let serveProc: Bun.Subprocess | undefined;
 let baseUrl: string | undefined;
 /** What the server subprocess has said, held so a death can be named after the fact. */
@@ -181,17 +154,6 @@ function referenceSend(): { model: object; commit: string; committedAt: string }
   return reference;
 }
 
-/** nocx's HEAD commit, read once and held to the accepted skill run the acceptance names. */
-let nocxCommit: string | undefined;
-function nocxHead(): string {
-  if (nocxCommit === undefined) {
-    const commit = git(process.env.MADARCH_NOCX!, ['rev-parse', '--verify', 'HEAD^{commit}']);
-    expect(commit.startsWith(NOCX_COMMIT_PREFIX)).toBe(true);
-    nocxCommit = commit;
-  }
-  return nocxCommit;
-}
-
 /** One answer of the run: what was asked, what came back, what it cost. The table the acceptance reports from. */
 interface Answered {
   source: string;
@@ -230,7 +192,7 @@ function answerFile(source: string, label: string, extension: string): string {
   return `${source.replaceAll('/', '_')}-${label}.${extension}`;
 }
 
-describe('the server-views acceptance on the reference system and nocx', () => {
+describe('the server-views acceptance on the reference system and a scratch source', () => {
   test.skipIf(!gated)(`[${GATE}] the server stores the reference system's compiled model sent through POST /models`, async () => {
     baseUrl = await serveUntilListening();
     const sent = referenceSend();
@@ -239,31 +201,32 @@ describe('the server-views acceptance on the reference system and nocx', () => {
     await expect(response.json()).resolves.toEqual({ stored: true, source: REFERENCE_SOURCE, commit: sent.commit });
   });
 
-  test.skipIf(!withNocx)(`[${FULL}] the send command sends nocx's checked model, named from its origin`, async () => {
+  test.skipIf(!gated)(`[${GATE}] the real send command sends a checked model from a scratch repository`, async () => {
     baseUrl ??= await serveUntilListening();
-    const run = await runSend(process.env.MADARCH_NOCX!);
+    secondRepo = completeRepo();
+    expect(secondRepo.run(['remote', 'add', 'origin', `https://${SECOND_SOURCE}.git`]).ok).toBe(true);
+    const run = await runSend(secondRepo.path);
     expect(run.code).toBe(0);
     expect(run.stderr).toBe('');
-    expect(run.stdout).toContain(`stored ${nocxSource()} at ${nocxHead()}`);
+    expect(run.stdout).toContain(`stored ${SECOND_SOURCE} at ${secondRepo.run(['rev-parse', 'HEAD']).stdout.trim()}`);
   });
 
-  test.skipIf(!withNocx)(`[${FULL}] GET /sources lists both sources with their commits, in code point order`, async () => {
-    expect(nocxSource()).toBe(NOCX_SOURCE);
+  test.skipIf(!gated)(`[${GATE}] GET /sources lists both sources with their commits, in code point order`, async () => {
     const list = (await fetch(`${server()}/sources`).then((each) => each.json())) as Array<{
       source: string;
       commit: string;
       committedAt: string;
       storedAt: string;
     }>;
-    expect(list.map((each) => each.source)).toEqual([REFERENCE_SOURCE, NOCX_SOURCE]);
-    expect(list.map((each) => each.commit)).toEqual([referenceSend().commit, nocxHead()]);
+    expect(list.map((each) => each.source)).toEqual([REFERENCE_SOURCE, SECOND_SOURCE]);
+    expect(list.map((each) => each.commit)).toEqual([referenceSend().commit, secondRepo!.run(['rev-parse', 'HEAD']).stdout.trim()]);
     for (const each of list) {
       expect(each.committedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
       expect(each.storedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     }
   });
 
-  test.skipIf(!withNocx)(`[${FULL}] every Mermaid answer parses, the checkMermaidPages way`, async () => {
+  test.skipIf(!gated)(`[${GATE}] every Mermaid answer parses, the checkMermaidPages way`, async () => {
     const dir = join(tempFolder('madarch-server-views-e2e-md-'), 'mermaid');
     mkdirSync(dir, { recursive: true });
     for (const view of allViews()) {
@@ -273,7 +236,7 @@ describe('the server-views acceptance on the reference system and nocx', () => {
     await expect(checkMermaidPages([dir])).resolves.toEqual({ pages: 6, blocks: 6, errors: [] });
   }, { timeout: 120_000 });
 
-  test.skipIf(!withNocx)(`[${FULL}] every LikeC4 answer passes likec4 validate on its own`, async () => {
+  test.skipIf(!gated)(`[${GATE}] every LikeC4 answer passes likec4 validate on its own`, async () => {
     for (const view of allViews()) {
       const answered = await ask(view, 'likec4');
       const dir = join(tempFolder('madarch-server-views-e2e-c4-'), 'likec4');
@@ -283,17 +246,17 @@ describe('the server-views acceptance on the reference system and nocx', () => {
     }
   }, { timeout: 120_000 });
 
-  test.skipIf(!withNocx)(`[${FULL}] sending each source again answers already stored`, async () => {
+  test.skipIf(!gated)(`[${GATE}] sending each source again answers already stored`, async () => {
     const sent = referenceSend();
     const response = await post('/models', { source: REFERENCE_SOURCE, commit: sent.commit, committedAt: sent.committedAt, model: sent.model });
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ stored: false, reason: 'already stored', source: REFERENCE_SOURCE, commit: sent.commit });
-    const run = await runSend(process.env.MADARCH_NOCX!);
+    const run = await runSend(secondRepo!.path);
     expect(run.code).toBe(0);
-    expect(run.stdout).toContain(`already stored ${nocxSource()} at ${nocxHead()}`);
+    expect(run.stdout).toContain(`already stored ${SECOND_SOURCE} at ${secondRepo!.run(['rev-parse', 'HEAD']).stdout.trim()}`);
   });
 
-  test.skipIf(!withNocx)(`[${FULL}] every answer is byte-identical to the first`, async () => {
+  test.skipIf(!gated)(`[${GATE}] every answer is byte-identical to the first`, async () => {
     expect(answers).toHaveLength(12);
     const firstTexts = new Map(answers.map((each) => [`${each.source}|${each.element}|${each.format}`, each.text]));
     for (const view of allViews()) {
@@ -306,20 +269,24 @@ describe('the server-views acceptance on the reference system and nocx', () => {
     }
   });
 
-  test.skipIf(!withNocx)(`[${FULL}] a view of a source never sent is refused naming both held sources and the send command`, async () => {
-    const response = await post('/views', { source: 'github.com/acme/shop', format: 'mermaid' });
+  test.skipIf(!gated)(`[${GATE}] a view of a source never sent is refused naming both held sources and the send command`, async () => {
+    const response = await post('/views', { source: 'github.com/acme/unknown', format: 'mermaid' });
     expect(response.status).toBe(404);
     const body = (await response.json()) as { error: { message: string; field?: string } };
     expect(body.error.field).toBe('source');
-    expect(body.error.message).toContain('no model has been sent for the source "github.com/acme/shop"');
+    expect(body.error.message).toContain('no model has been sent for the source "github.com/acme/unknown"');
     expect(body.error.message).toContain(REFERENCE_SOURCE);
-    expect(body.error.message).toContain(NOCX_SOURCE);
+    expect(body.error.message).toContain(SECOND_SOURCE);
     expect(body.error.message).toContain('bun scripts/send-model.ts');
   });
 
   afterAll(async () => {
     if (serveProc !== undefined && serveStdoutClosed) {
       console.log(`the server subprocess ended on its own before the teardown (exit ${await serveProc.exited}); its last stderr: ${JSON.stringify(serveStderr.slice(-300))}, last stdout: ${JSON.stringify(serveStdout.slice(-300))}`);
+    }
+    if (secondRepo !== undefined) {
+      rmSync(secondRepo.path, { recursive: true, force: true });
+      secondRepo = undefined;
     }
     const capture = process.env.MADARCH_SERVER_E2E_CAPTURE;
     if (answers.length === 0 && capture === undefined) return;

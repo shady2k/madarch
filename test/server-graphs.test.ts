@@ -57,11 +57,11 @@ async function storedHistory(source: string, clock: Clock, commits: { commit: st
 describe('a graph built from two sources', () => {
   test('the union view holds both sources’ roots, whose ids do not clash', async () => {
     const clock = fakeClock(DAY(9));
-    const one = await storedHistory('github.com/a/one', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('one-root', { kind: 'system' })] }]);
-    const two = await storedHistory('github.com/b/two', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('two-root', { kind: 'system' })] }]);
-    const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/a/one' ? one : two), clock });
+    const one = await storedHistory('github.com/acme/one', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('one-root', { kind: 'system' })] }]);
+    const two = await storedHistory('github.com/acme/two', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('two-root', { kind: 'system' })] }]);
+    const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/acme/one' ? one : two), clock });
 
-    const union = graphs.addGraph('union', ['github.com/a/one', 'github.com/b/two']);
+    const union = graphs.addGraph('union', ['github.com/acme/one', 'github.com/acme/two']);
     const view = (await union.engine()).view({ depth: 0 });
     graphs.close();
 
@@ -71,29 +71,29 @@ describe('a graph built from two sources', () => {
 
   test('a graph listing one source answers that source alone', async () => {
     const clock = fakeClock(DAY(9));
-    const one = await storedHistory('github.com/a/one', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('one-root', { kind: 'system' })] }]);
-    const two = await storedHistory('github.com/b/two', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('two-root', { kind: 'system' })] }]);
-    const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/a/one' ? one : two), clock });
+    const one = await storedHistory('github.com/acme/one', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('one-root', { kind: 'system' })] }]);
+    const two = await storedHistory('github.com/acme/two', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('two-root', { kind: 'system' })] }]);
+    const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/acme/one' ? one : two), clock });
 
-    const single = graphs.graphForSource('github.com/a/one');
+    const single = graphs.graphForSource('github.com/acme/one');
     const view = (await single.engine()).view({ depth: 0 });
     graphs.close();
 
     expect(view.error).toBeUndefined();
     expect(view.elements?.map((e) => e.id)).toEqual(['one-root']);
-    expect(single.name).toBe('github.com/a/one');
-    expect(single.sources).toEqual(['github.com/a/one']);
+    expect(single.name).toBe('github.com/acme/one');
+    expect(single.sources).toEqual(['github.com/acme/one']);
   });
 
   test('a relation across the two sources joins them in the union view', async () => {
     const clock = fakeClock(DAY(9));
-    const one = await storedHistory('github.com/a/one', clock, [
+    const one = await storedHistory('github.com/acme/one', clock, [
       { commit: 'c1', committedAt: DAY(1), elements: [element('one-api')], relations: [relation('one-calls-two', 'one-api', 'two-api')] },
     ]);
-    const two = await storedHistory('github.com/b/two', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('two-api')] }]);
-    const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/a/one' ? one : two), clock });
+    const two = await storedHistory('github.com/acme/two', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('two-api')] }]);
+    const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/acme/one' ? one : two), clock });
 
-    const union = graphs.addGraph('union', ['github.com/a/one', 'github.com/b/two']);
+    const union = graphs.addGraph('union', ['github.com/acme/one', 'github.com/acme/two']);
     const view = (await union.engine()).view({ depth: 0 });
     graphs.close();
 
@@ -213,10 +213,10 @@ describe('a graph is a set of sources', () => {
 
   test('two sources declaring the same element id are an error naming the id and both sources', async () => {
     const clock = fakeClock(DAY(9));
-    const one = await storedHistory('github.com/a/one', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('core')] }]);
-    const two = await storedHistory('github.com/b/two', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('core')] }]);
-    const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/a/one' ? one : two), clock });
-    const union = graphs.addGraph('union', ['github.com/a/one', 'github.com/b/two']);
+    const one = await storedHistory('github.com/acme/one', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('core')] }]);
+    const two = await storedHistory('github.com/acme/two', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('core')] }]);
+    const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/acme/one' ? one : two), clock });
+    const union = graphs.addGraph('union', ['github.com/acme/one', 'github.com/acme/two']);
 
     let thrown: unknown;
     try {
@@ -225,8 +225,8 @@ describe('a graph is a set of sources', () => {
       thrown = error;
     }
     expect((thrown as Error).message).toContain('"core"');
-    expect((thrown as Error).message).toContain('github.com/a/one');
-    expect((thrown as Error).message).toContain('github.com/b/two');
+    expect((thrown as Error).message).toContain('github.com/acme/one');
+    expect((thrown as Error).message).toContain('github.com/acme/two');
     graphs.close();
   });
 
@@ -235,14 +235,14 @@ describe('a graph is a set of sources', () => {
     const one = createPGliteHistory({ clock });
     const two = createPGliteHistory({ clock });
     clock.set(DAY(10));
-    await one.store({ source: 'github.com/a/one', commit: 'c1', committedAt: DAY(1), model: model([element('core')]) });
+    await one.store({ source: 'github.com/acme/one', commit: 'c1', committedAt: DAY(1), model: model([element('core')]) });
     clock.set(DAY(12));
-    await one.store({ source: 'github.com/a/one', commit: 'c2', committedAt: DAY(3), model: model([]) });
+    await one.store({ source: 'github.com/acme/one', commit: 'c2', committedAt: DAY(3), model: model([]) });
     clock.set(DAY(14));
-    await two.store({ source: 'github.com/b/two', commit: 'c1', committedAt: DAY(3), model: model([element('core')]) });
+    await two.store({ source: 'github.com/acme/two', commit: 'c1', committedAt: DAY(3), model: model([element('core')]) });
 
-    const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/a/one' ? one : two), clock });
-    const union = graphs.addGraph('union', ['github.com/a/one', 'github.com/b/two']);
+    const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/acme/one' ? one : two), clock });
+    const union = graphs.addGraph('union', ['github.com/acme/one', 'github.com/acme/two']);
     expect((await union.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['core']);
     graphs.close();
   });
@@ -497,17 +497,17 @@ describe('keeping a built graph in step', () => {
     const clock = fakeClock(DAY(9));
     const one = createPGliteHistory({ clock });
     const two = createPGliteHistory({ clock });
-    await one.store({ source: 'github.com/a/one', commit: 'c1', committedAt: DAY(1), model: model([element('one-root')]) });
-    await two.store({ source: 'github.com/b/two', commit: 'c1', committedAt: DAY(1), model: model([element('two-root')]) });
-    const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/a/one' ? one : two), clock });
-    const union = graphs.addGraph('union', ['github.com/a/one', 'github.com/b/two']);
+    await one.store({ source: 'github.com/acme/one', commit: 'c1', committedAt: DAY(1), model: model([element('one-root')]) });
+    await two.store({ source: 'github.com/acme/two', commit: 'c1', committedAt: DAY(1), model: model([element('two-root')]) });
+    const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/acme/one' ? one : two), clock });
+    const union = graphs.addGraph('union', ['github.com/acme/one', 'github.com/acme/two']);
     expect((await union.engine()).view({ depth: 0 }).elements?.map((each) => each.id).sort()).toEqual(['one-root', 'two-root']);
 
     // The store's own report reaches the built engine as rows; only a
     // rebuild through the clash check can refuse what they declare.
-    const result = await one.store({ source: 'github.com/a/one', commit: 'c2', committedAt: DAY(2), model: model([element('one-root'), element('two-root')]) });
+    const result = await one.store({ source: 'github.com/acme/one', commit: 'c2', committedAt: DAY(2), model: model([element('one-root'), element('two-root')]) });
     expect(result.errors).toEqual([]);
-    graphs.applyStore('github.com/a/one', result);
+    graphs.applyStore('github.com/acme/one', result);
 
     let thrown: unknown;
     try {
@@ -516,8 +516,8 @@ describe('keeping a built graph in step', () => {
       thrown = error;
     }
     expect((thrown as Error).message).toContain('"two-root"');
-    expect((thrown as Error).message).toContain('github.com/a/one');
-    expect((thrown as Error).message).toContain('github.com/b/two');
+    expect((thrown as Error).message).toContain('github.com/acme/one');
+    expect((thrown as Error).message).toContain('github.com/acme/two');
     graphs.close();
   });
 });
@@ -558,8 +558,8 @@ describe('the graph engine and its clock', () => {
     const clock = fakeClock(DAY(9));
     const one = createPGliteHistory({ clock });
     const graphs = createGraphs({ historyOf: () => one, clock });
-    const union = graphs.addGraph('union', ['github.com/b/two', 'github.com/a/one', 'github.com/c/three']);
-    expect(union.sources).toEqual(['github.com/a/one', 'github.com/b/two', 'github.com/c/three']);
+    const union = graphs.addGraph('union', ['github.com/acme/two', 'github.com/acme/one', 'github.com/acme/three']);
+    expect(union.sources).toEqual(['github.com/acme/one', 'github.com/acme/three', 'github.com/acme/two']);
     graphs.close();
   });
 

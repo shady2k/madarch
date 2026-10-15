@@ -133,7 +133,7 @@ describe('source names become file names', () => {
 describe('sourceNameProblem', () => {
   test('a name with separators, dots and non-ASCII letters is fine', async () => {
     expect(sourceNameProblem('../../etc/passwd')).toBeUndefined();
-    expect(sourceNameProblem('github.com/shady2k/nocx')).toBeUndefined();
+    expect(sourceNameProblem('github.com/acme/shop')).toBeUndefined();
     expect(sourceNameProblem('github.com/ünicode/repo')).toBeUndefined();
     expect(sourceNameProblem('..')).toBeUndefined();
   });
@@ -401,7 +401,7 @@ describe('restart on the same data folder', () => {
     const dir = scratchFolder();
     const clock = fakeClock(DAY(10));
     const first = await createSourceStores({ dataFolder: dir, clock });
-    await first.store(storeInput('github.com/shady2k/nocx', 'c1', DAY(1), [element('a')]));
+    await first.store(storeInput('github.com/acme/shop', 'c1', DAY(1), [element('a')]));
     await first.store(storeInput('github.com/acme/shop', 'c2', DAY(2), [element('b')]));
     const before = first.heads();
     await first.close();
@@ -562,7 +562,7 @@ describe('source ids', () => {
     const dir = scratchFolder();
     const sources = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
 
-    await sources.store(storeInput('github.com/shady2k/nocx', 'c1', DAY(1), [element('a')]));
+    await sources.store(storeInput('github.com/acme/shop', 'c1', DAY(1), [element('a')]));
     const head = sources.heads()[0]!;
     await sources.close();
 
@@ -604,8 +604,8 @@ describe('source ids', () => {
   test('two different sources hold different ids', async () => {
     const dir = scratchFolder();
     const sources = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
-    await sources.store(storeInput('github.com/a/first', 'c1', DAY(1), [element('a')]));
-    await sources.store(storeInput('github.com/b/second', 'c1', DAY(1), [element('a')]));
+    await sources.store(storeInput('github.com/acme/first', 'c1', DAY(1), [element('a')]));
+    await sources.store(storeInput('github.com/acme/second', 'c1', DAY(1), [element('a')]));
     const heads = sources.heads();
     await sources.close();
 
@@ -615,7 +615,7 @@ describe('source ids', () => {
   test('a data folder from before the ids existed: every source gets an id at start, and no stored answer changes', async () => {
     const dir = scratchFolder();
     const first = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
-    await first.store(storeInput('github.com/shady2k/nocx', 'c2', DAY(2), [element('b')]));
+    await first.store(storeInput('github.com/acme/shop', 'c2', DAY(2), [element('b')]));
     await first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     const before = first.heads().map(({ id: _id, ...rest }) => rest);
     const commitsBefore: Record<string, CommitRecord[]> = {};
@@ -684,19 +684,19 @@ describe('a rename claim on the stores', () => {
     const commitsBefore = await sources.historyOf('shop').commits('shop');
     const readBefore = await sources.historyOf('shop').read({ source: 'shop', valid: DAY(2), known: DAY(20) });
 
-    expect(await sources.rename(id, 'github.com/shady2k/nocx')).toEqual({ formerSource: 'shop' });
+    expect(await sources.rename(id, 'github.com/acme/shop')).toEqual({ formerSource: 'shop' });
 
     // c2 closed c1's rows, so its own recorded moment sits 1 ms past the
     // frozen clock; the rename leaves it exactly as it was.
-    expect(sources.heads()).toEqual([{ id, source: 'github.com/shady2k/nocx', commit: 'c2', committedAt: DAY(2), storedAt: DAY(10) + 1 }]);
-    expect(existsSync(join(dir, 'github.com%2Fshady2k%2Fnocx.pglite'))).toBe(true);
-    expect(existsSync(join(dir, 'github.com%2Fshady2k%2Fnocx.json'))).toBe(true);
+    expect(sources.heads()).toEqual([{ id, source: 'github.com/acme/shop', commit: 'c2', committedAt: DAY(2), storedAt: DAY(10) + 1 }]);
+    expect(existsSync(join(dir, 'github.com%2Facme%2Fshop.pglite'))).toBe(true);
+    expect(existsSync(join(dir, 'github.com%2Facme%2Fshop.json'))).toBe(true);
     expect(existsSync(join(dir, 'shop.pglite'))).toBe(false);
     expect(existsSync(join(dir, 'shop.json'))).toBe(false);
 
-    const history = sources.historyOf('github.com/shady2k/nocx');
-    expect(await history.commits('github.com/shady2k/nocx')).toEqual(commitsBefore);
-    expect(await history.read({ source: 'github.com/shady2k/nocx', valid: DAY(2), known: DAY(20) })).toEqual(readBefore);
+    const history = sources.historyOf('github.com/acme/shop');
+    expect(await history.commits('github.com/acme/shop')).toEqual(commitsBefore);
+    expect(await history.read({ source: 'github.com/acme/shop', valid: DAY(2), known: DAY(20) })).toEqual(readBefore);
     await sources.close();
   });
 

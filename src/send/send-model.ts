@@ -123,9 +123,9 @@ function git(repo: string, args: string[]): { ok: boolean; stdout: string } {
 }
 
 /**
- * The source name a remote URL names: `git@github.com:shady2k/nocx.git`
- * and `https://user:token@github.com/shady2k/nocx.git` both name
- * `github.com/shady2k/nocx` — the host and path, without a scheme,
+ * The source name a remote URL names: `git@github.com:acme/shop.git`
+ * and `https://user:token@github.com/acme/shop.git` both name
+ * `github.com/acme/shop` — the host and path, without a scheme,
  * credentials, a port or a trailing `.git`, so the name is stable across
  * clones and machines and no credential in the URL can reach the output,
  * the logs or the request. `undefined` when the remote has no host and

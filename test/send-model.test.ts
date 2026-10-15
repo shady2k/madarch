@@ -42,20 +42,20 @@ async function runSend(...args: string[]): Promise<{ status: number; stdout: str
 describe('the source name of a remote', () => {
   test('the host and path survive; scheme, credentials, port and a trailing .git do not', async () => {
     const remotes: [string, string][] = [
-      ['git@github.com:shady2k/nocx.git', 'github.com/shady2k/nocx'],
-      ['https://user:token@github.com/shady2k/nocx.git', 'github.com/shady2k/nocx'],
-      ['https://github.com/shady2k/nocx', 'github.com/shady2k/nocx'],
-      ['ssh://git@github.com/shady2k/nocx.git', 'github.com/shady2k/nocx'],
-      ['git://github.com/shady2k/nocx.git', 'github.com/shady2k/nocx'],
-      ['ssh://git@github.com:2222/shady2k/nocx.git', 'github.com/shady2k/nocx'],
+      ['git@github.com:acme/shop.git', 'github.com/acme/shop'],
+      ['https://user:token@github.com/acme/shop.git', 'github.com/acme/shop'],
+      ['https://github.com/acme/shop', 'github.com/acme/shop'],
+      ['ssh://git@github.com/acme/shop.git', 'github.com/acme/shop'],
+      ['git://github.com/acme/shop.git', 'github.com/acme/shop'],
+      ['ssh://git@github.com:2222/acme/shop.git', 'github.com/acme/shop'],
       ['http://token@10.0.0.1:7990/scm/proj/repo.git', '10.0.0.1/scm/proj/repo'],
-      ['git@github.com:shady2k/nocx', 'github.com/shady2k/nocx'],
+      ['git@github.com:acme/shop', 'github.com/acme/shop'],
       ['https://github.com/acme/shop.git?access_token=secret#x', 'github.com/acme/shop'],
       ['https://github.com/acme/shop?ref=main#readme', 'github.com/acme/shop'],
-      ['https://user:token@github.com/shady2k/nocx.git?private=token', 'github.com/shady2k/nocx'],
-      ['github.com:shady2k/nocx', 'github.com/shady2k/nocx'],
+      ['https://user:token@github.com/acme/shop.git?private=token', 'github.com/acme/shop'],
+      ['github.com:acme/shop', 'github.com/acme/shop'],
       ['xy:repo', 'xy/repo'],
-      ['https://github.com/shady2k/nocx//', 'github.com/shady2k/nocx'],
+      ['https://github.com/acme/shop//', 'github.com/acme/shop'],
     ];
     for (const [remote, name] of remotes) {
       expect(sourceNameFromRemote(remote)).toBe(name);
@@ -63,7 +63,7 @@ describe('the source name of a remote', () => {
   });
 
   test('a remote with no host and path to name a repository by names nothing', async () => {
-    for (const remote of ['/srv/git/nocx.git', 'file:///srv/git/nocx.git', 'C:\\dev\\nocx', 'https://github.com/', 'git@github.com:', 'https://github.com', 'https:///x', '1https://github.com/shady2k/nocx']) {
+    for (const remote of ['/srv/git/shop.git', 'file:///srv/git/shop.git', 'C:\\dev\\shop', 'https://github.com/', 'git@github.com:', 'https://github.com', 'https:///x', '1https://github.com/acme/shop']) {
       expect(sourceNameFromRemote(remote)).toBeUndefined();
     }
   });
@@ -111,23 +111,23 @@ describe('the send command', () => {
     return list as { id: string; source: string; commit: string; committedAt: string; storedAt: string }[];
   }
 
-  test('sent-after-check: the origin git@github.com:shady2k/nocx.git is stored as github.com/shady2k/nocx at HEAD\'s commit and committer time, twice is already stored', async () => {
+  test('sent-after-check: the origin git@github.com:acme/shop.git is stored as github.com/acme/shop at HEAD\'s commit and committer time, twice is already stored', async () => {
     const url = await start();
     const repo = completeRepo();
     try {
-      expect(repo.run(['remote', 'add', 'origin', 'git@github.com:shady2k/nocx.git']).ok).toBe(true);
+      expect(repo.run(['remote', 'add', 'origin', 'git@github.com:acme/shop.git']).ok).toBe(true);
       const commit = repo.run(['rev-parse', 'HEAD']).stdout.trim();
 
       const first = await runSend(repo.path, '--server', url);
       expect(first.status).toBe(0);
       expect(first.stdout).toContain('stored');
-      expect(first.stdout).toContain('github.com/shady2k/nocx');
+      expect(first.stdout).toContain('github.com/acme/shop');
       expect(first.stdout).toContain(commit);
       expect(first.stdout).not.toContain('git@github.com');
 
       const list = await sources();
       expect(list).toHaveLength(1);
-      expect(list[0]).toEqual({ id: expect.any(String), source: 'github.com/shady2k/nocx', commit, committedAt: COMMITTED_AT, storedAt: new Date(NOW).toISOString() });
+      expect(list[0]).toEqual({ id: expect.any(String), source: 'github.com/acme/shop', commit, committedAt: COMMITTED_AT, storedAt: new Date(NOW).toISOString() });
 
       const second = await runSend(repo.path, '--server', url);
       expect(second.status).toBe(0);
@@ -142,17 +142,17 @@ describe('the send command', () => {
     const url = await start();
     const repo = completeRepo();
     try {
-      expect(repo.run(['remote', 'add', 'origin', 'https://user:token@github.com/shady2k/nocx.git']).ok).toBe(true);
+      expect(repo.run(['remote', 'add', 'origin', 'https://user:token@github.com/acme/shop.git']).ok).toBe(true);
       const commit = repo.run(['rev-parse', 'HEAD']).stdout.trim();
 
       const run = await runSend(repo.path, '--server', url);
       expect(run.status).toBe(0);
-      expect(run.stdout).toContain('github.com/shady2k/nocx');
+      expect(run.stdout).toContain('github.com/acme/shop');
       expect(run.stdout).not.toContain('token');
       expect(run.stdout).not.toContain('user:');
 
       const list = await sources();
-      expect(list.map((head) => [head.source, head.commit])).toEqual([['github.com/shady2k/nocx', commit]]);
+      expect(list.map((head) => [head.source, head.commit])).toEqual([['github.com/acme/shop', commit]]);
       for (const line of lines) expect(line).not.toContain('token');
     } finally {
       rmSync(repo.path, { recursive: true, force: true });
@@ -241,7 +241,7 @@ describe('the send command', () => {
   test('a server that cannot be reached exits 2 naming the server', async () => {
     const repo = completeRepo();
     try {
-      expect(repo.run(['remote', 'add', 'origin', 'git@github.com:shady2k/nocx.git']).ok).toBe(true);
+      expect(repo.run(['remote', 'add', 'origin', 'git@github.com:acme/shop.git']).ok).toBe(true);
       const run = await runSend(repo.path, '--server', 'http://127.0.0.1:9');
       expect(run.status).toBe(2);
       expect(run.stderr).toContain('127.0.0.1:9');
@@ -255,14 +255,14 @@ describe('the send command', () => {
     const url = await start();
     const repo = completeRepo();
     try {
-      expect(repo.run(['remote', 'add', 'origin', 'git@github.com:shady2k/nocx.git']).ok).toBe(true);
+      expect(repo.run(['remote', 'add', 'origin', 'git@github.com:acme/shop.git']).ok).toBe(true);
       const older = repo.run(['rev-parse', 'HEAD~1']).stdout.trim();
 
       const run = await runSend(repo.path, '--server', url, '--source', 'acme/shop', '--rev', older);
       expect(run.status).toBe(0);
       expect(run.stdout).toContain('acme/shop');
       expect(run.stdout).toContain(older);
-      expect(run.stdout).not.toContain('github.com/shady2k/nocx');
+      expect(run.stdout).not.toContain('github.com/acme/shop');
 
       const list = await sources();
       expect(list).toHaveLength(1);
@@ -278,7 +278,7 @@ describe('the send command', () => {
     const url = await start();
     const repo = completeRepo();
     try {
-      expect(repo.run(['remote', 'add', 'origin', 'git@github.com:shady2k/nocx.git']).ok).toBe(true);
+      expect(repo.run(['remote', 'add', 'origin', 'git@github.com:acme/shop.git']).ok).toBe(true);
       expect((await runSend(repo.path, '--server', url)).status).toBe(0);
 
       // The same commit sent with a different model is refused, naming the commit.
@@ -303,7 +303,7 @@ describe('the send command', () => {
       fetch: () => Response.json({ stored: 'yes' }),
     });
     try {
-      expect(repo.run(['remote', 'add', 'origin', 'git@github.com:shady2k/nocx.git']).ok).toBe(true);
+      expect(repo.run(['remote', 'add', 'origin', 'git@github.com:acme/shop.git']).ok).toBe(true);
       const run = await runSend(repo.path, '--server', `http://127.0.0.1:${fake.port}`);
       expect(run.status).toBe(2);
       expect(run.stderr).toContain('no boolean "stored"');
@@ -321,7 +321,7 @@ describe('the send command', () => {
       fetch: () => Response.json(42),
     });
     try {
-      expect(repo.run(['remote', 'add', 'origin', 'git@github.com:shady2k/nocx.git']).ok).toBe(true);
+      expect(repo.run(['remote', 'add', 'origin', 'git@github.com:acme/shop.git']).ok).toBe(true);
       const run = await runSend(repo.path, '--server', `http://127.0.0.1:${fake.port}`);
       expect(run.status).toBe(2);
       expect(run.stderr).toContain('no boolean "stored"');
@@ -339,7 +339,7 @@ describe('the send command', () => {
       fetch: () => Response.json({ error: { message: 'the model is not wanted', field: 'source' } }, { status: 400 }),
     });
     try {
-      expect(repo.run(['remote', 'add', 'origin', 'git@github.com:shady2k/nocx.git']).ok).toBe(true);
+      expect(repo.run(['remote', 'add', 'origin', 'git@github.com:acme/shop.git']).ok).toBe(true);
       const run = await runSend(repo.path, '--server', `http://127.0.0.1:${fake.port}`);
       expect(run.status).toBe(2);
       expect(run.stderr).toContain('the model is not wanted');
@@ -354,7 +354,7 @@ describe('the send command', () => {
     const url = await start();
     const repo = completeRepo();
     try {
-      expect(repo.run(['remote', 'add', 'origin', 'git@github.com:shady2k/nocx.git']).ok).toBe(true);
+      expect(repo.run(['remote', 'add', 'origin', 'git@github.com:acme/shop.git']).ok).toBe(true);
       const run = await runSend(repo.path, '--server', `${url}//`);
       expect(run.status).toBe(0);
       expect(run.stdout).toContain('stored');

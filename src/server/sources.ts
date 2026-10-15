@@ -133,13 +133,13 @@ export interface SourceStores {
  */
 export function sourceNameProblem(source: unknown): string | undefined {
   if (typeof source !== 'string') {
-    return `"source" must be a string naming the source the model belongs to, like "github.com/shady2k/nocx"`;
+    return `"source" must be a string naming the source the model belongs to, like "github.com/acme/shop"`;
   }
   if (source.length === 0) {
-    return `"source" is empty: the source's name is required, like "github.com/shady2k/nocx"`;
+    return `"source" is empty: the source's name is required, like "github.com/acme/shop"`;
   }
   if (/[\u0000-\u001F\u007F-\u009F]/.test(source)) {
-    return `"source" must not hold a control character, but ${JSON.stringify(source)} does: a control character could split the log line the request is written to; use a name without them, like "github.com/shady2k/nocx"`;
+    return `"source" must not hold a control character, but ${JSON.stringify(source)} does: a control character could split the log line the request is written to; use a name without them, like "github.com/acme/shop"`;
   }
   const encoded = encodeSourceName(source);
   if (Buffer.byteLength(encoded) > MAX_ENCODED_STEM_BYTES) {

@@ -426,7 +426,7 @@ export function createHandler(dependencies: {
 
     let source: string | undefined;
     if (!('source' in body) || body.source === undefined) {
-      problems.push({ field: 'source', message: `"source" is required: the name of the source the model belongs to, like "github.com/shady2k/nocx"` });
+      problems.push({ field: 'source', message: `"source" is required: the name of the source the model belongs to, like "github.com/acme/shop"` });
     } else {
       const problem = sourceNameProblem(body.source);
       if (problem !== undefined) problems.push({ field: 'source', message: problem });
@@ -583,7 +583,7 @@ export function createHandler(dependencies: {
 
     let source: string | undefined;
     if (!('source' in body) || body.source === undefined) {
-      problems.push({ field: 'source', message: `"source" is required: the source's new name, like "github.com/shady2k/nocx"` });
+      problems.push({ field: 'source', message: `"source" is required: the source's new name, like "github.com/acme/shop"` });
     } else {
       const problem = sourceNameProblem(body.source);
       if (problem !== undefined) problems.push({ field: 'source', message: problem });
@@ -712,7 +712,7 @@ export function createHandler(dependencies: {
 
     let source: string | undefined;
     if (!('source' in body) || body.source === undefined) {
-      problems.push({ field: 'source', message: '"source" is required: the name of the source the view is asked of, like "github.com/shady2k/nocx"' });
+      problems.push({ field: 'source', message: '"source" is required: the name of the source the view is asked of, like "github.com/acme/shop"' });
     } else {
       const problem = sourceNameProblem(body.source);
       if (problem !== undefined) problems.push({ field: 'source', message: problem });

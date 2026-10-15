@@ -43,7 +43,7 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   in the acceptance record. Committed tests use only fixtures the project holds
   or creates; none needs a checkout, commit or variable naming another
   repository, and product messages and specs use neutral example names
-  (madarch-l2f: the server e2e test was pinned to the unrelated nocx).
+  (madarch-l2f: the server e2e test required an outside checkout).
 - Briefing workers: state the quality bar up front (every error with file, line
   and full path; no silently smaller result; code-point sorting; mutation run
   before the report), or review takes three or four rounds.
