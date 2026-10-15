@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { chmodSync, lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ensureWikiCacheRoot, wikiCacheRoot } from '../src/wiki/cache.js';
 
@@ -19,7 +19,7 @@ import { ensureWikiCacheRoot, wikiCacheRoot } from '../src/wiki/cache.js';
 const made: string[] = [];
 
 function tempFolder(prefix: string): string {
-  const dir = mkdtempSync(join('/tmp', prefix));
+  const dir = mkdtempSync(join(tmpdir(), prefix));
   made.push(dir);
   return dir;
 }

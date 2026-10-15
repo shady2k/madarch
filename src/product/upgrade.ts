@@ -216,7 +216,7 @@ export async function upgrade(options: UpgradeOptions = {}): Promise<UpgradeOutc
   const target = runningExecutable(options);
   // Staging beside the target, not in the system temp: the replace is a
   // rename, a step that refuses crossing a filesystem (EXDEV), and an
-  // installed binary's prefix can be a mounted volume other than /tmp.
+  // installed binary's prefix can be a mounted volume outside the system temp directory.
   const stage = join(dirname(target), (basename(target) as string) + '.upgrade-new');
   writeFileSync(stage, binary.body);
   chmodSync(stage, 0o755);

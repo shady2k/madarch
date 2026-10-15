@@ -4,22 +4,23 @@
  * wiki/app, serving a small product fixture under test/) and, when a
  * --mockup dist folder is given, the mockup at the same width and colour
  * scheme, then puts the two shots of a pair into ONE image on a scratch
- * folder OUTSIDE the repository (default /tmp/madarch-wiki-shots, named with
+ * folder OUTSIDE the repository (defaulting to the operating system's temp
+ * directory under madarch-wiki-shots, named with
  * --out) and prints the folder.
  *
  * The pairs cover the home and a document page carrying every element (the
  * fixture docs/vision.md) at the owner's 1000x700 light and dark size,
  * 1440x900 dark and light, 1150x900, 1110x900 and 390x844 light, plus tall
  * 1440x1400 windows. Ours-only shots include the phone drawer, language menu,
- * and scrolled home; the mockup has no counterparts. Headless chrome at the
- * machine's path (CHROME names another) drives every window through
- * puppeteer-core; this script writes nothing in the repository.
+ * and scrolled home; the mockup has no counterparts. Headless Chromium from CHROME, Puppeteer's install, or PATH drives every
+ * window; this script writes nothing in the repository.
  */
 import { mkdirSync, existsSync, readFileSync, writeFileSync, mkdtempSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { join, resolve as resolvePath } from 'node:path';
-import puppeteer from 'puppeteer-core';
+import puppeteer from 'puppeteer';
+import { resolveBrowserExecutable } from './chromium.js';
 import { startServer, type StartedServer } from '../src/index.js';
 
 const product = argument('product', '');
@@ -27,7 +28,6 @@ if (product !== '' && !existsSync(join(product, 'workspace.yaml'))) {
   console.error(`no product at ${product}: give the folder of a product repository (its workspace.yaml is read)`);
   process.exit(2);
 }
-const CHROME = process.env.CHROME ?? '/nix/store/6bg6ciwh50x38sca5x9zimdzqijkc8sq-playwright-chromium/chrome-linux64/chrome';
 
 /** One screen of the wiki: the address on our server and the pair's name. */
 const SCREENS = [
@@ -110,7 +110,7 @@ function argument(name: string, defaultValue: string): string {
   return at !== -1 && process.argv[at + 1] ? process.argv[at + 1]! : defaultValue;
 }
 
-const outFolder = resolvePath(argument('out', '/tmp/madarch-wiki-shots'));
+const outFolder = resolvePath(argument('out', join(tmpdir(), 'madarch-wiki-shots')));
 const mockupFolder = argument('mockup', '');
 const uiLanguage = argument('language', 'en');
 if (uiLanguage !== 'en' && uiLanguage !== 'ru') {
@@ -153,12 +153,12 @@ try {
   reposServer = await startServer({ productFolder: reposFixture, port: 0 });
   const reposOurs = reposServer.url;
   const browser = await puppeteer.launch({
-    executablePath: CHROME,
+    executablePath: resolveBrowserExecutable(),
     headless: true,
     args: ['--no-sandbox', '--disable-dev-shm-usage', '--hide-scrollbars'],
   });
   try {
-    const selectUiLanguage = async (page: import('puppeteer-core').Page): Promise<void> => {
+    const selectUiLanguage = async (page: import('puppeteer').Page): Promise<void> => {
       await page.evaluate((language: string) => {
         window.localStorage.setItem('madarch-wiki-language', language);
       }, uiLanguage);

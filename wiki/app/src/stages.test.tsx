@@ -190,7 +190,7 @@ describe('the stages view', () => {
           id: 'build',
           artifacts: [],
           tasks: [],
-          notes: [{ where: '/tmp/x/.beads/issues.jsonl', line: 4, message: 'the issue "t-1" holds the status "deferred": the stages group open, in-progress and done, so it is left out' }],
+          notes: [{ where: '/fixture/.beads/issues.jsonl', line: 4, message: 'the issue "t-1" holds the status "deferred": the stages group open, in-progress and done, so it is left out' }],
         },
       ],
       problems: [],

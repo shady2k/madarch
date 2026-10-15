@@ -1,9 +1,10 @@
 /// <reference lib="dom" />
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import puppeteer, { type Browser, type Page } from 'puppeteer-core';
+import puppeteer, { type Browser, type Page } from 'puppeteer';
+import { resolveBrowserExecutable } from '../scripts/chromium.js';
 import { startServer, type StartedServer } from '../src/index.js';
 
 /**
@@ -13,15 +14,16 @@ import { startServer, type StartedServer } from '../src/index.js';
  */
 const ROOT = new URL('..', import.meta.url).pathname;
 const APP = join(ROOT, 'wiki', 'app', 'dist');
-const SCREENSHOT = process.env.MADARCH_WIKI_SCREENSHOT ?? '/tmp/madarch-gj94-reader.png';
+const SCREENSHOT = process.env.MADARCH_WIKI_SCREENSHOT ?? join(tmpdir(), 'madarch-wiki-reader.png');
 const PAGE_PATH = '/p/docs/vision.md';
 const PAGE_TITLE = 'Reader vision';
 const LANGUAGE = process.env.MADARCH_WIKI_LANGUAGE === 'ru' ? 'ru' : 'en';
 const enabled = process.env.MADARCH_WIKI_E2E === '1';
 const runDescribe = enabled ? describe.serial : describe.skip;
+if (!enabled) console.info('Wiki Chromium E2E tests skipped: set MADARCH_WIKI_E2E=1 after building wiki/app to run them.');
 
 function buildFieldnote(): { root: string; product: string } {
-  const root = mkdtempSync(join(tmpdir(), 'madarch-gj94-e2e-'));
+  const root = mkdtempSync(join(tmpdir(), 'madarch-reader-e2e-'));
   const product = join(root, 'Fieldnote');
   mkdirSync(join(product, 'docs'), { recursive: true });
   writeFileSync(join(product, 'workspace.yaml'), [
@@ -33,24 +35,6 @@ function buildFieldnote(): { root: string; product: string } {
   writeFileSync(join(product, 'README.md'), '# Fieldnote\n\nA reader fixture.\n');
   writeFileSync(join(product, 'docs', 'vision.md'), `# ${PAGE_TITLE}\n\nA page with one clear heading.\n`);
   return { root, product };
-}
-
-function chromiumExecutable(): string {
-  const configured = process.env.CHROME ?? process.env.PUPPETEER_EXECUTABLE_PATH;
-  if (configured !== undefined) {
-    if (!existsSync(configured)) throw new Error(`CHROME does not name an existing browser: ${configured}`);
-    return configured;
-  }
-  for (const candidate of ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome']) {
-    if (existsSync(candidate)) return candidate;
-  }
-  const store = '/nix/store';
-  if (existsSync(store)) {
-    const candidates = readdirSync(store).filter((name) => name.includes('chromium')).sort();
-    const executable = candidates.map((name) => join(store, name, 'chrome-linux64', 'chrome')).find(existsSync);
-    if (executable !== undefined) return executable;
-  }
-  throw new Error('No Chromium executable found; set CHROME to a headless Chromium path.');
 }
 
 runDescribe('wiki reader chrome (built app and Chromium)', () => {
@@ -71,7 +55,7 @@ runDescribe('wiki reader chrome (built app and Chromium)', () => {
       errorLog: (line) => console.error(line),
     });
     browser = await puppeteer.launch({
-      executablePath: chromiumExecutable(),
+      executablePath: resolveBrowserExecutable(),
       headless: true,
       args: ['--no-sandbox', '--disable-dev-shm-usage'],
     });
