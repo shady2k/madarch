@@ -41,6 +41,7 @@ MADARCH="$PREFIX/bin/madarch"
 if [ -d "$MADARCH" ]; then MADARCH="$PREFIX/libexec/madarch-bin"; fi
 [ -x "$MADARCH" ] || { echo "Homebrew installed no executable at $MADARCH" >&2; exit 1; }
 "$MADARCH" version
+madarch() { "$MADARCH" "$@"; }
 export GIT_AUTHOR_NAME='Madarch Homebrew Walk' GIT_AUTHOR_EMAIL='walk@example.invalid' GIT_COMMITTER_NAME='Madarch Homebrew Walk' GIT_COMMITTER_EMAIL='walk@example.invalid'
 HOME="$TMP/home"; PORT=$((20000 + RANDOM % 20000)); mkdir -p "$HOME"
 madarch new --home "$HOME/products" --port "$PORT" --no-open > "$TMP/new.txt" 2>&1 & PID=$!
