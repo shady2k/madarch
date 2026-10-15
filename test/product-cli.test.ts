@@ -986,6 +986,39 @@ describe('madarch repo add', () => {
     expect(spawnSync(realGit(), ['-C', draft.folder, 'status', '--porcelain'], { encoding: 'utf8', env: gitEnv(GIT_ENV) }).stdout.trim()).toBe('');
   });
 
+  test('keeps a moved checkout and reports a manifest restore failure when its commit fails', () => {
+    if (process.platform === 'win32') return; // the fixture hook is a POSIX script.
+    const base = scratchFolder('madarch-cli-lc-');
+    const home = join(base, 'home'); mkdirSync(home, { recursive: true });
+    const draft = madeDraft(home);
+    const url = sourceRepo(base, 'library-source');
+    const source = join(base, 'existing-checkout');
+    const clone = spawnSync(realGit(), ['clone', '--quiet', url, source], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
+    if (clone.status !== 0) throw new Error(`fixture clone failed: ${clone.stderr}`);
+    writeFileSync(join(source, 'uncommitted.txt'), 'keep at the connection path\n');
+    const hooks = join(base, 'hooks'); mkdirSync(hooks);
+    const hook = join(hooks, 'pre-commit');
+    writeFileSync(hook, "#!/bin/sh\nset -eu\nrm workspace.yaml\nmkdir workspace.yaml\nprintf 'injected commit failure\\n' >&2\nexit 1\n");
+    chmodSync(hook, 0o755);
+    const configured = spawnSync(realGit(), ['-C', draft.folder, 'config', 'core.hooksPath', hooks], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
+    if (configured.status !== 0) throw new Error(`fixture hook config failed: ${configured.stderr}`);
+    const manifestPath = join(draft.folder, 'workspace.yaml');
+    const target = join(draft.folder, 'repos', 'library');
+
+    const run = runCommand(['repo', 'add', 'library', url, '--source', source, '--mode', 'move', '--product', draft.folder], {}, base);
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('injected commit failure');
+    const restoreErrorLabel = `the manifest at ${manifestPath} could not be restored:`;
+    expect(run.stderr).toContain(restoreErrorLabel);
+    const restoreError = run.stderr.split(restoreErrorLabel, 2)[1]?.split(';', 1)[0]?.trim();
+    expect(restoreError).toBeTruthy();
+    expect(run.stdout).toContain(`connection: ${target}`);
+    expect(existsSync(source)).toBe(false);
+    expect(existsSync(target)).toBe(true);
+    expect(readFileSync(join(target, 'uncommitted.txt'), 'utf8')).toBe('keep at the connection path\n');
+    expect(statSync(manifestPath).isDirectory()).toBe(true);
+  });
+
   test('keeps a moved checkout in place when the manifest index cannot be reset', () => {
     if (process.platform === 'win32') return; // The Git wrapper and commit hook are POSIX scripts.
     const base = scratchFolder('madarch-cli-lc-');
