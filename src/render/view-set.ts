@@ -9,7 +9,7 @@
 import type { CompiledModel, CompiledRelation } from '../model/compile.js';
 import { byCodePoint } from '../model/order.js';
 import { messagingOf } from '../model/contracts.js';
-import type { ElementAnswer, QueryEngine, QueryError, QuerySnapshot, QueryTime, ViewRelation } from '../query/types.js';
+import type { ElementAnswer, QueryError, QuerySnapshot, QueryTime, ViewRelation } from '../query/types.js';
 
 /** Where a shown element sits in its view. */
 export type Place = 'scope' | 'inside' | 'neighbour';
@@ -87,42 +87,6 @@ export const EVERY_LEVEL = Number.MAX_SAFE_INTEGER;
  * collected, so one pass names them all; a view set with any error is not
  * returned at all, never a smaller set passed off as whole.
  */
-export function buildViewSet(engine: QueryEngine, model: CompiledModel, at?: QueryTime): ViewSetResult {
-  const errors: ViewSetError[] = [];
-  const names = namer(model);
-
-  const landscape = engine.view({ depth: 0 }, at);
-  if (landscape.error !== undefined) return { errors: [queryError(undefined, landscape.error)] };
-
-  // Every element with children, read from the parents of every element:
-  // one unscoped view deep enough to hold them all, instead of a query per
-  // element. Each is kept to name the way up from its children's views.
-  const every = engine.view({ depth: EVERY_LEVEL }, at);
-  if (every.error !== undefined) return { errors: [{ message: `every element: ${every.error.message}`, query: every.error }] };
-  const byId = new Map(every.elements!.map((element) => [element.id, element]));
-  const withChildren = new Set<string>();
-  for (const element of every.elements!) {
-    if (element.parent === undefined) continue;
-    if (byId.has(element.parent)) withChildren.add(element.parent);
-    else errors.push({ message: `the element "${element.id}" is shown in no view: its parent "${element.parent}" does not exist at this time`, scope: element.parent });
-  }
-
-  const views: View[] = [assemble(undefined, landscape.elements!, [], landscape.relations!, withChildren, names, errors)];
-  for (const scope of [...withChildren].sort(byCodePoint)) {
-    const result = engine.view({ scope, depth: 1, context: true }, at);
-    if (result.error !== undefined) {
-      errors.push(queryError(scope, result.error));
-      continue;
-    }
-    const view = assemble(scope, result.elements!, result.neighbours!, result.relations!, withChildren, names, errors);
-    const parentId = byId.get(scope)!.parent;
-    // A parent that does not exist was reported above; its child's view goes nowhere up.
-    const parent = parentId === undefined ? undefined : byId.get(parentId);
-    views.push(parent === undefined ? view : { scope, up: upOf(parent), elements: view.elements, arrows: view.arrows });
-  }
-  return errors.length > 0 ? { errors } : { views, errors };
-}
-
 export async function buildAsyncViewSet(engine: QuerySnapshot, model: CompiledModel, at?: QueryTime): Promise<ViewSetResult> {
   const errors: ViewSetError[] = [];
   const names = namer(model);
@@ -179,16 +143,6 @@ export interface BuiltView {
  * stays false: its writers draw no links. Every error is collected, and a
  * view with any error is not returned at all.
  */
-export function buildView(engine: QueryEngine, model: CompiledModel, scope: string | undefined, at?: QueryTime, depth = 1): BuiltView {
-  const errors: ViewSetError[] = [];
-  const names = namer(model);
-
-  const asked = scope === undefined ? engine.view({ depth: depth - 1 }, at) : engine.view({ scope, depth, context: true }, at);
-  if (asked.error !== undefined) return { errors: [queryError(scope, asked.error)] };
-  const view = assemble(scope, asked.elements!, scope === undefined ? [] : asked.neighbours!, asked.relations!, new Set(), names, errors);
-  return errors.length > 0 ? { errors } : { view, errors };
-}
-
 export async function buildAsyncView(engine: QuerySnapshot, model: CompiledModel, scope: string | undefined, at?: QueryTime, depth = 1): Promise<BuiltView> {
   const errors: ViewSetError[] = [];
   const names = namer(model);
