@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   createGraphs,
   createPGliteHistory,
+  createPGliteQueryDatabase,
   type Clock,
   type CompiledElement,
   type CompiledModel,
@@ -54,16 +55,24 @@ async function storedHistory(source: string, clock: Clock, commits: { commit: st
   return history;
 }
 
+async function graphsFor(historyOf: (source: string) => HistoryStore, clock?: Clock) {
+  const database = await createPGliteQueryDatabase({ clock });
+  const graphs = createGraphs({ historyOf, database });
+  const close = graphs.close.bind(graphs);
+  graphs.close = async () => { await close(); await database.close(); };
+  return graphs;
+}
+
 describe('a graph built from two sources', () => {
   test('the union view holds both sources’ roots, whose ids do not clash', async () => {
     const clock = fakeClock(DAY(9));
     const one = await storedHistory('github.com/a/one', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('one-root', { kind: 'system' })] }]);
     const two = await storedHistory('github.com/b/two', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('two-root', { kind: 'system' })] }]);
-    const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/a/one' ? one : two), clock });
+    const graphs = await graphsFor((source) => (source === 'github.com/a/one' ? one : two), clock);
 
     const union = graphs.addGraph('union', ['github.com/a/one', 'github.com/b/two']);
-    const view = (await union.engine()).view({ depth: 0 });
-    graphs.close();
+    const view = await (await union.engine()).view({ depth: 0 });
+    await graphs.close();
 
     expect(view.error).toBeUndefined();
     expect(view.elements?.map((e) => e.id).sort()).toEqual(['one-root', 'two-root']);
@@ -73,11 +82,11 @@ describe('a graph built from two sources', () => {
     const clock = fakeClock(DAY(9));
     const one = await storedHistory('github.com/a/one', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('one-root', { kind: 'system' })] }]);
     const two = await storedHistory('github.com/b/two', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('two-root', { kind: 'system' })] }]);
-    const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/a/one' ? one : two), clock });
+    const graphs = await graphsFor((source) => (source === 'github.com/a/one' ? one : two), clock);
 
     const single = graphs.graphForSource('github.com/a/one');
-    const view = (await single.engine()).view({ depth: 0 });
-    graphs.close();
+    const view = await (await single.engine()).view({ depth: 0 });
+    await graphs.close();
 
     expect(view.error).toBeUndefined();
     expect(view.elements?.map((e) => e.id)).toEqual(['one-root']);
@@ -91,13 +100,84 @@ describe('a graph built from two sources', () => {
       { commit: 'c1', committedAt: DAY(1), elements: [element('one-api')], relations: [relation('one-calls-two', 'one-api', 'two-api')] },
     ]);
     const two = await storedHistory('github.com/b/two', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('two-api')] }]);
-    const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/a/one' ? one : two), clock });
+    const graphs = await graphsFor((source) => (source === 'github.com/a/one' ? one : two), clock);
 
     const union = graphs.addGraph('union', ['github.com/a/one', 'github.com/b/two']);
-    const view = (await union.engine()).view({ depth: 0 });
-    graphs.close();
+    const view = await (await union.engine()).view({ depth: 0 });
+    await graphs.close();
 
     expect(view.relations?.map((r) => [r.from, r.to])).toEqual([['one-api', 'two-api']]);
+  });
+});
+
+describe('shared query database ownership', () => {
+  test('removing one source from a union graph preserves the other source projection', async () => {
+    const clock = fakeClock(DAY(9));
+    const historyA = await storedHistory('source-a', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('a-root')] }]);
+    const historyB = await storedHistory('source-b', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('b-root')] }]);
+    const database = await createPGliteQueryDatabase({ clock });
+    const graphs = createGraphs({ historyOf: (source) => source === 'source-a' ? historyA : historyB, database });
+    const sourceB = graphs.graphForSource('source-b');
+    await graphs.graphForSource('source-a').engine();
+    await sourceB.engine();
+    await graphs.addGraph('union', ['source-a', 'source-b']).engine();
+
+    await graphs.remove('source-a');
+    const answer = await (await sourceB.engine()).view({ depth: 0 }, { valid: DAY(9), known: DAY(9), state: 'as-is' });
+    await graphs.close();
+    await database.close();
+    await historyA.close();
+    await historyB.close();
+
+    expect(answer.elements?.map((each) => each.id)).toEqual(['b-root']);
+    expect(answer.error).toBeUndefined();
+  });
+
+  test('removing a graph clears its source rows from the shared projection', async () => {
+    const clock = fakeClock(DAY(9));
+    const history = await storedHistory('shop', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('root')] }]);
+    const database = await createPGliteQueryDatabase({ clock });
+    const graphs = createGraphs({ historyOf: () => history, database });
+    await graphs.graphForSource('shop').engine();
+
+    await graphs.remove('shop');
+    const inspect = database.forSources(['shop']);
+    const empty = await inspect.view({ depth: 0 }, { valid: DAY(9), known: DAY(9), state: 'as-is' });
+    await inspect.close();
+    await graphs.close();
+    await database.close();
+    await history.close();
+
+    expect(empty.elements).toEqual([]);
+    expect(empty.error).toBeUndefined();
+  });
+
+  test('graph facades close once while the shared owner remains open until its owner closes', async () => {
+    const clock = fakeClock(DAY(9));
+    const history = await storedHistory('shop', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('root')] }]);
+    const database = await createPGliteQueryDatabase({ clock });
+    const forSources = database.forSources.bind(database);
+    let facadeCloses = 0;
+    let ownerCloses = 0;
+    const ownerClose = database.close.bind(database);
+    database.close = async () => { ownerCloses++; await ownerClose(); };
+    database.forSources = (sources) => {
+      const facade = forSources(sources);
+      const close = facade.close.bind(facade);
+      facade.close = async () => { facadeCloses++; await close(); };
+      return facade;
+    };
+    const graphs = createGraphs({ historyOf: () => history, database });
+    const graph = graphs.graphForSource('shop');
+    await graph.engine();
+
+    await graphs.close();
+    await graph.close();
+    expect(facadeCloses).toBe(1);
+    expect(ownerCloses).toBe(0);
+    await database.close();
+    expect(ownerCloses).toBe(1);
+    await history.close();
   });
 });
 
@@ -105,11 +185,11 @@ describe('asynchronous graph engine construction', () => {
   test('concurrent first calls share one engine', async () => {
     const clock = fakeClock(DAY(9));
     const history = await storedHistory('shop', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('root', { kind: 'system' })] }]);
-    const graphs = createGraphs({ historyOf: () => history, clock });
+    const graphs = await graphsFor(() => history, clock);
     const graph = graphs.graphForSource('shop');
 
     const [first, second] = await Promise.all([graph.engine(), graph.engine()]);
-    graphs.close();
+    await graphs.close();
     await history.close();
 
     expect(first).toBe(second);
@@ -132,17 +212,17 @@ describe('asynchronous graph engine construction', () => {
       }
       return originalAssertions(input);
     };
-    const graphs = createGraphs({ historyOf: () => history, clock });
+    const graphs = await graphsFor(() => history, clock);
     const graph = graphs.graphForSource('shop');
     const pendingEngine = graph.engine();
     await readStarted;
 
     const stored = await history.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('root', { kind: 'system' }), element('next')]) });
-    graphs.applyStore('shop', stored);
+    await graphs.applyStore('shop', stored);
     release();
     const engine = await pendingEngine;
-    const view = engine.view({ depth: 0 });
-    graphs.close();
+    const view = await engine.view({ depth: 0 });
+    await graphs.close();
     await history.close();
 
     expect(view.elements?.map((each) => each.id).sort()).toEqual(['next', 'root']);
@@ -166,16 +246,16 @@ describe('asynchronous graph engine construction', () => {
       }
       return originalAssertions(input);
     };
-    const graphs = createGraphs({ historyOf: () => history, clock });
+    const graphs = await graphsFor(() => history, clock);
     const graph = graphs.graphForSource('shop');
     const pendingEngine = graph.engine();
     await readStarted;
 
-    graphs.dropBuilt('shop');
+    await graphs.dropBuilt('shop');
     release();
     const engine = await pendingEngine;
-    const view = engine.view({ depth: 0 });
-    graphs.close();
+    const view = await engine.view({ depth: 0 });
+    await graphs.close();
     await history.close();
 
     expect(view.elements?.map((each) => each.id)).toEqual(['root']);
@@ -191,11 +271,11 @@ describe('asynchronous graph engine construction', () => {
       await holdRead;
       return originalAssertions(input);
     };
-    const graphs = createGraphs({ historyOf: () => history, clock });
+    const graphs = await graphsFor(() => history, clock);
     const graph = graphs.graphForSource('shop');
     const pendingEngine = graph.engine();
 
-    graphs.close();
+    await graphs.close();
     release();
     await expect(pendingEngine).rejects.toThrow(/graph "shop" is closed/);
     await history.close();
@@ -206,16 +286,16 @@ describe('a graph is a set of sources', () => {
   test('a graph listing the same source twice is refused naming it', async () => {
     const clock = fakeClock(DAY(9));
     const one = createPGliteHistory({ clock });
-    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graphs = await graphsFor(() => one, clock);
     expect(() => graphs.addGraph('union', ['shop', 'shop'])).toThrow(/shop/);
-    graphs.close();
+    await graphs.close();
   });
 
   test('two sources declaring the same element id are an error naming the id and both sources', async () => {
     const clock = fakeClock(DAY(9));
     const one = await storedHistory('github.com/a/one', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('core')] }]);
     const two = await storedHistory('github.com/b/two', clock, [{ commit: 'c1', committedAt: DAY(1), elements: [element('core')] }]);
-    const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/a/one' ? one : two), clock });
+    const graphs = await graphsFor((source) => (source === 'github.com/a/one' ? one : two), clock);
     const union = graphs.addGraph('union', ['github.com/a/one', 'github.com/b/two']);
 
     let thrown: unknown;
@@ -227,7 +307,7 @@ describe('a graph is a set of sources', () => {
     expect((thrown as Error).message).toContain('"core"');
     expect((thrown as Error).message).toContain('github.com/a/one');
     expect((thrown as Error).message).toContain('github.com/b/two');
-    graphs.close();
+    await graphs.close();
   });
 
   test('an id one source dropped before another declares it is no clash', async () => {
@@ -241,10 +321,10 @@ describe('a graph is a set of sources', () => {
     clock.set(DAY(14));
     await two.store({ source: 'github.com/b/two', commit: 'c1', committedAt: DAY(3), model: model([element('core')]) });
 
-    const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/a/one' ? one : two), clock });
+    const graphs = await graphsFor((source) => (source === 'github.com/a/one' ? one : two), clock);
     const union = graphs.addGraph('union', ['github.com/a/one', 'github.com/b/two']);
-    expect((await union.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['core']);
-    graphs.close();
+    expect(await (await (await union.engine()).view({ depth: 0 })).elements?.map((each) => each.id)).toEqual(['core']);
+    await graphs.close();
   });
 });
 
@@ -253,16 +333,16 @@ describe('keeping a built graph in step', () => {
     const clock = fakeClock(DAY(9));
     const one = createPGliteHistory({ clock });
     await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('root', { kind: 'system' })]) });
-    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graphs = await graphsFor(() => one, clock);
     const graph = graphs.graphForSource('shop');
-    expect((await graph.engine()).view({ depth: 1 }).elements?.map((e) => e.id)).toEqual(['root']);
+    expect(await (await (await graph.engine()).view({ depth: 1 })).elements?.map((e) => e.id)).toEqual(['root']);
 
     const result = await one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('root', { kind: 'system' }), element('child', { parent: 'root', ancestors: ['root'] })]) });
     expect(result.errors).toEqual([]);
-    graphs.applyStore('shop', result);
+    await graphs.applyStore('shop', result);
 
-    const view = (await graph.engine()).view({ depth: 1 });
-    graphs.close();
+    const view = await (await graph.engine()).view({ depth: 1 });
+    await graphs.close();
     expect(view.elements?.map((e) => e.id).sort()).toEqual(['child', 'root']);
   });
 
@@ -272,21 +352,21 @@ describe('keeping a built graph in step', () => {
     const clock = fakeClock(DAY(9));
     const one = createPGliteHistory({ clock });
     await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a'), element('keep')]) });
-    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graphs = await graphsFor(() => one, clock);
     const graph = graphs.graphForSource('shop');
-    expect((await graph.engine()).view({ depth: 1 }).elements?.map((each) => each.id).sort()).toEqual(['a', 'keep']);
+    expect(await (await (await graph.engine()).view({ depth: 1 })).elements?.map((each) => each.id).sort()).toEqual(['a', 'keep']);
 
     const result = await one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('keep'), element('child', { parent: 'keep', ancestors: ['keep'] })]) });
     expect(result.errors).toEqual([]);
     expect(result.closed.length).toBeGreaterThan(0);
     expect(result.opened.length).toBeGreaterThan(0);
-    graphs.applyStore('shop', result);
+    await graphs.applyStore('shop', result);
     // Closing `a` clamped the store's own recorded moment 1 ms past the
     // frozen clock; move real time past it, as a running server would,
     // before asking the view.
     clock.set(DAY(15));
-    const view = (await graph.engine()).view({ depth: 1 });
-    graphs.close();
+    const view = await (await graph.engine()).view({ depth: 1 });
+    await graphs.close();
     expect(view.elements?.map((each) => each.id).sort()).toEqual(['child', 'keep']);
   });
 
@@ -297,19 +377,19 @@ describe('keeping a built graph in step', () => {
     const clock = fakeClock(DAY(9));
     const one = createPGliteHistory({ clock });
     await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
-    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graphs = await graphsFor(() => one, clock);
     const graph = graphs.graphForSource('shop');
-    expect((await graph.engine()).view({ depth: 1 }).elements?.map((each) => each.id)).toEqual(['a']);
+    expect(await (await (await graph.engine()).view({ depth: 1 })).elements?.map((each) => each.id)).toEqual(['a']);
 
     const result = await one.store({ source: 'shop', commit: 'c2', committedAt: DAY(1), model: model([]) });
     expect(result.errors).toEqual([]);
     expect(result.closed.length).toBeGreaterThan(0);
     expect(result.opened).toEqual([]);
-    graphs.applyStore('shop', result);
+    await graphs.applyStore('shop', result);
     clock.set(DAY(15));
 
-    const view = (await graph.engine()).view({ depth: 1 });
-    graphs.close();
+    const view = await (await graph.engine()).view({ depth: 1 });
+    await graphs.close();
     expect(view.elements?.map((each) => each.id)).toEqual([]);
   });
 
@@ -317,34 +397,34 @@ describe('keeping a built graph in step', () => {
     const clock = fakeClock(DAY(9));
     const one = createPGliteHistory({ clock });
     await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
-    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graphs = await graphsFor(() => one, clock);
     const own = graphs.graphForSource('shop');
     const union = graphs.addGraph('union', ['shop', 'other']);
-    expect((await own.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
-    expect((await union.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
+    expect(await (await (await own.engine()).view({ depth: 0 })).elements?.map((each) => each.id)).toEqual(['a']);
+    expect(await (await (await union.engine()).view({ depth: 0 })).elements?.map((each) => each.id)).toEqual(['a']);
 
     await one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('b')]) });
     // The second store recorded its rows 1 ms past the frozen clock (it
     // closed c1's row); move real time past that before asking again.
     clock.set(DAY(15));
-    graphs.dropBuilt('shop');
+    await graphs.dropBuilt('shop');
 
-    expect((await own.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['b']);
-    expect((await union.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['b']);
-    graphs.close();
+    expect(await (await (await own.engine()).view({ depth: 0 })).elements?.map((each) => each.id)).toEqual(['b']);
+    expect(await (await (await union.engine()).view({ depth: 0 })).elements?.map((each) => each.id)).toEqual(['b']);
+    await graphs.close();
   });
 
   test('remove takes the graphs listing the source out of the set, and a graph of the name is built fresh', async () => {
     const clock = fakeClock(DAY(9));
     const one = createPGliteHistory({ clock });
     await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
-    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graphs = await graphsFor(() => one, clock);
     const own = graphs.graphForSource('shop');
     const union = graphs.addGraph('union', ['shop', 'other']);
-    expect((await own.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
-    expect((await union.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
+    expect(await (await (await own.engine()).view({ depth: 0 })).elements?.map((each) => each.id)).toEqual(['a']);
+    expect(await (await (await union.engine()).view({ depth: 0 })).elements?.map((each) => each.id)).toEqual(['a']);
 
-    graphs.remove('shop');
+    await graphs.remove('shop');
 
     // Both graphs listed shop, so both are gone: a graph holding the old
     // name's rows is never asked again, and the next use rebuilds.
@@ -354,19 +434,19 @@ describe('keeping a built graph in step', () => {
     // under a new name would build it: what the old one held is gone.
     const fresh = graphs.graphForSource('shop');
     expect(fresh).not.toBe(own);
-    expect((await fresh.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
-    graphs.close();
+    expect(await (await (await fresh.engine()).view({ depth: 0 })).elements?.map((each) => each.id)).toEqual(['a']);
+    await graphs.close();
   });
   test('removes every matching graph even when one graph close throws, then rethrows the failure', async () => {
     const clock = fakeClock(DAY(9));
     const one = createPGliteHistory({ clock });
-    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graphs = await graphsFor(() => one, clock);
     const first = graphs.addGraph('first', ['shop']);
     const second = graphs.addGraph('second', ['shop']);
-    first.close = () => { throw new Error('close failed'); };
+    (first as unknown as { clear(source: string): Promise<void> }).clear = async () => { throw new Error('close failed'); };
     let thrown: unknown;
     try {
-      graphs.remove('shop');
+      await graphs.remove('shop');
     } catch (error) {
       thrown = error;
     }
@@ -381,9 +461,9 @@ describe('keeping a built graph in step', () => {
     const clock = fakeClock(DAY(9));
     const one = createPGliteHistory({ clock });
     await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
-    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graphs = await graphsFor(() => one, clock);
     const graph = graphs.graphForSource('shop');
-    expect((await graph.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
+    expect(await (await (await graph.engine()).view({ depth: 0 })).elements?.map((each) => each.id)).toEqual(['a']);
 
     const result = await one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('b')]) });
     expect(result.errors).toEqual([]);
@@ -394,16 +474,16 @@ describe('keeping a built graph in step', () => {
     engine.update = () => {
       throw new Error('the engine update failed');
     };
-    expect(() => graphs.applyStore('shop', result)).toThrow(/the engine update failed/);
+    await expect(graphs.applyStore('shop', result)).rejects.toThrow(/the engine update failed/);
 
     // The retry answers "already stored": an empty report that must
     // change nothing, yet leave no half-updated engine behind.
-    graphs.applyStore('shop', { errors: [], opened: [], closed: [] });
+    await graphs.applyStore('shop', { errors: [], opened: [], closed: [] });
     // The second store recorded its rows 1 ms past the frozen clock (it
     // closed c1's row); move real time past that before asking again.
     clock.set(DAY(15));
-    const view = (await graph.engine()).view({ depth: 0 });
-    graphs.close();
+    const view = await (await graph.engine()).view({ depth: 0 });
+    await graphs.close();
     expect(view.elements?.map((each) => each.id)).toEqual(['b']);
   });
 
@@ -411,11 +491,11 @@ describe('keeping a built graph in step', () => {
     const clock = fakeClock(DAY(9));
     const one = createPGliteHistory({ clock });
     await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
-    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graphs = await graphsFor(() => one, clock);
     const own = graphs.graphForSource('shop');
     const union = graphs.addGraph('union', ['shop', 'other']);
-    expect((await own.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
-    expect((await union.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['a']);
+    expect(await (await (await own.engine()).view({ depth: 0 })).elements?.map((each) => each.id)).toEqual(['a']);
+    expect(await (await (await union.engine()).view({ depth: 0 })).elements?.map((each) => each.id)).toEqual(['a']);
 
     const result = await one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('b')]) });
     expect(result.errors).toEqual([]);
@@ -432,7 +512,7 @@ describe('keeping a built graph in step', () => {
 
     let thrown: unknown;
     try {
-      graphs.applyStore('shop', result);
+      await graphs.applyStore('shop', result);
     } catch (error) {
       thrown = error;
     }
@@ -445,9 +525,9 @@ describe('keeping a built graph in step', () => {
     clock.set(DAY(15));
     // Both graphs' engines are gone: each next use rebuilds from the
     // history and answers at c2, not from the engine the close failed on.
-    expect((await own.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['b']);
-    expect((await union.engine()).view({ depth: 0 }).elements?.map((each) => each.id)).toEqual(['b']);
-    graphs.close();
+    expect(await (await (await own.engine()).view({ depth: 0 })).elements?.map((each) => each.id)).toEqual(['b']);
+    expect(await (await (await union.engine()).view({ depth: 0 })).elements?.map((each) => each.id)).toEqual(['b']);
+    await graphs.close();
   });
 
   test('a graph built after several stores sees all of them without any update call', async () => {
@@ -455,10 +535,10 @@ describe('keeping a built graph in step', () => {
     const one = createPGliteHistory({ clock });
     await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
     await one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('a'), element('b')]) });
-    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graphs = await graphsFor(() => one, clock);
 
-    const view = (await graphs.graphForSource('shop').engine()).view({ depth: 0 });
-    graphs.close();
+    const view = await (await graphs.graphForSource('shop').engine()).view({ depth: 0 });
+    await graphs.close();
     expect(view.elements?.map((e) => e.id)).toEqual(['a', 'b']);
   });
 
@@ -466,14 +546,14 @@ describe('keeping a built graph in step', () => {
     const clock = fakeClock(DAY(9));
     const one = createPGliteHistory({ clock });
     await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
-    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graphs = await graphsFor(() => one, clock);
     const graph = graphs.graphForSource('shop');
-    const before = (await graph.engine()).view({ depth: 0 }).elements?.map((e) => e.id);
+    const before = (await (await graph.engine()).view({ depth: 0 })).elements?.map((e) => e.id);
 
-    graphs.applyStore('shop', { errors: [], opened: [], closed: [] });
+    await graphs.applyStore('shop', { errors: [], opened: [], closed: [] });
 
-    expect((await graph.engine()).view({ depth: 0 }).elements?.map((e) => e.id)).toEqual(before);
-    graphs.close();
+    expect(await (await (await graph.engine()).view({ depth: 0 })).elements?.map((e) => e.id)).toEqual(before);
+    await graphs.close();
   });
 
   test('a store for a source the graph does not list is not applied', async () => {
@@ -481,15 +561,15 @@ describe('keeping a built graph in step', () => {
     const one = createPGliteHistory({ clock });
     await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('shop-root')]) });
     await one.store({ source: 'other', commit: 'c1', committedAt: DAY(1), model: model([element('other-root')]) });
-    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graphs = await graphsFor(() => one, clock);
     const graph = graphs.graphForSource('shop');
-    expect((await graph.engine()).view({ depth: 0 }).elements?.map((e) => e.id)).toEqual(['shop-root']);
+    expect(await (await (await graph.engine()).view({ depth: 0 })).elements?.map((e) => e.id)).toEqual(['shop-root']);
 
     const result = await one.store({ source: 'other', commit: 'c2', committedAt: DAY(2), model: model([element('other-root'), element('other-new')]) });
-    graphs.applyStore('other', result);
+    await graphs.applyStore('other', result);
 
-    const view = (await graph.engine()).view({ depth: 0 });
-    graphs.close();
+    const view = await (await graph.engine()).view({ depth: 0 });
+    await graphs.close();
     expect(view.elements?.map((e) => e.id)).toEqual(['shop-root']);
   });
 
@@ -499,15 +579,15 @@ describe('keeping a built graph in step', () => {
     const two = createPGliteHistory({ clock });
     await one.store({ source: 'github.com/a/one', commit: 'c1', committedAt: DAY(1), model: model([element('one-root')]) });
     await two.store({ source: 'github.com/b/two', commit: 'c1', committedAt: DAY(1), model: model([element('two-root')]) });
-    const graphs = createGraphs({ historyOf: (source) => (source === 'github.com/a/one' ? one : two), clock });
+    const graphs = await graphsFor((source) => (source === 'github.com/a/one' ? one : two), clock);
     const union = graphs.addGraph('union', ['github.com/a/one', 'github.com/b/two']);
-    expect((await union.engine()).view({ depth: 0 }).elements?.map((each) => each.id).sort()).toEqual(['one-root', 'two-root']);
+    expect(await (await (await union.engine()).view({ depth: 0 })).elements?.map((each) => each.id).sort()).toEqual(['one-root', 'two-root']);
 
     // The store's own report reaches the built engine as rows; only a
     // rebuild through the clash check can refuse what they declare.
     const result = await one.store({ source: 'github.com/a/one', commit: 'c2', committedAt: DAY(2), model: model([element('one-root'), element('two-root')]) });
     expect(result.errors).toEqual([]);
-    graphs.applyStore('github.com/a/one', result);
+    await graphs.applyStore('github.com/a/one', result);
 
     let thrown: unknown;
     try {
@@ -518,7 +598,7 @@ describe('keeping a built graph in step', () => {
     expect((thrown as Error).message).toContain('"two-root"');
     expect((thrown as Error).message).toContain('github.com/a/one');
     expect((thrown as Error).message).toContain('github.com/b/two');
-    graphs.close();
+    await graphs.close();
   });
 });
 
@@ -526,30 +606,30 @@ describe('graph names', () => {
   test('a graph name taken twice is refused naming it', async () => {
     const clock = fakeClock(DAY(9));
     const one = createPGliteHistory({ clock });
-    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graphs = await graphsFor(() => one, clock);
     graphs.addGraph('union', ['shop']);
     expect(() => graphs.addGraph('union', ['other'])).toThrow(/union/);
-    graphs.close();
+    await graphs.close();
   });
 
   test('a graph listing no source is refused naming it', async () => {
     const clock = fakeClock(DAY(9));
     const one = createPGliteHistory({ clock });
-    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graphs = await graphsFor(() => one, clock);
     expect(() => graphs.addGraph('empty', [])).toThrow(/empty/);
-    graphs.close();
+    await graphs.close();
   });
 
   test('graphForSource hands the same graph back and get finds it by name', async () => {
     const clock = fakeClock(DAY(9));
     const one = createPGliteHistory({ clock });
-    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graphs = await graphsFor(() => one, clock);
     const first = graphs.graphForSource('shop');
     const second = graphs.graphForSource('shop');
     expect(second).toBe(first);
     expect(graphs.get('shop')).toBe(first);
     expect(graphs.get('nope')).toBeUndefined();
-    graphs.close();
+    await graphs.close();
   });
 });
 
@@ -557,10 +637,10 @@ describe('the graph engine and its clock', () => {
   test('the sources are held in code point order, whatever order they were listed in', async () => {
     const clock = fakeClock(DAY(9));
     const one = createPGliteHistory({ clock });
-    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graphs = await graphsFor(() => one, clock);
     const union = graphs.addGraph('union', ['github.com/b/two', 'github.com/a/one', 'github.com/c/three']);
     expect(union.sources).toEqual(['github.com/a/one', 'github.com/b/two', 'github.com/c/three']);
-    graphs.close();
+    await graphs.close();
   });
 
   test('the engine answers at the clock the graphs were given, not the real one', async () => {
@@ -570,9 +650,9 @@ describe('the graph engine and its clock', () => {
     const clock = fakeClock(far);
     const one = createPGliteHistory({ clock });
     await one.store({ source: 'shop', commit: 'c1', committedAt: Date.UTC(2030, 0, 1), model: model([element('far-future')]) });
-    const graphs = createGraphs({ historyOf: () => one, clock });
-    const view = (await graphs.graphForSource('shop').engine()).view({ depth: 0 });
-    graphs.close();
+    const graphs = await graphsFor(() => one, clock);
+    const view = await (await graphs.graphForSource('shop').engine()).view({ depth: 0 });
+    await graphs.close();
     expect(view.elements?.map((each) => each.id)).toEqual(['far-future']);
   });
 
@@ -580,15 +660,15 @@ describe('the graph engine and its clock', () => {
     const clock = fakeClock(DAY(9));
     const one = createPGliteHistory({ clock });
     await one.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('root', { kind: 'system' })]) });
-    const graphs = createGraphs({ historyOf: () => one, clock });
+    const graphs = await graphsFor(() => one, clock);
     const graph = graphs.addGraph('shop', ['shop']);
 
     const result = await one.store({ source: 'shop', commit: 'c2', committedAt: DAY(2), model: model([element('root', { kind: 'system' }), element('child', { parent: 'root', ancestors: ['root'] })]) });
     expect(result.errors).toEqual([]);
-    expect(() => graphs.applyStore('shop', result)).not.toThrow();
+    await expect(graphs.applyStore('shop', result)).resolves.toBeUndefined();
 
-    expect((await graph.engine()).view({ depth: 1 }).elements?.map((each) => each.id).sort()).toEqual(['child', 'root']);
-    graphs.close();
+    expect(await (await (await graph.engine()).view({ depth: 1 })).elements?.map((each) => each.id).sort()).toEqual(['child', 'root']);
+    await graphs.close();
   });
 });
 
