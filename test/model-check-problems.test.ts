@@ -99,10 +99,22 @@ test('cycle-between-siblings: three modules under one service form one cycle, na
     expect(cycle.source).toBe('R. C. Martin, Design Principles and Design Patterns (2000); F. Arcelli Fontana et al., Arcan (ICSA 2017)');
     for (const relation of ['ra', 'rb', 'rc']) expect(cycle.message).toContain(relation);
 
+    // The send path's on-failure mode skips advisory problems for a model
+    // that passes; the default check and script still report them.
+    const passingSendCheck = await checkModel(repo.path, { problems: 'on-failure' });
+    expect(passingSendCheck.outcome).toBe('passed');
+    expect(passingSendCheck.problems).toEqual([]);
+
     // Problems never fail the check: the script still exits 0 and prints the problem between stale and warnings.
     const run = runScript(repo.path);
     expect(run.status).toBe(0);
     expect(run.stdout).toContain('problem cycle:');
+
+    // A failed check still computes the same advisory findings for its report.
+    rmSync(join(repo.path, 'madarch/review.md'));
+    const failingSendCheck = await checkModel(repo.path, { problems: 'on-failure' });
+    expect(failingSendCheck.outcome).toBe('failed');
+    expect(failingSendCheck.problems).toEqual(report.problems);
   });
 });
 
