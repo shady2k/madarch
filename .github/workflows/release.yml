@@ -126,10 +126,6 @@ jobs:
         env:
           BINARY: dist/madarch-${{ matrix.os == 'windows' && 'windows' || matrix.os }}-${{ matrix.arch }}${{ matrix.os == 'windows' && '.exe' || '' }}
         run: bun scripts/write-sha256.ts "$BINARY"
-        run: |
-          cd dist
-          { sha256sum madarch-${{ matrix.os }}-${{ matrix.arch }} || shasum -a 256 madarch-${{ matrix.os }}-${{ matrix.arch }}; } > madarch-${{ matrix.os }}-${{ matrix.arch }}.sha256
-          cat madarch-${{ matrix.os }}-${{ matrix.arch }}.sha256
       - uses: actions/upload-artifact@v7
         with:
           name: madarch-${{ matrix.os }}-${{ matrix.arch }}
