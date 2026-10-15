@@ -95,6 +95,13 @@ the overview that says nothing of the product, mixed languages, links that do
 not navigate, dead chrome — madarch-xq0v, madarch-k47i, madarch-0n3p,
 madarch-gj94). Nothing planned is displaced.
 
+**Finding budget 8** (raised from 7 by the owner on 2026-10-15, "Берем
+восьмой", after red CI logs showed madarch's tests and messages still naming an
+unrelated repository of the owner: «мы не должны ссылаться на другие
+репозитории, проекты, части моей инфры»). The eighth is madarch-l2f, madarch
+names no other repository, project or part of the owner's infrastructure.
+Nothing planned is displaced.
+
 **Taken in on 2026-10-13** (the owner's same words, and "Давай сделаем по
 нашему продукту … создайте эти манифесты, чтобы это было понятно"):
 madarch's own product wiki (madarch-wsce) — madarch served as a product from
