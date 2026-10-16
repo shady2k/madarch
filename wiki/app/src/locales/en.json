@@ -241,6 +241,18 @@
     "saving": "Saving…",
     "save": "Save comment",
     "cancel": "Cancel",
-    "threads": "Discussion"
+    "threads": "Discussion",
+    "pageComment": "Add page comment",
+    "pageAnchor": "Page discussion",
+    "showResolved": "Show resolved",
+    "hideResolved": "Hide resolved",
+    "lostAnchor": "This selection anchor no longer exists.",
+    "recover": "Recover anchor",
+    "placeAgain": "Place the range again to restore this discussion anchor.",
+    "reply": "Reply",
+    "sendReply": "Send reply",
+    "resolve": "Resolve",
+    "openPanel": "Open discussions",
+    "closePanel": "Close discussions"
   }
 }

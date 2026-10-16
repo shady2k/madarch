@@ -1081,4 +1081,10 @@ main section h2 {
 
 ::highlight(discussion-anchor) { background: color-mix(in srgb, var(--selection) 25%, transparent); }
 
-@media (max-width: 900px) { .discussion-margin { position: static; width: auto; max-height: none; margin-block: 1rem; } }
+@media (max-width: 900px) {
+  .discussion-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+  .discussion-margin:not(.is-open) { display: none; }
+  .discussion-margin { position: fixed; z-index: 20; inset: auto 0 0; width: auto; max-height: 55vh; margin: 0; border-inline-start: 0; border-block-start: 3px solid var(--selection); border-radius: .75rem .75rem 0 0; box-shadow: 0 -8px 28px color-mix(in srgb, var(--text) 14%, transparent); }
+  .discussion-composer { position: fixed; z-index: 21; inset: auto 1rem 1rem; width: auto; max-height: 45vh; }
+}
+@media (min-width: 901px) { .discussion-actions { position: fixed; inset-block-start: calc(30vh - 3rem); inset-inline-end: 1rem; width: min(18rem, 24vw); display: flex; gap: .5rem; } }

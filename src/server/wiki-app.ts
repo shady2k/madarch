@@ -18,7 +18,7 @@
  */
 import { basename as nameOf } from 'node:path';
 import type { ProductWiki } from '../product-wiki/pages.js';
-import { readProductDiscussions, writeProductDiscussion } from '../product/discussion-writer.js';
+import { readProductDiscussions, writeProductDiscussion, writeProductDiscussionAction, writeProductPageDiscussion, restoreProductDiscussionAnchor } from '../product/discussion-writer.js';
 import { readProductRepos } from '../product-wiki/repos.js';
 import { readProductModel } from '../product-wiki/model.js';
 import { architectureBundle } from '../product-wiki/architecture.js';
@@ -160,7 +160,7 @@ export interface WikiPart {
   page: (request: Request) => Promise<Handled>;
   /** `GET /api/discussions?path=...`: read valid comments for one product page. */
   discussions: (request: Request) => Handled;
-  /** `POST /api/discussions`: validate and write one first comment. */
+  /** `POST /api/discussions`: validate and write one discussion action. */
   discussion: (request: Request) => Promise<Handled>;
   /** `GET /api/stages`: the stage index, read from the product's files now. */
   stages: () => Handled;
@@ -277,11 +277,33 @@ export function createWikiPart(
       const document = value.document;
       const range = value.range;
       const messageBody = value.body;
-      if (typeof document !== 'string' || range === null || typeof range !== 'object' || Array.isArray(range) || typeof messageBody !== 'string')
-        return refused(400, { message: 'the discussion request needs document, range and body fields' });
+      if (typeof document !== 'string' || (value.action !== 'resolve' && typeof messageBody !== 'string'))
+        return refused(400, { message: 'the discussion request needs a document and the fields required by its action' });
+      if (value.action === 'reply' || value.action === 'resolve') {
+        if (typeof value.thread !== 'string' || (value.action === 'reply' && typeof messageBody !== 'string')) return refused(400, { message: 'reply/resolve needs a thread ULID and reply body' });
+        const result = writeProductDiscussionAction(wiki.product.folder, { document, thread: value.thread, action: value.action, ...(typeof messageBody === 'string' ? { body: messageBody } : {}) });
+        if (!result.ok) return refused(result.status, { field: 'thread', message: result.message });
+        return { response: json(201, result) };
+      }
+      if (value.action === 'page') {
+        if (typeof messageBody !== 'string') return refused(400, { message: 'page comment needs a message body' });
+        const result = writeProductPageDiscussion(wiki.product.folder, { document, body: messageBody });
+        if (!result.ok) return refused(result.status, { field: 'document', message: result.message });
+        return { response: json(201, result) };
+      }
+      if (value.action === 'recover') {
+        if (typeof value.thread !== 'string' || range === null || typeof range !== 'object' || Array.isArray(range)) return refused(400, { message: 'anchor recovery needs a thread ULID and selected range' });
+        const chosen = range as Record<string, unknown>;
+        if (typeof chosen.start !== 'number' || typeof chosen.end !== 'number' || typeof chosen.quote !== 'string' || typeof chosen.before !== 'string' || typeof chosen.after !== 'string' || typeof chosen.paragraph !== 'number' || typeof chosen.from !== 'number' || typeof chosen.to !== 'number') return refused(400, { message: 'anchor recovery range is incomplete' });
+        const result = restoreProductDiscussionAnchor(wiki.product.folder, { document, thread: value.thread, range: { start: chosen.start, end: chosen.end, quote: chosen.quote, before: chosen.before, after: chosen.after, paragraph: chosen.paragraph, from: chosen.from, to: chosen.to } });
+        if (!result.ok) return refused(result.status, { field: 'thread', message: result.message });
+        return { response: json(201, result) };
+      }
+      if (range === null || typeof range !== 'object' || Array.isArray(range)) return refused(400, { message: 'a selected-text comment needs a range' });
       const mapped = range as Record<string, unknown>;
       if (typeof mapped.start !== 'number' || typeof mapped.end !== 'number' || typeof mapped.quote !== 'string' || typeof mapped.before !== 'string' || typeof mapped.after !== 'string' || typeof mapped.paragraph !== 'number' || typeof mapped.from !== 'number' || typeof mapped.to !== 'number')
         return refused(400, { message: 'the discussion range needs numeric start/end offsets and quote/before/after text' });
+      if (typeof messageBody !== 'string') return refused(400, { message: 'discussion body must be text' });
       const result = writeProductDiscussion(wiki.product.folder, {
         document,
         range: { start: mapped.start, end: mapped.end, quote: mapped.quote, before: mapped.before, after: mapped.after, paragraph: mapped.paragraph, from: mapped.from, to: mapped.to },

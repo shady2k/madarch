@@ -451,24 +451,39 @@ A discussion message is a Markdown file at `comments/{thread ULID}/{message ULID
 - Then: it refuses to change that folder
 
 ## Requirement: discussion-writes — A saved discussion message is validated and kept in the product's git
-When the wiki writes a discussion, it shall write one Markdown message at `comments/{thread ULID}/{message ULID}.md` with the v1 schema and source commit, and shall update the selected document with the matching v1 markers in the same action. The document and message are committed together as the local git author, then pushed. Each action is one commit. A rejected push is reconciled by pulling and retrying without overwriting unrelated work; if that cannot succeed, the wiki reports the message as not sent and retains a retryable copy. Only a product repository with a clean index and working tree may be changed; a refusal names the changed paths and writes nothing. The server validates the message and marker pair before committing.
+When the wiki writes a discussion, it shall write one Markdown message at `comments/{thread ULID}/{message ULID}.md` with the v1 schema and source commit. The first selected-text message for a thread also updates its document with the matching v1 markers; a page-level message has `anchor: kind: page` and no source markers. A reply is another message under the same thread id and does not edit earlier messages or the document. Resolving a thread is a separate message-file action that records the resolved status; it does not rewrite the earlier messages or the document. Each action is committed as one commit by the local git author and pushed. A rejected push is reconciled without overwriting unrelated work; if that cannot succeed, the wiki reports the message as not sent and retains retryable message data. Only a product repository with a clean index and working tree may be changed; a refusal names changed paths and writes nothing. The server validates the message and marker state before committing.
 
-### Scenario: comment-save-commits-and-pushes
+### Scenario: selected-comment-commits-markers-and-message
 - Given: a clean product repository and a valid selected range
-- When: a reader saves a discussion message
-- Then: the source markers and one v1 message file are committed together in one commit, and the commit is pushed
+- When: the first comment is saved
+- Then: its matching source markers and one v1 message are committed together in one pushed commit
 
-### Scenario: rejected-push-retries-without-overwrite
-- Given: the remote advanced after the local commit and the histories can be fast-forwarded
-- When: the push is rejected
-- Then: the server pulls the remote, reapplies the action only if its source range still matches, creates the action commit and retries the push
+### Scenario: page-comment-has-no-markers
+- Given: a clean product repository and a page-level comment
+- When: the comment is saved
+- Then: a v1 message with a page anchor is committed and pushed without changing the document
+
+### Scenario: reply-appends-message-only
+- Given: an existing discussion thread
+- When: a reply is saved
+- Then: a v1 message under the existing thread id is committed and pushed without changing the document or earlier messages
+
+### Scenario: resolution-is-separate-action
+- Given: an open discussion thread
+- When: it is resolved
+- Then: a separate v1 message-file action records resolved status and is pushed without changing the document or prior messages
+
+### Scenario: lost-selection-is-valid
+- Given: a selection message whose two source markers are both absent
+- When: the repository discussion is read
+- Then: the message remains valid as a lost anchor with its saved quote; page anchors are not classified as lost
 
 ### Scenario: unclean-product-refused
 - Given: the product repository has pre-existing staged or unstaged changes
-- When: a comment save is requested
+- When: a discussion action is requested
 - Then: no file or commit changes, and the refusal names the changed paths
 
 ### Scenario: final-push-failure-keeps-retry
-- Given: pull/retry cannot complete safely or the retry push fails
-- When: the save ends
-- Then: the wiki says the message was not sent and keeps its message text available for retry without claiming it was committed remotely
+- Given: push reconciliation cannot complete safely
+- When: the action ends
+- Then: the wiki says it was not sent and keeps the message data available for retry without claiming remote success

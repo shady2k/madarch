@@ -760,6 +760,15 @@ describe('the server\'s product mode', () => {
     const pushed = spawnSync('git', ['rev-parse', 'refs/heads/main'], { cwd: remote, encoding: 'utf8', env });
     expect(pushed.status).toBe(0);
     expect(pushed.stdout.trim()).toBe(spawnSync('git', ['rev-parse', 'HEAD'], { cwd: folder!, encoding: 'utf8', env }).stdout.trim());
+    const pageComment = await fetch(`${url}/api/discussions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ document: 'docs/vision.md', action: 'page', body: 'Page-level note.' }) });
+    expect(pageComment.status).toBe(201);
+    const pageSaved = await pageComment.json() as { thread: string };
+    const reply = await fetch(`${url}/api/discussions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ document: 'docs/vision.md', action: 'reply', thread: pageSaved.thread, body: 'Reply note.' }) });
+    expect(reply.status).toBe(201);
+    const resolve = await fetch(`${url}/api/discussions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ document: 'docs/vision.md', action: 'resolve', thread: pageSaved.thread }) });
+    expect(resolve.status).toBe(201);
+    const afterActions = await (await fetch(`${url}/api/discussions?path=docs%2Fvision.md`)).json() as { discussions: { thread: string; anchor: Record<string, unknown>; status: string; messages?: { body: string }[] }[] };
+    expect(afterActions.discussions.find((item) => item.thread === pageSaved.thread)).toMatchObject({ anchor: { kind: 'page' }, status: 'resolved', messages: [{ body: expect.stringContaining('Page-level note.') }, { body: expect.stringContaining('Reply note.') }, { body: expect.stringContaining('\n\n') }] });
     rmSync(base, { recursive: true, force: true });
   });
 

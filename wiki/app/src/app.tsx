@@ -20,7 +20,7 @@ import { relativeTime } from './i18n.js';
 import { getProduct, getPages, getPage, getQuestions, getRepos, getRegistry, type Product, type ProductWithAudience, type PageList, type Page, type QuestionList, type QuestionEntry, type PageDocument, type Architecture, type RepoEntry, type ReposList, type RegistryOffer, getDiscussions, postDiscussion, type DiscussionEntry, type DiscussionRange } from './api.js';
 import { routeOf, addressOfPage, architectureAddress, type Route } from './routes.js';
 import { Markdown, PageLink } from './view.js';
-import { mapParagraphSelection } from './discussion-selection.js';
+import { mapParagraphSelection, renderedMarkdownParagraphs } from './discussion-selection.js';
 import { routeContext, statusContext } from './hold.js';
 import { groupNav, groupOf, kindOf, wordLabel, Shell } from './shell.js';
 import { wordCount } from './text.js';
@@ -491,6 +491,10 @@ export function PageReader({
   const [draft, setDraft] = useState('');
   const [discussionError, setDiscussionError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showResolved, setShowResolved] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [pageCommentOpen, setPageCommentOpen] = useState(false);
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const pageRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -581,31 +585,24 @@ export function PageReader({
       const closing = source.indexOf(`<!--/c:${entry.thread}-->`);
       if (opening < 0 || closing < opening) continue;
       const sourceStart = cleanOffset(opening); const sourceEnd = cleanOffset(closing);
-      const quote = entry.anchor.quote;
-      const before = typeof entry.anchor.before === 'string' ? entry.anchor.before : '';
-      const after = typeof entry.anchor.after === 'string' ? entry.anchor.after : '';
+      // Highlight the rendered text currently between the markers. The saved quote
+      // remains metadata for recovery; edits inside the pair do not detach the highlight.
+      const currentSource = markdown.slice(sourceStart, sourceEnd);
+      const currentText = renderedMarkdownParagraphs(currentSource).join(' ').trim();
+      if (currentText === '') continue;
       let found = false;
       for (const paragraph of paragraphs) {
         const localText = paragraph.textContent ?? '';
-        let at = localText.indexOf(quote);
-        while (at >= 0) {
-          const prior = before.length === 0 ? '' : [...localText.slice(0, at)].slice(-[...before].length).join('');
-          const next = after.length === 0 ? '' : [...localText.slice(at + quote.length)].slice(0, [...after].length).join('');
-          if (prior === before && next === after) {
-            const mapped = mapParagraphSelection(markdown, at, at + quote.length, paragraphs.indexOf(paragraph));
-            if (!mapped.ok || mapped.range.start !== sourceStart || mapped.range.end !== sourceEnd) { at = localText.indexOf(quote, at + 1); continue; }
-            const prefix = document.createRange(); prefix.selectNodeContents(reading); prefix.setEnd(paragraph, 0);
-            const globalStart = prefix.toString().length + at;
-            const start = boundary(globalStart); const end = boundary(globalStart + quote.length);
-            if (start !== undefined && end !== undefined) {
-              const range = document.createRange(); range.setStart(start.node, start.offset); range.setEnd(end.node, end.offset); ranges.push(range); found = true;
-            }
-            break;
-          }
-          at = localText.indexOf(quote, at + 1);
+        const at = localText.indexOf(currentText);
+        if (at < 0) continue;
+        const prefix = document.createRange(); prefix.selectNodeContents(reading); prefix.setEnd(paragraph, 0);
+        const globalStart = prefix.toString().length + at;
+        const start = boundary(globalStart); const end = boundary(globalStart + currentText.length);
+        if (start !== undefined && end !== undefined) {
+          const range = document.createRange(); range.setStart(start.node, start.offset); range.setEnd(end.node, end.offset); ranges.push(range); found = true; break;
         }
-        if (found) break;
       }
+      if (!found) continue;
     }
     if (ranges.length > 0) highlights.set('discussion-anchor', new window.Highlight(...ranges));
     else highlights.delete('discussion-anchor');
@@ -641,18 +638,37 @@ export function PageReader({
     return () => { window.removeEventListener('mouseup', capture); window.removeEventListener('keyup', capture); };
   }, [path, page]);
 
+  const refreshDiscussions = async (): Promise<void> => setDiscussions((await getDiscussions(path)).discussions);
   const saveDiscussion = async (): Promise<void> => {
     if (selection === null || draft.trim() === '' || saving) return;
     setSaving(true); setDiscussionError(null);
     try {
       await postDiscussion({ document: path, range: selection, body: draft });
-      const answer = await getDiscussions(path);
-      setDiscussions(answer.discussions);
-      setSelection(null); setDraft('');
-      window.getSelection()?.removeAllRanges();
-    } catch (caught) {
-      setDiscussionError(caught instanceof Error ? caught.message : String(caught));
-    } finally { setSaving(false); }
+      await refreshDiscussions(); setSelection(null); setDraft(''); window.getSelection()?.removeAllRanges();
+    } catch (caught) { setDiscussionError(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setSaving(false); }
+  };
+  const savePageComment = async (): Promise<void> => {
+    if (draft.trim() === '' || saving) return;
+    setSaving(true); setDiscussionError(null);
+    try { await postDiscussion({ document: path, action: 'page', body: draft }); await refreshDiscussions(); setPageCommentOpen(false); setDraft(''); }
+    catch (caught) { setDiscussionError(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setSaving(false); }
+  };
+  const recoverAnchor = async (thread: string, quote: unknown): Promise<void> => {
+    if (selection === null || typeof quote !== 'string' || selection.quote !== quote) { setDiscussionError(t('discussion.placeAgain')); return; }
+    setSaving(true);
+    try { await postDiscussion({ document: path, action: 'recover', thread, range: selection }); await refreshDiscussions(); setSelection(null); }
+    catch (caught) { setDiscussionError(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setSaving(false); }
+  };
+  const actOnThread = async (thread: string, action: 'reply' | 'resolve'): Promise<void> => {
+    const body = replyDrafts[thread] ?? '';
+    if (action === 'reply' && body.trim() === '') return;
+    setSaving(true); setDiscussionError(null);
+    try { await postDiscussion({ document: path, thread, action, ...(action === 'reply' ? { body } : {}) }); await refreshDiscussions(); setReplyDrafts((previous) => ({ ...previous, [thread]: '' })); }
+    catch (caught) { setDiscussionError(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setSaving(false); }
   };
 
   if (error !== null && page === null && tries >= pageTriesLimit)
@@ -682,17 +698,24 @@ export function PageReader({
       {!ownTitle && <h1 className="app-title">{page.title}</h1>}
       {doc !== undefined && <DocumentHeader document={doc} />}
       <Markdown text={page.markdown.replace(/<!--\/?c:[^>]*-->/g, '')} elementLinks={elementLinksFor(bundle, path)} />
-      {selection !== null ? <section className="discussion-composer" aria-label={t('discussion.composer')} data-testid="discussion-composer">
-        <p>{selection.quote}</p>
+      <div className="discussion-actions">
+        <button type="button" data-testid="discussion-page-comment" onClick={() => { setDraft(''); setPageCommentOpen(true); }}>{t('discussion.pageComment')}</button>
+        <button type="button" className="discussion-panel-toggle" data-testid="discussion-panel-toggle" aria-expanded={panelOpen} onClick={() => setPanelOpen((open) => !open)}>{panelOpen ? t('discussion.closePanel') : t('discussion.openPanel')}</button>
+        <button type="button" data-testid="discussion-toggle-resolved" aria-pressed={showResolved} onClick={() => setShowResolved((shown) => !shown)}>{showResolved ? t('discussion.hideResolved') : t('discussion.showResolved')}</button>
+      </div>
+      {selection !== null || pageCommentOpen ? <section className="discussion-composer" aria-label={t('discussion.composer')} data-testid="discussion-composer">
+        {selection !== null ? <p>{selection.quote}</p> : null}
         <label>{t('discussion.message')}<textarea value={draft} onChange={(event) => setDraft(event.currentTarget.value)} data-testid="discussion-body" /></label>
-        <button type="button" onClick={() => void saveDiscussion()} disabled={saving || draft.trim() === ''} data-testid="discussion-save">{saving ? t('discussion.saving') : t('discussion.save')}</button>
-        <button type="button" onClick={() => { setSelection(null); setDiscussionError(null); }}>{t('discussion.cancel')}</button>
+        <button type="button" onClick={() => void (selection === null ? savePageComment() : saveDiscussion())} disabled={saving || draft.trim() === ''} data-testid="discussion-save">{saving ? t('discussion.saving') : t('discussion.save')}</button>
+        <button type="button" onClick={() => { setSelection(null); setPageCommentOpen(false); setDiscussionError(null); }}>{t('discussion.cancel')}</button>
         {discussionError !== null ? <p role="alert">{discussionError}</p> : null}
       </section> : null}
-      {discussions.length > 0 ? <aside className="discussion-margin" aria-label={t('discussion.threads')} data-testid="discussion-margin">
-        {discussions.map((entry) => <article className="discussion-card" key={entry.message} data-thread={entry.thread}>
-          <p className="discussion-quote">{typeof entry.anchor.quote === 'string' ? entry.anchor.quote : ''}</p>
-          <p className="discussion-author">{entry.author}</p><p>{entry.body}</p>
+      {discussions.length > 0 ? <aside className={`discussion-margin${panelOpen ? ' is-open' : ''}`} aria-label={t('discussion.threads')} data-testid="discussion-margin">
+        {discussions.filter((entry) => showResolved || entry.status !== 'resolved').map((entry) => <article className="discussion-card" key={entry.thread} data-thread={entry.thread} data-anchor-lost={entry.anchor.lost === true ? 'true' : 'false'}>
+          <p className="discussion-quote">{typeof entry.anchor.quote === 'string' ? entry.anchor.quote : entry.anchor.kind === 'page' ? t('discussion.pageAnchor') : ''}</p>
+          {entry.messages?.map((message) => <div key={message.message}><p className="discussion-author">{message.author}</p><p>{message.body}</p></div>) ?? <><p className="discussion-author">{entry.author}</p><p>{entry.body}</p></>}
+          {entry.anchor.lost === true ? <p className="discussion-lost" role="status">{t('discussion.lostAnchor')} <button type="button" data-testid="discussion-recover" onClick={() => void recoverAnchor(entry.thread, entry.anchor.quote)}>{t('discussion.recover')}</button></p> : null}
+          {entry.status !== 'resolved' ? <><label>{t('discussion.reply')}<textarea value={replyDrafts[entry.thread] ?? ''} onChange={(event) => setReplyDrafts((previous) => ({ ...previous, [entry.thread]: event.currentTarget.value }))} data-testid={`discussion-reply-${entry.thread}`} /></label><button type="button" onClick={() => void actOnThread(entry.thread, 'reply')} disabled={saving || !(replyDrafts[entry.thread] ?? '').trim()}>{t('discussion.sendReply')}</button><button type="button" onClick={() => void actOnThread(entry.thread, 'resolve')} disabled={saving}>{t('discussion.resolve')}</button></> : null}
         </article>)}
       </aside> : null}
       <DocumentLinks page={page} />

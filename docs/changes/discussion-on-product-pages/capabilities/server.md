@@ -212,19 +212,29 @@ yet asked for. No webhooks, polling, CI trigger, authentication, Docker
 image or wiki hosting.
 
 ## Requirement: discussion-writes — The product wiki validates and saves discussion actions
-A server serving a product wiki shall expose the discussion read and write operations for that product only. A write request names the product-relative document path and selection, carries the message body, and is checked against the v1 discussion contract and current source document before any write. The server updates the document markers and adds the ULID message file, commits exactly that action, and pushes to the product's configured remote. A rejected push is handled by pull-and-retry only when the selection still resolves to the same source text; otherwise the save is refused without overwriting changes. A final failure is returned as not sent with retryable message data. Writes never include unrelated changes. The server reads discussions from the product's working tree and serves current messages to the app.
+A server serving a product wiki shall expose discussion reads and writes for that product only. A write request names the product-relative document and carries a message body; the server validates it against the v1 contract and current source before any write. The first selected-text message writes the matching source markers and message file. A page-level comment writes a page-anchored message without source markers. Replies append message files under the existing thread id. Resolve records a separate message-file action with resolved status; it does not rewrite earlier messages or the document. Each action commits exactly its own files and pushes to the product's configured remote. Failed reconciliation returns not-sent retry data and never overwrites unrelated changes. Reads expose current discussion messages, identify page anchors separately from selection anchors, and show a selection whose two markers are absent as a lost anchor. A one-sided or mismatched marker pair is refused with source file and line.
 
 ### Scenario: discussion-write-validates-before-write
-- Given: a served product and a discussion request with an invalid path, stale selection or invalid v1 metadata
+- Given: a served product and a request with an invalid path, stale selection or invalid v1 message
 - When: the request is received
-- Then: the server refuses with the offending field/path, and the product's files and git history are unchanged
+- Then: the server refuses with the offending field or path and leaves product files and git history unchanged
 
-### Scenario: discussion-write-commits-one-action
-- Given: a clean served product and a valid selection/comment request
-- When: the request is saved
-- Then: the message and markers are committed together once and pushed; no unrelated product change is included
+### Scenario: selected-discussion-action
+- Given: a clean served product and a valid selection comment
+- When: it is saved
+- Then: the message and source markers are committed together once and pushed, with no unrelated file included
 
-### Scenario: discussion-write-retry
-- Given: a remote push rejection and a cleanly reappliable selection
-- When: the server reconciles the remote
-- Then: it retries once against the new source, and returns success only after push succeeds
+### Scenario: page-comment-and-reply-actions
+- Given: a clean served product and an existing thread
+- When: a page-level comment or reply is saved
+- Then: the page comment has no markers, the reply uses the existing thread id, and each action is one pushed commit
+
+### Scenario: resolve-action
+- Given: an open discussion thread
+- When: it is resolved
+- Then: a separate message-file action records resolved status and is pushed without rewriting earlier messages or the document
+
+### Scenario: lost-anchor-read-and-recovery
+- Given: a selection message whose markers are both absent
+- When: the discussion is read and recovery is requested
+- Then: the saved quote is shown, unique quote/context may restore the end marker, and an ambiguous quote requires the reader to place the range again
