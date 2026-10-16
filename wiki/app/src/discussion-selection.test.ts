@@ -85,4 +85,13 @@ describe('discussion selection source mapping', () => {
       .toBe(`left <!--c:${marker}-->selected<!--/c:${marker}--> right`);
     expect(() => insertDiscussionMarkers(source, { start: 5, end: 13 }, 'bad')).toThrow('ULID');
   });
+
+  test('range edits inside a marker retain the range, while edits through one marker are refused', () => {
+    const opening = `<!--c:${marker}-->`; const closing = `<!--/c:${marker}-->`;
+    const inside = `${opening}selected edited${closing}`;
+    expect(inside).toContain(opening); expect(inside).toContain(closing);
+    const through = `${opening}selected`;
+    expect(mapParagraphSelection(through, 0, 8).ok).toBe(false);
+  });
+
 });

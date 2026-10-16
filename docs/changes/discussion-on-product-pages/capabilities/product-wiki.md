@@ -635,24 +635,41 @@ When the wiki shows its getting-started guidance for a product with no pages, wi
 - Then: it offers `madarch demo` in Russian and does not show manual clone-and-serve instructions
 
 ## Requirement: discussions — A reader can comment on a selection and follow its discussion
-On a document page, selecting text offers a comment action. The app maps the rendered selection to a source range using parser position data; a selection crossing an inline construct boundary expands to whole words and elements so the markers never break Markdown. Saving creates a discussion message under `comments/{thread ULID}/{message ULID}.md` and wraps the selected source range in matching hidden v1 markers. The page shows the message card in the right margin level with the marked text, and hover links the card and text in both directions. Reload shows the saved message and highlight. Later interactions provide replies, resolution (resolved threads hidden by default and showable), a page-level thread, and a narrow-screen discussions panel. Both markers absent means the selection is lost and the thread is shown with its saved quote; one-sided or mismatched markers are refused with source file and line, and the reader can restore the range by its saved quote or place it again.
+On a document page, selecting text offers a comment action. The app maps the rendered selection to a source range using parser position data; a selection crossing an inline construct boundary expands to whole words and elements so the markers never break Markdown. Saving the first selected-text message creates a v1 message under `comments/{thread ULID}/{message ULID}.md` and wraps the selected source range in matching hidden markers. A reader can also start a page-level thread without selecting text; its v1 anchor is `kind: page`, and it has no source markers. A reply is a new message file under the existing thread ULID and does not edit the document or earlier messages. Resolving a thread stores a new message action with status `resolved`; it does not remove or change earlier messages. Threads whose latest action is resolved are hidden by default, and the reader can show resolved threads again. Each action remains separate and survives reload.
+
+The page shows each thread's messages in the discussion margin beside the marked text; the saved quote remains visible for page-level and lost-anchor threads. A selection thread whose two markers are both absent is a lost anchor, shown with its saved quote and a recovery action. Recovery offers to restore the marker end using the saved quote when it resolves uniquely, or lets the reader place the range again; it never guesses among ambiguous matches. A one-sided or mismatched marker pair is refused with source file and line. At narrow widths, the discussion margin becomes a discussions panel that can be opened from the page.
 
 ### Scenario: selected-comment-round-trip
 - Given: a served fixture product and a selectable sentence in a document
 - When: the reader selects the sentence, writes a message and saves, then reloads the page
-- Then: a comment card appears in the margin beside the highlighted source range and is still there after reload
+- Then: a comment card appears beside the highlighted source range and is still there after reload
 
 ### Scenario: marker-safe-inline-selection
 - Given: a selection crossing an inline Markdown construct
 - When: the comment is saved
 - Then: marker insertion expands to valid whole words/elements and the document still renders correctly
 
+### Scenario: page-level-thread
+- Given: a served document page with no active text selection
+- When: the reader starts a page-level discussion and reloads
+- Then: the page-anchored thread appears without source markers
+
+### Scenario: replies-and-resolution
+- Given: an open discussion thread
+- When: the reader replies, resolves it, reloads, then chooses to show resolved discussions
+- Then: each message is preserved in the same thread, it is hidden by default after resolution, and it appears again when resolved discussions are shown
+
 ### Scenario: lost-anchor-and-invalid-pair
 - Given: both markers for a selection were removed, or only one remains
 - When: the wiki reads the discussion
-- Then: both absent is shown as a lost anchor with its quote; a one-sided or mismatched pair is refused with source path and line
+- Then: both absent is shown as a lost anchor with its saved quote and recovery choices; a one-sided or mismatched pair is refused with source path and line
+
+### Scenario: lost-anchor-recovery
+- Given: a lost selection's quote occurs uniquely in its saved context, or cannot be resolved uniquely
+- When: the reader chooses recovery
+- Then: the unique saved quote can restore the range; otherwise the reader is asked to place it again, with no guessed placement
 
 ### Scenario: discussion-actions-and-narrow-screen
 - Given: a document with open and resolved threads
 - When: the reader replies, resolves, reveals resolved threads or views the page at a narrow width
-- Then: each action persists after reload, resolved threads are hidden by default, and discussions are available in a panel
+- Then: actions persist after reload, resolved threads are hidden by default, and discussions are available in the responsive panel

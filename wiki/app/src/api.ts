@@ -271,10 +271,12 @@ export const getPage = (path: string, signal?: AbortSignal): Promise<Page> =>
   readJson<Page>(`read the page ${path}`, `/api/page?path=${encodeURIComponent(path)}`, signal);
 
 export type DiscussionRange = { start: number; end: number; quote: string; before: string; after: string; paragraph: number; from: number; to: number };
-export type DiscussionEntry = { thread: string; message: string; document: string; anchor: Record<string, unknown>; author: string; time: string; status: string; body: string };
+export type DiscussionMessageEntry = { message: string; author: string; time: string; body: string };
+export type DiscussionEntry = { thread: string; message: string; document: string; anchor: Record<string, unknown>; author: string; time: string; status: string; body: string; messages?: DiscussionMessageEntry[] };
 export const getDiscussions = (path: string, signal?: AbortSignal): Promise<{ discussions: DiscussionEntry[] }> =>
   readJson<{ discussions: DiscussionEntry[] }>(`read discussions on ${path}`, `/api/discussions?path=${encodeURIComponent(path)}`, signal);
-export async function postDiscussion(input: { document: string; range: DiscussionRange; body: string }): Promise<void> {
+export type DiscussionWriteRequest = { document: string; range: DiscussionRange; body: string } | { document: string; action: 'page'; body: string } | { document: string; action: 'reply' | 'resolve'; thread: string; body?: string } | { document: string; action: 'recover'; thread: string; range: DiscussionRange };
+export async function postDiscussion(input: DiscussionWriteRequest): Promise<void> {
   let response: Response;
   try {
     response = await fetch('/api/discussions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) });

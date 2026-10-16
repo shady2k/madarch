@@ -74,4 +74,34 @@ runDescribe('first comment on a served product wiki', () => {
     expect(await page.$eval('.reading', (node) => node.textContent)).toContain('A page with one clear heading.');
     await page.close();
   }, 30000);
+
+  test('page-level comments persist and discussion cards use the narrow-screen panel', async () => {
+    page = await browser.newPage(); await page.setViewport({ width: 1280, height: 900 });
+    await page.goto(`${server.url}/p/docs/vision.md`, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('[data-testid=discussion-page-comment]');
+    await page.click('[data-testid=discussion-page-comment]');
+    await page.type('[data-testid=discussion-body]', 'A page-level note.');
+    await page.$eval('[data-testid=discussion-save]', (node) => { (node as HTMLButtonElement).click(); });
+    await page.waitForFunction(() => document.querySelector('[data-testid=discussion-composer]') === null, { timeout: 15000 });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => [...document.querySelectorAll('[data-thread]')].some((node) => node.textContent?.includes('A page-level note.')), { timeout: 15000 });
+    const pageThread = await page.$eval('[data-thread]', (node) => node.getAttribute('data-thread'));
+    expect(pageThread).toBeTruthy();
+    const actions = await page.evaluate(async (thread) => {
+      const reply = await fetch('/api/discussions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ document: 'docs/vision.md', action: 'reply', thread, body: 'A browser reply.' }) });
+      const resolve = await fetch('/api/discussions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ document: 'docs/vision.md', action: 'resolve', thread }) });
+      return [reply.status, resolve.status];
+    }, pageThread);
+    expect(actions).toEqual([201, 201]);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('[data-testid=discussion-toggle-resolved]');
+    expect(await page.$(`[data-thread="${pageThread}"]`)).toBeNull();
+    await page.click('[data-testid=discussion-toggle-resolved]');
+    await page.waitForSelector(`[data-thread="${pageThread}"]`);
+    const anchor = await page.$eval(`[data-thread="${pageThread}"]`, (node) => node.getAttribute('data-anchor-lost'));
+    expect(anchor).toBe('false');
+    await page.setViewport({ width: 390, height: 844 });
+    expect(await page.$eval('[data-testid=discussion-margin]', (node) => getComputedStyle(node).position)).toBe('fixed');
+    await page.close();
+  }, 30000);
 });
