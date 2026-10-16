@@ -59,7 +59,6 @@ describe('discussion selection source mapping', () => {
     expect(mapParagraphSelection(markdown, 0, 4, 1)).toMatchObject({ ok: true, range: { quote: 'list' } });
     expect(mapParagraphSelection(markdown, 0, 4, 2)).toMatchObject({ ok: true, range: { quote: 'last' } });
   });
-  });
 
   test('rejects boundaries inside combining and joined emoji graphemes', () => {
     expect(mapParagraphSelection('e\u0301 text', 1, 2).ok).toBe(false);
