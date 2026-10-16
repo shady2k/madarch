@@ -97,6 +97,11 @@ jobs:
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           brew --version
           brew install shady2k/tap/madarch
+          brew list --verbose madarch
+          ls -la "$(brew --prefix)/bin/madarch" || true
+          brew link --overwrite madarch
+          type -a madarch
+          echo "$PATH"
           test "$(madarch version)" = 'version: 0.1.0'
       - name: Run new then serve using the published formula
         run: |
