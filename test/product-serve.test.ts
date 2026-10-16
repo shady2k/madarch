@@ -589,6 +589,6 @@ describe('the help the command gives', () => {
     expect(run.stdout).toContain('--product');
     expect(run.stdout).toContain('--port');
     expect(run.stdout).toContain('--no-open');
-    expect(run.stdout).toContain('usage: bun scripts/madarch.ts');
+    expect(run.stdout).toContain('usage: madarch serve');
   });
 });
