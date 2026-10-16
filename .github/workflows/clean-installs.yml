@@ -118,7 +118,7 @@ jobs:
           export GIT_AUTHOR_EMAIL='walk@example.invalid'
           export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
           export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
-          export export HOME="$TMP/home"; mkdir -p "$HOME"
+          export HOME="$TMP/home"; mkdir -p "$HOME"
           PORT=$(($(od -An -N2 -tu2 /dev/urandom) % 20000 + 20000))
           madarch new --home "$HOME/products" --port "$PORT" --no-open > "$TMP/new.txt" 2>&1 & PID=$!
           for n in $(seq 1 200); do if curl -fsS "http://127.0.0.1:$PORT/api/product" | grep -q '"id"'; then break; fi; sleep .1; done
