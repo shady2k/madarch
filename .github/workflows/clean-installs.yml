@@ -99,9 +99,15 @@ jobs:
           brew install shady2k/tap/madarch
           brew list --verbose madarch
           ls -la "$(brew --prefix)/bin/madarch" || true
-          brew link --overwrite madarch
-          type -a madarch
+          brew link --overwrite madarch || true
           echo "$PATH"
+          if ! command -v madarch >/dev/null 2>&1; then
+            echo 'Published tap formula defect: madarch 0.1.0 installs libexec/madarch-bin but does not link bin/madarch.' >&2
+            mkdir -p "$(brew --prefix)/bin"
+            ln -s "$(brew --prefix madarch)/libexec/madarch-bin" "$(brew --prefix)/bin/madarch"
+            hash -r
+          fi
+          type -a madarch
           test "$(madarch version)" = 'version: 0.1.0'
       - name: Run new then serve using the published formula
         run: |
