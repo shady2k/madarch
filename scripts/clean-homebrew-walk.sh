@@ -58,7 +58,7 @@ if [ -d "$MADARCH" ]; then MADARCH="$PREFIX/libexec/madarch-bin"; fi
 "$MADARCH" version
 madarch() { "$MADARCH" "$@"; }
 export GIT_AUTHOR_NAME='Madarch Homebrew Walk' GIT_AUTHOR_EMAIL='walk@example.invalid' GIT_COMMITTER_NAME='Madarch Homebrew Walk' GIT_COMMITTER_EMAIL='walk@example.invalid'
-HOME="$TMP/home"; mkdir -p "$HOME"
+export HOME="$TMP/home"; mkdir -p "$HOME"
 madarch new --home "$HOME/products" --port "$PORT" --no-open > "$TMP/new.txt" 2>&1 & PID=$!
 SERVED=0
 for n in $(seq 1 200); do if curl -fsS "http://127.0.0.1:$PORT/api/product" | grep -q '"id"'; then SERVED=1; break; fi; sleep .1; done
