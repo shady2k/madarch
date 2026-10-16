@@ -17,9 +17,10 @@ import { useContext, useEffect, useRef, useState, useCallback, type ReactElement
 import { useTranslation } from 'react-i18next';
 import { FileTextIcon, FolderGit2Icon, GitBranch, NetworkIcon } from 'lucide-react';
 import { relativeTime } from './i18n.js';
-import { getProduct, getPages, getPage, getQuestions, getRepos, getRegistry, type Product, type ProductWithAudience, type PageList, type Page, type QuestionList, type QuestionEntry, type PageDocument, type Architecture, type RepoEntry, type ReposList, type RegistryOffer } from './api.js';
+import { getProduct, getPages, getPage, getQuestions, getRepos, getRegistry, type Product, type ProductWithAudience, type PageList, type Page, type QuestionList, type QuestionEntry, type PageDocument, type Architecture, type RepoEntry, type ReposList, type RegistryOffer, getDiscussions, postDiscussion, type DiscussionEntry, type DiscussionRange } from './api.js';
 import { routeOf, addressOfPage, architectureAddress, type Route } from './routes.js';
 import { Markdown, PageLink } from './view.js';
+import { mapParagraphSelection } from './discussion-selection.js';
 import { routeContext, statusContext } from './hold.js';
 import { groupNav, groupOf, kindOf, wordLabel, Shell } from './shell.js';
 import { wordCount } from './text.js';
@@ -485,6 +486,11 @@ export function PageReader({
   // Whether the document rendered its own first-level heading: the fallback
   // title above it then leaves the DOM, so a page holds exactly one h1.
   const [ownTitle, setOwnTitle] = useState(false);
+  const [discussions, setDiscussions] = useState<DiscussionEntry[]>([]);
+  const [selection, setSelection] = useState<DiscussionRange | null>(null);
+  const [draft, setDraft] = useState('');
+  const [discussionError, setDiscussionError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const pageRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -542,6 +548,113 @@ export function PageReader({
     };
   }, [path, retryMs, revisionKey(heldPaths)]);
 
+  useEffect(() => {
+    let live = true;
+    setDiscussions([]);
+    getDiscussions(path).then((answer) => { if (live) setDiscussions(answer.discussions); }).catch(() => { if (live) setDiscussions([]); });
+    return () => { live = false; };
+  }, [path, revision]);
+
+  useEffect(() => {
+    const reading = pageRef.current?.querySelector('.reading');
+    const highlights = (CSS as unknown as { highlights?: { set(name: string, value: unknown): void; delete(name: string): void } }).highlights;
+    if (reading === null || reading === undefined || highlights === undefined || typeof window.Highlight !== 'function') return;
+    const source = page?.markdown ?? '';
+    const markdown = source.replace(/<!--\/?c:[^>]*-->/g, '');
+    const cleanOffset = (offset: number): number => source.slice(0, offset).replace(/<!--\/?c:[^>]*-->/g, '').length;
+    const nodes: Text[] = [];
+    const walker = document.createTreeWalker(reading, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) nodes.push(walker.currentNode as Text);
+    const boundary = (offset: number): { node: Text; offset: number } | undefined => {
+      let at = 0;
+      for (const node of nodes) {
+        if (offset <= at + node.length) return { node, offset: offset - at };
+        at += node.length;
+      }
+      return undefined;
+    };
+    const ranges: Range[] = [];
+    const paragraphs = [...reading.querySelectorAll('p')];
+    for (const entry of discussions) {
+      if (entry.anchor.kind !== 'selection' || typeof entry.anchor.quote !== 'string') continue;
+      const opening = source.indexOf(`<!--c:${entry.thread}-->`);
+      const closing = source.indexOf(`<!--/c:${entry.thread}-->`);
+      if (opening < 0 || closing < opening) continue;
+      const sourceStart = cleanOffset(opening); const sourceEnd = cleanOffset(closing);
+      const quote = entry.anchor.quote;
+      const before = typeof entry.anchor.before === 'string' ? entry.anchor.before : '';
+      const after = typeof entry.anchor.after === 'string' ? entry.anchor.after : '';
+      let found = false;
+      for (const paragraph of paragraphs) {
+        const localText = paragraph.textContent ?? '';
+        let at = localText.indexOf(quote);
+        while (at >= 0) {
+          const prior = before.length === 0 ? '' : [...localText.slice(0, at)].slice(-[...before].length).join('');
+          const next = after.length === 0 ? '' : [...localText.slice(at + quote.length)].slice(0, [...after].length).join('');
+          if (prior === before && next === after) {
+            const mapped = mapParagraphSelection(markdown, at, at + quote.length, paragraphs.indexOf(paragraph));
+            if (!mapped.ok || mapped.range.start !== sourceStart || mapped.range.end !== sourceEnd) { at = localText.indexOf(quote, at + 1); continue; }
+            const prefix = document.createRange(); prefix.selectNodeContents(reading); prefix.setEnd(paragraph, 0);
+            const globalStart = prefix.toString().length + at;
+            const start = boundary(globalStart); const end = boundary(globalStart + quote.length);
+            if (start !== undefined && end !== undefined) {
+              const range = document.createRange(); range.setStart(start.node, start.offset); range.setEnd(end.node, end.offset); ranges.push(range); found = true;
+            }
+            break;
+          }
+          at = localText.indexOf(quote, at + 1);
+        }
+        if (found) break;
+      }
+    }
+    if (ranges.length > 0) highlights.set('discussion-anchor', new window.Highlight(...ranges));
+    else highlights.delete('discussion-anchor');
+    return () => highlights.delete('discussion-anchor');
+  }, [page, discussions]);
+
+  useEffect(() => {
+    setSelection(null);
+    setDraft('');
+    setDiscussionError(null);
+    const capture = (): void => {
+      const selected = window.getSelection();
+      const reading = pageRef.current?.querySelector('.reading');
+      if (selected === null || selected.isCollapsed || selected.rangeCount === 0 || reading === null || reading === undefined) return;
+      const domRange = selected.getRangeAt(0);
+      if (!reading.contains(domRange.startContainer) || !reading.contains(domRange.endContainer)) return;
+      const paragraph = domRange.startContainer instanceof Element ? domRange.startContainer.closest('p') : domRange.startContainer.parentElement?.closest('p');
+      if (paragraph === null || paragraph === undefined || !paragraph.contains(domRange.endContainer) || page === null) return;
+      const paragraphs = [...reading.querySelectorAll('p')];
+      const index = paragraphs.indexOf(paragraph);
+      const prefix = document.createRange();
+      prefix.selectNodeContents(paragraph);
+      prefix.setEnd(domRange.startContainer, domRange.startOffset);
+      const from = prefix.toString().length;
+      const to = from + selected.toString().length;
+      const mapped = mapParagraphSelection(page.markdown, from, to, index);
+      if (!mapped.ok) { setDiscussionError(mapped.reason); return; }
+      setSelection({ ...mapped.range, paragraph: index, from, to });
+      setDiscussionError(null);
+    };
+    window.addEventListener('mouseup', capture);
+    window.addEventListener('keyup', capture);
+    return () => { window.removeEventListener('mouseup', capture); window.removeEventListener('keyup', capture); };
+  }, [path, page]);
+
+  const saveDiscussion = async (): Promise<void> => {
+    if (selection === null || draft.trim() === '' || saving) return;
+    setSaving(true); setDiscussionError(null);
+    try {
+      await postDiscussion({ document: path, range: selection, body: draft });
+      const answer = await getDiscussions(path);
+      setDiscussions(answer.discussions);
+      setSelection(null); setDraft('');
+      window.getSelection()?.removeAllRanges();
+    } catch (caught) {
+      setDiscussionError(caught instanceof Error ? caught.message : String(caught));
+    } finally { setSaving(false); }
+  };
+
   if (error !== null && page === null && tries >= pageTriesLimit)
     return <ErrorLine message={error} />;
   if (error !== null) return <ErrorLine message={error} />;
@@ -568,7 +681,20 @@ export function PageReader({
       </div>
       {!ownTitle && <h1 className="app-title">{page.title}</h1>}
       {doc !== undefined && <DocumentHeader document={doc} />}
-      <Markdown text={page.markdown} elementLinks={elementLinksFor(bundle, path)} />
+      <Markdown text={page.markdown.replace(/<!--\/?c:[^>]*-->/g, '')} elementLinks={elementLinksFor(bundle, path)} />
+      {selection !== null ? <section className="discussion-composer" aria-label={t('discussion.composer')} data-testid="discussion-composer">
+        <p>{selection.quote}</p>
+        <label>{t('discussion.message')}<textarea value={draft} onChange={(event) => setDraft(event.currentTarget.value)} data-testid="discussion-body" /></label>
+        <button type="button" onClick={() => void saveDiscussion()} disabled={saving || draft.trim() === ''} data-testid="discussion-save">{saving ? t('discussion.saving') : t('discussion.save')}</button>
+        <button type="button" onClick={() => { setSelection(null); setDiscussionError(null); }}>{t('discussion.cancel')}</button>
+        {discussionError !== null ? <p role="alert">{discussionError}</p> : null}
+      </section> : null}
+      {discussions.length > 0 ? <aside className="discussion-margin" aria-label={t('discussion.threads')} data-testid="discussion-margin">
+        {discussions.map((entry) => <article className="discussion-card" key={entry.message} data-thread={entry.thread}>
+          <p className="discussion-quote">{typeof entry.anchor.quote === 'string' ? entry.anchor.quote : ''}</p>
+          <p className="discussion-author">{entry.author}</p><p>{entry.body}</p>
+        </article>)}
+      </aside> : null}
       <DocumentLinks page={page} />
       <StructuralBlock page={page} />
       <FindingsBlock page={page} />

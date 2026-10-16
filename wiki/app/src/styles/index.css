@@ -1060,3 +1060,25 @@ main section h2 {
 .doc-finding-why {
   color: var(--text-muted);
 }
+
+
+.discussion-composer,
+.discussion-margin {
+  position: fixed;
+  inset-block-start: 30vh;
+  inset-inline-end: 1rem;
+  width: min(18rem, 24vw);
+  max-height: 60vh;
+  overflow: auto;
+  padding: 1rem;
+  border-inline-start: 3px solid var(--selection);
+  background: var(--surface-soft);
+}
+.discussion-composer textarea { display: block; width: 100%; min-height: 5rem; margin-block: .5rem; }
+.discussion-card { margin-block: .75rem; padding: .75rem; border: 1px solid var(--border); border-radius: .5rem; }
+.discussion-quote { font-style: italic; color: var(--text-secondary); }
+.discussion-author { font-size: .875rem; font-weight: 600; }
+
+::highlight(discussion-anchor) { background: color-mix(in srgb, var(--selection) 25%, transparent); }
+
+@media (max-width: 900px) { .discussion-margin { position: static; width: auto; max-height: none; margin-block: 1rem; } }
