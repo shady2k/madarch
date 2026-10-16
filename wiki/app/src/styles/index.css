@@ -379,6 +379,10 @@ main tbody tr:nth-child(odd) {
    boxed cards, no separating rules between the links, no underlines. */
 /* Overview groups fill the reading measure: rounded hairlines, with no
    inner rules or elevation competing with the work area. */
+.home-group > h2 {
+  margin-block-start: 0;
+}
+
 .home-group {
   padding: 14px 16px 12px;
   border: 1px solid var(--border-subtle);
@@ -450,6 +454,29 @@ main tbody tr:nth-child(odd) {
 .home-row-title {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.home-repository-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.35em;
+}
+
+.home-repository-part {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.home-repository-name {
+  display: inline-block;
+  max-inline-size: min(14em, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  vertical-align: bottom;
 }
 
 /* The SDLC stages view: the missing lines are quiet, the tasks read like the

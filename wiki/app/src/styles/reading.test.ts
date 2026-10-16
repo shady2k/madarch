@@ -136,6 +136,11 @@ describe('the entry stylesheet', () => {
     expect(indexCss).toContain('max-inline-size: var(--measure);');
   });
 
+  test('home cards reset section heading top margins and repository names stay unbroken', () => {
+    expect(indexCss).toContain('.home-group > h2 {\n  margin-block-start: 0;');
+    expect(indexCss).toContain('.home-repository-name {\n  display: inline-block;\n  max-inline-size: min(14em, 100%);\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;');
+  });
+
   test('home overview rows are not underlined by the document-link rule', () => {
     const row = indexCss.slice(indexCss.indexOf('.home-row {'), indexCss.indexOf('}', indexCss.indexOf('.home-row {')));
     expect(row).toContain('border-block-end: none;');

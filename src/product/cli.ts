@@ -490,7 +490,7 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
 
 /** `madarch version`: one fact the release answers with (or `dev` in a checkout); 0, always. */
 function versionCommand(): number {
-  console.log(`madarch version ${runningVersion()}`);
+  console.log(`version: ${runningVersion()}`);
   return 0;
 }
 

@@ -375,6 +375,10 @@ describe('madarch init', () => {
     const serve = serveNew(['init', '--port', '0', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: builtApp(base) }, ['bun', CLI], checkout);
     const { folder } = await printedLiveFacts(serve);
     expect(folder).toBe(join(home, 'products', 'sample-app'));
+    const outputLines = serve.stdout.split('\n').filter((line) => line !== '');
+    for (const fact of ['folder:', 'id:', 'source:', 'repo:', 'url:', 'linked:', 'address:']) {
+      expect(outputLines.filter((line) => line.startsWith(fact))).toHaveLength(1);
+    }
     expect(statSync(checkout).isDirectory()).toBe(true);
     expect(realpathSync(join(folder, 'repos', 'sample-app'))).toBe(realpathSync(checkout));
     expect(readProduct(folder)).toMatchObject({ ok: true, product: { repos: [{ name: 'sample-app', url: origin }] } });
@@ -420,7 +424,7 @@ describe('madarch init', () => {
   test('reports --version and -v as madarch version', () => {
     for (const flag of ['--version', '-v']) {
       const run = runCommand([flag], {});
-      expect(run.status).toBe(0); expect(run.stdout).toBe('madarch version dev\n'); expect(run.stderr).toBe('');
+      expect(run.status).toBe(0); expect(run.stdout).toBe('version: dev\n'); expect(run.stderr).toBe('');
     }
   });
 });
@@ -1404,7 +1408,7 @@ describe('the release surface (madarch-lfhu)', () => {
     const { status, stdout, stderr } = runCommand(['version'], {});
     expect(status).toBe(0);
     expect(stderr).toBe('');
-    expect(stdout).toBe('madarch version dev\n');
+    expect(stdout).toBe('version: dev\n');
   });
 
   test('upgrade in a checkout refuses naming why, before any network', () => {
