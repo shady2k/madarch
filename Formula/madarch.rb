@@ -45,7 +45,7 @@ class Madarch < Formula
     end
     libexec.install artifact => "madarch-bin"
     (libexec / "madarch-bin").chmod 0755
-    (bin / "madarch").write_exec_script libexec / "madarch-bin"
+    bin.install_symlink libexec / "madarch-bin" => "madarch"
   end
 
   test do

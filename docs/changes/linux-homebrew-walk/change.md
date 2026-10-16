@@ -6,19 +6,19 @@ Tasks: madarch-lfhu.2.9
 Kind: no-behavior
 
 ## Rationale
-The workflow and clean-walk harness are CI tooling. This change validates existing Homebrew behavior on Linux and does not alter the released formula or binary.
+The published Linux Homebrew walk exposed a defect against the existing Homebrew install contract: the executable is placed under libexec but no command is linked into Homebrew’s bin directory. Linking it fixes the implementation without changing the contract.
 
 ## Intent
 Walk Homebrew installation and use on Linux x64 as well as macOS, and add an explicit dispatch proof against the published release formula.
 
 ## Out of scope
-Changing the product binary or formula behavior; editing the tap repository; publishing a release.
+Changing the product binary; editing the tap repository; publishing a release.
 
 ## Changes to requirements
 None.
 
 ## Preserved contracts
-- release-binary/installers: The Homebrew formula continues to select the platform binary and verify its checksum; test the local Linux and macOS install walks and the published Linux install path.
+- release-binary/installers: The formula continues to install the selected platform artifact and expose it as the `madarch` command; this change makes Linux's installed command match that existing behavior.
 
 ## Coverage
 - release-binary/installers: static, test, mutation, review
