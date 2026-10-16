@@ -70,6 +70,58 @@ jobs:
       - name: npx new then serve on Linux x64
         run: bun scripts/clean-install-walk.ts --binary dist/madarch-linux-x64 --os linux --arch x64
 
+  linux-homebrew:
+    needs: build-linux-fixture
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/download-artifact@v8
+        with:
+          name: clean-walk-linux-x64
+          path: dist
+      - name: Install and initialize Linuxbrew
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          brew --version
+          sh scripts/clean-homebrew-walk.sh dist/madarch-linux-x64
+
+  published-linux-homebrew:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install and initialize Linuxbrew
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          brew --version
+          brew install shady2k/tap/madarch
+          test "$(madarch version)" = 'version: 0.1.0'
+      - name: Run new then serve using the published formula
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          TMP=$(mktemp -d)
+          trap 'if [ -n "${PID:-}" ]; then kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; fi; rm -rf "$TMP"' EXIT
+          export GIT_AUTHOR_NAME='Madarch Published Homebrew Walk'
+          export GIT_AUTHOR_EMAIL='walk@example.invalid'
+          export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+          export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+          HOME="$TMP/home"; mkdir -p "$HOME"
+          PORT=$(($(od -An -N2 -tu2 /dev/urandom) % 20000 + 20000))
+          madarch new --home "$HOME/products" --port "$PORT" --no-open > "$TMP/new.txt" 2>&1 & PID=$!
+          for n in $(seq 1 200); do if curl -fsS "http://127.0.0.1:$PORT/api/product" | grep -q '"id"'; then break; fi; sleep .1; done
+          curl -fsS "http://127.0.0.1:$PORT/api/product" | grep -q '"id"'
+          PRODUCT=$(sed -n 's/^folder: //p' "$TMP/new.txt" | head -1)
+          test -n "$PRODUCT"
+          kill "$PID"; wait "$PID" || true; PID=
+          PORT=$((PORT + 1))
+          madarch serve --product "$PRODUCT" --port "$PORT" --no-open > "$TMP/serve.txt" 2>&1 & PID=$!
+          for n in $(seq 1 200); do if curl -fsS "http://127.0.0.1:$PORT/api/product" | grep -q '"id"'; then break; fi; sleep .1; done
+          curl -fsS "http://127.0.0.1:$PORT/api/product" | grep -q '"id"'
+          cat "$TMP/new.txt" "$TMP/serve.txt"
+          kill "$PID"; wait "$PID" || true; PID=
+
   macos-arm64:
     runs-on: macos-14
     steps:
