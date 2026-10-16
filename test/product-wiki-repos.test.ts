@@ -87,8 +87,8 @@ describe('the repositories a manifest declares', () => {
     ]);
     const answer = reposOf(product);
     expect(answer.repos).toEqual([
-      { name: 'core', url: 'https://example.com/core.git', state: 'not-checked-out' },
-      { name: 'web', url: 'https://example.com/web.git', branch: 'main', state: 'not-checked-out' },
+      { name: 'core', path: 'repos/core', url: 'https://example.com/core.git', state: 'not-checked-out' },
+      { name: 'web', path: 'repos/web', url: 'https://example.com/web.git', branch: 'main', state: 'not-checked-out' },
     ]);
   });
 
@@ -106,6 +106,12 @@ describe('the repositories a manifest declares', () => {
     expect(row.head?.sha).toBe(own.stdout.trim());
   });
 
+  test('a checked-out repository includes its top-level file tree in code-point order', () => {
+    const product = manifest([{ name: 'core', url: 'https://example.com/core.git' }]);
+    checkout(product, 'core', 'Make the core', { 'README.md': '# Core', 'src.ts': 'export {}', '.gitignore': 'dist' });
+    expect(reposOf(product).repos[0]?.files).toEqual(['.gitignore', 'README.md', 'src.ts']);
+  });
+
   test('the README the checkout holds, any case, comes whole for the renderer', () => {
     const product = manifest([{ name: 'core', url: 'https://example.com/core.git' }]);
     checkout(product, 'core', 'Make the core', { 'ReadMe.MD': '# The core\n\nIts readme.\n' });
@@ -121,6 +127,14 @@ describe('the repositories a manifest declares', () => {
     expect(row.state).toBe('checked-out');
     expect(row.head?.subject).toBe('Make the core');
     expect(row.readme).toBeUndefined();
+  });
+
+  test('a linked Git checkout is read through its directory symlink', () => {
+    const product = manifest([{ name: 'core', url: 'https://example.com/core.git' }]);
+    const source = checkout(scratch(), 'source', 'Linked core', { 'README.md': '# Linked core', 'src.ts': 'export {}' });
+    mkdirSync(join(product, 'repos'), { recursive: true }); symlinkSync(source, join(product, 'repos', 'core'), 'dir');
+    const answer = reposOf(product);
+    expect(answer.repos[0]).toMatchObject({ name: 'core', path: 'repos/core', state: 'checked-out', readme: { markdown: '# Linked core' }, files: ['README.md', 'src.ts'] });
   });
 
   test('a declared name taken by a file, a symlink and a folder with no repository of its own are unreadable, causes named', () => {

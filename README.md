@@ -13,6 +13,13 @@ The primary install is npm (Node.js 18 or newer):
 
     npx madarch new
 
+For an existing checkout, run:
+
+    cd <checkout>
+    madarch init
+
+This creates a separate product around the checkout and leaves the code where you work.
+
 On macOS, Homebrew is also supported:
 
     brew install shady2k/tap/madarch

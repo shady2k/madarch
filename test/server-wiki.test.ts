@@ -472,11 +472,11 @@ describe('the server\'s product mode', () => {
     const answer = await fetch(`${url}/api/repos`);
     expect(answer.status).toBe(200);
     const body = (await answer.json()) as {
-      repos: { name: string; url: string; branch?: string; state: string; head?: { sha: string; subject: string; committedAt: string }; readme?: { file: string; markdown: string } }[];
+      repos: { name: string; url: string; branch?: string; path: string; state: string; head?: { sha: string; subject: string; committedAt: string }; readme?: { file: string; markdown: string } }[];
     };
     expect(body.repos).toHaveLength(2);
     expect(body.repos[1]).toEqual({
-      name: 'web', url: 'https://example.com/web.git', branch: 'main', state: 'not-checked-out',
+      name: 'web', url: 'https://example.com/web.git', branch: 'main', path: 'repos/web', state: 'not-checked-out',
     });
     const core = body.repos[0]!;
     expect(core.name).toBe('core');

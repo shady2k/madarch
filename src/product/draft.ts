@@ -102,6 +102,8 @@ export interface DraftOptions {
    * (`productsHome`).
    */
   home?: string;
+  /** Optional product folder name for `madarch init`; collisions are refused. */
+  name?: string;
   /**
    * The moment the draft's name is folded from. Left out, the local clock
    * decides the day; tests give the day so a run does not depend on the
@@ -229,9 +231,15 @@ export function createDraft(options: DraftOptions = {}): DraftResult {
     // The draft's name is the reserved candidate's own name, read once here
     // for the manifest and the result — never again from a slice of the path,
     // which a home of `/` would cut a letter off.
-    const reserved = reserveDraftFolder(products, day.day);
-    folder = reserved.folder;
-    name = reserved.name;
+    if (options.name !== undefined) {
+      name = options.name;
+      folder = join(products, name);
+      mkdirSync(folder);
+    } else {
+      const reserved = reserveDraftFolder(products, day.day);
+      folder = reserved.folder;
+      name = reserved.name;
+    }
   } catch (error) {
     const code = (error as { code?: string }).code;
     if (['EACCES', 'EPERM', 'EROFS'].includes(code ?? ''))

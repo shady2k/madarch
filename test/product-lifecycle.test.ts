@@ -242,12 +242,12 @@ describe('addCodeRepository and bootstrapProduct, madarch\u2019s own operations'
     const draft = draftIn(home);
     expect(refusal(addCodeRepository({ folder: draft.folder, name: '../escape', url: 'u', gitEnv: gitEnv(GIT_ENV) })))
       .toContain("cannot be a code repository's");
-    expect(refusal(addCodeRepository({ folder: draft.folder, name: 'lib', gitEnv: gitEnv(GIT_ENV) })))
-      .toContain('no url was given');
     expect(refusal(addCodeRepository({ folder: draft.folder, name: 'lib', url: '--flag', gitEnv: gitEnv(GIT_ENV) })))
       .toContain('begins with "-"');
     expect(refusal(addCodeRepository({ folder: draft.folder, name: 'lib', url: 'u', branch: ' ', gitEnv: gitEnv(GIT_ENV) })))
       .toContain('the branch was given empty');
+    expect(addCodeRepository({ folder: draft.folder, name: 'lib', gitEnv: gitEnv(GIT_ENV) }))
+      .toMatchObject({ outcome: 'entered', name: 'lib' });
   });
 
   test('a declared name standing in the way of the clone is a failed report; the manifest close ends the entry road', () => {

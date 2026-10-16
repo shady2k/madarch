@@ -105,7 +105,7 @@ function runCommand(args: string[], overrides: Record<string, string> = {}, cwd?
   const env = { ...process.env, ...SEALED_GIT, ...SEALED_CLOCK, ...sealedHome(overrides), ...overrides };
   // A creator must aim at a scratch home before anything is spawned: the
   // arguments, then MADARCH_HOME — the resolved home is refused otherwise.
-  if (args[0] === 'new' || args[0] === 'list') homeOfCommand(args, env);
+  if (args[0] === 'new' || args[0] === 'init' || args[0] === 'list') homeOfCommand(args, env);
   if (args[0] === 'clone') homeOfCommand(args, env);
   const run = spawnSync('bun', [CLI, ...args], { encoding: 'utf8', env, timeout: 120_000, cwd });
   return { status: run.status, stdout: run.stdout ?? '', stderr: run.stderr ?? '' };
@@ -122,12 +122,13 @@ interface LiveNew {
   readonly exitCode: number | null;
   finish(): Promise<{ stdout: string }>;
 }
-export function serveNew(args: string[], overrides: Record<string, string> = {}, program: readonly string[] = ['bun', CLI]): LiveNew {
+export function serveNew(args: string[], overrides: Record<string, string> = {}, program: readonly string[] = ['bun', CLI], cwd?: string): LiveNew {
   const env = { ...process.env, ...SEALED_GIT, ...SEALED_CLOCK, ...sealedHome(overrides), ...overrides };
-  if (args[0] === 'new') homeOfCommand(args, env);
+  if (args[0] === 'new' || args[0] === 'init') homeOfCommand(args, env);
   const proc = Bun.spawn([...program, ...args], {
     stdin: 'pipe', stdout: 'pipe', stderr: 'pipe',
     env,
+    ...(cwd === undefined ? {} : { cwd }),
   },);
   runningChildren.push(proc);
   let stdoutText = '';
@@ -256,10 +257,10 @@ describe('madarch new', () => {
     // The lines each subcommand's surface promises, whole: a help that was
     // edited away would be a promise the command no longer keeps.
     for (const line of [
-      '   or: bun scripts/madarch.ts list [--home <folder>]',
+      '   or: madarch list [--home <folder>]',
       '  demo       clone or update the Madarch product repository and serve its wiki',
       '  list       name the products the products home holds',
-      '  --home <folder>       demo, new, list and clone: the products home of this one command, over MADARCH_HOME',
+      '  --home <folder>       demo, new, init, list and clone: the products home of this one command, over MADARCH_HOME',
       '                        (without either, ~/madarch/products)',
       '  --product <folder>    serve, rename, remote, repo add and bootstrap: the product folder to work on;',
     ]) {
@@ -354,6 +355,73 @@ describe('madarch new', () => {
     expect(status).toBe(1);
     expect(stderr).toContain('refusing to commit');
     expect(readdirSync(home).filter((name) => name.startsWith('idea-'))).toEqual([]);
+  });
+});
+
+describe('madarch init', () => {
+  test('links the current checkout, keeps it in place and serves the committed product wiki', async () => {
+    const base = scratchFolder('madarch-init-');
+    const home = join(base, 'home');
+    const checkout = join(base, 'sample-app');
+    mkdirSync(checkout);
+    const origin = sourceRepo(base, 'sample-origin.git');
+    const git = (args: string[]): void => {
+      const run = spawnSync(realGit(), args, { cwd: checkout, encoding: 'utf8', env: gitEnv(GIT_ENV) });
+      if (run.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${run.stderr}`);
+    };
+    git(['init', '--initial-branch=main']);
+    writeFileSync(join(checkout, 'README.md'), '# Sample application\n');
+    git(['add', 'README.md']); git(['commit', '--quiet', '-m', 'Initial']); git(['remote', 'add', 'origin', origin]);
+    const serve = serveNew(['init', '--port', '0', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: builtApp(base) }, ['bun', CLI], checkout);
+    const { folder } = await printedLiveFacts(serve);
+    expect(folder).toBe(join(home, 'products', 'sample-app'));
+    expect(statSync(checkout).isDirectory()).toBe(true);
+    expect(realpathSync(join(folder, 'repos', 'sample-app'))).toBe(realpathSync(checkout));
+    expect(readProduct(folder)).toMatchObject({ ok: true, product: { repos: [{ name: 'sample-app', url: origin }] } });
+    expect(bootstrapProduct({ folder, gitEnv: gitEnv(GIT_ENV) })).toMatchObject({ outcome: 'bootstrapped', repos: [{ state: 'present' }] });
+    expect(spawnSync(realGit(), ['status', '--porcelain'], { cwd: checkout, encoding: 'utf8' }).stdout).toBe('');
+    await serve.finish();
+  });
+
+  test('links without an origin, refuses product-name collision, and is idempotent after linking', async () => {
+    const base = scratchFolder('madarch-init-no-origin-');
+    const home = join(base, 'home'); const checkout = join(base, 'local-app'); mkdirSync(checkout);
+    const git = (args: string[]): void => { const result = spawnSync(realGit(), args, { cwd: checkout, encoding: 'utf8', env: gitEnv(GIT_ENV) }); if (result.status !== 0) throw new Error(result.stderr); };
+    git(['init', '--initial-branch=main']); writeFileSync(join(checkout, 'README.md'), '# Local\n'); git(['add', 'README.md']); git(['commit', '--quiet', '-m', 'Initial']);
+    const serve = serveNew(['init', '--port', '0', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: builtApp(base) }, ['bun', CLI], checkout);
+    const { folder } = await printedLiveFacts(serve);
+    expect(readProduct(folder)).toMatchObject({ ok: true, product: { repos: [{ name: 'local-app', linked: true }] } });
+    expect((readProduct(folder) as {ok:true;product:{repos:{url?:string}[]}}).product.repos[0]?.url).toBeUndefined();
+    await serve.finish();
+    const second = serveNew(['init', '--home', join(home, 'products'), '--port', '0', '--no-open'], { MADARCH_APP: builtApp(base) }, ['bun', CLI], checkout);
+    const secondFacts = await printedLiveFacts(second);
+    expect(secondFacts.folder).toBe(folder); expect(second.stdout).toContain('already linked'); expect(existsSync(join(home, 'products', 'local-app'))).toBe(true); await second.finish();
+    expect(folder).toContain('local-app');
+  }, 15000);
+
+  test('refuses outside Git with madarch new guidance and leaves the products home alone', () => {
+    const base = scratchFolder('madarch-init-outside-');
+    const work = join(base, 'plain'); mkdirSync(work);
+    const run = runCommand(['init', '--home', join(base, 'products'), '--no-open'], {}, work);
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('madarch new');
+    expect(existsSync(join(base, 'products'))).toBe(false);
+  });
+
+  test('refuses a product-folder name collision and does not create a second product', () => {
+    const base = scratchFolder('madarch-init-collision-'); const home = join(base, 'home'); const checkout = join(base, 'clash'); mkdirSync(checkout);
+    const git = (args: string[], cwd = checkout): void => { const result = spawnSync(realGit(), args, { cwd, encoding: 'utf8', env: gitEnv(GIT_ENV) }); if (result.status !== 0) throw new Error(result.stderr); };
+    git(['init', '--initial-branch=main']); writeFileSync(join(checkout, 'README.md'), '# Clash'); git(['add', 'README.md']); git(['commit', '--quiet', '-m', 'Initial']);
+    const target = join(home, 'clash'); mkdirSync(target, { recursive: true }); writeFileSync(join(target, 'keep.txt'), 'keep'); git(['init', '--initial-branch=main'], target);
+    const run = runCommand(['init', '--home', home, '--no-open'], {}, checkout);
+    expect(run.status).toBe(2); expect(run.stderr).toContain(target); expect(readFileSync(join(target, 'keep.txt'), 'utf8')).toBe('keep');
+  }, 12000);
+
+  test('reports --version and -v as madarch version', () => {
+    for (const flag of ['--version', '-v']) {
+      const run = runCommand([flag], {});
+      expect(run.status).toBe(0); expect(run.stdout).toBe('madarch version dev\n'); expect(run.stderr).toBe('');
+    }
   });
 });
 
@@ -1336,7 +1404,7 @@ describe('the release surface (madarch-lfhu)', () => {
     const { status, stdout, stderr } = runCommand(['version'], {});
     expect(status).toBe(0);
     expect(stderr).toBe('');
-    expect(stdout).toBe('version: dev\n');
+    expect(stdout).toBe('madarch version dev\n');
   });
 
   test('upgrade in a checkout refuses naming why, before any network', () => {

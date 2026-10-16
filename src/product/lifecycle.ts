@@ -21,7 +21,7 @@
  * take). Facts go to standard output one per line; errors go to standard
  * error, one message per error, whole.
  */
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, join, resolve } from 'node:path';
 import { ownRepository, runGit, sameFolder, type GitEnv } from './git.js';
@@ -35,7 +35,8 @@ import {
   readProduct,
   type ProductIdentity,
 } from './manifest.js';
-import { productsHome, type DraftEnv } from './draft.js';
+import { byCodePoint } from '../model/order.js';
+import { createDraft, productsHome, type DraftEnv } from './draft.js';
 
 // ---- the operations: the product, named, given a remote, and bootstrapped --
 
@@ -203,10 +204,15 @@ export function bootstrapProduct(options: { folder?: string; gitEnv?: GitEnv } =
   const reports: RepoReport[] = [];
 
   for (const repo of read.product.repos) {
+    const url = repo.url ?? '';
     const target = join(reposFolder, repo.name);
+    if (repo.url === undefined && !existsSync(target)) {
+      reports.push({ name: repo.name, url: '', state: 'failed', dirty: false, message: `the linked repository ${repo.name} has no origin url and cannot be cloned into ${target}` });
+      continue;
+    }
     if (existsSync(target)) {
       if (!statSync(target).isDirectory()) {
-        reports.push({ name: repo.name, url: repo.url, state: 'failed', dirty: false, message: `${target} is not a folder: a checkout is a folder, and that name is taken by something else` });
+        reports.push({ name: repo.name, url, state: 'failed', dirty: false, message: `${target} is not a folder: a checkout is a folder, and that name is taken by something else` });
         continue;
       }
       // A checkout of its own, or nothing this step can report on: a
@@ -214,14 +220,14 @@ export function bootstrapProduct(options: { folder?: string; gitEnv?: GitEnv } =
       // repository around it, and its report would be about someone else's
       // work. It is named for what it is and left alone.
       const top = runGit(target, ['rev-parse', '--show-toplevel'], options.gitEnv);
-      if (!top.ok || resolve(top.output) !== resolve(target)) {
-        reports.push({ name: repo.name, url: repo.url, state: 'failed', dirty: false, message: `${target} is not a git checkout of its own: something else of that name is there, and this program leaves it alone` });
+      if (!top.ok || resolve(realpathSync(top.output)) !== resolve(realpathSync(target))) {
+        reports.push({ name: repo.name, url, state: 'failed', dirty: false, message: `${target} is not a git checkout of its own: something else of that name is there, and this program leaves it alone` });
         continue;
       }
       const status = runGit(target, ['status', '--porcelain'], options.gitEnv);
       reports.push({
         name: repo.name,
-        url: repo.url,
+        url,
         state: 'present',
         // Unknown is not clean: a checkout whose state could not be read is
         // reported as it is found, never as one that is up to date.
@@ -233,16 +239,16 @@ export function bootstrapProduct(options: { folder?: string; gitEnv?: GitEnv } =
     try {
       mkdirSync(reposFolder, { recursive: true });
     } catch (error) {
-      reports.push({ name: repo.name, url: repo.url, state: 'failed', dirty: false, message: `the folder ${reposFolder} could not be created: ${(error as Error).message}` });
+      reports.push({ name: repo.name, url, state: 'failed', dirty: false, message: `the folder ${reposFolder} could not be created: ${(error as Error).message}` });
       continue;
     }
     const args = ['clone', '--quiet'];
     if (repo.branch !== undefined) args.push('--branch', repo.branch);
-    args.push(repo.url, target);
+    args.push(url, target);
     const clone = runGit(folder, args, options.gitEnv);
     if (!clone.ok)
-      reports.push({ name: repo.name, url: repo.url, state: 'failed', dirty: false, message: `git clone failed for ${repo.url} into ${target}: ${clone.output}` });
-    else reports.push({ name: repo.name, url: repo.url, state: 'cloned', dirty: false });
+      reports.push({ name: repo.name, url, state: 'failed', dirty: false, message: `git clone failed for ${url} into ${target}: ${clone.output}` });
+    else reports.push({ name: repo.name, url, state: 'cloned', dirty: false });
   }
   return { outcome: 'bootstrapped', folder, repos: reports };
 }
@@ -261,7 +267,7 @@ function whyNotARepositoryName(name: unknown): string | null {
 export type RepoConnectMode = 'link' | 'move' | 'clone';
 
 export type RepoEntryResult =
-  | { outcome: 'entered'; folder: string; name: string; url: string; branch?: string }
+  | { outcome: 'entered'; folder: string; name: string; url?: string; branch?: string }
   | { outcome: 'refused'; message: string; file?: string; line?: number }
   | { outcome: 'failed'; message: string; keepConnection?: boolean };
 
@@ -294,7 +300,7 @@ function writeFileAtomically(file: string, content: string): void {
  * changes — happens before anything is written, and a step that fails
  * afterwards puts the manifest back byte for byte.
  */
-export function addCodeRepository(options: { folder?: string; name?: string; url?: string; branch?: string; gitEnv?: GitEnv } = {}): RepoEntryResult {
+export function addCodeRepository(options: { folder?: string; name?: string; url?: string; branch?: string; linked?: boolean; gitEnv?: GitEnv } = {}): RepoEntryResult {
   const name = options.name;
   const read = readFor(options.folder);
   if (!read.ok) return { outcome: 'refused', message: read.message, file: read.file, line: read.line };
@@ -305,10 +311,10 @@ export function addCodeRepository(options: { folder?: string; name?: string; url
   if (why !== null)
     return { outcome: 'refused', message: `the name "${name}" cannot be a code repository's: ${why}` };
 
-  const wanted = typeof options.url === 'string' ? options.url.trim() : '';
-  if (wanted === '')
-    return { outcome: 'refused', message: 'no url was given: a code repository is entered with the url it is cloned from' };
-  if (wanted.startsWith('-'))
+  const wanted = typeof options.url === 'string' ? options.url.trim() : undefined;
+  if (wanted !== undefined && wanted === '')
+    return { outcome: 'refused', message: 'the url was given empty: leave it out when the linked checkout has no origin' };
+  if (wanted?.startsWith('-'))
     return { outcome: 'refused', message: `the url "${wanted}" begins with "-", which a command line reads as an option: write the url itself` };
   const wantedBranch = typeof options.branch === 'string' ? options.branch.trim() : undefined;
   if (wantedBranch === '')
@@ -345,7 +351,7 @@ export function addCodeRepository(options: { folder?: string; name?: string; url
   const manifest = readFileSync(manifestFile, 'utf8');
   let manifestInstalled = false;
   try {
-    writeFileAtomically(manifestFile, manifestWithRepo(manifest, { name: repoName, url: wanted, branch: wantedBranch }));
+    writeFileAtomically(manifestFile, manifestWithRepo(manifest, { name: repoName, ...(wanted === undefined ? {} : { url: wanted }), ...(options.linked ? { linked: true } : {}), branch: wantedBranch }));
     manifestInstalled = true;
     const add = runGit(folder, ['add', '--', MANIFEST_FILE], options.gitEnv);
     if (!add.ok) throw new Error(`git add failed in ${folder}: ${add.output}`);
@@ -375,7 +381,7 @@ export function addCodeRepository(options: { folder?: string; name?: string; url
       ...(keepConnection ? { keepConnection: true } : {}),
     };
   }
-  return { outcome: 'entered', folder, name: repoName, url: wanted, branch: wantedBranch };
+  return { outcome: 'entered', folder, name: repoName, ...(wanted === undefined ? {} : { url: wanted }), ...(options.linked ? { linked: true } : {}), branch: wantedBranch };
 }
 
 /**
@@ -495,6 +501,7 @@ export function reportLines(
   const prints: string[] = [];
   const failures: string[] = [];
   for (const repo of repos) {
+    const url = repo.url ?? '';
     const target = join(folder, 'repos', repo.name);
     if (repo.state === 'cloned') prints.push(`cloned: ${target}`);
     else if (repo.state === 'present') {
@@ -502,7 +509,7 @@ export function reportLines(
       prints.push(`present: ${target}${repo.dirty === true ? ' (holding uncommitted changes)' : ''}`);
       if (repo.message !== undefined) failures.push(`${repo.name}: ${repo.message}`);
     } else {
-      failures.push(repo.message ?? `the repository ${repo.name} could not be cloned from ${repo.url}`);
+      failures.push(repo.message ?? `the repository ${repo.name} could not be cloned from ${url}`);
     }
   }
   return { prints, failures };
@@ -684,9 +691,9 @@ export function repoAddLife(options: {
   const name = options.name;
   const nameProblem = whyNotARepositoryName(name);
   if (nameProblem !== null) return refused2([], `the name "${name}" cannot be a code repository's: ${nameProblem}`);
-  const url = typeof options.url === 'string' ? options.url.trim() : '';
-  if (url === '') return refused2([], 'no url was given: a code repository is entered with the url it is cloned from');
-  if (url.startsWith('-')) return refused2([], `the url "${url}" begins with "-", which a command line reads as an option: write the url itself`);
+  const url = typeof options.url === 'string' ? options.url.trim() : undefined;
+  if (url === '') return refused2([], 'the url was given empty: leave it out when the linked checkout has no origin');
+  if (url?.startsWith('-')) return refused2([], `the url "${url}" begins with "-", which a command line reads as an option: write the url itself`);
   const branch = typeof options.branch === 'string' ? options.branch.trim() : undefined;
   if (branch === '') return refused2([], "the branch was given empty: a clone is taken from the branch it names, and the option is left out where the repository's own is taken");
 
@@ -718,6 +725,7 @@ export function repoAddLife(options: {
   if (mode === undefined) return refused2([], `the local source ${sourceRoot} needs a connection choice: use --mode link, --mode move or --mode clone`);
   if (mode !== 'link' && mode !== 'move' && mode !== 'clone') return refused2([], `unknown connection mode ${JSON.stringify(mode)}: choose link, move or clone`);
   if (sourceRoot === undefined && mode !== 'clone') return refused2([], `--mode ${mode} needs a local source path or a Git checkout as the command's current folder`);
+  if (mode === 'clone' && url === undefined) return refused2([], 'a clone needs a url; this checkout has no origin to clone from');
   if (branch !== undefined && mode !== 'clone') return refused2([], `--branch is only used when the repository is cloned; it cannot be used with --mode ${mode}`);
 
   const target = join(place.folder, 'repos', name!);
@@ -733,7 +741,7 @@ export function repoAddLife(options: {
     if (mode === 'clone') {
       const args = ['clone', '--quiet'];
       if (branch !== undefined) args.push('--branch', branch);
-      args.push(url, target);
+      args.push(url!, target);
       const cloned = runGit(place.folder, args);
       if (!cloned.ok) {
         let cleanup: string | undefined;
@@ -754,9 +762,9 @@ export function repoAddLife(options: {
     return failed1([`folder: ${place.folder}`], `${mode} failed for ${sourceLabel} at ${target}: ${(error as Error).message}${alternative}`);
   }
 
-  const entered = addCodeRepository({ folder: place.folder, name, url, ...(branch === undefined ? {} : { branch }) });
+  const entered = addCodeRepository({ folder: place.folder, name, url, ...(mode === 'link' ? { linked: true } : {}), ...(branch === undefined ? {} : { branch }) });
   if (entered.outcome !== 'entered') {
-    const sourceLabel = mode === 'clone' ? url : sourceRoot ?? url;
+    const sourceLabel = mode === 'clone' ? url! : sourceRoot ?? url ?? 'the local checkout';
     const operation = `${mode} from ${sourceLabel} for ${url} at ${target}`;
     if (entered.outcome === 'failed' && entered.keepConnection === true)
       return failed1([`folder: ${place.folder}`, `connection: ${target}`], `${entered.message}; ${operation} remains at ${target} because the product manifest or index could not be fully restored`);
@@ -766,7 +774,7 @@ export function repoAddLife(options: {
     return failed1([`folder: ${place.folder}`], `${entered.message}; ${operation}${suffix}`);
   }
 
-  const prints = [`folder: ${entered.folder}`, `repo: ${entered.name}`, `url: ${entered.url}`];
+  const prints = [`folder: ${entered.folder}`, `repo: ${entered.name}`, ...(entered.url === undefined ? ['url: none (the checkout has no origin)'] : [`url: ${entered.url}`])];
   if (entered.branch !== undefined) prints.push(`branch: ${entered.branch}`);
   prints.push(`${mode === 'clone' ? 'cloned' : mode === 'link' ? 'linked' : 'moved'}: ${target}`);
   if (sourceRoot !== undefined && mode === 'clone') prints.push(`source left unchanged: ${sourceRoot}`);
@@ -802,6 +810,45 @@ export function withFailures(prints: string[], failures: readonly string[]): Lif
  * working copy the clone made is removed, the way a refused draft leaves
  * nothing behind.
  */
+/** Creates a product around the current checkout by linking it through the same manifest operation as `repo add`. */
+export function initLife(options: { cwd: string; home?: string; gitEnv?: GitEnv }): LifecycleOutcome {
+  const top = runGit(options.cwd, ['rev-parse', '--show-toplevel'], options.gitEnv);
+  if (!top.ok) return refused2([], `madarch init must run inside a Git checkout: ${top.output}; use madarch new to start without one`);
+  const source = resolve(top.output);
+  const current = whereAmI({ folder: source, gitEnv: options.gitEnv });
+  if (current.outcome === 'product') { const product = readProduct(current.product); return done([`folder: ${current.product}`, ...(product.ok ? [`id: ${product.product.id}`] : []), `already a product: ${current.product}; nothing changed`]); }
+  if (current.outcome === 'code') { const product = readProduct(current.product); return done([`folder: ${current.product}`, ...(product.ok ? [`id: ${product.product.id}`] : []), `already linked to product: ${current.product}; nothing changed`]); }
+  if (current.outcome === 'refused') return refused2([], current.message);
+  const name = basename(source);
+  const products = resolve(productsHome(process.env as DraftEnv, options.home));
+  // A link is represented by the product manifest and its repos/<name> link; find it in the configured home.
+  try {
+    for (const candidate of readdirSync(products).sort(byCodePoint)) {
+      const productFolderPath = join(products, candidate);
+      const productRead = readProduct(productFolderPath);
+      if (!productRead.ok) continue;
+      for (const repo of productRead.product.repos) {
+        const linkPath = join(productFolderPath, 'repos', repo.name);
+        try {
+          if (sameFolder(realpathSync(linkPath), source)) return done([`folder: ${productFolderPath}`, `id: ${productRead.product.id}`, `already linked to product: ${productFolderPath}; nothing changed`]);
+        } catch { /* this declared repository is not a link to this checkout */ }
+      }
+    }
+  } catch { /* a missing products home contains no prior link */ }
+  const target = join(products, name);
+  if (pathExists(target)) return refused2([], `cannot initialize this checkout: ${target} already exists; choose another checkout name or move that product`);
+  const draft = createDraft({ home: products, name });
+  if (draft.outcome !== 'created') return draft.outcome === 'refused' ? refused2([], draft.message) : failed1([], draft.message);
+  const remote = runGit(source, ['remote', 'get-url', 'origin'], options.gitEnv);
+  const url = remote.ok ? remote.output : undefined;
+  const linked = repoAddLife({ name, ...(url === undefined ? {} : { url }), source, mode: 'link', folder: draft.folder, cwd: draft.folder });
+  if (linked.exit !== 0) {
+    rmSync(draft.folder, { recursive: true, force: true });
+    return linked;
+  }
+  return { ...linked, prints: [`folder: ${draft.folder}`, `id: ${draft.id}`, `source: ${source}`, ...linked.prints] };
+}
+
 export function cloneLife(options: { url?: string; home?: string; env: DraftEnv }): LifecycleOutcome {
   const wanted = options.url?.trim() ?? '';
   if (wanted === '' ) return refused2([], 'no url was given: a product is cloned from the repository it is pushed to');

@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from '../scripts/chromium.js';
 import { startServer, type StartedServer } from '../src/index.js';
@@ -30,9 +31,20 @@ function buildFieldnote(): { root: string; product: string } {
     'schemaVersion: 1',
     'id: 1e5c4d90-9f3a-4c7e-b2d1-0a4f6e2b1d33',
     'name: Fieldnote',
+    'repos:',
+    '  - name: sample',
+    '    url: https://example.invalid/sample.git',
     '',
   ].join('\n'));
   writeFileSync(join(product, 'README.md'), '# Fieldnote\n\nA reader fixture.\n');
+  const repo = join(product, 'repos', 'sample'); mkdirSync(repo, { recursive: true });
+  writeFileSync(join(repo, 'README.md'), '# Sample repository\n\nRepository content.\n');
+  writeFileSync(join(repo, 'main.ts'), 'export const sample = true;\n');
+  const gitEnv = { ...process.env, GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid' };
+  for (const args of [['init', '--quiet', '--initial-branch=main'], ['add', '-A'], ['commit', '--quiet', '-m', 'Fixture']]) {
+    const result = spawnSync('git', args, { cwd: repo, encoding: 'utf8', env: gitEnv });
+    if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed in ${repo}: ${result.stderr}`);
+  }
   writeFileSync(join(product, 'docs', 'vision.md'), `# ${PAGE_TITLE}\n\nA page with one clear heading.\n`);
   return { root, product };
 }
@@ -111,4 +123,13 @@ runDescribe('wiki reader chrome (built app and Chromium)', () => {
     await page.screenshot({ path: SCREENSHOT, fullPage: false });
     console.log(`Reader screenshot: ${SCREENSHOT}`);
   }, 30000);
+  test('a reader sees the code repository in overview and its README and file tree page', async () => {
+    await page.goto(`${server!.url}/`, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('[data-testid="home-repositories"]');
+    expect(await page.$eval('[data-testid="home-repositories"]', (el) => el.textContent)).toContain('sample');
+    await page.goto(`${server!.url}/r`, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('[data-repo="sample"]');
+    expect(await page.$eval('[data-repo="sample"]', (el) => el.textContent)).toContain('Sample repository');
+    expect(await page.$eval('[data-repo="sample"]', (el) => el.textContent)).toContain('main.ts');
+  });
 });

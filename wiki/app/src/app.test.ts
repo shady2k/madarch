@@ -299,30 +299,19 @@ describe('the home page', () => {
   });
 
   test('says plainly that the product has no pages yet', async () => {
-    install(
-      answerFor(product, { revision: 'r0', pages: [] }, {}),
-    );
+    install(answerFor(product, { revision: 'r0', pages: [] }, {}));
     goto('/');
     await intoApp(createElement(App));
     await until(() => text().includes('has no pages yet'), 'the empty home page');
     const guide = document.querySelector('[data-testid="empty-home-guidance"]');
     const guideText = guide?.textContent ?? '';
-    expect(guideText).toContain('product repository');
-    expect(guideText).toContain('madarch new');
-    expect(guideText).toContain('Clone an existing product repository with:');
-    expect(guideText).toContain('Connect a code repository with:');
-    expect(guideText).toContain('setup-shady2k-skills');
+    expect(guideText).toContain('Getting started');
+    expect(guideText).not.toContain('Start a new product with:');
+    expect(guideText).toContain('Connect a checkout with:');
     const guideCode = [...(guide?.querySelectorAll('code') ?? [])].map((node) => node.textContent);
-    expect(guideCode).toContain('madarch new');
-    expect(guideCode).toContain('madarch clone <url>');
-    expect(guideCode).toContain('madarch repo add <name> <url> --product <folder>');
-    expect(guideCode).toContain('setup-shady2k-skills');
-    expect(guideCode).toContain('workspace.yaml');
-    expect(guideText).not.toContain('`');
-    expect(guideText).toContain('Try the Madarch product wiki with:');
-    expect(guideCode).toContain('madarch demo');
-    expect(guideText).not.toContain('https://github.com/shady2k/madarch-product');
-    expect(guideText).not.toContain('madarch serve --product <folder>');
+    expect(guideCode).toContain('cd <checkout> && madarch init');
+    expect(guideCode).toContain('madarch repo add <name> <url>');
+    expect(guideCode).not.toContain('madarch new');
   });
 
   test('gives a folder without manifest metadata a localized, actionable empty state', async () => {
@@ -357,7 +346,6 @@ describe('the home page', () => {
       const guideCode = [...(document.querySelector('[data-testid="empty-home-guidance"]')?.querySelectorAll('code') ?? [])].map((node) => node.textContent);
       expect(guideCode).toContain('madarch new');
       expect(guideCode).toContain('madarch clone <url>');
-      expect(guideCode).toContain('madarch repo add <name> <url> --product <folder>');
       expect(guideCode).toContain('setup-shady2k-skills');
       expect(guideCode).toContain('workspace.yaml');
       expect(guide).not.toContain('`');

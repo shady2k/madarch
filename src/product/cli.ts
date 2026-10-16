@@ -19,6 +19,7 @@ import { upgrade, type UpgradeOptions } from './upgrade.js';
 import { serveWiki, type Opener, type ServeOptions } from '../product-wiki/serve.js';
 import {
   cloneLife,
+  initLife,
   bootstrapLife,
   remoteLife,
   renameLife,
@@ -30,34 +31,36 @@ import {
 
 /** The usage lines, shaped the way `scripts/serve.ts` and `scripts/wiki.ts` print theirs. */
 export const USAGE = [
-  'usage: bun scripts/madarch.ts serve [--product <folder>] [--port <n>] [--no-open]',
-  '   or: bun scripts/madarch.ts new [--home <folder>] [--port <n>] [--no-open]',
-  '   or: bun scripts/madarch.ts demo [--home <folder>] [--port <n>] [--no-open]',
-  '   or: bun scripts/madarch.ts list [--home <folder>]',
-  '   or: bun scripts/madarch.ts rename <name> [--product <folder>]',
-  '   or: bun scripts/madarch.ts remote <url> [--product <folder>]',
-  '   or: bun scripts/madarch.ts repo add <name> <url> [--source <path>] [--mode <link|move|clone>] [--branch <b>] [--product <folder>]',
-  '   or: bun scripts/madarch.ts bootstrap [--product <folder>]',
-  '   or: bun scripts/madarch.ts clone <url> [--home <folder>]',
-  '   or: bun scripts/madarch.ts version',
-  '   or: bun scripts/madarch.ts upgrade [--yes]',
+  'usage: madarch serve [--product <folder>] [--port <n>] [--no-open]',
+  '   or: madarch new [--home <folder>] [--port <n>] [--no-open]',
+  '   or: madarch init [--home <folder>] [--port <n>] [--no-open]',
+  '   or: madarch demo [--home <folder>] [--port <n>] [--no-open]',
+  '   or: madarch list [--home <folder>]',
+  '   or: madarch rename <name> [--product <folder>]',
+  '   or: madarch remote <url> [--product <folder>]',
+  '   or: madarch repo add <name> <url> [--source <path>] [--mode <link|move|clone>] [--branch <b>] [--product <folder>]',
+  '   or: madarch bootstrap [--product <folder>]',
+  '   or: madarch clone <url> [--home <folder>]',
+  '   or: madarch version',
+  '   or: madarch upgrade [--yes]',
   '   (the same commands after `bun link` in a checkout: madarch demo, madarch new, madarch serve, madarch list,',
-  '    madarch rename, madarch remote, madarch repo add, madarch bootstrap, madarch clone,',
+  '    madarch init, madarch rename, madarch remote, madarch repo add, madarch bootstrap, madarch clone,',
   '    madarch version, madarch upgrade)',
 ].join('\n');
 
 /** The text `--help` prints: the subcommands and the options each does what. */
 export const HELP = [
-  'usage: bun scripts/madarch.ts serve [--product <folder>] [--port <n>] [--no-open]',
-  '   or: bun scripts/madarch.ts new [--home <folder>] [--port <n>] [--no-open]',
-  '   or: bun scripts/madarch.ts demo [--home <folder>] [--port <n>] [--no-open]',
-  '   or: bun scripts/madarch.ts list [--home <folder>]',
-  '   or: bun scripts/madarch.ts rename <name> [--product <folder>]',
-  '   or: bun scripts/madarch.ts remote <url> [--product <folder>]',
-  '   or: bun scripts/madarch.ts repo add <name> <url> [--source <path>] [--mode <link|move|clone>] [--branch <b>] [--product <folder>]',
-  '   or: bun scripts/madarch.ts bootstrap [--product <folder>]',
-  '   or: bun scripts/madarch.ts clone <url> [--home <folder>]',
-  '   or: madarch demo|serve|new|list|rename|remote|repo add|bootstrap|clone|version|upgrade — the same',
+  'usage: madarch serve [--product <folder>] [--port <n>] [--no-open]',
+  '   or: madarch new [--home <folder>] [--port <n>] [--no-open]',
+  '   or: madarch init [--home <folder>] [--port <n>] [--no-open]',
+  '   or: madarch demo [--home <folder>] [--port <n>] [--no-open]',
+  '   or: madarch list [--home <folder>]',
+  '   or: madarch rename <name> [--product <folder>]',
+  '   or: madarch remote <url> [--product <folder>]',
+  '   or: madarch repo add <name> <url> [--source <path>] [--mode <link|move|clone>] [--branch <b>] [--product <folder>]',
+  '   or: madarch bootstrap [--product <folder>]',
+  '   or: madarch clone <url> [--home <folder>]',
+  '   or: madarch demo|serve|new|init|list|rename|remote|repo add|bootstrap|clone|version|upgrade — the same',
   '   commands after `bun link` in a checkout',
   '',
   'demo clones or updates the Madarch product repository, then serves its wiki.',
@@ -109,6 +112,7 @@ export const HELP = [
   '',
   'subcommands:',
   '  demo       clone or update the Madarch product repository and serve its wiki',
+  '  init       create a product around this Git checkout and serve its wiki',
   '  new        create a draft product repository and serve its wiki',
   '  serve      serve the product of the given or the current folder',
   '  list       name the products the products home holds',
@@ -118,7 +122,7 @@ export const HELP = [
   '  bootstrap  clone what the manifest declares into repos/<name>',
   '  clone      clone a pushed product into the products home and bootstrap it',
   'options:',
-  '  --home <folder>       demo, new, list and clone: the products home of this one command, over MADARCH_HOME',
+  '  --home <folder>       demo, new, init, list and clone: the products home of this one command, over MADARCH_HOME',
   '                        (without either, ~/madarch/products)',
   '  --product <folder>    serve, rename, remote, repo add and bootstrap: the product folder to work on;',
   '                        the product the command runs in when absent',
@@ -138,6 +142,7 @@ interface CommandSpec {
 /** The specs the subcommands answer to, whole. */
 export const COMMANDS: Record<string, CommandSpec> = {
   demo: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
+  init: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
   new: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
   serve: { positionals: [], flags: { home: false, product: true, port: true, open: true, branch: false, yes: false } },
   list: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
@@ -406,8 +411,9 @@ async function askRepoMode(): Promise<RepoConnectMode> {
 }
 
 export async function main(args: readonly string[], deps: CliDeps = {}): Promise<number> {
+  if (args.length === 1 && (args[0] === '--version' || args[0] === '-v')) return versionCommand();
   if (args.length === 0) {
-    console.error('no subcommand given: the subcommands are "new", "demo", "serve", "list", "rename", "remote", "repo add", "bootstrap", "version" and "upgrade"');
+    console.error('no subcommand given: the subcommands are "new", "init", "demo", "serve", "list", "rename", "remote", "repo add", "bootstrap", "version" and "upgrade"');
     console.error(USAGE);
     return 2;
   }
@@ -417,12 +423,12 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
     return 0;
   }
   if (command.startsWith('--')) {
-    console.error(`unknown option "${command}" before the subcommand: the subcommands are "new", "demo", "serve", "list", "rename", "remote", "repo add", "bootstrap", "version" and "upgrade"`);
+    console.error(`unknown option "${command}" before the subcommand: the subcommands are "new", "init", "demo", "serve", "list", "rename", "remote", "repo add", "bootstrap", "version" and "upgrade"`);
     console.error(USAGE);
     return 2;
   }
   if (!(command in COMMANDS)) {
-    console.error(`unknown subcommand "${command}": the subcommands are "new", "demo", "serve", "list", "rename", "remote", "repo add", "bootstrap", "version" and "upgrade"`);
+    console.error(`unknown subcommand "${command}": the subcommands are "new", "init", "demo", "serve", "list", "rename", "remote", "repo add", "bootstrap", "version" and "upgrade"`);
     console.error(USAGE);
     return 2;
   }
@@ -433,6 +439,12 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
   const { home, product, port, open } = parsed;
 
   if (command === 'list') return list(home);
+  if (command === 'init') {
+    const result = initLife({ cwd: process.cwd(), home });
+    if (result.exit !== 0) return report(result);
+    for (const fact of result.prints) console.log(fact);
+    return await serve(serveOptions(parsed, deps), result.prints.find((line) => line.startsWith('folder: '))!.slice('folder: '.length));
+  }
   if (command === 'version') return versionCommand();
   if (command === 'upgrade') {
     const result = await upgrade({ ...(deps.upgrade ?? {}), skipPrompt: parsed.yes });
@@ -478,7 +490,7 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
 
 /** `madarch version`: one fact the release answers with (or `dev` in a checkout); 0, always. */
 function versionCommand(): number {
-  console.log(`version: ${runningVersion()}`);
+  console.log(`madarch version ${runningVersion()}`);
   return 0;
 }
 
