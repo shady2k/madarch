@@ -422,14 +422,16 @@ export type RepoEntry = {
   /** The repository's name in the manifest. */
   name: string;
   /** The url the manifest declares. */
-  url: string;
+  url?: string;
   /** The branch the manifest declares, when it declares one. */
   branch?: string;
   /** The checkout's state under `repos/`. */
+  path: string;
   state: 'checked-out' | 'not-checked-out' | 'unreadable';
   /** The checkout's HEAD, when a checkout is there and git could read a commit of it. */
   head?: RepoHead;
   /** The README at the checkout's root, when it has one and its bytes could be read. */
+  files?: string[];
   readme?: { file: string; markdown: string };
   /** Why the row is not the ordinary one, naming the path — carried for `unreadable`. */
   problem?: string;

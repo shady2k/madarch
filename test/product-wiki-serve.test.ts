@@ -47,6 +47,19 @@ describe('serveWiki with a product or a manifestless directory', () => {
     expect(readdirSync(folder)).toEqual(before);
   });
 
+  test('serves linked repository README and top-level tree through the repositories API', async () => {
+    const base = scratch(); const product = join(base, 'product'); const source = join(base, 'source');
+    mkdirSync(product); mkdirSync(source);
+    writeFileSync(join(product, 'workspace.yaml'), 'schemaVersion: 1\nid: linked-id\nname: Linked\nrepos:\n  - name: source\n    url: https://example.invalid/source.git\n');
+    writeFileSync(join(source, 'README.md'), '# Linked source\n'); writeFileSync(join(source, 'src.ts'), 'export {}');
+    const run = (args: string[]): void => { const result = Bun.spawnSync(['git', ...args], { cwd: source, env: { ...process.env, GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.invalid', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.invalid' } }); if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr)); };
+    run(['init', '--quiet', '--initial-branch=main']); run(['add', '-A']); run(['commit', '--quiet', '-m', 'Source']);
+    mkdirSync(join(product, 'repos')); symlinkSync(source, join(product, 'repos', 'source'), 'dir');
+    const result = serving(await serveWiki({ productFolder: product, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
+    const answer = await (await fetch(`${result.url}/api/repos`)).json() as { repos: { name: string; path: string; state: string; files: string[]; readme?: { markdown: string } }[] };
+    expect(answer.repos[0]).toMatchObject({ name: 'source', path: 'repos/source', state: 'checked-out', files: ['README.md', 'src.ts'], readme: { markdown: '# Linked source\n' } });
+  });
+
   test('preserves the manifest identity for a valid product', async () => {
     const base = scratch();
     const folder = join(base, 'valid-product');

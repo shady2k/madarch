@@ -247,7 +247,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
       <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, stage: route.name === 'stage' ? route.stage : undefined, group: route.name === 'group' ? route.group : undefined, architecture: architectureCrumb, heldPaths }}>
         <Shell product={data.product} list={list} architecture={architecture} reposCount={data.repos?.repos.length} reposOpen={route.name === 'repos'} offer={data.registry}>
         {route.name === 'home' ? (
-          <HomePage product={data.product} list={list} architecture={architecture} offer={data.registry} overview={data.product.overview} />
+          <HomePage product={data.product} list={list} architecture={architecture} offer={data.registry} overview={data.product.overview} repos={data.repos?.repos ?? []} />
         ) : route.name === 'group' ? (
           <GroupPage group={route.group} list={list} offer={data.registry} />
         ) : route.name === 'repos' && (data.repos?.repos.length ?? 0) > 0 ? (
@@ -255,7 +255,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
         ) : route.name === 'repos' ? (
           // `/r` of an undeclared product: no repositories section exists —
           // the server refuses the route and the reader sees the home.
-          <HomePage product={data.product} list={list} architecture={architecture} offer={data.registry} overview={data.product.overview} />
+          <HomePage product={data.product} list={list} architecture={architecture} offer={data.registry} overview={data.product.overview} repos={data.repos?.repos ?? []} />
         ) : route.name === 'architecture' ? (
           <ArchitectureReader key={'architecture:' + list.revision} revision={list.revision} routeName="index" />
         ) : route.name === 'view' ? (
@@ -371,7 +371,7 @@ export function GroupPage({ group, list, offer }: { group: string; list: PageLis
  * choosing between, the rows read like the sidebar's. A product with no
  * pages yet says so plainly in the lead.
  */
-export function HomePage({ product, list, architecture, offer, overview }: { product: ProductWithAudience; list: PageList; architecture?: Architecture | null; offer?: RegistryOffer | null; overview?: HomeOverviewProjection }): ReactElement {
+export function HomePage({ product, list, architecture, offer, overview, repos = [] }: { product: ProductWithAudience; list: PageList; architecture?: Architecture | null; offer?: RegistryOffer | null; overview?: HomeOverviewProjection; repos?: readonly RepoEntry[] }): ReactElement {
   const registryOffer = offer ?? null;
   const groups = groupNav(list.pages, registryOffer);
   const documents = list.pages.length;
@@ -402,16 +402,13 @@ export function HomePage({ product, list, architecture, offer, overview }: { pro
       ) : normalizedLegacyAudience !== undefined && normalizedLegacyAudience.length > 0 ? (
         <p className="home-audience" data-testid="home-audience">{t('home.audience', { audience: normalizedLegacyAudience })}</p>
       ) : null}
+      {repos.length > 0 ? <section className="home-group mt-7" data-testid="home-repositories"><h2 className="text-h2 font-medium">{t('repos.title')}</h2><ul className="home-rows">{repos.map((entry) => <li key={entry.name} className="home-row as-line"><a href={`/r#${encodeURIComponent(entry.name)}`}><strong>{entry.name}</strong></a>{' · '}{entry.url ?? t('repos.noOrigin')}{' · '}{entry.path} · {stateLabelOf(entry, t)}</li>)}</ul></section> : null}
       {documents === 0 ? (
-        <section className="home-group mt-7" data-testid="empty-home-guidance" aria-labelledby="empty-home-guidance-title">
+        <section className="home-group mt-0" data-testid="empty-home-guidance" aria-labelledby="empty-home-guidance-title">
           <h2 id="empty-home-guidance-title" className="text-h2 font-medium">{t(product.id === undefined ? 'home.noManifestTitle' : 'home.gettingStartedTitle')}</h2>
           <p className="mt-3 text-secondary">{t(product.id === undefined ? 'home.noManifestDescription' : 'home.productRepository')}</p>
-          <ol className="mt-3 list-decimal pl-6">
-            <li>{t('home.newProduct')} <code>madarch new</code></li>
-            <li>{t('home.cloneProduct')} <code>{'madarch clone <url>'}</code></li>
-            <li>{t('home.addRepository')} <code>{'madarch repo add <name> <url> --product <folder>'}</code></li>
-            <li>{t('home.setupProduct')} <code>setup-shady2k-skills</code> {t('home.setupProductManifest')} <code>{t('home.workspaceFile')}</code> {t('home.setupProductEnd')}</li>
-            <li>{t('home.demoProduct')} <code>madarch demo</code></li>
+          <ol className="mt-3 list-decimal pl-6" data-testid="getting-started-steps">
+            {product.id === undefined ? <><li>{t('home.newProduct')} <code>madarch new</code></li><li>{t('home.cloneProduct')} <code>{'madarch clone <url>'}</code></li><li>{t('home.addRepository')} <code>{'madarch repo add <name> <url> --product <folder>'}</code></li><li>{t('home.setupProduct')} <code>setup-shady2k-skills</code> {t('home.setupProductManifest')} <code>{t('home.workspaceFile')}</code> {t('home.setupProductEnd')}</li><li>{t('home.demoProduct')} <code>madarch demo</code></li></> : repos.length === 0 ? <li>{t('home.noRepositories')} <code>cd &lt;checkout&gt; &amp;&amp; madarch init</code> {t('home.or')} <code>madarch repo add &lt;name&gt; &lt;url&gt;</code></li> : <li>{t('home.setupWithAgent')} <code>setup-shady2k-skills</code> {t('home.inProductFolder')}</li>}
           </ol>
         </section>
       ) : null}
@@ -1007,16 +1004,19 @@ export function RepoCard({ entry }: { entry: RepoEntry }): ReactElement {
   const { t, i18n } = useTranslation();
   const state = stateLabelOf(entry, t);
   return (
-    <section key={entry.name} data-repo={entry.name} data-state={entry.state} className="home-group mt-7 first:mt-0">
+    <section id={entry.name} key={entry.name} data-repo={entry.name} data-state={entry.state} className="home-group mt-7 first:mt-0">
       <header className="home-group-head">
         <h2 className="text-ink" data-testid="repo-name">{entry.name}</h2>
         <span className="home-count" data-testid="repo-state">{state}</span>
       </header>
       <ul className="home-rows repo-rows">
-        <li className="home-row as-line" data-testid="repo-url" title={entry.url}>
-          <FolderGit2Icon aria-hidden="true" className="home-row-icon" />
-          <span className="home-row-title">{entry.url}</span>
-        </li>
+        {entry.url === undefined ? <li className="home-row as-line" data-testid="repo-no-url">{t('repos.noOrigin')}</li> : (
+          <li className="home-row as-line" data-testid="repo-url" title={entry.url}>
+            <FolderGit2Icon aria-hidden="true" className="home-row-icon" />
+            <span className="home-row-title">{entry.url}</span>
+          </li>
+        )}
+        <li className="home-row as-line" data-testid="repo-path"><span className="home-row-title">{entry.path}</span></li>
         {entry.branch !== undefined && (
           <li className="home-row as-line" data-testid="repo-branch">
             <GitBranch aria-hidden="true" className="home-row-icon" />
@@ -1044,6 +1044,7 @@ export function RepoCard({ entry }: { entry: RepoEntry }): ReactElement {
           </li>
         )}
       </ul>
+      {entry.files !== undefined && <div data-testid="repo-files"><h3>{t('repos.files')}</h3><ul>{entry.files.map((file) => <li key={file}><code>{file}</code></li>)}</ul></div>}
       {entry.readme !== undefined && (
         <div className="repo-readme">
           <Markdown text={entry.readme.markdown} />

@@ -36,9 +36,11 @@ export const MANIFEST_FILE = 'workspace.yaml';
 export interface ProductRepo {
   /** The folder under `repos/` the repository is cloned into. */
   name: string;
-  /** The url it is cloned from. */
-  url: string;
-  /** The branch the clone is taken from, when the manifest declares one. */
+  /** The optional origin used to clone it; a linked checkout may have none. */
+  url?: string;
+  /** True when this entry points at an existing local checkout. */
+  linked?: boolean;
+  /** The branch the clone is taken from, when the manifest declares it. */
   branch?: string;
 }
 
@@ -530,11 +532,13 @@ export function readProduct(productFolder: string): ProductRead {
       if (taken.has(repoName))
         return refusal(manifestFile, atName, `the manifest ${manifestFile} names the code repository "${repoName}" twice, on line ${atName}: each repository is declared once, and clones into its own folder`);
       taken.add(repoName);
-      if (typeof item.url !== 'string' || item.url.trim() === '')
-        return refusal(manifestFile, atUrl, `the manifest ${manifestFile} holds ${shown(item.url)} at "repos", beside "url": a code repository is cloned from the url it declares`);
+      if (item.url === undefined && item.linked !== true)
+        return refusal(manifestFile, atUrl, `the manifest ${manifestFile} holds nothing at \"repos\", beside \"url\": a code repository is cloned from the url it declares`);
+      if (item.url !== undefined && (typeof item.url !== 'string' || item.url.trim() === ''))
+        return refusal(manifestFile, atUrl, `the manifest ${manifestFile} holds ${shown(item.url)} at "repos", beside "url": a code repository url is either absent or non-empty`);
       if (item.branch !== undefined && item.branch !== null && (typeof item.branch !== 'string' || item.branch.trim() === ''))
         return refusal(manifestFile, atBranch, `the manifest ${manifestFile} holds ${shown(item.branch)} at "repos", beside "branch": the branch a clone is taken from, as a word`);
-      repos.push({ name: repoName, url: item.url as string, branch: typeof item.branch === 'string' ? item.branch : undefined });
+      repos.push({ name: repoName, ...(typeof item.url === 'string' ? { url: item.url } : {}), ...(item.linked === true ? { linked: true } : {}), branch: typeof item.branch === 'string' ? item.branch : undefined });
     }
   }
 
@@ -610,9 +614,11 @@ export function decodedKeyWord(key: string): string | null {
 }
 
 /** The lines of one `repos` item, at the indentation the block's items use: the first field on the item's own line, the others indented under it. The caller ends each line the way the file ends its own. */
-export function repoItemLines(repo: { name: string; url: string; branch?: string }, indent: number): string[] {
+export function repoItemLines(repo: { name: string; url?: string; linked?: boolean; branch?: string }, indent: number): string[] {
   const field = (name: string, value: string): string => `${' '.repeat(indent + 2)}${name}: ${value}`;
-  const lines = [`${' '.repeat(indent)}- name: ${yamlWord(repo.name)}`, field('url', yamlText(repo.url))];
+  const lines = [`${' '.repeat(indent)}- name: ${yamlWord(repo.name)}`];
+  if (repo.url !== undefined) lines.push(field('url', yamlText(repo.url)));
+  if (repo.linked === true) lines.push(field('linked', 'true'));
   if (repo.branch !== undefined) lines.push(field('branch', yamlText(repo.branch)));
   return lines;
 }
@@ -675,7 +681,7 @@ export function manifestNamed(text: string, name: string): string {
  * it kept — before the items are written under it. A manifest naming no
  * `repos` at all gains the block at its end.
  */
-export function manifestWithRepo(text: string, repo: { name: string; url: string; branch?: string }): string {
+export function manifestWithRepo(text: string, repo: { name: string; url?: string; linked?: boolean; branch?: string }): string {
   // The lines are split on "\n" the way `manifestNamed` does, so a carriage
   // return a line ends with is the line's own last character: every line this
   // function inserts ends with the carriage return the file's lines do.

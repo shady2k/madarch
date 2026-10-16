@@ -44,6 +44,10 @@
     "noManifestDescription": "This folder is not set up as a product repository yet. A product manifest (workspace.yaml) and its documents are needed before the wiki can show a product overview.",
     "productRepository": "A product repository keeps a product's documents and connects its code repositories.",
     "newProduct": "Start a new product with:",
+    "noRepositories": "Connect a checkout with:",
+    "or": "or",
+    "setupWithAgent": "Run with an agent in the product folder:",
+    "inProductFolder": "to add product documents and skills.",
     "cloneProduct": "Clone an existing product repository with:",
     "addRepository": "Connect a code repository with:",
     "setupProduct": "Run",
@@ -229,7 +233,9 @@
     "stateUnreadable": "Unreadable",
     "branchValue": "branch {{branch}}",
     "lastCommit": "last commit {{when}}",
-    "noReadme": "No README at its root"
+    "noReadme": "No README at its root",
+    "noOrigin": "No origin URL",
+    "files": "Top-level files"
   },
   "registry": {
     "unnamedKind": "Unlabelled kind",

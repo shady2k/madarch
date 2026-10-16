@@ -51,7 +51,21 @@ each option does (`--port <n>` serves on another port, `--no-open` skips the
 browser, `--home <folder>` and `--product <folder>` point at a products home
 and a product folder for one command).
 
+## Start from an existing checkout
+
+If you already have a Git checkout, enter it and run:
+
+    cd <checkout>
+    madarch init
+
+`madarch init` creates a separate product under the products home, links the
+checkout without moving it, commits the product repository and serves its wiki.
+It uses the checkout folder name and its `origin` URL when present. With no
+origin, it links the checkout and reports that no origin URL is set. The
+checkout remains where you work. Outside Git, use `madarch new` instead.
+
 ## Create the draft
+
 
     madarch new
 

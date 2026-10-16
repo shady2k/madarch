@@ -21,7 +21,7 @@
  * cannot be read — is reported as `unreadable` with the cause named, never
  * thrown, and never left as a silently smaller section.
  */
-import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join as joinPath, resolve as resolvePath } from 'node:path';
 import type { GitEnv } from '../product/git.js';
@@ -64,15 +64,19 @@ export interface ProductRepoEntry {
   /** The repository's name in the manifest; the checkout folder's name under `repos/`. */
   name: string;
   /** The url the manifest declares. */
-  url: string;
+  url?: string;
   /** The branch the manifest declares, when it declares one. */
   branch?: string;
+  /** The checkout path relative to the product folder. */
+  path: string;
   /** The checkout's state under `repos/`. */
   state: RepoState;
   /** The checkout's HEAD, when a checkout is there and git could read a commit of it. */
   head?: RepoHead;
   /** The README at the checkout's root, when the checkout is there and its bytes could be read. */
   readme?: RepoReadme;
+  /** Top-level checkout entries in code-point order. */
+  files?: string[];
   /** Why the row is not the ordinary one, naming the path — carried for `unreadable` and a commitless checkout. */
   problem?: string;
 }
@@ -174,20 +178,19 @@ function readmeAt(checkout: string): RepoReadme | undefined {
 
 /** One declared repository, asked whole: its checkout state, HEAD and README. */
 function readOne(productFolder: string, declared: ProductRepo, gitEnv: GitEnv): ProductRepoEntry {
-  const entry: Omit<ProductRepoEntry, 'state'> = { name: declared.name, url: declared.url };
+  const entry: Omit<ProductRepoEntry, 'state'> = { name: declared.name, path: `repos/${declared.name}`, ...(declared.url === undefined ? {} : { url: declared.url }) };
   if (declared.branch !== undefined) entry.branch = declared.branch;
   const target = joinPath(productFolder, REPOS_FOLDER, declared.name);
   try {
     const found = lstatSync(target);
     if (found.isSymbolicLink()) {
-      return {
-        ...entry,
-        state: 'unreadable',
-        problem: `${target} is a symlink: a checkout is a folder of its own, and this wiki reports on the folder named ` +
-          `${JSON.stringify(target)} only`,
-      };
+      let linkedFolder = false;
+      try { linkedFolder = statSync(target).isDirectory(); } catch { /* broken or unreadable link */ }
+      if (!linkedFolder || ownRepository(target, gitEnv).kind !== 'own')
+        return { ...entry, state: 'unreadable', problem: `${target} is a symlink: a linked checkout must point to a Git repository of its own` };
+      // A link is the supported local connection mode: read the linked Git checkout itself.
     }
-    if (!found.isDirectory()) {
+    if (!found.isDirectory() && !found.isSymbolicLink()) {
       return {
         ...entry,
         state: 'unreadable',
@@ -252,6 +255,7 @@ function readOne(productFolder: string, declared: ProductRepo, gitEnv: GitEnv): 
 /** Adds the root README, when the bytes could be read; a failed read is a problem named, never a crash. */
 function withReadme(entry: ProductRepoEntry, target: string, productFolder: string, name: string): ProductRepoEntry {
   try {
+    entry.files = readdirSync(target).filter((name) => name !== '.git').sort(byCodePoint);
     const readme = readmeAt(target);
     if (readme !== undefined) entry.readme = readme;
     return entry;
