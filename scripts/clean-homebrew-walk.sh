@@ -1,18 +1,33 @@
 #!/bin/sh
 # Installs the formula against the locally built artifact; no tap or release is touched.
 set -eu
-BINARY=${1:?usage: clean-homebrew-walk.sh <macOS artifact>}
+BINARY=${1:?usage: clean-homebrew-walk.sh <platform artifact>}
 BINARY=$(cd "$(dirname "$BINARY")" && pwd)/$(basename "$BINARY")
 TMP=$(mktemp -d)
 TAP_NAME="madarch-walk/local-$$"
+PORT=$(($(od -An -N2 -tu2 /dev/urandom) % 20000 + 20000))
 TAP_CREATED=0
 trap 'if [ -n "${PID:-}" ]; then kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; fi; if [ "$TAP_CREATED" -eq 1 ]; then brew uninstall --formula madarch >/dev/null 2>&1 || true; brew untap "$TAP_NAME" >/dev/null 2>&1 || true; fi; if [ -n "${ORIGINAL_PATH:-}" ]; then PATH=$ORIGINAL_PATH; export PATH; fi; rm -rf "$TMP"' EXIT
 ORIGINAL_PATH=$PATH
-SUM=$(shasum -a 256 "$BINARY" | awk '{print $1}')
-printf '%s  madarch-linux-x64\n' "$(printf '0%.0s' $(seq 1 64))" > "$TMP/SHA256SUMS.txt"
-printf '%s  madarch-linux-arm64\n' "$(printf '0%.0s' $(seq 1 64))" >> "$TMP/SHA256SUMS.txt"
-printf '%s  madarch-darwin-x64\n' "$(printf '0%.0s' $(seq 1 64))" >> "$TMP/SHA256SUMS.txt"
-printf '%s  madarch-darwin-arm64\n' "$SUM" >> "$TMP/SHA256SUMS.txt"
+case "$(uname -s)" in
+  Linux) SUM=$(sha256sum "$BINARY" | awk '{print $1}') ;;
+  Darwin) SUM=$(shasum -a 256 "$BINARY" | awk '{print $1}') ;;
+  *) echo "unsupported Homebrew walk OS: $(uname -s)" >&2; exit 2 ;;
+esac
+case "$(uname -s)" in
+  Linux)
+    printf '%s  madarch-linux-x64\n' "$SUM" > "$TMP/SHA256SUMS.txt"
+    printf '%s  madarch-linux-arm64\n' "$(printf '0%.0s' $(seq 1 64))" >> "$TMP/SHA256SUMS.txt"
+    printf '%s  madarch-darwin-x64\n' "$(printf '0%.0s' $(seq 1 64))" >> "$TMP/SHA256SUMS.txt"
+    printf '%s  madarch-darwin-arm64\n' "$(printf '0%.0s' $(seq 1 64))" >> "$TMP/SHA256SUMS.txt"
+    ;;
+  Darwin)
+    printf '%s  madarch-linux-x64\n' "$(printf '0%.0s' $(seq 1 64))" > "$TMP/SHA256SUMS.txt"
+    printf '%s  madarch-linux-arm64\n' "$(printf '0%.0s' $(seq 1 64))" >> "$TMP/SHA256SUMS.txt"
+    printf '%s  madarch-darwin-x64\n' "$(printf '0%.0s' $(seq 1 64))" >> "$TMP/SHA256SUMS.txt"
+    printf '%s  madarch-darwin-arm64\n' "$SUM" >> "$TMP/SHA256SUMS.txt"
+    ;;
+esac
 bun scripts/build-formula.ts --version 0.0.1 --sums-file "$TMP/SHA256SUMS.txt" --out "$TMP/formula"
 FORMULA="$TMP/formula/Formula/madarch.rb"
 python3 - "$FORMULA" "$BINARY" <<'PY'
@@ -38,12 +53,11 @@ cp "$FORMULA" "$TAP/Formula/madarch.rb"
 brew install "$TAP_NAME/madarch"
 PREFIX=$(brew --prefix madarch)
 MADARCH="$PREFIX/bin/madarch"
-if [ -d "$MADARCH" ]; then MADARCH="$PREFIX/libexec/madarch-bin"; fi
-[ -x "$MADARCH" ] || { echo "Homebrew installed no executable at $MADARCH" >&2; exit 1; }
+[ -x "$MADARCH" ] || { echo "Homebrew did not link an executable at $MADARCH" >&2; exit 1; }
 "$MADARCH" version
 madarch() { "$MADARCH" "$@"; }
 export GIT_AUTHOR_NAME='Madarch Homebrew Walk' GIT_AUTHOR_EMAIL='walk@example.invalid' GIT_COMMITTER_NAME='Madarch Homebrew Walk' GIT_COMMITTER_EMAIL='walk@example.invalid'
-HOME="$TMP/home"; PORT=$((20000 + RANDOM % 20000)); mkdir -p "$HOME"
+export HOME="$TMP/home"; mkdir -p "$HOME"
 madarch new --home "$HOME/products" --port "$PORT" --no-open > "$TMP/new.txt" 2>&1 & PID=$!
 SERVED=0
 for n in $(seq 1 200); do if curl -fsS "http://127.0.0.1:$PORT/api/product" | grep -q '"id"'; then SERVED=1; break; fi; sleep .1; done
