@@ -1,6 +1,6 @@
 {
   "strength": "block",
-  "currentMilestone": "standalone",
+  "currentMilestone": "self-filling",
   "milestoneLabels": [
     "knowledge-base",
     "registry",
@@ -10,7 +10,8 @@
     "agent-access",
     "work-from-wiki",
     "standalone",
-    "tracker"
+    "tracker",
+    "self-filling"
   ],
   "areaLabels": [
     "model",
