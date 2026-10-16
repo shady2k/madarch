@@ -633,3 +633,26 @@ When the wiki shows its getting-started guidance for a product with no pages, wi
 - Given: the reader selected Russian and the served product has no pages, with or without a product manifest
 - When: the home page's getting-started guidance is read
 - Then: it offers `madarch demo` in Russian and does not show manual clone-and-serve instructions
+
+## Requirement: discussions — A reader can comment on a selection and follow its discussion
+On a document page, selecting text offers a comment action. The app maps the rendered selection to a source range using parser position data; a selection crossing an inline construct boundary expands to whole words and elements so the markers never break Markdown. Saving creates a discussion message under `comments/{thread ULID}/{message ULID}.md` and wraps the selected source range in matching hidden v1 markers. The page shows the message card in the right margin level with the marked text, and hover links the card and text in both directions. Reload shows the saved message and highlight. Later interactions provide replies, resolution (resolved threads hidden by default and showable), a page-level thread, and a narrow-screen discussions panel. Both markers absent means the selection is lost and the thread is shown with its saved quote; one-sided or mismatched markers are refused with source file and line, and the reader can restore the range by its saved quote or place it again.
+
+### Scenario: selected-comment-round-trip
+- Given: a served fixture product and a selectable sentence in a document
+- When: the reader selects the sentence, writes a message and saves, then reloads the page
+- Then: a comment card appears in the margin beside the highlighted source range and is still there after reload
+
+### Scenario: marker-safe-inline-selection
+- Given: a selection crossing an inline Markdown construct
+- When: the comment is saved
+- Then: marker insertion expands to valid whole words/elements and the document still renders correctly
+
+### Scenario: lost-anchor-and-invalid-pair
+- Given: both markers for a selection were removed, or only one remains
+- When: the wiki reads the discussion
+- Then: both absent is shown as a lost anchor with its quote; a one-sided or mismatched pair is refused with source path and line
+
+### Scenario: discussion-actions-and-narrow-screen
+- Given: a document with open and resolved threads
+- When: the reader replies, resolves, reveals resolved threads or views the page at a narrow width
+- Then: each action persists after reload, resolved threads are hidden by default, and discussions are available in a panel

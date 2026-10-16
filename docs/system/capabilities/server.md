@@ -210,3 +210,21 @@ contract ids are the next milestone. Views are answered at the current time
 and the first state only; history, environments and states are stored, not
 yet asked for. No webhooks, polling, CI trigger, authentication, Docker
 image or wiki hosting.
+
+## Requirement: discussion-writes — The product wiki validates and saves discussion actions
+A server serving a product wiki shall expose the discussion read and write operations for that product only. A write request names the product-relative document path and selection, carries the message body, and is checked against the v1 discussion contract and current source document before any write. The server updates the document markers and adds the ULID message file, commits exactly that action, and pushes to the product's configured remote. A rejected push is handled by pull-and-retry only when the selection still resolves to the same source text; otherwise the save is refused without overwriting changes. A final failure is returned as not sent with retryable message data. Writes never include unrelated changes. The server reads discussions from the product's working tree and serves current messages to the app.
+
+### Scenario: discussion-write-validates-before-write
+- Given: a served product and a discussion request with an invalid path, stale selection or invalid v1 metadata
+- When: the request is received
+- Then: the server refuses with the offending field/path, and the product's files and git history are unchanged
+
+### Scenario: discussion-write-commits-one-action
+- Given: a clean served product and a valid selection/comment request
+- When: the request is saved
+- Then: the message and markers are committed together once and pushed; no unrelated product change is included
+
+### Scenario: discussion-write-retry
+- Given: a remote push rejection and a cleanly reappliable selection
+- When: the server reconciles the remote
+- Then: it retries once against the new source, and returns success only after push succeeds
