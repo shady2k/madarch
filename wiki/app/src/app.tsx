@@ -390,7 +390,9 @@ export function HomePage({ product, list, architecture, offer, overview, repos =
     return () => publish(null);
   }, [publish, documents, documentUnit, t]);
   const lead = documents === 0
-    ? t('home.noPages', { product: product.name })
+    ? repos.length === 0
+      ? t('home.noPages', { product: product.name })
+      : t('home.repositoriesNoDocuments', { product: product.name, count: repos.length, repositoryUnit: t('units.repository', { count: repos.length }) })
     : t('home.lead', { product: product.name, count: documents, documentUnit, groupCount: groups.length, groupUnit });
   return (
     <main id="home">
@@ -402,7 +404,7 @@ export function HomePage({ product, list, architecture, offer, overview, repos =
       ) : normalizedLegacyAudience !== undefined && normalizedLegacyAudience.length > 0 ? (
         <p className="home-audience" data-testid="home-audience">{t('home.audience', { audience: normalizedLegacyAudience })}</p>
       ) : null}
-      {repos.length > 0 ? <section className="home-group mt-7" data-testid="home-repositories"><h2 className="text-h2 font-medium">{t('repos.title')}</h2><ul className="home-rows">{repos.map((entry) => <li key={entry.name} className="home-row as-line"><a href={`/r#${encodeURIComponent(entry.name)}`}><strong>{entry.name}</strong></a>{' · '}{entry.url ?? t('repos.noOrigin')}{' · '}{entry.path} · {stateLabelOf(entry, t)}</li>)}</ul></section> : null}
+      {repos.length > 0 ? <section className="home-group mt-7" data-testid="home-repositories"><h2 className="text-h2 font-medium">{t('repos.title')}</h2><ul className="home-rows">{repos.map((entry) => <li key={entry.name} className="home-row home-repository-row"><a className="home-repository-part" href={`/r#${encodeURIComponent(entry.name)}`} title={entry.name}><strong className="home-repository-name">{entry.name}</strong></a><span className="home-repository-part">{entry.url ?? t('repos.noOrigin')}</span><span className="home-repository-part">{entry.path}</span><span className="home-repository-part">{stateLabelOf(entry, t)}</span></li>)}</ul></section> : null}
       {documents === 0 ? (
         <section className="home-group mt-0" data-testid="empty-home-guidance" aria-labelledby="empty-home-guidance-title">
           <h2 id="empty-home-guidance-title" className="text-h2 font-medium">{t(product.id === undefined ? 'home.noManifestTitle' : 'home.gettingStartedTitle')}</h2>

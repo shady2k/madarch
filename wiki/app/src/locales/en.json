@@ -31,6 +31,7 @@
     "overview": "Product overview",
     "lead": "The reading space of {{product}}: {{count}} {{documentUnit}} in {{groupCount}} {{groupUnit}}.",
     "noPages": "{{product}} has no pages yet.",
+    "repositoriesNoDocuments": "{{product}} has {{count}} code {{repositoryUnit}} and no documents yet.",
     "audience": "Audience: {{audience}}",
     "overviewFacts": "Product facts",
     "audienceLabel": "Audience",

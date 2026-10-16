@@ -13,6 +13,9 @@ on:
       - '.github/workflows/clean-installs.yml'
       - 'scripts/clean-install-walk.ts'
       - 'scripts/clean-homebrew-walk.sh'
+      - 'src/product/cli.ts'
+      - 'src/product/lifecycle.ts'
+      - 'scripts/madarch.ts'
       - 'package.json'
   workflow_dispatch:
 

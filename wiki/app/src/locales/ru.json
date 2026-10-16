@@ -31,6 +31,7 @@
     "overview": "Обзор продукта",
     "lead": "Пространство продукта {{product}}: {{count}} {{documentUnit}} в {{groupCount}} {{groupUnit}}.",
     "noPages": "В {{product}} пока нет документов.",
+    "repositoriesNoDocuments": "В продукте {{product}} {{count}} {{repositoryUnit}}, документов пока нет.",
     "audience": "Аудитория: {{audience}}",
     "overviewFacts": "Сведения о продукте",
     "audienceLabel": "Аудитория",

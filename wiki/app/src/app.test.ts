@@ -298,6 +298,30 @@ describe('the home page', () => {
     expect(document.querySelector('[data-testid="home-milestone"]')?.textContent).toContain('Outside milestone');
   });
 
+  test('reports repositories without documents in English and Russian', async () => {
+    const empty: PageList = { revision: 'r0', pages: [] };
+    const repos = [{ name: 'my-app', url: 'https://example.test/my-app', path: 'repos/my-app', state: 'checked-out' as const }];
+    try {
+      await setWikiLanguage('en');
+      await intoApp(createElement(HomePage, { product: { ...product, id: 'product-id' }, list: empty, repos }));
+      await until(() => document.querySelector('[data-testid="home-lead"]')?.textContent?.includes('1 code repository'), 'the English repository-only empty state');
+      expect(document.querySelector('[data-testid="home-lead"]')?.textContent).toBe('Draft Idea has 1 code repository and no documents yet.');
+      unmount();
+      await setWikiLanguage('ru');
+      await intoApp(createElement(HomePage, { product: { ...product, id: 'product-id' }, list: empty, repos }));
+      await until(() => document.querySelector('[data-testid="home-lead"]')?.textContent?.includes('1 репозиторий'), 'the Russian repository-only empty state');
+      expect(document.querySelector('[data-testid="home-lead"]')?.textContent).toBe('В продукте Draft Idea 1 репозиторий, документов пока нет.');
+    } finally { await setWikiLanguage('en'); }
+  });
+
+  test('repository names do not break inside the name', async () => {
+    const repos = [{ name: 'my-app', url: 'https://example.test/my-app', path: 'repos/my-app', state: 'checked-out' as const }];
+    await intoApp(createElement(HomePage, { product: { ...product, id: 'product-id' }, list: { revision: 'r0', pages: [] }, repos }));
+    await until(() => document.querySelector('.home-repository-name') !== null, 'the repository name');
+    expect(document.querySelector('.home-repository-name')?.textContent).toBe('my-app');
+    expect(document.querySelector('.home-repository-name')?.classList.contains('home-repository-name')).toBe(true);
+  });
+
   test('says plainly that the product has no pages yet', async () => {
     install(answerFor(product, { revision: 'r0', pages: [] }, {}));
     goto('/');

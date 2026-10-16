@@ -846,7 +846,7 @@ export function initLife(options: { cwd: string; home?: string; gitEnv?: GitEnv 
     rmSync(draft.folder, { recursive: true, force: true });
     return linked;
   }
-  return { ...linked, prints: [`folder: ${draft.folder}`, `id: ${draft.id}`, `source: ${source}`, ...linked.prints] };
+  return { ...linked, prints: [`folder: ${draft.folder}`, `id: ${draft.id}`, `source: ${source}`, ...linked.prints.filter((fact) => !fact.startsWith('folder: '))] };
 }
 
 export function cloneLife(options: { url?: string; home?: string; env: DraftEnv }): LifecycleOutcome {

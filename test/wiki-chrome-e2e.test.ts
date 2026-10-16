@@ -75,7 +75,7 @@ runDescribe('wiki reader chrome (built app and Chromium)', () => {
 
   beforeEach(async () => {
     page = await browser!.newPage();
-    await page.setViewport({ width: 1150, height: 900 });
+    await page.setViewport({ width: Number(process.env.MADARCH_WIKI_WIDTH ?? 1150), height: Number(process.env.MADARCH_WIKI_HEIGHT ?? 900) });
     await page.evaluateOnNewDocument((language) => {
       localStorage.setItem('madarch-wiki-language', language);
     }, LANGUAGE);
@@ -96,6 +96,40 @@ runDescribe('wiki reader chrome (built app and Chromium)', () => {
       }
     }
   });
+
+  test('first-run overview cards render at the expected top padding and repository names stay intact', async () => {
+    await page.goto(`${server!.url}/`, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('[data-testid="home-repositories"]');
+    const metrics = await page.evaluate(() => {
+      const card = document.querySelector('[data-kind="architecture"]') as HTMLElement;
+      const heading = card.querySelector('h2') as HTMLElement;
+      const rect = card.getBoundingClientRect();
+      const style = getComputedStyle(card);
+      const before = (() => { heading.style.marginBlockStart = '2em'; return heading.getBoundingClientRect().top - rect.top; })();
+      heading.style.marginBlockStart = '';
+      const after = heading.getBoundingClientRect().top - rect.top;
+      const name = document.querySelector('.home-repository-name') as HTMLElement;
+      const row = name.closest('li') as HTMLElement;
+      const normal = { nameHeight: name.getBoundingClientRect().height, parts: [...row.querySelectorAll('.home-repository-part')].map((part) => ({ text: part.textContent?.trim(), top: part.getBoundingClientRect().top, left: part.getBoundingClientRect().left })) };
+      name.textContent = 'a-very-long-repository-name-that-must-not-overflow-the-row';
+      const longName = { nameWidth: name.getBoundingClientRect().width, nameHeight: name.getBoundingClientRect().height, rowScroll: row.scrollWidth, rowClient: row.clientWidth };
+      return { before, after, paddingTop: parseFloat(style.paddingTop), headingText: heading.textContent?.trim(), repoName: 'sample', normal, longName, viewportWidth: window.innerWidth };
+    });
+    console.log(`overview metrics ${JSON.stringify({ width: Number(process.env.MADARCH_WIKI_WIDTH ?? 1150), ...metrics })}`);
+    expect(metrics.before).toBeGreaterThan(40);
+    expect(metrics.after).toBeCloseTo(metrics.paddingTop + 3, 1);
+    expect(metrics.repoName).toBe('sample');
+    expect(metrics.normal.nameHeight).toBeLessThanOrEqual(22);
+    expect(new Set(metrics.normal.parts.map((part) => part.top)).size).toBe(metrics.viewportWidth <= 500 ? 2 : 1);
+    expect(metrics.longName.nameHeight).toBeLessThanOrEqual(22);
+    expect(metrics.longName.nameWidth).toBeLessThan(metrics.longName.rowClient);
+    expect(metrics.longName.rowScroll).toBeLessThanOrEqual(metrics.longName.rowClient);
+    expect(metrics.headingText).toBe('Architecture');
+    const overviewScreenshot = `${SCREENSHOT}.overview.png`;
+    await mkdirSync(join(overviewScreenshot, '..'), { recursive: true });
+    await page.screenshot({ path: overviewScreenshot, fullPage: true });
+    console.log(`Overview screenshot: ${overviewScreenshot}`);
+  }, 30000);
 
   test('a reader sees one document title and no dead tab, card disclosure, or status strip', async () => {
     await page.goto(`${server!.url}${PAGE_PATH}`, { waitUntil: 'domcontentloaded' });

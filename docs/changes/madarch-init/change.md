@@ -2,7 +2,7 @@
 
 Change: madarch-init
 Base: e2ba086e73f60727033aad180468f319f5f0353d
-Tasks: madarch-74k4.2.1, madarch-74k4.2.2, madarch-74k4.2.3
+Tasks: madarch-74k4.2.1, madarch-74k4.2.2, madarch-74k4.2.3, madarch-74k4.2.5
 Kind: behavior
 
 ## Intent
