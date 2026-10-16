@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { parseDiscussionMessage, scanDiscussionMarkers } from './discussion-contract.js';
-import { mapParagraphSelection, renderedMarkdownParagraphs } from '../../wiki/app/src/discussion-selection.js';
+import { mapParagraphSelection, renderedMarkdownParagraphs } from './discussion-selection.js';
 import { runGit } from './git.js';
 
 export type DiscussionWriteInput = {
