@@ -449,3 +449,26 @@ A discussion message is a Markdown file at `comments/{thread ULID}/{message ULID
 - Given: the products home holds an unrelated folder named `madarch-product`
 - When: `madarch demo` is run
 - Then: it refuses to change that folder
+
+## Requirement: discussion-writes — A saved discussion message is validated and kept in the product's git
+When the wiki writes a discussion, it shall write one Markdown message at `comments/{thread ULID}/{message ULID}.md` with the v1 schema and source commit, and shall update the selected document with the matching v1 markers in the same action. The document and message are committed together as the local git author, then pushed. Each action is one commit. A rejected push is reconciled by pulling and retrying without overwriting unrelated work; if that cannot succeed, the wiki reports the message as not sent and retains a retryable copy. Only a product repository with a clean index and working tree may be changed; a refusal names the changed paths and writes nothing. The server validates the message and marker pair before committing.
+
+### Scenario: comment-save-commits-and-pushes
+- Given: a clean product repository and a valid selected range
+- When: a reader saves a discussion message
+- Then: the source markers and one v1 message file are committed together in one commit, and the commit is pushed
+
+### Scenario: rejected-push-retries-without-overwrite
+- Given: the remote advanced after the local commit and the histories can be fast-forwarded
+- When: the push is rejected
+- Then: the server pulls the remote, reapplies the action only if its source range still matches, creates the action commit and retries the push
+
+### Scenario: unclean-product-refused
+- Given: the product repository has pre-existing staged or unstaged changes
+- When: a comment save is requested
+- Then: no file or commit changes, and the refusal names the changed paths
+
+### Scenario: final-push-failure-keeps-retry
+- Given: pull/retry cannot complete safely or the retry push fails
+- When: the save ends
+- Then: the wiki says the message was not sent and keeps its message text available for retry without claiming it was committed remotely
