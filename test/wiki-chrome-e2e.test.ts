@@ -2,17 +2,31 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from '../scripts/chromium.js';
 import { startServer, type StartedServer } from '../src/index.js';
+import { fillStatePaths, type FillRun } from '../src/product/fill-runtime.js';
 
 /**
  * Reader acceptance for dead wiki chrome against the built app and real server.
  * Run with MADARCH_WIKI_E2E=1 after building wiki/app. The screenshot destination
  * is outside the checkout so it cannot enter the change commit.
  */
+
+/**
+ * Fake claude/codex/omp CLIs placed first on the server's PATH: the wizard's
+ * agent list renders deterministically and fast, and no real agent CLI runs.
+ */
+function fakeAgentsPath(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'madarch-e2e-agents-'));
+  for (const name of ['claude', 'codex', 'omp']) {
+    writeFileSync(join(dir, name), `#!/bin/sh\necho "${name}-fake 0.0.0"\n`, { mode: 0o755 });
+  }
+  process.env.PATH = `${dir}${delimiter}${process.env.PATH ?? ''}`;
+  return dir;
+}
 const ROOT = new URL('..', import.meta.url).pathname;
 const APP = join(ROOT, 'wiki', 'app', 'dist');
 const SCREENSHOT = process.env.MADARCH_WIKI_SCREENSHOT ?? join(tmpdir(), 'madarch-wiki-reader.png');
@@ -54,9 +68,11 @@ runDescribe('wiki reader chrome (built app and Chromium)', () => {
   let server: StartedServer | undefined;
   let browser: Browser | undefined;
   let page: Page;
+  let fakeAgentDir: string | undefined;
 
   beforeAll(async () => {
     if (!existsSync(join(APP, 'index.html'))) throw new Error(`Built wiki app is missing: ${join(APP, 'index.html')}`);
+    fakeAgentDir = fakeAgentsPath();
     fixture = buildFieldnote();
     server = await startServer({
       productFolder: fixture.product,
@@ -93,6 +109,7 @@ runDescribe('wiki reader chrome (built app and Chromium)', () => {
         await server?.stop();
       } finally {
         if (fixture !== undefined) rmSync(fixture.root, { recursive: true, force: true });
+        if (fakeAgentDir !== undefined) rmSync(fakeAgentDir, { recursive: true, force: true });
       }
     }
   });
@@ -101,14 +118,39 @@ runDescribe('wiki reader chrome (built app and Chromium)', () => {
     await page.goto(`${server!.url}/`, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('[data-testid="fill-wizard"]');
     await page.screenshot({ path: process.env.MADARCH_WIKI_SCREENSHOT ?? join(tmpdir(), `madarch-fill-wizard-${LANGUAGE}-${process.env.MADARCH_WIKI_WIDTH ?? 1150}.png`), fullPage: true });
-    await page.evaluate(() => { const button=[...document.querySelectorAll('.fill-wizard button')].find(item => /inventory|инвентаризац/i.test(item.textContent ?? '')); if (!button) throw new Error('Inventory button is missing'); (button as HTMLButtonElement).click(); });
-    await page.waitForResponse(response => response.url().includes('/api/fill/inventory'), { timeout: 15000 });
-    await new Promise(resolve => setTimeout(resolve, 500));
-    await page.screenshot({ path: process.env.MADARCH_WIZARD_INVENTORY_SCREENSHOT ?? join(tmpdir(), `madarch-fill-wizard-inventory-${LANGUAGE}-${process.env.MADARCH_WIKI_WIDTH ?? 1150}.png`), fullPage: true });
+    const heading = (): string => document.querySelector('.wizard-step h2')?.textContent ?? '';
+    const advance = async (): Promise<void> => { const before=await page.evaluate(heading); await page.evaluate(() => { const next=[...document.querySelectorAll('.wizard-actions button')].find(item => /continue|продолжить/i.test(item.textContent ?? '')); if (!next) throw new Error('Continue button is missing'); (next as HTMLButtonElement).click(); }); await page.waitForFunction((previous:string)=>(document.querySelector('.wizard-step h2')?.textContent??'')!==previous,{timeout:5000},before); };
+    const screenshot = async (key: string): Promise<void> => { const envKey=key==='what'?'MADARCH_WIKI_SCREENSHOT':`MADARCH_WIZARD_${key.toUpperCase()}_SCREENSHOT`; await page.screenshot({path:process.env[envKey] ?? join(tmpdir(),`madarch-fill-wizard-${key}-${LANGUAGE}-${process.env.MADARCH_WIKI_WIDTH ?? 1150}.png`),fullPage:true}); };
+    await screenshot('what');
+    await advance();
+    // The agent step must show the machine's agents, not a frame while the
+    // list loads: wait for the control before the screenshot.
+    await page.waitForFunction(() => document.querySelectorAll('input[name="fill-agent"]').length > 0, { timeout: 15000 });
+    await screenshot('agent');
+    const preselected = await page.evaluate(() => document.querySelector('input[name="fill-agent"]:checked'));
+    if (preselected) throw new Error('an agent is preselected on first open');
+    await page.evaluate(() => { const radio=document.querySelector('input[name="fill-agent"]:not(:disabled)') as HTMLInputElement|null; radio?.click(); });
+    await advance();
+    await page.evaluate(() => { const run=[...document.querySelectorAll('.wizard-step button')].find(item => /run inventory|инвентаризац/i.test(item.textContent ?? '')); if (!run) throw new Error('Run inventory button is missing'); (run as HTMLButtonElement).click(); });
+    await page.waitForFunction(() => document.querySelector('.wizard-estimates') !== null, { timeout: 15000 });
+    await screenshot('inventory');
+    await advance();
+    await screenshot('start');
   }, 30000);
 
   test('first-run overview cards render at the expected top padding and repository names stay intact', async () => {
     await page.goto(`${server!.url}/`, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('[data-testid="fill-wizard"]');
+    // The wizard is the full-width first-run view: the product overview stays
+    // out of the way until the fill starts, and returns once a run exists.
+    const overviewHidden = await page.evaluate(() => getComputedStyle(document.querySelector('main#home') as HTMLElement).display === 'none');
+    expect(overviewHidden).toBe(true);
+    const fillPaths = fillStatePaths(fixture!.product);
+    mkdirSync(join(fillPaths.root, 'units'), { recursive: true });
+    const stoppedRun = { schemaVersion: 1, id: 'e2e-overview', productSnapshot: { repository: 'Fieldnote', defaultBranch: 'main', commit: 'fixture', registryHash: 'fixture' }, agentBranch: 'main', status: 'stopped', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } satisfies FillRun;
+    writeFileSync(fillPaths.run, JSON.stringify(stoppedRun));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => document.querySelector('main#home') !== null && getComputedStyle(document.querySelector('main#home') as HTMLElement).display !== 'none', { timeout: 15000 });
     await page.waitForSelector('[data-testid="home-repositories"]');
     const metrics = await page.evaluate(() => {
       const card = document.querySelector('[data-kind="architecture"]') as HTMLElement;
@@ -134,7 +176,7 @@ runDescribe('wiki reader chrome (built app and Chromium)', () => {
     expect(metrics.longName.nameHeight).toBeLessThanOrEqual(metrics.viewportWidth <= 500 ? 60 : 22);
     expect(metrics.longName.nameWidth).toBeLessThan(metrics.longName.rowClient);
     expect(metrics.longName.rowScroll).toBeLessThanOrEqual(metrics.longName.rowClient);
-    expect(metrics.headingText).toBe('Architecture');
+    expect(metrics.headingText).toBe(LANGUAGE === 'ru' ? 'Архитектура' : 'Architecture');
     const overviewScreenshot = `${SCREENSHOT}.overview.png`;
     await mkdirSync(join(overviewScreenshot, '..'), { recursive: true });
     await page.screenshot({ path: overviewScreenshot, fullPage: true });

@@ -42,7 +42,7 @@ import { openProductWiki, type ProductWiki } from '../product-wiki/pages.js';
 import { listProducts } from '../product/list.js';
 import { basename } from 'node:path';
 import type { StartFillOptions, StartFillResult } from '../product/fill.js';
-import { saveChosenAgent } from '../product/fill-wizard.js';
+import { readChosenModel, saveChosenAgent } from '../product/fill-wizard.js';
 
 /** The largest body the server reads: 50 MB, far past any compiled model sent so far. */
 const MAX_BODY_BYTES = 50 * 1024 * 1024;
@@ -471,9 +471,29 @@ export function createHandler(dependencies: {
         const { body, bad } = await jsonBody(request); if (bad) return bad;
         if (body === null || typeof body !== 'object' || Array.isArray(body)) return refused(400, { message: 'body must be an object with agent and maxUnits' });
         const asked = body as Record<string, unknown>;
-        if (asked.agent !== 'claude' && asked.agent !== 'codex') return refused(400, { message: 'agent must be claude or codex' });
+        if (asked.agent !== 'claude' && asked.agent !== 'codex' && asked.agent !== 'omp') return refused(400, { message: 'agent must be claude, codex, or omp' });
         if (asked.maxUnits !== undefined && (!Number.isInteger(asked.maxUnits) || (asked.maxUnits as number) < 1 || (asked.maxUnits as number) > 10000)) return refused(400, { message: 'maxUnits must be a whole number from 1 through 10000' });
-        try { await saveChosenAgent(asked.agent); void startFill(fillProductFolder!, { agent: asked.agent, ...(asked.maxUnits === undefined ? {} : { maxUnits: asked.maxUnits as number }) }).catch((error) => errorLog(`fill start failed: ${(error as Error).message}`)); return { response: json(202, { accepted: true, status: 'starting' }) }; }
+        if (asked.model !== undefined && typeof asked.model !== 'string') return refused(400, { message: 'model must be a string' });
+        // The wizard's field is always sent for omp, an empty string
+        // included: it means the reader left the field to the machine's
+        // setting, so it must not become the choice yet not defeat the
+        // environment the refusal message and both hints advertise.
+        const askedModel = typeof asked.model === 'string' && asked.model !== '' ? asked.model : undefined;
+        // The omp adapter needs an explicit model and a gateway extension. The
+        // model is the per-machine setting (the wizard's field, or the
+        // environment the CLI reads); the extension stays environment-only.
+        try {
+          const candidateModel = askedModel ?? ((await readChosenModel()) || process.env.MADARCH_FILL_MODEL);
+          if (asked.agent === 'omp') {
+            if (!candidateModel) return refused(400, { message: 'omp needs a model: set it in the wizard or through MADARCH_FILL_MODEL' });
+            if (!process.env.MADARCH_OMP_EXTENSION) return refused(400, { message: 'omp needs the gateway extension path: set MADARCH_OMP_EXTENSION' });
+          }
+          await saveChosenAgent(asked.agent, askedModel === undefined ? {} : { model: askedModel });
+          const chosenModel = (await readChosenModel()) || process.env.MADARCH_FILL_MODEL;
+          const ompOptions = { model: chosenModel, ompExecutable: process.env.MADARCH_OMP_EXECUTABLE, ompExtension: process.env.MADARCH_OMP_EXTENSION };
+          void startFill(fillProductFolder!, { agent: asked.agent, ...(asked.maxUnits === undefined ? {} : { maxUnits: asked.maxUnits as number }), ...(asked.agent === 'omp' ? ompOptions : {}) }).catch((error) => errorLog(`fill start failed: ${(error as Error).message}`));
+          return { response: json(202, { accepted: true, status: 'starting' }) };
+        }
         catch (error) { return refused(409, { message: (error as Error).message }); }
       } },
       { method: 'GET', path: '/api/fill/wizard', handle: (request) => wiki.fillWizard(request) },

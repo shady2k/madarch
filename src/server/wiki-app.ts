@@ -32,7 +32,7 @@ import { join as joinPath, normalize, resolve, sep } from 'node:path';
 import { readdirSync, readFileSync as readFillFileSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { fillStatePaths, withFillControlLock } from '../product/fill-runtime.js';
-import { detectFillAgents, readChosenAgent, saveChosenAgent, testFillAgent } from '../product/fill-wizard.js';
+import { detectFillAgents, readChosenAgent, readChosenModel, saveChosenAgent, testFillAgent } from '../product/fill-wizard.js';
 import type { WizardAgent } from '../product/fill-wizard.js';
 import { inventoryRepository } from '../product/fill-index.js';
 import { resolve as resolvePath } from 'node:path';
@@ -487,14 +487,22 @@ export function createWikiPart(
         const checkouts = repos.repos.filter(repo => ['linked','cloned','moved','checked-out'].includes(repo.state) && repo.head).map(repo => ({ path: resolvePath(wiki.product.folder, repo.path), inventoryPath: repo.path, commit: execFileSync('git', ['-C', resolvePath(wiki.product.folder, repo.path), 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() }));
         if (wiki.product.repos.length > checkouts.length) return refused(409, { message: 'Every declared code repository must be checked out and readable before inventory can run.' });
         const inventory = checkouts.length ? await inventoryRepository(checkouts[0]!.path, checkouts[0]!.commit, checkouts.slice(1), checkouts[0]!.inventoryPath) : await inventoryRepository(wiki.product.folder, execFileSync('git', ['-C', wiki.product.folder, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim());
-        return { response: json(200, { inventory, rough: true, declaredRepositoryCount: wiki.product.repos.length }) };
+        const paths = fillStatePaths(wiki.product.folder);
+        let units: Array<{stage:string;agentUsage?:{elapsedMs?:number}}> = [];
+        try { for (const entry of readdirSync(paths.units)) if (entry.endsWith('.json')) { try { units.push(JSON.parse(readFillFileSync(joinPath(paths.units,entry),'utf8'))); } catch { /* one unreadable unit file must not blank every measured time */ } } } catch { /* no measured calls yet */ }
+        const times = new Map<string,number[]>();
+        for (const unit of units) if (unit.agentUsage?.elapsedMs) times.set(unit.stage,[...(times.get(unit.stage)??[]),unit.agentUsage.elapsedMs]);
+        const estimates = inventory.estimates.map((estimate)=>{const samples=times.get(estimate.stage)??[]; const avg=samples.length?samples.reduce((a,b)=>a+b,0)/samples.length:undefined; return {...estimate,...(avg===undefined?{}:{estimatedMs:Math.round(avg*estimate.units),measuredCalls:samples.length})};});
+        return { response: json(200, { inventory:{...inventory,estimates}, rough: true, declaredRepositoryCount: wiki.product.repos.length }) };
       }
       catch { return refused(500, { message: 'inventory failed; check that declared code repositories are readable git checkouts' }); }
     },
     async fillAgentTest(request: Request): Promise<Handled> {
       let value: unknown; try { value = await request.json(); } catch { return refused(400, { message: 'request body must be JSON' }); }
-      if (!value || typeof value !== 'object' || Array.isArray(value) || !['claude','codex'].includes((value as {agent?:string}).agent ?? '')) return refused(400, { message: 'agent must be claude or codex' });
-      return { response: json(200, { result: await testFillAgent((value as {agent:WizardAgent}).agent) }) };
+      if (!value || typeof value !== 'object' || Array.isArray(value) || !['claude','codex','omp'].includes((value as {agent?:string}).agent ?? '')) return refused(400, { message: 'agent must be claude, codex, or omp' });
+      const { agent, model } = value as { agent: WizardAgent; model?: unknown };
+      if (model !== undefined && typeof model !== 'string') return refused(400, { message: 'model must be a string' });
+      return { response: json(200, { result: await testFillAgent(agent, undefined, model) }) };
     },
     async fillWizard(request: Request): Promise<Handled> {
       const agents = await detectFillAgents();
@@ -503,7 +511,7 @@ export function createWikiPart(
       let runExists = false;
       try { readFillFileSync(paths.run, 'utf8'); runExists = true; }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return refused(500, { message: `could not read fill state: ${(error as Error).message}` }); }
-      return { response: json(200, { agents, chosen, runExists }) };
+      return { response: json(200, { agents, chosen, model: await readChosenModel(), runExists }) };
     },
     async fillStart(request: Request): Promise<Handled> {
       let body: Record<string, unknown>;

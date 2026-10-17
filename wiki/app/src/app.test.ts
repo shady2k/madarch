@@ -161,6 +161,22 @@ describe('the home page', () => {
     expect(link?.textContent).toBe('Vision');
   });
 
+  test('the wizard says plainly when the machine has no agent', async () => {
+    install((target) => {
+      const base = answerFor(product, listWithPages, pagesAtR1);
+      if (target === '/api/fill/wizard') return { body: { agents: [], chosen: '', model: '', runExists: false } };
+      return base(target);
+    });
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('.wizard-steps') !== null, 'the wizard steps');
+    (document.querySelectorAll('.wizard-steps button')[1] as HTMLButtonElement).click();
+    await until(() => text().includes('No agent found on this machine'), 'the no-agent note');
+    expect(text()).toContain('claude, codex, or omp');
+    // No empty frame stands where the agent list would be.
+    expect(html()).not.toContain('name="fill-agent"');
+  });
+
 
   test('shows the localized next-step recommendation on home and page views with its target link', async () => {
     const recommendation = { action: 'Answer: Who decides?', reason: 'This decision blocks the vision.', target: 'docs/questions/Q-001.md', rule: 'answer-question' as const, questionTitle: 'Who decides?' };

@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { startServer, type ServerOptions, type StartedServer } from '../src/index.js';
+import { agentSettingsPath, readChosenModel } from '../src/product/fill-wizard.js';
+import { fillStatePaths } from '../src/product/fill-runtime.js';
 import { createPGliteQueryDatabase } from '../src/adapters/pglite-query-database.js';
 import { gitEnv } from './git-env.js';
 const productGitEnv = gitEnv({ GIT_AUTHOR_NAME: 'Question Test', GIT_AUTHOR_EMAIL: 'question@example.test', GIT_COMMITTER_NAME: 'Question Test', GIT_COMMITTER_EMAIL: 'question@example.test' });
@@ -121,15 +123,102 @@ async function startProduct(options: { startFill?: ServerOptions['startFill'] } 
 
 describe('the server\'s product mode', () => {
   test('fill wizard APIs report inventory, fake test outcomes, and delegate Start or return honest 503', async () => {
+    // The start route persists the chosen agent under the user's home; Bun
+    // resolves homedir() once per process, so the test restores the file after.
+    const choicePath=agentSettingsPath(); const choiceExisted=existsSync(choicePath); const choiceBefore=choiceExisted?readFileSync(choicePath,'utf8'):undefined;
+    try {
     draft(); builtApp();
     const init=spawnSync('git',['init','--quiet','--initial-branch=main'],{cwd:folder!,env:gitEnv(),encoding:'utf8'});expect(init.status).toBe(0);
     writeFileSync(join(folder!,'README.md'),'# Example\n');spawnSync('git',['add','-A'],{cwd:folder!,env:gitEnv()});
     spawnSync('git',['commit','--quiet','-m','fixture'],{cwd:folder!,env:{...gitEnv(),GIT_AUTHOR_NAME:'Fixture',GIT_AUTHOR_EMAIL:'fixture@example.com',GIT_COMMITTER_NAME:'Fixture',GIT_COMMITTER_EMAIL:'fixture@example.com'}});
     const url=await startProduct({startFill:async (_product,_input)=>({run: {id:'run-fake'}, counts:{run:0,reused:0}, questionReview:'hook-pending-co2d.1'} as never)});
-    const info=await fetch(`${url}/api/fill/wizard`);expect(info.status).toBe(200);expect(await info.json()).toMatchObject({runExists:false,agents:[{name:'claude'},{name:'codex'}]});
+    const info=await fetch(`${url}/api/fill/wizard`);expect(info.status).toBe(200);expect(await info.json()).toMatchObject({runExists:false,agents:[{name:'claude'},{name:'codex'},{name:'omp'}]});
     const inventory=await fetch(`${url}/api/fill/inventory`);expect(inventory.status).toBe(200);expect(await inventory.json()).toMatchObject({rough:true,inventory:{files:expect.any(Array),estimates:expect.any(Array)}});
     const started=await fetch(`${url}/api/fill/start`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({agent:'codex',maxUnits:4})});expect(started.status).toBe(202);expect(await started.json()).toMatchObject({accepted:true,status:'starting'});
     const invalid=await fetch(`${url}/api/fill/start`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({agent:'codex',maxUnits:10001})});expect(invalid.status).toBe(400);
+    } finally { if (choiceExisted && choiceBefore!==undefined) writeFileSync(choicePath, choiceBefore); else if (!choiceExisted) rmSync(choicePath,{force:true}); }
+  });
+
+  test('the inventory estimate shows the measured time per stage', async () => {
+    draft(); builtApp();
+    const init=spawnSync('git',['init','--quiet','--initial-branch=main'],{cwd:folder!,env:gitEnv(),encoding:'utf8'});expect(init.status).toBe(0);
+    writeFileSync(join(folder!,'README.md'),'# Example\n');spawnSync('git',['add','-A'],{cwd:folder!,env:gitEnv()});
+    spawnSync('git',['commit','--quiet','-m','fixture'],{cwd:folder!,env:{...gitEnv(),GIT_AUTHOR_NAME:'Fixture',GIT_AUTHOR_EMAIL:'fixture@example.com',GIT_COMMITTER_NAME:'Fixture',GIT_COMMITTER_EMAIL:'fixture@example.com'}});
+    const url=await startProduct();
+    // Two measured calls on the claims stage, none on synthesis: the estimate
+    // is the average call time times the stage's units, and a stage without
+    // measurements says its time is pending.
+    const units=fillStatePaths(folder!);mkdirSync(units.units,{recursive:true});
+    writeFileSync(join(units.units,'u1.json'),JSON.stringify({id:'u1',stage:'claims',agentUsage:{elapsedMs:60000}}));
+    writeFileSync(join(units.units,'u2.json'),JSON.stringify({id:'u2',stage:'claims',agentUsage:{elapsedMs:120000}}));
+    const response=await fetch(`${url}/api/fill/inventory`);expect(response.status).toBe(200);
+    const body=await response.json() as {inventory:{estimates:Array<{stage:string;units:number;estimatedMs?:number;measuredCalls?:number}>}};
+    const claims=body.inventory.estimates.find((estimate)=>estimate.stage==='claims');expect(claims).toBeDefined();
+    expect(claims!.measuredCalls).toBe(2);
+    expect(claims!.estimatedMs).toBe(Math.round(((60000+120000)/2)*claims!.units));
+    const synthesis=body.inventory.estimates.find((estimate)=>estimate.stage==='synthesis');
+    expect(synthesis).toBeDefined();expect(synthesis!.measuredCalls).toBeUndefined();expect(synthesis!.estimatedMs).toBeUndefined();
+  });
+
+  test('starting omp from the wiki carries the saved model and refuses without model or extension', async () => {
+    // The start route persists the choice under the user's home; Bun resolves
+    // homedir() once per process, so the test restores the file after.
+    const choicePath=agentSettingsPath(); const choiceExisted=existsSync(choicePath); const choiceBefore=choiceExisted?readFileSync(choicePath,'utf8'):undefined;
+    const hadModel=process.env.MADARCH_FILL_MODEL!==undefined; const modelBefore=process.env.MADARCH_FILL_MODEL;
+    const hadExtension=process.env.MADARCH_OMP_EXTENSION!==undefined; const extensionBefore=process.env.MADARCH_OMP_EXTENSION;
+    try {
+      delete process.env.MADARCH_FILL_MODEL; delete process.env.MADARCH_OMP_EXTENSION;
+      draft(); builtApp();
+      const init=spawnSync('git',['init','--quiet','--initial-branch=main'],{cwd:folder!,env:gitEnv(),encoding:'utf8'});expect(init.status).toBe(0);
+      writeFileSync(join(folder!,'README.md'),'# Example\n');spawnSync('git',['add','-A'],{cwd:folder!,env:gitEnv()});
+      spawnSync('git',['commit','--quiet','-m','fixture'],{cwd:folder!,env:{...gitEnv(),GIT_AUTHOR_NAME:'Fixture',GIT_AUTHOR_EMAIL:'fixture@example.com',GIT_COMMITTER_NAME:'Fixture',GIT_COMMITTER_EMAIL:'fixture@example.com'}});
+      let captured: {agent?:string;model?:string;ompExtension?:string}|undefined;
+      const url=await startProduct({startFill:async (_product,input)=>{captured=input as {agent?:string;model?:string;ompExtension?:string};return {run:{id:'run-omp'},counts:{run:0,reused:0},questionReview:'hook-pending-co2d.1'} as never;}});
+      const noModel=await fetch(`${url}/api/fill/start`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({agent:'omp'})});
+      expect(noModel.status).toBe(400);expect(await noModel.json()).toMatchObject({error:{message:expect.stringContaining('model')}});
+      const noExtension=await fetch(`${url}/api/fill/start`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({agent:'omp',model:'glm-5.3-flash-auto'})});
+      expect(noExtension.status).toBe(400);expect(await noExtension.json()).toMatchObject({error:{message:expect.stringContaining('MADARCH_OMP_EXTENSION')}});
+      process.env.MADARCH_OMP_EXTENSION='/tmp/madarch-omp-extension.mjs';
+      const started=await fetch(`${url}/api/fill/start`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({agent:'omp',model:'glm-5.3-flash-auto'})});
+      expect(started.status).toBe(202);expect(await started.json()).toMatchObject({accepted:true,status:'starting'});
+      await new Promise((resolve)=>setTimeout(resolve,50));
+      expect(captured).toMatchObject({agent:'omp',model:'glm-5.3-flash-auto',ompExtension:'/tmp/madarch-omp-extension.mjs'});
+      // The model asked for in the wizard is saved on the machine and reused.
+      expect(await readChosenModel()).toBe('glm-5.3-flash-auto');
+    } finally {
+      if (hadModel) process.env.MADARCH_FILL_MODEL=modelBefore; else delete process.env.MADARCH_FILL_MODEL;
+      if (hadExtension) process.env.MADARCH_OMP_EXTENSION=extensionBefore; else delete process.env.MADARCH_OMP_EXTENSION;
+      if (choiceExisted && choiceBefore!==undefined) writeFileSync(choicePath, choiceBefore); else if (!choiceExisted) rmSync(choicePath,{force:true});
+    }
+  });
+
+  test('an empty wizard model field falls back to MADARCH_FILL_MODEL and is not saved as the choice', async () => {
+    // The wizard sends the field even when the reader left it empty; the
+    // empty value means the environment's setting, not an empty choice.
+    const choicePath=agentSettingsPath(); const choiceExisted=existsSync(choicePath); const choiceBefore=choiceExisted?readFileSync(choicePath,'utf8'):undefined;
+    const hadModel=process.env.MADARCH_FILL_MODEL!==undefined; const modelBefore=process.env.MADARCH_FILL_MODEL;
+    const hadExtension=process.env.MADARCH_OMP_EXTENSION!==undefined; const extensionBefore=process.env.MADARCH_OMP_EXTENSION;
+    try {
+      process.env.MADARCH_FILL_MODEL='env-model'; process.env.MADARCH_OMP_EXTENSION='/tmp/madarch-omp-extension.mjs';
+      delete process.env.MADARCH_OMP_EXECUTABLE;
+      rmSync(choicePath,{force:true});
+      draft(); builtApp();
+      const init=spawnSync('git',['init','--quiet','--initial-branch=main'],{cwd:folder!,env:gitEnv(),encoding:'utf8'});expect(init.status).toBe(0);
+      writeFileSync(join(folder!,'README.md'),'# Example\n');spawnSync('git',['add','-A'],{cwd:folder!,env:gitEnv()});
+      spawnSync('git',['commit','--quiet','-m','fixture'],{cwd:folder!,env:{...gitEnv(),GIT_AUTHOR_NAME:'Fixture',GIT_AUTHOR_EMAIL:'fixture@example.com',GIT_COMMITTER_NAME:'Fixture',GIT_COMMITTER_EMAIL:'fixture@example.com'}});
+      let captured: {agent?:string;model?:string;ompExtension?:string}|undefined;
+      const url=await startProduct({startFill:async (_product,input)=>{captured=input as {agent?:string;model?:string;ompExtension?:string};return {run:{id:'run-omp'},counts:{run:0,reused:0},questionReview:'hook-pending-co2d.1'} as never;}});
+      const empty=await fetch(`${url}/api/fill/start`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({agent:'omp',model:''})});
+      expect(empty.status).toBe(202);expect(await empty.json()).toMatchObject({accepted:true,status:'starting'});
+      await new Promise((resolve)=>setTimeout(resolve,50));
+      expect(captured).toMatchObject({agent:'omp',model:'env-model',ompExtension:'/tmp/madarch-omp-extension.mjs'});
+      // An empty field does not overwrite the machine's saved choice.
+      expect(await readChosenModel()).toBeUndefined();
+    } finally {
+      if (hadModel) process.env.MADARCH_FILL_MODEL=modelBefore; else delete process.env.MADARCH_FILL_MODEL;
+      if (hadExtension) process.env.MADARCH_OMP_EXTENSION=extensionBefore; else delete process.env.MADARCH_OMP_EXTENSION;
+      if (choiceExisted && choiceBefore!==undefined) writeFileSync(choicePath, choiceBefore); else if (!choiceExisted) rmSync(choicePath,{force:true});
+    }
   });
 
   test('fill inventory scans declared repository checkouts instead of product documents', async () => {
