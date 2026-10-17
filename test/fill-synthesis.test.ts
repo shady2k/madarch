@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { applySynthesisPages, buildCodeMap, codeMapUnitPlan, loadSynthesisPrompt, persistCodeMap, synthesisUnitPlans, synthesizePages, type CodeMap, type SynthesisClaim } from '../src/product/fill-synthesis.js';
+import { applySynthesisPages, buildCodeMap, codeMapUnitPlan, loadSynthesisPrompt, persistCodeMap, synthesisUnitPlans, synthesizePages, CriticRejectionError, type CodeMap, type SynthesizedPage, type SynthesisClaim } from '../src/product/fill-synthesis.js';
 import type { RegistryKind } from '../src/product/contract.js';
 import type { StructuralIndexResult } from '../src/product/fill-index.js';
 import type { ClaimSource } from '../src/product/fill-claims.js';
@@ -166,5 +166,37 @@ describe('fill code map and synthesis', () => {
       const foreign = { ...paraphrased, segments: [{ ...paraphrased.segments[0]!, claimIds: ['claim-absent'] }] };
       await expect(applySynthesisPages({ agentWorktree: agent, sourceCheckout: code, expectedAgentBranch: 'madarch/fill/run-2', pages: [foreign], sources })).rejects.toThrow(/claim-absent/);
     } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  test('a critic that never accepts raises the named bounded rejection with its evidence', async () => {
+    try { await synthesizePages({ overview: { name: 'Overview', folder: 'docs/overview', hint: 'overview' }, kinds: [], codeMap: buildCodeMap(index, sources), claims, sources,
+      generate: async () => ({ title: 'T', body: 'x', claims: [claims[0]!], segments: [{ text: 'Orders are validated before payment.', sourceIds: ['src-code'], layer: 'fact' as const }] }),
+      critique: () => ({ findings: ['no'] }) });
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(CriticRejectionError);
+      const rejection = error as CriticRejectionError;
+      expect(rejection.message).toBe('Critic did not accept Overview page after 3 bounded passes: no');
+      expect(rejection.target).toBe('Overview');
+      expect(rejection.passes).toBe(3);
+      expect(rejection.findings).toEqual(['no']);
+    }
+  });
+  test('accepted pages are reused first, without generate or critic calls, in target order', async () => {
+    const overview = await synthesizePages({ overview: { name: 'Overview', folder: 'docs/overview', hint: 'overview' }, kinds: [], codeMap: buildCodeMap(index, sources), claims, sources,
+      generate: async () => ({ title: 'Overview', body: 'x', claims: [claims[0]!], segments: [{ text: 'Orders are validated before payment.', sourceIds: ['src-code'], layer: 'fact' as const }] }),
+      critique: () => ({ findings: [] }) }).then((pages) => pages[0]!);
+    const generateSeen: string[] = [];
+    const journal: { key: string }[] = [];
+    const pages = await synthesizePages({ overview: { name: 'Overview', folder: 'docs/overview', hint: 'overview' }, kinds: [kinds[0]!], codeMap: buildCodeMap(index, sources), claims, sources,
+      acceptedPages: [{ key: 'docs/overview\u0000Overview', page: overview }],
+      onAccepted: (row) => { journal.push(row); },
+      generate: async ({ target }) => { generateSeen.push(target.name); const assumption = claims[1]!; return { title: target.name, body: assumption.text, claims: [assumption], segments: [{ text: assumption.text, sourceIds: ['src-doc'], layer: 'assumed-meaning' as const }] }; },
+      critique: () => ({ findings: [] }) });
+    expect(generateSeen).toEqual(['Components']);
+    expect(pages.map((page) => page.kind)).toEqual(['Overview', 'Components']);
+    expect(pages[0]!.title).toBe('Overview');
+    expect(journal).toHaveLength(1);
+    expect(journal[0]!.key).toBe('docs/components\u0000Components');
   });
 });

@@ -5,6 +5,8 @@
  * else is invented.
  */
 export function parseCriticAnswer(answer: unknown): { ok: true; value: { findings: string[] } } | { ok: false; errors: string[] } {
+  // A bare findings array is unambiguous: a top-level array is the findings list.
+  if (Array.isArray(answer)) answer = { findings: answer };
   if (!isRecord(answer)) return { ok: false, errors: ['Agent answer must be a JSON object'] };
   const raw = typeof answer.finding === 'string' ? [answer.finding] : Array.isArray(answer.findings) ? answer.findings : undefined;
   const errors: string[] = [];

@@ -190,8 +190,9 @@ export async function synthesizeRegistryPage(input: {
   for (let revision = 0; revision <= maxRevisions; revision++) {
     passes++;
     const generated = await input.generate({ target: input.target, codeMap: input.codeMap, claims: candidates, priorDraft: draft, criticFindings: findings, pass: passes });
-    // The page body is rebuilt from the segments; an empty body is only fatal with none.
-    if (!generated.title.trim() || (!generated.body.trim() && generated.segments.length === 0)) throw new Error(`Generator returned an empty ${input.target.name} page`);
+    // The page body is rebuilt from the segments; an empty body is only fatal when no question can fill it.
+    const bodyFallback = questionForEmpty !== undefined || (input.questions ?? []).some((question) => question.kind === input.target.name);
+    if (!generated.title.trim() || (!generated.body.trim() && generated.segments.length === 0 && !bodyFallback)) throw new Error(`Generator returned an empty ${input.target.name} page`);
     if (!Array.isArray(generated.segments) || (generated.segments.length === 0 && (generated.claims.length > 0 || !questionForEmpty))) throw new Error(`Generator returned no source-backed prose segments for ${input.target.name}`);
     const selected = generated.claims;
     validateClaimSources(selected, input.sources);
@@ -215,22 +216,54 @@ export async function synthesizeRegistryPage(input: {
     draft = `${page.title}\n\n${page.body}`;
     if (findings.length === 0) return { ...page, critic: { passes, findings } };
   }
-  throw new Error(`Critic did not accept ${input.target.name} page after ${passes} bounded passes: ${findings.join('; ')}`);
+  throw new CriticRejectionError(input.target.name, passes, findings);
+}
+
+/** A bounded critic loop that never accepted the page: a named unit outcome the caller records, not a crash past the unit. */
+export class CriticRejectionError extends Error {
+  readonly target: string;
+  readonly passes: number;
+  readonly findings: string[];
+  constructor(target: string, passes: number, findings: string[]) {
+    super(`Critic did not accept ${target} page after ${passes} bounded passes: ${findings.join('; ')}`);
+    this.name = 'CriticRejectionError';
+    this.target = target;
+    this.passes = passes;
+    this.findings = findings;
+  }
 }
 
 /** A generated overview uses registry-backed claims only, with no engine kind assumptions. */
 export async function synthesizePages(input: {
   overview: SynthesisTarget; kinds: readonly RegistryKind[]; codeMap: CodeMap; claims: readonly SynthesisClaim[]; sources: readonly ClaimSource[];
   generate: PageGenerator; critique: Critic; maxRevisions?: number; questions?: readonly ClaimQuestion[]; missingQuestion?: (target: SynthesisTarget) => ClaimQuestion;
+  /** Pages a previous attempt of the same stage already had accepted by the critic: reused without new calls. */
+  acceptedPages?: readonly { key: string; page: SynthesizedPage }[];
+  /** Called for every freshly accepted page, exactly when the critic accepts it. */
+  onAccepted?: (accepted: { key: string; page: SynthesizedPage }) => void | Promise<void>;
 }): Promise<SynthesizedPage[]> {
   const pages: SynthesizedPage[] = [];
-  pages.push(await synthesizeRegistryPage({ ...input, target: { ...input.overview, allClaims: true }, missingQuestion: undefined }));
+  const keyOf = (target: SynthesisTarget): string => `${target.folder}\u0000${target.name}`;
+  const acceptedBy = new Map((input.acceptedPages ?? []).map((row) => [row.key, row.page]));
+  const accept = async (target: SynthesisTarget, page: SynthesizedPage, reused: boolean): Promise<void> => {
+    pages.push(page);
+    const key = keyOf(target);
+    // The hook fires only for freshly accepted pages: a reused one was already journaled.
+    if (!reused && input.onAccepted) await input.onAccepted({ key, page });
+  };
+  const overviewTarget = { ...input.overview, allClaims: true };
+  if (acceptedBy.has(keyOf(overviewTarget))) await accept(overviewTarget, acceptedBy.get(keyOf(overviewTarget))!, true);
+  else await accept(input.overview, await synthesizeRegistryPage({ ...input, target: overviewTarget, missingQuestion: undefined }), false);
   for (const kind of input.kinds) {
     if (kind.name === input.overview.name) continue;
-    pages.push(await synthesizeRegistryPage({ ...input, target: { name: kind.name, folder: kind.folder, hint: kind.hint, registryKind: kind }, missingQuestion: input.missingQuestion ?? ((target) => ({ id: `q-${sha(target.name + target.hint).slice(0, 24)}`, type: 'unverifiable', kind: target.name, reason: `No supported entity was found. Registry hint: ${target.hint}`, dependsOn: [], rank: 0 })) }));
+    const target = { name: kind.name, folder: kind.folder, hint: kind.hint, registryKind: kind };
+    const missing = input.missingQuestion ?? ((target) => ({ id: `q-${sha(target.name + target.hint).slice(0, 24)}`, type: 'unverifiable', kind: target.name, reason: `No supported entity was found. Registry hint: ${target.hint}`, dependsOn: [], rank: 0 }));
+    if (acceptedBy.has(keyOf(target))) await accept(target, acceptedBy.get(keyOf(target))!, true);
+    else await accept({ name: target.name, folder: target.folder, hint: target.hint, registryKind: target.registryKind }, await synthesizeRegistryPage({ ...input, target, missingQuestion: input.missingQuestion ?? missing }), false);
   }
   return pages;
 }
+
 
 /** Apply a proposal and its source cards only to the named agent worktree on its fill branch. */
 export async function applySynthesisPages(input: { agentWorktree: string; sourceCheckout: string; expectedAgentBranch: string; pages: readonly SynthesizedPage[]; sources: readonly ClaimSource[] }): Promise<string[]> {
