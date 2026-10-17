@@ -384,6 +384,7 @@ main tbody tr:nth-child(odd) {
 }
 
 .home-group {
+  margin-block-end: 1.5rem;
   padding: 14px 16px 12px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
@@ -460,6 +461,14 @@ main tbody tr:nth-child(odd) {
   display: flex;
   flex-wrap: wrap;
   gap: 0 0.35em;
+  align-items: baseline;
+}
+
+.home-repository-part + .home-repository-part::before {
+  content: '·';
+  display: inline-block;
+  margin-inline-end: 0.35em;
+  color: var(--text-muted);
 }
 
 .home-repository-part {
@@ -469,14 +478,15 @@ main tbody tr:nth-child(odd) {
   text-overflow: ellipsis;
 }
 
+.home-repository-row > .home-repository-part:first-child {
+  flex: 0 1 auto;
+  overflow: visible;
+  text-overflow: clip;
+}
+
 .home-repository-name {
-  display: inline-block;
-  max-inline-size: min(14em, 100%);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: inline;
   overflow-wrap: normal;
-  vertical-align: bottom;
 }
 
 /* The SDLC stages view: the missing lines are quiet, the tasks read like the

@@ -31,14 +31,16 @@ function scratch(): string {
 }
 
 /** Writes a manifest declaring the given repositories, the way `repo add` leaves it. */
-function manifest(repos: { name: string; url: string; branch?: string }[]): string {
+function manifest(repos: { name: string; url: string; branch?: string; linked?: boolean; moved?: boolean }[]): string {
   const product = scratch();
   const lines = ['schemaVersion: 1', 'id: repos-demo', 'name: Repos Demo'];
   if (repos.length > 0) {
     lines.push('repos:');
     for (const repo of repos) {
       lines.push(`  - name: ${repo.name}`);
-      lines.push(`    url: ${repo.url}`);
+      if (repo.url) lines.push(`    url: ${repo.url}`);
+      if (repo.linked) lines.push('    linked: true');
+      if (repo.moved) lines.push('    moved: true');
       if (repo.branch !== undefined) lines.push(`    branch: ${repo.branch}`);
     }
   }
@@ -87,8 +89,8 @@ describe('the repositories a manifest declares', () => {
     ]);
     const answer = reposOf(product);
     expect(answer.repos).toEqual([
-      { name: 'core', path: 'repos/core', url: 'https://example.com/core.git', state: 'not-checked-out' },
-      { name: 'web', path: 'repos/web', url: 'https://example.com/web.git', branch: 'main', state: 'not-checked-out' },
+      { name: 'core', path: 'repos/core', url: 'https://example.com/core.git', state: 'missing' },
+      { name: 'web', path: 'repos/web', url: 'https://example.com/web.git', branch: 'main', state: 'missing' },
     ]);
   });
 
@@ -99,7 +101,7 @@ describe('the repositories a manifest declares', () => {
     expect(answer.repos).toHaveLength(1);
     const row = answer.repos[0]!;
     expect(row.name).toBe('core');
-    expect(row.state).toBe('checked-out');
+    expect(row.state).toBe('cloned');
     expect(row.head?.subject).toBe('Make the core');
     expect(row.head?.committedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     const own = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: target, encoding: 'utf8', env: gitEnv() });
@@ -124,7 +126,7 @@ describe('the repositories a manifest declares', () => {
     checkout(product, 'core', 'Make the core', { 'main.ts': 'export const core = 1;\n' });
     const answer = reposOf(product);
     const row = answer.repos[0]!;
-    expect(row.state).toBe('checked-out');
+    expect(row.state).toBe('cloned');
     expect(row.head?.subject).toBe('Make the core');
     expect(row.readme).toBeUndefined();
   });
@@ -134,7 +136,7 @@ describe('the repositories a manifest declares', () => {
     const source = checkout(scratch(), 'source', 'Linked core', { 'README.md': '# Linked core', 'src.ts': 'export {}' });
     mkdirSync(join(product, 'repos'), { recursive: true }); symlinkSync(source, join(product, 'repos', 'core'), 'dir');
     const answer = reposOf(product);
-    expect(answer.repos[0]).toMatchObject({ name: 'core', path: 'repos/core', state: 'checked-out', readme: { markdown: '# Linked core' }, files: ['README.md', 'src.ts'] });
+    expect(answer.repos[0]).toMatchObject({ name: 'core', path: 'repos/core', state: 'linked', readme: { markdown: '# Linked core' }, files: ['README.md', 'src.ts'] });
   });
 
   test('a declared name taken by a file, a symlink and a folder with no repository of its own are unreadable, causes named', () => {
@@ -174,7 +176,7 @@ describe('the repositories a manifest declares', () => {
     expect(run.status).toBe(0);
     const answer = reposOf(product);
     const row = answer.repos[0]!;
-    expect(row.state).toBe('checked-out');
+    expect(row.state).toBe('cloned');
     expect(row.head).toBeUndefined();
     expect(row.problem).toContain('no commit yet');
     expect(row.readme?.markdown).toBe('# fresh\n');
@@ -238,7 +240,7 @@ describe('the repositories a manifest declares', () => {
     const read = readProduct(product);
     if (!read.ok) throw new Error(read.message);
     const answer = readProductRepos(read.product, leaking);
-    expect(answer.repos[0]?.state).toBe('checked-out');
+    expect(answer.repos[0]?.state).toBe('cloned');
     expect(answer.repos[0]?.head?.subject).toBe('Make the core');
   });
 
@@ -249,7 +251,7 @@ describe('the repositories a manifest declares', () => {
     // repository above it is never the answer, whatever folder names a
     // repository of its own around the product.
     const answer = reposOf(product);
-    expect(answer.repos[0]?.state).toBe('checked-out');
+    expect(answer.repos[0]?.state).toBe('cloned');
   });
 
   test('a README that is a folder is not read; a README that cannot be opened is a problem named on a checked-out row', () => {
@@ -257,7 +259,7 @@ describe('the repositories a manifest declares', () => {
     const target = checkout(product, 'core', 'Make the core', { 'main.ts': 'export const core = 1;\n' });
     mkdirSync(join(target, 'README.md'), { recursive: true }); // a folder of the README's name is no README
     const first = reposOf(product);
-    expect(first.repos[0]?.state).toBe('checked-out');
+    expect(first.repos[0]?.state).toBe('cloned');
     expect(first.repos[0]?.readme).toBeUndefined();
     expect(first.repos[0]?.problem).toBeUndefined();
   });
@@ -269,7 +271,7 @@ describe('the repositories a manifest declares', () => {
     try {
       const answer = reposOf(product);
       const row = answer.repos[0]!;
-      expect(row.state).toBe('checked-out');
+      expect(row.state).toBe('cloned');
       expect(row.head?.subject).toBe('Make the core');
       expect(row.problem).toContain('README');
       expect(row.problem).toContain(join(product, 'repos', 'core'));
@@ -283,7 +285,7 @@ describe('the repositories a manifest declares', () => {
     checkout(product, 'core', 'Make the core');
     const answer = reposOf(product);
     expect(answer.repos[0]?.branch).toBe('develop');
-    expect(answer.repos[0]?.state).toBe('checked-out');
+    expect(answer.repos[0]?.state).toBe('cloned');
   });
 
   test('a plain folder named by the manifest inside a product that is itself a repository answers the product, so it is unreadable', () => {
@@ -307,7 +309,7 @@ describe('the repositories a manifest declares', () => {
     writeFileSync(join(product, 'repos'), 'not a folder\n');
     symlinkSync(product, join(product, 'link')); // never reached: lstat(repos/link) throws first
     const answer = reposOf(product);
-    expect(answer.repos[0]?.state).toBe('not-checked-out');
+    expect(answer.repos[0]?.state).toBe('missing');
     expect('state' in (answer.repos[1] as object)).toBe(true);
   });
 
@@ -330,7 +332,7 @@ describe('the repositories a manifest declares', () => {
     try {
       const answer = reposOf(product);
       const row = answer.repos[0]!;
-      expect(row.state).toBe('checked-out');
+      expect(row.state).toBe('cloned');
       expect(row.head).toBeUndefined();
       expect(row.problem).toContain('no commit yet');
       expect('readme' in (row as object)).toBe(false);
@@ -345,9 +347,27 @@ describe('the repositories a manifest declares', () => {
     // A git call run in a folder with no repository of its own answers for
     // the one above it; the checkout's own rev-parse must answer itself.
     const answer = reposOf(product);
-    expect(answer.repos[0]?.state).toBe('checked-out');
+    expect(answer.repos[0]?.state).toBe('cloned');
     const inside = join(product, 'repos', 'core');
     const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: inside, encoding: 'utf8', env: gitEnv() }).stdout.trim();
     expect(top).toBe(inside);
   });
+  test('a linked symlink reports linked', () => {
+    const product = manifest([{ name: 'core', url: 'https://example.com/core.git', linked: true }]);
+    const outside = checkout(product, 'outside', 'Linked checkout');
+    const target = join(product, 'repos', 'core');
+    symlinkSync(outside, target, 'dir');
+    const answer = reposOf(product);
+    expect(answer.repos[0]?.state).toBe('linked');
+  });
+
+  test('a moved checkout reports moved, distinct from a cloned checkout', () => {
+    const product = manifest([{ name: 'core', url: 'https://example.com/core.git', moved: true }]);
+    checkout(product, 'core', 'Moved checkout');
+    expect(reposOf(product).repos[0]?.state).toBe('moved');
+    const cloned = manifest([{ name: 'core', url: 'https://example.com/core.git' }]);
+    checkout(cloned, 'core', 'Cloned checkout');
+    expect(reposOf(cloned).repos[0]?.state).toBe('cloned');
+  });
+
 });

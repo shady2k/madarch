@@ -58,12 +58,12 @@ MADARCH="$PREFIX/bin/madarch"
 madarch() { "$MADARCH" "$@"; }
 export GIT_AUTHOR_NAME='Madarch Homebrew Walk' GIT_AUTHOR_EMAIL='walk@example.invalid' GIT_COMMITTER_NAME='Madarch Homebrew Walk' GIT_COMMITTER_EMAIL='walk@example.invalid'
 export HOME="$TMP/home"; mkdir -p "$HOME"
-madarch new --home "$HOME/products" --port "$PORT" --no-open > "$TMP/new.txt" 2>&1 & PID=$!
+madarch new --json --home "$HOME/products" --port "$PORT" --no-open > "$TMP/new.txt" 2>&1 & PID=$!
 SERVED=0
 for n in $(seq 1 200); do if curl -fsS "http://127.0.0.1:$PORT/api/product" | grep -q '"id"'; then SERVED=1; break; fi; sleep .1; done
 [ "$SERVED" -eq 1 ] || { cat "$TMP/new.txt"; echo 'Homebrew madarch new did not serve the graph-backed product' >&2; exit 1; }
 cat "$TMP/new.txt"
-PRODUCT=$(sed -n 's/^folder: //p' "$TMP/new.txt" | head -1)
+PRODUCT=$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read().splitlines()[0])["folder"])' < "$TMP/new.txt")
 kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; PID=
 PORT=$((PORT + 1))
 madarch serve --product "$PRODUCT" --port "$PORT" --no-open > "$TMP/serve.txt" 2>&1 & PID=$!

@@ -300,7 +300,7 @@ function writeFileAtomically(file: string, content: string): void {
  * changes — happens before anything is written, and a step that fails
  * afterwards puts the manifest back byte for byte.
  */
-export function addCodeRepository(options: { folder?: string; name?: string; url?: string; branch?: string; linked?: boolean; gitEnv?: GitEnv } = {}): RepoEntryResult {
+export function addCodeRepository(options: { folder?: string; name?: string; url?: string; branch?: string; linked?: boolean; moved?: boolean; gitEnv?: GitEnv } = {}): RepoEntryResult {
   const name = options.name;
   const read = readFor(options.folder);
   if (!read.ok) return { outcome: 'refused', message: read.message, file: read.file, line: read.line };
@@ -351,7 +351,7 @@ export function addCodeRepository(options: { folder?: string; name?: string; url
   const manifest = readFileSync(manifestFile, 'utf8');
   let manifestInstalled = false;
   try {
-    writeFileAtomically(manifestFile, manifestWithRepo(manifest, { name: repoName, ...(wanted === undefined ? {} : { url: wanted }), ...(options.linked ? { linked: true } : {}), branch: wantedBranch }));
+    writeFileAtomically(manifestFile, manifestWithRepo(manifest, { name: repoName, ...(wanted === undefined ? {} : { url: wanted }), ...(options.linked ? { linked: true } : {}), ...(options.moved ? { moved: true } : {}), branch: wantedBranch }));
     manifestInstalled = true;
     const add = runGit(folder, ['add', '--', MANIFEST_FILE], options.gitEnv);
     if (!add.ok) throw new Error(`git add failed in ${folder}: ${add.output}`);
@@ -381,7 +381,7 @@ export function addCodeRepository(options: { folder?: string; name?: string; url
       ...(keepConnection ? { keepConnection: true } : {}),
     };
   }
-  return { outcome: 'entered', folder, name: repoName, ...(wanted === undefined ? {} : { url: wanted }), ...(options.linked ? { linked: true } : {}), branch: wantedBranch };
+  return { outcome: 'entered', folder, name: repoName, ...(wanted === undefined ? {} : { url: wanted }), ...(options.linked ? { linked: true } : {}), ...(options.moved ? { moved: true } : {}), branch: wantedBranch };
 }
 
 /**
@@ -762,7 +762,7 @@ export function repoAddLife(options: {
     return failed1([`folder: ${place.folder}`], `${mode} failed for ${sourceLabel} at ${target}: ${(error as Error).message}${alternative}`);
   }
 
-  const entered = addCodeRepository({ folder: place.folder, name, url, ...(mode === 'link' ? { linked: true } : {}), ...(branch === undefined ? {} : { branch }) });
+  const entered = addCodeRepository({ folder: place.folder, name, url, ...(mode === 'link' ? { linked: true } : {}), ...(mode === 'move' ? { moved: true } : {}), ...(branch === undefined ? {} : { branch }) });
   if (entered.outcome !== 'entered') {
     const sourceLabel = mode === 'clone' ? url! : sourceRoot ?? url ?? 'the local checkout';
     const operation = `${mode} from ${sourceLabel} for ${url} at ${target}`;
