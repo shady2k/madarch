@@ -101,10 +101,22 @@ runDescribe('wiki reader chrome (built app and Chromium)', () => {
     await page.goto(`${server!.url}/`, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('[data-testid="fill-wizard"]');
     await page.screenshot({ path: process.env.MADARCH_WIKI_SCREENSHOT ?? join(tmpdir(), `madarch-fill-wizard-${LANGUAGE}-${process.env.MADARCH_WIKI_WIDTH ?? 1150}.png`), fullPage: true });
-    await page.evaluate(() => { const button=[...document.querySelectorAll('.fill-wizard button')].find(item => /inventory|инвентаризац/i.test(item.textContent ?? '')); if (!button) throw new Error('Inventory button is missing'); (button as HTMLButtonElement).click(); });
-    await page.waitForResponse(response => response.url().includes('/api/fill/inventory'), { timeout: 15000 });
-    await new Promise(resolve => setTimeout(resolve, 500));
-    await page.screenshot({ path: process.env.MADARCH_WIZARD_INVENTORY_SCREENSHOT ?? join(tmpdir(), `madarch-fill-wizard-inventory-${LANGUAGE}-${process.env.MADARCH_WIKI_WIDTH ?? 1150}.png`), fullPage: true });
+    const heading = (): string => document.querySelector('.wizard-step h2')?.textContent ?? '';
+    const advance = async (): Promise<void> => { const before=await page.evaluate(heading); await page.evaluate(() => { const next=[...document.querySelectorAll('.wizard-actions button')].find(item => /continue|продолжить/i.test(item.textContent ?? '')); if (!next) throw new Error('Continue button is missing'); (next as HTMLButtonElement).click(); }); await page.waitForFunction((previous:string)=>(document.querySelector('.wizard-step h2')?.textContent??'')!==previous,{timeout:5000},before); };
+    const screenshot = async (key: string): Promise<void> => { const envKey=key==='what'?'MADARCH_WIKI_SCREENSHOT':`MADARCH_WIZARD_${key.toUpperCase()}_SCREENSHOT`; await page.screenshot({path:process.env[envKey] ?? join(tmpdir(),`madarch-fill-wizard-${key}-${LANGUAGE}-${process.env.MADARCH_WIKI_WIDTH ?? 1150}.png`),fullPage:true}); };
+    await screenshot('what');
+    await advance();
+    await screenshot('agent');
+    await page.waitForFunction(() => document.querySelectorAll('input[name="fill-agent"]').length > 0, { timeout: 15000 });
+    const preselected = await page.evaluate(() => document.querySelector('input[name="fill-agent"]:checked'));
+    if (preselected) throw new Error('an agent is preselected on first open');
+    await page.evaluate(() => { const radio=document.querySelector('input[name="fill-agent"]:not(:disabled)') as HTMLInputElement|null; radio?.click(); });
+    await advance();
+    await page.evaluate(() => { const run=[...document.querySelectorAll('.wizard-step button')].find(item => /run inventory|инвентаризац/i.test(item.textContent ?? '')); if (!run) throw new Error('Run inventory button is missing'); (run as HTMLButtonElement).click(); });
+    await page.waitForFunction(() => document.querySelector('.wizard-estimates') !== null, { timeout: 15000 });
+    await screenshot('inventory');
+    await advance();
+    await screenshot('start');
   }, 30000);
 
   test('first-run overview cards render at the expected top padding and repository names stay intact', async () => {
