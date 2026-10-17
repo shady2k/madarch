@@ -183,13 +183,31 @@ describe('the server\'s product mode', () => {
     expect(JSON.parse(readFileSync(join(folder!, '.madarch', 'fill', 'run.json'), 'utf8'))).toMatchObject({ status: 'stopped', controlOpen: false });
   });
 
+  test('GET /api/product and GET /api/page include registry-driven next steps', async () => {
+    draft();
+    writeFileSync(join(folder!, 'docs', 'kinds.yaml'), [
+      'contract: 1', 'stages:', '  - id: explore', 'kinds:',
+      '  - name: Product vision', '    prefix: V', '    folder: docs/vision.md', '    stage: explore', '    hint: Review the product vision',
+      '  - name: Product requirements', '    prefix: FR', '    folder: docs/requirements', '    stage: explore', '    hint: Write a requirement',
+    ].join('\n') + '\n');
+    builtApp();
+    const url = await startProduct();
+    const home = await (await fetch(`${url}/api/product`)).json() as { recommendation?: { action: string; reason: string; target: string; rule: string; kindName?: string } };
+    expect(home.recommendation).toEqual({ action: 'Add Product requirements', reason: 'The registry requires a page of Product requirements, but none is present.', target: 'docs/requirements', rule: 'fill-required', kindName: 'Product requirements' });
+    const page = await (await fetch(`${url}/api/page?path=docs%2Fvision.md`)).json() as { recommendation?: { action: string; reason: string; target: string; rule: string; kindName?: string } };
+    expect(page.recommendation).toEqual({ action: 'Add Product requirements', reason: 'The registry requires a page of Product requirements, but none is present.', target: 'docs/requirements', rule: 'fill-required', kindName: 'Product requirements' });
+  });
+
   test('GET /api/product names the product\'s id and name and its folder', async () => {
     draft();
     builtApp();
     const url = await startProduct();
     const answer = await fetch(`${url}/api/product`);
     expect(answer.status).toBe(200);
-    expect(await answer.json()).toEqual({ id: 'demo', name: 'Demo', folder: basename(folder!) });
+    expect(await answer.json()).toEqual({
+      id: 'demo', name: 'Demo', folder: basename(folder!),
+      recommendation: { action: 'Review this page and its sources', reason: 'Check whether this page still reflects the product.', target: 'docs/vision.md', rule: 'inspect-update' },
+    });
   });
 
   test('GET /api/product does not disclose audience content through an outside symlink', async () => {
@@ -262,6 +280,7 @@ describe('the server\'s product mode', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       id: 'demo', name: 'Demo', folder: basename(folder!),
+      recommendation: { action: 'Review this page and its sources', reason: 'Check whether this page still reflects the product.', target: 'docs/milestone.md', rule: 'inspect-update' },
       audience: 'Small product teams.',
       overview: {
         audience: 'Small product teams.',
