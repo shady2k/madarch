@@ -307,8 +307,7 @@ describe('madarch new', () => {
   test('no-argument help describes a product folder and a temporary Git checkout', () => {
     const base = scratchFolder('madarch-context-');
     const home = join(base, 'home');
-    const draft = createDraft({ home });
-    if (draft.outcome !== 'created') throw new Error('expected fixture product creation');
+    const draft = madeDraft(home);
     const productHelp = runCommand([], {}, draft.folder);
     expect(productHelp.status).toBe(0); expect(productHelp.stdout).toContain(`This is the product ${draft.name}.`);
     expect(productHelp.stdout).toContain('Open its wiki: madarch serve');
