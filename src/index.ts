@@ -133,3 +133,5 @@ export {
   type RepoReadme,
   type RepoState,
 } from './product-wiki/repos.js';
+
+export { anchoredFactsFromIndex, assembleClaims, createClaimSources, createEmptyClaimsExtraction, loadClaimsPrompt, parseFillKinds, persistClaimsOutput, persistTrainingScore, readPinnedGitHistory, readPinnedGitMaterial, recordUnattemptedLinks, renderClaimMarkdown, scoreTrainingExtraction, type AnchoredCodeFact, type IndexedEvidence, type IndexedEvidenceClassifier, type ClaimQuestion, type ClaimSource, type ClaimsExtraction, type ClaimLayer, type ClaimVerification, type ExtractionMaterial, type ExtractedClaim, type TrainingScore } from './product/fill-claims.js';
