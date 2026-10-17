@@ -32,6 +32,7 @@ import {
 } from './lifecycle.js';
 import { readProduct } from './manifest.js';
 import { runGit } from './git.js';
+import { startFill, type StartFillOptions } from './fill.js';
 
 /** The compact command list shown after context-aware first-run guidance. */
 export const SHORT_HELP = [
@@ -50,6 +51,7 @@ export const SHORT_HELP = [
   '  clone     Clone a product',
   "  bootstrap Clone a product's code repositories",
   '  demo      Open the Madarch demo wiki',
+  '  fill      Fill this product wiki from its connected code repositories',
   '',
   'Other:',
   '  version   Show the version',
@@ -101,6 +103,7 @@ export const USAGE = [
   '   or: madarch repo add <name> <url> [--source <path>] [--mode <link|move|clone>] [--branch <b>] [--product <folder>]',
   '   or: madarch bootstrap [--product <folder>]',
   '   or: madarch clone <url> [--home <folder>]',
+  '   or: madarch fill [--agent claude|codex] [--max-units N] [--json]',
   '   or: madarch version',
   '   or: madarch upgrade [--yes]',
 ].join('\n');
@@ -473,6 +476,7 @@ async function askRepoMode(): Promise<RepoConnectMode> {
 }
 
 export async function main(args: readonly string[], deps: CliDeps = {}): Promise<number> {
+  if (args[0] === 'fill') return fillCommand(args.slice(1));
   if (args.length === 1 && (args[0] === '--version' || args[0] === '-v')) return versionCommand();
   if (args.length === 0 || args[0] === 'help' || args[0] === '--help' || args[0] === '-h') {
     console.log(args.length === 0 ? `${whereHelp()}\n\n${SHORT_HELP}` : SHORT_HELP);
@@ -565,6 +569,15 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
   else console.log(`✓ Created the product "${draft.name}" in ${displayPath(draft.folder)}`);
   if (!parsed.json) nextSteps(draft.folder, false);
   return serve(serveOptions(parsed, deps), draft.folder);
+}
+
+async function fillCommand(args: readonly string[]): Promise<number> {
+  let agent: StartFillOptions['agent'] = 'claude'; let maxUnits = 60; let json = false; const seen = new Set<string>();
+  for (let i=0;i<args.length;i++) { const arg=args[i]!; if (arg==='--json') { json=true; continue; } if (arg==='--help'||arg==='-h') { console.log('usage: madarch fill [--agent claude|codex] [--max-units N] [--json]'); return 0; }
+    if (arg!=='--agent'&&arg!=='--max-units') { console.error(`unknown fill option ${JSON.stringify(arg)}`); return 2; } if(seen.has(arg)){console.error(`repeated fill option ${arg}`);return 2;} seen.add(arg); const value=args[++i]; if(!value||value.startsWith('--')){console.error(`${arg} needs a value`);return 2;}
+    if(arg==='--agent'){if(value!=='claude'&&value!=='codex'){console.error('--agent must be claude or codex');return 2;}agent=value;} else {maxUnits=Number(value);if(!Number.isInteger(maxUnits)||maxUnits<1){console.error('--max-units must be a positive whole number');return 2;}}
+  }
+  try { const result=await startFill(process.cwd(),{agent,maxUnits}); if(json) console.log(JSON.stringify(result)); else { console.log(`Fill ${result.run.id}: ${result.run.status}`); console.log(`Units reused: ${result.counts.reused}; run: ${result.counts.run}`); console.log(`Branch: ${result.run.agentBranch}`); console.log(`Watch progress in the wiki with: madarch serve`); console.log('Next: review the proposed pages and their sources.'); } return 0; } catch(error) { console.error((error as Error).message); return 1; }
 }
 
 function displayPath(folder: string): string {

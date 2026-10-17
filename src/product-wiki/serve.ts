@@ -28,6 +28,7 @@ import { startServer, type StartedServer } from '../server/http.js';
 import { readProduct } from '../product/manifest.js';
 import { isExistingDirectoryWithoutManifest } from './manifestless.js';
 import { ensureBuilt, type AppBuildOptions } from './app.js';
+import { startFill } from '../product/fill.js';
 
 /** The port the command serves on when none is named; the model server's own default. */
 const DEFAULT_PORT = 4180;
@@ -143,7 +144,7 @@ export async function serveWiki(options: ServeOptions = {}): Promise<ServeResult
   const port = options.port ?? DEFAULT_PORT;
   let server: StartedServer;
   try {
-    server = await startServer({ productFolder: folder, appFolder: built.dist, port, host: options.host ?? '127.0.0.1', allowNoManifest: noManifest });
+    server = await startServer({ productFolder: folder, appFolder: built.dist, port, host: options.host ?? '127.0.0.1', allowNoManifest: noManifest, startFill });
   } catch (error) {
     const message = (error as Error).message;
     // Bun's thrown error carries the POSIX code ("EADDRINUSE") rather than the
