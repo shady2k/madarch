@@ -267,5 +267,28 @@
     "resolve": "Resolve",
     "openPanel": "Open discussions",
     "closePanel": "Close discussions"
+  },
+  "fill": {
+    "title": "Fill progress",
+    "idle": "No fill run is active.",
+    "running": "running",
+    "waiting": "Waiting for agent activity…",
+    "pause": "Pause",
+    "stop": "Stop",
+    "status": {
+      "running": "Running",
+      "paused": "Paused",
+      "stopped": "Stopped",
+      "complete": "Complete",
+      "blocked": "Blocked"
+    },
+    "stages": {
+      "inventory": "Inventory",
+      "index": "Structural index",
+      "claims": "Claims",
+      "code-map": "Code map",
+      "synthesis": "Synthesis",
+      "question-review": "Question review"
+    }
   }
 }

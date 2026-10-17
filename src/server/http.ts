@@ -332,6 +332,8 @@ export function createHandler(dependencies: {
       { method: 'GET', path: '/api/stages', handle: () => wiki.stages() },
       { method: 'GET', path: '/api/registry', handle: () => wiki.registry() },
       { method: 'GET', path: '/api/events', handle: wiki.events },
+      { method: 'GET', path: '/api/fill', handle: () => wiki.fill() },
+      { method: 'POST', path: '/api/fill/control', handle: (request) => { const url = new URL(request.url); const action = url.searchParams.get('action'); if (action !== 'pause' && action !== 'stop') return refused(400, { message: 'fill action must be exactly pause or stop' }); return serializeState(() => wiki.fillControl(request, url.searchParams.get('runId') ?? '', action)); } },
       { method: 'GET', path: '/api/architecture', handle: () => wiki.architecture() },
       { method: 'GET', path: '/api/architecture/likec4.js', handle: () => wiki.likec4Script() },
       ...(wiki.reposDeclared ? ([{ method: 'GET', path: '/api/repos', handle: () => wiki.repos() }] as Route[]) : []),

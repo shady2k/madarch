@@ -1125,3 +1125,16 @@ main section h2 {
   .discussion-composer { position: fixed; z-index: 21; inset: auto 1rem 1rem; width: auto; max-height: 45vh; }
 }
 @media (min-width: 901px) { .discussion-actions { position: fixed; inset-block-start: calc(30vh - 3rem); inset-inline-end: 1rem; width: min(18rem, 24vw); display: flex; gap: .5rem; } }
+
+.fill-progress { display: none; }
+@media (min-width: 701px) { .fill-progress { display: block; width: 280px; flex: 0 0 280px; overflow-y: auto; border-inline-start: 1px solid var(--border); padding: 1rem; background: var(--surface-soft); } }
+.fill-progress h2 { font-size: 1rem; font-weight: 600; }
+.fill-stages { list-style: none; padding: 0; display: grid; gap: .65rem; }
+.fill-stages li { display: grid; gap: .15rem; }
+.fill-stages small { color: var(--text-muted); }
+.fill-activity { padding: .65rem; border-radius: .5rem; background: var(--surface); }
+.fill-controls { display: flex; gap: .5rem; }
+.fill-controls button { border: 1px solid var(--border); border-radius: .4rem; padding: .4rem .7rem; }
+.fill-controls button:disabled { opacity: .5; }
+
+.fill-progress[hidden] { display: none !important; }

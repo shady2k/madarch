@@ -118,6 +118,25 @@ async function startProduct(): Promise<string> {
 }
 
 describe('the server\'s product mode', () => {
+  test('fill state is readable and pause/stop controls are persisted for the coordinator', async () => {
+    draft(); builtApp(); const url = await startProduct();
+    expect((await fetch(`${url}/api/fill`)).status).toBe(404);
+    mkdirSync(join(folder!, '.madarch', 'fill', 'units'), { recursive: true });
+    writeFileSync(join(folder!, '.madarch', 'fill', 'run.json'), JSON.stringify({ id: 'run-1', status: 'running', createdAt: '2026-01-01T00:00:00.000Z' }));
+    writeFileSync(join(folder!, '.madarch', 'fill', 'units', 'unit-1.json'), JSON.stringify({ id: 'unit-1', stage: 'inventory', status: 'complete' }));
+    writeFileSync(join(folder!, '.madarch', 'fill', 'events.jsonl'), JSON.stringify({ runId: 'run-1', stage: 'inventory', unitId: 'unit-1', seq: 1, at: '2026-01-01T00:00:01.000Z', type: 'unit-complete', summary: 'done' }) + '\n');
+    const status = await fetch(`${url}/api/fill`); expect(status.status).toBe(200);
+    expect(await status.json()).toMatchObject({ run: { id: 'run-1' }, units: [{ id: 'unit-1' }], events: [{ summary: 'done' }] });
+    expect((await fetch(`${url}/api/fill/control?runId=run-1&action=xyz`, { method: 'POST' })).status).toBe(400);
+    for (const action of ['pause', 'stop'] as const) {
+      expect((await fetch(`${url}/api/fill/control?runId=run-1&action=${action}`, { method: 'POST' })).status).toBe(202);
+      expect(JSON.parse(readFileSync(join(folder!, '.madarch', 'fill', 'control.json'), 'utf8'))).toMatchObject({ runId: 'run-1', action });
+    }
+    writeFileSync(join(folder!, '.madarch', 'fill', 'run.json'), JSON.stringify({ id: 'run-1', status: 'paused', controlOpen: true }));
+    expect((await fetch(`${url}/api/fill/control?runId=run-1&action=stop`, { method: 'POST' })).status).toBe(202);
+    expect(JSON.parse(readFileSync(join(folder!, '.madarch', 'fill', 'run.json'), 'utf8'))).toMatchObject({ status: 'stopped', controlOpen: false });
+  });
+
   test('GET /api/product names the product\'s id and name and its folder', async () => {
     draft();
     builtApp();

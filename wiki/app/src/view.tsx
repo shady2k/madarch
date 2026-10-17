@@ -9,6 +9,7 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useContext, type ReactElement, type MouseEvent, type ReactNode } from 'react';
 import { addressOfPage } from './routes.js';
+import { appPath } from './app-base.js';
 import { resolveLink } from './link.js';
 import { routeContext, navigateTo } from './hold.js';
 import { byCodePoint } from './sort.js';
@@ -19,7 +20,7 @@ function followTo(address: string): (event: MouseEvent<HTMLAnchorElement>) => vo
   return (event) => {
     if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
     event.preventDefault();
-    navigateTo(address);
+    navigateTo(appPath(address));
   };
 }
 
@@ -39,10 +40,10 @@ export function PageLink(props: {
   const follow = (event: MouseEvent<HTMLAnchorElement>): void => {
     if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
     event.preventDefault();
-    navigateTo(address);
+    navigateTo(appPath(address));
   };
   return (
-    <a href={address} className={props.className} aria-current={props.ariaCurrent} onClick={follow}>
+    <a href={appPath(address)} className={props.className} aria-current={props.ariaCurrent} onClick={follow}>
       {props.children}
     </a>
   );
@@ -210,10 +211,10 @@ function WikiLink(props: {
   const follow = (event: MouseEvent<HTMLAnchorElement>): void => {
     if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
     event.preventDefault();
-    navigateTo(address);
+    navigateTo(appPath(address));
   };
   return (
-    <a href={address} onClick={follow}>
+    <a href={appPath(address)} onClick={follow}>
       {props.children}
     </a>
   );
