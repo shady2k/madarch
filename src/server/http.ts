@@ -39,6 +39,7 @@ import type { SourceStoreResult, SourceStores } from './sources.js';
 import { createSourceStores, sourceNameProblem } from './sources.js';
 import { createWikiPart, type WikiPart } from './wiki-app.js';
 import { openProductWiki } from '../product-wiki/pages.js';
+import type { StartFillOptions, StartFillResult } from '../product/fill.js';
 
 /** The largest body the server reads: 50 MB, far past any compiled model sent so far. */
 const MAX_BODY_BYTES = 50 * 1024 * 1024;
@@ -68,6 +69,8 @@ export interface ServerOptions {
   queryDatabase?: AsyncQueryDatabase;
   /** The product folder served as its wiki: read once, then read fresh at every ask — never written, never asked a git question. */
   productFolder?: string;
+  /** Shared fill entry point injected by the product host. */
+  startFill?: (productFolder: string, options: StartFillOptions) => Promise<StartFillResult>;
   /** Serving-only opt-in for an existing directory with no manifest; defaults to strict product recognition. */
   allowNoManifest?: boolean;
   /** The folder the app's built files served from (stage 2's build); without it only the API answers. */
@@ -229,6 +232,8 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     errorLog,
     wiki: productWiki === undefined ? undefined : createWikiPart(makeJson, wikiRefused, productWiki, appFolder),
     appFolder,
+    startFill: options.startFill,
+    productFolder: options.productFolder,
   });
   let server: ReturnType<typeof Bun.serve>;
   try {
@@ -278,6 +283,8 @@ export function createHandler(dependencies: {
   /** The product's wiki routes and app files, when a product folder was given. */
   wiki?: WikiPart;
   appFolder?: string;
+  startFill?: ServerOptions['startFill'];
+  productFolder?: string;
 }): ServerHandler {
   const { log, errorLog, wiki } = dependencies;
   // The model routes are put in the table only when a data folder was
@@ -313,6 +320,8 @@ export function createHandler(dependencies: {
 
   // The model routes are the server's own; the wiki's answer beside them,
   // both kept apart by what the server was given.
+  const startFill = dependencies.startFill;
+  const fillProductFolder = dependencies.productFolder;
   const routes: Route[] = [
     ...(sources !== undefined
       ? ([
@@ -333,6 +342,16 @@ export function createHandler(dependencies: {
       { method: 'GET', path: '/api/registry', handle: () => wiki.registry() },
       { method: 'GET', path: '/api/events', handle: wiki.events },
       { method: 'GET', path: '/api/fill', handle: () => wiki.fill() },
+      { method: 'POST', path: '/api/fill/start', handle: async (request) => {
+        if (!startFill || fillProductFolder === undefined) return refused(503, { message: 'The fill entry point is not configured for this server' });
+        const { body, bad } = await jsonBody(request); if (bad) return bad;
+        if (body === null || typeof body !== 'object' || Array.isArray(body)) return refused(400, { message: 'body must be an object with agent and maxUnits' });
+        const asked = body as Record<string, unknown>;
+        if (asked.agent !== 'claude' && asked.agent !== 'codex') return refused(400, { message: 'agent must be claude or codex' });
+        if (asked.maxUnits !== undefined && (!Number.isInteger(asked.maxUnits) || (asked.maxUnits as number) < 1)) return refused(400, { message: 'maxUnits must be a positive whole number' });
+        try { void startFill(fillProductFolder!, { agent: asked.agent, ...(asked.maxUnits === undefined ? {} : { maxUnits: asked.maxUnits as number }) }).catch((error) => errorLog(`fill start failed: ${(error as Error).message}`)); return { response: json(202, { accepted: true, status: 'starting' }) }; }
+        catch (error) { return refused(409, { message: (error as Error).message }); }
+      } },
       { method: 'POST', path: '/api/fill/control', handle: (request) => { const url = new URL(request.url); const action = url.searchParams.get('action'); if (action !== 'pause' && action !== 'stop') return refused(400, { message: 'fill action must be exactly pause or stop' }); return serializeState(() => wiki.fillControl(request, url.searchParams.get('runId') ?? '', action)); } },
       { method: 'GET', path: '/api/architecture', handle: () => wiki.architecture() },
       { method: 'GET', path: '/api/architecture/likec4.js', handle: () => wiki.likec4Script() },
