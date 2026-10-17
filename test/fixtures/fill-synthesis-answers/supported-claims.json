@@ -1,0 +1,271 @@
+[
+ {
+  "id": "clm-0917ca8e313af8d6803812e9",
+  "kind": "Data Entity",
+  "text": "README.md claims orders are retained indefinitely, which conflicts with orders code where Expire removes non-shipped orders 90 days after CreatedDay.",
+  "layer": "assumed-meaning",
+  "confidence": 0.8,
+  "unitId": "claims-repository",
+  "sourceIds": [
+   "src-243841befcd301abb7e78a22",
+   "src-35de00d87da95b8d1a68b518"
+  ],
+  "verification": "unverified"
+ },
+ {
+  "id": "clm-10ce08e110694da7346751f1",
+  "kind": "Store",
+  "text": "Payments store is identified as storeId='payments-db' with separate vaultStoreId='card-vault-db', featureStoreId='fraud-features', and reconciliationStoreId='reconciliation-db'.",
+  "layer": "fact",
+  "confidence": 0.95,
+  "unitId": "claims-repository",
+  "sourceIds": [
+   "src-5055435ee6754c4017132a6e"
+  ],
+  "verification": "verified"
+ },
+ {
+  "id": "clm-1625a8baa086398451448826",
+  "kind": "Store",
+  "text": "Checkout defines a store cartStore='cart-cache'.",
+  "layer": "fact",
+  "confidence": 0.95,
+  "unitId": "claims-repository",
+  "sourceIds": [
+   "src-0d3fa8b9c9e96b02f486b77a"
+  ],
+  "verification": "verified"
+ },
+ {
+  "id": "clm-212d4d04040f9244789a1efa",
+  "kind": "Module",
+  "text": "Payments capture function returns 'payment-captured' for a non-empty orderId and 'payment-failed' otherwise, with a comment stating the order identifier is kept stable across retries so the payment callback is idempotent.",
+  "layer": "fact",
+  "confidence": 0.95,
+  "unitId": "claims-repository",
+  "sourceIds": [
+   "src-5055435ee6754c4017132a6e"
+  ],
+  "verification": "verified"
+ },
+ {
+  "id": "clm-24db0444cf5892df0da36806",
+  "kind": "Data Entity",
+  "text": "Payments defines entity types CardNumber (with masked field), CardToken (with vaultReference field), PaymentEvent (payment-captured | payment-failed), and SettlementReport (with id and total fields).",
+  "layer": "fact",
+  "confidence": 0.95,
+  "unitId": "claims-repository",
+  "sourceIds": [
+   "src-5055435ee6754c4017132a6e"
+  ],
+  "verification": "verified"
+ },
+ {
+  "id": "clm-331b13cc1d7778797e6bb166",
+  "kind": "Module",
+  "text": "The orders package implements order state transitions: pending_payment→confirmed on payment-captured, pending_payment→cancelled on payment-failed, confirmed→shipped on shipment-dispatched.",
+  "layer": "fact",
+  "confidence": 0.95,
+  "unitId": "claims-repository",
+  "sourceIds": [
+   "src-35de00d87da95b8d1a68b518",
+   "src-cd630a50f7db9354d29208a9"
+  ],
+  "verification": "verified"
+ },
+ {
+  "id": "clm-401c2dfdb4c95f2f973a9707",
+  "kind": "Service",
+  "text": "Payments service is identified as serviceId='payments-api' and publishes payment events through an in-process eventBroker on the 'payments' topic.",
+  "layer": "fact",
+  "confidence": 0.95,
+  "unitId": "claims-repository",
+  "sourceIds": [
+   "src-5055435ee6754c4017132a6e"
+  ],
+  "verification": "verified"
+ },
+ {
+  "id": "clm-49847adec9af4cd9d58e2ba9",
+  "kind": "Service",
+  "text": "Promotions service is identified as ServiceID='promotions-api' and exposes Discount(subtotal, percent) = subtotal*percent/100.",
+  "layer": "fact",
+  "confidence": 0.95,
+  "unitId": "claims-repository",
+  "sourceIds": [
+   "src-a9353dc89c7f1ed0d7b6196b"
+  ],
+  "verification": "verified"
+ },
+ {
+  "id": "clm-5886d7ab1752d4ed07ac060c",
+  "kind": "Service",
+  "text": "Commit ORD-19 dated 2024-01-03 documents services and model; commit PAY-4 dated 2024-01-02 adds checkout pricing and promotions; commit ORD-12 dated 2024-01-01 adds order lifecycle.",
+  "layer": "fact",
+  "confidence": 0.9,
+  "unitId": "claims-repository",
+  "sourceIds": [
+   "src-eb6f77d808b91471e95a045b"
+  ],
+  "verification": "verified"
+ },
+ {
+  "id": "clm-5c807cca7fab6bbc46181140",
+  "kind": "Module",
+  "text": "README.md states the service applies a 10% discount to every order and calculates tax at a flat 5%; checkout code instead has taxRate = 0.08 and discountFor takes a percent parameter.",
+  "layer": "assumed-meaning",
+  "confidence": 0.8,
+  "unitId": "claims-repository",
+  "sourceIds": [
+   "src-0d3fa8b9c9e96b02f486b77a",
+   "src-243841befcd301abb7e78a22"
+  ],
+  "verification": "unverified"
+ },
+ {
+  "id": "clm-5db568a571170b17ab2c8bc9",
+  "kind": "Data Entity",
+  "text": "docs/architecture.md states the system calls a card number a payment token in prose, while code uses CardToken only for the vault reference and calls the captured value PaymentToken.",
+  "layer": "intent-evidence",
+  "confidence": 0.9,
+  "unitId": "claims-repository",
+  "sourceIds": [
+   "src-5055435ee6754c4017132a6e",
+   "src-cd630a50f7db9354d29208a9"
+  ],
+  "verification": "verified"
+ },
+ {
+  "id": "clm-8d369a75507d60ea0be916ed",
+  "kind": "Module",
+  "text": "Orders retention module purges orders via PurgeExpired and RunRetentionJob, expiring non-shipped orders after 90 days from CreatedDay.",
+  "layer": "fact",
+  "confidence": 0.95,
+  "unitId": "claims-repository",
+  "sourceIds": [
+   "src-35de00d87da95b8d1a68b518"
+  ],
+  "verification": "verified"
+ },
+ {
+  "id": "clm-9418efbdb73a47969b8acf20",
+  "kind": "Data Entity",
+  "text": "Order entity has fields ID, OrderNumber, Contents, State, and CreatedDay, with State being one of pending_payment, confirmed, cancelled, shipped.",
+  "layer": "fact",
+  "confidence": 0.95,
+  "unitId": "claims-repository",
+  "sourceIds": [
+   "src-35de00d87da95b8d1a68b518"
+  ],
+  "verification": "verified"
+ },
+ {
+  "id": "clm-9fe76446aff92ed0e5796a47",
+  "kind": "Module",
+  "text": "Checkout defines modules cartModule='checkout-cart', pricingModule='checkout-pricing', paymentStepModule='checkout-payment-step', and confirmationModule='checkout-confirmation'.",
+  "layer": "fact",
+  "confidence": 0.95,
+  "unitId": "claims-repository",
+  "sourceIds": [
+   "src-0d3fa8b9c9e96b02f486b77a"
+  ],
+  "verification": "verified"
+ },
+ {
+  "id": "clm-a52d24c44a5ad1f28bf1a495",
+  "kind": "Store",
+  "text": "Promotions store is identified as StoreID='promotions-db'.",
+  "layer": "fact",
+  "confidence": 0.95,
+  "unitId": "claims-repository",
+  "sourceIds": [
+   "src-a9353dc89c7f1ed0d7b6196b"
+  ],
+  "verification": "verified"
+ },
+ {
+  "id": "clm-aeb417c06c8a1222c47959a5",
+  "kind": "Store",
+  "text": "Orders store is identified as StoreID='orders-db', structured as OrderStore holding an in-memory []Order slice.",
+  "layer": "fact",
+  "confidence": 0.95,
+  "unitId": "claims-repository",
+  "sourceIds": [
+   "src-35de00d87da95b8d1a68b518"
+  ],
+  "verification": "verified"
+ },
+ {
+  "id": "clm-b743d898f0dfca25d60e6973",
+  "kind": "Service",
+  "text": "Payments declares identifiers for a card vault (vaultId='card-vault'), a fraud service (fraudServiceId='fraud-api'), and a reconciliation job (reconciliationId='reconciliation-job').",
+  "layer": "fact",
+  "confidence": 0.95,
+  "unitId": "claims-repository",
+  "sourceIds": [
+   "src-5055435ee6754c4017132a6e"
+  ],
+  "verification": "verified"
+ },
+ {
+  "id": "clm-c70e3682f1bad310cb6c6be4",
+  "kind": "Service",
+  "text": "Checkout service is identified as checkoutService='checkout-api' and calls Promotions over HTTP at http://promotions-api/internal/apply via applyPromotion.",
+  "layer": "fact",
+  "confidence": 0.95,
+  "unitId": "claims-repository",
+  "sourceIds": [
+   "src-0d3fa8b9c9e96b02f486b77a"
+  ],
+  "verification": "verified"
+ },
+ {
+  "id": "clm-e9cf6bd3f80a159547e52456",
+  "kind": "Service",
+  "text": "Orders service is identified as ServiceID='orders-api' and publishes events on an in-process EventBus via PublishOrderEvent.",
+  "layer": "fact",
+  "confidence": 0.95,
+  "unitId": "claims-repository",
+  "sourceIds": [
+   "src-35de00d87da95b8d1a68b518"
+  ],
+  "verification": "verified"
+ },
+ {
+  "id": "clm-ed165513d6cabd5bf8bc57cf",
+  "kind": "Store",
+  "text": "services/orders/README.md claims orders remain available forever, which conflicts with the 90-day expiry/purge logic in orders code.",
+  "layer": "assumed-meaning",
+  "confidence": 0.8,
+  "unitId": "claims-repository",
+  "sourceIds": [
+   "src-35de00d87da95b8d1a68b518",
+   "src-b1f1f0b9ec155d699bc99039"
+  ],
+  "verification": "unverified"
+ },
+ {
+  "id": "clm-f5d1701efdb66a2a626afb43",
+  "kind": "Service",
+  "text": "README.md references external URLs (rfc-editor.org RFC 9110 and github.com/settings/profile) that were not fetched and whose contents remain unverified.",
+  "layer": "assumed-meaning",
+  "confidence": 0.7,
+  "unitId": "claims-repository",
+  "sourceIds": [
+   "src-243841befcd301abb7e78a22"
+  ],
+  "verification": "unverified"
+ },
+ {
+  "id": "clm-fd50d50046481251b0b2cf9b",
+  "kind": "Service",
+  "text": "docs/architecture.md states Checkout coordinates pricing, payment and order placement, and receives payment outcomes as events.",
+  "layer": "intent-evidence",
+  "confidence": 0.9,
+  "unitId": "claims-repository",
+  "sourceIds": [
+   "src-cd630a50f7db9354d29208a9"
+  ],
+  "verification": "verified"
+ }
+]
