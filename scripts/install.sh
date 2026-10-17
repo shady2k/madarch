@@ -85,3 +85,5 @@ if [ "$PREFIX" = "$HOME/.local" ]; then
     *) echo "note: $PREFIX/bin is not on this shell's PATH; add it" ;;
   esac
 fi
+echo 'Start a new product: madarch new'
+echo 'Start a product around your code: cd <checkout> && madarch init'

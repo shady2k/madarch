@@ -11,6 +11,7 @@
  * Facts go to standard output, one per line.
  */
 import { createInterface } from 'node:readline/promises';
+import { basename, join } from 'node:path';
 import { createDraft } from './draft.js';
 import { prepareDemo, type DemoOptions } from './demo.js';
 import { listProducts, type ProductList } from './list.js';
@@ -25,16 +26,75 @@ import {
   renameLife,
   repoAddLife,
   repoAddSource,
+  whereAmI,
   type LifecycleOutcome,
   type RepoConnectMode,
 } from './lifecycle.js';
+import { readProduct } from './manifest.js';
+import { runGit } from './git.js';
+
+/** The compact command list shown after context-aware first-run guidance. */
+export const SHORT_HELP = [
+  'madarch — start a product and open its wiki',
+  '',
+  'Start:',
+  '  new       Create a product and serve its wiki',
+  '  init      Create a product around this Git checkout',
+  '',
+  'Work with a product:',
+  '  serve     Open a product wiki',
+  '  list      List products',
+  '  repo add  Connect a code repository',
+  '  rename    Rename a product',
+  '  remote    Set a product remote',
+  '  clone     Clone a product',
+  "  bootstrap Clone a product's code repositories",
+  '  demo      Open the Madarch demo wiki',
+  '',
+  'Other:',
+  '  version   Show the version',
+  '  upgrade   Upgrade madarch',
+  '',
+  'Run madarch <command> --help for details.',
+].join('\n');
+
+function commandHelp(command: string): string {
+  const spec = COMMANDS[command];
+  if (spec === undefined) return `madarch ${command} is a command group.\nUse madarch repo add --help for its command.`;
+  const positionals = command === 'repo' ? ' add <name> <url>' : spec.positionals.length === 0 ? '' : ` ${spec.positionals.map((word) => `<${word}>`).join(' ')}`;
+  const flags: string[] = [];
+  if (spec.flags.home) flags.push('  --home <folder>       Products home');
+  if (spec.flags.product) flags.push('  --product <folder>    Product folder');
+  if (spec.flags.port) flags.push('  --port <n>            Wiki port (default 4180)', '  --host <address>      Wiki bind address (default 127.0.0.1)', '  --no-open             Do not open a browser');
+  if (spec.flags.source) flags.push('  --source <path>       Local Git checkout to connect');
+  if (spec.flags.mode) flags.push('  --mode <mode>         link, move or clone the checkout');
+  if (spec.flags.branch) flags.push('  --branch <name>       Branch to clone');
+  if (spec.flags.yes) flags.push('  --yes                 Confirm without prompting');
+  if (['new', 'init', 'list'].includes(command)) flags.push('  --json                Print machine-readable facts');
+  const usage = `madarch ${command}${positionals}${command === 'repo' ? ' [--source <path>] [--mode <link|move|clone>] [--branch <name>] [--product <folder>]' : ''}`;
+  return [`usage: ${usage}`, '', ...(flags.length ? ['Options:', ...flags] : []), '', `Example: ${usage.split(' [')[0]}`].join('\n');
+}
+
+function whereHelp(): string {
+  const context = whereAmI({ folder: process.cwd() });
+  const home = process.env.MADARCH_HOME?.trim() || '~/madarch/products';
+  if (context.outcome === 'product') {
+    const product = readProduct(context.product);
+    if (product.ok) return `This is the product ${product.product.name}. Open its wiki: madarch serve. Product documents are Markdown files in docs/; write them by hand or with any agent, or let an agent set them up with the shady2k-skills set.\nProducts live in ${home}.`;
+  }
+  if (context.outcome === 'none') {
+    const git = runGit(process.cwd(), ['rev-parse', '--show-toplevel']);
+    if (git.ok) return `This folder is a git repository. To start a product around it: madarch init\nProducts live in ${home}.`;
+  }
+  return `Start a new product: madarch new — or cd into your code repository and run madarch init\nProducts live in ${home}.`;
+}
 
 /** The usage lines, shaped the way `scripts/serve.ts` and `scripts/wiki.ts` print theirs. */
 export const USAGE = [
-  'usage: madarch serve [--product <folder>] [--port <n>] [--no-open]',
-  '   or: madarch new [--home <folder>] [--port <n>] [--no-open]',
-  '   or: madarch init [--home <folder>] [--port <n>] [--no-open]',
-  '   or: madarch demo [--home <folder>] [--port <n>] [--no-open]',
+  'usage: madarch serve [--product <folder>] [--port <n>] [--host <address>] [--no-open]',
+  '   or: madarch new [--home <folder>] [--port <n>] [--host <address>] [--no-open]',
+  '   or: madarch init [--home <folder>] [--port <n>] [--host <address>] [--no-open]',
+  '   or: madarch demo [--home <folder>] [--port <n>] [--host <address>] [--no-open]',
   '   or: madarch list [--home <folder>]',
   '   or: madarch rename <name> [--product <folder>]',
   '   or: madarch remote <url> [--product <folder>]',
@@ -43,17 +103,14 @@ export const USAGE = [
   '   or: madarch clone <url> [--home <folder>]',
   '   or: madarch version',
   '   or: madarch upgrade [--yes]',
-  '   (the same commands after `bun link` in a checkout: madarch demo, madarch new, madarch serve, madarch list,',
-  '    madarch init, madarch rename, madarch remote, madarch repo add, madarch bootstrap, madarch clone,',
-  '    madarch version, madarch upgrade)',
 ].join('\n');
 
 /** The text `--help` prints: the subcommands and the options each does what. */
 export const HELP = [
-  'usage: madarch serve [--product <folder>] [--port <n>] [--no-open]',
-  '   or: madarch new [--home <folder>] [--port <n>] [--no-open]',
-  '   or: madarch init [--home <folder>] [--port <n>] [--no-open]',
-  '   or: madarch demo [--home <folder>] [--port <n>] [--no-open]',
+  'usage: madarch serve [--product <folder>] [--port <n>] [--host <address>] [--no-open]',
+  '   or: madarch new [--home <folder>] [--port <n>] [--host <address>] [--no-open]',
+  '   or: madarch init [--home <folder>] [--port <n>] [--host <address>] [--no-open]',
+  '   or: madarch demo [--home <folder>] [--port <n>] [--host <address>] [--no-open]',
   '   or: madarch list [--home <folder>]',
   '   or: madarch rename <name> [--product <folder>]',
   '   or: madarch remote <url> [--product <folder>]',
@@ -61,7 +118,6 @@ export const HELP = [
   '   or: madarch bootstrap [--product <folder>]',
   '   or: madarch clone <url> [--home <folder>]',
   '   or: madarch demo|serve|new|init|list|rename|remote|repo add|bootstrap|clone|version|upgrade — the same',
-  '   commands after `bun link` in a checkout',
   '',
   'demo clones or updates the Madarch product repository, then serves its wiki.',
   'new creates a draft product repository under the products home, then serves',
@@ -167,6 +223,8 @@ interface Parsed {
   yes: boolean;
   source: string | undefined;
   mode: RepoConnectMode | undefined;
+  host: string | undefined;
+  json: boolean;
 }
 
 /** The flags one subcommand takes, for the refusals to name them. */
@@ -175,6 +233,7 @@ function flagNamesFor(flags: CommandSpec['flags']): readonly string[] {
     ...(flags.home ? ['--home'] : []),
     ...(flags.product ? ['--product'] : []),
     ...(flags.port ? ['--port'] : []),
+    ...(flags.port ? ['--host'] : []),
     ...(flags.open ? ['--no-open'] : []),
     ...(flags.branch ? ['--branch'] : []),
     ...(flags.source ? ['--source'] : []),
@@ -191,7 +250,7 @@ function flagNamesFor(flags: CommandSpec['flags']): readonly string[] {
  * Returns the parse, or the number of the exit a refusal needs.
  */
 function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
-  const parsed: Parsed = { words: [], home: undefined, product: undefined, port: undefined, open: true, branch: undefined, yes: false, source: undefined, mode: undefined };
+  const parsed: Parsed = { words: [], home: undefined, product: undefined, port: undefined, open: true, branch: undefined, yes: false, source: undefined, mode: undefined, host: undefined, json: false };
   const seen = new Set<string>();
   const flags = flagNamesFor(spec.flags).map((name) => `${name}${name === '--no-open' ? '' : ' <value>'}`).join(', ');
   for (let i = 0; i < given.length; i++) {
@@ -201,16 +260,17 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
       // beyond the surface is refused whole, never folded in.
       if (parsed.words.length >= spec.positionals.length) {
         console.error(`unexpected argument "${arg}": this subcommand takes ${spec.positionals.length === 0 ? 'no words' : spec.positionals.join(' ')}`);
-        console.error(USAGE);
+        console.error('run madarch --help for help');
         return 2;
       }
       parsed.words = [...parsed.words, arg];
       continue;
     }
     const name = arg.includes('=') ? arg.slice(0, arg.indexOf('=')) : arg;
+    if (name === '--json' && !arg.includes('=')) { parsed.json = true; continue; }
     if (!flagNamesFor(spec.flags).includes(name)) {
       console.error(`unknown option "${arg}": the options are ${flags}`);
-      console.error(USAGE);
+      console.error('run madarch --help for help');
       return 2;
     }
     // A value flag takes one value: a second occurrence would silently move
@@ -218,7 +278,7 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
     // is refused the way an unknown option is.
     if (name !== '--no-open' && seen.has(name)) {
       console.error(`repeated option "${arg}": ${name.slice(2)} is given once`);
-      console.error(USAGE);
+      console.error('run madarch --help for help');
       return 2;
     }
     seen.add(name);
@@ -245,7 +305,7 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
       if (!spec.flags.yes) return unknownOption(arg, flags);
       if (arg.includes('=')) {
         console.error(`the --yes flag takes no value: it answers the prompt the command would ask`);
-        console.error(USAGE);
+        console.error('run madarch --help for help');
         return 2;
       }
       parsed.yes = true;
@@ -255,10 +315,17 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
       if (!spec.flags.open) return unknownOption(arg, flags);
       if (arg.includes('=')) {
         console.error(`the --no-open flag takes no value: it says whether the browser is opened`);
-        console.error(USAGE);
+        console.error('run madarch --help for help');
         return 2;
       }
       parsed.open = false;
+      continue;
+    }
+    if (name === '--host') {
+      const value = flagValue();
+      const problem = valueProblem('--host', value);
+      if (problem !== undefined) { console.error(problem); console.error('run madarch --help for help'); return 2; }
+      parsed.host = value!.trim();
       continue;
     }
     if (name === '--port') {
@@ -267,7 +334,7 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
       const n = value === undefined ? Number.NaN : Number(value);
       if (value === undefined || !Number.isInteger(n) || n < 0 || n > 65535) {
         console.error(`--port ${JSON.stringify(value ?? '')} is not a whole port number between 0 and 65535: the address is served at that port`);
-        console.error(USAGE);
+        console.error('run madarch --help for help');
         return 2;
       }
       parsed.port = n;
@@ -278,7 +345,7 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
     const problem = valueProblem(label, value);
     if (problem !== undefined) {
       console.error(problem);
-      console.error(USAGE);
+      console.error('run madarch --help for help');
       return 2;
     }
     if (name === '--home') parsed.home = value!.trim();
@@ -289,7 +356,7 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
       const mode = value!.trim();
       if (mode !== 'link' && mode !== 'move' && mode !== 'clone') {
         console.error(`--mode ${JSON.stringify(mode)} is not a repository connection choice: choose link, move or clone`);
-        console.error(USAGE);
+        console.error('run madarch --help for help');
         return 2;
       }
       parsed.mode = mode;
@@ -301,7 +368,7 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
   if (givenWords < spec.positionals.length) {
     const label = spec.positionals[givenWords]!;
     console.error(`the ${label} is missing: this subcommand takes ${spec.positionals.join(' ')}`);
-    console.error(USAGE);
+    console.error('run madarch --help for help');
     return 2;
   }
   return parsed;
@@ -310,29 +377,24 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
 /** The refusal one not-accepted option earns: what was given, and what the subcommand takes. */
 function unknownOption(arg: string, flags: string): number {
   console.error(`unknown option "${arg}": the options are ${flags}`);
-  console.error(USAGE);
+  console.error('run madarch --help for help');
   return 2;
 }
 
 /** The list of the products home, printed one product at a time; 0 listed, 2 when the home cannot be used. */
-function list(home: string | undefined): number {
+function list(home: string | undefined, json = false): number {
   const listed: ProductList = listProducts(home === undefined ? {} : { home });
   if (listed.outcome === 'refused') {
     console.error(listed.message);
     return 2;
   }
-  for (const [i, product] of listed.products.entries()) {
-    if (i > 0) console.log('');
-    console.log(`folder: ${product.folder}`);
-    console.log(`id: ${product.id}`);
-    console.log(`name: ${product.name}`);
+  if (json) console.log(JSON.stringify({ products: listed.products.map(({ folder, id, name }) => ({ folder, id, name })) }));
+  else if (listed.products.length === 0) console.log(`No products found in the products home. Start one with: madarch new`);
+  else {
+    console.log('Products:');
+    for (const product of listed.products) console.log(`  • ${product.name} (${product.id}) — ${displayPath(product.folder)} (open with: cd ${displayPath(product.folder)} && madarch serve)`);
   }
-  // A manifest that stands but cannot be read is named where the reader
-  // found it, and the list still says what it did read: hiding a broken
-  // draft would say a folder is fine that nobody looked at.
-  for (const unreadable of listed.unreadable) {
-    console.error(`${unreadable.file}:${unreadable.line}: ${unreadable.message}`);
-  }
+  for (const unreadable of listed.unreadable) console.error(`${unreadable.file}:${unreadable.line}: ${unreadable.message}`);
   return 0;
 }
 
@@ -345,7 +407,7 @@ async function serve(options: ServeOptions, productFolder: string | undefined): 
 }
 
 /** Prints one wrapper outcome the way every subcommand prints: facts whole on stdout, errors whole on stderr. */
-function report(outcome: LifecycleOutcome): number {
+function report(outcome: LifecycleOutcome, _json = false): number {
   for (const fact of outcome.prints) console.log(fact);
   for (const error of outcome.errors) console.error(error);
   return outcome.exit;
@@ -359,7 +421,7 @@ export function repoVerb(words: readonly string[]): { ok: true } | { ok: false; 
   const verb = words[0];
   if (verb === undefined || verb !== 'add') {
     console.error(`the subcommand is "repo add": the verb is add, and this said ${JSON.stringify(verb ?? '')}`);
-    console.error(USAGE);
+    console.error('run madarch --help for help');
     return { ok: false, exit: 2 };
   }
   return { ok: true };
@@ -367,7 +429,7 @@ export function repoVerb(words: readonly string[]): { ok: true } | { ok: false; 
 
 /** The clone of one line: its url word and home, or its refusal. */
 function runClone(parsed: Parsed): number {
-  return report(cloneLife({ url: parsed.words[0], home: parsed.home, env: process.env }));
+  return report(cloneLife({ url: parsed.words[0], home: parsed.home, env: process.env }), parsed.json);
 }
 
 /** The command's one run: parse, then the subcommand's work. The exit code
@@ -412,38 +474,54 @@ async function askRepoMode(): Promise<RepoConnectMode> {
 
 export async function main(args: readonly string[], deps: CliDeps = {}): Promise<number> {
   if (args.length === 1 && (args[0] === '--version' || args[0] === '-v')) return versionCommand();
-  if (args.length === 0) {
-    console.error('no subcommand given: the subcommands are "new", "init", "demo", "serve", "list", "rename", "remote", "repo add", "bootstrap", "version" and "upgrade"');
-    console.error(USAGE);
-    return 2;
+  if (args.length === 0 || args[0] === 'help' || args[0] === '--help' || args[0] === '-h') {
+    console.log(args.length === 0 ? `${whereHelp()}\n\n${SHORT_HELP}` : SHORT_HELP);
+    return 0;
   }
   const command = args[0]!;
-  if (command === '--help') {
-    console.log(HELP);
+  if (command === 'repo' && args[1] === 'add' && (args[2] === '--help' || args[2] === '-h') && args.length === 3) {
+    console.log(commandHelp('repo'));
+    return 0;
+  }
+  if ((args[1] === '--help' || args[1] === '-h') && args.length === 2 && command in COMMANDS) {
+    console.log(commandHelp(command));
     return 0;
   }
   if (command.startsWith('--')) {
     console.error(`unknown option "${command}" before the subcommand: the subcommands are "new", "init", "demo", "serve", "list", "rename", "remote", "repo add", "bootstrap", "version" and "upgrade"`);
-    console.error(USAGE);
+    console.error('run madarch --help for help');
     return 2;
   }
   if (!(command in COMMANDS)) {
     console.error(`unknown subcommand "${command}": the subcommands are "new", "init", "demo", "serve", "list", "rename", "remote", "repo add", "bootstrap", "version" and "upgrade"`);
-    console.error(USAGE);
+    console.error('run madarch --help for help');
     return 2;
   }
 
   const spec = COMMANDS[command]!;
+  if (args.slice(1).includes('--json') && !['new', 'init', 'list'].includes(command)) {
+    console.error(`unknown option "--json" for ${command}: machine-readable output is not supported by this command`);
+    console.error('run madarch --help for help');
+    return 2;
+  }
   const parsed = parse(spec, args.slice(1));
   if (typeof parsed === 'number') return parsed;
   const { home, product, port, open } = parsed;
 
-  if (command === 'list') return list(home);
+  if (command === 'list') return list(home, parsed.json);
   if (command === 'init') {
     const result = initLife({ cwd: process.cwd(), home });
     if (result.exit !== 0) return report(result);
-    for (const fact of result.prints) console.log(fact);
-    return await serve(serveOptions(parsed, deps), result.prints.find((line) => line.startsWith('folder: '))!.slice('folder: '.length));
+    const folder = result.prints.find((line) => line.startsWith('folder: '))!.slice('folder: '.length);
+    const source = result.prints.find((line) => line.startsWith('source: '))?.slice('source: '.length);
+    if (parsed.json) console.log(JSON.stringify({ folder, ...Object.fromEntries(result.prints.map((line) => { const at = line.indexOf(': '); return at < 0 ? [line, true] : [line.slice(0, at), line.slice(at + 2)]; })) }));
+    else {
+      console.log(`✓ Created the product "${basename(folder)}" in ${displayPath(folder)}`);
+      if (source !== undefined) console.log(`✓ Connected your repository ${displayPath(source)} (it stays where it is)`);
+      else if (result.prints.some((line) => line.startsWith('already linked to product: '))) console.log(`✓ Connected your repository ${displayPath(process.cwd())} (it stays where it is)`);
+    }
+    if (!parsed.json) nextSteps(folder, true);
+    return serve(serveOptions(parsed, deps), folder);
   }
   if (command === 'version') return versionCommand();
   if (command === 'upgrade') {
@@ -461,7 +539,7 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
       if (deps.chooseRepoMode !== undefined) mode = await deps.chooseRepoMode(source);
       else if (process.stdin.isTTY && process.stdout.isTTY) mode = await askRepoMode();
     }
-    return report(lifecycleRepo(parsed, mode, source));
+    return report(lifecycleRepo(parsed, mode, source), parsed.json);
   }
   if (command === 'serve') {
     return await serve(serveOptions(parsed, deps), product);
@@ -469,13 +547,13 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
   if (command === 'demo') {
     const demo = prepareDemo({ ...(deps.demo ?? {}), home: home ?? deps.demo?.home, env: deps.demo?.env ?? process.env });
     if (!demo.ok) { console.error(demo.message); return 1; }
-    console.log(`folder: ${demo.folder}`);
+    console.log(`✓ Opened the Madarch demo product in ${displayPath(demo.folder)}`);
     return serve(serveOptions(parsed, deps), demo.folder);
   }
   if (command === 'clone') return runClone(parsed);
 
   // The lifecycle subcommands do not serve: their own outcomes decide.
-  if (command !== 'new') return report(runWrapper(command, parsed));
+  if (command !== 'new') return report(runWrapper(command, parsed), parsed.json);
 
   // new: the draft is created by madarch's own creation code (decision 0021), then its wiki is served.
   const draft = createDraft(home === undefined ? {} : { home });
@@ -483,9 +561,24 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
     console.error(draft.message);
     return draft.outcome === 'refused' ? 2 : 1;
   }
-  console.log(`folder: ${draft.folder}`);
-  console.log(`id: ${draft.id}`);
-  return await serve(serveOptions(parsed, deps), draft.folder);
+  if (parsed.json) console.log(JSON.stringify({ folder: draft.folder, id: draft.id, name: draft.name }));
+  else console.log(`✓ Created the product "${draft.name}" in ${displayPath(draft.folder)}`);
+  if (!parsed.json) nextSteps(draft.folder, false);
+  return serve(serveOptions(parsed, deps), draft.folder);
+}
+
+function displayPath(folder: string): string {
+  const home = process.env.HOME;
+  return home && folder.startsWith(`${home}/`) ? `~/${folder.slice(home.length + 1)}` : folder;
+}
+
+function nextSteps(folder: string, init: boolean): void {
+  const shown = displayPath(folder);
+  console.log('');
+  console.log('Next:');
+  console.log(`  • Product documents are Markdown files in ${shown}/docs/. Write them by hand or with any agent; or let an agent set them up with the shady2k-skills set.`);
+  console.log(`  • Open the wiki again later: cd ${shown} && madarch serve`);
+  if (init) console.log('  • Your code stays where it is.');
 }
 
 /** `madarch version`: one fact the release answers with (or `dev` in a checkout); 0, always. */
@@ -498,6 +591,7 @@ function versionCommand(): number {
 function serveOptions(parsed: Parsed, deps: CliDeps = {}): ServeOptions {
   return {
     port: parsed.port,
+    host: parsed.host,
     open: parsed.open,
     appFolder: deps.app?.appFolder,
     buildCommand: deps.app?.buildCommand,

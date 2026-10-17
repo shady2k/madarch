@@ -370,7 +370,7 @@ describe('the home page', () => {
       const guideCode = [...(document.querySelector('[data-testid="empty-home-guidance"]')?.querySelectorAll('code') ?? [])].map((node) => node.textContent);
       expect(guideCode).toContain('madarch new');
       expect(guideCode).toContain('madarch clone <url>');
-      expect(guideCode).toContain('setup-shady2k-skills');
+      expect(guideCode).not.toContain('setup-shady2k-skills');
       expect(guideCode).toContain('workspace.yaml');
       expect(guide).not.toContain('`');
       expect(guide).toContain('Откройте вики продукта Madarch командой:');

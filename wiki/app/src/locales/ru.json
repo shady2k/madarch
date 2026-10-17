@@ -54,9 +54,11 @@
     "setupProduct": "Запустите",
     "setupProductManifest": "— команда создаст манифест продукта",
     "workspaceFile": "workspace.yaml",
-    "setupProductEnd": "и его документы.",
+    "setupProductEnd": "и его документы. Документы — Markdown-файлы в docs/: пишите вручную или с любым агентом; можно также попросить агента настроить их с setup-shady2k-skills.",
     "demoProduct": "Откройте вики продукта Madarch командой:",
-    "otherDocumentsGroup": "Другие документы"
+    "otherDocumentsGroup": "Другие документы",
+    "documentsAnyAgent": "Документы продукта — это Markdown-файлы в папке docs/. Их можно писать вручную или с любым агентом;",
+    "documentsOptionalSkills": "или поручить агенту настроить их с набором shady2k-skills."
   },
   "questions": {
     "title": "Вопросы",
@@ -236,7 +238,11 @@
     "lastCommit": "последний коммит {{when}}",
     "noReadme": "README в корне нет",
     "noOrigin": "URL origin отсутствует",
-    "files": "Файлы верхнего уровня"
+    "files": "Файлы верхнего уровня",
+    "stateLinked": "Связан",
+    "stateMoved": "Перемещён в продукт",
+    "stateCloned": "Склонирован",
+    "stateMissing": "Отсутствует"
   },
   "registry": {
     "unnamedKind": "Вид без названия",

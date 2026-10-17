@@ -74,7 +74,7 @@ describe('the repositories read through its git gateway', () => {
       GIT_WORK_TREE: folder!,
       GIT_INDEX_FILE: join(folder!, '.git', 'index'),
     });
-    expect(row.state).toBe('checked-out');
+    expect(row.state).toBe('cloned');
     expect(row.head?.subject).toBe('Make the core');
   });
 
@@ -83,7 +83,7 @@ describe('the repositories read through its git gateway', () => {
     // The identity variables are used by the fixture's own commits, so prove
     // the merge by a value the gateway must keep: a prefix git honours.
     const row = rows({ GIT_CONFIG_COUNT: '0' });
-    expect(row.state).toBe('checked-out');
+    expect(row.state).toBe('cloned');
   });
 
   test('a config the checkout honours through the merged environment changes what git answers', () => {
@@ -92,7 +92,7 @@ describe('the repositories read through its git gateway', () => {
     // makes; a home that git must not read stays unread through the same
     // pass, so the merge is real but bounded.
     const row = rows({ GIT_CONFIG_GLOBAL: '/dev/null' });
-    expect(row.state).toBe('checked-out');
+    expect(row.state).toBe('cloned');
     expect(row.head?.subject).toBe('Make the core');
   });
 
@@ -108,7 +108,7 @@ describe('the repositories read through its git gateway', () => {
       const read = readProduct(folder!);
       if (!read.ok) throw new Error(read.message);
       const answer = readProductRepos(read.product, {});
-      expect(answer.repos[0]?.state).toBe('checked-out');
+      expect(answer.repos[0]?.state).toBe('cloned');
       expect(answer.repos[0]?.head?.subject).toBe('Make the core');
     } finally {
       if (heldDir === undefined) delete process.env.GIT_DIR; else process.env.GIT_DIR = heldDir;
@@ -175,7 +175,7 @@ describe('the repositories read through its git gateway', () => {
     // yet": that is a fresh checkout, not a broken one.
     rmSync(join(target, '.git', 'refs', 'heads', 'main'));
     const row = rows({});
-    expect(row.state).toBe('checked-out');
+    expect(row.state).toBe('cloned');
     expect(row.head).toBeUndefined();
     expect(row.problem).toContain('no commit yet');
     expect(row.readme?.markdown).toBe('# core\n');

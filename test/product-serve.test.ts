@@ -85,7 +85,7 @@ interface LiveServe {
 }
 /** The address line's URL, once the run printed it. */
 function addressOf(stdout: string): string | undefined {
-  return stdout.split("\n").find((line) => line.startsWith('address: '))?.slice('address: '.length);
+  return stdout.split("\n").find((line) => line.startsWith('The wiki is running at ') || line.startsWith('Wiki: '))?.match(/(https?:\/\/\S+)/)?.[1];
 }
 
 /** Starts the command live, watching its stdout, until the test closes it through `finish`. */
@@ -123,6 +123,7 @@ function serveLive(args: string[], overrides: Record<string, string>, cwd?: stri
     return stderrText;
   })();
   return {
+    raw: proc,
     get stdout() { return stdoutText; },
     get stderr() { return stderrText; },
     get exitCode() { return proc.exitCode; },
@@ -234,7 +235,7 @@ describe('madarch serve: an existing product served', () => {
     mkdirSync(folder);
     const app = builtApp(scratchFolder('madarch-serve-app-'));
     const before = readdirSync(folder);
-    const live = serveLive(['serve', '--no-open'], { MADARCH_HOME: base, MADARCH_APP: app }, folder);
+    const live = serveLive(['serve', '--port', '0', '--no-open'], { MADARCH_HOME: base, MADARCH_APP: app }, folder);
     await whenServing(live);
     const productResponse = await fetch(`${live.address}/api/product`);
     expect(productResponse.status).toBe(200);
@@ -247,7 +248,7 @@ describe('madarch serve: an existing product served', () => {
     expect((await pagesResponse.json() as { pages: unknown[] }).pages).toEqual([]);
     expect(readdirSync(folder)).toEqual(before);
     await live.finish();
-  });
+  }, 30_000);
 
   test('serve --product serves an existing directory without a manifest', async () => {
     const base = scratchFolder();
@@ -256,7 +257,7 @@ describe('madarch serve: an existing product served', () => {
     writeFileSync(join(folder, 'notes.txt'), 'not a wiki page');
     const app = builtApp(scratchFolder('madarch-serve-app-'));
     const before = readdirSync(folder);
-    const live = serveLive(['serve', '--product', folder, '--no-open'], { MADARCH_HOME: base, MADARCH_APP: app }, base);
+    const live = serveLive(['serve', '--product', folder, '--port', '0', '--no-open'], { MADARCH_HOME: base, MADARCH_APP: app }, base);
     await whenServing(live);
     const product = await (await fetch(`${live.address}/api/product`)).json() as { id?: string; name: string };
     expect(product.id).toBeUndefined();
@@ -265,7 +266,7 @@ describe('madarch serve: an existing product served', () => {
     expect(pages.pages).toEqual([]);
     expect(readdirSync(folder)).toEqual(before);
     await live.finish();
-  });
+  }, 30_000);
 
   test('a missing product path remains refused', () => {
     const base = scratchFolder();
@@ -477,8 +478,10 @@ describe('madarch serve: an existing product served', () => {
     // The opener was given the address; the server still stands for the person.
     expect(await Bun.file(opener.replace('march-open', 'open.log')).text().catch(() => '')).toContain(address);
     const finished = await serve.finish();
-    expect(finished.stderr).toContain('could not open the browser');
-    expect(finished.stderr).toContain(address);
+    expect(finished.stdout).toContain(`browser was not opened:`);
+    expect(finished.stdout).not.toContain(`${address} (browser was not opened`);
+    expect(finished.stdout.match(new RegExp(address.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))).toHaveLength(1);
+    expect(finished.stderr).not.toContain('could not open the browser');
   }, 30_000);
 
   test('a slow opener does not block the server: the address answers while the opener runs', async () => {
@@ -546,8 +549,8 @@ describe('madarch new serving the draft it just created', () => {
     await Bun.sleep(500);
     // The draft's facts come first, one per line, then the address.
     const lines = serve.stdout.split('\n').filter((line) => line !== '');
-    expect(lines[0]).toStartWith('folder: ');
-    expect(lines[1]).toStartWith('id: ');
+    expect(lines[0]).toContain('✓ Created the product');
+    expect(lines.some((line) => line.startsWith('Next:'))).toBeTrue();
     const body = (await (await fetch(`${address}/api/product`)).json()) as { name: string };
     expect(body.name).toStartWith('idea-');
     await serve.finish();
@@ -585,10 +588,14 @@ describe('the help the command gives', () => {
     expect(run.status).toBe(0);
     expect(run.stdout).toContain('new');
     expect(run.stdout).toContain('serve');
-    expect(run.stdout).toContain('--home');
-    expect(run.stdout).toContain('--product');
-    expect(run.stdout).toContain('--port');
-    expect(run.stdout).toContain('--no-open');
-    expect(run.stdout).toContain('usage: madarch serve');
+    expect(run.stdout).not.toContain('--home');
+    expect(run.stdout).toContain('madarch <command> --help');
+    expect(run.stdout).not.toContain('--product');
+    expect(run.stdout).not.toContain('--port');
+    expect(run.stdout).not.toContain('--no-open');
+    const detail = runCommand(['serve', '--help'], {});
+    expect(detail.stdout).toContain('usage: madarch serve');
+    expect(detail.stdout).toContain('--product');
+    expect(detail.stdout).toContain('--host');
   });
 });

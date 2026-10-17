@@ -47,3 +47,5 @@ try {
 } finally {
   Remove-Item $Temp -Recurse -Force -ErrorAction SilentlyContinue
 }
+Write-Output 'Start a new product: madarch new'
+Write-Output 'Start a product around your code: cd <checkout> && madarch init'

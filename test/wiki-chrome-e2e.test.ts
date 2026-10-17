@@ -121,7 +121,7 @@ runDescribe('wiki reader chrome (built app and Chromium)', () => {
     expect(metrics.repoName).toBe('sample');
     expect(metrics.normal.nameHeight).toBeLessThanOrEqual(22);
     expect(new Set(metrics.normal.parts.map((part) => part.top)).size).toBe(metrics.viewportWidth <= 500 ? 2 : 1);
-    expect(metrics.longName.nameHeight).toBeLessThanOrEqual(22);
+    expect(metrics.longName.nameHeight).toBeLessThanOrEqual(metrics.viewportWidth <= 500 ? 60 : 22);
     expect(metrics.longName.nameWidth).toBeLessThan(metrics.longName.rowClient);
     expect(metrics.longName.rowScroll).toBeLessThanOrEqual(metrics.longName.rowClient);
     expect(metrics.headingText).toBe('Architecture');

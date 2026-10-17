@@ -476,11 +476,11 @@ describe('the server\'s product mode', () => {
     };
     expect(body.repos).toHaveLength(2);
     expect(body.repos[1]).toEqual({
-      name: 'web', url: 'https://example.com/web.git', branch: 'main', path: 'repos/web', state: 'not-checked-out',
+      name: 'web', url: 'https://example.com/web.git', branch: 'main', path: 'repos/web', state: 'missing',
     });
     const core = body.repos[0]!;
     expect(core.name).toBe('core');
-    expect(core.state).toBe('checked-out');
+    expect(core.state).toBe('cloned');
     expect(core.head?.subject).toBe('Make the core');
     expect(core.head?.committedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(core.readme?.markdown).toBe('# core\n');

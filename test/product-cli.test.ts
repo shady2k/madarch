@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { readProduct } from '../src/product/manifest.js';
 import { addCodeRepository, bootstrapProduct, createDirectoryLink } from '../src/product/lifecycle.js';
-import { main, repoModeFromAnswer } from '../src/product/cli.js';
+import { main, repoModeFromAnswer, COMMANDS } from '../src/product/cli.js';
 import { createDraft } from '../src/product/draft.js';
 import { listProducts } from '../src/product/list.js';
 import { gitEnv } from './git-env.js';
@@ -173,8 +173,11 @@ export async function printedLiveFacts(serve: LiveNew): Promise<{ folder: string
   const start = Date.now();
   for (;;) {
     const lines = serve.stdout.split('\n').filter((line) => line !== '');
-    if (lines.length >= 2 && lines[0]!.startsWith('folder: ') && lines[1]!.startsWith('id: ')) {
-      return { folder: lines[0]!.slice('folder: '.length), id: lines[1]!.slice('id: '.length) };
+    const created = lines.find((line) => line.startsWith('✓ Created the product '));
+    const folder = created?.match(/ in (.+)$/)?.[1];
+    if (folder !== undefined && lines.some((line) => line.startsWith('The wiki is running at ') || line.startsWith('Wiki: '))) {
+      const product = readProduct(folder);
+      if (product.ok) return { folder, id: product.product.id };
     }
     if (serve.exitCode !== null || Date.now() - start > 15_000) {
       throw new Error(`the command stopped before it served; stdout was: ${serve.stdout}`);
@@ -249,25 +252,18 @@ describe('madarch new', () => {
     await second.finish();
   });
 
-  test('--help prints the subcommands and the options and exits 0', () => {
+  test('--help prints the short command list and exits 0', () => {
     const { status, stdout, stderr } = runCommand(['--help']);
-    expect(status).toBe(0);
-    expect(stderr).toBe('');
-    const lines = stdout.split('\n');
-    // The lines each subcommand's surface promises, whole: a help that was
-    // edited away would be a promise the command no longer keeps.
-    for (const line of [
-      '   or: madarch list [--home <folder>]',
-      '  demo       clone or update the Madarch product repository and serve its wiki',
-      '  list       name the products the products home holds',
-      '  --home <folder>       demo, new, init, list and clone: the products home of this one command, over MADARCH_HOME',
-      '                        (without either, ~/madarch/products)',
-      '  --product <folder>    serve, rename, remote, repo add and bootstrap: the product folder to work on;',
-    ]) {
-      expect(lines).toContain(line);
+    expect(status).toBe(0); expect(stderr).toBe('');
+    expect(stdout).toContain('Start:'); expect(stdout).toContain('Work with a product:'); expect(stdout).toContain('Other:');
+    expect(stdout).toContain('madarch <command> --help'); expect(stdout).not.toContain('--home'); expect(stdout).not.toContain('bun link');
+  });
+
+  test('every command has focused help with usage, flags and example', () => {
+    for (const command of Object.keys(COMMANDS)) {
+      const result = runCommand([command, '--help']);
+      expect(result.status).toBe(0); expect(result.stdout).toContain(`madarch ${command}`); expect(result.stdout).toContain('Example:');
     }
-    expect(stdout).toContain('new');
-    expect(stdout).toContain('--home');
   });
 
   test('a missing option value exits 2 naming the flag', () => {
@@ -301,11 +297,28 @@ describe('madarch new', () => {
     expect(stderr).toContain('new');
   });
 
-  test('no arguments at all exits 2 naming the missing subcommand by name', () => {
-    const { status, stderr } = runCommand([], {});
-    expect(status).toBe(2);
-    expect(stderr).toContain('no subcommand given: the subcommands are');
-    expect(stderr).toContain('"version"');
+  test('no arguments at all gives location-aware help and exits 0', () => {
+    const elsewhere = scratchFolder('madarch-help-elsewhere-');
+    const { status, stdout, stderr } = runCommand([], {}, elsewhere);
+    expect(status).toBe(0); expect(stderr).toBe(''); expect(stdout).toContain('Start a new product: madarch new');
+    expect(stdout).toContain('Products live in'); expect(stdout).toContain('Start:');
+  });
+
+  test('no-argument help describes a product folder and a temporary Git checkout', () => {
+    const base = scratchFolder('madarch-context-');
+    const home = join(base, 'home');
+    const draft = createDraft({ home });
+    if (draft.outcome !== 'created') throw new Error('expected fixture product creation');
+    const productHelp = runCommand([], {}, draft.folder);
+    expect(productHelp.status).toBe(0); expect(productHelp.stdout).toContain(`This is the product ${draft.name}.`);
+    expect(productHelp.stdout).toContain('Open its wiki: madarch serve');
+    expect(productHelp.stdout).toContain('Markdown files'); expect(productHelp.stdout).toContain('any agent');
+
+    const checkout = join(base, 'checkout'); mkdirSync(checkout);
+    const init = spawnSync(realGit(), ['init', '--initial-branch=main'], { cwd: checkout, encoding: 'utf8', env: gitEnv(GIT_ENV) });
+    if (init.status !== 0) throw new Error(`git init failed: ${init.stderr}`);
+    const gitHelp = runCommand([], {}, checkout);
+    expect(gitHelp.status).toBe(0); expect(gitHelp.stdout).toContain('This folder is a git repository. To start a product around it: madarch init');
   });
 
   test('a stray argument to new exits 2 naming it', () => {
@@ -376,9 +389,7 @@ describe('madarch init', () => {
     const { folder } = await printedLiveFacts(serve);
     expect(folder).toBe(join(home, 'products', 'sample-app'));
     const outputLines = serve.stdout.split('\n').filter((line) => line !== '');
-    for (const fact of ['folder:', 'id:', 'source:', 'repo:', 'url:', 'linked:', 'address:']) {
-      expect(outputLines.filter((line) => line.startsWith(fact))).toHaveLength(1);
-    }
+    expect(serve.stdout).toContain('✓ Created the product'); expect(serve.stdout).toContain('✓ Connected your repository'); expect(serve.stdout).toContain('Wiki: http://127.0.0.1:');
     expect(statSync(checkout).isDirectory()).toBe(true);
     expect(realpathSync(join(folder, 'repos', 'sample-app'))).toBe(realpathSync(checkout));
     expect(readProduct(folder)).toMatchObject({ ok: true, product: { repos: [{ name: 'sample-app', url: origin }] } });
@@ -399,7 +410,7 @@ describe('madarch init', () => {
     await serve.finish();
     const second = serveNew(['init', '--home', join(home, 'products'), '--port', '0', '--no-open'], { MADARCH_APP: builtApp(base) }, ['bun', CLI], checkout);
     const secondFacts = await printedLiveFacts(second);
-    expect(secondFacts.folder).toBe(folder); expect(second.stdout).toContain('already linked'); expect(existsSync(join(home, 'products', 'local-app'))).toBe(true); await second.finish();
+    expect(secondFacts.folder).toBe(folder); expect(second.stdout).toContain('✓ Created the product'); expect(existsSync(join(home, 'products', 'local-app'))).toBe(true); await second.finish();
     expect(folder).toContain('local-app');
   }, 15000);
 
@@ -517,13 +528,10 @@ describe('madarch list', () => {
     expect(status).toBe(0);
     // Code point order of the folders: hand-written < idea-… < set-made.
     const at = (needle: string) => stdout.indexOf(needle);
-    const blocks = stdout.split('\n\n').filter((block) => block !== '');
-    expect(blocks.length).toBe(3);
-    const names = blocks.map((block) => (block.split('\n').find((line) => line.startsWith('name: ')) ?? '').slice('name: '.length));
-    expect(names).toEqual(['hand-written', `idea-${todayName()}`, 'leftover-listings']);
-    for (const block of blocks) {
-      expect(block).toMatch(/^folder: .+\n(id|name): /);
-    }
+    expect(stdout).toContain('hand-written');
+    expect(stdout).toContain(`idea-${todayName()}`);
+    expect(stdout).toContain('leftover-listings');
+    expect(stdout).toContain('open with: cd ');
     expect(at('hand-written')).toBeGreaterThan(-1);
     expect(at('leftover-listings')).toBeGreaterThan(at(`idea-${todayName()}`));
     expect(at(`idea-${todayName()}`)).toBeGreaterThan(at('hand-written'));
@@ -567,7 +575,7 @@ describe('madarch list', () => {
     // a (shortest) < ab < a\uE000b < a\uE000c < a\u{10000}b — the plane-15
     // character after the private-use one, and equal prefixes settled at
     // the first difference or the length.
-    const at = (name: string) => stdout.indexOf(`folder: ${join(home, name)}`);
+    const at = (name: string) => stdout.indexOf(name);
     const ordered = ['a', 'ab', 'a\uE000b', 'a\uE000c', 'a\u{10000}b'].map(at);
     expect(ordered.every((v) => v > -1)).toBe(true);
     expect([...ordered].sort((x, y) => x - y)).toEqual(ordered);
@@ -583,21 +591,33 @@ describe('madarch list', () => {
     expect(stderr).toBe('');
     expect(status).toBe(0);
     expect(stdout).toContain(made.outcome === 'created' ? made.folder : 'never');
-    expect(stdout).toContain(`id: ${made.outcome === 'created' ? made.id : ''}`);
+    expect(stdout).toContain(made.outcome === 'created' ? made.id : 'never');
   });
 
-  test('an absent home and an empty home are each an empty list: exit 0, no output', () => {
+  test('an absent home and an empty home tell the user to start a product', () => {
     const absent = join(scratchFolder('madarch-cli-list-absent-'), 'nothing-here');
     const absentRun = runCommand(['list', '--home', absent]);
     expect(absentRun.status).toBe(0);
-    expect(absentRun.stdout).toBe('');
+    expect(absentRun.stdout).toContain('madarch new');
     expect(absentRun.stderr).toBe('');
 
     const empty = scratchFolder('madarch-cli-list-empty-');
     const emptyRun = runCommand(['list', '--home', empty]);
     expect(emptyRun.status).toBe(0);
-    expect(emptyRun.stdout).toBe('');
+    expect(emptyRun.stdout).toContain('madarch new');
     expect(emptyRun.stderr).toBe('');
+  });
+
+  test('--json keeps product facts machine-readable while the default list is human-readable', () => {
+    const home = scratchFolder('madarch-cli-list-json-');
+    const draft = createDraft({ home, gitEnv: gitEnv(GIT_ENV) });
+    expect(draft.outcome).toBe('created');
+    const human = runCommand(['list', '--home', home]);
+    expect(human.stdout).toContain('Products:');
+    expect(human.stdout).toContain('open with:');
+    expect(human.stdout).not.toContain('folder:');
+    const machine = runCommand(['list', '--home', home, '--json']);
+    expect(JSON.parse(machine.stdout)).toEqual({ products: [{ folder: draft.outcome === 'created' ? draft.folder : '', id: draft.outcome === 'created' ? draft.id : '', name: draft.outcome === 'created' ? draft.name : '' }] });
   });
 
   test('a subfolder that holds no manifest is not a product and is not listed', () => {
@@ -1171,7 +1191,7 @@ describe('madarch repo add', () => {
     const url = sourceRepo(base, 'library-source');
     const run = runCommand(['repo', 'add', 'library', url, '--product', draft.folder], {}, base);
     expect(run.status).toBe(0);
-    expect(run.stdout).toContain(`repo: library`);
+    expect(run.stdout).toContain('repo: library');
     expect(run.stdout).toContain('cloned:');
     const read = readProduct(draft.folder);
     expect(read).toMatchObject({ ok: true, product: { repos: [{ name: 'library', url }] } });

@@ -59,6 +59,8 @@ export interface ServeOptions extends AppBuildOptions {
   productFolder?: string;
   /** The port to listen on; `4180` by default, `0` for a port of the moment's own. */
   port?: number;
+  /** The address to bind; loopback by default. */
+  host?: string;
   /** Whether the browser is opened; yes unless `--no-open` was given. */
   open?: boolean;
   /** Where the product's folder is resolved from when `productFolder` is left out. */
@@ -102,7 +104,7 @@ export function machineOpener(env: ServeEnv = process.env): Opener {
         // so the child is reaped and cannot become a zombie.
         child = spawn(argv[0]!, argv.slice(1), { stdio: 'ignore', detached: true });
       } catch (error) {
-        resolveOutcome({ ok: false, message: `the opener ${JSON.stringify(chosen)} could not be launched for ${url}: ${(error as Error).message}` });
+        resolveOutcome({ ok: false, message: `the opener ${JSON.stringify(chosen)} could not be launched: ${(error as Error).message}` });
         return;
       }
       // The opener's lifetime is the browser's, never this process's: once
@@ -111,7 +113,7 @@ export function machineOpener(env: ServeEnv = process.env): Opener {
       // still runs (finding 8).
       child.unref();
       child.on('error', (error) => {
-        resolveOutcome({ ok: false, message: `the opener ${JSON.stringify(chosen)} failed for ${url}: ${error.message}` });
+        resolveOutcome({ ok: false, message: `the opener ${JSON.stringify(chosen)} failed: ${error.message}` });
       });
       child.on('exit', (code, signal) => {
         if (code === 0) {
@@ -119,7 +121,7 @@ export function machineOpener(env: ServeEnv = process.env): Opener {
           return;
         }
         const said = signal !== null ? `killed by ${signal}` : `exit ${String(code)}`;
-        resolveOutcome({ ok: false, message: `the opener ${JSON.stringify(chosen)} failed for ${url} (${said})` });
+        resolveOutcome({ ok: false, message: `the opener ${JSON.stringify(chosen)} failed (${said})` });
       });
     });
 }
@@ -141,7 +143,7 @@ export async function serveWiki(options: ServeOptions = {}): Promise<ServeResult
   const port = options.port ?? DEFAULT_PORT;
   let server: StartedServer;
   try {
-    server = await startServer({ productFolder: folder, appFolder: built.dist, port, allowNoManifest: noManifest });
+    server = await startServer({ productFolder: folder, appFolder: built.dist, port, host: options.host ?? '127.0.0.1', allowNoManifest: noManifest });
   } catch (error) {
     const message = (error as Error).message;
     // Bun's thrown error carries the POSIX code ("EADDRINUSE") rather than the
@@ -152,13 +154,23 @@ export async function serveWiki(options: ServeOptions = {}): Promise<ServeResult
     return { outcome: 'failed', message: `the server could not be started on port ${port}: ${message}` };
   }
   // The address first; the opener's outcome is never the address's.
-  print(`address: ${server.url}`);
-  if (options.open !== false) {
-    // Opened without waiting: an opener that stays alive (a foreground
-    // browser) must never block the server; its failure, learned later,
-    // is a warning holding the address.
-    void (options.opener ?? machineOpener(options.env ?? process.env))(server.url).then((opened) => {
-      if (!opened.ok) printError(`could not open the browser: ${opened.message} — the wiki is at ${server.url}`);
+  const networkBound = options.host !== undefined && !['127.0.0.1', 'localhost', '::1'].includes(options.host);
+  if (networkBound) print('Warning: this wiki is reachable from the network without a password.');
+  const env = options.env ?? process.env;
+  const ssh = Boolean(env.SSH_CONNECTION || env.SSH_TTY);
+  const noDesktop = process.platform === 'linux' && !env.DISPLAY && !env.WAYLAND_DISPLAY;
+  const open = options.open !== false && !ssh && (!noDesktop || Boolean(options.opener || env.MADARCH_BROWSER?.trim() || env.BROWSER?.trim()));
+  print(open ? `The wiki is running at ${server.url}  (Ctrl+C stops it)` : `Wiki: ${server.url}  (Ctrl+C stops it)`);
+  if (ssh) {
+    const [remoteHost] = (env.SSH_CONNECTION ?? '').split(/\s+/).slice(2, 3);
+    const user = env.USER || '<user>';
+    print('This machine is remote (SSH). To open the wiki on your computer, run there:');
+    print(`  ssh -L ${server.port}:127.0.0.1:${server.port} ${user}@${remoteHost || '<host>'}`);
+    print(`and open http://localhost:${server.port}`);
+  }
+  if (open) {
+    void (options.opener ?? machineOpener(env))(server.url).then((opened) => {
+      if (!opened.ok) print(`The browser was not opened: ${opened.message}`);
     });
   }
   return { outcome: 'serving', server, url: server.url };

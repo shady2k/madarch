@@ -54,9 +54,11 @@
     "setupProduct": "Run",
     "setupProductManifest": "to create the product manifest",
     "workspaceFile": "workspace.yaml",
-    "setupProductEnd": "and its documents.",
+    "setupProductEnd": "and its documents. Product documents are Markdown files in docs/; write them by hand or with any agent, or optionally use the shady2k-skills set.",
     "demoProduct": "Try the Madarch product wiki with:",
-    "otherDocumentsGroup": "Other documents"
+    "otherDocumentsGroup": "Other documents",
+    "documentsAnyAgent": "Product documents are Markdown files in the product’s docs/ folder. Write them by hand or with any agent;",
+    "documentsOptionalSkills": "or let an agent set them up with the shady2k-skills set."
   },
   "questions": {
     "title": "Questions",
@@ -236,7 +238,11 @@
     "lastCommit": "last commit {{when}}",
     "noReadme": "No README at its root",
     "noOrigin": "No origin URL",
-    "files": "Top-level files"
+    "files": "Top-level files",
+    "stateLinked": "Linked",
+    "stateMoved": "Moved into product",
+    "stateCloned": "Cloned",
+    "stateMissing": "Missing"
   },
   "registry": {
     "unnamedKind": "Unlabelled kind",

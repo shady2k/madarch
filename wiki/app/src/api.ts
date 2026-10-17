@@ -427,7 +427,7 @@ export type RepoEntry = {
   branch?: string;
   /** The checkout's state under `repos/`. */
   path: string;
-  state: 'checked-out' | 'not-checked-out' | 'unreadable';
+  state: 'linked' | 'cloned' | 'moved' | 'missing' | 'checked-out' | 'not-checked-out' | 'unreadable';
   /** The checkout's HEAD, when a checkout is there and git could read a commit of it. */
   head?: RepoHead;
   /** The README at the checkout's root, when it has one and its bytes could be read. */

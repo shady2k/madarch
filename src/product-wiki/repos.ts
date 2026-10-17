@@ -50,7 +50,7 @@ export interface RepoReadme {
 }
 
 /** How a declared repository's checkout stands. */
-export type RepoState = 'checked-out' | 'not-checked-out' | 'unreadable';
+export type RepoState = 'linked' | 'cloned' | 'moved' | 'missing' | 'unreadable' | 'checked-out' | 'not-checked-out';
 
 /** The code repositories the wiki answers for, as one ask found them. */
 export type ProductRefsAnswer = {
@@ -200,7 +200,7 @@ function readOne(productFolder: string, declared: ProductRepo, gitEnv: GitEnv): 
   } catch (error) {
     // A missing folder is the ordinary "not checked out"; a folder that gave
     // its listing only to fail another way is unreadable, cause named.
-    if (!existsSync(target)) return { ...entry, state: 'not-checked-out' };
+    if (!existsSync(target)) return { ...entry, state: 'missing' };
     return {
       ...entry,
       state: 'unreadable',
@@ -233,7 +233,7 @@ function readOne(productFolder: string, declared: ProductRepo, gitEnv: GitEnv): 
     if (/does not have any commits yet/i.test(head.output)) {
       const next: ProductRepoEntry = {
         ...entry,
-        state: 'checked-out',
+        state: lstatSync(target).isSymbolicLink() || declared.linked ? 'linked' : declared.moved ? 'moved' : 'cloned',
         problem: `the checkout ${JSON.stringify(target)} shows no commit yet: git answers: ${head.output}`,
       };
       return withReadme(next, target, productFolder, declared.name);
@@ -244,7 +244,7 @@ function readOne(productFolder: string, declared: ProductRepo, gitEnv: GitEnv): 
       problem: `the HEAD of the checkout ${JSON.stringify(target)} could not be read: git answers: ${head.output}`,
     };
   }
-  const next: ProductRepoEntry = { ...entry, state: 'checked-out' };
+  const next: ProductRepoEntry = { ...entry, state: lstatSync(target).isSymbolicLink() || declared.linked ? 'linked' : declared.moved ? 'moved' : 'cloned' };
   const [sha, subject, committedAt] = head.output.split('\u0000');
   return withReadme({
     ...next,

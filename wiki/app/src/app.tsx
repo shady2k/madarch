@@ -410,7 +410,7 @@ export function HomePage({ product, list, architecture, offer, overview, repos =
           <h2 id="empty-home-guidance-title" className="text-h2 font-medium">{t(product.id === undefined ? 'home.noManifestTitle' : 'home.gettingStartedTitle')}</h2>
           <p className="mt-3 text-secondary">{t(product.id === undefined ? 'home.noManifestDescription' : 'home.productRepository')}</p>
           <ol className="mt-3 list-decimal pl-6" data-testid="getting-started-steps">
-            {product.id === undefined ? <><li>{t('home.newProduct')} <code>madarch new</code></li><li>{t('home.cloneProduct')} <code>{'madarch clone <url>'}</code></li><li>{t('home.addRepository')} <code>{'madarch repo add <name> <url> --product <folder>'}</code></li><li>{t('home.setupProduct')} <code>setup-shady2k-skills</code> {t('home.setupProductManifest')} <code>{t('home.workspaceFile')}</code> {t('home.setupProductEnd')}</li><li>{t('home.demoProduct')} <code>madarch demo</code></li></> : repos.length === 0 ? <li>{t('home.noRepositories')} <code>cd &lt;checkout&gt; &amp;&amp; madarch init</code> {t('home.or')} <code>madarch repo add &lt;name&gt; &lt;url&gt;</code></li> : <li>{t('home.setupWithAgent')} <code>setup-shady2k-skills</code> {t('home.inProductFolder')}</li>}
+            {product.id === undefined ? <><li>{t('home.newProduct')} <code>madarch new</code></li><li>{t('home.cloneProduct')} <code>{'madarch clone <url>'}</code></li><li>{t('home.addRepository')} <code>{'madarch repo add <name> <url> --product <folder>'}</code></li><li>{t('home.setupProduct')} <code>workspace.yaml</code> {t('home.setupProductManifest')} <code>{t('home.workspaceFile')}</code> {t('home.setupProductEnd')}</li><li>{t('home.demoProduct')} <code>madarch demo</code></li></> : repos.length === 0 ? <><li>{t('home.noRepositories')} <code>cd &lt;checkout&gt; &amp;&amp; madarch init</code> {t('home.or')} <code>madarch repo add &lt;name&gt; &lt;url&gt;</code></li><li>{t('home.documentsAnyAgent')} <code>docs/</code> {t('home.documentsOptionalSkills')}</li></> : <li>{t('home.documentsAnyAgent')} <code>docs/</code> {t('home.documentsOptionalSkills')}</li>}
           </ol>
         </section>
       ) : null}
@@ -996,8 +996,10 @@ export function RepositoriesPage({ product, repos }: { product: Product; repos: 
 
 /** The state labels the card shows, by the entry's state. */
 function stateLabelOf(entry: RepoEntry, t: (key: string) => string): string {
-  if (entry.state === 'checked-out') return t('repos.stateCheckedOut');
-  if (entry.state === 'not-checked-out') return t('repos.stateNotCheckedOut');
+  if (entry.state === 'linked') return t('repos.stateLinked');
+  if (entry.state === 'moved') return t('repos.stateMoved');
+  if (entry.state === 'cloned' || entry.state === 'checked-out') return t('repos.stateCloned');
+  if (entry.state === 'missing' || entry.state === 'not-checked-out') return t('repos.stateMissing');
   return t('repos.stateUnreadable');
 }
 
@@ -1025,7 +1027,7 @@ export function RepoCard({ entry }: { entry: RepoEntry }): ReactElement {
             <span className="home-row-title">{t('repos.branchValue', { branch: entry.branch })}</span>
           </li>
         )}
-        {entry.state === 'checked-out' && entry.head !== undefined && (
+        {entry.head !== undefined && (
           <li className="home-row as-line" data-testid="repo-commit">
             <FileTextIcon aria-hidden="true" className="home-row-icon" />
             <span className="home-row-title">

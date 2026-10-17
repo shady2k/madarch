@@ -57,7 +57,7 @@ describe('serveWiki with a product or a manifestless directory', () => {
     mkdirSync(join(product, 'repos')); symlinkSync(source, join(product, 'repos', 'source'), 'dir');
     const result = serving(await serveWiki({ productFolder: product, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
     const answer = await (await fetch(`${result.url}/api/repos`)).json() as { repos: { name: string; path: string; state: string; files: string[]; readme?: { markdown: string } }[] };
-    expect(answer.repos[0]).toMatchObject({ name: 'source', path: 'repos/source', state: 'checked-out', files: ['README.md', 'src.ts'], readme: { markdown: '# Linked source\n' } });
+    expect(answer.repos[0]).toMatchObject({ name: 'source', path: 'repos/source', state: 'linked', files: ['README.md', 'src.ts'], readme: { markdown: '# Linked source\n' } });
   });
 
   test('preserves the manifest identity for a valid product', async () => {
