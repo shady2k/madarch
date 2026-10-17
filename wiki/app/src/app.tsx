@@ -66,6 +66,11 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
   const [refresh, setRefresh] = useState(0);
   const refreshRef = useRef(0);
   refreshRef.current = refresh;
+  const requestRefresh = (): void => {
+    const next = refreshRef.current + 1;
+    refreshRef.current = next;
+    setRefresh(next);
+  };
   const [streamConnected, setStreamConnected] = useState(false);
   const productName = data?.product.name;
   useEffect(() => {
@@ -190,7 +195,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
         // events the dead stream swallowed are read as a change now.
         if (misses > 0) {
           misses = 0;
-          setRefresh((held) => held + 1);
+          requestRefresh();
         }
         const reader = response.body.getReader();
         let frame = '';
@@ -203,7 +208,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
             const lines = frame.slice(0, end).split('\n');
             frame = frame.slice(end + 2);
             const kind = lines.find((line) => line.startsWith('event:'))?.slice(6).trim() ?? 'message';
-            if (kind === 'change') setRefresh((held) => held + 1);
+            if (kind === 'change') requestRefresh();
           }
         }
         throw new Error('the stream to ' + EVENTS_PATH + ' ended');
