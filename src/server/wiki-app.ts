@@ -26,6 +26,7 @@ import { likec4Webcomponent } from '../product-wiki/likec4-webcomponent.js';
 import { renderModel } from '../render/prepare.js';
 import { readStagesIndex, type StagesIndex } from '../wiki/stages.js';
 import { readProductRegistry, registryKit } from '../product/registry.js';
+import { recommendNextStep } from '../product-wiki/recommendations.js';
 import { existsSync, readFileSync, statSync, watch } from 'node:fs';
 import { join as joinPath, normalize, resolve, sep } from 'node:path';
 import { readdirSync, readFileSync as readFillFileSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
@@ -237,11 +238,20 @@ export function createWikiPart(
         ? { id: wiki.product.id, name: wiki.product.name, folder: nameOf(wiki.product.folder) }
         : { name: wiki.product.name, folder: nameOf(wiki.product.folder) };
       const audience = overview?.audience;
+      const listed = wiki.nextStepPages();
+      const questions = wiki.questions();
+      const registry = readProductRegistry(wiki.product.folder);
+      const recommendation = recommendNextStep({
+        kinds: registry.present && !('refused' in registry) ? registry.kinds : [],
+        pages: listed.ok ? listed.pages : [],
+        questions: questions.ok ? questions.questions : [],
+      });
       return {
         response: json(200, {
           ...identity,
           ...(overview === undefined ? {} : { overview }),
           ...(audience === undefined ? {} : { audience }),
+          recommendation,
         }),
       };
     },
@@ -408,6 +418,7 @@ export function createWikiPart(
           questions: dependentQuestions,
           findings: asked.page.findings,
           structural: asked.page.structural,
+          recommendation: asked.page.recommendation,
           check: asked.page.check,
         }),
       };

@@ -373,7 +373,7 @@ describe('madarch serve: an existing product served', () => {
       { MADARCH_HOME: base, MADARCH_APP: built, MADARCH_APP_BUILD: builder.command, MADARCH_BROWSER: opener });
     const address = await whenServing(serve, '/api/product');
     const body = (await (await fetch(`${address}/api/product`)).json()) as { id: string; name: string; folder: string };
-    expect(body).toEqual({ id: 'demo-id', name: 'named', folder: basename(folder) });
+    expect({ id: body.id, name: body.name, folder: body.folder }).toEqual({ id: 'demo-id', name: 'named', folder: basename(folder) });
     const vision = (await (await fetch(`${address}/api/page?path=docs/vision.md`)).json()) as { title: string; markdown: string };
     expect(vision.title).toBe('Vision');
     expect(vision.markdown).toBe('# Vision\n\nWhat it is for.\n');

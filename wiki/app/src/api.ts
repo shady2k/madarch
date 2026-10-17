@@ -146,6 +146,18 @@ export type ProductWithAudience = Product & {
   audience?: string;
   /** Optional normalized facts projected from product-declared document sections. */
   overview?: ProductOverviewProjection;
+  recommendation?: NextStepRecommendation;
+};
+
+export type NextStepRecommendation = {
+  action: string;
+  reason: string;
+  target: string;
+  rule: 'answer-question' | 'review-assumption' | 'fill-required' | 'registry-hint' | 'inspect-update';
+  /** The open question's title, set when the rule answered a question. */
+  questionTitle?: string;
+  /** The registry kind's name, set when the rule names a kind. */
+  kindName?: string;
 };
 
 export type Page = {
@@ -160,6 +172,7 @@ export type Page = {
   /** This page's structural findings the registry's reads computed; absent where an older server sent none. */
   structural?: PageStructuralFinding[];
   questions?: QuestionEntry[];
+  recommendation?: NextStepRecommendation;
   check?: PageCheck;
 };
 

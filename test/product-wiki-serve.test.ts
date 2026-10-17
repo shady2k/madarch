@@ -40,7 +40,7 @@ describe('serveWiki with a product or a manifestless directory', () => {
     const before = readdirSync(folder);
     const result = serving(await serveWiki({ cwd: folder, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
     const product = await (await fetch(`${result.url}/api/product`)).json() as { id?: string; name: string; folder: string };
-    expect(product).toEqual({ name: 'empty-home', folder: 'empty-home' });
+    expect({ id: product.id, name: product.name, folder: product.folder }).toEqual({ id: undefined, name: 'empty-home', folder: 'empty-home' });
     const pages = await (await fetch(`${result.url}/api/pages`)).json() as { revision: string; pages: unknown[] };
     expect(pages.revision).not.toBe('');
     expect(pages.pages).toEqual([]);
@@ -67,7 +67,7 @@ describe('serveWiki with a product or a manifestless directory', () => {
     writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: manifest-id\nname: Manifest name\n');
     const result = serving(await serveWiki({ productFolder: folder, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
     const product = await (await fetch(`${result.url}/api/product`)).json() as { id: string; name: string; folder: string };
-    expect(product).toEqual({ id: 'manifest-id', name: 'Manifest name', folder: 'valid-product' });
+    expect({ id: product.id, name: product.name, folder: product.folder }).toEqual({ id: 'manifest-id', name: 'Manifest name', folder: 'valid-product' });
   });
 
   test('serves a no-manifest directory with non-page files by explicit path', async () => {
@@ -78,7 +78,7 @@ describe('serveWiki with a product or a manifestless directory', () => {
     const before = readdirSync(folder);
     const result = serving(await serveWiki({ productFolder: folder, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
     const product = await (await fetch(`${result.url}/api/product`)).json() as { id?: string; name: string; folder: string };
-    expect(product).toEqual({ name: 'no-manifest', folder: 'no-manifest' });
+    expect({ id: product.id, name: product.name, folder: product.folder }).toEqual({ id: undefined, name: 'no-manifest', folder: 'no-manifest' });
     const pages = await (await fetch(`${result.url}/api/pages`)).json() as { pages: unknown[] };
     expect(pages.pages).toEqual([]);
     expect(readdirSync(folder)).toEqual(before);
