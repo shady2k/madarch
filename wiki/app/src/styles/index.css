@@ -142,6 +142,18 @@
   }
 }
 
+/* Next-step guidance is prominent enough to act on, but stays part of the reading flow. */
+.next-step {
+  margin-block: 1.5em;
+  padding: 1em 1.1em;
+  border-inline-start: 3px solid var(--border);
+  background: var(--surface-soft);
+}
+.next-step-label { margin: 0; color: var(--text-muted); font-size: var(--fs-small); font-weight: 650; }
+.next-step-action { margin: .2em 0; font-weight: 650; }
+.next-step-reason { margin: .25em 0; color: var(--text-secondary); }
+.next-step-link { display: inline-block; margin-block-start: .2em; text-decoration: underline; text-decoration-color: var(--link-underline); text-underline-offset: .18em; }
+
 /* 4.2/4.4 The reading styles: our own element rules themed on the tokens
    (the typography plugin's classes are not wired in, so no accepted value
    rides its defaults). */

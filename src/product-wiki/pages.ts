@@ -53,6 +53,7 @@ import {
 import { CheckRunCache, runProductCheck, type ProductCheckRun, type ProductFinding } from './checking.js';
 import { readRegistryServing, type RegistryContract } from './registry.js';
 import { readProductRegistry, registryKit, type RegistryKit } from '../product/registry.js';
+import { recommendNextStep, type NextStepRecommendation } from './recommendations.js';
 
 /** The kinds kit of one product folder, read fresh: `undefined` when the product holds no registry that reads. */
 function kitOf(productFolder: string): RegistryKit | undefined {
@@ -117,6 +118,8 @@ export interface WikiPage {
   findings: ProductFinding[];
   /** This page's structural findings the registry's reads computed: the broken links, the undeclared kinds and fields, the missing required links and the statuses outside the kind's list. */
   structural: StructuralFinding[];
+  /** Registry-driven next action selected from the page and open questions. */
+  recommendation?: NextStepRecommendation;
   /** Whether the set's check ran against the product this ask was answered from. */
   check?: { ran: true; version: string } | { ran: false; message: string };
 }
@@ -397,16 +400,34 @@ class FreshProductWiki implements ProductWiki {
     const shown = doc === undefined
       ? markdown
       : blankFieldLines(markdown, doc.fields);
+    const pageTitle = titleOf(path, markdown);
+    const pageMeta = taken.snapshot.paths.map((candidate) => ({
+      path: candidate,
+      title: taken.snapshot.titles.get(candidate) ?? candidate,
+      kind: taken.snapshot.docs.byPath.get(candidate)?.kind,
+      id: taken.snapshot.docs.byPath.get(candidate)?.id,
+      markdown: taken.snapshot.texts.get(candidate),
+      structural: taken.snapshot.structural.get(candidate) ?? [],
+    }));
+    const registry = readProductRegistry(this.product.folder);
+    const questions = this.questions();
+    const recommendation = recommendNextStep({
+      kinds: registry.present && !('refused' in registry) ? registry.kinds : [],
+      pages: pageMeta,
+      questions: questions.ok ? questions.questions : [],
+      pagePath: path,
+    });
     return {
       ok: true,
       page: {
         path,
-        title: titleOf(path, markdown),
+        title: pageTitle,
         markdown: shown,
         changedAt,
         document,
         findings,
         structural,
+        recommendation,
         check: check.ran ? { ran: true, version: check.version } : { ran: false, message: check.message },
       },
     };

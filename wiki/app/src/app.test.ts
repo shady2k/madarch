@@ -160,6 +160,25 @@ describe('the home page', () => {
     expect(link?.textContent).toBe('Vision');
   });
 
+
+  test('shows the localized next-step recommendation on home and page views with its target link', async () => {
+    const recommendation = { action: 'Answer: Who decides?', reason: 'This decision blocks the vision.', target: 'docs/questions/Q-001.md', rule: 'answer-question' as const };
+    const list = { ...listWithPages, pages: [...listWithPages.pages, { path: 'docs/questions/Q-001.md', title: 'Who decides?', url: '/p/docs/questions/Q-001.md' }] };
+    const answer = answerFor({ ...product, recommendation }, list, { ...pagesAtR1, 'docs/vision.md': { ...pagesAtR1['docs/vision.md']!, recommendation } });
+    install(answer);
+    await setWikiLanguage('en'); goto('/'); await intoApp(createElement(App));
+    await until(() => document.querySelector('[data-testid="next-step"]') !== null, 'home recommendation');
+    const homeStep = document.querySelector('[data-testid="next-step"]');
+    expect(homeStep?.textContent).toContain('Answer: Who decides?');
+    expect(homeStep?.querySelector('a[href="/p/docs/questions/Q-001.md"]')?.textContent).toBe('Go to the suggested place');
+    unmount();
+    goto('/p/docs/vision.md'); await intoApp(createElement(App));
+    await until(() => document.querySelector('[data-testid="next-step"]') !== null, 'page recommendation');
+    expect(document.querySelector('[data-testid="next-step"]')?.getAttribute('data-rule')).toBe('answer-question');
+    await setWikiLanguage('ru');
+    expect(document.querySelector('[data-testid="next-step"]')?.getAttribute('aria-label')).toBe('Следующий шаг');
+  });
+
   test('home and empty repositories fallback receive manifest kind labels', async () => {
     const typedPages: PageList = {
       ...listWithPages,

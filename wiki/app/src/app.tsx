@@ -30,6 +30,7 @@ import { useArchitecture, ArchitectureIndex, ViewPage, ElementPage, elementLinks
 import { StagePage, useStages } from './stages.js';
 import { QuestionsView } from './questions.js';
 import { HomeOverviewFacts, registryDisplayLabel, registryStageDisplayLabel, type HomeOverviewProjection } from './overview.js';
+import { NextStep } from './recommendation.js';
 export type RouteSnapshot = Route;
 
 /** How many times one page read is tried before the app gives up on it. */
@@ -258,7 +259,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
       <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, stage: route.name === 'stage' ? route.stage : undefined, group: route.name === 'group' ? route.group : undefined, architecture: architectureCrumb, heldPaths }}>
         <Shell product={data.product} list={list} architecture={architecture} reposCount={data.repos?.repos.length} reposOpen={route.name === 'repos'} offer={data.registry}>
         {route.name === 'home' ? (
-          <><FillWizard /><HomePage product={data.product} list={list} architecture={architecture} offer={data.registry} overview={data.product.overview} repos={data.repos?.repos ?? []} /></>
+          <><FillWizard /><HomePage product={data.product} list={list} architecture={architecture} offer={data.registry} overview={data.product.overview} recommendation={data.product.recommendation} repos={data.repos?.repos ?? []} /></>
         ) : route.name === 'group' ? (
           <GroupPage group={route.group} list={list} offer={data.registry} />
         ) : route.name === 'repos' && (data.repos?.repos.length ?? 0) > 0 ? (
@@ -266,7 +267,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
         ) : route.name === 'repos' ? (
           // `/r` of an undeclared product: no repositories section exists —
           // the server refuses the route and the reader sees the home.
-          <HomePage product={data.product} list={list} architecture={architecture} offer={data.registry} overview={data.product.overview} repos={data.repos?.repos ?? []} />
+          <HomePage product={data.product} list={list} architecture={architecture} offer={data.registry} overview={data.product.overview} recommendation={data.product.recommendation} repos={data.repos?.repos ?? []} />
         ) : route.name === 'architecture' ? (
           <ArchitectureReader key={'architecture:' + list.revision} revision={list.revision} routeName="index" />
         ) : route.name === 'view' ? (
@@ -382,7 +383,7 @@ export function GroupPage({ group, list, offer }: { group: string; list: PageLis
  * choosing between, the rows read like the sidebar's. A product with no
  * pages yet says so plainly in the lead.
  */
-export function HomePage({ product, list, architecture, offer, overview, repos = [] }: { product: ProductWithAudience; list: PageList; architecture?: Architecture | null; offer?: RegistryOffer | null; overview?: HomeOverviewProjection; repos?: readonly RepoEntry[] }): ReactElement {
+export function HomePage({ product, list, architecture, offer, overview, recommendation, repos = [] }: { product: ProductWithAudience; list: PageList; architecture?: Architecture | null; offer?: RegistryOffer | null; overview?: HomeOverviewProjection; recommendation?: ProductWithAudience['recommendation']; repos?: readonly RepoEntry[] }): ReactElement {
   const registryOffer = offer ?? null;
   const groups = groupNav(list.pages, registryOffer);
   const documents = list.pages.length;
@@ -415,6 +416,7 @@ export function HomePage({ product, list, architecture, offer, overview, repos =
       ) : normalizedLegacyAudience !== undefined && normalizedLegacyAudience.length > 0 ? (
         <p className="home-audience" data-testid="home-audience">{t('home.audience', { audience: normalizedLegacyAudience })}</p>
       ) : null}
+      <NextStep recommendation={recommendation} pagePaths={list.pages.map((page) => page.path)} offer={registryOffer} />
       {repos.length > 0 ? <section className="home-group mt-7" data-testid="home-repositories"><h2 className="text-h2 font-medium">{t('repos.title')}</h2><ul className="home-rows">{repos.map((entry) => <li key={entry.name} className="home-row home-repository-row"><a className="home-repository-part" href={`/r#${encodeURIComponent(entry.name)}`} title={entry.name}><strong className="home-repository-name">{entry.name}</strong></a><span className="home-repository-part">{entry.url ?? t('repos.noOrigin')}</span><span className="home-repository-part">{entry.path}</span><span className="home-repository-part">{stateLabelOf(entry, t)}</span></li>)}</ul></section> : null}
       {documents === 0 ? (
         <section className="home-group mt-0" data-testid="empty-home-guidance" aria-labelledby="empty-home-guidance-title">
@@ -707,6 +709,7 @@ export function PageReader({
       </div>
       {!ownTitle && <h1 className="app-title">{page.title}</h1>}
       {doc !== undefined && <DocumentHeader document={doc} />}
+      <NextStep recommendation={page.recommendation} pagePaths={[...heldPaths]} offer={offer} />
       <Markdown text={page.markdown.replace(/<!--\/?c:[^>]*-->/g, '')} elementLinks={elementLinksFor(bundle, path)} />
       <div className="discussion-actions">
         <button type="button" data-testid="discussion-page-comment" onClick={() => { setDraft(''); setPageCommentOpen(true); }}>{t('discussion.pageComment')}</button>

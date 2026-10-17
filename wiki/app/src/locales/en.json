@@ -320,5 +320,19 @@
     "chosen": "Current agent:",
     "maxUnits": "Maximum work units",
     "multipleRepos": "This version cannot fill multiple connected repositories together. Disconnect all but one repository before starting."
+  },
+  "nextStep": {
+    "title": "Next step",
+    "openTarget": "Go to the suggested place",
+    "genericAction": "Review this page and its sources",
+    "genericReason": "Check whether this page still reflects the product.",
+    "answerAction": "Answer: {{title}}",
+    "answerReason": "Resolve this blocking question.",
+    "reviewAssumptionAction": "Review unverified assumption",
+    "reviewAssumptionReason": "This page contains a claim marked Unverified.",
+    "fillKindAction": "Add {{kind}}",
+    "fillKindReason": "The registry requires a page of {{kind}}, but none is present.",
+    "fillLinkAction": "Fill a required link",
+    "fillLinkReason": "The required link is missing from this page."
   }
 }

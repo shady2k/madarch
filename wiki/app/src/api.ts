@@ -146,6 +146,14 @@ export type ProductWithAudience = Product & {
   audience?: string;
   /** Optional normalized facts projected from product-declared document sections. */
   overview?: ProductOverviewProjection;
+  recommendation?: NextStepRecommendation;
+};
+
+export type NextStepRecommendation = {
+  action: string;
+  reason: string;
+  target: string;
+  rule: 'answer-question' | 'review-assumption' | 'fill-required' | 'registry-hint' | 'inspect-update';
 };
 
 export type Page = {
@@ -160,6 +168,7 @@ export type Page = {
   /** This page's structural findings the registry's reads computed; absent where an older server sent none. */
   structural?: PageStructuralFinding[];
   questions?: QuestionEntry[];
+  recommendation?: NextStepRecommendation;
   check?: PageCheck;
 };
 
