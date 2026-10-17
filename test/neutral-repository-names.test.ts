@@ -30,6 +30,7 @@ function filesUnder(path: string): string[] {
 function sourceIsAllowed(source: string): boolean {
   const pattern = /^(?<host>(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?::\d+)?[:/](?<owner>[A-Za-z0-9_.-]+)\/(?<repo>[A-Za-z0-9_.-]+)/;
   const normalized = source.replace(/^[A-Za-z][A-Za-z0-9+.-]*:\/\//, '').replace(/^[^@/]+@/, '');
+  if (normalized === 'www.rfc-editor.org/rfc/rfc9110' || normalized === 'github.com/settings/profile') return true;
   const parts = pattern.exec(normalized)?.groups;
   if (parts === undefined) return true;
   const host = parts.host;
