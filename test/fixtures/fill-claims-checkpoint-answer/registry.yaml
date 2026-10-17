@@ -1,0 +1,25 @@
+contract: 1
+stages:
+- id: architecture
+  name: Architecture
+kinds:
+- name: Data Entity
+  prefix: DE
+  folder: docs/data entitys
+  stage: architecture
+  hint: Describe sourced data entity evidence from the repository.
+- name: Module
+  prefix: M
+  folder: docs/modules
+  stage: architecture
+  hint: Describe sourced module evidence from the repository.
+- name: Service
+  prefix: SR
+  folder: docs/services
+  stage: architecture
+  hint: Describe sourced service evidence from the repository.
+- name: Store
+  prefix: ST
+  folder: docs/stores
+  stage: architecture
+  hint: Describe sourced store evidence from the repository.

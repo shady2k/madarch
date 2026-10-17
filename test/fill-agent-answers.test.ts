@@ -76,6 +76,54 @@ describe('claims answer validation collects every error', () => {
     expect(validateClaimsAnswer({ claims: [validClaim, { ...validClaim, text: 'A different claim.' }] }, kinds, sources)).toEqual([]);
   });
 
+  test('optional per-claim marks are validated when present and ignored when absent', () => {
+    expect(validateClaimsAnswer({ claims: [{ ...validClaim, conflictsWith: 'README.md', undocumented: true, termPair: { documentTerm: 'payment token', codeTerm: 'CardToken' } }] }, kinds, sources)).toEqual([]);
+    const markedRow = (mark: Record<string, unknown>, text = validClaim.text) => ({ ...validClaim, text, ...mark });
+    expect(validateClaimsAnswer({ claims: [
+      markedRow({ conflictsWith: '  ' }),
+      markedRow({ undocumented: 'yes' }, 'Second claim.'),
+      markedRow({ termPair: { documentTerm: '', codeTerm: 4 } }, 'Third claim.'),
+      markedRow({ termPair: 'payment token/CardToken' }, 'Fourth claim.'),
+    ] }, kinds, sources)).toEqual([
+      'claims[0].conflictsWith: must be a non-empty string when present',
+      'claims[1].undocumented: must be a boolean when present',
+      'claims[2].termPair: must be an object with non-empty documentTerm and codeTerm strings',
+      'claims[3].termPair: must be an object with non-empty documentTerm and codeTerm strings',
+    ]);
+  });
+
+  test('the optional questions list is validated: types, missing field, claim texts and duplicates', () => {
+    const good = { type: 'meaning', title: 'What expiry means', prompt: 'Does expiry cancel without payment?', kind: 'Overview', claimTexts: [validClaim.text] };
+    expect(validateClaimsAnswer({ claims: [validClaim], questions: [good, { type: 'access-or-document-needed', title: 'Workspace read', prompt: 'Access is needed.', missing: 'access', claimTexts: [validClaim.text] }] }, kinds, sources)).toEqual([]);
+    expect(validateClaimsAnswer({ claims: [validClaim], questions: 'not a list' }, kinds, sources)).toEqual(['Agent output field questions must be an array']);
+    expect(validateClaimsAnswer({ claims: [validClaim], questions: [
+      { type: 'guess', title: 'q', prompt: 'why?' },
+      { title: 'q', prompt: 'why?' },
+      { type: 'meaning', title: '', prompt: 'why?' },
+      { type: 'meaning', title: 'q', prompt: '' },
+      { type: 'meaning', title: 'unknown kind', prompt: 'why?', kind: 'Nope' },
+      { type: 'access-or-document-needed', title: 'no missing field', prompt: 'why?' },
+      { type: 'access-or-document-needed', title: 'bad missing field', prompt: 'why?', missing: 'wifi' },
+      { type: 'meaning', title: 'unmatched claim text', prompt: 'why?', claimTexts: ['no such claim'] },
+      { type: 'meaning', title: 'bad claim text shape', prompt: 'why?', claimTexts: 'validClaim.text' },
+      { type: 'meaning', title: 'asked once', prompt: 'why?' },
+      { type: 'meaning', title: 'asked once', prompt: 'why, again?' },
+      'not an object',
+    ] }, kinds, sources)).toEqual([
+      'questions[0].type: must be one of meaning, contradiction, undocumented-behaviour, assumption-check, term, unverifiable, decision-rationale, access-or-document-needed',
+      'questions[1].type: must be one of meaning, contradiction, undocumented-behaviour, assumption-check, term, unverifiable, decision-rationale, access-or-document-needed',
+      'questions[2].title: must be a non-empty string',
+      'questions[3].prompt: must be a non-empty string',
+      'questions[4].kind: unknown registry kind "Nope"',
+      'questions[5].missing: access-or-document-needed questions need missing set to access or document',
+      'questions[6].missing: must be access or document',
+      'questions[7].claimTexts: no claim in this answer has the text "no such claim"; copy the exact text of a claim you returned',
+      'questions[8].claimTexts: must be an array of non-empty claim texts',
+      'questions[10]: duplicate of questions[9]: the same type and title is one question, return it once',
+      'questions[11]: question must be a JSON object',
+    ]);
+  });
+
   test('a missing confidence defaults and an absent claims array is one clear error', () => {
     expect(validateClaimsAnswer({ claims: [{ kind: 'Overview', text: 'x', layer: 'fact', sourceIds: ['src-5e6f7081'] }] }, kinds, sources)).toEqual([]);
     expect(validateClaimsAnswer({ nope: true }, kinds, sources)).toEqual(['Agent output field claims must be an array']);
@@ -127,7 +175,7 @@ const productFixture = async () => {
   await mkdir(join(root, 'docs'), { recursive: true });
   const registryText = 'contract: 1\nstages:\n  - id: overview\n    name: Overview\nkinds:\n  - name: Overview\n    prefix: OV\n    folder: docs/overview\n    stage: overview\n    hint: Describe the product\n';
   await writeFile(join(root, 'docs/kinds.yaml'), registryText);
-  await writeFile(join(root, 'README.md'), '# example product\n');
+  await writeFile(join(root, 'README.md'), '# example product\n\nSee [the guide](https://example.test/guide).\n');
   git(root, 'init', '-q', '-b', 'main');
   git(root, 'config', 'user.name', 'Fixture');
   git(root, 'config', 'user.email', 'fixture@example.invalid');
@@ -215,6 +263,50 @@ describe('a malformed agent answer fails one unit and the run goes on', () => {
       const extraction = await readFillJson<{ claims: { sourceIds: string[] }[] }>(join(fillStatePaths(root).outputs, 'claims-repository', 'claims.json'));
       expect(extraction.claims).toHaveLength(1);
       expect(extraction.claims[0]!.sourceIds).toHaveLength(1);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  }, 60000);
+
+  test('a completed claims answer emits typed derived and agent-reported questions into the run output', async () => {
+    const { root } = await productFixture();
+    try {
+      const answer = {
+        claims: [
+          { ...validClaim, sourceIds: ['README'] },
+          { kind: 'Overview', text: 'README promises a guide the code never shows.', layer: 'assumed-meaning', confidence: 0.5, sourceIds: ['README'], conflictsWith: 'README.md', undocumented: true },
+        ],
+        questions: [
+          { type: 'decision-rationale', title: 'Why the wiki is versioned', prompt: 'Why does the service version its wiki pages?', kind: 'Overview', claimTexts: ['The service serves a versioned wiki.', 'README promises a guide the code never shows.'] },
+        ],
+      };
+      // Synthesis is out of scope here: its first answer is refused, which stops the run after claims.
+      await expect(startFill(root, { executorFactory: () => ({ execute: async (prompt: string) => {
+        if (prompt.includes('Allowed source records')) {
+          const marker = 'Allowed source records (cite these ids exactly):\n';
+          const tail = prompt.slice(prompt.indexOf(marker) + marker.length);
+          const catalogue = JSON.parse(tail.slice(tail.indexOf('['), tail.indexOf(']') + 1)) as { id: string; address: string }[];
+          const readme = catalogue.find((source) => source.address === 'README.md')!.id;
+          for (const row of answer.claims) row.sourceIds = [readme];
+          return JSON.stringify(answer);
+        }
+        return 'not json on purpose';
+      } }) })).rejects.toThrow('Agent returned no JSON object');
+      const extraction = await readFillJson<{ claims: { id: string; text: string; sourceIds?: string[] }[]; questions: { type: string; reason: string; dependsOn: string[]; rank: number; missing?: string }[]; inaccessibleLinks: { url: string; status: string; sourceId: string }[] }>(join(fillStatePaths(root).outputs, 'claims-repository', 'claims.json'));
+      const claimBy = (text: string) => extraction.claims.find((claim) => claim.text === text)!.id;
+      expect(extraction.questions.map((question) => question.type).sort()).toEqual(['access-or-document-needed', 'assumption-check', 'contradiction', 'decision-rationale', 'undocumented-behaviour']);
+      const contradiction = extraction.questions.find((question) => question.type === 'contradiction')!;
+      expect(contradiction.reason).toContain('README.md');
+      expect(contradiction.dependsOn).toContain(claimBy('README promises a guide the code never shows.'));
+      const link = extraction.questions.find((question) => question.type === 'access-or-document-needed')!;
+      expect(link.missing).toBe('access');
+      expect(link.reason).toContain('https://example.test/guide');
+      const rationale = extraction.questions.find((question) => question.type === 'decision-rationale')!;
+      expect(rationale.dependsOn).toContain(claimBy('The service serves a versioned wiki.'));
+      expect(rationale.rank).toBe(1);
+      const readmeClaim = extraction.claims.find((claim) => claim.text === 'README promises a guide the code never shows.')!;
+      expect(extraction.inaccessibleLinks).toHaveLength(1);
+      const unread = extraction.inaccessibleLinks[0]!;
+      expect(unread).toEqual({ url: 'https://example.test/guide', status: 'not-attempted', sourceId: expect.stringMatching(/^src-/) });
+      expect(readmeClaim.sourceIds).toContain(unread.sourceId);
     } finally { await rm(root, { recursive: true, force: true }); }
   }, 60000);
 });

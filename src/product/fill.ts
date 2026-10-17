@@ -8,9 +8,9 @@ import { readProductRegistry } from './registry.js';
 import { inventoryRepository, indexRepository, inventoryUnitPlan, structuralIndexUnitPlans, executeInventoryUnit, executeStructuralIndexUnit, type StructuralIndexResult, type RepositoryInventoryResult } from './fill-index.js';
 import { consumeFillControl, createFillRun, createFillFileStore, fillStatePaths, hashFillInput, hashFillInputs, readFillJson, reconcileFillUnit, withFillControlLock, writeFillJsonAtomic, type FillRun, type FillStage, type FillUnit, type FillUnitPlan } from './fill-runtime.js';
 import { createHeadlessAgentExecutor, type AgentKind, type AgentSettings } from './fill-agents.js';
-import { assembleClaims, createClaimSources, readPinnedGitMaterial, readPinnedGitHistory, type ClaimsExtraction, type ClaimSource, type ExtractedClaim, type ClaimLayer } from './fill-claims.js';
+import { assembleClaims, createClaimSources, readPinnedGitMaterial, readPinnedGitHistory, recordUnattemptedLinks, type ClaimsExtraction, type ClaimSource, type ExtractedClaim, type ClaimLayer } from './fill-claims.js';
 import { buildCodeMap, persistCodeMap, synthesizePages, applySynthesisPages, type SynthesisClaim, type SynthesizedPage } from './fill-synthesis.js';
-import { asArray, asSourceIdList, claimRowsFromAnswer, parseAgentAnswer, requestValidatedAgentAnswer, validateClaimsAnswer } from './fill-agent-answers.js';
+import { agentQuestionsFromAnswer, asArray, asSourceIdList, claimRowsFromAnswer, parseAgentAnswer, requestValidatedAgentAnswer, validateClaimsAnswer } from './fill-agent-answers.js';
 
 export interface StartFillOptions { agent?: AgentKind; model?: string; ompExecutable?: string; ompExtension?: string; ompTools?: string; maxUnits?: number; executorFactory?: (context: { stage: FillStage; repository: string; prompt: string; onEvent: (event: unknown) => Promise<void> }) => { execute: (prompt: string, signal: AbortSignal, onEvent: (event: unknown) => Promise<void>) => Promise<string> }; }
 export interface StartFillResult { run: FillRun; counts: { reused: number; run: number }; questionReview: 'hook-pending-co2d.1'; }
@@ -96,8 +96,9 @@ async function startFillUnlocked(productFolder: string, options: StartFillOption
     if (outcome.ok) {
       const rows=claimRowsFromAnswer(outcome.value);
       // Ensure every claim is tied to a known source id; prompts are given source catalogue identifiers.
-      const claims=rows.map((c:any)=>({kind:String(c.kind),text:String(c.text),layer:c.layer as ClaimLayer,confidence:Number(c.confidence??0.8),sourceIds:asSourceIdList(c.sourceIds,'sourceIds')}));
-      const built=assembleClaims({runId:run.id,unitId:claimUnit.id,kinds:registry.kinds,sources:allSources,agentClaims:claims}); extraction={...built,usage:{elapsedMs:0,inputTokens:0,outputTokens:0},inaccessibleLinks:[]};
+      const claims=rows.map((c:any)=>({kind:String(c.kind),text:String(c.text),layer:c.layer as ClaimLayer,confidence:Number(c.confidence??0.8),sourceIds:asSourceIdList(c.sourceIds,'sourceIds'),...(c.conflictsWith===undefined?{}:{conflictsWith:String(c.conflictsWith)}),...(c.undocumented===undefined?{}:{undocumented:Boolean(c.undocumented)}),...(c.termPair===undefined?{}:{termPair:c.termPair})}));
+      const agentQuestions=agentQuestionsFromAnswer(outcome.value); const links=recordUnattemptedLinks(materials,allSources);
+      const built=assembleClaims({runId:run.id,unitId:claimUnit.id,kinds:registry.kinds,sources:allSources,agentClaims:claims,agentQuestions,inaccessibleLinks:links}); extraction={...built,usage:{elapsedMs:0,inputTokens:0,outputTokens:0}};
       const out=resolve(product,claimPlan.outputPaths[0]!); await writeFillJsonAtomic(out,extraction); claimUnit={...claimUnit,status:'complete',finishedAt:new Date().toISOString()}; await store.saveUnit(claimUnit);
     } else {
       // The answer stayed invalid after the retries: fail this unit with the errors and the saved raw
