@@ -10,7 +10,7 @@ import { consumeFillControl, createFillRun, createFillFileStore, fillStatePaths,
 import { createHeadlessAgentExecutor, type AgentKind, type AgentSettings } from './fill-agents.js';
 import { assembleClaims, createClaimSources, readPinnedGitMaterial, readPinnedGitHistory, recordUnattemptedLinks, type ClaimsExtraction, type ClaimSource, type ExtractedClaim, type ClaimLayer } from './fill-claims.js';
 import { buildCodeMap, persistCodeMap, synthesizePages, applySynthesisPages, type SynthesisClaim, type SynthesisSegment, type SynthesizedPage } from './fill-synthesis.js';
-import { AgentAnswerError, agentQuestionsFromAnswer, asArray, asSourceIdList, claimRowsFromAnswer, parseAgentAnswer, parseSynthesisAnswer, requestValidatedAgentAnswer, validateClaimsAnswer, type SynthesisCandidateClaim } from './fill-agent-answers.js';
+import { AgentAnswerError, agentQuestionsFromAnswer, asSourceIdList, claimRowsFromAnswer, parseCriticAnswer, parseSynthesisAnswer, requestValidatedAgentAnswer, validateClaimsAnswer, type SynthesisCandidateClaim } from './fill-agent-answers.js';
 
 export interface StartFillOptions { agent?: AgentKind; model?: string; ompExecutable?: string; ompExtension?: string; ompTools?: string; maxUnits?: number; executorFactory?: (context: { stage: FillStage; repository: string; prompt: string; onEvent: (event: unknown) => Promise<void> }) => { execute: (prompt: string, signal: AbortSignal, onEvent: (event: unknown) => Promise<void>) => Promise<string> }; }
 export interface StartFillResult { run: FillRun; counts: { reused: number; run: number }; agentCalls: { used: number; cap: number }; questionReview: 'hook-pending-co2d.1'; }
@@ -153,10 +153,17 @@ async function startFillUnlocked(productFolder: string, options: StartFillOption
       return {title:generated.title,body:generated.body,claims:generated.claims as SynthesisClaim[],segments:generated.segments as SynthesisSegment[]};
     },
     critique:async(page,pass)=>{
-      const raw=await callAgent(options,agent,source,'synthesis',synthesisUnit,`${criticPrompt}\nPass: ${pass}\nPage: ${JSON.stringify(page)}\nRegistry kind: ${JSON.stringify(page.kind)}\nClaims: ${JSON.stringify(page.claims)}\nSources: ${JSON.stringify(allSources)}`,async()=>{},runController.signal);
-    await assertRunning();
-      const parsed=parseAgentAnswer(raw); if (!parsed.ok) throw new Error(parsed.error); const response=parsed.value as any;
-      return {findings:asArray<string>(response.findings ?? [],'findings')};
+      const basePrompt=`${criticPrompt}\nPass: ${pass}\nPage: ${JSON.stringify(page)}\nRegistry kind: ${JSON.stringify(page.kind)}\nClaims: ${JSON.stringify(page.claims)}\nSources: ${JSON.stringify(allSources)}`;
+      // The critic answer is parsed tolerantly and retried with the exact errors, like the generate one.
+      const outcome=await requestValidatedAgentAnswer({
+        prompt: basePrompt,
+        call: (retryPrompt) => callAgent(options,agent,source,'synthesis',synthesisUnit,retryPrompt,async()=>{},runController.signal),
+        validate: (value) => { const parsed=parseCriticAnswer(value); return parsed.ok?[]:parsed.errors; },
+      });
+      await assertRunning();
+      if (!outcome.ok) throw new AgentAnswerError(outcome.errors,outcome.answers);
+      const parsed=parseCriticAnswer(outcome.value); if (!parsed.ok) throw new AgentAnswerError(parsed.errors,outcome.answers);
+      return {findings:parsed.value.findings};
     }, maxRevisions:2, questions:extraction.questions,
   }); } catch(error) {
     // The generate answer stayed invalid past every retry: fail this unit with the errors and raw

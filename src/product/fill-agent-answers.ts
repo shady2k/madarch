@@ -1,3 +1,28 @@
+/**
+ * The critic's answer: an array of concrete findings. A plain string is used as it is; a finding
+ * whose substance arrives as an object (`{type, segment, detail}` is the shape the checkpoint's
+ * flash model produced) is flattened to one string, `type: detail` or `type: segment`. Nothing
+ * else is invented.
+ */
+export function parseCriticAnswer(answer: unknown): { ok: true; value: { findings: string[] } } | { ok: false; errors: string[] } {
+  if (!isRecord(answer)) return { ok: false, errors: ['Agent answer must be a JSON object'] };
+  const raw = typeof answer.finding === 'string' ? [answer.finding] : Array.isArray(answer.findings) ? answer.findings : undefined;
+  const errors: string[] = [];
+  if (!raw) errors.push('Agent output field findings must be an array');
+  const findings: string[] = [];
+  for (const [index, entry] of (raw ?? []).entries()) {
+    if (typeof entry === 'string' && entry.trim()) { findings.push(entry); continue; }
+    if (isRecord(entry)) {
+      const type = typeof entry.type === 'string' ? entry.type : undefined;
+      const substance = typeof entry.detail === 'string' && entry.detail.trim() ? entry.detail : typeof entry.text === 'string' && entry.text.trim() ? entry.text : typeof entry.segment === 'string' && entry.segment.trim() ? entry.segment : undefined;
+      if (substance) { findings.push(type ? `${type}: ${substance}` : substance); continue; }
+      if (type) { findings.push(type); continue; }
+    }
+    errors.push(`findings[${index}]: must be one concrete finding as a string, or an object with at least a type, text, segment or detail`);
+  }
+  return errors.length === 0 ? { ok: true, value: { findings } } : { ok: false, errors };
+}
+
 /** Tolerant parsing, strict validation and bounded retry of free-form agent answers. */
 import { QUESTION_TYPES } from '../product-wiki/questions.js';
 import type { RegistryKind } from './contract.js';
