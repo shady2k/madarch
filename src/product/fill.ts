@@ -164,7 +164,8 @@ async function startFillUnlocked(productFolder: string, options: StartFillOption
       if (!outcome.ok) throw new AgentAnswerError(outcome.errors,outcome.answers);
       const parsed=parseCriticAnswer(outcome.value); if (!parsed.ok) throw new AgentAnswerError(parsed.errors,outcome.answers);
       return {findings:parsed.value.findings};
-    }, maxRevisions:2, questions:extraction.questions,
+    }  // The owner: «Даже на один этап одного прохода будет недостаточно» — the checkpoint's overview needed more than two critic-informed revisions to converge.
+  , maxRevisions:3, questions:extraction.questions,
   }); } catch(error) {
     // The generate answer stayed invalid past every retry: fail this unit with the errors and raw
     // answers saved, instead of blocking the whole run with the unit left 'running'.
