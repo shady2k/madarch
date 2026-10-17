@@ -1,0 +1,4 @@
+{
+ "stream": "call-065-2026-10-17T19:09:47Z.jsonl",
+ "raw": "{\"title\":\"Module Overview\",\"segments\":[{\"claimIds\":[\"clm-625e02141e6058b485ab9914\"],\"text\":\"Git history records a staged build-out of the repository's service modules: ORD-12 'add order lifecycle' landed on 2024-01-01, PAY-4 'add checkout pricing and promotions' on 2024-01-02, and ORD-19 'document services and model' on 2024-01-03.\",\"layer\":\"fact\",\"sourceIds\":[\"src-eb6f77d808b91471e95a045b\"]}],\"claims\":[{\"id\":\"clm-625e02141e6058b485ab9914\",\"kind\":\"Module\",\"text\":\"Git history records ORD-12 'add order lifecycle' (2024-01-01), PAY-4 'add checkout pricing and promotions' (2024-01-02) and ORD-19 'document services and model' (2024-01-03).\",\"layer\":\"fact\",\"confidence\":0.95,\"unitId\":\"claims-repository\",\"sourceIds\":[\"src-eb6f77d808b91471e95a045b\"],\"verification\":\"verified\"}]}"
+}

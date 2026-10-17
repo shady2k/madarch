@@ -9,7 +9,7 @@ import { inventoryRepository, indexRepository, inventoryUnitPlan, structuralInde
 import { consumeFillControl, createFillRun, createFillFileStore, fillStatePaths, hashFillInput, hashFillInputs, readFillJson, reconcileFillUnit, withFillControlLock, writeFillJsonAtomic, type FillRun, type FillStage, type FillUnit, type FillUnitPlan } from './fill-runtime.js';
 import { createHeadlessAgentExecutor, type AgentKind, type AgentSettings } from './fill-agents.js';
 import { assembleClaims, createClaimSources, readPinnedGitMaterial, readPinnedGitHistory, recordUnattemptedLinks, type ClaimsExtraction, type ClaimSource, type ExtractedClaim, type ClaimLayer } from './fill-claims.js';
-import { buildCodeMap, persistCodeMap, synthesizePages, applySynthesisPages, type SynthesisClaim, type SynthesisSegment, type SynthesizedPage } from './fill-synthesis.js';
+import { buildCodeMap, persistCodeMap, synthesizePages, applySynthesisPages, CriticRejectionError, type SynthesisClaim, type SynthesisSegment, type SynthesizedPage } from './fill-synthesis.js';
 import { AgentAnswerError, agentQuestionsFromAnswer, asSourceIdList, claimRowsFromAnswer, parseCriticAnswer, parseSynthesisAnswer, requestValidatedAgentAnswer, validateClaimsAnswer, type SynthesisCandidateClaim } from './fill-agent-answers.js';
 
 export interface StartFillOptions { agent?: AgentKind; model?: string; ompExecutable?: string; ompExtension?: string; ompTools?: string; maxUnits?: number; executorFactory?: (context: { stage: FillStage; repository: string; prompt: string; onEvent: (event: unknown) => Promise<void> }) => { execute: (prompt: string, signal: AbortSignal, onEvent: (event: unknown) => Promise<void>) => Promise<string> }; }
@@ -135,8 +135,16 @@ async function startFillUnlocked(productFolder: string, options: StartFillOption
   const overviewTarget={name:'overview',folder:'docs/overview',hint:'Describe the product and its users from sourced evidence.'};
   const synthesisPrompt=await (await import('node:fs/promises')).readFile(new URL('./synthesis-prompts/page-synthesis.md',import.meta.url),'utf8');
   const criticPrompt=await (await import('node:fs/promises')).readFile(new URL('./synthesis-prompts/page-critic.md',import.meta.url),'utf8');
+  // Pages the critic accepted are journaled as soon as each one passes, so a resume keeps every
+  // accepted page and only the rest re-runs; the journal is valid only for this input hash.
+  const synthesisInputHash=hashFillInput(JSON.stringify(synthesisClaimUnitPlan.inputHashes));
+  const acceptedPath=join(paths.root,'outputs','synthesis-pages','accepted-pages.json');
+  let accepted: { key: string; inputHash: string; page: SynthesizedPage }[] = [];
+  try { const rows=JSON.parse(await readFile(acceptedPath,'utf8')); if (Array.isArray(rows)) accepted=rows.filter((row) => row && row.inputHash===synthesisInputHash && row.key && row.page); } catch (error) { if ((error as NodeJS.ErrnoException).code!=='ENOENT') throw error; }
   let pages; try {
   pages=await synthesizePages({ overview:overviewTarget, kinds:registry.kinds, codeMap, claims:extraction.claims as SynthesisClaim[], sources:allSources,
+    acceptedPages: accepted.map((row) => ({ key: row.key, page: row.page })),
+    onAccepted: async ({key,page}) => { accepted = [...accepted, { key, inputHash: synthesisInputHash, page }]; await writeFillJsonAtomic(acceptedPath, accepted); },
     generate:async({target,claims,priorDraft,criticFindings,pass})=>{
       const basePrompt=`${synthesisPrompt}\nTarget: ${JSON.stringify(target)}\nPass: ${pass}\nPrior draft: ${priorDraft??''}\nCritic findings: ${JSON.stringify(criticFindings??[])}\nCode map: ${JSON.stringify(codeMap)}\nSupported claims: ${JSON.stringify(claims)}\nSource catalogue: ${JSON.stringify(allSources)}`;
       // Tolerant parsing, strict validation and bounded retry, exactly as the claims unit does it.
@@ -167,8 +175,18 @@ async function startFillUnlocked(productFolder: string, options: StartFillOption
     }  // The owner: «Даже на один этап одного прохода будет недостаточно» — the checkpoint's overview needed more than two critic-informed revisions to converge.
   , maxRevisions:3, questions:extraction.questions,
   }); } catch(error) {
-    // The generate answer stayed invalid past every retry: fail this unit with the errors and raw
-    // answers saved, instead of blocking the whole run with the unit left 'running'.
+    // An answer that stayed invalid past every retry, or a critic that refused the page through
+    // every bounded pass: fail this unit with the errors and raw evidence saved, instead of
+    // blocking the whole run with the unit left 'running'. Accepted pages stay in the journal.
+    if (error instanceof CriticRejectionError) {
+      await assertRunning();
+      const recordPath=resolve(product,synthesisClaimUnitPlan.outputPaths[0]!,'..','critic-rejection.json');
+      await writeFillJsonAtomic(recordPath,{unitId:synthesisClaimUnitPlan.id,target:error.target,passes:error.passes,findings:error.findings});
+      synthesisUnit={...synthesisUnit,status:'blocked' as const,error:(error as Error).message,finishedAt:new Date().toISOString()}; await store.saveUnit(synthesisUnit);
+      const summary={runId:run.id,agent,branch:run.agentBranch,stages:['inventory','index','claims','code-map','synthesis'],outputs:[],questionReview:'hook-pending-co2d.1',counts:{reused:previousUnits.filter(u=>u.status==='complete').length,run:agentBudget.count()-initialCalls},agentCalls:{used:agentBudget.count(),cap:maxUnits},failedUnits:[{id:synthesisClaimUnitPlan.id,errors:[(error as Error).message],rawAnswers:recordPath}],nextStep:'Fix the page the critic refused and start fill again to resume; the journal keeps the pages the critic already accepted.'};
+      controlWatch=false; const rejectedRun={...run,status:'blocked' as const,controlOpen:false,updatedAt:new Date().toISOString()}; await store.saveRun(rejectedRun); await writeFillJsonAtomic(join(paths.root,'report.json'),summary);
+      void controlWatcher; return {run:rejectedRun,counts:summary.counts,agentCalls:summary.agentCalls,questionReview:'hook-pending-co2d.1'};
+    }
     if (!(error instanceof AgentAnswerError)) throw error;
     await assertRunning();
     const rawAnswersPath=resolve(product,synthesisClaimUnitPlan.outputPaths[0]!,'..','invalid-answers.json');
