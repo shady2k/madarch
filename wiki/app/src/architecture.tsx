@@ -11,6 +11,7 @@
  * wiki's change stream marks a revision (the same live rule the document
  * pages follow), through the caller's `revision` prop.
  */
+import { appPath } from './app-base.js';
 import { useContext, useEffect, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getArchitecture, type Architecture, type ArchitectureElement as ElementFacts, type ArchitectureView as ViewFacts, type ElementRelation } from './api.js';
@@ -103,7 +104,7 @@ export function ErrorList({ errors, kind = 'errors' }: {
 function ElementLink({ id, facts, className }: { id: string; facts: ReadonlyMap<string, ElementFacts>; className?: string }): ReactElement {
   const held = facts.get(id);
   return (
-    <a href={addressOfElement(id)} className={className}>
+    <a href={appPath(addressOfElement(id))} className={className}>
       {held?.name ?? id}
     </a>
   );
@@ -143,7 +144,7 @@ export function ArchitectureIndex({ bundle }: { bundle: Architecture }): ReactEl
         <ul className="home-rows">
           {views.map((view) => (
             <li key={view.scope}>
-              <a className="home-row" href={addressOfView(view.scope)}>
+              <a className="home-row" href={appPath(addressOfView(view.scope))}>
                 <span className="home-row-title">{view.scope === '' ? t('architecture.landscape') : view.title}</span>
               </a>
             </li>
@@ -243,7 +244,7 @@ export function ViewPage({ bundle, scope }: { bundle: Architecture; scope: strin
           {view.up !== undefined && (
             <>
               {t('architecture.up')}:{' '}
-              <a href={addressOfView(view.up)}>{byId.get(view.up)?.name ?? (view.up === '' ? t('architecture.landscape') : view.up)}</a>
+              <a href={appPath(addressOfView(view.up))}>{byId.get(view.up)?.name ?? (view.up === '' ? t('architecture.landscape') : view.up)}</a>
             </>
           )}
           {view.opens.length > 0 && (
@@ -253,7 +254,7 @@ export function ViewPage({ bundle, scope }: { bundle: Architecture; scope: strin
               {view.opens.map((id, at) => (
                 <span key={id}>
                   {at > 0 ? ' · ' : ''}
-                  <a href={addressOfView(id)}>{byId.get(id)?.name ?? id}</a>
+                  <a href={appPath(addressOfView(id))}>{byId.get(id)?.name ?? id}</a>
                 </span>
               ))}
             </>

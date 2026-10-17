@@ -588,6 +588,25 @@ export function createWikiPart(
  * inside the app folder, % escapes decoded, no path climbing out of it — and
  * when no file answers it, it is a named 404, never index.html (finding 6).
  */
+/**
+ * One built app file under `assets/` — the styles and fonts other surfaces
+ * (the products home) read from the same build as the wikis. A file answer
+ * or undefined; there is no index fallback and nothing else is offered.
+ */
+export function serveAppAssets(appFolder: string, pathname: string): Response | undefined {
+  let wanted: string | undefined;
+  try { wanted = normalize(decodeURIComponent(pathname)).replace(/^\/+/, ''); } catch { return undefined; }
+  if (wanted === undefined || !wanted.startsWith('assets/') || wanted.split('/').includes('..')) return undefined;
+  const rest = wanted.slice('assets/'.length).split('/');
+  if (rest.some((part) => part === '')) return undefined;
+  const full = joinPath(resolve(appFolder), ...wanted.split('/'));
+  try {
+    if (!statSync(full).isFile()) return undefined;
+    const type = CONTENT_TYPES[full.slice(full.lastIndexOf('.'))] ?? 'text/html; charset=utf-8';
+    return new Response(readFileSync(full), { status: 200, headers: { 'content-type': type } });
+  } catch { return undefined; }
+}
+
 function serveAppFiles(json: ReplyMaker['json'], refused: ReplyMaker['refused'], appFolder: string, pathname: string, reposDeclared: boolean): Handled {
   const root = resolve(appFolder);
   let wanted: string | undefined;

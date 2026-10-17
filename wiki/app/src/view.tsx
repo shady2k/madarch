@@ -202,7 +202,7 @@ function WikiLink(props: {
   // they are not pages of the product, so the held-pages rule does not
   // judge them.
   if (props.href.startsWith(ARCHITECTURE_PREFIX)) {
-    return <a href={props.href} onClick={followTo(props.href)}>{props.children}</a>;
+    return <a href={appPath(props.href)} onClick={followTo(props.href)}>{props.children}</a>;
   }
   const route = useContext(routeContext);
   const resolved = resolveLink(route.path ?? '', props.href, route.heldPaths);

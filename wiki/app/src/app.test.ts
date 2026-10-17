@@ -16,9 +16,10 @@ import { createElement } from 'react';
 import { App, HomePage, PageReader, RepositoriesPage, RepoCard, EVENTS_PATH } from './app.js';
 import { groupNav } from './shell.js';
 import { languageStorageKey, setWikiLanguage } from './i18n.js';
-import { addressOfGroup, addressOfPage, routeOf } from './routes.js';
+import { addressOfGroup, addressOfPage, routeOf, REPOS_ADDRESS } from './routes.js';
+import { appBase, appPath } from './app-base.js';
 
-import { answerQuestion, type Product, type ProductWithAudience, type PageList, type Page, type QuestionList, type QuestionEntry, type RegistryOffer, type StagesIndex } from './api.js';
+import { answerQuestion, getRepos, type Product, type ProductWithAudience, type PageList, type Page, type QuestionList, type QuestionEntry, type RegistryOffer, type StagesIndex } from './api.js';
 import { type HomeOverviewProjection, registryDisplayLabel } from './overview.js';
 
 beforeAll(async () => {
@@ -1946,5 +1947,33 @@ describe('the open questions', () => {
     await until(() => document.querySelector('main#home') !== null, 'the home page');
     expect(document.querySelector('[data-testid="home-audience"]')).toBeNull();
     expect(document.querySelector('[data-testid="home-overview-facts"]')).toBeNull();
+  });
+});
+
+
+describe('shared products URL base', () => {
+  test('the products-server mount prefix routes the app and carries its API calls', () => {
+    expect(appBase('/products/shop')).toBe('/products/shop');
+    expect(appBase('/products/shop/')).toBe('/products/shop');
+    expect(appPath('/api/product', '/products/shop/')).toBe('/products/shop/api/product');
+    expect(appPath('/api/events', '/products/shop/p/docs/vision.md')).toBe('/products/shop/api/events');
+    expect(appPath('/api/product', '/')).toBe('/api/product');
+    expect(routeOf('/products/shop/r')).toEqual({ name: 'repos' });
+    expect(routeOf('/products/shop/p/docs/vision.md')).toEqual({ name: 'page', path: 'docs/vision.md' });
+    expect(routeOf('/products/shop/')).toEqual({ name: 'home' });
+  });
+
+  test('page and section addresses stay rooted so the app adds the mount base once', () => {
+    expect(addressOfPage('docs/vision.md')).toBe('/p/docs/vision.md');
+    expect(appPath(addressOfPage('docs/vision.md'), '/products/shop/')).toBe('/products/shop/p/docs/vision.md');
+    expect(appPath(REPOS_ADDRESS, '/products/shop/')).toBe('/products/shop/r');
+  });
+
+  test('an API read under a mounted product asks for the mounted address, exactly once', async () => {
+    const stub = install((target) => (target === '/products/shop/api/repos' ? { body: { repos: [] } } : { body: undefined }));
+    goto('/products/shop/');
+    await getRepos();
+    expect(stub.calls).toEqual(['/products/shop/api/repos']);
+    goto('/');
   });
 });

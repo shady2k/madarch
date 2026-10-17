@@ -9,6 +9,7 @@
  * use (MADARCH_APP at a ready dist), so no test runs bun's real build.
  */
 import { spawnSync } from 'node:child_process';
+import { createServer } from 'node:net';
 import { existsSync, cpSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,6 +20,7 @@ import { addCodeRepository, bootstrapProduct, createDirectoryLink } from '../src
 import { main, repoModeFromAnswer, COMMANDS } from '../src/product/cli.js';
 import { createDraft } from '../src/product/draft.js';
 import { listProducts } from '../src/product/list.js';
+import { stopDaemon } from '../src/product/daemon.js';
 import { gitEnv } from './git-env.js';
 import { GIT_IDENTITY, GIT_ENV } from './model-check-repo.js';
 import { homeOfCommand, noStrayDrafts, ISOLATED_HOME, sealedHome } from './scratch-home.js';
@@ -40,6 +42,11 @@ function realGit(): string {
   const path = Bun.which('git');
   if (!path) throw new Error('git is not on PATH; these tests need it');
   return path;
+}
+
+/** A port the machine holds free right now, for a daemon the test stops again. */
+export async function freePort(): Promise<number> {
+  return await new Promise<number>((resolvePort) => { const listener = createServer(); listener.listen(0, '127.0.0.1', () => { const address = listener.address(); const port = typeof address === 'object' && address ? address.port : 0; listener.close(() => resolvePort(port)); }); });
 }
 
 /** Children a test started live, killed again so none outlives its test. */
@@ -120,7 +127,7 @@ function runCommand(args: string[], overrides: Record<string, string> = {}, cwd?
 interface LiveNew {
   readonly stdout: string;
   readonly exitCode: number | null;
-  finish(): Promise<{ stdout: string }>;
+  finish(): Promise<{ stdout: string; exitCode: number | null }>;
 }
 export function serveNew(args: string[], overrides: Record<string, string> = {}, program: readonly string[] = ['bun', CLI], cwd?: string): LiveNew {
   const env = { ...process.env, ...SEALED_GIT, ...SEALED_CLOCK, ...sealedHome(overrides), ...overrides };
@@ -153,7 +160,7 @@ export function serveNew(args: string[], overrides: Record<string, string> = {},
     finish: async () => {
       proc.kill();
       const [, stdout] = await Promise.all([proc.exited, whenStdout]);
-      return { stdout };
+      return { stdout, exitCode: proc.exitCode };
     },
   };
 }
@@ -175,7 +182,7 @@ export async function printedLiveFacts(serve: LiveNew): Promise<{ folder: string
     const lines = serve.stdout.split('\n').filter((line) => line !== '');
     const created = lines.find((line) => line.startsWith('✓ Created the product '));
     const folder = created?.match(/ in (.+)$/)?.[1];
-    if (folder !== undefined && lines.some((line) => line.startsWith('The wiki is running at ') || line.startsWith('Wiki: '))) {
+    if (folder !== undefined && lines.some((line) => line.startsWith('The wiki is running at ') || line.startsWith('The wiki is already running at ') || line.startsWith('Wiki: '))) {
       const product = readProduct(folder);
       if (product.ok) return { folder, id: product.product.id };
     }
@@ -198,11 +205,12 @@ function todayName(): string {
 }
 
 describe('madarch new', () => {
-  test('creates the draft under MADARCH_HOME and prints its folder and its id, one fact per line, then serves its wiki', async () => {
+  test('creates the draft under MADARCH_HOME, prints its folder and its id, and returns at once with the wiki served in the background', async () => {
     const base = scratchFolder('madarch-cli-app-');
     const home = join(base, 'home');
     mkdirSync(home, { recursive: true });
-    const serve = serveNew(['new', '--port', '0', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: builtApp(base) });
+    const port = await freePort();
+    const serve = serveNew(['new', '--port', String(port), '--no-open'], { MADARCH_HOME: home, MADARCH_APP: builtApp(base) });
     const { folder, id } = await printedLiveFacts(serve);
     expect(folder).toBe(join(home, 'products', `idea-${todayName()}`));
     expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
@@ -211,15 +219,20 @@ describe('madarch new', () => {
     // The id the manifest holds is the one the command printed.
     const read = readProduct(folder);
     expect(read).toMatchObject({ ok: true, product: { id, name: `idea-${todayName()}`, schemaVersion: 1 } });
-    // Serving keeps the process alive until the test stops it.
-    expect(serve.exitCode).toBe(null);
-    await serve.finish();
+    // The command returns at once; the wiki is the background server's.
+    const { stdout, exitCode } = await serve.finish();
+    expect(exitCode).toBe(0);
+    const url = stdout.match(/The wiki is running at (http:\/\/\S+)/)?.[1];
+    expect(url).toBe(`http://127.0.0.1:${port}/products/idea-${todayName()}/`);
+    expect((await fetch(url!)).ok).toBeTrue();
+    expect(stopDaemon({ home: join(home, 'products') })).toBe(0);
   });
 
   test("--home moves this one command's products home, over MADARCH_HOME", async () => {
     const madarchHome = scratchFolder();
     const home = scratchFolder('madarch-cli-elsewhere-');
-    const serve = serveNew(['new', '--home', home, '--port', '0', '--no-open'],
+    const port = await freePort();
+    const serve = serveNew(['new', '--home', home, '--port', String(port), '--no-open'],
       { MADARCH_HOME: madarchHome, MADARCH_APP: builtApp(home) });
     const { folder } = await printedLiveFacts(serve);
     expect(folder).toBe(join(home, `idea-${todayName()}`));
@@ -227,35 +240,41 @@ describe('madarch new', () => {
     await serve.finish();
     // And MADARCH_HOME holds nothing: nothing was written there.
     expect(readdirSync(madarchHome)).toEqual([]);
+    expect(stopDaemon({ home })).toBe(0);
   });
 
   test('--home=FOLDER names the home in one word, the way the other commands parse it', async () => {
     const base = scratchFolder('madarch-cli-app-');
     const home = scratchFolder();
-    const serve = serveNew(['new', `--home=${home}`, '--port', '0', '--no-open'], { MADARCH_APP: builtApp(base) });
+    const port = await freePort();
+    const serve = serveNew(['new', `--home=${home}`, '--port', String(port), '--no-open'], { MADARCH_APP: builtApp(base) });
     const { folder } = await printedLiveFacts(serve);
     expect(folder).toBe(join(home, `idea-${todayName()}`));
     await serve.finish();
+    expect(stopDaemon({ home })).toBe(0);
   });
 
-  test('a second new the same day makes -2, with its own id', async () => {
+  test('a second new the same day makes -2, with its own id, and reuses the running server', async () => {
     const base = scratchFolder('madarch-cli-app-');
     const home = scratchFolder();
     const app = builtApp(base);
-    const first = serveNew(['new', '--port', '0', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app });
+    const port = await freePort();
+    const first = serveNew(['new', '--port', String(port), '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app });
     const firstFacts = await printedLiveFacts(first);
-    const second = serveNew(['new', '--port', '0', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app });
+    const second = serveNew(['new', '--port', String(port), '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app });
     const secondFacts = await printedLiveFacts(second);
     expect(secondFacts.folder).toBe(`${firstFacts.folder}-2`);
     expect(secondFacts.id).not.toBe(firstFacts.id);
     await first.finish();
-    await second.finish();
+    const { stdout } = await second.finish();
+    expect(stdout).toContain('The wiki is already running at');
+    expect(stopDaemon({ home: join(home, 'products') })).toBe(0);
   });
 
   test('--help prints the short command list and exits 0', () => {
     const { status, stdout, stderr } = runCommand(['--help']);
     expect(status).toBe(0); expect(stderr).toBe('');
-    expect(stdout).toContain('Start:'); expect(stdout).toContain('Work with a product:'); expect(stdout).toContain('Other:');
+    expect(stdout).toContain('Start:'); expect(stdout).toContain('Work with a product:'); expect(stdout).toContain('Server:'); expect(stdout).toContain('Other:');
     expect(stdout).toContain('madarch <command> --help'); expect(stdout).not.toContain('--home'); expect(stdout).not.toContain('bun link');
   });
 
@@ -264,6 +283,58 @@ describe('madarch new', () => {
       const result = runCommand([command, '--help']);
       expect(result.status).toBe(0); expect(result.stdout).toContain(`madarch ${command}`); expect(result.stdout).toContain('Example:');
     }
+  });
+
+  test("--port 0 serves on a free port, and --json keeps the daemon's facts on one line", async () => {
+    const base = scratchFolder('madarch-cli-json-');
+    const home = scratchFolder();
+    try {
+      const run = runCommand(['new', '--port', '0', '--json', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: builtApp(base) });
+      expect(run.status).toBe(0);
+      expect(run.stderr).toBe('');
+      // One JSON line, no human summary beside it.
+      const facts = JSON.parse(run.stdout) as { folder: string; id: string; name: string; url: string; pid: number; port: number; reused: boolean };
+      expect(facts.folder).toBe(join(home, 'products', `idea-${todayName()}`));
+      expect(typeof facts.id).toBe('string'); expect(facts.id !== '').toBe(true);
+      expect(typeof facts.name).toBe('string');
+      // --port 0 names a free port: the recorded and printed port is the
+      // real one, never 0, and the wiki answers on the printed address.
+      expect(facts.port).toBeGreaterThan(0);
+      expect(facts.reused).toBe(false);
+      expect(facts.url).toBe(`http://127.0.0.1:${facts.port}/products/idea-${todayName()}/`);
+      expect(facts.pid).toBeGreaterThan(0);
+      const answer = await fetch(`${facts.url}api/product`);
+      expect((await answer.json() as { id: string }).id).toBe(facts.id);
+    } finally { stopDaemon({ home: join(home, 'products') }); }
+  });
+
+  test('the focused help names only what the parser accepts, start for example', () => {
+    const startHelp = runCommand(['start', '--help'], {});
+    expect(startHelp.status).toBe(0);
+    expect(startHelp.stdout).toContain('--home'); expect(startHelp.stdout).toContain('--port');
+    expect(startHelp.stdout).not.toContain('--no-open'); expect(startHelp.stdout).not.toContain('--host');
+    const home = scratchFolder();
+    const refuse = runCommand(['start', '--no-open'], { MADARCH_HOME: home });
+    expect(refuse.status).toBe(2);
+    expect(refuse.stderr).toContain('--no-open'); expect(refuse.stderr).toContain('unknown option');
+    const serveHelp = runCommand(['serve', '--help'], {});
+    expect(serveHelp.stdout).toContain('--no-open'); expect(serveHelp.stdout).toContain('--host');
+    const demoHelp = runCommand(['demo', '--help'], {});
+    expect(demoHelp.stdout).toContain('--no-open');
+  });
+
+  test("a per-command --host is refused on the shared daemon's loopback path", () => {
+    const home = scratchFolder();
+    const newRun = runCommand(['new', '--host', '10.0.0.5'], { MADARCH_HOME: home });
+    expect(newRun.status).toBe(2);
+    expect(newRun.stderr).toContain('--host');
+    expect(newRun.stderr).toContain('unknown option');
+    const startRun = runCommand(['start', '--host', '10.0.0.5'], { MADARCH_HOME: home });
+    expect(startRun.status).toBe(2);
+    expect(startRun.stderr).toContain('--host');
+    expect(startRun.stderr).toContain('unknown option');
+    // The foreground serve keeps its own bind address, as it always has.
+    expect(runCommand(['serve', '--help'], {}).stdout).toContain('--host');
   });
 
   test('a missing option value exits 2 naming the flag', () => {
@@ -384,17 +455,21 @@ describe('madarch init', () => {
     git(['init', '--initial-branch=main']);
     writeFileSync(join(checkout, 'README.md'), '# Sample application\n');
     git(['add', 'README.md']); git(['commit', '--quiet', '-m', 'Initial']); git(['remote', 'add', 'origin', origin]);
-    const serve = serveNew(['init', '--port', '0', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: builtApp(base) }, ['bun', CLI], checkout);
+    const port = await freePort();
+    const serve = serveNew(['init', '--port', String(port), '--no-open'], { MADARCH_HOME: home, MADARCH_APP: builtApp(base) }, ['bun', CLI], checkout);
     const { folder } = await printedLiveFacts(serve);
     expect(folder).toBe(join(home, 'products', 'sample-app'));
     const outputLines = serve.stdout.split('\n').filter((line) => line !== '');
-    expect(serve.stdout).toContain('✓ Created the product'); expect(serve.stdout).toContain('✓ Connected your repository'); expect(serve.stdout).toContain('Wiki: http://127.0.0.1:');
+    expect(serve.stdout).toContain('✓ Created the product'); expect(serve.stdout).toContain('✓ Connected your repository');
+    expect(serve.stdout).toContain(`The wiki is running at http://127.0.0.1:${port}/products/sample-app/`);
     expect(statSync(checkout).isDirectory()).toBe(true);
     expect(realpathSync(join(folder, 'repos', 'sample-app'))).toBe(realpathSync(checkout));
     expect(readProduct(folder)).toMatchObject({ ok: true, product: { repos: [{ name: 'sample-app', url: origin }] } });
     expect(bootstrapProduct({ folder, gitEnv: gitEnv(GIT_ENV) })).toMatchObject({ outcome: 'bootstrapped', repos: [{ state: 'present' }] });
     expect(spawnSync(realGit(), ['status', '--porcelain'], { cwd: checkout, encoding: 'utf8' }).stdout).toBe('');
-    await serve.finish();
+    const { exitCode } = await serve.finish();
+    expect(exitCode).toBe(0);
+    expect(stopDaemon({ home: join(home, 'products') })).toBe(0);
   });
 
   test('links without an origin, refuses product-name collision, and is idempotent after linking', async () => {
@@ -402,15 +477,18 @@ describe('madarch init', () => {
     const home = join(base, 'home'); const checkout = join(base, 'local-app'); mkdirSync(checkout);
     const git = (args: string[]): void => { const result = spawnSync(realGit(), args, { cwd: checkout, encoding: 'utf8', env: gitEnv(GIT_ENV) }); if (result.status !== 0) throw new Error(result.stderr); };
     git(['init', '--initial-branch=main']); writeFileSync(join(checkout, 'README.md'), '# Local\n'); git(['add', 'README.md']); git(['commit', '--quiet', '-m', 'Initial']);
-    const serve = serveNew(['init', '--port', '0', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: builtApp(base) }, ['bun', CLI], checkout);
+    const port = await freePort();
+    const serve = serveNew(['init', '--port', String(port), '--no-open'], { MADARCH_HOME: home, MADARCH_APP: builtApp(base) }, ['bun', CLI], checkout);
     const { folder } = await printedLiveFacts(serve);
     expect(readProduct(folder)).toMatchObject({ ok: true, product: { repos: [{ name: 'local-app', linked: true }] } });
     expect((readProduct(folder) as {ok:true;product:{repos:{url?:string}[]}}).product.repos[0]?.url).toBeUndefined();
     await serve.finish();
-    const second = serveNew(['init', '--home', join(home, 'products'), '--port', '0', '--no-open'], { MADARCH_APP: builtApp(base) }, ['bun', CLI], checkout);
+    const second = serveNew(['init', '--home', join(home, 'products'), '--port', String(port), '--no-open'], { MADARCH_APP: builtApp(base) }, ['bun', CLI], checkout);
     const secondFacts = await printedLiveFacts(second);
-    expect(secondFacts.folder).toBe(folder); expect(second.stdout).toContain('✓ Created the product'); expect(existsSync(join(home, 'products', 'local-app'))).toBe(true); await second.finish();
+    expect(secondFacts.folder).toBe(folder); expect(second.stdout).toContain('✓ Created the product'); expect(existsSync(join(home, 'products', 'local-app'))).toBe(true);
+    expect((await second.finish()).stdout).toContain('The wiki is already running at');
     expect(folder).toContain('local-app');
+    expect(stopDaemon({ home: join(home, 'products') })).toBe(0);
   }, 15000);
 
   test('refuses outside Git with madarch new guidance and leaves the products home alone', () => {
@@ -490,11 +568,13 @@ describe('madarch new: --home values a person cannot mean', () => {
   test("`--home` with spaces around a real folder still creates the draft in that folder", async () => {
     const base = scratchFolder('madarch-cli-app-');
     const home = scratchFolder();
-    const serve = serveNew(['new', '--home', ` ${home} `, '--port', '0', '--no-open'],
+    const port = await freePort();
+    const serve = serveNew(['new', '--home', ` ${home} `, '--port', String(port), '--no-open'],
       { MADARCH_HOME: scratchFolder(), MADARCH_APP: builtApp(base) });
     const { folder } = await printedLiveFacts(serve);
     expect(folder).toBe(join(home, `idea-${todayName()}`));
     await serve.finish();
+    expect(stopDaemon({ home })).toBe(0);
   });
   test('`--home=--no-open` refuses the same way', () => {
     const home = scratchFolder();
