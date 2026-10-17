@@ -1157,7 +1157,7 @@ main section h2 {
 .fill-wizard fieldset { margin: 1rem 0; border: 1px solid var(--border); border-radius: var(--radius-control); padding: .75rem; }
 .fill-wizard fieldset div { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; padding: .5rem 0; }
 .fill-wizard button, .fill-wizard select, .fill-wizard input { border: 1px solid var(--border); border-radius: var(--radius-control); padding: .55rem .75rem; margin: .25rem; color: var(--text); background: var(--surface-page); }
-.fill-wizard button { cursor: pointer; overflow-wrap: normal; white-space: normal; max-width: 100%; box-sizing: border-box; }
+.fill-wizard button { cursor: pointer; overflow-wrap: break-word; white-space: normal; max-width: 100%; box-sizing: border-box; }
 .fill-wizard label { overflow-wrap: normal; }
 .wizard-model { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin: 1rem 0 0; }
 .wizard-model input { flex: 1 1 16rem; }
@@ -1172,7 +1172,7 @@ main section h2 {
 .wizard-estimates li { display:flex; justify-content:space-between; gap:1rem; padding:.45rem 0; border-bottom:1px solid var(--border-subtle); }
 .wizard-agent { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
 .wizard-actions { display:flex; justify-content:space-between; margin-top:1rem; }
-@media (max-width: 700px) { .fill-wizard { width: calc(100% - 1rem); margin: .5rem auto; padding: .75rem; } .wizard-steps { grid-template-columns: 1fr; } .wizard-estimates li { display:grid; } .fill-wizard input { max-width: 100%; box-sizing: border-box; } .wizard-actions button { flex: 1 1 auto; } }
+@media (max-width: 700px) { .fill-wizard { width: calc(100% - 1rem); margin: .5rem auto; padding: .75rem; } .wizard-steps { grid-template-columns: 1fr; } .wizard-estimates li { display:grid; } .fill-wizard input { max-width: 100%; box-sizing: border-box; } .wizard-actions button { flex: 1 1 auto; } .wizard-run { width: 100%; } }
 
 /* The first-fill wizard is its own step view: while it stands on the home
    route, the product overview stays out of the way until the fill starts. */

@@ -2,7 +2,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from '../scripts/chromium.js';
@@ -14,6 +14,19 @@ import { fillStatePaths, type FillRun } from '../src/product/fill-runtime.js';
  * Run with MADARCH_WIKI_E2E=1 after building wiki/app. The screenshot destination
  * is outside the checkout so it cannot enter the change commit.
  */
+
+/**
+ * Fake claude/codex/omp CLIs placed first on the server's PATH: the wizard's
+ * agent list renders deterministically and fast, and no real agent CLI runs.
+ */
+function fakeAgentsPath(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'madarch-e2e-agents-'));
+  for (const name of ['claude', 'codex', 'omp']) {
+    writeFileSync(join(dir, name), `#!/bin/sh\necho "${name}-fake 0.0.0"\n`, { mode: 0o755 });
+  }
+  process.env.PATH = `${dir}${delimiter}${process.env.PATH ?? ''}`;
+  return dir;
+}
 const ROOT = new URL('..', import.meta.url).pathname;
 const APP = join(ROOT, 'wiki', 'app', 'dist');
 const SCREENSHOT = process.env.MADARCH_WIKI_SCREENSHOT ?? join(tmpdir(), 'madarch-wiki-reader.png');
@@ -55,9 +68,11 @@ runDescribe('wiki reader chrome (built app and Chromium)', () => {
   let server: StartedServer | undefined;
   let browser: Browser | undefined;
   let page: Page;
+  let fakeAgentDir: string | undefined;
 
   beforeAll(async () => {
     if (!existsSync(join(APP, 'index.html'))) throw new Error(`Built wiki app is missing: ${join(APP, 'index.html')}`);
+    fakeAgentDir = fakeAgentsPath();
     fixture = buildFieldnote();
     server = await startServer({
       productFolder: fixture.product,
@@ -94,6 +109,7 @@ runDescribe('wiki reader chrome (built app and Chromium)', () => {
         await server?.stop();
       } finally {
         if (fixture !== undefined) rmSync(fixture.root, { recursive: true, force: true });
+        if (fakeAgentDir !== undefined) rmSync(fakeAgentDir, { recursive: true, force: true });
       }
     }
   });
@@ -107,8 +123,10 @@ runDescribe('wiki reader chrome (built app and Chromium)', () => {
     const screenshot = async (key: string): Promise<void> => { const envKey=key==='what'?'MADARCH_WIKI_SCREENSHOT':`MADARCH_WIZARD_${key.toUpperCase()}_SCREENSHOT`; await page.screenshot({path:process.env[envKey] ?? join(tmpdir(),`madarch-fill-wizard-${key}-${LANGUAGE}-${process.env.MADARCH_WIKI_WIDTH ?? 1150}.png`),fullPage:true}); };
     await screenshot('what');
     await advance();
-    await screenshot('agent');
+    // The agent step must show the machine's agents, not a frame while the
+    // list loads: wait for the control before the screenshot.
     await page.waitForFunction(() => document.querySelectorAll('input[name="fill-agent"]').length > 0, { timeout: 15000 });
+    await screenshot('agent');
     const preselected = await page.evaluate(() => document.querySelector('input[name="fill-agent"]:checked'));
     if (preselected) throw new Error('an agent is preselected on first open');
     await page.evaluate(() => { const radio=document.querySelector('input[name="fill-agent"]:not(:disabled)') as HTMLInputElement|null; radio?.click(); });
