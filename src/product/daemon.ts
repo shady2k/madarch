@@ -11,7 +11,7 @@
  * and cause. The child's output goes to a log file beside the state file, so
  * a failed start can be read up.
  */
-import { existsSync, openSync, readFileSync, unlinkSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, openSync, readFileSync, unlinkSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { connect as netConnect, createServer as netServer } from 'node:net';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -241,8 +241,16 @@ export async function startDaemon(options: { home?: string; port: number }): Pro
 
 export function stopDaemon(options: { home?: string }): number {
   const home = homePath(options.home);
+  // Nothing to stop stands where the home does not stand yet, and a stop
+  // never creates one; the empty answer matches what status answers there.
+  try { if (!statSync(home).isDirectory()) { console.log('not running'); return 0; } }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') { console.log('not running'); return 0; }
+    console.error(`the products home ${home} cannot be read to stop the daemon: ${(error as Error).message}`);
+    return 1;
+  }
   const lock = acquireLock(home);
-  if (lock === undefined) { console.error('another daemon lifecycle operation is in progress; retry'); return 1; }
+  if (lock === undefined) { console.error(`another daemon lifecycle operation is active or left a lock at ${join(home, LOCK_FILE)}; inspect and remove a stale lock before retrying`); return 1; }
   try {
     const state = readState(home);
     if (state === undefined || !daemonIsAlive(state)) {

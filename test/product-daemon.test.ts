@@ -166,6 +166,15 @@ test('daemon start treats --port 0 as a free port, records the real one, and sta
   expect(existsSync(join(home, '.madarch-daemon.json'))).toBe(false);
 });
 
+test('daemon stop on a home with nothing to stop reports not running and never creates the home', async () => {
+  root = mkdtempSync(join(tmpdir(), 'madarch-daemon-stop-absent-'));
+  const absent = join(root, 'absent');
+  expect(stopDaemon({ home: absent })).toBe(0);
+  expect(existsSync(absent)).toBe(false);
+  writeFileSync(join(root, 'plain'), 'a file, not a folder\n');
+  expect(stopDaemon({ home: join(root, 'plain') })).toBe(0);
+});
+
 test('daemon start refuses a port another process holds', async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-daemon-port-'));
   const home = join(root, 'products'); mkdirSync(home);

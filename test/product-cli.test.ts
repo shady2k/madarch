@@ -308,6 +308,21 @@ describe('madarch new', () => {
     } finally { stopDaemon({ home: join(home, 'products') }); }
   });
 
+  test('the focused help names only what the parser accepts, start for example', () => {
+    const startHelp = runCommand(['start', '--help'], {});
+    expect(startHelp.status).toBe(0);
+    expect(startHelp.stdout).toContain('--home'); expect(startHelp.stdout).toContain('--port');
+    expect(startHelp.stdout).not.toContain('--no-open'); expect(startHelp.stdout).not.toContain('--host');
+    const home = scratchFolder();
+    const refuse = runCommand(['start', '--no-open'], { MADARCH_HOME: home });
+    expect(refuse.status).toBe(2);
+    expect(refuse.stderr).toContain('--no-open'); expect(refuse.stderr).toContain('unknown option');
+    const serveHelp = runCommand(['serve', '--help'], {});
+    expect(serveHelp.stdout).toContain('--no-open'); expect(serveHelp.stdout).toContain('--host');
+    const demoHelp = runCommand(['demo', '--help'], {});
+    expect(demoHelp.stdout).toContain('--no-open');
+  });
+
   test("a per-command --host is refused on the shared daemon's loopback path", () => {
     const home = scratchFolder();
     const newRun = runCommand(['new', '--host', '10.0.0.5'], { MADARCH_HOME: home });

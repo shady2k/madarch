@@ -75,7 +75,7 @@ function commandHelp(command: string): string {
   if (spec.flags.product) flags.push('  --product <folder>    Product folder');
   if (spec.flags.port) flags.push('  --port <n>            Wiki port (default 4180)');
   if (spec.flags.host) flags.push('  --host <address>      Wiki bind address (default 127.0.0.1)');
-  if (spec.flags.port) flags.push('  --no-open             Do not open a browser');
+  if (spec.flags.open) flags.push('  --no-open             Do not open a browser');
   if (spec.flags.source) flags.push('  --source <path>       Local Git checkout to connect');
   if (spec.flags.mode) flags.push('  --mode <mode>         link, move or clone the checkout');
   if (spec.flags.branch) flags.push('  --branch <name>       Branch to clone');
