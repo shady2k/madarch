@@ -709,7 +709,7 @@ export function PageReader({
       </div>
       {!ownTitle && <h1 className="app-title">{page.title}</h1>}
       {doc !== undefined && <DocumentHeader document={doc} />}
-      <NextStep recommendation={page.recommendation} pagePaths={[...heldPaths]} offer={offer} />
+      <NextStep recommendation={page.recommendation} pagePaths={[...heldPaths]} offer={offer} currentPath={path} />
       <Markdown text={page.markdown.replace(/<!--\/?c:[^>]*-->/g, '')} elementLinks={elementLinksFor(bundle, path)} />
       <div className="discussion-actions">
         <button type="button" data-testid="discussion-page-comment" onClick={() => { setDraft(''); setPageCommentOpen(true); }}>{t('discussion.pageComment')}</button>

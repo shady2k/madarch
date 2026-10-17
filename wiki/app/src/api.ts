@@ -154,6 +154,10 @@ export type NextStepRecommendation = {
   reason: string;
   target: string;
   rule: 'answer-question' | 'review-assumption' | 'fill-required' | 'registry-hint' | 'inspect-update';
+  /** The open question's title, set when the rule answered a question. */
+  questionTitle?: string;
+  /** The registry kind's name, set when the rule names a kind. */
+  kindName?: string;
 };
 
 export type Page = {

@@ -192,10 +192,10 @@ describe('the server\'s product mode', () => {
     ].join('\n') + '\n');
     builtApp();
     const url = await startProduct();
-    const home = await (await fetch(`${url}/api/product`)).json() as { recommendation?: { action: string; reason: string; target: string; rule: string } };
-    expect(home.recommendation).toEqual({ action: 'Add Product requirements', reason: 'The registry requires a page of Product requirements, but none is present.', target: 'docs/requirements', rule: 'fill-required' });
-    const page = await (await fetch(`${url}/api/page?path=docs%2Fvision.md`)).json() as { recommendation?: { action: string; reason: string; target: string; rule: string } };
-    expect(page.recommendation).toEqual({ action: 'Add Product requirements', reason: 'The registry requires a page of Product requirements, but none is present.', target: 'docs/requirements', rule: 'fill-required' });
+    const home = await (await fetch(`${url}/api/product`)).json() as { recommendation?: { action: string; reason: string; target: string; rule: string; kindName?: string } };
+    expect(home.recommendation).toEqual({ action: 'Add Product requirements', reason: 'The registry requires a page of Product requirements, but none is present.', target: 'docs/requirements', rule: 'fill-required', kindName: 'Product requirements' });
+    const page = await (await fetch(`${url}/api/page?path=docs%2Fvision.md`)).json() as { recommendation?: { action: string; reason: string; target: string; rule: string; kindName?: string } };
+    expect(page.recommendation).toEqual({ action: 'Add Product requirements', reason: 'The registry requires a page of Product requirements, but none is present.', target: 'docs/requirements', rule: 'fill-required', kindName: 'Product requirements' });
   });
 
   test('GET /api/product names the product\'s id and name and its folder', async () => {
@@ -204,7 +204,10 @@ describe('the server\'s product mode', () => {
     const url = await startProduct();
     const answer = await fetch(`${url}/api/product`);
     expect(answer.status).toBe(200);
-    expect(await answer.json()).toMatchObject({ id: 'demo', name: 'Demo', folder: basename(folder!), recommendation: { action: 'Review this page and its sources', rule: 'inspect-update' } });
+    expect(await answer.json()).toEqual({
+      id: 'demo', name: 'Demo', folder: basename(folder!),
+      recommendation: { action: 'Review this page and its sources', reason: 'Check whether this page still reflects the product.', target: 'docs/vision.md', rule: 'inspect-update' },
+    });
   });
 
   test('GET /api/product does not disclose audience content through an outside symlink', async () => {
@@ -275,8 +278,9 @@ describe('the server\'s product mode', () => {
     const url = await startProduct();
     const response = await fetch(`${url}/api/product`);
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
+    expect(await response.json()).toEqual({
       id: 'demo', name: 'Demo', folder: basename(folder!),
+      recommendation: { action: 'Review this page and its sources', reason: 'Check whether this page still reflects the product.', target: 'docs/milestone.md', rule: 'inspect-update' },
       audience: 'Small product teams.',
       overview: {
         audience: 'Small product teams.',

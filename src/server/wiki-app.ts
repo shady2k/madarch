@@ -238,16 +238,12 @@ export function createWikiPart(
         ? { id: wiki.product.id, name: wiki.product.name, folder: nameOf(wiki.product.folder) }
         : { name: wiki.product.name, folder: nameOf(wiki.product.folder) };
       const audience = overview?.audience;
-      const listed = wiki.pages();
+      const listed = wiki.nextStepPages();
       const questions = wiki.questions();
       const registry = readProductRegistry(wiki.product.folder);
-      const recommendationPages = listed.ok ? listed.pages.flatMap((page) => {
-        const read = wiki.page(page.path);
-        return read.ok ? [{ ...page, markdown: read.page.markdown, structural: read.page.structural }] : [];
-      }) : [];
       const recommendation = recommendNextStep({
         kinds: registry.present && !('refused' in registry) ? registry.kinds : [],
-        pages: recommendationPages,
+        pages: listed.ok ? listed.pages : [],
         questions: questions.ok ? questions.questions : [],
       });
       return {

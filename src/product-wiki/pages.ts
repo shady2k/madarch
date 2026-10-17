@@ -52,8 +52,8 @@ import {
 } from './documents.js';
 import { CheckRunCache, runProductCheck, type ProductCheckRun, type ProductFinding } from './checking.js';
 import { readRegistryServing, type RegistryContract } from './registry.js';
-import { readProductRegistry, registryKit, type RegistryKit } from '../product/registry.js';
-import { recommendNextStep, type NextStepRecommendation } from './recommendations.js';
+import { readProductRegistry, registryKit, type ProductRegistry, type RegistryKit } from '../product/registry.js';
+import { recommendNextStep, type NextStepRecommendation, type RecommendationPage } from './recommendations.js';
 
 /** The kinds kit of one product folder, read fresh: `undefined` when the product holds no registry that reads. */
 function kitOf(productFolder: string): RegistryKit | undefined {
@@ -183,6 +183,8 @@ export interface ProductWiki {
   page(path: string): ProductWikiPage;
   /** The product's questions as the set's form computes their state, read from disk now. */
   questions(): ProductWikiQuestions;
+  /** Every page's recommendation inputs (path, title, kind, id, text and structural findings) from one product walk, without the per-page full reads. */
+  nextStepPages(): { ok: true; pages: RecommendationPage[] } | { ok: false; message: string };
   /** The normalized overview facts, read from the product's declared page sections. */
   overview(): ProductWikiOverview | undefined;
   /** The legacy audience alias, equal to `overview()?.audience`. */
@@ -239,6 +241,25 @@ interface PageSetSnapshot {
   structural: Map<string, StructuralFinding[]>;
   /** How the product's registry is served on this read: the gate's state, without the notice's words. */
   contract: RegistryContract;
+}
+
+/** The open questions read from the ask's own snapshot: no second walk of the product's files. */
+function questionsFromSnapshot(registry: ProductRegistry, snapshot: PageSetSnapshot): OpenQuestion[] {
+  if (!registry.present || 'refused' in registry) return [];
+  const questionKind = registry.kinds.find((kind) => kind.questions !== undefined);
+  if (questionKind === undefined) return [];
+  const questionFolder = `${questionKind.folder.replace(/\/$/, '')}/`;
+  const questions: OpenQuestion[] = [];
+  for (const path of snapshot.paths) {
+    if (!path.startsWith(questionFolder) && path !== questionKind.folder) continue;
+    const markdown = snapshot.texts.get(path);
+    if (markdown === undefined) continue;
+    const parsed = parseQuestion(path, markdown, questionKind.questions!);
+    if (parsed === undefined) continue;
+    questions.push(parsed);
+  }
+  questions.sort((a, b) => b.rank - a.rank || byCodePoint(a.id, b.id));
+  return questions;
 }
 
 class FreshProductWiki implements ProductWiki {
@@ -410,11 +431,10 @@ class FreshProductWiki implements ProductWiki {
       structural: taken.snapshot.structural.get(candidate) ?? [],
     }));
     const registry = readProductRegistry(this.product.folder);
-    const questions = this.questions();
     const recommendation = recommendNextStep({
       kinds: registry.present && !('refused' in registry) ? registry.kinds : [],
       pages: pageMeta,
-      questions: questions.ok ? questions.questions : [],
+      questions: questionsFromSnapshot(registry, taken.snapshot),
       pagePath: path,
     });
     return {
@@ -463,6 +483,23 @@ class FreshProductWiki implements ProductWiki {
       return changedAt === undefined ? question : { ...question, changedAt };
     });
     return { ok: true, questions: withChange, openCount: withChange.filter((question) => question.state === 'open').length, kindName: questionKind.name, ...(questionForm.answererField === undefined ? {} : { answererLabel: questionForm.answererField }), ...(questionForm.concernsField === undefined ? {} : { concernsLabel: questionForm.concernsField }) };
+  }
+
+  nextStepPages(): { ok: true; pages: RecommendationPage[] } | { ok: false; message: string } {
+    const taken = this.snapshot();
+    if (!taken.ok) return taken;
+    const { paths, titles, docs, texts, structural } = taken.snapshot;
+    return {
+      ok: true,
+      pages: paths.map((path) => ({
+        path,
+        title: titles.get(path) ?? path,
+        kind: docs.byPath.get(path)?.kind,
+        id: docs.byPath.get(path)?.id,
+        markdown: texts.get(path),
+        structural: structural.get(path) ?? [],
+      })),
+    };
   }
 
   overview(): ProductWikiOverview | undefined {

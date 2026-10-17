@@ -333,6 +333,8 @@
     "fillKindAction": "Add {{kind}}",
     "fillKindReason": "The registry requires a page of {{kind}}, but none is present.",
     "fillLinkAction": "Fill a required link",
-    "fillLinkReason": "The required link is missing from this page."
+    "fillLinkReason": "The required link is missing from this page: {{detail}}",
+    "hintReason": "Suggested by the product's registry.",
+    "reviewAssumptionPageReason": "The page {{page}} contains a claim marked Unverified."
   }
 }
