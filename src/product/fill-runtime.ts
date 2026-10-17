@@ -53,14 +53,53 @@ export interface FillEvent {
 export interface FillStageCounts { pending: number; running: number; complete: number; blocked: number; stale: number }
 export interface FillRunCounts { stages: Record<FillStage, FillStageCounts>; reused: number; run: number }
 export interface FillUnitPlan extends Pick<FillUnit, 'id' | 'stage' | 'inputHashes' | 'outputPaths' | 'dependencies'> {}
-export interface FillUnitExecutor { execute(unit: FillUnit, signal: AbortSignal): Promise<{ outputPaths?: string[]; agentUsage?: FillUnit['agentUsage'] }> }
+export interface FillUnitExecutor {
+  execute(unit: FillUnit, signal: AbortSignal, progress: (summary: string, usage?: FillUnit['agentUsage']) => Promise<void>): Promise<{ outputPaths?: string[]; agentUsage?: FillUnit['agentUsage'] }>;
+}
 export interface FillOrchestrationHooks {
-  /** Called after each stage drains; return hashes from the current default-branch snapshot. */
-  refreshInputs?: (stage: FillStage, units: readonly FillUnit[]) => Promise<Record<string, Record<string, string>>>;
+  /** Called on every stage drain; compare default-branch HEAD to the pinned snapshot and return refreshed hashes. */
+  refreshInputs: (stage: FillStage, units: readonly FillUnit[]) => Promise<Record<string, Record<string, string>>>;
   /** Commit completed stage outputs on the isolated product branch; a human edit must return conflict. */
-  commitStage?: (stage: FillStage, completed: readonly FillUnit[]) => Promise<'clean' | 'conflict'>;
+  commitStage: (stage: FillStage, completed: readonly FillUnit[]) => Promise<'clean' | 'conflict'>;
+  /** Read the prior journal before appending; used to keep sequence numbers unique after resume. */
+  lastEventSequence: () => Promise<number>;
+  /** Persist every run status/timestamp transition atomically. */
+  persistRun: (run: FillRun) => Promise<void>;
   /** Receives a fully sequenced event suitable for appending to events.jsonl. */
   appendEvent?: (event: FillEvent) => Promise<void>;
+}
+export interface FillRunStore {
+  saveRun(run: FillRun): Promise<void>;
+  saveUnit(unit: FillUnit): Promise<void>;
+  loadUnits(): Promise<FillUnit[]>;
+  appendEvent(event: FillEvent): Promise<void>;
+  lastEventSequence(runId: string): Promise<number>;
+}
+export function createFillFileStore(productRoot: string): FillRunStore {
+  const paths = fillStatePaths(productRoot);
+  return {
+    saveRun: (run) => persistFillRun(productRoot, run),
+    saveUnit: (unit) => persistFillUnit(productRoot, unit),
+    async loadUnits() {
+      const { readdir } = await import('node:fs/promises');
+      let entries: string[];
+      try { entries = await readdir(paths.units); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error; }
+      return Promise.all(entries.filter((entry) => entry.endsWith('.json')).sort().map((entry) => readFillJson<FillUnit>(join(paths.units, entry))));
+    },
+    appendEvent: (event) => appendFillEventAtomic(paths.events, event),
+    async lastEventSequence(runId) {
+      let contents: string;
+      try { contents = await readFile(paths.events, 'utf8'); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0; throw error; }
+      let last = 0;
+      for (const [index, line] of contents.split('\n').entries()) {
+        if (!line) continue;
+        let event: FillEvent;
+        try { event = JSON.parse(line) as FillEvent; } catch { throw new Error(`${paths.events}:${index + 1}: malformed event journal JSON`); }
+        if (event.runId === runId) last = Math.max(last, event.seq);
+      }
+      return last;
+    },
+  };
 }
 
 const now = (): string => new Date().toISOString();
@@ -142,10 +181,13 @@ export function reconcileFillUnit(unit: FillUnit, currentInputHashes: Readonly<R
   if (unit.status === 'stale') return { ...unit, inputHashes: { ...currentInputHashes }, status: 'pending', updatedAt: timestamp };
   return unit;
 }
-export function countFillUnits(units: readonly FillUnit[]): FillRunCounts {
+export function countFillUnits(units: readonly FillUnit[], priorUnits?: readonly FillUnit[]): FillRunCounts {
   const stages = Object.fromEntries(FILL_STAGES.map((stage) => [stage, { pending: 0, running: 0, complete: 0, blocked: 0, stale: 0 }])) as Record<FillStage, FillStageCounts>;
   for (const unit of units) stages[unit.stage][unit.status]++;
-  return { stages, reused: units.filter((unit) => unit.status === 'complete').length, run: units.filter((unit) => unit.attempt > 0).length };
+  const prior = new Map((priorUnits ?? []).map((unit) => [unit.id, unit]));
+  const reused = priorUnits === undefined ? units.filter((unit) => unit.status === 'complete').length : units.filter((unit) => unit.status === 'complete' && prior.get(unit.id)?.status === 'complete' && fillInputsMatch(prior.get(unit.id)!.inputHashes, unit.inputHashes)).length;
+  const run = priorUnits === undefined ? units.filter((unit) => unit.attempt > 0).length : units.filter((unit) => unit.attempt > (prior.get(unit.id)?.attempt ?? 0)).length;
+  return { stages, reused, run };
 }
 export type FillControl = 'running' | 'paused' | 'stopped';
 /** Run dependency-ready units; pause drains active work, stop aborts active work and dispatches nothing else. */
@@ -157,7 +199,7 @@ export async function orchestrateFillUnits(
   persist: (unit: FillUnit) => Promise<void>,
   emit: (event: FillEvent) => Promise<void>,
   control: () => FillControl = () => 'running',
-  hooks: FillOrchestrationHooks = {},
+  hooks: FillOrchestrationHooks,
 ): Promise<FillUnit[]> {
   const records = new Map(existing.map((unit) => [unit.id, unit]));
   const stagePrerequisites: Record<FillStage, FillStage[]> = {
@@ -177,7 +219,7 @@ export async function orchestrateFillUnits(
     const unit = found ? reconcileFillUnit({ ...found, dependencies: plan.dependencies }, plan.inputHashes) : createFillUnit(plan);
     units.set(plan.id, unit);
   }
-  let sequence = 0;
+  let sequence = await hooks.lastEventSequence();
   let eventQueue = Promise.resolve();
   const send = (event: Omit<FillEvent, 'runId' | 'seq' | 'at'>): Promise<void> => {
     const full: FillEvent = { ...event, runId: run.id, seq: ++sequence, at: now() };
@@ -196,7 +238,9 @@ export async function orchestrateFillUnits(
       await persist(started);
       await send({ stage: started.stage, unitId: started.id, type: 'unit-started', summary: 'Unit started' });
       try {
-        const result = await executor.execute(started, controller.signal);
+        const result = await executor.execute(started, controller.signal, async (summary, usage) => {
+          await send({ stage: started.stage, unitId: started.id, type: 'unit-progress', summary, usage });
+        });
         const complete: FillUnit = { ...started, status: 'complete', outputPaths: result.outputPaths ?? started.outputPaths, agentUsage: result.agentUsage, finishedAt: now(), updatedAt: now() };
         units.set(started.id, complete);
         await persist(complete);
@@ -240,7 +284,7 @@ export async function orchestrateFillUnits(
           }
         }
         const current = await hooks.refreshInputs?.(stage, [...units.values()]);
-        if (current) for (const unit of units.values()) {
+        if (current) for (const unit of [...units.values()]) {
           const hashes = current[unit.id];
           if (hashes && (unit.status === 'complete' || unit.status === 'pending') && !fillInputsMatch(unit.inputHashes, hashes)) {
             const stale: FillUnit = { ...unit, inputHashes: hashes, status: 'stale', updatedAt: now() };
@@ -248,6 +292,22 @@ export async function orchestrateFillUnits(
             finishedStages.delete(unit.stage);
             await persist(stale);
             await send({ stage: unit.stage, unitId: unit.id, type: 'unit-stale', summary: 'Declared inputs changed at stage boundary' });
+            const invalidated = new Set([unit.id]);
+            let expanded = true;
+            while (expanded) {
+              expanded = false;
+              for (const consumer of units.values()) {
+                if (invalidated.has(consumer.id) || !(consumer.dependencies ?? []).some((dependency) => invalidated.has(dependency))) continue;
+                if (consumer.status === 'blocked') continue;
+                const downstream: FillUnit = { ...consumer, status: 'stale', updatedAt: now() };
+                units.set(consumer.id, downstream);
+                invalidated.add(consumer.id);
+                finishedStages.delete(consumer.stage);
+                await persist(downstream);
+                await send({ stage: consumer.stage, unitId: consumer.id, type: 'unit-stale', summary: `Upstream unit ${unit.id} changed` });
+                expanded = true;
+              }
+            }
             boundaryChanged = true;
           }
         }
@@ -269,7 +329,14 @@ export async function orchestrateFillUnits(
     }
     await Promise.race([...active.values()].map((entry) => entry.promise));
   }
-  if (control() === 'stopped') await send({ stage: 'inventory', unitId: '', type: 'run-stopped', summary: 'Run stopped; active work was aborted' });
-  else if (control() === 'paused') await send({ stage: 'inventory', unitId: '', type: 'run-paused', summary: 'Dispatch paused after active work drained' });
-  return [...units.values()];
+  const finalUnits = [...units.values()];
+  const finalControl = control();
+  const failed = finalUnits.some((unit) => unit.status === 'blocked');
+  const incomplete = finalUnits.some((unit) => unit.status === 'pending' || unit.status === 'running' || unit.status === 'stale');
+  const nextStatus: FillRunStatus = finalControl === 'stopped' ? 'stopped' : finalControl === 'paused' ? 'paused' : failed ? 'blocked' : incomplete ? 'running' : 'complete';
+  const finalRun = { ...run, status: nextStatus, updatedAt: now() };
+  await hooks.persistRun(finalRun);
+  if (finalControl === 'stopped') await send({ stage: 'inventory', unitId: '', type: 'run-stopped', summary: 'Run stopped; active work was aborted' });
+  else if (finalControl === 'paused') await send({ stage: 'inventory', unitId: '', type: 'run-paused', summary: 'Dispatch paused after active work drained' });
+  return finalUnits;
 }

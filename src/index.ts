@@ -120,8 +120,8 @@ export {
 export { loadAndCompileModel, type LoadAndCompileResult } from './model/load-and-compile.js';
 export {
   FILL_STATE_VERSION, FILL_STAGES, FILL_UNIT_STATUSES,
-  appendFillEventAtomic, countFillUnits, createFillRun, createFillUnit, fillInputsMatch, fillStatePaths, hashFillInput, hashFillInputs, orchestrateFillUnits, persistFillRun, persistFillUnit, readFillJson, reconcileFillUnit, writeFillJsonAtomic,
-  type FillControl, type FillEvent, type FillOrchestrationHooks, type FillRun, type FillRunCounts, type FillRunStatus, type FillStage, type FillStageCounts, type FillUnit, type FillUnitExecutor, type FillUnitPlan, type FillUnitStatus,
+  appendFillEventAtomic, countFillUnits, createFillFileStore, createFillRun, createFillUnit, fillInputsMatch, fillStatePaths, hashFillInput, hashFillInputs, orchestrateFillUnits, persistFillRun, persistFillUnit, readFillJson, reconcileFillUnit, writeFillJsonAtomic,
+  type FillControl, type FillEvent, type FillOrchestrationHooks, type FillRun, type FillRunCounts, type FillRunStore, type FillRunStatus, type FillStage, type FillStageCounts, type FillUnit, type FillUnitExecutor, type FillUnitPlan, type FillUnitStatus,
 } from './product/fill-runtime.js';
 export {
   REPOS_FOLDER,
