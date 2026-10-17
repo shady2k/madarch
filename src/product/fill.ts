@@ -15,6 +15,17 @@ import { AgentAnswerError, agentQuestionsFromAnswer, asSourceIdList, claimRowsFr
 export interface StartFillOptions { agent?: AgentKind; model?: string; ompExecutable?: string; ompExtension?: string; ompTools?: string; maxUnits?: number; executorFactory?: (context: { stage: FillStage; repository: string; prompt: string; onEvent: (event: unknown) => Promise<void> }) => { execute: (prompt: string, signal: AbortSignal, onEvent: (event: unknown) => Promise<void>) => Promise<string> }; }
 export interface StartFillResult { run: FillRun; counts: { reused: number; run: number }; agentCalls: { used: number; cap: number }; questionReview: 'hook-pending-co2d.1'; }
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore','pipe','pipe'] }).trim();
+/** A journal row is reused only when its page carries the reader-checked shape; a malformed row is dropped, never shipped. */
+function acceptedPageShape(page: unknown): boolean {
+  if (!page || typeof page !== 'object' || Array.isArray(page)) return false;
+  const full = page as Record<string, unknown>;
+  if (typeof full.title !== 'string' || !full.title.trim()) return false;
+  if (typeof full.path !== 'string' || !full.path.startsWith('docs/') || !full.path.endsWith('.md')) return false;
+  if (!Array.isArray(full.segments) || !Array.isArray(full.claims)) return false;
+  const critic = full.critic as { passes?: unknown; findings?: unknown } | undefined;
+  return Boolean(critic) && typeof critic!.passes === 'number' && Number.isInteger(critic!.passes) && critic!.passes >= 1 && Array.isArray(critic!.findings) && critic!.findings.every((finding) => typeof finding === 'string' && !finding.trim());
+}
+
 export function createAgentCallBudget(maxCalls:number, initialCalls=0, onDispatch?: (calls:number)=>Promise<void>): { dispatch<T>(call:()=>Promise<T>):Promise<T>; count:()=>number } { let calls=initialCalls; return { count:()=>calls, dispatch:async<T>(call:()=>Promise<T>)=>{if(calls>=maxCalls)throw new Error(`maxUnits ${maxCalls} exhausted before agent call ${calls+1}`); calls++; await onDispatch?.(calls); return call();} }; }
 const codePoint = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 /** Run one agent call and return its raw answer text; parsing and validation happen at the call site. */
@@ -140,7 +151,7 @@ async function startFillUnlocked(productFolder: string, options: StartFillOption
   const synthesisInputHash=hashFillInput(JSON.stringify(synthesisClaimUnitPlan.inputHashes));
   const acceptedPath=join(paths.root,'outputs','synthesis-pages','accepted-pages.json');
   let accepted: { key: string; inputHash: string; page: SynthesizedPage }[] = [];
-  try { const rows=JSON.parse(await readFile(acceptedPath,'utf8')); if (Array.isArray(rows)) accepted=rows.filter((row) => row && row.inputHash===synthesisInputHash && row.key && row.page); } catch (error) { if ((error as NodeJS.ErrnoException).code!=='ENOENT') throw error; }
+  try { const rows=JSON.parse(await readFile(acceptedPath,'utf8')); if (Array.isArray(rows)) accepted=rows.filter((row) => row && row.inputHash===synthesisInputHash && typeof row.key==='string' && acceptedPageShape(row.page)); } catch (error) { if ((error as NodeJS.ErrnoException).code!=='ENOENT') throw error; }
   let pages; try {
   pages=await synthesizePages({ overview:overviewTarget, kinds:registry.kinds, codeMap, claims:extraction.claims as SynthesisClaim[], sources:allSources,
     acceptedPages: accepted.map((row) => ({ key: row.key, page: row.page })),
@@ -198,6 +209,8 @@ async function startFillUnlocked(productFolder: string, options: StartFillOption
   }
   // The completed record is the worked unit, so its attempt count and history survive restarts.
   const mapUnit={...synthesisUnit,status:'complete',finishedAt:new Date().toISOString()} as FillUnit; await store.saveUnit(mapUnit);
+  // A later completed pass retires the previous refusal record beside it.
+  await (await import('node:fs/promises')).rm(resolve(product,synthesisClaimUnitPlan.outputPaths[0]!,'..','critic-rejection.json'),{force:true});
   // A real product worktree is created for controlled proposed-page writes.
   const worktree=join(resolve(product,'..'),`.madarch-fill-${run.id}`); await mkdir(paths.root,{recursive:true});
   try { const existing=execFileSync('git',['-C',product,'worktree','list','--porcelain'],{encoding:'utf8'}); if(!existing.split('\n').some(line=>line===`worktree ${worktree}`)) execFileSync('git',['-C',product,'worktree','add','-B',run.agentBranch,worktree,defaultHead],{stdio:'ignore'}); } catch(error) { throw new Error(`Cannot create or resume fill agent worktree ${worktree}: ${(error as Error).message}`); }

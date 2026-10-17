@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startFill } from '../src/product/fill.js';
+import { fileURLToPath } from 'node:url';
 import { fillStatePaths, readFillJson, type FillUnit } from '../src/product/fill-runtime.js';
 
 // The recorded streams are the real agent answers behind docs/changes/fill-pipeline-monday/checkpoint-2.md.
@@ -47,7 +48,8 @@ const correctYaml = 'contract: 1\nstages:\n  - id: architecture\n    name: Archi
 
 const productFixture = async () => {
   const root = await mkdtemp(join(tmpdir(), 'madarch-oci2-'));
-  execFileSync('node', [join(process.cwd(), 'examples/training-repository/generate.mjs'), join(root, 'training-source-raw')], { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] });
+  const generator = fileURLToPath(new URL('../examples/training-repository/generate.mjs', import.meta.url));
+  execFileSync('node', [generator, join(root, 'training-source-raw')], { stdio: ['ignore', 'pipe', 'pipe'] });
   await mkdir(join(root, 'repos'), { recursive: true });
   await mkdir(join(root, 'docs'), { recursive: true });
   await rename(join(root, 'training-source-raw'), join(root, 'repos', 'training-source'));
@@ -119,6 +121,8 @@ describe('a critic-refused stage is a named unit outcome and accepted pages pers
       const unitAfter = await readFillJson<FillUnit>(join(state.units, 'synthesis-pages.json'));
       expect(unitAfter.status).toBe('complete');
       expect(unitAfter.attempt).toBe(2);
+      // The refusal record of phase 1 is retired by the completing pass.
+      await expect(readFillJson(join(state.outputs, 'synthesis-pages', 'critic-rejection.json'))).rejects.toThrow();
       const head = git(root, 'rev-parse', 'HEAD').trim();
       const proposed = git(root, 'ls-tree', '-r', '--name-only', head).trim().split('\n').filter((path) => path.endsWith('.proposed.md'));
       expect(proposed).toHaveLength(5);
