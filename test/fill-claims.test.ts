@@ -1,9 +1,13 @@
 import { describe, expect, test } from 'bun:test';
+import { execFileSync } from 'node:child_process';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { claimRowsFromAnswer, parseAgentAnswer, validateClaimsAnswer, type AgentQuestionRow } from '../src/product/fill-agent-answers.js';
 import type { StructuralIndexResult } from '../src/product/fill-index.js';
-import { anchoredFactsFromIndex, assembleClaims, createClaimSources, loadClaimsPrompt, parseFillKinds, persistClaimsOutput, persistTrainingScore, readPinnedGitHistory, recordUnattemptedLinks, renderClaimMarkdown, scoreTrainingExtraction, type ClaimsExtraction, type ExtractionMaterial } from '../src/product/fill-claims.js';
+import { anchoredFactsFromIndex, assembleClaims, createClaimSources, loadClaimsPrompt, parseFillKinds, persistClaimsOutput, persistTrainingScore, readPinnedGitHistory, readPinnedGitMaterial, recordUnattemptedLinks, renderClaimMarkdown, scoreTrainingExtraction, type ClaimsExtraction, type ExtractionMaterial } from '../src/product/fill-claims.js';
 
 const registry = `contract: 1
 stages:
@@ -74,7 +78,11 @@ describe('registry-driven claims and provenance', () => {
     expect(result.claims).toHaveLength(2);
     expect(result.claims.find((claim) => claim.layer === 'assumed-meaning')?.verification).toBe('unverified');
     expect(result.claims.every((claim) => claim.sourceIds.length > 0 && claim.unitId === 'claims-1')).toBe(true);
-    expect(result.questions).toEqual([{ id: expect.stringMatching(/^q-/), type: 'unverifiable', kind: 'rule', reason: 'No supported entity was found. Registry hint: identify a business rule' }]);
+    expect(result.questions).toHaveLength(2);
+    const absence = result.questions.find((question) => question.type === 'unverifiable')!;
+    expect(absence).toEqual({ id: expect.stringMatching(/^q-/), type: 'unverifiable', kind: 'rule', reason: 'No supported entity was found. Registry hint: identify a business rule', dependsOn: ['claims-1'], rank: 1 });
+    const assumption = result.questions.find((question) => question.type === 'assumption-check')!;
+    expect(assumption).toEqual({ id: expect.stringMatching(/^q-/), type: 'assumption-check', kind: 'service', reason: 'Assumed meaning the reader should confirm: This service supports checkout.', dependsOn: [result.claims.find((claim) => claim.layer === 'assumed-meaning')!.id, 'claims-1'].sort(), rank: 1 });
     expect(() => assembleClaims({ runId: 'r', unitId: 'u', kinds: parseFillKinds(registry), sources, agentClaims: [], anchoredFacts: [{ kind: 'service', text: 'fake', path: 'src/service.ts', anchor: 'lines:999-999', blob: 'blob-id', startByte: 999, endByte: 1000 }], sourceTexts: { [sources.find((item) => item.address === 'src/service.ts')!.id]: materials.find((item) => item.path === 'src/service.ts')!.text } })).toThrow(/source anchor|byte range/);
     const indexed = { kind: 'service', text: 'real', path: 'src/service.ts', anchor: 'lines:1-1', blob: 'wrong-blob', startByte: 0, endByte: 1 };
     expect(() => assembleClaims({ runId: 'r', unitId: 'u', kinds: parseFillKinds(registry), sources, agentClaims: [], anchoredFacts: [indexed], sourceTexts: { [sources.find((item) => item.address === 'src/service.ts')!.id]: materials.find((item) => item.path === 'src/service.ts')!.text } })).toThrow(/blob or byte range/);
@@ -171,10 +179,144 @@ describe('registry-driven claims and provenance', () => {
       const commit = execFileSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
       const history = readPinnedGitHistory(repo, commit);
       expect(history.type).toBe('git-history'); expect(history.path).toBe('git:history'); expect(history.text).toContain('TASK-1 add docs');
-      const score = { found: ['entity:service'], missed: [], invented: [], counts: { expected: 1, found: 1, missed: 0, invented: 0 }, unitUsage: { elapsedMs: 9, inputTokens: 4, outputTokens: 3 } };
+      const score = { found: ['entity:service'], missed: [], invented: [], counts: { expected: 1, found: 1, missed: 0, invented: 0 }, questions: { expectedTypes: [], foundTypes: [], missingTypes: [], counts: { expected: 0, found: 0 } }, unitUsage: { elapsedMs: 9, inputTokens: 4, outputTokens: 3 } };
       const output = join(dir, 'checkpoint.json'); await persistTrainingScore(output, score);
       expect(JSON.parse(await readFile(output, 'utf8'))).toEqual(score);
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
 
+});
+
+// ---- typed open questions from claims, marks, agent answers and unread links ----
+
+const checkpointRegistryText = (): string => readFileSync(new URL('./fixtures/fill-claims-checkpoint-answer/registry.yaml', import.meta.url), 'utf8');
+const recordedOmpAnswer = (): string => readFileSync(new URL('./fixtures/fill-claims-checkpoint-answer/omp-claims-answer.txt', import.meta.url), 'utf8');
+const checkpointRegistry = () => parseFillKinds(checkpointRegistryText(), 'test/fixtures/fill-claims-checkpoint-answer/registry.yaml');
+type AgentClaimRow = Parameters<typeof assembleClaims>[0]['agentClaims'][number];
+
+/** Regenerate the deterministic training repository and rebuild the exact pinned sources the recorded checkpoint answer cites. */
+const trainingPinnedSources = (): { scratch: string; root: string; sources: ReturnType<typeof createClaimSources>; materials: ExtractionMaterial[] } => {
+  const scratch = mkdtempSync(join(tmpdir(), 'madarch-tzte14-training-'));
+  const root = join(scratch, 'training-source');
+  const generator = fileURLToPath(new URL('../examples/training-repository/generate.mjs', import.meta.url));
+  execFileSync('node', [generator, root], { cwd: fileURLToPath(new URL('..', import.meta.url)), stdio: ['ignore', 'pipe', 'pipe'] });
+  const commit = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const documentPaths = execFileSync('git', ['-C', root, 'ls-tree', '-r', '--name-only', commit], { encoding: 'utf8' }).split('\n').filter((path) => path.toLowerCase().endsWith('.md')).sort();
+  // Materials carry the fill's own scope (checkpoint-1.md): the Markdown documents and Git history.
+  const materials: ExtractionMaterial[] = [...documentPaths.map((path) => readPinnedGitMaterial(root, commit, path, 'document')), readPinnedGitHistory(root, commit)];
+  // The four service sources the recorded answer cites (checkpoint-1.md: eight pinned sources) join the sources catalogue only.
+  const codeMaterials = ['services/checkout/src/checkout.ts', 'services/orders/src/order.go', 'services/payments/src/payment.ts', 'services/promotions/src/promotions.go'].map((path) => readPinnedGitMaterial(root, commit, path));
+  return { scratch, root, sources: createClaimSources(commit, [...materials, ...codeMaterials]), materials };
+};
+
+// Claim texts the checkpoint evidence (checkpoint-1.md, "Found" vs the answer key) ties its marks to.
+const README_RETENTION = 'README.md claims orders are retained indefinitely, which conflicts with orders code where Expire removes non-shipped orders 90 days after CreatedDay.';
+const README_DISCOUNT_TAX = 'README.md states the service applies a 10% discount to every order and calculates tax at a flat 5%; checkout code instead has taxRate = 0.08 and discountFor takes a percent parameter.';
+const ORDERS_README_RETENTION = 'services/orders/README.md claims orders remain available forever, which conflicts with the 90-day expiry/purge logic in orders code.';
+const RETENTION_PURGE = 'Orders retention module purges orders via PurgeExpired and RunRetentionJob, expiring non-shipped orders after 90 days from CreatedDay.';
+const ARCHITECTURE_TERM = 'docs/architecture.md states the system calls a card number a payment token in prose, while code uses CardToken only for the vault reference and calls the captured value PaymentToken.';
+const UNREAD_LINKS = 'README.md references external URLs (rfc-editor.org RFC 9110 and github.com/settings/profile) that were not fetched and whose contents remain unverified.';
+const ORDER_FIELDS = 'Order entity has fields ID, OrderNumber, Contents, State, and CreatedDay, with State being one of pending_payment, confirmed, cancelled, shipped.';
+
+/** The marks and agent-reported questions checkpoint-1.md documents for the recorded claims, in the extended schema. */
+const markedCheckpointAnswer = (): { claims: ReturnType<typeof claimRowsFromAnswer>; questions: AgentQuestionRow[] } => {
+  const claims = JSON.parse(recordedOmpAnswer()).claims as Record<string, unknown>[];
+  const withMarks = (rows: Record<string, unknown>[], text: string, extra: Record<string, unknown>) => rows.map((claim) => claim.text === text ? { ...claim, ...extra } : claim);
+  const marked = withMarks(withMarks(withMarks(withMarks(withMarks(claims, README_RETENTION, { conflictsWith: 'README.md' }), README_DISCOUNT_TAX, { conflictsWith: 'README.md' }), ORDERS_README_RETENTION, { conflictsWith: 'services/orders/README.md' }), RETENTION_PURGE, { undocumented: true }), ARCHITECTURE_TERM, { termPair: { documentTerm: 'payment token', codeTerm: 'CardToken' } });
+  const questions: AgentQuestionRow[] = [
+    { type: 'decision-rationale', title: 'Why retention purges at 90 days', prompt: 'Why do non-shipped orders expire 90 days after CreatedDay rather than another interval or never?', kind: 'Module', claimTexts: [RETENTION_PURGE] },
+    { type: 'meaning', title: 'What cancellation on expiry means for the buyer', prompt: 'Does the expiry of a non-shipped order cancel it unpaid, or void it after payment?', kind: 'Data Entity', claimTexts: [ORDER_FIELDS] },
+    { type: 'unverifiable', title: 'Whether the private workspace content qualifies the documented behaviour', prompt: 'The README links a private project workspace behind sign-in that was not fetched, so what it adds to the documented behaviour cannot be verified from the supplied sources.', kind: 'Service', claimTexts: [UNREAD_LINKS] },
+  ];
+  return { claims: marked, questions };
+};
+
+describe('typed open questions from claims, marks, agent answers and unread links', () => {
+  test('the recorded checkpoint answer assembles clean and derives its assumption and unread-link questions', () => {
+    const training = trainingPinnedSources();
+    try {
+      const kinds = checkpointRegistry();
+      const parsed = parseAgentAnswer(recordedOmpAnswer());
+      if (!parsed.ok) throw new Error(parsed.error);
+      expect(validateClaimsAnswer(parsed.value, kinds, training.sources)).toEqual([]);
+      const built = assembleClaims({ runId: 'checkpoint-replay', unitId: 'claims-repository', kinds, sources: training.sources, agentClaims: claimRowsFromAnswer(parsed.value) as AgentClaimRow[], inaccessibleLinks: recordUnattemptedLinks(training.materials, training.sources) });
+      expect(built.claims).toHaveLength(22);
+      const types = built.questions.map((question) => question.type).sort();
+      expect(types).toEqual(['access-or-document-needed', 'access-or-document-needed', 'assumption-check', 'assumption-check', 'assumption-check', 'assumption-check']);
+      // No marks and no agent questions were recorded, so nothing beyond these two derivations exists.
+      const assumedTexts = built.claims.filter((claim) => claim.layer === 'assumed-meaning').map((claim) => claim.text).sort();
+      expect(built.questions.filter((question) => question.type === 'assumption-check').map((question) => question.reason.replace('Assumed meaning the reader should confirm: ', '')).sort()).toEqual(assumedTexts);
+      const readme = training.sources.find((source) => source.address === 'README.md')!;
+      for (const question of built.questions.filter((item) => item.type === 'access-or-document-needed')) {
+        expect(question.missing).toBe('access');
+        expect(question.dependsOn).toContain('claims-repository');
+        expect(question.dependsOn.some((id) => built.claims.some((claim) => claim.id === id && claim.sourceIds.includes(readme.id)))).toBe(true);
+      }
+    } finally { rmSync(training.scratch, { recursive: true, force: true }); }
+  }, 60000);
+
+  test('marks, agent questions and unread links produce the answer key\'s eight expected question types', async () => {
+    const training = trainingPinnedSources();
+    try {
+      const kinds = checkpointRegistry();
+      const { claims, questions } = markedCheckpointAnswer();
+      const answer = { claims, questions };
+      expect(validateClaimsAnswer(answer, kinds, training.sources)).toEqual([]);
+      const built = assembleClaims({ runId: 'checkpoint-marked', unitId: 'claims-repository', kinds, sources: training.sources, agentClaims: claims as AgentClaimRow[], agentQuestions: questions, inaccessibleLinks: recordUnattemptedLinks(training.materials, training.sources) });
+      const extraction: ClaimsExtraction = { ...built, usage: { elapsedMs: 1, inputTokens: 2, outputTokens: 3 } };
+      const score = await scoreTrainingExtraction({ extraction, answerKeyPath: fileURLToPath(new URL('../examples/training-repository/answer-key.json', import.meta.url)), generatedRepo: training.root });
+      expect(score.questions.counts).toEqual({ expected: 8, found: 8 });
+      expect(score.questions.missingTypes).toEqual([]);
+      expect(score.questions.foundTypes).toEqual(['access-or-document-needed', 'assumption-check', 'contradiction', 'decision-rationale', 'meaning', 'term', 'undocumented-behaviour', 'unverifiable']);
+      // Marks are deterministic: a marked claim carries exactly one typed question naming its document, claim and unit.
+      const contradictions = built.questions.filter((question) => question.type === 'contradiction');
+      expect(contradictions).toHaveLength(3);
+      for (const question of contradictions) {
+        expect(question.reason).toContain('conflicts with the published document');
+        expect(question.dependsOn).toHaveLength(2);
+        expect(question.dependsOn).toContain('claims-repository');
+        expect(question.rank).toBe(1);
+      }
+      const behaviour = built.questions.find((question) => question.type === 'undocumented-behaviour')!;
+      expect(behaviour.reason).toContain('no document mentions');
+      expect(behaviour.dependsOn).toContain(built.claims.find((claim) => claim.text === RETENTION_PURGE)!.id);
+      const term = built.questions.find((question) => question.type === 'term')!;
+      expect(term.reason).toContain('payment token');
+      expect(term.reason).toContain('CardToken');
+      const rationale = built.questions.find((question) => question.type === 'decision-rationale')!;
+      expect(rationale.kind).toBe('Module');
+      expect(rationale.dependsOn).toContain(built.claims.find((claim) => claim.text === RETENTION_PURGE)!.id);
+      const meaning = built.questions.find((question) => question.type === 'meaning')!;
+      expect(meaning.dependsOn).toContain(built.claims.find((claim) => claim.text === ORDER_FIELDS)!.id);
+      const links = built.questions.filter((question) => question.type === 'access-or-document-needed');
+      expect(links).toHaveLength(2);
+      expect(links.every((question) => question.missing === 'access')).toBe(true);
+      const unverifiable = built.questions.find((question) => question.type === 'unverifiable')!;
+      expect(unverifiable.kind).toBe('Service');
+    } finally { rmSync(training.scratch, { recursive: true, force: true }); }
+  }, 60000);
+
+  test('derivation is deterministic and refuses an unknown or duplicated agent question', () => {
+    const training = trainingPinnedSources();
+    try {
+      const kinds = checkpointRegistry();
+      const base = { runId: 'determinism', unitId: 'claims-repository', kinds, sources: training.sources, agentClaims: [{ kind: 'Service', text: 'Checkout calls promotions over HTTP.', layer: 'assumed-meaning' as const, confidence: 0.7, sourceIds: [training.sources.find((source) => source.address === 'README.md')!.id] }], agentQuestions: [{ type: 'meaning', title: 'What the workspace adds', prompt: 'What does the private workspace change about the documented behaviour?', kind: 'Service' }] };
+      const first = assembleClaims(base);
+      const second = assembleClaims(base);
+      expect(JSON.stringify(first.questions)).toBe(JSON.stringify(second.questions));
+      expect(() => assembleClaims({ ...base, agentQuestions: [{ type: 'guess', title: 'x', prompt: 'y' }] })).toThrow(/Unknown question type/);
+      expect(() => assembleClaims({ ...base, agentQuestions: [{ type: 'meaning', title: 'What the workspace adds', prompt: 'A different prompt?' }, { type: 'meaning', title: 'What the workspace adds', prompt: 'Twice asked.' }] })).toThrow(/Duplicate question id/);
+    } finally { rmSync(training.scratch, { recursive: true, force: true }); }
+  }, 60000);
+
+  test('the claims prompt carries the optional marks and one example question', async () => {
+    const prompt = await loadClaimsPrompt('repository-claims');
+    expect(prompt).toContain('"questions"');
+    expect(prompt).toContain('conflictsWith');
+    expect(prompt).toContain('undocumented');
+    expect(prompt).toContain('termPair');
+    expect(prompt).toContain('decision-rationale');
+    expect(prompt).toContain('"missing"');
+    expect(prompt).toContain('Example answer');
+  });
 });
