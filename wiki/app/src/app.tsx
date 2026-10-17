@@ -64,6 +64,8 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
   const [data, setData] = useState<{ product: ProductWithAudience; list: PageList; repos: ReposList | null; questions?: QuestionList; registry: RegistryOffer | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
+  const refreshRef = useRef(0);
+  refreshRef.current = refresh;
   const [streamConnected, setStreamConnected] = useState(false);
   const productName = data?.product.name;
   useEffect(() => {
@@ -90,7 +92,9 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
     let requestTurn = 0;
     let lastAnsweredTurn = 0;
     const loadList = async (): Promise<void> => {
-      if (asking) return;
+      // A stream change during an in-flight read invalidates that response.
+      // The next event-driven refresh will perform the replacement read.
+      if (asking || refreshRef.current !== refresh) return;
       asking = true;
       controller = new AbortController();
       const turn = ++requestTurn;
@@ -135,14 +139,14 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
         // the section's absence, never the wiki's failure.
         current = '/api/repos';
         const nextRepos = await getRepos(controller.signal).catch(() => null);
-        if (!alive || lastAnsweredTurn > turn) return;
+        if (!alive || lastAnsweredTurn > turn || refreshRef.current !== refresh) return;
         lastAnsweredTurn = turn;
         setData({ product: nextProduct, list: nextList, repos: nextRepos, questions: nextQuestions, registry: nextRegistry });
         setError(null);
       } catch (caught: unknown) {
         const aborted = caught instanceof DOMException && caught.name === 'AbortError';
         const expired = aborted && timeoutFired;
-        if (alive && lastAnsweredTurn <= turn && (!aborted || expired)) {
+        if (alive && lastAnsweredTurn <= turn && refreshRef.current === refresh && (!aborted || expired)) {
           // A read the app itself killed at its own timeout is named as
           // such: what was being read — the request that timed out — and
           // that it timed out — never the abort's raw message (finding 2.10).
