@@ -1,0 +1,1 @@
+For the following product registry, discover claims without embedding any product-kind vocabulary in engine code. Apply each kind's `name` and `hint` as data. Return entities only when source evidence supports them. Resolve every kind to one or more entities or to a typed open question explaining the absence. Preserve registry-declared links as declared data; do not guess a link.
