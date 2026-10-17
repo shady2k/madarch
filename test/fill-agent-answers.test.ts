@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { asArray, asSourceIdList, claimRowsFromAnswer, parseAgentAnswer, parseSynthesisAnswer, requestValidatedAgentAnswer, validateClaimsAnswer } from '../src/product/fill-agent-answers.js';
+import { asArray, asSourceIdList, claimRowsFromAnswer, parseAgentAnswer, parseCriticAnswer, parseSynthesisAnswer, requestValidatedAgentAnswer, validateClaimsAnswer } from '../src/product/fill-agent-answers.js';
 import { hashFillInput, readFillJson, fillStatePaths, type FillRun, type FillUnit } from '../src/product/fill-runtime.js';
 import { startFill } from '../src/product/fill.js';
 import type { ClaimSource } from '../src/product/fill-claims.js';
@@ -511,4 +511,35 @@ describe('the agent-call cap bounds one fill across its resumes', () => {
       expect(readmeClaim.sourceIds).toContain(unread.sourceId);
     } finally { await rm(root, { recursive: true, force: true }); }
   }, 60000);
+});
+
+describe('critic answers: tolerant objects, strict what remains', () => {
+  test('the recorded checkpoint-2 critic answer (findings as objects) flattens to concrete strings', async () => {
+    const raw = JSON.parse(await readFile(join(fixtureDir, '..', 'fill-critic-answers', 'checkpoint-2-007.json'), 'utf8')).raw as string;
+    const parsed = parseAgentAnswer(raw);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const answer = parseCriticAnswer(parsed.value);
+    expect(answer.ok).toBe(true);
+    if (!answer.ok) return;
+    expect(answer.value.findings).toHaveLength(8);
+    expect(answer.value.findings[0]).toContain('unsupported-prose');
+    expect(answer.value.findings[0]).toContain('The registry (model-ids.json)');
+    expect(answer.value.findings.every((finding) => typeof finding === 'string' && finding.trim().length > 0)).toBe(true);
+  });
+
+  test('plain string findings pass and an unusable entry is named', () => {
+    expect(parseCriticAnswer({ findings: ['a', 'b'] })).toEqual({ ok: true, value: { findings: ['a', 'b'] } });
+    expect(parseCriticAnswer({ findings: ['a', { type: 'unsupported-prose', segment: 'seg text' }] })).toEqual({ ok: true, value: { findings: ['a', 'unsupported-prose: seg text'] } });
+    const refused = parseCriticAnswer({ findings: [{ other: true }, 42, []] });
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.errors).toEqual([
+      'findings[0]: must be one concrete finding as a string, or an object with at least a type, text, segment or detail',
+      'findings[1]: must be one concrete finding as a string, or an object with at least a type, text, segment or detail',
+      'findings[2]: must be one concrete finding as a string, or an object with at least a type, text, segment or detail',
+    ]);
+    const missing = parseCriticAnswer({ nope: true });
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.errors).toEqual(['Agent output field findings must be an array']);
+  });
 });
