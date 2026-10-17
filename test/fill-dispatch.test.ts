@@ -3,7 +3,8 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer } from '../src/server/http.js';
-import { startFill } from '../src/product/fill.js';
+import { createAgentCallBudget, startFill } from '../src/product/fill.js';
+import { fillStatePaths } from '../src/product/fill-runtime.js';
 
 const productFixture = async () => {
   const root = await mkdtemp(join(tmpdir(), 'madarch-fill-dispatch-'));
@@ -19,6 +20,14 @@ describe('fill dispatcher entry',()=>{
     const {root}=await productFixture();
     try { await expect(startFill(root,{agent:'claude',maxUnits:0})).rejects.toThrow('maxUnits'); }
     finally { await rm(root,{recursive:true,force:true}); }
+  });
+  test('counts every real agent dispatch before invoking it and refuses beyond maxUnits',async()=>{
+    let persisted=0; const budget=createAgentCallBudget(2,0,async count=>{persisted=count;}); let calls=0; const invoke=()=>budget.dispatch(async()=>++calls);
+    expect(await invoke()).toBe(1); expect(await invoke()).toBe(2); await expect(invoke()).rejects.toThrow('maxUnits 2 exhausted before agent call 3'); expect(calls).toBe(2); expect(budget.count()).toBe(2); expect(persisted).toBe(2);
+  });
+  test('refuses an overlapping start and names the active run',async()=>{
+    const {root}=await productFixture(); const state=fillStatePaths(root); await mkdir(state.root,{recursive:true}); await writeFile(state.run,JSON.stringify({id:'already-running'})); await mkdir(join(state.root,'active.lock'));
+    try { await expect(startFill(root)).rejects.toThrow('already-running'); } finally { await rm(root,{recursive:true,force:true}); }
   });
   test('server exposes POST /api/fill/start and delegates validated options to the injected shared entry',async()=>{
     const {root,app}=await productFixture(); const calls: unknown[]=[];
