@@ -31,6 +31,8 @@ import {
   PanelRightIcon,
 } from 'lucide-react';
 import type { PageList, PageMeta, Product } from './api.js';
+import { appPath } from './app-base.js';
+import { FillProgressPanel } from './fill-progress.js';
 import type { Architecture } from './api.js';
 import { architectureAddress, addressOfGroup, addressOfStageRoute, REPOS_ADDRESS } from './routes.js';
 import { kindEntry, kindOrder, stageList, stagePosition, type RegistryOffer } from './registry.js';
@@ -253,7 +255,7 @@ export function withArchitectureEntry(groups: readonly NavGroup[], architectureC
     <section key="architecture" data-nav-group="architecture" className="mb-1.5" data-testid="nav-architecture-group">
       <a
         className="flex min-w-0 w-full items-center gap-1.5 rounded-[var(--radius-row)] px-2 py-1.5 text-left text-small text-secondary hover:bg-[var(--surface-hover)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
-        href={architectureAddress()}
+        href={appPath(architectureAddress())}
         data-testid="nav-architecture"
       >
         <NetworkIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
@@ -311,14 +313,14 @@ function StagesNav({ current, onNavigate, offer, language }: { current: string |
           return (
             <li key={stage.id} onClick={onNavigate}>
               <a
-                href={addressOfStageRoute(stage.id)}
+                href={appPath(addressOfStageRoute(stage.id))}
                 className={navLinkClasses(isCurrent)}
                 aria-current={isCurrent ? 'page' : undefined}
                 data-stage-link={stage.id}
                 onClick={(event) => {
                   if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
                   event.preventDefault();
-                  navigateTo(addressOfStageRoute(stage.id));
+                  navigateTo(appPath(addressOfStageRoute(stage.id)));
                 }}
               >
                 <span className="min-w-0 whitespace-normal leading-snug">{label}</span>
@@ -358,7 +360,7 @@ function NavPanel({ product, groups, current, currentStage, onNavigate, architec
   };
   return (
     <>
-      <a href="/" data-testid="nav-brand" className="nav-brand flex items-center gap-2.5 px-2 py-[14px] text-ink no-underline hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onNavigate?.(event); navigateTo('/'); }}>
+      <a href={appPath('/')} data-testid="nav-brand" className="nav-brand flex items-center gap-2.5 px-2 py-[14px] text-ink no-underline hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onNavigate?.(event); navigateTo(appPath('/')); }}>
         <BrandMark />
         <strong className="text-[23px] font-[650] leading-none tracking-[-0.8px]">madarch</strong>
         <small className="nav-concept ml-auto rounded-[var(--radius-row)] border border-line px-[5px] py-0.5 text-[11px] leading-4 text-muted">{t('brand.concept')}</small>
@@ -380,7 +382,7 @@ function NavPanel({ product, groups, current, currentStage, onNavigate, architec
       </div>
       <a
         className="mb-3 flex items-center justify-between rounded-[var(--radius-row)] px-2.5 py-2 text-[13px] text-ink no-underline hover:bg-[var(--surface-hover)] focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
-        href="/"
+        href={appPath('/')}
         data-testid="nav-overview"
       >
         <span className="flex items-center gap-2.5"><PanelRightIcon aria-hidden="true" className="size-4 shrink-0 text-muted" /> {t('navigation.overview')}</span>
@@ -388,12 +390,12 @@ function NavPanel({ product, groups, current, currentStage, onNavigate, architec
       {reposCount !== undefined && reposCount > 0 && (
         <a
           className="mb-3 flex items-center justify-between rounded-[var(--radius-row)] px-2.5 py-2 text-[13px] text-ink no-underline hover:bg-[var(--surface-hover)] focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
-          href="/r"
+          href={appPath(REPOS_ADDRESS)}
           data-testid="nav-repositories"
           onClick={(event) => {
             if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
             event.preventDefault();
-            navigateTo(REPOS_ADDRESS);
+            navigateTo(appPath(REPOS_ADDRESS));
           }}
         >
           <span className="flex items-center gap-2.5">
@@ -418,14 +420,14 @@ function NavPanel({ product, groups, current, currentStage, onNavigate, architec
             <section key={group.name} data-nav-group={group.name} className="mb-1.5">
               <div className="flex min-w-0 w-full items-center gap-1.5 rounded-[var(--radius-row)] px-2 py-1.5 text-left text-small text-secondary hover:bg-[var(--surface-hover)] hover:text-ink">
                 <a
-                  href={addressOfGroup(group.name)}
+                  href={appPath(addressOfGroup(group.name))}
                   data-testid={'nav-group-' + group.name}
                   className="nav-group-title min-w-0 flex-1 truncate text-[13px] text-secondary no-underline hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
                   onClick={(event) => {
                     if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
                     event.preventDefault();
                     onNavigate?.(event);
-                    navigateTo(addressOfGroup(group.name));
+                    navigateTo(appPath(addressOfGroup(group.name)));
                   }}
                 >
                   {displayGroupLabel(group.name, offer, language, t)}
@@ -504,6 +506,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
   const language: WikiLanguage = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   const [menuOpen, setMenuOpen] = useState(false);
   const [focused, setFocused] = useState(false);
+  const [fillPanelOpen, setFillPanelOpen] = useState(false);
   const menuRef = useRef<HTMLButtonElement>(null);
   // The focus choice stays for the open page only: another page opens unfocused.
   useEffect(() => {
@@ -545,13 +548,13 @@ export function Shell({ product, list, children, architecture, reposCount, repos
             <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
               {openPage !== undefined ? (
                 <>
-                  <a href="/" data-testid="breadcrumb-product" className="text-muted no-underline hover:text-ink" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigateTo('/'); }}>{t('groups.product')}</a>{' '}
+                  <a href={appPath('/')} data-testid="breadcrumb-product" className="text-muted no-underline hover:text-ink" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigateTo(appPath('/')); }}>{t('groups.product')}</a>{' '}
                   <span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
-                  <a href={addressOfGroup(openPage.kind ?? groupOf(openPage.path))} data-testid="breadcrumb-group" className="text-muted no-underline hover:text-ink" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigateTo(addressOfGroup(openPage.kind ?? groupOf(openPage.path))); }}>{groupLabel(openPage.kind ?? groupOf(openPage.path))}</a>
+                  <a href={appPath(addressOfGroup(openPage.kind ?? groupOf(openPage.path)))} data-testid="breadcrumb-group" className="text-muted no-underline hover:text-ink" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigateTo(appPath(addressOfGroup(openPage.kind ?? groupOf(openPage.path)))); }}>{groupLabel(openPage.kind ?? groupOf(openPage.path))}</a>
                 </>
               ) : route.group !== undefined ? (
                 <>
-                  <a href="/" data-testid="breadcrumb-product" className="text-muted no-underline hover:text-ink" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigateTo('/'); }}>{t('groups.product')}</a>{' '}
+                  <a href={appPath('/')} data-testid="breadcrumb-product" className="text-muted no-underline hover:text-ink" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigateTo(appPath('/')); }}>{t('groups.product')}</a>{' '}
                   <span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
                   <span className="text-ink">{groupLabel(route.group)}</span>
                 </>
@@ -644,14 +647,13 @@ export function Shell({ product, list, children, architecture, reposCount, repos
                 <FocusGlyph />
               </Toggle>
               <Tooltip>
-                {/* The context panel stays a closed, empty place until
-                 * madarch-fe1 fills it; the toggle names that honestly. */}
+                {/* The context panel opens to show fill progress and controls when available. */}
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" aria-disabled="true" aria-label={t('navigation.context')} className="shell-context pointer-events-auto">
+                  <Button variant="ghost" size="icon" aria-label={t('navigation.context')} aria-expanded={fillPanelOpen} className="shell-context pointer-events-auto" onClick={() => setFillPanelOpen((open) => !open)}>
                     <StripedPanelGlyph />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>{t('navigation.contextUnavailable')}</TooltipContent>
+                <TooltipContent>{t('navigation.context')}</TooltipContent>
               </Tooltip>
             </span>
           </header>
@@ -671,7 +673,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
             <div className="shell-scroll min-w-0 flex-1 overflow-y-auto">
               <div className="shell-document w-full">{children}</div>
             </div>
-            <aside className="context-panel" aria-label={t('navigation.context')} hidden></aside>
+            <FillProgressPanel open={fillPanelOpen} />
           </div>
         </div>
       </div>

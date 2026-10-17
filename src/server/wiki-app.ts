@@ -28,6 +28,9 @@ import { readStagesIndex, type StagesIndex } from '../wiki/stages.js';
 import { readProductRegistry, registryKit } from '../product/registry.js';
 import { readFileSync, statSync, watch } from 'node:fs';
 import { join as joinPath, normalize, resolve } from 'node:path';
+import { readdirSync, readFileSync as readFillFileSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { fillStatePaths } from '../product/fill-runtime.js';
 import type { Handled, Refusal, ReplyMaker } from './http.js';
 
 /** How long the event stream holds a burst of tree events back before it asks the wiki what changed. */
@@ -166,6 +169,10 @@ export interface WikiPart {
   stages: () => Handled;
   /** `GET /api/registry`: the product's kinds registry as the wiki reads it — the kinds and stages, or the refusals, or absence. */
   registry: () => Handled;
+  /** `GET /api/fill`: current fill run, units and normalized journal. */
+  fill: () => Handled;
+  /** `POST /api/fill/<run-id>/{pause|stop}`: persist a control request for the fill coordinator. */
+  fillControl: (request: Request, runId: string, action: 'pause' | 'stop') => Promise<Handled>;
   /** `GET /api/events`: the wiki's change stream, held open until the asker hangs up. */
   events: (request: Request) => Handled;
   /** `GET /api/repos`: the declared code repositories, their checkouts, HEADs and READMEs. */
@@ -399,6 +406,38 @@ export function createWikiPart(
         });
       }
       return { response: json(200, index) };
+    },
+    fill: (): Handled => {
+      const paths = fillStatePaths(wiki.product.folder);
+      try {
+        const run = JSON.parse(readFillFileSync(paths.run, 'utf8'));
+        const units = readdirSync(paths.units).filter((entry) => entry.endsWith('.json')).sort().map((entry) => JSON.parse(readFillFileSync(joinPath(paths.units, entry), 'utf8')));
+        let events: unknown[] = [];
+        try { events = readFillFileSync(paths.events, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line)); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+        return { response: json(200, { run, units, events }) };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { response: json(404, { message: 'No fill run is active' }) };
+        return refused(500, { message: `the fill state in ${JSON.stringify(paths.root)} could not be read: ${(error as Error).message}` });
+      }
+    },
+    async fillControl(request, runId, action): Promise<Handled> {
+      const paths = fillStatePaths(wiki.product.folder);
+      try {
+        const run = JSON.parse(readFillFileSync(paths.run, 'utf8')) as { id?: string; status?: string };
+        if (run.id !== runId) return refused(404, { message: `no fill run has id ${JSON.stringify(runId)}` });
+        if (action === 'pause' && run.status !== 'running') return refused(409, { message: `fill run ${JSON.stringify(runId)} is not running` });
+        if (action === 'stop' && (run.status === 'complete' || run.status === 'stopped')) return refused(409, { message: `fill run ${JSON.stringify(runId)} cannot be stopped from ${JSON.stringify(run.status)}` });
+        mkdirSync(paths.root, { recursive: true });
+        const file = joinPath(paths.root, 'control.json');
+        const temporary = `${file}.${randomUUID()}.tmp`;
+        writeFileSync(temporary, `${JSON.stringify({ runId, action, requestedAt: new Date().toISOString() })}\n`, { flag: 'wx' });
+        renameSync(temporary, file);
+        return { response: json(202, { runId, action, accepted: true }) };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return refused(404, { message: 'No fill run is active' });
+        return refused(500, { message: `could not request ${action} for fill run ${JSON.stringify(runId)}: ${(error as Error).message}` });
+      }
     },
     events: (request) => streamingEvents(wiki, request),
     repos: (): Handled => {

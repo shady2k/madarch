@@ -1,3 +1,4 @@
+import { appPath } from './app-base.js';
 /**
  * The app itself: a home page naming the product and listing its documents as
  * quiet kind groups, and a page per document. The page list is asked for once
@@ -43,7 +44,7 @@ export const defaultReconnectMs = 1000;
 const maxReconnectMs = 15_000;
 
 /** Where the wiki's change stream answers. */
-export const EVENTS_PATH = '/api/events';
+export const EVENTS_PATH = appPath('/api/events');
 
 export type AppProps = {
   pageRetryMs?: number;

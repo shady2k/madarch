@@ -1,3 +1,4 @@
+import { appPath } from './app-base.js';
 /**
  * The wiki's API, as served by the madarch server (docs/changes/draft-product/
  * change.md, "The API"). The app holds no document bytes itself: everything it
@@ -166,7 +167,7 @@ export class RequestError extends Error {
 export async function readJson<T>(what: string, url: string, signal?: AbortSignal): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(url, { signal });
+    response = await fetch(appPath(url), { signal });
   } catch (error: unknown) {
     // An aborted read is rethrown as itself, so the caller can tell its own
     // timeout abort from a real failure (finding 2.10).
@@ -279,7 +280,7 @@ export type DiscussionWriteRequest = { document: string; range: DiscussionRange;
 export async function postDiscussion(input: DiscussionWriteRequest): Promise<void> {
   let response: Response;
   try {
-    response = await fetch('/api/discussions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) });
+    response = await fetch(appPath('/api/discussions'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) });
   } catch (error) {
     throw new RequestError('send the discussion', error instanceof Error ? error.message : String(error));
   }

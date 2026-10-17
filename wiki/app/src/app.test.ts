@@ -1400,11 +1400,11 @@ describe('the reading shell', () => {
     goto('/p/docs/vision.md');
     await intoApp(createElement(App));
     await until(() => document.querySelector('main#page') !== null, 'the page');
-    const place = document.querySelector('aside[class~="context-panel"]');
+    const place = document.querySelector('[data-testid="fill-progress-panel"]');
     expect(place).not.toBeNull();
     expect(place?.hasAttribute('hidden')).toBe(true);
-    expect(place?.textContent).toBe('');
-    expect(place?.getAttribute('aria-label')).toBe('Page context');
+    expect(place?.textContent).toContain('Fill progress');
+    expect(place?.getAttribute('aria-label')).toBe('Fill progress');
   });
 
   test('the menu button opens the navigation and closes it again', async () => {

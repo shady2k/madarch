@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appendFillEventAtomic, countFillUnits, createFillFileStore, createFillRun, createFillUnit, fillInputsMatch, hashFillInputs, orchestrateFillUnits, reconcileFillUnit, writeFillJsonAtomic, type FillEvent, type FillUnit, type FillUnitPlan } from '../src/product/fill-runtime.js';
+import { appendFillEventAtomic, consumeFillControl, countFillUnits, createFillFileStore, createFillRun, createFillUnit, fillInputsMatch, hashFillInputs, orchestrateFillUnits, reconcileFillUnit, writeFillJsonAtomic, type FillEvent, type FillUnit, type FillUnitPlan } from '../src/product/fill-runtime.js';
 
 const plan = (id: string, stage: FillUnitPlan['stage'], inputHashes: Record<string, string>, dependencies: string[] = []): FillUnitPlan => ({ id, stage, inputHashes, outputPaths: [`outputs/${id}.json`], dependencies });
 const run = createFillRun({ productSnapshot: { repository: '/product', defaultBranch: 'main', commit: 'abc123', registryHash: 'registry' }, agentBranch: 'madarch/fill/run' }, 'run-1');
@@ -119,5 +119,17 @@ describe('fill runtime contract', () => {
     expect(result.find((unit) => unit.id === 'index')?.status).toBe('blocked');
     expect(countFillUnits(result, [finished]).reused).toBe(1);
     expect(countFillUnits(result, [finished]).run).toBe(1);
+  });
+
+  test('consumes only a matching persisted pause or stop request', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'madarch-fill-control-'));
+    try {
+      expect(await consumeFillControl(root, 'run-1')).toBeUndefined();
+      const file = join(root, '.madarch', 'fill', 'control.json');
+      await writeFillJsonAtomic(file, { runId: 'other', action: 'stop' });
+      expect(await consumeFillControl(root, 'run-1')).toBeUndefined();
+      await writeFillJsonAtomic(file, { runId: 'run-1', action: 'pause' });
+      expect(await consumeFillControl(root, 'run-1')).toBe('paused');
+    } finally { await rm(root, { recursive: true, force: true }); }
   });
 });

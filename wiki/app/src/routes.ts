@@ -1,3 +1,4 @@
+import { appRoute } from './app-base.js';
 /**
  * The app's routes, read from location.pathname (decision 0018 and the draft's
  * design): the home page at `/`, a page at `/p/` plus the page's path within
@@ -44,6 +45,7 @@ export function addressOfElement(id: string): string {
 
 /** Reads a route from the address. Anything else answers the home page. */
 export function routeOf(pathname: string): Route {
+  pathname = appRoute(pathname);
   if (pathname.startsWith('/g/')) {
     try {
       return { name: 'group', group: decodeURIComponent(pathname.slice('/g/'.length)) };
