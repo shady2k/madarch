@@ -56,10 +56,10 @@ function chainRegistry(): StageRegistry {
 }
 
 /** A product folder holding one manifest, written from lines so a test can pin their numbers. */
-async function productWith(lines: readonly string[]): Promise<{ folder: string; dispose: () => Promise<void> }> {
+async function productWith(lines: readonly string[]): Promise<{ folder: string; manifest: string; dispose: () => Promise<void> }> {
   const folder = await mkdtemp(join(tmpdir(), 'madarch-fill-registry-'));
   await writeFile(join(folder, MANIFEST_FILE), lines.join('\n') + '\n');
-  return { folder, dispose: () => rm(folder, { recursive: true, force: true }) };
+  return { folder, manifest: join(folder, MANIFEST_FILE), dispose: () => rm(folder, { recursive: true, force: true }) };
 }
 
 /** A manifest whose third line opens `fill.stages`, the lines a test adds standing under it. */
@@ -72,6 +72,11 @@ function manifest(...stages: string[]): string[] {
     '  stages:',
     ...stages,
   ];
+}
+
+/** The product's configuration as a run would hand it in, without a file behind it. */
+function configured(stages: Record<string, unknown>): { ok: true; file: string; stages: Record<string, unknown>; lines: Record<string, number> } {
+  return { ok: true, file: '', stages, lines: Object.fromEntries(Object.keys(stages).map((id) => [id, 1])) };
 }
 
 describe('the stage contract and its defaults', () => {
@@ -95,13 +100,21 @@ describe('the stage contract and its defaults', () => {
       .toThrow('the stage "summary" is registered twice (versions 3 and 4): each stage is registered once');
   });
 
+  test('a stage id a product could never name is refused where it is made', () => {
+    expect(() => new StageRegistry().register(fakeStage('bad id')))
+      .toThrow('the stage id "bad id" is not a stage id: a stage id starts with a letter and carries letters, digits, ".", "_" or "-"');
+    expect(() => new StageRegistry().register(fakeStage('9lives'))).toThrow('"9lives" is not a stage id');
+  });
+
   test('the registry lists its stages in code point order whatever the registration order', () => {
     const registry = new StageRegistry()
       .register(fakeStage('summary'))
       .register(fakeStage('Claims'))
       .register(fakeStage('claims'))
-      .register(fakeStage('_draft'));
-    expect(registry.all().map((stage) => stage.id)).toEqual(['Claims', '_draft', 'claims', 'summary']);
+      .register(fakeStage('draft'));
+    // Code point order, not locale collation: an upper-case letter sorts
+    // before every lower-case one, so `Claims` leads.
+    expect(registry.all().map((stage) => stage.id)).toEqual(['Claims', 'claims', 'draft', 'summary']);
   });
 });
 
@@ -158,6 +171,41 @@ describe('the stage graph derived from capabilities', () => {
     expect(read.graph.edges).toEqual([{ from: 'modules', to: 'pages', via: 'module-facts' }]);
   });
 
+  test('a capability required twice draws one edge', () => {
+    const registry = new StageRegistry()
+      .register(fakeStage('modules', { produces: [{ kind: 'module-facts', schemaVersion: 1, scope: 'repository' }] }))
+      .register(fakeStage('pages', {
+        consumes: {
+          required: [
+            { capability: 'module-facts', scope: 'repository' },
+            { capability: 'module-facts', scope: 'repository', freshness: 'current' },
+          ],
+          optional: [],
+        },
+      }));
+    const read = deriveStageGraph(registry);
+    if (!read.ok) throw new Error('expected a clean graph');
+    expect(read.graph.edges).toEqual([{ from: 'modules', to: 'pages', via: 'module-facts' }]);
+  });
+
+  test('deriving runs no stage: plan, execute and validate are never called', () => {
+    // Decision 0027 separates "no producer" from "producer found nothing":
+    // the second is a plan's own answer with its coverage said, so deriving
+    // reads declarations and the product's configuration and runs nothing.
+    const uncalled = (): never => {
+      throw new Error('deriving the stage graph called a stage');
+    };
+    const registry = new StageRegistry()
+      .register(fakeStage('snapshot', {
+        produces: [{ kind: 'file-facts', schemaVersion: 1, scope: 'repository' }],
+        plan: uncalled,
+        execute: uncalled,
+        validate: uncalled,
+      }))
+      .register(fakeStage('modules', { consumes: { required: [{ capability: 'file-facts', scope: 'repository' }], optional: [] } }));
+    expect(deriveStageGraph(registry).ok).toBe(true);
+  });
+
   test('the order is deterministic, code point order breaking ties', () => {
     const registry = new StageRegistry()
       .register(fakeStage('seed', { produces: [{ kind: 'seed-facts', schemaVersion: 1, scope: 'product' }] }))
@@ -172,16 +220,18 @@ describe('the stage graph derived from capabilities', () => {
     expect(second.graph.edges).toEqual(first.graph.edges);
   });
 
-  test('a producer found nothing is the plan\'s own word, not a starvation', () => {
-    // Decision 0027 separates "no producer" from "producer found nothing":
-    // the second is a plan with its coverage said, and the graph is clean.
+  test('one fact kind produced at two schema versions is refused', () => {
     const registry = new StageRegistry()
-      .register(fakeStage('snapshot', {
-        produces: [{ kind: 'file-facts', schemaVersion: 1, scope: 'repository' }],
-        plan: () => ({ units: [], coverage: 'nothing-found' }),
-      }))
+      .register(fakeStage('index', { produces: [{ kind: 'file-facts', schemaVersion: 2, scope: 'repository' }] }))
+      .register(fakeStage('crawl', { produces: [{ kind: 'file-facts', schemaVersion: 1, scope: 'repository' }] }))
       .register(fakeStage('modules', { consumes: { required: [{ capability: 'file-facts', scope: 'repository' }], optional: [] } }));
-    expect(deriveStageGraph(registry).ok).toBe(true);
+    const read = deriveStageGraph(registry);
+    if (read.ok) throw new Error('expected a refusal');
+    expect(read.problems).toEqual([{
+      stage: 'crawl',
+      path: 'produces.file-facts',
+      message: 'the fact kind "file-facts" is produced at schema versions 1 and 2 (by crawl at 1, index at 2): one kind carries one schema version',
+    }]);
   });
 });
 
@@ -201,14 +251,13 @@ describe('the product configuration enables, disables and limits a stage', () =>
       '        maxDepth: 2',
     ));
     try {
-      expect(readFillStageConfiguration(product.folder)).toEqual({
-        ok: true,
-        stages: {
-          snapshot: { enabled: false },
-          modules: { concurrency: 4, limits: { maxTurns: 12, wrapAtFraction: 0.6, contextTokens: 131_072 } },
-          summary: { config: { maxDepth: 2 } },
-        },
-        lines: { snapshot: 6, modules: 8, summary: 14 },
+      const read = readFillStageConfiguration(product.folder);
+      if (!read.ok) throw new Error(`expected a read, refused: ${JSON.stringify(read.errors)}`);
+      expect(read.file).toBe(product.manifest);
+      expect(read.stages).toEqual({
+        snapshot: { enabled: false },
+        modules: { concurrency: 4, limits: { maxTurns: 12, wrapAtFraction: 0.6, contextTokens: 131_072 } },
+        summary: { config: { maxDepth: 2 } },
       });
     } finally {
       await product.dispose();
@@ -218,11 +267,19 @@ describe('the product configuration enables, disables and limits a stage', () =>
   test('a product folder holding no manifest configures no stage: every default holds', async () => {
     const folder = await mkdtemp(join(tmpdir(), 'madarch-fill-registry-'));
     try {
-      expect(readFillStageConfiguration(folder)).toEqual({ ok: true, stages: {}, lines: {} });
-      const read = deriveStageGraph(chainRegistry());
-      if (!read.ok) throw new Error('expected a clean graph');
-      expect(read.graph.stages.every((stage) => stage.enabled && stage.concurrency === 1
-        || stage.id === 'summary' && stage.concurrency === 2)).toBe(true);
+      const read = readFillStageConfiguration(folder);
+      if (!read.ok) throw new Error('expected a read');
+      expect(read.stages).toEqual({});
+      expect(read.file).toBe(join(folder, MANIFEST_FILE));
+      const graph = deriveStageGraph(chainRegistry(), read);
+      if (!graph.ok) throw new Error('expected a clean graph');
+      expect(graph.graph.stages.map((stage) => [stage.id, stage.enabled, stage.concurrency])).toEqual([
+        ['modules', true, 1],
+        ['overview', true, 1],
+        ['pages', true, 1],
+        ['snapshot', true, 1],
+        ['summary', true, 2],
+      ]);
     } finally {
       await rm(folder, { recursive: true, force: true });
     }
@@ -237,8 +294,7 @@ describe('the product configuration enables, disables and limits a stage', () =>
       const read = deriveStageGraph(chainRegistry(), readFillStageConfiguration(product.folder));
       if (!read.ok) throw new Error(`expected a clean graph, refused: ${JSON.stringify(read)}`);
       expect(read.graph.order).toEqual(['snapshot', 'modules', 'summary', 'pages']);
-      expect(read.graph.stages.find((stage) => stage.id === 'overview'))
-        .toMatchObject({ enabled: false });
+      expect(read.graph.stages.find((stage) => stage.id === 'overview')?.enabled).toBe(false);
       expect(read.graph.edges.some((edge) => edge.to === 'overview' || edge.from === 'overview')).toBe(false);
     } finally {
       await product.dispose();
@@ -251,36 +307,47 @@ describe('the product configuration enables, disables and limits a stage', () =>
       '      concurrency: 4',
       '      limits:',
       '        maxTurns: 12',
-        '        stopAtFraction: 0.75',
+      '        stopAtFraction: 0.75',
     ));
     try {
       const read = deriveStageGraph(chainRegistry(), readFillStageConfiguration(product.folder));
       if (!read.ok) throw new Error(`expected a clean graph, refused: ${JSON.stringify(read)}`);
-      expect(read.graph.stages.find((stage) => stage.id === 'modules')?.limits).toEqual({
-        contextTokens: 272_000,
-        wrapAtFraction: 0.7,
-        stopAtFraction: 0.75,
-        maxTurns: 12,
-        maxDurationMs: 600_000,
-        maxOutputTokens: 16_000,
+      expect(read.graph.stages.find((stage) => stage.id === 'modules')).toEqual({
+        id: 'modules',
+        version: 1,
+        enabled: true,
+        concurrency: 4,
+        limits: {
+          contextTokens: 272_000,
+          wrapAtFraction: 0.7,
+          stopAtFraction: 0.75,
+          maxTurns: 12,
+          maxDurationMs: 600_000,
+          maxOutputTokens: 16_000,
+        },
+        config: undefined,
       });
-      expect(read.graph.stages.find((stage) => stage.id === 'modules')?.concurrency).toBe(4);
     } finally {
       await product.dispose();
     }
   });
 
-  test('a stage the registry does not hold is configured and left out of the graph', async () => {
+  test('a stage the registry does not hold is read past, whatever its entry says', async () => {
     // The manifest's own rule for a field this madarch does not know: a
-    // product's configuration grows by fields a later madarch reads.
+    // product's configuration grows by fields a later madarch reads, so an
+    // entry for a stage this madarch does not have is neither judged nor
+    // planned.
     const product = await productWith(manifest(
       '    invented:',
-      '      enabled: false',
+      '      concurrency: auto',
+      '      limits:',
+      '        maxTurns: never',
+      '    another: 4',
     ));
     try {
       const read = deriveStageGraph(chainRegistry(), readFillStageConfiguration(product.folder));
       if (!read.ok) throw new Error(`expected a clean graph, refused: ${JSON.stringify(read)}`);
-      expect(read.graph.stages.map((stage) => stage.id)).not.toContain('invented');
+      expect(read.graph.stages.map((stage) => stage.id)).toEqual(['modules', 'overview', 'pages', 'snapshot', 'summary']);
     } finally {
       await product.dispose();
     }
@@ -317,7 +384,7 @@ describe('the product configuration enables, disables and limits a stage', () =>
 });
 
 describe('the product configuration\'s own refusals', () => {
-  test('each refusal names the file, the line and the field\'s path', async () => {
+  test('each fault of an entry names the file, the line and the field\'s path', async () => {
     const cases: readonly { stages: readonly string[]; line: number; path: string; message: string }[] = [
       {
         stages: ['    snapshot:', '      enabled: maybe'],           // `enabled` on line 7
@@ -349,23 +416,60 @@ describe('the product configuration\'s own refusals', () => {
         path: 'fill.stages.snapshot',
         message: 'fill.stages.snapshot is a mapping of the stage\'s configuration, not 4',
       },
-      {
-        stages: ['    bad id:', '      enabled: true'],               // the id on line 6
-        line: 6,
-        path: 'fill.stages.bad id',
-        message: '"bad id" is not a stage id: a stage id is a word the registry registers',
-      },
     ];
     for (const refuse of cases) {
       const product = await productWith(manifest(...refuse.stages));
       try {
-        expect(readFillStageConfiguration(product.folder)).toEqual({
-          ok: false,
-          errors: [{ file: MANIFEST_FILE, line: refuse.line, path: refuse.path, message: refuse.message }],
-        });
+        const read = deriveStageGraph(chainRegistry(), readFillStageConfiguration(product.folder));
+        if (read.ok) throw new Error(`expected a refusal of ${refuse.path}`);
+        expect(read.problems).toEqual([{
+          stage: refuse.path.split('.')[2]!,
+          file: product.manifest,
+          line: refuse.line,
+          path: refuse.path,
+          message: refuse.message,
+        }]);
+        expect(read.config).toEqual([]);
       } finally {
         await product.dispose();
       }
+    }
+  });
+
+  test('a limit or a field this madarch does not know is read past, never refused', async () => {
+    const product = await productWith(manifest(
+      '    modules:',
+      '      concurrency: 2',
+      '      limits:',
+      '        maxParagraphs: 3',
+      '      retention: 7',
+    ));
+    try {
+      const read = deriveStageGraph(chainRegistry(), readFillStageConfiguration(product.folder));
+      if (!read.ok) throw new Error(`expected a clean graph, refused: ${JSON.stringify(read)}`);
+      expect(read.graph.stages.find((stage) => stage.id === 'modules')).toMatchObject({
+        concurrency: 2,
+        limits: DEFAULT_STAGE_LIMITS,
+      });
+    } finally {
+      await product.dispose();
+    }
+  });
+
+  test('a stage id that is no stage id refuses the file, at its key\'s line', async () => {
+    const product = await productWith(manifest('    bad id:', '      enabled: true'));
+    try {
+      expect(readFillStageConfiguration(product.folder)).toEqual({
+        ok: false,
+        errors: [{
+          file: product.manifest,
+          line: 6,
+          path: 'fill.stages.bad id',
+          message: '"bad id" is not a stage id: a stage id starts with a letter and carries letters, digits, ".", "_" or "-"',
+        }],
+      });
+    } finally {
+      await product.dispose();
     }
   });
 
@@ -374,8 +478,22 @@ describe('the product configuration\'s own refusals', () => {
     try {
       expect(readFillStageConfiguration(product.folder)).toEqual({
         ok: false,
-        errors: [{ file: MANIFEST_FILE, line: 4, path: 'fill', message: 'fill is a mapping of the fill\'s own keys, not "everywhere"' }],
+        errors: [{ file: product.manifest, line: 4, path: 'fill', message: 'fill is a mapping of the fill\'s own keys, not "everywhere"' }],
       });
+    } finally {
+      await product.dispose();
+    }
+  });
+
+  test('a manifest whose root is no mapping is refused, as the manifest\'s own reader refuses it', async () => {
+    const product = await productWith(['just-a-word']);
+    try {
+      const read = readFillStageConfiguration(product.folder);
+      if (read.ok) throw new Error('expected a refusal');
+      expect(read.errors).toHaveLength(1);
+      expect(read.errors[0]?.file).toBe(product.manifest);
+      expect(read.errors[0]?.line).toBe(1);
+      expect(read.errors[0]?.message).toBe(`the manifest ${product.manifest} holds "just-a-word": a manifest is a mapping of fields, and this is not one`);
     } finally {
       await product.dispose();
     }
@@ -387,11 +505,28 @@ describe('the product configuration\'s own refusals', () => {
       const read = readFillStageConfiguration(product.folder);
       if (read.ok) throw new Error('expected a refusal');
       expect(read.errors).toHaveLength(1);
-      expect(read.errors[0]?.file).toBe(MANIFEST_FILE);
+      expect(read.errors[0]?.file).toBe(product.manifest);
       expect(read.errors[0]?.line).toBeGreaterThan(1);
       expect(read.errors[0]?.message.length).toBeGreaterThan(0);
     } finally {
       await product.dispose();
+    }
+  });
+
+  test('a fill or fill.stages written and left empty configures nothing', async () => {
+    for (const lines of [
+      ['schemaVersion: 1', 'id: 8a1c6f2e-4f2b-4b8a-9f7e-1a2b3c4d5e6f', 'name: stage-registry-fixture', 'fill:'],
+      ['schemaVersion: 1', 'id: 8a1c6f2e-4f2b-4b8a-9f7e-1a2b3c4d5e6f', 'name: stage-registry-fixture', 'fill:', '  stages:'],
+    ]) {
+      const product = await productWith(lines);
+      try {
+        const read = readFillStageConfiguration(product.folder);
+        if (!read.ok) throw new Error(`expected a read, refused: ${JSON.stringify(read.errors)}`);
+        expect(read.stages).toEqual({});
+        expect(deriveStageGraph(chainRegistry(), read).ok).toBe(true);
+      } finally {
+        await product.dispose();
+      }
     }
   });
 
@@ -405,7 +540,7 @@ describe('the product configuration\'s own refusals', () => {
       })), readFillStageConfiguration(product.folder));
       if (read.ok) throw new Error('expected a refusal');
       expect(read.config).toEqual([{
-        file: MANIFEST_FILE,
+        file: product.manifest,
         line: 4,
         path: 'fill',
         message: 'fill is a mapping of the fill\'s own keys, not "everywhere"',
@@ -413,25 +548,6 @@ describe('the product configuration\'s own refusals', () => {
       expect(read.problems).toEqual([]);
       expect(read.starvation).toEqual([]);
       expect(read.cycles).toEqual([]);
-    } finally {
-      await product.dispose();
-    }
-  });
-
-  test('a limit or a field this madarch does not know is read past, never refused', async () => {
-    const product = await productWith(manifest(
-      '    modules:',
-      '      concurrency: 2',
-      '      limits:',
-      '        maxParagraphs: 3',
-      '      retention: 7',
-    ));
-    try {
-      expect(readFillStageConfiguration(product.folder)).toEqual({
-        ok: true,
-        stages: { modules: { concurrency: 2, limits: {} } },
-        lines: { modules: 6 },
-      });
     } finally {
       await product.dispose();
     }
@@ -450,7 +566,7 @@ describe('a stage\'s own configuration is judged against its configSchema', () =
       if (read.ok) throw new Error('expected a refusal');
       expect(read.problems).toEqual([{
         stage: 'summary',
-        file: MANIFEST_FILE,
+        file: product.manifest,
         line: 8,
         path: 'fill.stages.summary.config.maxDepth',
         message: 'must be >= 1',
@@ -473,7 +589,7 @@ describe('a stage\'s own configuration is judged against its configSchema', () =
       if (read.ok) throw new Error('expected a refusal');
       expect(read.problems).toEqual([{
         stage: 'summary',
-        file: MANIFEST_FILE,
+        file: product.manifest,
         line: 6,
         path: 'fill.stages.summary.config',
         message: 'must have required properties maxDepth',
@@ -543,8 +659,7 @@ describe('planning reports what starves a stage, by its exact path', () => {
       .register(fakeStage('index', { produces: [{ kind: 'file-facts', schemaVersion: 1, scope: 'repository' }] }))
       .register(fakeStage('crawl', { produces: [{ kind: 'file-facts', schemaVersion: 1, scope: 'repository' }] }))
       .register(fakeStage('modules', { consumes: { required: [{ capability: 'file-facts', scope: 'repository' }], optional: [] } }));
-    const configuration = { ok: true as const, stages: { index: { enabled: false }, crawl: { enabled: false } }, lines: { index: 1, crawl: 1 } };
-    const read = deriveStageGraph(registry, configuration);
+    const read = deriveStageGraph(registry, configured({ crawl: { enabled: false }, index: { enabled: false } }));
     if (read.ok) throw new Error('expected a starvation');
     expect(read.starvation.map((starved) => starved.path)).toEqual([
       'modules → file-facts → crawl (disabled)',
@@ -569,6 +684,21 @@ describe('planning reports what starves a stage, by its exact path', () => {
     const read = deriveStageGraph(registry);
     if (!read.ok) throw new Error(`expected a clean graph, refused: ${JSON.stringify(read)}`);
     expect(read.graph.edges).toEqual([{ from: 'history', to: 'evolution', via: 'history-facts' }]);
+  });
+
+  test('a stage reading the capability it produces is not starved by another disabled producer', async () => {
+    const registry = new StageRegistry()
+      .register(fakeStage('history', {
+        consumes: { required: [{ capability: 'history-facts', scope: 'repository' }], optional: [] },
+        produces: [{ kind: 'history-facts', schemaVersion: 1, scope: 'repository' }],
+      }))
+      .register(fakeStage('crawl', {
+        consumes: { required: [{ capability: 'history-facts', scope: 'repository' }], optional: [] },
+        produces: [{ kind: 'history-facts', schemaVersion: 1, scope: 'repository' }],
+      }));
+    const read = deriveStageGraph(registry, configured({ crawl: { enabled: false } }));
+    if (!read.ok) throw new Error(`expected a clean graph, refused: ${JSON.stringify(read)}`);
+    expect(read.graph.order).toEqual(['history']);
   });
 });
 
@@ -631,8 +761,7 @@ describe('a cycle of the stage graph is refused, naming it', () => {
         consumes: { required: [{ capability: 'a-facts', scope: 'product' }], optional: [] },
         produces: [{ kind: 'b-facts', schemaVersion: 1, scope: 'product' }],
       }));
-    const configuration = { ok: true as const, stages: { b: { enabled: false } }, lines: { b: 1 } };
-    const read = deriveStageGraph(registry, configuration);
+    const read = deriveStageGraph(registry, configured({ b: { enabled: false } }));
     if (read.ok) throw new Error('expected a starvation');
     expect(read.cycles).toEqual([]);
     expect(read.starvation.map((starved) => starved.path)).toEqual(['a → b-facts → b (disabled)']);

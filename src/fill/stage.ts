@@ -152,6 +152,24 @@ export interface StageUnit {
   scope: string;
 }
 
+/** The limits a product may override on one stage, each optional. */
+export type StageLimitOverrides = Partial<StageLimits>;
+
+/**
+ * One stage's entry in the product's configuration, `fill.stages.<id>`: the
+ * fields the product may set, each absent where the product says nothing.
+ */
+export interface FillStageConfigurationEntry {
+  /** Whether the stage runs; where it is left out, the stage's own default holds. */
+  enabled?: boolean;
+  /** How many units of the stage may run at once; where it is left out, the stage's own default holds. */
+  concurrency?: number;
+  /** The unit limits this product overrides; the rest keep the stage's own defaults. */
+  limits?: StageLimitOverrides;
+  /** The stage's own configuration, judged against the stage's `configSchema`. */
+  config?: unknown;
+}
+
 /** The configuration a stage runs with, after the product's configuration spoke. */
 export interface ResolvedStageConfiguration {
   id: string;
@@ -189,6 +207,9 @@ export type StageExecutionResult =
 export type StageValidation =
   | { ok: true }
   | { ok: false; errors: readonly string[] };
+
+/** The shape of a stage id: a word, the same shape a product's configuration may name. */
+export const STAGE_ID_PATTERN = /^[A-Za-z][A-Za-z0-9._-]*$/;
 
 /** A stage of the fill, as one module declares it (decision 0027). */
 export interface FillStage {

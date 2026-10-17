@@ -70,12 +70,23 @@ None.
   `docs/kinds.yaml` is not the place: it is the skill set's document contract
   whose stage list names the wiki's lifecycle stages, which decision 0027 keeps
   apart from the fill's processing stages.
-- **Two readers, one file.** `readFillStageConfiguration` reads the manifest
-  through the manifest's own parser, so the two can never disagree about what
-  the file says; every refusal names the file, the 1-based line and the field's
-  path. A stage's own `config` is judged by the registry, which is the only
-  holder of the stage's `configSchema`, and it names the same file and the line
-  of the field inside the configuration.
+- **One reader of the file, one reader of the stages.** The configuration
+  reader reads the manifest through the manifest's own parser, so the two can
+  never disagree about what the file says, and it judges only what the file
+  itself can be wrong about: a root that is no mapping, a `fill` or a
+  `fill.stages` that is no mapping, a key that is no stage id. It hands the
+  entries through exactly as written, and the registry judges them, since it is
+  the only holder of the stages and of their `configSchema`. That split is what
+  makes an entry for a stage this madarch does not hold unread rather than
+  refused, the manifest's own rule for a field it does not know. A fault of an
+  entry names the manifest's full path, the line of the field and its path; a
+  fault of a stage's declaration names the stage and the declared field, since a
+  declaration is a module and not a file of the product.
+- **One schema version per fact kind.** Two producers of one fact kind at
+  different schema versions are refused as a declaration fault: publication
+  replaces a unit's facts by kind, and two shapes under one kind would mix. A
+  kind's `scope` and a consume's `freshness` are not judged here: they say what
+  a publication replaces and rechecks, which is the orchestrator's step.
 - **A refusal carries every fault at once.** The derivation answers a clean
   graph or all of it: the configuration's refusals, the stages' declaration and
   configuration problems, the cycles and the starvation paths. A configuration
@@ -83,8 +94,9 @@ None.
   its defaults stand for nothing the product agreed to.
 - **A stage is not its own producer.** A stage consuming the capability it
   produces reads what its own earlier run published, so no edge runs from it to
-  itself; otherwise every incremental stage (the history stage of decision 0026
-  among them) would starve or cycle.
+  itself and another producer of it being disabled starves nothing; otherwise
+  every incremental stage (the history stage of decision 0026 among them) would
+  starve or cycle.
 - **A pair is ordered once.** An `after` draws an edge only where no capability
   edge already orders the same pair, so the graph says an ordering once.
 - **The snapshot is a digest.** `snapshotStageConfigurations` digests every

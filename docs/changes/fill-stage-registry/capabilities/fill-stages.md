@@ -16,19 +16,26 @@ decisions 0026 and 0027, apart from the wiki's lifecycle stages of decision
 ## Requirement: registry — A stage is one module plus its registration
 
 The stage registry shall hold every stage module registered with it and shall
-refuse a second registration of one stage id, naming both versions. The
+refuse a second registration of one stage id, naming both versions. It shall
+refuse, where it is made, an id a product's configuration could never name: a
+stage id starts with a letter and carries letters, digits, `.`, `_` or `-`. The
 registry shall list its stages in code point order of their ids, whatever the
 order they were registered in.
 
 ### Scenario: register-once
 - Given: a stage module with the id `summary`, version 3, is registered
 - When: another module declaring the id `summary`, version 4, is registered too
-- Then: the second registration is refused with "the stage \"summary\" is registered twice (versions 3 and 4): each stage is registered once"
+- Then: the second registration is refused with `the stage "summary" is registered twice (versions 3 and 4): each stage is registered once`
+
+### Scenario: register-bad-id
+- Given: a stage module declares the id `bad id`
+- When: it is registered
+- Then: the registration is refused with `the stage id "bad id" is not a stage id: a stage id starts with a letter and carries letters, digits, ".", "_" or "-"`
 
 ### Scenario: register-catalogue
-- Given: the stages `summary`, `Claims`, `claims` and `_draft` are registered in that order
+- Given: the stages `summary`, `Claims`, `claims` and `draft` are registered in that order
 - When: the registry lists them
-- Then: they are listed as `Claims`, `_draft`, `claims`, `summary`
+- Then: they are listed as `Claims`, `claims`, `draft`, `summary`
 
 ## Requirement: graph — The stage graph is derived from the declared capabilities
 
@@ -36,7 +43,9 @@ When the stage graph is derived, a required capability of an enabled stage
 shall draw an edge from every enabled stage that produces it to the consumer,
 and the enabled stages shall be ordered so that every edge runs from an earlier
 stage to a later one. Ties shall be broken by code point order of the stage
-ids, so that the same declarations always give the same graph.
+ids, so that the same declarations always give the same graph. A fact kind two
+stages produce at different schema versions shall refuse the graph, naming the
+kind with both stages and versions: one kind carries one schema version.
 
 ### Scenario: derived-order
 - Given: `snapshot` produces `file-facts`, `modules` consumes `file-facts` and produces `module-facts`, `summary` consumes `module-facts`, `pages` consumes `module-summaries` and `module-facts`, and `overview` consumes `page-drafts`, with the stages that produce those kinds registered
@@ -48,18 +57,24 @@ ids, so that the same declarations always give the same graph.
 - When: the graph is derived twice from the same registry
 - Then: both derivations give the same order and the same edges
 
-### Scenario: producer-found-nothing
-- Given: a stage whose plan reports `coverage: nothing-found`
+### Scenario: plan-not-run
+- Given: a stage whose `plan`, `execute` and `validate` would throw if they were called
 - When: the graph is derived
-- Then: the graph is clean: an empty plan is not a starvation
+- Then: the graph is clean: deriving reads the declarations and the product's configuration, and runs no stage
+
+### Scenario: kind-schema-version
+- Given: `index` produces `file-facts` at schema version 2 and `crawl` produces `file-facts` at schema version 1
+- When: the graph is derived
+- Then: the graph is refused with `the fact kind "file-facts" is produced at schema versions 1 and 2 (by crawl at 1, index at 2): one kind carries one schema version`
 
 ## Requirement: order — An `after` adds an ordering beside the capabilities
 
 Where a stage declares `after`, the graph shall order it after each of those
 stages that runs, drawing an edge that names the ordering. A pair already
-ordered by a capability shall be drawn once. If an `after` names a stage the
-registry does not hold, or the stage itself, then the derivation shall refuse
-the graph, naming the declaration.
+ordered by a capability shall be drawn once, and a capability a stage requires
+twice shall draw one edge. If an `after` names a stage the registry does not
+hold, or the stage itself, then the derivation shall refuse the graph, naming
+the stage and the declared field.
 
 ### Scenario: after-edge
 - Given: `summary` consumes `module-facts` and declares `after: [modules, snapshot]`, and `snapshot` produces nothing `summary` needs
@@ -80,13 +95,15 @@ the graph, naming the declaration.
 
 The product's configuration file `workspace.yaml` shall configure each stage
 under `fill.stages`, keyed by the stage's id, with `enabled`, `concurrency`,
-`limits` and the stage's own `config`. A stage the product disables shall leave the stage graph and
-nothing shall be ordered through it. Limits the product writes shall ride over
-the stage's defaults, the rest kept. Every refusal shall name the file, the
-1-based line and the field's path, and shall report every fault of the file in
-one answer. A field or a stage id this madarch does not know shall be read past,
-never refused, so a product's configuration written for a later madarch still
-opens.
+`limits` and the stage's own `config`. A stage the product disables shall leave
+the stage graph and nothing shall be ordered through it. Limits the product
+writes shall ride over the stage's defaults, the rest kept. Every fault shall
+be reported in one answer: a fault of an entry shall name the manifest's full
+path, the 1-based line of the field and the field's path; a fault of a stage's
+own declaration shall name the stage and the declared field. A field, a limit
+name or a stage id this madarch does not know shall be read past, never
+refused — an entry for a stage this madarch does not hold is neither judged nor
+planned — so a product's configuration written for a later madarch still opens.
 
 ### Scenario: disabled-stage
 - Given: a product whose manifest says `fill.stages.overview.enabled: false`
@@ -100,18 +117,28 @@ opens.
 
 ### Scenario: refusal-lines
 - Given: a manifest saying `fill.stages.snapshot.enabled: maybe` on line 7
-- When: the configuration is read
-- Then: the refusal names `workspace.yaml`, line 7, the path `fill.stages.snapshot.enabled` and that the field is true or false
+- When: the graph is derived
+- Then: the refusal names the manifest's full path, line 7, the path `fill.stages.snapshot.enabled` and that the field is true or false
 
 ### Scenario: unknown-field
-- Given: a manifest naming an unknown limit `maxParagraphs` and an unknown field `retention`
+- Given: a manifest naming an unknown limit `maxParagraphs` and an unknown field `retention` on a stage the registry holds
+- When: the graph is derived
+- Then: it reads cleanly, with the known fields kept and the unknown ones left out
+
+### Scenario: unknown-stage
+- Given: a manifest naming a stage the registry does not hold, whose entry is malformed, `concurrency: auto`
+- When: the graph is derived
+- Then: it reads cleanly and that stage is not in the graph
+
+### Scenario: root-not-a-mapping
+- Given: a manifest whose whole text is `just-a-word`
 - When: the configuration is read
-- Then: it reads, with the known fields kept and the unknown ones left out
+- Then: the refusal names the manifest's full path, line 1 and that a manifest is a mapping of fields
 
 ### Scenario: config-schema
 - Given: the stage `summary` declares a configuration schema requiring `maxDepth` of 1 or more, and the product writes `maxDepth: 0` on line 8
 - When: the graph is derived
-- Then: the graph is refused, naming `workspace.yaml`, line 8, the path `fill.stages.summary.config.maxDepth`
+- Then: the graph is refused, naming the manifest's full path, line 8, the path `fill.stages.summary.config.maxDepth`
 
 ## Requirement: starvation — A required capability no enabled stage produces is named by its path
 
@@ -119,7 +146,10 @@ If a required capability of an enabled stage has no enabled producer, then the
 derivation shall refuse the graph and report the exact path
 consumer → capability → producer, saying whether no stage produces the
 capability at all or every producer of it is disabled. An optional capability
-nothing produces shall not starve a stage.
+nothing produces shall not starve a stage, and a stage that produces the
+capability it consumes shall satisfy itself: the other producers of it being
+disabled starves nothing. "A producer found nothing" shall not be a starvation
+either: it is a plan's own answer, and deriving a graph runs no plan.
 
 ### Scenario: producer-disabled
 - Given: `modules` requires `file-facts`, `snapshot` produces it, and the product disables `snapshot`
@@ -135,6 +165,11 @@ nothing produces shall not starve a stage.
 - Given: `index` and `crawl` both produce `file-facts` and the product disables both
 - When: the graph is derived
 - Then: the refusal names both paths, `modules → file-facts → crawl (disabled)` and `modules → file-facts → index (disabled)`
+
+### Scenario: self-producer
+- Given: `history` produces `history-facts` and requires it, and `crawl` produces it too and is disabled
+- When: the graph is derived
+- Then: the graph is clean, holding `history` alone
 
 ## Requirement: cycle — A cycle of the derived graph is refused, naming it
 
@@ -184,18 +219,22 @@ digest, and a configuration the product changed shall give another.
   configuration.
 - **Data:** the configuration the product wrote is the only input; a run's
   snapshot is a digest of what it resolved, kept with the run, not here.
-- **Usability and accessibility:** every refusal names the file, the line and
-  the field's path, and every fault of one file is reported at once.
-- **Compatibility and operation:** a field or a stage id this madarch does not
-  know is read past, so a configuration written for a later madarch still
-  opens; a removed stage leaves its configuration unread.
+- **Usability and accessibility:** a fault of a configuration entry names the
+  manifest's full path, the line and the field's path, and every fault of one
+  file is reported at once; a fault of a declaration names the stage and the
+  declared field, since a declaration is a module and not a file of the
+  product.
+- **Compatibility and operation:** a field, a limit name or a stage id this
+  madarch does not know is read past, so a configuration written for a later
+  madarch still opens; a stage this madarch does not hold is neither judged nor
+  planned.
 
 ## Context
 
 Decisions 0026 (the graph-first fill) and 0027 (the orchestrator the fill runs
 on) fix the stage contract: the registry, the derived DAG, the starvation
-diagnostic and the product's `fill.stages` configuration. The
-configuration file is the product's manifest, `workspace.yaml` (decision 0021).
+diagnostic and the product's `fill.stages` configuration. The configuration
+file is the product's manifest, `workspace.yaml` (decision 0021).
 
 ## Coverage limits
 
@@ -204,3 +243,6 @@ configuration file is the product's manifest, `workspace.yaml` (decision 0021).
 - Planning a stage's units, executing one and validating a draft are declared
   by the stage contract and not exercised by this capability: the orchestrator
   (madarch-tzte.19.5) and the crash-injection suite (madarch-tzte.19.6) own them.
+- A consume's `scope` and `freshness` and a produce's `scope` are declared and
+  not judged by derivation: they say what a publication replaces and what it
+  rechecks, which is the orchestrator's publication step (madarch-tzte.19.5).
