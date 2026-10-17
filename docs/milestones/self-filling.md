@@ -122,12 +122,11 @@ running madarch on madarch (owner: «Я предлагаю не делать в�
 
 ### Target date
 
-**Monday 2026-10-19, morning MSK**, set by the owner («до утра 19 октября
-(понедельник)»); the reason was not stated. The full charter does not fit it:
-by commit times, `madarch init` (two stages) took about 32 hours from first
-commit to merge and comments 63 hours and counting, and each outcome below is
-larger. What is due on Monday is the **Monday slice**; the rest of the charter
-follows in the same milestone.
+**Tuesday 2026-10-20, morning MSK**, set by the owner on 2026-10-18 («По поводу даты я готов тебе
+дать время до утра вторника. Ты и текущий объем переоценил.»). It replaces the first date, Monday
+2026-10-19 morning («до утра 19 октября (понедельник)»), after the landed fill was judged wrong at the
+root («То что работает нельзя показывать, это в корне неверно. Нужно сделать как положено.») and
+rebuilt graph-first by decisions 0026 and 0027; the Monday slice below is history.
 
 ### The Monday slice
 
