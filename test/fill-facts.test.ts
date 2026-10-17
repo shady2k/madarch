@@ -1,0 +1,579 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, test } from 'bun:test';
+import { parseContractText } from '../src/product/contract.js';
+import {
+  AGENT_STAGES,
+  FACT_EDGE_KINDS,
+  FACT_ID_PATTERN,
+  FACT_KINDS,
+  FACT_KINDS_IN_ORDER,
+  FACT_KIND_NAME_PATTERN,
+  FACT_NODE_KINDS,
+  FACT_STAGES,
+  FACTS_SCHEMA_VERSION,
+  FactSchemaError,
+  REGISTRY_KIND_MAPPINGS,
+  REGISTRY_STORAGE_FORMS,
+  checkFact,
+  factId,
+  factKindsForRegistryForm,
+  isFactKind,
+  isRepositoryPath,
+  makeEdgeFact,
+  makeNodeFact,
+  repositoryPath,
+  repositoryPathIn,
+  statusesOfLayer,
+} from '../src/fill/facts.js';
+import type { Fact, FactKind, FactLayer, FactProvenance, FactValueOf, RepositoryPath } from '../src/fill/facts.js';
+
+/**
+ * The code-fact schema's own conformance tests. Every expected value here is
+ * taken from the decisions the schema grounds — 0004's atoms, 0005's layers
+ * and statuses, 0026's stages and bounded units, 0027's kind versions, 0021's
+ * registry storage forms — and none is copied from the module under test: the
+ * kinds the DONE WHEN of madarch-tzte.20.1 names are written out here as the
+ * task names them, so a kind dropped from the schema fails a test that never
+ * read the schema's own list.
+ */
+
+/** The commit every sample fact was read at: 40 lower-case hexadecimal digits. */
+const COMMIT = '0123456789abcdef0123456789abcdef01234567';
+
+/** A second commit, for the tests that move the commit and expect no id to move. */
+const OTHER_COMMIT = 'fedcba9876543210fedcba9876543210fedcba98';
+
+/** Two checkouts of one repository, on two machines: only what lies between the paths may reach an id. */
+const CHECKOUT_HERE = '/home/dev/checkout';
+const CHECKOUT_ELSEWHERE = '/srv/ci/workspace/checkout';
+
+/** The repository every sample is about, by the product's own name for it (0021). */
+const REPOSITORY = 'orders-api';
+
+/** A well-formed fact id of a node the samples point at, when the node itself is not what is under test. */
+function anyId(kind: 'file' | 'symbol' | 'state' | 'commit' | 'document' | 'api-endpoint' | 'deploy-unit'): string {
+  return `${kind}:${'0123456789abcdef'.repeat(4)}`;
+}
+
+/** The field of a kind's value that names the file the fact itself stands at, where the kind stands at its own file. */
+const SELF_PLACE_FIELD: Readonly<Record<string, string>> = { 'document': 'path', 'entry-point': 'file', 'file': 'path', 'section': 'document', 'symbol': 'file', 'test': 'file' };
+
+/** The place a sample of the kind stands at: its own file where the kind has one, `src/order.ts` otherwise. */
+function placePathOf(kind: FactKind): RepositoryPath {
+  const field = SELF_PLACE_FIELD[kind];
+  if (field === undefined) return repositoryPath('src/order.ts');
+  return (SAMPLES[kind] as unknown as Record<string, unknown>)[field] as RepositoryPath;
+}
+
+/** The provenance every sample carries: a place at the fact's own file, lines 3 to 7. */
+function provenanceOf(file: RepositoryPath = repositoryPath('src/order.ts'), commit = COMMIT): FactProvenance {
+  return {
+    source: { system: 'tree-sitter', version: '0.25.10' },
+    repository: { id: REPOSITORY, commit },
+    place: { file, range: { startLine: 3, startColumn: 0, endLine: 7, endColumn: 1 } },
+  };
+}
+
+/**
+ * One sample value per kind: the smallest value each kind's own reader would
+ * write. A literal union is not checkable here (a member may be left out of a
+ * `Record<FactKind, …>` and the table still type-checks only through the
+ * schema's own map), so `SAMPLES` is keyed by the schema's kind list and a
+ * test below asserts every kind of that list has one.
+ */
+const SAMPLES: { readonly [K in FactKind]: FactValueOf<K> } = {
+  'snapshot': { repository: REPOSITORY, commit: COMMIT, tree: 'abcdef0123456789abcdef0123456789abcdef01', fileCount: 128, byteCount: 40960 },
+  'repository': { repository: REPOSITORY, form: 'code', defaultBranch: 'main' },
+  'directory': { repository: REPOSITORY, path: repositoryPath('src') },
+  'file': { repository: REPOSITORY, path: repositoryPath('src/order.ts'), roles: ['source'], language: 'typescript', bytes: 512 },
+  'package': { repository: REPOSITORY, name: '@acme/orders', form: 'package', ecosystem: 'npm', version: '1.4.0', manifest: repositoryPath('package.json') },
+  'deploy-unit': { repository: REPOSITORY, name: 'orders-api', form: 'container', manifest: repositoryPath('deploy/Dockerfile') },
+  'api-endpoint': { contract: 'http::GET::/api/orders/{}', framework: 'express' },
+  'table': { repository: REPOSITORY, name: 'public.orders', engine: 'postgres' },
+  'column': { repository: REPOSITORY, table: 'public.orders', name: 'total', dataType: 'numeric(12,2)' },
+  'environment-variable': { name: 'ORDERS_TOPIC' },
+  'symbol': { repository: REPOSITORY, file: repositoryPath('src/order.ts'), qualifiedName: 'OrderService.create', symbolKind: 'method', scipKind: 'StaticMethod', displayName: 'create', signature: 'create(order: Order): Promise<void>' },
+  'occurrence': { symbol: anyId('symbol'), roles: ['definition', 'write-access'] },
+  'entry-point': { repository: REPOSITORY, file: repositoryPath('src/main.ts'), name: 'GET /api/orders', form: 'http-route' },
+  'comment': { text: 'An order is placed once the card is authorized.', form: 'block' },
+  'test': { repository: REPOSITORY, file: repositoryPath('test/order.test.ts'), name: 'places an order', framework: 'bun', covers: [anyId('symbol')] },
+  'module': { repository: REPOSITORY, name: 'checkout-payment', seed: 'cluster', members: 12, importance: 0.42 },
+  'document': { repository: REPOSITORY, path: repositoryPath('docs/requirements/orders.md'), mediaType: 'text/markdown', title: 'Orders' },
+  'section': { repository: REPOSITORY, document: repositoryPath('docs/requirements/orders.md'), anchor: 'placing-an-order', heading: 'Placing an order', level: 2 },
+  'commit': { repository: REPOSITORY, commit: COMMIT, committedAt: '2026-10-18T09:15:00Z', subject: 'Place an order', author: 'Example Author' },
+  'claim': { subject: { form: 'node', id: anyId('symbol') }, predicate: 'is-implemented-by', object: { form: 'literal', text: 'the order service' }, text: 'Orders are placed by the order service.', confidence: 0.7 },
+  'entity-proposal': { repository: REPOSITORY, proposed: 'concept', name: 'Order', summary: 'What a customer buys.', aliases: ['purchase'] },
+  'rule': { statement: 'An order is placed once its card is authorized.', subject: anyId('symbol'), form: 'invariant' },
+  'state': { repository: REPOSITORY, machine: 'OrderStatus', name: 'placed', initial: true },
+  'coverage': { repository: REPOSITORY, scope: 'module:checkout-payment', complete: false, read: ['src/order.ts', 'src/payment.ts'], unread: [{ what: 'src/legacy.js', reason: 'unsupported' }] },
+  'question': { repository: REPOSITORY, type: 'assumption-check', about: anyId('symbol'), prompt: 'Is an order placed at authorization or at capture?' },
+  'contains': { from: anyId('file'), to: anyId('symbol') },
+  'defines': { from: anyId('file'), to: anyId('symbol') },
+  'import': { from: anyId('file'), to: anyId('file'), specifier: '../model/order.js' },
+  'dependency': { from: anyId('file'), to: anyId('file'), basis: 'manifest' },
+  'call': { from: anyId('symbol'), to: anyId('symbol'), count: 3 },
+  'reference': { from: anyId('symbol'), to: anyId('symbol'), count: 2 },
+  'provides': { from: anyId('deploy-unit'), contract: 'topic::order-placed' },
+  'consumes': { from: anyId('symbol'), variable: 'environment-variable:' + '0'.repeat(64) },
+  'binds': { variable: 'environment-variable:' + '0'.repeat(64), environment: 'production', value: { form: 'digest', sha256: 'a'.repeat(64) } },
+  'resolves': { from: anyId('api-endpoint'), to: anyId('deploy-unit') },
+  'document-link': { from: anyId('document'), to: { form: 'external', url: 'https://example.com/orders' } },
+  'task-key': { from: anyId('commit'), key: 'madarch-tzte.20.1' },
+  'transition': { from: 'state:' + '1'.repeat(64), to: 'state:' + '2'.repeat(64), event: 'payment-authorized' },
+  'interaction': { caller: anyId('symbol'), callee: anyId('deploy-unit'), form: 'http', via: 'POST /api/orders' },
+};
+
+/** The layer each sample is written in: extracted for the deterministic stages, inferred for the agent ones. */
+function layerOf(kind: FactKind): FactLayer {
+  const layers = FACT_KINDS[kind].layers;
+  return layers.includes('extracted') ? 'extracted' : (layers[0] as FactLayer);
+}
+
+/** The provenance of one sample fact of the kind, at the place the kind stands at. */
+function provenanceFor(kind: FactKind, commit = COMMIT): FactProvenance {
+  return provenanceOf(placePathOf(kind), commit);
+}
+
+/** One sample fact of the kind, through the schema's own constructor. */
+function sampleFact(kind: FactKind): Fact {
+  const provenance = provenanceFor(kind);
+  return FACT_KINDS[kind].shape === 'node'
+    ? makeNodeFact({ kind: kind as never, value: SAMPLES[kind] as never, provenance, layer: layerOf(kind) })
+    : makeEdgeFact({ kind: kind as never, value: SAMPLES[kind] as never, provenance, layer: layerOf(kind) });
+}
+
+/** The identity parts of the sample, as the schema computes them. */
+function identityOf(kind: FactKind, provenance: FactProvenance = provenanceFor(kind)): readonly (readonly [string, unknown])[] {
+  const definition = FACT_KINDS[kind];
+  return (definition.identity as (value: unknown, read: FactProvenance) => readonly (readonly [string, unknown])[])(SAMPLES[kind], provenance);
+}
+
+describe('the kinds the fill writes', () => {
+  test('every kind the task names is declared, in the schema own namespace', () => {
+    // The kinds madarch-tzte.20.1's DONE WHEN names, in its own words: stages
+    // 0–7 first, then the agent stages' kinds. A kind the schema stops
+    // declaring fails here even if the module's own list agrees with itself.
+    const named: readonly FactKind[] = [
+      'snapshot', 'repository', 'directory', 'file', 'package', 'dependency', 'deploy-unit', 'api-endpoint',
+      'table', 'column', 'environment-variable', 'symbol', 'occurrence', 'import', 'call', 'reference',
+      'entry-point', 'comment', 'test', 'module', 'document', 'section', 'document-link', 'commit', 'task-key',
+      'claim', 'entity-proposal', 'rule', 'state', 'transition', 'interaction', 'coverage', 'question',
+    ];
+    const declared = new Set<string>(FACT_KINDS_IN_ORDER);
+    const missing = named.filter((kind) => !declared.has(kind));
+    expect(missing).toEqual([]);
+  });
+
+  test('the two kind lists are disjoint, sorted by code point, and every name is one kebab token', () => {
+    expect(FACT_NODE_KINDS.filter((kind) => (FACT_EDGE_KINDS as readonly string[]).includes(kind))).toEqual([]);
+    expect([...FACT_NODE_KINDS].sort()).toEqual([...FACT_NODE_KINDS].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)));
+    for (const kind of FACT_KINDS_IN_ORDER) {
+      expect(FACT_KIND_NAME_PATTERN.test(kind)).toBe(true);
+      expect(kind).not.toContain(' ');
+      expect(kind).not.toMatch(/[A-Z]/);
+    }
+    expect(new Set(FACT_KINDS_IN_ORDER).size).toBe(FACT_NODE_KINDS.length + FACT_EDGE_KINDS.length);
+  });
+
+  test('a fact kind never takes a registry kind name: the two vocabularies are kept apart', () => {
+    // The registry's own reading of a real product registry (0021): its kind
+    // names are the product's words ("work item", "capability"), and a fact
+    // kind is never one of them.
+    const text = readFileSync(join(import.meta.dir, '..', 'examples', 'contract', 'registry-product', 'docs', 'kinds.yaml'), 'utf8');
+    const read = parseContractText('docs/kinds.yaml', text);
+    if (!read.ok) throw new Error(read.errors.map((error) => `${error.file}:${error.line}: ${error.message}`).join('\n'));
+    expect(read.kinds.length).toBeGreaterThan(0);
+    const registryNames = new Set(read.kinds.map((kind) => kind.name));
+    for (const kind of FACT_KINDS_IN_ORDER) expect(registryNames.has(kind)).toBe(false);
+    // And the other way: no registry document id can be read as a fact id,
+    // whose shape is the kind, a colon, and 64 lowercase hex digits.
+    for (const kind of read.kinds) expect(FACT_ID_PATTERN.test(`${kind.prefix}-1`)).toBe(false);
+  });
+
+  test('every kind is declared once in the table, with the shape its own list gave it', () => {
+    expect(Object.keys(FACT_KINDS).sort()).toEqual([...FACT_KINDS_IN_ORDER].sort());
+    for (const kind of FACT_NODE_KINDS) expect(FACT_KINDS[kind].shape).toBe('node');
+    for (const kind of FACT_EDGE_KINDS) expect(FACT_KINDS[kind].shape).toBe('edge');
+    for (const kind of FACT_KINDS_IN_ORDER) expect(FACT_KINDS[kind].kind).toBe(kind);
+  });
+
+  test('every kind names the stages that write it, in 0026 order, and every stage writes something', () => {
+    for (const kind of FACT_KINDS_IN_ORDER) {
+      const stages = FACT_KINDS[kind].stages;
+      expect(stages.length).toBeGreaterThan(0);
+      const indexes = stages.map((stage) => FACT_STAGES.indexOf(stage));
+      expect(indexes.every((index) => index >= 0)).toBe(true);
+      expect(indexes).toEqual([...indexes].sort((left, right) => left - right));
+    }
+    // Every stage of 0026 writes at least one kind — no stage is a name with
+    // nothing behind it.
+    expect(FACT_STAGES.filter((stage) => !FACT_KINDS_IN_ORDER.some((kind) => FACT_KINDS[kind].stages.includes(stage)))).toEqual([]);
+  });
+
+  test('the agent kinds are written by agent stages only, and every agent stage is 8 to 13', () => {
+    const agentKinds: readonly FactKind[] = ['claim', 'entity-proposal', 'question', 'rule', 'state', 'transition', 'interaction'];
+    for (const kind of agentKinds) {
+      for (const stage of FACT_KINDS[kind].stages) expect(AGENT_STAGES).toContain(stage);
+    }
+    expect([...AGENT_STAGES]).toEqual([...FACT_STAGES].filter((stage) => Number(stage.split('-')[0]) >= 8));
+    // A coverage is what every stage reports about what it read (0004's
+    // coverage, 0026's "a unit at a limit returns what it has with its coverage").
+    expect(FACT_KINDS['coverage'].stages).toEqual(FACT_STAGES);
+  });
+
+  test('every kind declares the layers a fact of it may be written in, from 0005 four', () => {
+    const layers: readonly FactLayer[] = ['declared', 'extracted', 'inferred', 'observed'];
+    for (const kind of FACT_KINDS_IN_ORDER) {
+      const declared = FACT_KINDS[kind].layers;
+      expect(declared.length).toBeGreaterThan(0);
+      for (const layer of declared) expect(layers).toContain(layer);
+      expect(new Set(declared).size).toBe(declared.length);
+      // The fill watches no running system today: nothing it writes is observed.
+      expect(declared).not.toContain('observed');
+    }
+    // The deterministic stages' facts are extracted, never inferred.
+    expect(FACT_KINDS['file'].layers).toEqual(['extracted']);
+    expect(FACT_KINDS['symbol'].layers).toEqual(['extracted']);
+  });
+
+  test('every kind carries its value shape version, an integer of the schema version today', () => {
+    expect(Number.isInteger(FACTS_SCHEMA_VERSION)).toBe(true);
+    for (const kind of FACT_KINDS_IN_ORDER) {
+      expect(Number.isInteger(FACT_KINDS[kind].version)).toBe(true);
+      expect(FACT_KINDS[kind].version).toBeGreaterThanOrEqual(1);
+    }
+  });
+});
+
+describe('one sample of every kind', () => {
+  for (const kind of FACT_KINDS_IN_ORDER) {
+    test(`the ${kind} kind is one the schema reads: its own sample passes the check`, () => {
+      const fact = sampleFact(kind);
+      expect(checkFact(fact)).toEqual([]);
+      expect(fact.kind).toBe(kind);
+      expect(fact.schemaVersion).toBe(FACT_KINDS[kind].version);
+      expect(FACT_ID_PATTERN.test(fact.id)).toBe(true);
+      expect(fact.id.startsWith(`${kind}:`)).toBe(true);
+      expect(fact.status).toBe('proposed');
+    });
+  }
+
+  test('every kind has a sample, so no kind is left untested', () => {
+    expect(Object.keys(SAMPLES).sort()).toEqual([...FACT_KINDS_IN_ORDER].sort());
+    for (const kind of FACT_KINDS_IN_ORDER) expect(SAMPLES[kind]).toBeDefined();
+  });
+});
+
+describe('ids: content-addressed, stable, and never a run', () => {
+  test('the same fact gives the same id twice: nothing in the schema reads a clock or a random source', () => {
+    for (const kind of FACT_KINDS_IN_ORDER) {
+      const first = sampleFact(kind).id;
+      const second = sampleFact(kind).id;
+      expect(second).toBe(first);
+      expect(factId({ kind, value: SAMPLES[kind], provenance: provenanceFor(kind) } as never)).toBe(first);
+    }
+  });
+
+  test('an id is the kind and the SHA-256 digest of the identity alone: 64 lower-case hex digits', () => {
+    for (const kind of FACT_KINDS_IN_ORDER) {
+      const id = sampleFact(kind).id;
+      const match = id.match(FACT_ID_PATTERN);
+      expect(match).not.toBeNull();
+      expect(id.slice(kind.length + 1)).toMatch(/^[0-9a-f]{64}$/);
+      // Nothing of the fact's words can appear in an id: a run id, a path, a
+      // predicate have nowhere to stand in a hex digest.
+      expect(id).not.toContain('src/order.ts');
+      expect(id).not.toContain(COMMIT);
+    }
+  });
+
+  test('the same file read in two checkouts on two machines is one fact and one id', () => {
+    const here = provenanceOf(repositoryPathIn(CHECKOUT_HERE, `${CHECKOUT_HERE}/src/order.ts`));
+    const elsewhere = provenanceOf(repositoryPathIn(CHECKOUT_ELSEWHERE, `${CHECKOUT_ELSEWHERE}/src/order.ts`));
+    const factHere = makeNodeFact({ kind: 'file', value: SAMPLES['file'], provenance: here, layer: 'extracted' });
+    const factElsewhere = makeNodeFact({ kind: 'file', value: SAMPLES['file'], provenance: elsewhere, layer: 'extracted' });
+    expect(factElsewhere.id).toBe(factHere.id);
+    // And nothing of either machine's directory reached the provenance.
+    expect(JSON.stringify(factHere)).not.toContain(CHECKOUT_HERE);
+    expect(JSON.stringify(factElsewhere)).not.toContain(CHECKOUT_ELSEWHERE);
+  });
+
+  test('a rerun at another commit, with another reader version and other counts, is the same fact', () => {
+    for (const kind of FACT_KINDS_IN_ORDER) {
+      // Every part of the provenance a rerun may vary, and no part of the
+      // identity: another commit and another source version. The reader's
+      // name is varied too, except where the fact *is* one reader's reading:
+      // a coverage says what one reader read of one scope, so its reader is
+      // identity (the test below).
+      const moved: FactProvenance = {
+        source: { system: kind === 'coverage' ? 'tree-sitter' : 'scip-typescript', version: '0.4.1' },
+        repository: { id: REPOSITORY, commit: OTHER_COMMIT },
+        place: provenanceFor(kind).place,
+      };
+      expect(factId({ kind, value: SAMPLES[kind], provenance: moved } as never)).toBe(sampleFact(kind).id);
+      // The layer and the status are not identity either: how a fact was
+      // obtained and whether anyone accepted it never changes what it is.
+      for (const layer of FACT_KINDS[kind].layers) {
+        expect(factId({ kind, value: SAMPLES[kind], provenance: provenanceFor(kind) } as never)).toBe(sampleFact(kind).id);
+        expect(layer.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  test('a coverage is one reader reading one scope: another reader of it is another fact', () => {
+    // 0004's coverage and 0005's "not enough data": two readers of one scope
+    // keep their own gaps, so neither publisher overwrites the other's.
+    const read = (system: string): string => factId({
+      kind: 'coverage',
+      value: SAMPLES['coverage'],
+      provenance: { ...provenanceFor('coverage'), source: { system, version: '1' } },
+    } as never);
+    expect(read('scip-typescript')).not.toBe(read('tree-sitter'));
+    expect(read('tree-sitter')).toBe(read('tree-sitter'));
+  });
+
+  test('a state is one machine of one repository: the same name in another repository is another state', () => {
+    const here = makeNodeFact({ kind: 'state', value: SAMPLES['state'], provenance: provenanceFor('state'), layer: 'inferred' });
+    const elsewhere = makeNodeFact({ kind: 'state', value: { ...SAMPLES['state'], repository: 'checkout-web' }, provenance: provenanceFor('state'), layer: 'inferred' });
+    expect(elsewhere.id).not.toBe(here.id);
+  });
+
+  test('no identity of any kind names a run, a unit, an attempt, a generation, a session or a time', () => {
+    const forbidden = ['run', 'runid', 'unit', 'unitid', 'attempt', 'generation', 'session', 'clock', 'now', 'time', 'timestamp', 'at'];
+    for (const kind of FACT_KINDS_IN_ORDER) {
+      const fields = identityOf(kind).map(([field]) => field);
+      expect(new Set(fields).size).toBe(fields.length);
+      for (const field of fields) expect(forbidden).not.toContain(field.toLowerCase());
+    }
+    const provenanceKeys = Object.keys(provenanceOf());
+    expect(provenanceKeys.sort()).toEqual(['place', 'repository', 'source']);
+  });
+
+  test('no identity of any kind is the source version, the layer or the status, and the commit is identity only where the fact is the commit', () => {
+    // A snapshot is one repository pinned at one commit and a commit fact is
+    // that commit (0004's "repository@ref", 0026's stage 0): those two are
+    // the facts whose identity the commit is. Everything else is read *at* a
+    // commit, so the commit is provenance and never identity.
+    const aboutTheCommit: readonly FactKind[] = ['commit', 'snapshot'];
+    for (const kind of FACT_KINDS_IN_ORDER) {
+      const values = identityOf(kind).map(([, value]) => JSON.stringify(value));
+      expect(values).not.toContain(JSON.stringify('0.25.10'));
+      expect(values).not.toContain(JSON.stringify('extracted'));
+      expect(values).not.toContain(JSON.stringify('proposed'));
+      if (!aboutTheCommit.includes(kind)) expect(values).not.toContain(JSON.stringify(COMMIT));
+    }
+    expect(identityOf('snapshot').map(([field]) => field)).toContain('commit');
+    expect(identityOf('file').map(([field]) => field)).not.toContain('commit');
+  });
+
+  test('a value that changes without changing what the fact is about keeps the id; an identity that changes moves it', () => {
+    const base = makeNodeFact({ kind: 'file', value: SAMPLES['file'], provenance: provenanceFor('file'), layer: 'extracted' });
+    const renamed = makeNodeFact({ kind: 'file', value: { ...SAMPLES['file'], roles: ['source', 'test'], bytes: 4096 }, provenance: provenanceFor('file'), layer: 'extracted' });
+    expect(renamed.id).toBe(base.id);
+    const moved = makeNodeFact({ kind: 'file', value: { ...SAMPLES['file'], path: repositoryPath('src/order/index.ts') }, provenance: provenanceOf(repositoryPath('src/order/index.ts')), layer: 'extracted' });
+    expect(moved.id).not.toBe(base.id);
+    // Two repositories' files at one relative path are never one fact.
+    const otherRepository = makeNodeFact({ kind: 'file', value: { ...SAMPLES['file'], repository: 'catalog-api' }, provenance: provenanceFor('file'), layer: 'extracted' });
+    expect(otherRepository.id).not.toBe(base.id);
+  });
+
+  test('the endpoint, the variable and the contract are one node across repositories (0003 and 0006)', () => {
+    const here = makeNodeFact({ kind: 'api-endpoint', value: SAMPLES['api-endpoint'], provenance: provenanceFor('api-endpoint'), layer: 'extracted' });
+    const elsewhere = makeNodeFact({ kind: 'api-endpoint', value: SAMPLES['api-endpoint'], provenance: { ...provenanceFor('api-endpoint'), repository: { id: 'checkout-web', commit: COMMIT } }, layer: 'extracted' });
+    expect(elsewhere.id).toBe(here.id);
+    const variable = makeNodeFact({ kind: 'environment-variable', value: SAMPLES['environment-variable'], provenance: { ...provenanceFor('environment-variable'), repository: { id: 'checkout-web', commit: COMMIT } }, layer: 'extracted' });
+    const variableHere = makeNodeFact({ kind: 'environment-variable', value: SAMPLES['environment-variable'], provenance: provenanceFor('environment-variable'), layer: 'extracted' });
+    expect(variable.id).toBe(variableHere.id);
+  });
+
+  test('a claim is one assertion at one place: the same words at another span are another claim', () => {
+    const atThree = makeNodeFact({ kind: 'claim', value: SAMPLES['claim'], provenance: provenanceFor('claim'), layer: 'inferred' });
+    const atThirty = makeNodeFact({
+      kind: 'claim',
+      value: SAMPLES['claim'],
+      provenance: { ...provenanceFor('claim'), place: { file: repositoryPath('src/order.ts'), range: { startLine: 30, startColumn: 0, endLine: 31, endColumn: 1 } } },
+      layer: 'inferred',
+    });
+    expect(atThirty.id).not.toBe(atThree.id);
+    const otherObject = makeNodeFact({ kind: 'claim', value: { ...SAMPLES['claim'], object: { form: 'literal', text: 'the checkout service' } }, provenance: provenanceFor('claim'), layer: 'inferred' });
+    expect(otherObject.id).not.toBe(atThree.id);
+  });
+});
+
+describe('repository paths: the machine checkout never reaches a fact', () => {
+  test('a relative path reads as itself, with a machine separator folded and a leading ./ dropped', () => {
+    // `String(...)` because a repository path's type is branded: the brand is
+    // the point (a plain string is not one), and the bytes are what is read.
+    expect(String(repositoryPath('src/order.ts'))).toBe('src/order.ts');
+    expect(String(repositoryPath('src\\order.ts'))).toBe('src/order.ts');
+    expect(String(repositoryPath('./src/order.ts'))).toBe('src/order.ts');
+    expect(isRepositoryPath('src/order.ts')).toBe(true);
+  });
+
+  test('an absolute path, a climbed path, a drive path, a trailing separator, an empty leg and a dotted leg are refused', () => {
+    const refused = ['/home/dev/checkout/src/order.ts', '../secret.ts', 'C:\\checkout\\src\\order.ts', 'src/', 'src//order.ts', 'src/./order.ts', ''];
+    for (const value of refused) {
+      expect(isRepositoryPath(value)).toBe(false);
+      expect(() => repositoryPath(value)).toThrow(FactSchemaError);
+    }
+  });
+
+  test('a path inside the root reads relative to it, and a path outside names both paths', () => {
+    expect(String(repositoryPathIn('/home/dev/checkout', '/home/dev/checkout/src/order.ts'))).toBe('src/order.ts');
+    expect(String(repositoryPathIn('/home/dev/checkout/', '/home/dev/checkout/src/order.ts'))).toBe('src/order.ts');
+    expect(() => repositoryPathIn('/home/dev/checkout', '/tmp/other/src/order.ts')).toThrow(/\/tmp\/other\/src\/order\.ts.*\/home\/dev\/checkout/);
+    expect(() => repositoryPathIn('/home/dev/checkout', '/home/dev/checkout')).toThrow(/the repository root itself/);
+  });
+});
+
+describe('the check that names every reason a fact is not one the schema reads', () => {
+  /** The sample file fact, and the problems the check names for a variant of it. */
+  function problemsOf(variant: unknown): { paths: string[]; messages: string[] } {
+    const problems = checkFact(variant);
+    return { paths: problems.map((problem) => problem.path), messages: problems.map((problem) => problem.message) };
+  }
+
+  const file = sampleFact('file');
+
+  test('a value that is no fact at all, and a kind the schema does not declare', () => {
+    expect(problemsOf(null).messages[0]).toContain('a fact is an object');
+    expect(problemsOf({ ...file, kind: 'service' }).paths).toEqual(['kind']);
+    expect(problemsOf({ ...file, kind: 'service' }).messages[0]).toContain('is not a fact kind');
+    expect(isFactKind('service')).toBe(false);
+    expect(isFactKind('file')).toBe(true);
+  });
+
+  test('a schema version, an id, a layer and a status each at their own path', () => {
+    expect(problemsOf({ ...file, schemaVersion: 2 }).paths).toEqual(['schemaVersion']);
+    expect(problemsOf({ ...file, id: 'file:not-hex' }).paths).toEqual(['id']);
+    expect(problemsOf({ ...file, id: 'f' + file.id }).paths).toEqual(['id']);
+    expect(problemsOf({ ...file, layer: 'guessed' }).paths).toEqual(['layer']);
+    // A file is extracted by the inventory: never inferred, never declared.
+    expect(problemsOf({ ...file, layer: 'inferred' }).messages[0]).toContain('a file fact is extracted, not inferred');
+    expect(problemsOf({ ...file, status: 'accepted' }).messages[0]).toContain('an extracted fact is proposed, not accepted');
+    // A person's declaration may stand accepted; an agent's reading may not.
+    const claim = sampleFact('claim');
+    expect(checkFact({ ...claim, layer: 'declared', status: 'accepted' })).toEqual([]);
+    expect(problemsOf({ ...claim, layer: 'inferred', status: 'accepted' }).paths).toEqual(['status']);
+  });
+
+  test('the provenance: a source and its version, a repository and its commit', () => {
+    expect(problemsOf({ ...file, provenance: undefined }).paths).toEqual(['provenance']);
+    expect(problemsOf({ ...file, provenance: { ...provenanceFor('file'), source: { system: 'tree-sitter', version: ' ' } } }).paths).toEqual(['provenance.source.version']);
+    expect(problemsOf({ ...file, provenance: { ...provenanceFor('file'), repository: { id: '/home/dev/checkout', commit: COMMIT } } }).paths).toEqual(['provenance.repository.id']);
+    expect(problemsOf({ ...file, provenance: { ...provenanceFor('file'), repository: { id: REPOSITORY, commit: 'HEAD' } } }).paths).toEqual(['provenance.repository.commit']);
+  });
+
+  test('every problem of a fact that cites a place names the file and the line', () => {
+    const problems = checkFact({ ...file, status: 'accepted' });
+    expect(problems[0]?.file).toBe('src/order.ts');
+    expect(problems[0]?.line).toBe(3);
+    // And a fact with no place carries none.
+    const noPlace = checkFact({ ...file, provenance: { ...provenanceFor('file'), place: undefined } });
+    expect(noPlace[0]?.path).toBe('provenance.place');
+    expect(noPlace[0]?.file).toBeUndefined();
+  });
+
+  test('a place the kind stands at is required, and a place read as a repository path with an ascending range', () => {
+    const occurrence = sampleFact('occurrence');
+    expect(problemsOf({ ...occurrence, provenance: { ...provenanceFor('occurrence'), place: undefined } }).messages[0]).toContain('an occurrence fact stands at a place');
+    expect(problemsOf({ ...occurrence, provenance: { ...provenanceFor('occurrence'), place: { file: '/home/dev/checkout/src/order.ts', range: provenanceFor('occurrence').place?.range } } }).paths).toEqual(['provenance.place.file']);
+    expect(problemsOf({ ...occurrence, provenance: { ...provenanceFor('occurrence'), place: { file: repositoryPath('src/order.ts'), range: { startLine: 0, startColumn: 0, endLine: 1, endColumn: 0 } } } }).paths).toEqual(['provenance.place.range.startLine']);
+    expect(problemsOf({ ...occurrence, provenance: { ...provenanceFor('occurrence'), place: { file: repositoryPath('src/order.ts'), range: { startLine: 9, startColumn: 0, endLine: 3, endColumn: 0 } } } }).paths).toEqual(['provenance.place.range.endLine']);
+    expect(problemsOf({ ...occurrence, provenance: { ...provenanceFor('occurrence'), place: { file: repositoryPath('src/order.ts'), range: { startLine: 3, startColumn: 5, endLine: 3, endColumn: 2 } } } }).paths).toEqual(['provenance.place.range.endColumn']);
+    expect(problemsOf({ ...occurrence, provenance: { ...provenanceFor('occurrence'), place: { file: repositoryPath('src/order.ts'), range: { startLine: 3, startColumn: 0, endLine: 7 } } } }).paths).toEqual(['provenance.place.range.endColumn']);
+    // An optional place is allowed to be absent: a repository fact need not cite one.
+    const repository = sampleFact('repository');
+    expect(checkFact({ ...repository, provenance: { source: provenanceFor('repository').source, repository: provenanceFor('repository').repository } })).toEqual([]);
+  });
+
+  test('the value: a repository path, a list of names in code point order, a token that is one word', () => {
+    expect(problemsOf({ ...file, value: { ...file.value, path: '/home/dev/checkout/src/order.ts' } }).paths).toEqual(['value.path']);
+    expect(problemsOf({ ...file, value: { ...file.value, roles: ['test', 'source'] } }).paths).toEqual(['value.roles[1]']);
+    expect(problemsOf({ ...file, value: { ...file.value, roles: ['source', 'source'] } }).paths).toEqual(['value.roles[1]']);
+    const claim = sampleFact('claim');
+    expect(problemsOf({ ...claim, value: { ...claim.value, predicate: 'is implemented by' } }).paths).toEqual(['value.predicate']);
+    expect(problemsOf({ ...file, value: 'src/order.ts' }).paths).toEqual(['value']);
+  });
+
+  test('a record listed twice in one list is refused, and a value missing an identity field names the field', () => {
+    const coverage = sampleFact('coverage');
+    expect(problemsOf({ ...coverage, value: { ...coverage.value, unread: [{ what: 'src/a.js', reason: 'error' }, { what: 'src/a.js', reason: 'error' }] } }).paths).toEqual(['value.unread[1]']);
+    const { repository: _dropped, ...withoutRepository } = SAMPLES['table'];
+    expect(problemsOf({ ...sampleFact('table'), value: withoutRepository }).paths).toEqual(['value.repository']);
+  });
+
+  test('a kind that stands at its own file: a place naming another file is refused', () => {
+    const document = sampleFact('document');
+    expect(problemsOf({ ...document, provenance: provenanceOf() }).paths).toEqual(['provenance.place.file']);
+    expect(problemsOf({ ...document, provenance: provenanceOf() }).messages[0]).toContain('docs/requirements/orders.md');
+    // A path the value itself is wrong about is reported there, once.
+    expect(problemsOf({ ...document, value: { ...document.value, path: '/home/dev/out.md' } }).paths).toEqual(['value.path']);
+  });
+
+  test('the ends of an assertion and the value of a binding carry a closed form inside the value', () => {
+    const claim = sampleFact('claim');
+    expect(problemsOf({ ...claim, value: { ...claim.value, subject: { form: 'node', id: 'not-an-id' } } }).paths).toEqual(['value.subject']);
+    expect(problemsOf({ ...claim, value: { ...claim.value, object: { form: 'guess', text: 'x' } } }).messages[0]).toContain('is no form');
+    expect(problemsOf({ ...claim, value: { ...claim.value, object: { form: 'external', url: '  ' } } }).paths).toEqual(['value.object']);
+    const binds = sampleFact('binds');
+    expect(problemsOf({ ...binds, value: { ...binds.value, value: { form: 'digest', sha256: 'xyz' } } }).paths).toEqual(['value.value']);
+    expect(problemsOf({ ...binds, value: { ...binds.value, value: { form: 'secret', text: 'x' } } }).messages[0]).toContain('is no form');
+  });
+
+  test('an id that is not the identity own digest is refused, and a fact with another problem is not digested', () => {
+    const tampered = { ...file, id: `file:${'a'.repeat(64)}` };
+    const problems = checkFact(tampered);
+    expect(problems.map((problem) => problem.path)).toEqual(['id']);
+    expect(problems[0]?.message).toContain(file.id);
+    // A fact that already fails its own provenance gets no second complaint
+    // about an id it could not have had.
+    expect(problemsOf({ ...tampered, schemaVersion: 9 }).paths).toEqual(['schemaVersion']);
+  });
+});
+
+describe('the explicit mapping to the registry kinds (0021 storage forms)', () => {
+  test('every fact kind is mapped once, to itself, by a role the schema closes', () => {
+    expect(Object.keys(REGISTRY_KIND_MAPPINGS).sort()).toEqual([...FACT_KINDS_IN_ORDER].sort());
+    const relations = ['evidence', 'place', 'subject'];
+    for (const kind of FACT_KINDS_IN_ORDER) {
+      const mapping = REGISTRY_KIND_MAPPINGS[kind];
+      expect(mapping.factKind).toBe(kind);
+      expect(relations).toContain(mapping.relation);
+      expect(mapping.registryForms.length).toBeGreaterThan(0);
+      expect(new Set(mapping.registryForms).size).toBe(mapping.registryForms.length);
+      for (const form of mapping.registryForms) expect(REGISTRY_STORAGE_FORMS).toContain(form);
+      // The forms are listed in code point order, the project's one order.
+      expect([...mapping.registryForms]).toEqual([...mapping.registryForms].sort());
+    }
+  });
+
+  test('every storage form a registry kind may be kept in is served by some fact kind', () => {
+    for (const form of REGISTRY_STORAGE_FORMS) expect(factKindsForRegistryForm(form).length).toBeGreaterThan(0);
+    // A document kind's own place is found by the inventory and the document
+    // index; its documents, sections and claims stand behind it.
+    expect(factKindsForRegistryForm('document')).toContain('file');
+    expect(factKindsForRegistryForm('document')).toContain('section');
+    expect(factKindsForRegistryForm('document')).toContain('claim');
+  });
+
+  test('the forms a kind serves are answered in code point order, each kind once', () => {
+    for (const form of REGISTRY_STORAGE_FORMS) {
+      const kinds = factKindsForRegistryForm(form);
+      expect([...kinds]).toEqual([...kinds].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)));
+      expect(new Set(kinds).size).toBe(kinds.length);
+      for (const kind of kinds) expect(REGISTRY_KIND_MAPPINGS[kind].registryForms).toContain(form);
+    }
+    // The claim is what every kind of document stands on: it serves every form.
+    expect(factKindsForRegistryForm('component')).toContain('claim');
+    expect(factKindsForRegistryForm('task')).toContain('claim');
+  });
+
+  test('the statuses a fact may carry are read as 0005 states them, layer by layer', () => {
+    expect(statusesOfLayer('declared')).toEqual(['proposed', 'accepted', 'rejected']);
+    expect(statusesOfLayer('extracted')).toEqual(['proposed']);
+    expect(statusesOfLayer('inferred')).toEqual(['proposed']);
+    expect(statusesOfLayer('observed')).toEqual(['proposed']);
+  });
+});
