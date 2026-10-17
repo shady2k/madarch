@@ -301,6 +301,7 @@ describe('the server\'s product mode', () => {
 
   test('POST /api/questions/answer commits the Markdown answer and refuses a non-question page', async () => {
     draft();
+    builtApp();
     writeFileSync(join(folder!, 'docs', 'kinds.yaml'), ['contract: 1', 'stages:', '  - id: idea', 'kinds:', '  - name: inquiry', '    prefix: Q', '    folder: docs/questions', '    stage: idea', '    hint: resolve the inquiry', '    questions:', '      identityPrefix: Q', '      titleSeparator: —', '      promptSection: Question', '      answerSection: Answer'].join('\n') + '\n');
     mkdirSync(join(folder!, 'docs', 'questions'), { recursive: true });
     writeFileSync(join(folder!, 'docs', 'questions', 'Q-001.md'), '---\ntype: meaning\ndepends-on: [clm-abc]\n---\n# Q-001 — What next?\n\n## Question\nWhat should happen?\n\n## Answer\n\n');
