@@ -142,6 +142,18 @@
   }
 }
 
+/* Next-step guidance is prominent enough to act on, but stays part of the reading flow. */
+.next-step {
+  margin-block: 1.5em;
+  padding: 1em 1.1em;
+  border-inline-start: 3px solid var(--border);
+  background: var(--surface-soft);
+}
+.next-step-label { margin: 0; color: var(--text-muted); font-size: var(--fs-small); font-weight: 650; }
+.next-step-action { margin: .2em 0; font-weight: 650; }
+.next-step-reason { margin: .25em 0; color: var(--text-secondary); }
+.next-step-link { display: inline-block; margin-block-start: .2em; text-decoration: underline; text-decoration-color: var(--link-underline); text-underline-offset: .18em; }
+
 /* 4.2/4.4 The reading styles: our own element rules themed on the tokens
    (the typography plugin's classes are not wired in, so no accepted value
    rides its defaults). */
@@ -1139,10 +1151,33 @@ main section h2 {
 
 .fill-progress[hidden] { display: none !important; }
 
-.fill-wizard { margin: 1rem auto 2rem; max-width: 52rem; padding: 1rem; border: 1px solid var(--border); border-radius: .75rem; background: var(--surface-soft); }
-.fill-wizard h1 { font-size: 1.35rem; font-weight: 650; }
-.fill-wizard fieldset { margin: 1rem 0; border: 1px solid var(--border); border-radius: .5rem; padding: .75rem; }
-.fill-wizard fieldset div { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; padding: .4rem 0; }
-.fill-wizard button, .fill-wizard select { border: 1px solid var(--border); border-radius: .4rem; padding: .4rem .65rem; margin: .25rem; }
-.fill-wizard button:disabled { opacity: .55; }
-@media (max-width: 700px) { .fill-wizard { margin: .5rem; padding: .75rem; } }
+.fill-wizard { width: min(100% - 2rem, 960px); margin: 1.5rem auto 2rem; padding: clamp(1rem, 3vw, 2rem); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-card); box-shadow: var(--shadow-low); }
+.fill-wizard h1 { font-size: clamp(1.8rem, 4vw, 2.5rem); font-weight: 650; }
+.fill-wizard h2 { font-size: var(--fs-h2); }
+.fill-wizard fieldset { margin: 1rem 0; border: 1px solid var(--border); border-radius: var(--radius-control); padding: .75rem; }
+.fill-wizard fieldset div { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; padding: .5rem 0; }
+.fill-wizard button, .fill-wizard select, .fill-wizard input { border: 1px solid var(--border); border-radius: var(--radius-control); padding: .55rem .75rem; margin: .25rem; color: var(--text); background: var(--surface-page); }
+.fill-wizard button { cursor: pointer; overflow-wrap: break-word; white-space: normal; max-width: 100%; box-sizing: border-box; }
+.fill-wizard label { overflow-wrap: normal; }
+.wizard-model { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin: 1rem 0 0; }
+.wizard-model input { flex: 1 1 16rem; }
+.wizard-hint { color: var(--text-secondary); font-size: var(--fs-small); margin: .35rem 0 0; }
+.fill-wizard button:disabled { opacity: .55; cursor: not-allowed; }
+.wizard-steps { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: .5rem; list-style: none; padding: 0; margin: 1.5rem 0; }
+.wizard-steps button { width: 100%; text-align: start; min-height: 3.25rem; }
+.wizard-steps [aria-current="step"] button { outline: 2px solid var(--text-secondary); background: var(--surface-active); }
+.wizard-steps b { display: inline-grid; place-items: center; width: 1.7rem; height: 1.7rem; border: 1px solid var(--border); border-radius: 50%; margin-inline-end: .35rem; }
+.wizard-step { min-height: 13rem; padding: 1rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-card); background: var(--surface-soft); }
+.wizard-estimates { list-style: none; padding: 0; }
+.wizard-estimates li { display:flex; justify-content:space-between; gap:1rem; padding:.45rem 0; border-bottom:1px solid var(--border-subtle); }
+.wizard-agent { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
+.wizard-actions { display:flex; justify-content:space-between; margin-top:1rem; }
+@media (max-width: 700px) { .fill-wizard { width: calc(100% - 1rem); margin: .5rem auto; padding: .75rem; } .wizard-steps { grid-template-columns: 1fr; } .wizard-estimates li { display:grid; } .fill-wizard input { max-width: 100%; box-sizing: border-box; } .wizard-actions button { flex: 1 1 auto; } .wizard-run { width: 100%; } }
+
+/* The first-fill wizard is its own step view: while it stands on the home
+   route, the product overview stays out of the way until the fill starts. */
+.shell-document:has(> .fill-wizard) > main#home { display: none; }
+
+.wizard-checklist { list-style: none; padding: 0; display: grid; gap: .55rem; }
+.wizard-checklist li { display: flex; gap: .65rem; align-items: baseline; }
+.wizard-notes { list-style: none; padding: 0; margin: 1rem 0 0; display: grid; gap: .35rem; color: var(--text-secondary); font-size: var(--fs-small); }

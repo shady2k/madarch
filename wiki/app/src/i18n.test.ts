@@ -64,4 +64,12 @@ describe('wiki internationalization', () => {
     expect(relativeTime(new Date(now - 5 * 60_000).toISOString(), 'en', now)).toContain('5 min');
     expect(relativeTime(new Date(now - 5 * 60_000).toISOString(), 'ru', now)).toContain('5 мин');
   });
+
+  test('Russian wizard work-unit counts follow 1 / 2 / 5 forms', async () => {
+    await setWikiLanguage('ru');
+    expect(i18n.t('wizard.readySummary', { agent: 'omp', count: 1 })).toBe('Готово к запуску с агентом omp, до 1 рабочей единицы.');
+    expect(i18n.t('wizard.readySummary', { agent: 'omp', count: 2 })).toBe('Готово к запуску с агентом omp, до 2 рабочих единиц.');
+    expect(i18n.t('wizard.readySummary', { agent: 'omp', count: 5 })).toBe('Готово к запуску с агентом omp, до 5 рабочих единиц.');
+    await setWikiLanguage('en');
+  });
 });

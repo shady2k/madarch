@@ -156,7 +156,10 @@ export function segmentProseIssues(segment: SynthesisSegment, selected: readonly
       const claim = byId.get(id);
       if (!claim) return [`Generated prose for ${subject} names claim ${id} that is not one of the selected claim records; cite only the supplied claims, copied unchanged`];
     }
-    const covered = new Set(segment.claimIds.flatMap((id) => byId.get(id)!.sourceIds));
+    const named = segment.claimIds.map((id) => byId.get(id)!);
+    // The segment's layer must describe at least one claim it rests on, so fact prose cannot rest on assumptions alone.
+    if (!named.some((claim) => claim.layer === segment.layer)) return [`Generated prose for ${subject} of layer ${segment.layer} names no claim of that layer; the segment layer must be the layer of at least one claim it names`];
+    const covered = new Set(named.flatMap((claim) => claim.sourceIds));
     const uncovered = segment.sourceIds.find((id) => !covered.has(id));
     if (uncovered) return [`Generated prose for ${subject} has unsupported source attribution: cited source ${JSON.stringify(uncovered)} is not covered by the named claims`];
     return [];
@@ -224,7 +227,7 @@ export async function synthesizePages(input: {
   pages.push(await synthesizeRegistryPage({ ...input, target: { ...input.overview, allClaims: true }, missingQuestion: undefined }));
   for (const kind of input.kinds) {
     if (kind.name === input.overview.name) continue;
-    pages.push(await synthesizeRegistryPage({ ...input, target: { name: kind.name, folder: kind.folder, hint: kind.hint, registryKind: kind }, missingQuestion: input.missingQuestion ?? ((target) => ({ id: `q-${sha(target.name + target.hint).slice(0, 24)}`, type: 'unverifiable', kind: target.name, reason: `No supported entity was found. Registry hint: ${target.hint}` })) }));
+    pages.push(await synthesizeRegistryPage({ ...input, target: { name: kind.name, folder: kind.folder, hint: kind.hint, registryKind: kind }, missingQuestion: input.missingQuestion ?? ((target) => ({ id: `q-${sha(target.name + target.hint).slice(0, 24)}`, type: 'unverifiable', kind: target.name, reason: `No supported entity was found. Registry hint: ${target.hint}`, dependsOn: [], rank: 0 })) }));
   }
   return pages;
 }

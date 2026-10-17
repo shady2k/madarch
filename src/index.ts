@@ -136,7 +136,7 @@ export {
   type RepoState,
 } from './product-wiki/repos.js';
 
-export { anchoredFactsFromIndex, assembleClaims, createClaimSources, createEmptyClaimsExtraction, loadClaimsPrompt, parseFillKinds, persistClaimsOutput, persistTrainingScore, readPinnedGitHistory, readPinnedGitMaterial, recordUnattemptedLinks, renderClaimMarkdown, scoreTrainingExtraction, type AnchoredCodeFact, type IndexedEvidence, type IndexedEvidenceClassifier, type ClaimQuestion, type ClaimSource, type ClaimsExtraction, type ClaimLayer, type ClaimVerification, type ExtractionMaterial, type ExtractedClaim, type TrainingScore } from './product/fill-claims.js';
+export { anchoredFactsFromIndex, assembleClaims, createClaimSources, createEmptyClaimsExtraction, loadClaimsPrompt, parseFillKinds, persistClaimsOutput, persistTrainingScore, readPinnedGitHistory, readPinnedGitMaterial, recordUnattemptedLinks, renderClaimMarkdown, scoreTrainingExtraction, type AnchoredCodeFact, type IndexedEvidence, type IndexedEvidenceClassifier, type ClaimQuestion, type ClaimSource, type ClaimsExtraction, type ClaimLayer, type ClaimVerification, type ExtractionMaterial, type ExtractedClaim, type TrainingScore, type TrainingQuestionScore, type UnattemptedLink, type AgentQuestion, type QuestionMissing } from './product/fill-claims.js';
 
 export { startFill, type StartFillOptions, type StartFillResult } from './product/fill.js';
 export { buildCodeMap, persistCodeMap, synthesizePages, synthesizeRegistryPage, applySynthesisPages, segmentProseIssues, type CodeMap, type SynthesisTarget, type SynthesizedPage, type SynthesisSegment, type PageGenerator, type Critic } from './product/fill-synthesis.js';

@@ -80,7 +80,7 @@ describe('fill code map and synthesis', () => {
     const question = { id: 'q-components', type: 'unverifiable', reason: 'No component entity was found. Registry hint: describe components', kind: 'Components' };
     const overviewClaim = { ...claims[0]!, kind: 'Overview' };
     const result = await synthesizePages({ overview: { name: 'Overview', folder: 'docs/overview', hint: 'overview' }, kinds: [kinds[0]!], codeMap: buildCodeMap(index, sources), claims: [overviewClaim], sources, generate: async ({ target }) => target.name === 'Overview' ? { title: 'Overview', body: 'Orders are validated before payment.', claims: [overviewClaim], segments: [{ text: 'Orders are validated before payment.', sourceIds: ['src-code'], layer: 'fact' as const }] } : { title: 'Components', body: 'No entities.', claims: [], segments: [] }, critique: () => ({ findings: [] }) });
-    expect(result[1]?.questions).toEqual([{ id: expect.stringMatching(/^q-/), type: 'unverifiable', kind: 'Components', reason: 'No supported entity was found. Registry hint: describe components' }]);
+    expect(result[1]?.questions).toEqual([{ id: expect.stringMatching(/^q-/), type: 'unverifiable', kind: 'Components', reason: 'No supported entity was found. Registry hint: describe components', dependsOn: [], rank: 0 }]);
     expect(result[1]?.body).toContain('No supported entity was found. Registry hint: describe components');
   });
   test('stops after bounded critic passes and refuses source-less or unknown citations', async () => {
@@ -134,7 +134,7 @@ describe('fill code map and synthesis', () => {
       const base = { title: 'T', kind: 'Overview', body: 'Body', segments: [], questions: [], claims: [], sourceIds: [], unverified: false, critic: { passes: 1, findings: [] } };
       await expect(applySynthesisPages({ agentWorktree: agent, sourceCheckout: code, expectedAgentBranch: 'madarch/fill/run-1', pages: [{ ...base, path: 'docs/rejected.md', body: 'Invented behavior.', critic: { passes: 1, findings: ['Unsupported'] } }], sources })).rejects.toThrow(/has not passed its critic/);
       await expect(applySynthesisPages({ agentWorktree: agent, sourceCheckout: code, expectedAgentBranch: 'madarch/fill/run-1', pages: [{ ...base, path: 'docs/../outside.md' }], sources })).rejects.toThrow(/path outside docs/);
-      await expect(applySynthesisPages({ agentWorktree: agent, sourceCheckout: code, expectedAgentBranch: 'madarch/fill/run-1', pages: [{ ...base, path: 'docs/linked/page.md', questions: [{ id: 'q', kind: 'Overview', type: 'unverifiable', reason: 'No entity found' }] }], sources })).rejects.toThrow(/symlink outside/);
+      await expect(applySynthesisPages({ agentWorktree: agent, sourceCheckout: code, expectedAgentBranch: 'madarch/fill/run-1', pages: [{ ...base, path: 'docs/linked/page.md', questions: [{ id: 'q', kind: 'Overview', type: 'unverifiable', reason: 'No entity found', dependsOn: [], rank: 0 }] }], sources })).rejects.toThrow(/symlink outside/);
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 

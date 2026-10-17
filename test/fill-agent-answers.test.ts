@@ -76,6 +76,54 @@ describe('claims answer validation collects every error', () => {
     expect(validateClaimsAnswer({ claims: [validClaim, { ...validClaim, text: 'A different claim.' }] }, kinds, sources)).toEqual([]);
   });
 
+  test('optional per-claim marks are validated when present and ignored when absent', () => {
+    expect(validateClaimsAnswer({ claims: [{ ...validClaim, conflictsWith: 'README.md', undocumented: true, termPair: { documentTerm: 'payment token', codeTerm: 'CardToken' } }] }, kinds, sources)).toEqual([]);
+    const markedRow = (mark: Record<string, unknown>, text = validClaim.text) => ({ ...validClaim, text, ...mark });
+    expect(validateClaimsAnswer({ claims: [
+      markedRow({ conflictsWith: '  ' }),
+      markedRow({ undocumented: 'yes' }, 'Second claim.'),
+      markedRow({ termPair: { documentTerm: '', codeTerm: 4 } }, 'Third claim.'),
+      markedRow({ termPair: 'payment token/CardToken' }, 'Fourth claim.'),
+    ] }, kinds, sources)).toEqual([
+      'claims[0].conflictsWith: must be a non-empty string when present',
+      'claims[1].undocumented: must be a boolean when present',
+      'claims[2].termPair: must be an object with non-empty documentTerm and codeTerm strings',
+      'claims[3].termPair: must be an object with non-empty documentTerm and codeTerm strings',
+    ]);
+  });
+
+  test('the optional questions list is validated: types, missing field, claim texts and duplicates', () => {
+    const good = { type: 'meaning', title: 'What expiry means', prompt: 'Does expiry cancel without payment?', kind: 'Overview', claimTexts: [validClaim.text] };
+    expect(validateClaimsAnswer({ claims: [validClaim], questions: [good, { type: 'access-or-document-needed', title: 'Workspace read', prompt: 'Access is needed.', missing: 'access', claimTexts: [validClaim.text] }] }, kinds, sources)).toEqual([]);
+    expect(validateClaimsAnswer({ claims: [validClaim], questions: 'not a list' }, kinds, sources)).toEqual(['Agent output field questions must be an array']);
+    expect(validateClaimsAnswer({ claims: [validClaim], questions: [
+      { type: 'guess', title: 'q', prompt: 'why?' },
+      { title: 'q', prompt: 'why?' },
+      { type: 'meaning', title: '', prompt: 'why?' },
+      { type: 'meaning', title: 'q', prompt: '' },
+      { type: 'meaning', title: 'unknown kind', prompt: 'why?', kind: 'Nope' },
+      { type: 'access-or-document-needed', title: 'no missing field', prompt: 'why?' },
+      { type: 'access-or-document-needed', title: 'bad missing field', prompt: 'why?', missing: 'wifi' },
+      { type: 'meaning', title: 'unmatched claim text', prompt: 'why?', claimTexts: ['no such claim'] },
+      { type: 'meaning', title: 'bad claim text shape', prompt: 'why?', claimTexts: 'validClaim.text' },
+      { type: 'meaning', title: 'asked once', prompt: 'why?' },
+      { type: 'meaning', title: 'asked once', prompt: 'why, again?' },
+      'not an object',
+    ] }, kinds, sources)).toEqual([
+      'questions[0].type: must be one of meaning, contradiction, undocumented-behaviour, assumption-check, term, unverifiable, decision-rationale, access-or-document-needed',
+      'questions[1].type: must be one of meaning, contradiction, undocumented-behaviour, assumption-check, term, unverifiable, decision-rationale, access-or-document-needed',
+      'questions[2].title: must be a non-empty string',
+      'questions[3].prompt: must be a non-empty string',
+      'questions[4].kind: unknown registry kind "Nope"',
+      'questions[5].missing: access-or-document-needed questions need missing set to access or document',
+      'questions[6].missing: must be access or document',
+      'questions[7].claimTexts: no claim in this answer has the text "no such claim"; copy the exact text of a claim you returned',
+      'questions[8].claimTexts: must be an array of non-empty claim texts',
+      'questions[10]: duplicate of questions[9]: the same type and title is one question, return it once',
+      'questions[11]: question must be a JSON object',
+    ]);
+  });
+
   test('a missing confidence defaults and an absent claims array is one clear error', () => {
     expect(validateClaimsAnswer({ claims: [{ kind: 'Overview', text: 'x', layer: 'fact', sourceIds: ['src-5e6f7081'] }] }, kinds, sources)).toEqual([]);
     expect(validateClaimsAnswer({ nope: true }, kinds, sources)).toEqual(['Agent output field claims must be an array']);
@@ -127,7 +175,7 @@ const productFixture = async () => {
   await mkdir(join(root, 'docs'), { recursive: true });
   const registryText = 'contract: 1\nstages:\n  - id: overview\n    name: Overview\nkinds:\n  - name: Overview\n    prefix: OV\n    folder: docs/overview\n    stage: overview\n    hint: Describe the product\n';
   await writeFile(join(root, 'docs/kinds.yaml'), registryText);
-  await writeFile(join(root, 'README.md'), '# example product\n');
+  await writeFile(join(root, 'README.md'), '# example product\n\nSee [the guide](https://example.test/guide).\n');
   git(root, 'init', '-q', '-b', 'main');
   git(root, 'config', 'user.name', 'Fixture');
   git(root, 'config', 'user.email', 'fixture@example.invalid');
@@ -285,13 +333,21 @@ describe('synthesis answer parsing against the recorded checkpoint answers', () 
   });
 
   test('a schema-shaped answer with every documented field passes, and a wrong claim id is refused', () => {
-    const claim = supportedClaims[0]!;
+    const claim = supportedClaims.find((row) => row.layer === 'fact')!;
     const good = { title: 'Overview', segments: [{ claimIds: [claim.id], text: 'The system was built up incrementally.', layer: 'fact', sourceIds: claim.sourceIds }], claims: [claim] };
     expect(parseSynthesisAnswer(good, synthesisRules).ok).toBe(true);
     const altered = { ...good, segments: [{ ...good.segments[0]!, claimIds: ['clm-not-supplied'] }] };
     const refused = parseSynthesisAnswer(altered, synthesisRules);
     expect(refused.ok).toBe(false);
     if (!refused.ok) expect(refused.errors.join('\n')).toContain('unknown claim id "clm-not-supplied"');
+  });
+
+
+  test('an answer that echoes claims but carries no prose segments is refused, so it retries instead of crashing past the reader', () => {
+    const claim = supportedClaims.find((row) => row.layer === 'fact')!;
+    const parsed = parseSynthesisAnswer({ title: 'T', claims: [claim] }, { ...synthesisRules, absenceAllowed: true });
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.errors).toEqual(['Agent output field segments must be an array (a "proseSegments" key is also accepted)', 'segments: must contain the prose segments the named claims support, or return no claims for an absent kind']);
   });
 
   test('a segment citing a source no named claim covers is refused, and an overview with no content is refused', () => {
@@ -326,7 +382,8 @@ describe('the agent-call cap bounds one fill across its resumes', () => {
       const result = await startFill(root, { maxUnits: 5, executorFactory: () => ({ execute: async () => bad }) });
       expect(result.run.status).toBe('blocked');
       expect(result.agentCalls).toEqual({ used: 5, cap: 5 });
-      expect(result.counts.run).toBe(5);
+      // counts.run names this run's calls; the chain-wide figure lives in agentCalls.used.
+      expect(result.counts.run).toBe(3);
       const resumed = await readAgentCalls(root);
       expect(resumed.chainId).toBe(runOneId);
       expect(resumed.calls).toBe(5);
@@ -335,6 +392,29 @@ describe('the agent-call cap bounds one fill across its resumes', () => {
       expect(claims.attempt).toBe(2);
       // Only completed work is reused: the deterministic inventory unit, not the failed claims one.
       expect(result.counts.reused).toBe(1);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  }, 60000);
+
+  test('a fill blocked before its first agent call does not inherit a completed fill\u2019s spent budget', async () => {
+    const { root } = await productFixture();
+    try {
+      // A previous fill completed and spent its whole budget; agent-calls.json still holds it.
+      const runState = fillStatePaths(root);
+      await mkdir(runState.root, { recursive: true });
+      const commit = git(root, 'rev-parse', 'HEAD').trim();
+      const previous: FillRun = { schemaVersion: 1, id: 'prior-complete', fillChainId: 'prior-complete', productSnapshot: { repository: root, defaultBranch: 'main', commit, registryHash: hashFillInput('contract: 1\nstages:\n  - id: overview\n    name: Overview\nkinds:\n  - name: Overview\n    prefix: OV\n    folder: docs/overview\n    stage: overview\n    hint: Describe the product\n') }, agentBranch: 'madarch/fill/prior-complete', status: 'complete', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      await writeFile(runState.run, JSON.stringify(previous));
+      await writeFile(join(runState.root, 'agent-calls.json'), JSON.stringify({ chainId: 'prior-complete', runId: 'prior-complete', calls: 60 }));
+      // A new fill ran and blocked before dispatching any agent call; its run record owns the chain.
+      const blocked: FillRun = { ...previous, id: 'blocked-early', fillChainId: undefined, status: 'blocked', agentBranch: 'madarch/fill/blocked-early' };
+      await writeFile(runState.run, JSON.stringify(blocked));
+      const result = await startFill(root, { maxUnits: 60, executorFactory: () => ({ execute: async (prompt: string) => prompt.includes('Allowed source records') ? malformedAnswer : 'not json' }) });
+      // The spent 60 calls of the unrelated fill are not carried; this fill got its own fresh chain.
+      expect(result.agentCalls).toEqual({ used: 3, cap: 60 });
+      const saved = await readAgentCalls(root);
+      // The resumed run joins the blocked fill's chain, seeded by that run's own id, not the completed one.
+      expect(saved.chainId).toBe('blocked-early');
+      expect(saved.calls).toBe(3);
     } finally { await rm(root, { recursive: true, force: true }); }
   }, 60000);
 
@@ -382,6 +462,53 @@ describe('the agent-call cap bounds one fill across its resumes', () => {
       // The claims unit ran again because the stage commit changed the product docs it reads.
       expect(claims.attempt).toBe(2);
       expect(claims.status).toBe('complete');
+    } finally { await rm(root, { recursive: true, force: true }); }
+  }, 60000);
+
+  test('a completed claims answer emits typed derived and agent-reported questions into the run output', async () => {
+    const { root } = await productFixture();
+    try {
+      const answer = {
+        claims: [
+          { ...validClaim, sourceIds: ['README'] },
+          { kind: 'Overview', text: 'README promises a guide the code never shows.', layer: 'assumed-meaning', confidence: 0.5, sourceIds: ['README'], conflictsWith: 'README.md', undocumented: true },
+        ],
+        questions: [
+          { type: 'decision-rationale', title: 'Why the wiki is versioned', prompt: 'Why does the service version its wiki pages?', kind: 'Overview', claimTexts: ['The service serves a versioned wiki.', 'README promises a guide the code never shows.'] },
+        ],
+      };
+      // Synthesis is out of scope here: its answer is refused, which blocks the synthesis unit only.
+      const result = await startFill(root, { executorFactory: () => ({ execute: async (prompt: string) => {
+        if (prompt.includes('Allowed source records')) {
+          const marker = 'Allowed source records (cite these ids exactly):\n';
+          const tail = prompt.slice(prompt.indexOf(marker) + marker.length);
+          const catalogue = JSON.parse(tail.slice(tail.indexOf('['), tail.indexOf(']') + 1)) as { id: string; address: string }[];
+          const readme = catalogue.find((source) => source.address === 'README.md')!.id;
+          for (const row of answer.claims) row.sourceIds = [readme];
+          return JSON.stringify(answer);
+        }
+        return 'not json on purpose';
+      } }) });
+      expect(result.run.status).toBe('blocked');
+      const synthesis = await readFillJson<FillUnit>(join(fillStatePaths(root).units, 'synthesis-pages.json'));
+      expect(synthesis.status).toBe('blocked');
+      const extraction = await readFillJson<{ claims: { id: string; text: string; sourceIds?: string[] }[]; questions: { type: string; reason: string; dependsOn: string[]; rank: number; missing?: string }[]; inaccessibleLinks: { url: string; status: string; sourceId: string }[] }>(join(fillStatePaths(root).outputs, 'claims-repository', 'claims.json'));
+      const claimBy = (text: string) => extraction.claims.find((claim) => claim.text === text)!.id;
+      expect(extraction.questions.map((question) => question.type).sort()).toEqual(['access-or-document-needed', 'assumption-check', 'contradiction', 'decision-rationale', 'undocumented-behaviour']);
+      const contradiction = extraction.questions.find((question) => question.type === 'contradiction')!;
+      expect(contradiction.reason).toContain('README.md');
+      expect(contradiction.dependsOn).toContain(claimBy('README promises a guide the code never shows.'));
+      const link = extraction.questions.find((question) => question.type === 'access-or-document-needed')!;
+      expect(link.missing).toBe('access');
+      expect(link.reason).toContain('https://example.test/guide');
+      const rationale = extraction.questions.find((question) => question.type === 'decision-rationale')!;
+      expect(rationale.dependsOn).toContain(claimBy('The service serves a versioned wiki.'));
+      expect(rationale.rank).toBe(1);
+      const readmeClaim = extraction.claims.find((claim) => claim.text === 'README promises a guide the code never shows.')!;
+      expect(extraction.inaccessibleLinks).toHaveLength(1);
+      const unread = extraction.inaccessibleLinks[0]!;
+      expect(unread).toEqual({ url: 'https://example.test/guide', status: 'not-attempted', sourceId: expect.stringMatching(/^src-/) });
+      expect(readmeClaim.sourceIds).toContain(unread.sourceId);
     } finally { await rm(root, { recursive: true, force: true }); }
   }, 60000);
 });

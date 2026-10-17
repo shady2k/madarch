@@ -1,4 +1,5 @@
 /** Tolerant parsing, strict validation and bounded retry of free-form agent answers. */
+import { QUESTION_TYPES } from '../product-wiki/questions.js';
 import type { RegistryKind } from './contract.js';
 import type { ClaimSource } from './fill-claims.js';
 
@@ -49,22 +50,35 @@ export function claimRowsFromAnswer(answer: unknown): unknown[] {
   throw new Error('Agent output field claims must be an array');
 }
 
+/** One question the agent reports on top of its claims, matched to claims by exact text. */
+export interface AgentQuestionRow { type: string; title: string; prompt: string; kind?: string; missing?: string; claimTexts?: string[]; }
+
+/** Read the optional typed questions the agent reports; absent or empty means none. */
+export function agentQuestionsFromAnswer(answer: unknown): AgentQuestionRow[] {
+  const rows = (answer as { questions?: unknown } | null)?.questions;
+  if (rows === undefined) return [];
+  return asArray<AgentQuestionRow>(rows, 'questions');
+}
+
 /** Collect every validation error of a claims answer, in row order; an empty list means the answer is usable. */
 export function validateClaimsAnswer(answer: unknown, kinds: readonly RegistryKind[], sources: readonly ClaimSource[]): string[] {
   let rows: unknown[];
   try { rows = claimRowsFromAnswer(answer); } catch (error) { return [(error as Error).message]; }
+
   const kindByName = new Map(kinds.map((kind) => [kind.name, kind]));
   const knownSourceIds = new Set(sources.map((source) => source.id));
   const errors: string[] = [];
   // assembleClaims derives one claim id from kind, text and the sorted source-id set and refuses a
   // duplicate; such an answer must be retried, not passed through to a throw past the unit failure.
   const seenClaims = new Map<string, number>();
+  const claimTexts = new Set<string>();
   rows.forEach((row, index) => {
     const at = `claims[${index}]`;
     if (!row || typeof row !== 'object' || Array.isArray(row)) { errors.push(`${at}: claim must be a JSON object`); return; }
     const claim = row as Record<string, unknown>;
     if (typeof claim.kind !== 'string' || !kindByName.has(claim.kind)) errors.push(`${at}.kind: unknown registry kind ${JSON.stringify(claim.kind ?? null)}`);
     if (typeof claim.text !== 'string' || !claim.text.trim()) errors.push(`${at}.text: must be a non-empty string`);
+    if (typeof claim.text === 'string' && claim.text.trim()) claimTexts.add(claim.text);
     const confidence = claim.confidence ?? 0.8;
     if (typeof confidence !== 'number' || !Number.isFinite(confidence) || confidence < 0 || confidence > 1) errors.push(`${at}.confidence: must be a number from 0 through 1`);
     if (typeof claim.layer !== 'string' || !CLAIM_LAYERS.includes(claim.layer as typeof CLAIM_LAYERS[number])) errors.push(`${at}.layer: must be one of ${CLAIM_LAYERS.join(', ')}`);
@@ -80,8 +94,54 @@ export function validateClaimsAnswer(answer: unknown, kinds: readonly RegistryKi
         else seenClaims.set(key, index);
       }
     }
+    for (const field of ['conflictsWith'] as const) {
+      const value = claim[field];
+      if (value !== undefined && (typeof value !== 'string' || !(value as string).trim())) errors.push(`${at}.${field}: must be a non-empty string when present`);
+    }
+    if (claim.undocumented !== undefined && typeof claim.undocumented !== 'boolean') errors.push(`${at}.undocumented: must be a boolean when present`);
+    if (claim.termPair !== undefined) {
+      const pair = claim.termPair as Record<string, unknown> | null;
+      if (!pair || typeof pair !== 'object' || Array.isArray(pair) || typeof pair.documentTerm !== 'string' || !pair.documentTerm.trim() || typeof pair.codeTerm !== 'string' || !pair.codeTerm.trim()) errors.push(`${at}.termPair: must be an object with non-empty documentTerm and codeTerm strings`);
+    }
   });
+  validateQuestionsAnswer(answer, questionRowsOf(answer, errors), errors, kindByName, claimTexts);
   return errors;
+}
+
+/** Read the questions list for validation; a failed read reports its error in place of the rows. */
+function questionRowsOf(answer: unknown, errors: string[]): AgentQuestionRow[] {
+  try { return agentQuestionsFromAnswer(answer); } catch (error) { errors.push((error as Error).message); return []; }
+}
+
+/** Validate the optional typed questions the agent reports; errors join the claims' errors. */
+function validateQuestionsAnswer(answer: unknown, rows: readonly AgentQuestionRow[], errors: string[], kinds: ReadonlyMap<string, RegistryKind>, claimTexts: ReadonlySet<string>): void {
+  if (rows.length === 0) return;
+  const seenQuestions = new Map<string, number>();
+  rows.forEach((row, index) => {
+    const at = `questions[${index}]`;
+    if (!row || typeof row !== 'object' || Array.isArray(row)) { errors.push(`${at}: question must be a JSON object`); return; }
+    const question = row as unknown as Record<string, unknown>;
+    if (typeof question.type !== 'string' || !QUESTION_TYPES.includes(question.type as never)) errors.push(`${at}.type: must be one of ${QUESTION_TYPES.join(', ')}`);
+    if (typeof question.title !== 'string' || !question.title.trim()) errors.push(`${at}.title: must be a non-empty string`);
+    if (typeof question.prompt !== 'string' || !question.prompt.trim()) errors.push(`${at}.prompt: must be a non-empty string`);
+    if (question.kind !== undefined && (typeof question.kind !== 'string' || !kinds.has(question.kind))) errors.push(`${at}.kind: unknown registry kind ${JSON.stringify(question.kind ?? null)}`);
+    if (question.missing !== undefined && question.missing !== 'access' && question.missing !== 'document') errors.push(`${at}.missing: must be access or document`);
+    if (question.type === 'access-or-document-needed' && question.missing === undefined) errors.push(`${at}.missing: access-or-document-needed questions need missing set to access or document`);
+    if (question.claimTexts !== undefined) {
+      const texts = question.claimTexts;
+      if (!Array.isArray(texts) || texts.some((text) => typeof text !== 'string' || !text.trim())) errors.push(`${at}.claimTexts: must be an array of non-empty claim texts`);
+      else {
+        for (const text of texts as string[]) {
+          if (![...claimTexts].some((claim) => claim.trim() === text.trim())) errors.push(`${at}.claimTexts: no claim in this answer has the text ${JSON.stringify(text)}; copy the exact text of a claim you returned`);
+        }
+      }
+    }
+    if (typeof question.type !== 'string' || typeof question.title !== 'string') return;
+    const key = `${question.type}\u0000${question.title}`;
+    const first = seenQuestions.get(key);
+    if (first !== undefined) errors.push(`${at}: duplicate of questions[${first}]: the same type and title is one question, return it once`);
+    else seenQuestions.set(key, index);
+  });
 }
 
 function asSourceIdListOrUndefined(value: unknown): unknown[] | undefined {
@@ -163,13 +223,18 @@ export function parseSynthesisAnswer(answer: unknown, rules: SynthesisAnswerRule
     const citedClaims = strings.filter((id) => candidateById.has(id));
     const citedSources = strings.filter((id) => !candidateById.has(id));
     for (const id of citedSources) if (!knownSources.has(id)) errors.push(`${at}.sourceIds: unknown source id ${JSON.stringify(id)}`);
-    const explicit = Array.isArray(row.claimIds) ? row.claimIds.filter((id): id is string => typeof id === 'string') : [];
+    // A single claim id string is unambiguously a one-element list; non-string list entries are refused.
+    const rawClaimIds = typeof row.claimIds === 'string' ? [row.claimIds] : Array.isArray(row.claimIds) ? row.claimIds : undefined;
+    const explicit = rawClaimIds === undefined ? [] : rawClaimIds.filter((id): id is string => typeof id === 'string');
+    if (rawClaimIds !== undefined && explicit.length !== rawClaimIds.length) errors.push(`${at}.claimIds: must be an array of claim id strings`);
     for (const id of explicit) if (!candidateById.has(id)) errors.push(`${at}.claimIds: unknown claim id ${JSON.stringify(id)}; cite the supplied claim records, unchanged`);
     const claimIds = unique([...explicit, ...citedClaims]);
     for (const id of claimIds) { const candidate = candidateById.get(id); if (candidate) selected.set(id, candidate); }
     if (claimIds.length > 0) {
       const resolved = claimIds.map((claimId) => candidateById.get(claimId)).filter((claim): claim is SynthesisCandidateClaim => Boolean(claim));
       for (const id of citedSources) if (!resolved.some((claim) => claim.sourceIds?.includes(id))) errors.push(`${at}: cited source ${JSON.stringify(id)} is not named by any claim the segment rests on; every cited source must come from a named claim`);
+      // The segment's layer must describe at least one claim it rests on, so fact prose cannot rest on assumptions alone.
+      if (layer !== undefined && !resolved.some((claim) => claim.layer === layer)) errors.push(`${at}: layer ${layer} matches none of the named claims (${resolved.map((claim) => `${claim.id} of layer ${String(claim.layer)}`).join(', ')}); the segment layer must be the layer of at least one claim it names`);
     } else if (strings.length > 0) {
       errors.push(`${at}: names no supported claim; name the claim ids the prose rests on (put them in claimIds or in sourceIds), and copy those claim records into claims`);
     }
@@ -183,6 +248,7 @@ export function parseSynthesisAnswer(answer: unknown, rules: SynthesisAnswerRule
   // The reader refuses an overview (no absence question) with neither claims nor segments.
   if (!rules.absenceAllowed && selected.size === 0 && segments.length === 0) errors.push('segments: must contain at least one segment, and claims: must name the supplied claim records the prose rests on');
   else if (!rules.absenceAllowed && selected.size === 0 && segments.length > 0) errors.push('claims: must name the supplied claim records the prose rests on; cite their claim ids');
+  else if (selected.size > 0 && segments.length === 0) errors.push('segments: must contain the prose segments the named claims support, or return no claims for an absent kind');
   if (errors.length > 0) return { ok: false, errors };
   const joined = segments.map((segment) => segment.text.trim()).join('\n\n');
   const rawBody = answer.body;
