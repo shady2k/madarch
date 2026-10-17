@@ -18,6 +18,7 @@ import { useContext, useEffect, useRef, useState, useCallback, type ReactElement
 import { useTranslation } from 'react-i18next';
 import { FileTextIcon, FolderGit2Icon, GitBranch, NetworkIcon } from 'lucide-react';
 import { relativeTime } from './i18n.js';
+import { FillWizard } from './fill-wizard.js';
 import { getProduct, getPages, getPage, getQuestions, getRepos, getRegistry, type Product, type ProductWithAudience, type PageList, type Page, type QuestionList, type QuestionEntry, type PageDocument, type Architecture, type RepoEntry, type ReposList, type RegistryOffer, getDiscussions, postDiscussion, type DiscussionEntry, type DiscussionRange } from './api.js';
 import { routeOf, addressOfPage, architectureAddress, type Route } from './routes.js';
 import { Markdown, PageLink } from './view.js';
@@ -63,6 +64,13 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
   const [data, setData] = useState<{ product: ProductWithAudience; list: PageList; repos: ReposList | null; questions?: QuestionList; registry: RegistryOffer | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
+  const refreshRef = useRef(0);
+  refreshRef.current = refresh;
+  const requestRefresh = (): void => {
+    const next = refreshRef.current + 1;
+    refreshRef.current = next;
+    setRefresh(next);
+  };
   const [streamConnected, setStreamConnected] = useState(false);
   const productName = data?.product.name;
   useEffect(() => {
@@ -89,7 +97,9 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
     let requestTurn = 0;
     let lastAnsweredTurn = 0;
     const loadList = async (): Promise<void> => {
-      if (asking) return;
+      // A stream change during an in-flight read invalidates that response.
+      // The next event-driven refresh will perform the replacement read.
+      if (asking || refreshRef.current !== refresh) return;
       asking = true;
       controller = new AbortController();
       const turn = ++requestTurn;
@@ -134,14 +144,14 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
         // the section's absence, never the wiki's failure.
         current = '/api/repos';
         const nextRepos = await getRepos(controller.signal).catch(() => null);
-        if (!alive || lastAnsweredTurn > turn) return;
+        if (!alive || lastAnsweredTurn > turn || refreshRef.current !== refresh) return;
         lastAnsweredTurn = turn;
         setData({ product: nextProduct, list: nextList, repos: nextRepos, questions: nextQuestions, registry: nextRegistry });
         setError(null);
       } catch (caught: unknown) {
         const aborted = caught instanceof DOMException && caught.name === 'AbortError';
         const expired = aborted && timeoutFired;
-        if (alive && lastAnsweredTurn <= turn && (!aborted || expired)) {
+        if (alive && lastAnsweredTurn <= turn && refreshRef.current === refresh && (!aborted || expired)) {
           // A read the app itself killed at its own timeout is named as
           // such: what was being read — the request that timed out — and
           // that it timed out — never the abort's raw message (finding 2.10).
@@ -185,7 +195,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
         // events the dead stream swallowed are read as a change now.
         if (misses > 0) {
           misses = 0;
-          setRefresh((held) => held + 1);
+          requestRefresh();
         }
         const reader = response.body.getReader();
         let frame = '';
@@ -198,7 +208,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
             const lines = frame.slice(0, end).split('\n');
             frame = frame.slice(end + 2);
             const kind = lines.find((line) => line.startsWith('event:'))?.slice(6).trim() ?? 'message';
-            if (kind === 'change') setRefresh((held) => held + 1);
+            if (kind === 'change') requestRefresh();
           }
         }
         throw new Error('the stream to ' + EVENTS_PATH + ' ended');
@@ -248,7 +258,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
       <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, stage: route.name === 'stage' ? route.stage : undefined, group: route.name === 'group' ? route.group : undefined, architecture: architectureCrumb, heldPaths }}>
         <Shell product={data.product} list={list} architecture={architecture} reposCount={data.repos?.repos.length} reposOpen={route.name === 'repos'} offer={data.registry}>
         {route.name === 'home' ? (
-          <HomePage product={data.product} list={list} architecture={architecture} offer={data.registry} overview={data.product.overview} repos={data.repos?.repos ?? []} />
+          <><FillWizard /><HomePage product={data.product} list={list} architecture={architecture} offer={data.registry} overview={data.product.overview} repos={data.repos?.repos ?? []} /></>
         ) : route.name === 'group' ? (
           <GroupPage group={route.group} list={list} offer={data.registry} />
         ) : route.name === 'repos' && (data.repos?.repos.length ?? 0) > 0 ? (

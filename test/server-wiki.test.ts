@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
-import { startServer, type StartedServer } from '../src/index.js';
+import { startServer, type ServerOptions, type StartedServer } from '../src/index.js';
 import { createPGliteQueryDatabase } from '../src/adapters/pglite-query-database.js';
 import { gitEnv } from './git-env.js';
 const productGitEnv = gitEnv({ GIT_AUTHOR_NAME: 'Question Test', GIT_AUTHOR_EMAIL: 'question@example.test', GIT_COMMITTER_NAME: 'Question Test', GIT_COMMITTER_EMAIL: 'question@example.test' });
@@ -105,12 +105,13 @@ afterEach(async () => {
   folder = undefined;
 });
 
-async function startProduct(): Promise<string> {
+async function startProduct(options: { startFill?: ServerOptions['startFill'] } = {}): Promise<string> {
   lines = [];
   errors = [];
   server = await startServer({
     productFolder: folder!,
     appFolder,
+    ...options,
     port: 0,
     log: (line) => lines.push(line),
     errorLog: (line) => errors.push(line),
@@ -119,6 +120,50 @@ async function startProduct(): Promise<string> {
 }
 
 describe('the server\'s product mode', () => {
+  test('fill wizard APIs report inventory, fake test outcomes, and delegate Start or return honest 503', async () => {
+    draft(); builtApp();
+    const init=spawnSync('git',['init','--quiet','--initial-branch=main'],{cwd:folder!,env:gitEnv(),encoding:'utf8'});expect(init.status).toBe(0);
+    writeFileSync(join(folder!,'README.md'),'# Example\n');spawnSync('git',['add','-A'],{cwd:folder!,env:gitEnv()});
+    spawnSync('git',['commit','--quiet','-m','fixture'],{cwd:folder!,env:{...gitEnv(),GIT_AUTHOR_NAME:'Fixture',GIT_AUTHOR_EMAIL:'fixture@example.com',GIT_COMMITTER_NAME:'Fixture',GIT_COMMITTER_EMAIL:'fixture@example.com'}});
+    const url=await startProduct({startFill:async (_product,_input)=>({run: {id:'run-fake'}, counts:{run:0,reused:0}, questionReview:'hook-pending-co2d.1'} as never)});
+    const info=await fetch(`${url}/api/fill/wizard`);expect(info.status).toBe(200);expect(await info.json()).toMatchObject({runExists:false,agents:[{name:'claude'},{name:'codex'}]});
+    const inventory=await fetch(`${url}/api/fill/inventory`);expect(inventory.status).toBe(200);expect(await inventory.json()).toMatchObject({rough:true,inventory:{files:expect.any(Array),estimates:expect.any(Array)}});
+    const started=await fetch(`${url}/api/fill/start`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({agent:'codex',maxUnits:4})});expect(started.status).toBe(202);expect(await started.json()).toMatchObject({accepted:true,status:'starting'});
+    const invalid=await fetch(`${url}/api/fill/start`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({agent:'codex',maxUnits:10001})});expect(invalid.status).toBe(400);
+  });
+
+  test('fill inventory scans declared repository checkouts instead of product documents', async () => {
+    draft(); builtApp();
+    writeFileSync(join(folder!, 'workspace.yaml'), 'schemaVersion: 1\nid: demo\nname: Demo\nrepos:\n  - name: sample\n    url: https://example.invalid/sample.git\n');
+    const checkout=fixtureCheckout(folder!,'sample','fixture');
+    writeFileSync(join(checkout,'main.ts'),'export const fromCode = true;\n');
+    spawnSync('git',['add','-A'],{cwd:checkout,env:gitEnv()});
+    spawnSync('git',['commit','--quiet','-m','code'],{cwd:checkout,env:{...gitEnv(),GIT_AUTHOR_NAME:'Fixture',GIT_AUTHOR_EMAIL:'fixture@example.com',GIT_COMMITTER_NAME:'Fixture',GIT_COMMITTER_EMAIL:'fixture@example.com'}});
+    const url=await startProduct();const response=await fetch(`${url}/api/fill/inventory`);expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({inventory:{repositories:[{path:'repos/sample',files:2}]}});
+  });
+
+  test('inventory refuses a declared but missing checkout instead of counting product documents', async () => {
+    draft(); builtApp();
+    writeFileSync(join(folder!, 'workspace.yaml'), 'schemaVersion: 1\nid: demo\nname: Demo\nrepos:\n  - name: missing\n    url: https://example.invalid/missing.git\n');
+    const url=await startProduct();const response=await fetch(`${url}/api/fill/inventory`);
+    expect(response.status).toBe(409);expect(await response.json()).toMatchObject({message:'Every declared code repository must be checked out and readable before inventory can run.'});
+  });
+
+  test('inventory refuses partial checkouts for a multi-repository product', async () => {
+    draft(); builtApp();
+    writeFileSync(join(folder!, 'workspace.yaml'), 'schemaVersion: 1\nid: demo\nname: Demo\nrepos:\n  - name: sample\n    url: https://example.invalid/sample.git\n  - name: missing\n    url: https://example.invalid/missing.git\n');
+    fixtureCheckout(folder!,'sample','fixture');
+    const url=await startProduct();const response=await fetch(`${url}/api/fill/inventory`);
+    expect(response.status).toBe(409);expect(await response.json()).toMatchObject({message:'Every declared code repository must be checked out and readable before inventory can run.'});
+  });
+
+  test('fill start says pipeline is not connected when no dispatcher was injected', async () => {
+    draft(); builtApp(); const url=await startProduct();
+    const response=await fetch(`${url}/api/fill/start`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({agent:'claude'})});
+    expect(response.status).toBe(503);expect(await response.json()).toMatchObject({error:{message:'The fill entry point is not configured for this server'}});
+  });
+
   test('fill state is readable and pause/stop controls are persisted for the coordinator', async () => {
     draft(); builtApp(); const url = await startProduct();
     expect((await fetch(`${url}/api/fill`)).status).toBe(404);

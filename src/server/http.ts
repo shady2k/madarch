@@ -40,6 +40,7 @@ import { createSourceStores, sourceNameProblem } from './sources.js';
 import { createWikiPart, type WikiPart } from './wiki-app.js';
 import { openProductWiki } from '../product-wiki/pages.js';
 import type { StartFillOptions, StartFillResult } from '../product/fill.js';
+import { saveChosenAgent } from '../product/fill-wizard.js';
 
 /** The largest body the server reads: 50 MB, far past any compiled model sent so far. */
 const MAX_BODY_BYTES = 50 * 1024 * 1024;
@@ -349,10 +350,13 @@ export function createHandler(dependencies: {
         if (body === null || typeof body !== 'object' || Array.isArray(body)) return refused(400, { message: 'body must be an object with agent and maxUnits' });
         const asked = body as Record<string, unknown>;
         if (asked.agent !== 'claude' && asked.agent !== 'codex') return refused(400, { message: 'agent must be claude or codex' });
-        if (asked.maxUnits !== undefined && (!Number.isInteger(asked.maxUnits) || (asked.maxUnits as number) < 1)) return refused(400, { message: 'maxUnits must be a positive whole number' });
-        try { void startFill(fillProductFolder!, { agent: asked.agent, ...(asked.maxUnits === undefined ? {} : { maxUnits: asked.maxUnits as number }) }).catch((error) => errorLog(`fill start failed: ${(error as Error).message}`)); return { response: json(202, { accepted: true, status: 'starting' }) }; }
+        if (asked.maxUnits !== undefined && (!Number.isInteger(asked.maxUnits) || (asked.maxUnits as number) < 1 || (asked.maxUnits as number) > 10000)) return refused(400, { message: 'maxUnits must be a whole number from 1 through 10000' });
+        try { await saveChosenAgent(asked.agent); void startFill(fillProductFolder!, { agent: asked.agent, ...(asked.maxUnits === undefined ? {} : { maxUnits: asked.maxUnits as number }) }).catch((error) => errorLog(`fill start failed: ${(error as Error).message}`)); return { response: json(202, { accepted: true, status: 'starting' }) }; }
         catch (error) { return refused(409, { message: (error as Error).message }); }
       } },
+      { method: 'GET', path: '/api/fill/wizard', handle: (request) => wiki.fillWizard(request) },
+      { method: 'GET', path: '/api/fill/inventory', handle: () => wiki.fillInventory() },
+      { method: 'POST', path: '/api/fill/test', handle: (request) => wiki.fillAgentTest(request) },
       { method: 'POST', path: '/api/fill/control', handle: (request) => { const url = new URL(request.url); const action = url.searchParams.get('action'); if (action !== 'pause' && action !== 'stop') return refused(400, { message: 'fill action must be exactly pause or stop' }); return serializeState(() => wiki.fillControl(request, url.searchParams.get('runId') ?? '', action)); } },
       { method: 'GET', path: '/api/architecture', handle: () => wiki.architecture() },
       { method: 'GET', path: '/api/architecture/likec4.js', handle: () => wiki.likec4Script() },

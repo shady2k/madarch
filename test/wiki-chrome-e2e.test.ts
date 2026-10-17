@@ -97,6 +97,16 @@ runDescribe('wiki reader chrome (built app and Chromium)', () => {
     }
   });
 
+  test('first-fill wizard renders initial and inventory steps', async () => {
+    await page.goto(`${server!.url}/`, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('[data-testid="fill-wizard"]');
+    await page.screenshot({ path: process.env.MADARCH_WIKI_SCREENSHOT ?? join(tmpdir(), `madarch-fill-wizard-${LANGUAGE}-${process.env.MADARCH_WIKI_WIDTH ?? 1150}.png`), fullPage: true });
+    await page.evaluate(() => { const button=[...document.querySelectorAll('.fill-wizard button')].find(item => /inventory|инвентаризац/i.test(item.textContent ?? '')); if (!button) throw new Error('Inventory button is missing'); (button as HTMLButtonElement).click(); });
+    await page.waitForResponse(response => response.url().includes('/api/fill/inventory'), { timeout: 15000 });
+    await new Promise(resolve => setTimeout(resolve, 500));
+    await page.screenshot({ path: process.env.MADARCH_WIZARD_INVENTORY_SCREENSHOT ?? join(tmpdir(), `madarch-fill-wizard-inventory-${LANGUAGE}-${process.env.MADARCH_WIKI_WIDTH ?? 1150}.png`), fullPage: true });
+  }, 30000);
+
   test('first-run overview cards render at the expected top padding and repository names stay intact', async () => {
     await page.goto(`${server!.url}/`, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('[data-testid="home-repositories"]');

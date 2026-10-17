@@ -1138,3 +1138,11 @@ main section h2 {
 .fill-controls button:disabled { opacity: .5; }
 
 .fill-progress[hidden] { display: none !important; }
+
+.fill-wizard { margin: 1rem auto 2rem; max-width: 52rem; padding: 1rem; border: 1px solid var(--border); border-radius: .75rem; background: var(--surface-soft); }
+.fill-wizard h1 { font-size: 1.35rem; font-weight: 650; }
+.fill-wizard fieldset { margin: 1rem 0; border: 1px solid var(--border); border-radius: .5rem; padding: .75rem; }
+.fill-wizard fieldset div { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; padding: .4rem 0; }
+.fill-wizard button, .fill-wizard select { border: 1px solid var(--border); border-radius: .4rem; padding: .4rem .65rem; margin: .25rem; }
+.fill-wizard button:disabled { opacity: .55; }
+@media (max-width: 700px) { .fill-wizard { margin: .5rem; padding: .75rem; } }
