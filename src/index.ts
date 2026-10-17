@@ -139,3 +139,4 @@ export { anchoredFactsFromIndex, assembleClaims, createClaimSources, createEmpty
 export { startFill, type StartFillOptions, type StartFillResult } from './product/fill.js';
 export { buildCodeMap, persistCodeMap, synthesizePages, synthesizeRegistryPage, applySynthesisPages, type CodeMap, type SynthesisTarget, type SynthesizedPage, type PageGenerator, type Critic } from './product/fill-synthesis.js';
 export { createHeadlessAgentExecutor, agentCommand, normalizeAgentEvent, type AgentKind, type AgentEvent } from './product/fill-agents.js';
+export { detectFillAgents, testFillAgent, readChosenAgent, saveChosenAgent, agentSettingsPath, type WizardAgent, type DetectedAgent } from './product/fill-wizard.js';

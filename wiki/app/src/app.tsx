@@ -18,6 +18,7 @@ import { useContext, useEffect, useRef, useState, useCallback, type ReactElement
 import { useTranslation } from 'react-i18next';
 import { FileTextIcon, FolderGit2Icon, GitBranch, NetworkIcon } from 'lucide-react';
 import { relativeTime } from './i18n.js';
+import { FillWizard } from './fill-wizard.js';
 import { getProduct, getPages, getPage, getQuestions, getRepos, getRegistry, type Product, type ProductWithAudience, type PageList, type Page, type QuestionList, type QuestionEntry, type PageDocument, type Architecture, type RepoEntry, type ReposList, type RegistryOffer, getDiscussions, postDiscussion, type DiscussionEntry, type DiscussionRange } from './api.js';
 import { routeOf, addressOfPage, architectureAddress, type Route } from './routes.js';
 import { Markdown, PageLink } from './view.js';
@@ -248,7 +249,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
       <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, stage: route.name === 'stage' ? route.stage : undefined, group: route.name === 'group' ? route.group : undefined, architecture: architectureCrumb, heldPaths }}>
         <Shell product={data.product} list={list} architecture={architecture} reposCount={data.repos?.repos.length} reposOpen={route.name === 'repos'} offer={data.registry}>
         {route.name === 'home' ? (
-          <HomePage product={data.product} list={list} architecture={architecture} offer={data.registry} overview={data.product.overview} repos={data.repos?.repos ?? []} />
+          <><FillWizard /><HomePage product={data.product} list={list} architecture={architecture} offer={data.registry} overview={data.product.overview} repos={data.repos?.repos ?? []} /></>
         ) : route.name === 'group' ? (
           <GroupPage group={route.group} list={list} offer={data.registry} />
         ) : route.name === 'repos' && (data.repos?.repos.length ?? 0) > 0 ? (

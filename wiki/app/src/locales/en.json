@@ -290,5 +290,30 @@
       "synthesis": "Synthesis",
       "question-review": "Question review"
     }
+  },
+  "wizard": {
+    "title": "Set up your first fill",
+    "settingsTitle": "Fill settings",
+    "settings": "You can run the wizard again to choose or test another agent.",
+    "choose": "Agent",
+    "choosePlaceholder": "Choose an agent",
+    "rerun": "Run the wizard",
+    "intro": "Madarch will read your code and product documents, then draft wiki pages and open questions.",
+    "stageList": "Inventory, structural index, claims, code map, synthesis, and question review.",
+    "readOnly": "Your code is read-only.",
+    "branchWrites": "Generated pages are written only to a separate agent branch.",
+    "subscription": "The agent uses your own account and subscription.",
+    "limits": "You control whether to start. The estimate is rough; work is limited by the units selected for the fill.",
+    "agents": "Agents found on PATH",
+    "test": "Test",
+    "inventory": "Run inventory",
+    "inventoryCount": "{{count}} files found",
+    "rough": "This estimate is rough.",
+    "units": "units",
+    "calls": "agent calls",
+    "start": "Start fill",
+    "chosen": "Current agent:",
+    "maxUnits": "Maximum work units",
+    "multipleRepos": "This version cannot fill multiple connected repositories together. Disconnect all but one repository before starting."
   }
 }

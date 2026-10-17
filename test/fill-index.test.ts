@@ -30,6 +30,15 @@ describe('pinned inventory and structural index',()=>{
      expect(execFileSync('git',['status','--porcelain'],{cwd:f.root,encoding:'utf8'})).toBe(before);
    } finally {await f.dispose();}
  });
+ test('inventory totals files, languages, and estimates across every checkout',async()=>{
+   const f=await fixture();const second=await fixture();try{
+     const result=await inventoryRepository(f.root,f.commit,[{path:second.root,commit:second.commit}]);
+     expect(result.files).toHaveLength(6);
+     expect(result.languages).toEqual({go:2,typescript:2,unknown:2});
+     expect(result.estimates.find(item=>item.stage==='index')?.units).toBe(4);
+     expect(result.repositories).toHaveLength(2);
+   }finally{await f.dispose();await second.dispose();}
+ });
  test('index extracts anchored symbols, imports, calls, comments, entry points and task keys',async()=>{
    const f=await fixture(); try {
      const index=await indexRepository(f.root,f.commit); const again=await indexRepository(f.root,f.commit);

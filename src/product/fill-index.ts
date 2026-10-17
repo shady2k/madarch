@@ -66,7 +66,7 @@ async function filesFor(root: string, tree: TreeEntry[]): Promise<InventoryFile[
  }));
 }
 /** Reports only the requested pinned commit. The checkout and its worktree are never modified. */
-export async function inventoryRepository(checkoutPath: string, pinnedCommit: string, additionalCheckouts: readonly { path: string; commit: string }[] = []): Promise<RepositoryInventoryResult> {
+export async function inventoryRepository(checkoutPath: string, pinnedCommit: string, additionalCheckouts: readonly { path: string; commit: string; inventoryPath?: string }[] = [], inventoryPath = '.'): Promise<RepositoryInventoryResult> {
  const {root, tree} = await snapshot(checkoutPath, pinnedCommit);
  const files = await filesFor(root, tree);
  const commit = (await git(root, 'rev-parse', `${pinnedCommit}^{commit}`)).trim();
@@ -76,13 +76,22 @@ export async function inventoryRepository(checkoutPath: string, pinnedCommit: st
    const calls = stage === 'inventory' || stage === 'index' ? 0 : units;
    return { stage, units, estimatedAgentCalls: calls, estimatedInputTokens: stage === 'index' ? 0 : units * 2000, estimatedOutputTokens: calls * 1000 };
  });
- const repositories: RepositoryInventory[] = [{path: '.', commit, files: files.length, languages}];
+ const repositories: RepositoryInventory[] = [{path: inventoryPath, commit, files: files.length, languages}];
+ const allFiles = files.map(file => ({...file,path:inventoryPath==='.'?file.path:join(inventoryPath,file.path)}));
  for (const additional of [...additionalCheckouts].sort((a,b)=>codePointSort(a.path,b.path))) {
-   const nested = await inventoryRepository(additional.path, additional.commit);
-   repositories.push(...nested.repositories.map(repo=>({...repo,path:join(additional.path,repo.path)})));
+   const nestedPath = additional.inventoryPath ?? `repository-${repositories.length + 1}`;
+   const nested = await inventoryRepository(additional.path, additional.commit, [], nestedPath);
+   repositories.push(...nested.repositories);
+   allFiles.push(...nested.files);
  }
- const canonical = JSON.stringify({commit, repositories, files, estimates});
- return {repository: root, commit, repositories, files, languages, filesByLanguage: languages, estimates, contentHash: digest(canonical)};
+ const allLanguages = languageCounts(allFiles);
+ const allEstimates = FILL_STAGES.map((stage): FillEstimate => {
+   const units = stage === 'inventory' ? 1 : stage === 'index' ? allFiles.filter(f => f.language).length : stage === 'claims' ? allFiles.filter(f => /\.(md|mdx)$/i.test(f.path)).length : stage === 'code-map' ? Math.max(1, Math.ceil(allFiles.filter(f => f.language).length / 10)) : stage === 'synthesis' ? Math.max(1, Math.ceil(allFiles.filter(f => f.language).length / 20)) : Math.max(1, Math.ceil(allFiles.filter(f => /\.(md|mdx)$/i.test(f.path)).length / 5));
+   const calls = stage === 'inventory' || stage === 'index' ? 0 : units;
+   return { stage, units, estimatedAgentCalls: calls, estimatedInputTokens: stage === 'index' ? 0 : units * 2000, estimatedOutputTokens: calls * 1000 };
+ });
+ const canonical = JSON.stringify({commit, repositories, files:allFiles, estimates:allEstimates});
+ return {repository:inventoryPath,commit,repositories,files:allFiles,languages:allLanguages,filesByLanguage:allLanguages,estimates:allEstimates,contentHash:digest(canonical)};
 }
 
 const grammarFiles = { typescript: tsGrammar, tsx: tsxGrammar, javascript: jsGrammar, go: goGrammar } as const;
