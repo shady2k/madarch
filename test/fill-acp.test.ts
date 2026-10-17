@@ -1,0 +1,320 @@
+import { afterEach, describe, expect, test } from 'bun:test';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  AcpError,
+  connectAcpAgent,
+  describeUsage,
+  normalizeUpdate,
+  resolveExecutable,
+  toMcpServers,
+  type AcpConnection,
+  type AcpSession,
+  type AcpUpdate,
+} from '../src/fill/acp.js';
+
+/** The fake agent, started the way a real adapter is: a program on this machine speaking ACP over stdio. */
+const FAKE_AGENT = join(import.meta.dir, 'fixtures', 'acp-fake-agent', 'acp-fake-agent.ts');
+
+const scratch: string[] = [];
+const connections: AcpConnection[] = [];
+
+afterEach(async () => {
+  for (const connection of connections.splice(0)) await connection.close().catch(() => undefined);
+  for (const folder of scratch.splice(0)) rmSync(folder, { recursive: true, force: true });
+});
+
+function scratchFolder(): string {
+  const folder = mkdtempSync(join(tmpdir(), 'madarch-acp-'));
+  scratch.push(folder);
+  return folder;
+}
+
+/** A connection to the fake agent in one of its scenarios, with its recording file. */
+async function connect(scenario: string, options: { timeoutMs?: number } = {}): Promise<{ connection: AcpConnection; record: string; messages: () => { method?: string; params?: Record<string, unknown>; argv?: string[] }[] }> {
+  const record = join(scratchFolder(), 'record.jsonl');
+  writeFileSync(record, '');
+  const connection = await connectAcpAgent(
+    { id: 'fake', command: process.execPath, args: [FAKE_AGENT, '--scenario', scenario, '--record', record] },
+    { cwd: process.cwd(), ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }) },
+  );
+  connections.push(connection);
+  return {
+    connection,
+    record,
+    messages: () => readFileSync(record, 'utf8').split('\n').filter((line) => line.trim() !== '').map((line) => JSON.parse(line) as { method?: string; params?: Record<string, unknown> }),
+  };
+}
+
+describe('the ACP client starts an agent and initializes the connection', () => {
+  test('initialize sends protocol version 1 and advertises no file system and no terminal', async () => {
+    const { connection, messages } = await connect('default');
+    const initialized = await connection.initialize();
+    expect(initialized.protocolVersion).toBe(1);
+    expect(initialized.agentInfo).toEqual({ name: 'fake-agent', title: 'Fake ACP agent', version: '1.0.0' });
+    expect(initialized.authMethods).toEqual([{ id: 'local', name: 'Local credentials', description: 'Use the credentials on this machine' }]);
+    const request = messages().find((message) => message.method === 'initialize');
+    expect(request?.params).toMatchObject({
+      protocolVersion: 1,
+      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+      clientInfo: { name: 'madarch' },
+    });
+  });
+
+  test('a program that is not on this machine fails naming it and the PATH searched', async () => {
+    const empty = scratchFolder();
+    await expect(connectAcpAgent({ id: 'ghost', command: 'no-such-acp-agent' }, { cwd: process.cwd(), env: { PATH: empty } }))
+      .rejects.toThrow(/src\/fill\/acp\.ts:connectAcpAgent: the agent ghost cannot be started: no program named "no-such-acp-agent" is executable on this machine \(PATH ".*"\)/);
+  });
+
+  test('an agent that answers an unknown protocol version is refused after naming both versions', async () => {
+    const { connection } = await connect('old-protocol');
+    await expect(connection.initialize()).rejects.toThrow(/src\/fill\/acp\.ts:initialize: the agent fake \(.*\) answered protocol version 99; madarch speaks version 1/);
+  });
+
+  test('an agent that never answers initialize is given up on at the bound, naming the method', async () => {
+    const { connection } = await connect('hang', { timeoutMs: 250 });
+    await expect(connection.initialize()).rejects.toThrow(/src\/fill\/acp\.ts:initialize: the agent fake \(.*\) in .* did not answer within 250 ms/);
+  });
+
+  test('an agent that dies before answering names its exit and what it wrote on standard error', async () => {
+    const { connection } = await connect('crash');
+    await expect(connection.initialize()).rejects.toThrow(/src\/fill\/acp\.ts:initialize: the agent fake \(.*\) in .* failed: /);
+    await connection.closed;
+    expect(connection.stderr()).toContain('fake agent: the credentials are missing');
+  });
+
+  test('resolveExecutable answers a full path on PATH, an absolute one, and nothing for a missing program', () => {
+    const folder = scratchFolder();
+    const program = join(folder, 'an-agent');
+    writeFileSync(program, '#!/bin/sh\nexit 0\n');
+    chmodSync(program, 0o755);
+    expect(resolveExecutable('an-agent', folder)).toBe(program);
+    expect(resolveExecutable(program, '')).toBe(program);
+    expect(resolveExecutable('an-agent', scratchFolder())).toBeUndefined();
+    expect(resolveExecutable(join(folder, 'absent'), '')).toBeUndefined();
+  });
+});
+
+describe('a session is created with the unit\'s MCP servers', () => {
+  test('session/new carries the absolute folder and each MCP server in its protocol shape', async () => {
+    const { connection, messages } = await connect('default');
+    await connection.initialize();
+    const session = await connection.newSession({
+      cwd: process.cwd(),
+      mcpServers: [
+        { name: 'unit', command: '/bin/true', args: ['--serve'], env: { MADARCH_UNIT: 'u1' } },
+        { name: 'graph', url: 'http://127.0.0.1:7357/mcp', headers: { Authorization: 'Bearer none' } },
+      ],
+    });
+    expect(session.sessionId).toBe('fake-session-1');
+    expect(session.modes).toEqual({ currentModeId: 'ask' });
+    const request = messages().find((message) => message.method === 'session/new');
+    expect(request?.params).toEqual({
+      cwd: process.cwd(),
+      mcpServers: [
+        { name: 'unit', command: '/bin/true', args: ['--serve'], env: [{ name: 'MADARCH_UNIT', value: 'u1' }] },
+        { name: 'graph', url: 'http://127.0.0.1:7357/mcp', type: 'http', headers: [{ name: 'Authorization', value: 'Bearer none' }] },
+      ],
+    });
+  });
+
+  test('toMcpServers makes a command absolute, defaults an http server to that transport and refuses an empty one', () => {
+    expect(toMcpServers([{ name: 'local', command: 'bin/mcp', args: [] }])).toEqual([{ name: 'local', command: join(process.cwd(), 'bin/mcp'), args: [], env: [] }]);
+    expect(toMcpServers([{ name: 'remote', url: 'http://127.0.0.1:1/mcp', type: 'sse' }])).toEqual([{ name: 'remote', url: 'http://127.0.0.1:1/mcp', type: 'sse', headers: [] }]);
+    expect(() => toMcpServers([{ name: 'bare', command: '  ' }])).toThrow(/src\/fill\/acp\.ts:toMcpServers: the MCP server "bare" has no command to run/);
+    expect(() => toMcpServers([{ name: 'bare', url: '' }])).toThrow(/src\/fill\/acp\.ts:toMcpServers: the MCP server "bare" has no url/);
+  });
+
+  test('a session is refused before initialize, and in a folder the agent does not run in', async () => {
+    const { connection } = await connect('default');
+    await expect(connection.newSession({ cwd: process.cwd() })).rejects.toThrow(/src\/fill\/acp\.ts:newSession: the connection to fake \(.*\) must be initialized before a session is created/);
+    await connection.initialize();
+    const other = scratchFolder();
+    await expect(connection.newSession({ cwd: other })).rejects.toThrow(new RegExp(`src/fill/acp\\.ts:newSession: the session folder ${other} is not the folder the agent fake \\(.*\\) runs in \\(${process.cwd()}\\)`));
+  });
+
+  test('session/new without an id is a failure naming the agent', async () => {
+    const { connection } = await connect('no-session-id');
+    await connection.initialize();
+    await expect(connection.newSession({ cwd: process.cwd() })).rejects.toThrow(/src\/fill\/acp\.ts:newSession: the agent fake \(.*\) answered session\/new without a session id/);
+  });
+});
+
+describe('a prompt turn streams its updates and its usage', () => {
+  test('messages, thoughts, tool calls and context usage arrive in order, and the turn ends with its stop reason', async () => {
+    const { connection } = await connect('default');
+    await connection.initialize();
+    const session = await connection.newSession({ cwd: process.cwd() });
+    const seen: AcpUpdate[] = [];
+    const result = await session.prompt('inspect the repository', { onUpdate: (update) => seen.push(update) });
+
+    expect(result.stopReason).toBe('end_turn');
+    expect(result.text).toBe('echo: inspect the repository done');
+    expect(result.usage).toEqual({ inputTokens: 30, outputTokens: 12, totalTokens: 42 });
+    expect(seen.map((update) => update.kind)).toEqual(['thought', 'message', 'message', 'tool-call', 'tool-call-update', 'usage']);
+    expect(seen[0]?.text).toBe('thinking');
+    expect(seen[3]).toMatchObject({ kind: 'tool-call', toolCallId: 'call-1', title: 'Read graph', status: 'pending', toolKind: 'read' });
+    expect(seen[4]).toMatchObject({ kind: 'tool-call-update', toolCallId: 'call-1', status: 'completed' });
+    expect(seen[5]).toMatchObject({ kind: 'usage', contextUsed: 1000, contextSize: 200000, cost: { amount: 0.5, currency: 'USD' } });
+  });
+
+  test('the session keeps the reported tokens and the context window as the agent gave them', async () => {
+    const { connection } = await connect('default');
+    await connection.initialize();
+    const session = await connection.newSession({ cwd: process.cwd() });
+    expect(session.usage()).toEqual({ reported: false, turns: 0, reports: 0 });
+    expect(describeUsage(session.usage())).toBe('token usage not reported: no turn ran in this session');
+    await session.prompt('first');
+    expect(session.usage()).toEqual({ reported: true, turns: 1, reports: 1, inputTokens: 30, outputTokens: 12, totalTokens: 42, context: { used: 1000, size: 200000 } });
+    expect(describeUsage(session.usage())).toBe('input 30, output 12, total 42');
+  });
+
+  test('a second turn replaces the figures with its own report, and both turns are counted', async () => {
+    const { connection } = await connect('two-turns');
+    await connection.initialize();
+    const session = await connection.newSession({ cwd: process.cwd() });
+    await session.prompt('first');
+    await session.prompt('second');
+    expect(session.usage()).toEqual({ reported: true, turns: 2, reports: 2, inputTokens: 75, outputTokens: 20, totalTokens: 95 });
+  });
+
+  test('a session whose agent reports no tokens says "not reported" instead of inventing numbers', async () => {
+    const { connection } = await connect('no-usage');
+    await connection.initialize();
+    const session = await connection.newSession({ cwd: process.cwd() });
+    const result = await session.prompt('first');
+    expect(result.usage).toBeUndefined();
+    expect(session.usage()).toEqual({ reported: false, turns: 1, reports: 0 });
+    expect(describeUsage(session.usage())).toBe('token usage not reported: the agent gave none in 1 turn');
+  });
+
+  test('a schema-valid update kind madarch does not name is kept as other, never dropped', async () => {
+    const { connection } = await connect('extended');
+    await connection.initialize();
+    const session = await connection.newSession({ cwd: process.cwd() });
+    const result = await session.prompt('first');
+    expect(result.updates.some((update) => update.kind === 'other' && update.sessionUpdate === 'session_info_update')).toBe(true);
+  });
+
+  test('an update outside the protocol schema does not end the turn', async () => {
+    const { connection } = await connect('unknown');
+    await connection.initialize();
+    const session = await connection.newSession({ cwd: process.cwd() });
+    const result = await session.prompt('first');
+    expect(result.stopReason).toBe('end_turn');
+    expect(result.text).toBe('echo: first done');
+    expect(result.updates.some((update) => update.sessionUpdate === 'brand_new_variant')).toBe(false);
+  });
+
+  test('an empty prompt and a second prompt in flight are refused', async () => {
+    const { connection } = await connect('cancellable');
+    await connection.initialize();
+    const session = await connection.newSession({ cwd: process.cwd() });
+    await expect(session.prompt('   ')).rejects.toThrow(/src\/fill\/acp\.ts:prompt: the prompt for session fake-session-1 of fake \(.*\) is empty/);
+    const first = session.prompt('hold the turn');
+    await expect(session.prompt('and another')).rejects.toThrow(/src\/fill\/acp\.ts:prompt: session fake-session-1 of fake \(.*\) already has a prompt in flight/);
+    await session.cancel();
+    expect((await first).stopReason).toBe('cancelled');
+    expect(session.running()).toBe(false);
+  });
+});
+
+describe('the agent keeps no way around the unit\'s MCP server', () => {
+  test('a file read the agent asks the client for is refused with an error, and the turn still ends', async () => {
+    const { connection } = await connect('fs-call');
+    await connection.initialize();
+    const session = await connection.newSession({ cwd: process.cwd() });
+    const result = await session.prompt('read a file');
+    expect(result.stopReason).toBe('end_turn');
+    expect(result.text).toContain('the agent called fs/read_text_file, which madarch does not offer');
+    expect(result.text).toContain('code is read through the session\'s MCP server');
+  });
+
+  test('a permission request is answered cancelled', async () => {
+    const { connection } = await connect('permission');
+    await connection.initialize();
+    const session = await connection.newSession({ cwd: process.cwd() });
+    const result = await session.prompt('write a file');
+    expect(result.text).toBe('permission {"outcome":{"outcome":"cancelled"}}');
+  });
+});
+
+describe('cancelling a turn', () => {
+  test('session/cancel ends the turn in flight with the cancelled stop reason', async () => {
+    const { connection, messages } = await connect('cancellable');
+    await connection.initialize();
+    const session = await connection.newSession({ cwd: process.cwd() });
+    const running = session.prompt('a long turn');
+    await session.cancel();
+    const result = await running;
+    expect(result.stopReason).toBe('cancelled');
+    const cancel = messages().find((message) => JSON.parse(JSON.stringify(message)).method === 'session/cancel');
+    expect(cancel?.params).toEqual({ sessionId: 'fake-session-1' });
+  });
+});
+
+describe('the protocol\'s error codes are read for what they mean', () => {
+  test('a turn the agent cancels with protocol error -32800 ends as cancelled', async () => {
+    const { connection } = await connect('cancel-error');
+    await connection.initialize();
+    const session = await connection.newSession({ cwd: process.cwd() });
+    const running = session.prompt('a long turn');
+    await session.cancel();
+    expect((await running).stopReason).toBe('cancelled');
+  });
+
+  test('a session the agent refuses for want of authentication names that, with its code', async () => {
+    const { connection } = await connect('auth-required');
+    await connection.initialize();
+    await expect(connection.newSession({ cwd: process.cwd() })).rejects.toThrow(/src\/fill\/acp\.ts:session\/new: the agent fake \(.*\) in .* failed: Authentication required \(protocol error -32000: the agent requires authentication\)/);
+  });
+});
+
+describe('normalizeUpdate', () => {
+  const at = '2026-01-01T00:00:00.000Z';
+
+  test('names the protocol\'s variants and keeps their fields', () => {
+    expect(normalizeUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hi' } }, at)).toMatchObject({ kind: 'message', text: 'hi', at });
+    expect(normalizeUpdate({ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'hmm' } }, at)).toMatchObject({ kind: 'thought', text: 'hmm' });
+    expect(normalizeUpdate({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'asked' } }, at)).toMatchObject({ kind: 'user-message', text: 'asked' });
+    expect(normalizeUpdate({ sessionUpdate: 'tool_call', toolCallId: 'c', title: 't', kind: 'edit', status: 'pending' }, at)).toMatchObject({ kind: 'tool-call', toolCallId: 'c', title: 't', toolKind: 'edit', status: 'pending' });
+    expect(normalizeUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'c', status: 'failed' }, at)).toMatchObject({ kind: 'tool-call-update', status: 'failed' });
+    expect(normalizeUpdate({ sessionUpdate: 'plan', entries: [] }, at).kind).toBe('plan');
+    expect(normalizeUpdate({ sessionUpdate: 'current_mode_update', currentModeId: 'code' }, at).kind).toBe('mode');
+    expect(normalizeUpdate({ sessionUpdate: 'available_commands_update', availableCommands: [] }, at).kind).toBe('commands');
+    expect(normalizeUpdate({ sessionUpdate: 'config_option_update', configOptions: [] }, at).kind).toBe('config');
+    expect(normalizeUpdate({ sessionUpdate: 'usage_update', used: 10, size: 20 }, at)).toMatchObject({ kind: 'usage', contextUsed: 10, contextSize: 20 });
+  });
+
+  test('a message chunk that is not text carries no text rather than a guess', () => {
+    const update = normalizeUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'image', data: 'AAAA' } }, at);
+    expect(update.kind).toBe('message');
+    expect(update.text).toBeUndefined();
+  });
+
+  test('a variant this client does not know is other, with the payload kept as received', () => {
+    const raw = { sessionUpdate: 'compaction_update', id: 'c1', status: 'start' };
+    expect(normalizeUpdate(raw, at)).toEqual({ kind: 'other', sessionUpdate: 'compaction_update', at, raw });
+    expect(normalizeUpdate(undefined, at)).toEqual({ kind: 'other', sessionUpdate: 'unknown', at, raw: undefined });
+  });
+
+  test('a usage update names its cost only when the agent gave both amount and currency', () => {
+    expect(normalizeUpdate({ sessionUpdate: 'usage_update', used: 1, size: 2, cost: { amount: 3 } }, at).cost).toBeUndefined();
+    expect(normalizeUpdate({ sessionUpdate: 'usage_update', used: 1, size: 2, cost: { amount: 3, currency: 'EUR' } }, at).cost).toEqual({ amount: 3, currency: 'EUR' });
+  });
+});
+
+describe('closing the connection', () => {
+  test('closing stops the agent process and resolves closed; a second close is harmless', async () => {
+    const { connection } = await connect('default');
+    await connection.initialize();
+    const session: AcpSession = await connection.newSession({ cwd: process.cwd() });
+    expect(session.running()).toBe(false);
+    await connection.close();
+    await connection.closed;
+    await connection.close();
+    expect(AcpError.prototype instanceof Error).toBe(true);
+  });
+});

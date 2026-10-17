@@ -14,6 +14,7 @@
     "wiki:shots": "bun scripts/wiki-shots.ts"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "1.9.0",
     "@electric-sql/pglite": "0.5.10",
     "@electric-sql/pglite-pgvector": "0.0.11",
     "decode-named-character-reference": "1.2.0",
@@ -25,7 +26,8 @@
     "unified": "11.0.5",
     "web-tree-sitter": "0.25.10",
     "xstate": "5.33.3",
-    "yaml": "2.9.1"
+    "yaml": "2.9.1",
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "20.14.5",

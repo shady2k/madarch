@@ -34,6 +34,7 @@ import {
 import { readProduct } from './manifest.js';
 import { runGit } from './git.js';
 import { startFill, type StartFillOptions } from './fill.js';
+import { formatAcpProbe, probeAcpAgents } from '../fill/acp-probe.js';
 
 /** The compact command list shown after context-aware first-run guidance. */
 export const SHORT_HELP = [
@@ -114,7 +115,7 @@ export const USAGE = [
   '   or: madarch repo add <name> <url> [--source <path>] [--mode <link|move|clone>] [--branch <b>] [--product <folder>]',
   '   or: madarch bootstrap [--product <folder>]',
   '   or: madarch clone <url> [--home <folder>]',
-  '   or: madarch fill [--agent claude|codex|omp] [--model NAME] [--omp-extension PATH] [--omp-executable PATH] [--max-units N] [--json]',
+  '   or: madarch fill [--agent claude|codex|omp] [--model NAME] [--omp-extension PATH] [--omp-executable PATH] [--max-units N] [--json] [--probe-acp]',
   '   or: madarch version',
   '   or: madarch upgrade [--yes]',
 ].join('\n');
@@ -594,11 +595,26 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
   return await serveShared(parsed, deps, draft.folder, false, parsed.json ? { folder: draft.folder, id: draft.id, name: draft.name } : undefined);
 }
 
+/**
+ * `madarch fill`: start or resume the local fill, or report which agents speak
+ * ACP on this machine (`--probe-acp`, decision 0026: the fill drives agents
+ * over the Agent Client Protocol). The probe sends no prompt and installs
+ * nothing: it stops at the initialize handshake, and names what a missing
+ * adapter would be installed with.
+ */
 async function fillCommand(args: readonly string[]): Promise<number> {
-  let agent: StartFillOptions['agent'] = 'claude'; let maxUnits = 60; let model=process.env.MADARCH_FILL_MODEL; let ompExtension=process.env.MADARCH_OMP_EXTENSION; let ompExecutable=process.env.MADARCH_OMP_EXECUTABLE; let json = false; const seen = new Set<string>();
-  for (let i=0;i<args.length;i++) { const arg=args[i]!; if (arg==='--json') { json=true; continue; } if (arg==='--help'||arg==='-h') { console.log('usage: madarch fill [--agent claude|codex|omp] [--model NAME] [--omp-extension PATH] [--omp-executable PATH] [--max-units N] [--json]'); return 0; }
+  let agent: StartFillOptions['agent'] = 'claude'; let maxUnits = 60; let model=process.env.MADARCH_FILL_MODEL; let ompExtension=process.env.MADARCH_OMP_EXTENSION; let ompExecutable=process.env.MADARCH_OMP_EXECUTABLE; let json = false; let probe = false; const seen = new Set<string>();
+  for (let i=0;i<args.length;i++) { const arg=args[i]!; if (arg==='--json') { json=true; continue; } if (arg==='--probe-acp') { probe=true; continue; } if (arg==='--help'||arg==='-h') { console.log('usage: madarch fill [--agent claude|codex|omp] [--model NAME] [--omp-extension PATH] [--omp-executable PATH] [--max-units N] [--json] [--probe-acp]'); return 0; }
     if (!['--agent','--max-units','--model','--omp-extension','--omp-executable'].includes(arg)) { console.error(`unknown fill option ${JSON.stringify(arg)}`); return 2; } if(seen.has(arg)){console.error(`repeated fill option ${arg}`);return 2;} seen.add(arg); const value=args[++i]; if(!value||value.startsWith('--')){console.error(`${arg} needs a value`);return 2;}
     if(arg==='--agent'){if(value!=='claude'&&value!=='codex'&&value!=='omp'){console.error('--agent must be claude, codex, or omp');return 2;}agent=value;} else if(arg==='--model')model=value; else if(arg==='--omp-extension')ompExtension=value; else if(arg==='--omp-executable')ompExecutable=value; else {maxUnits=Number(value);if(!Number.isInteger(maxUnits)||maxUnits<1){console.error('--max-units must be a positive whole number');return 2;}}
+  }
+  if (probe) {
+    if (seen.size > 0) { console.error(`--probe-acp reports the agents on this machine and fills nothing: drop ${[...seen].join(', ')}`); return 2; }
+    try {
+      const report = await probeAcpAgents({ cwd: process.cwd() });
+      console.log(json ? JSON.stringify(report) : formatAcpProbe(report));
+      return 0;
+    } catch (error) { console.error((error as Error).message); return 1; }
   }
   try { const result=await startFill(process.cwd(),{agent,maxUnits,model,ompExtension,ompExecutable}); if(json) console.log(JSON.stringify(result)); else { console.log(`Fill ${result.run.id}: ${result.run.status}`); console.log(`Units reused: ${result.counts.reused}; run: ${result.counts.run}; agent calls: ${result.agentCalls.used} of ${result.agentCalls.cap}`); console.log(`Branch: ${result.run.agentBranch}`); console.log(`Watch progress in the wiki with: madarch serve`); console.log('Next: review the proposed pages and their sources.'); } return 0; } catch(error) { console.error((error as Error).message); return 1; }
 }
