@@ -285,6 +285,43 @@ describe('madarch new', () => {
     }
   });
 
+  test("--port 0 serves on a free port, and --json keeps the daemon's facts on one line", async () => {
+    const base = scratchFolder('madarch-cli-json-');
+    const home = scratchFolder();
+    try {
+      const run = runCommand(['new', '--port', '0', '--json', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: builtApp(base) });
+      expect(run.status).toBe(0);
+      expect(run.stderr).toBe('');
+      // One JSON line, no human summary beside it.
+      const facts = JSON.parse(run.stdout) as { folder: string; id: string; name: string; url: string; pid: number; port: number; reused: boolean };
+      expect(facts.folder).toBe(join(home, 'products', `idea-${todayName()}`));
+      expect(typeof facts.id).toBe('string'); expect(facts.id !== '').toBe(true);
+      expect(typeof facts.name).toBe('string');
+      // --port 0 names a free port: the recorded and printed port is the
+      // real one, never 0, and the wiki answers on the printed address.
+      expect(facts.port).toBeGreaterThan(0);
+      expect(facts.reused).toBe(false);
+      expect(facts.url).toBe(`http://127.0.0.1:${facts.port}/products/idea-${todayName()}/`);
+      expect(facts.pid).toBeGreaterThan(0);
+      const answer = await fetch(`${facts.url}api/product`);
+      expect((await answer.json() as { id: string }).id).toBe(facts.id);
+    } finally { stopDaemon({ home: join(home, 'products') }); }
+  });
+
+  test("a per-command --host is refused on the shared daemon's loopback path", () => {
+    const home = scratchFolder();
+    const newRun = runCommand(['new', '--host', '10.0.0.5'], { MADARCH_HOME: home });
+    expect(newRun.status).toBe(2);
+    expect(newRun.stderr).toContain('--host');
+    expect(newRun.stderr).toContain('unknown option');
+    const startRun = runCommand(['start', '--host', '10.0.0.5'], { MADARCH_HOME: home });
+    expect(startRun.status).toBe(2);
+    expect(startRun.stderr).toContain('--host');
+    expect(startRun.stderr).toContain('unknown option');
+    // The foreground serve keeps its own bind address, as it always has.
+    expect(runCommand(['serve', '--help'], {}).stdout).toContain('--host');
+  });
+
   test('a missing option value exits 2 naming the flag', () => {
     const { status, stdout, stderr } = runCommand(['new', '--home'], { MADARCH_HOME: scratchFolder() });
     expect(stdout).toBe('');

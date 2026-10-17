@@ -9,8 +9,8 @@ Kind: behavior
 A person currently must keep `madarch serve` attached to a terminal for each product. This change adds a detached server shared by all products in the products home, a product directory at `/products/{folder}/`, and commands to start, stop and inspect that server. It enables a product wiki to stay available after the command returns. Owner approval pending (coordinator), as required by `.brief.md`.
 
 ## Out of scope
-- Installing a system service or surviving reboot.
-- Changing the existing `new`, `init` or `serve` output/help contract until madarch-74k4.2.6 lands.
+- Installing a system service or surviving reboot (the service install is its own task after Monday).
+- Changing the `madarch serve` foreground contract, or the `madarch new`/`init` output contract beyond not blocking: their accepted `new`/`init` wording stays the one madarch-74k4.2.6 landed; `--host` stays theirs alone where the shared daemon cannot honor it, because the daemon binds loopback only.
 - Model-serving configuration, authentication, remote binding or multi-user access.
 
 ## Changes to requirements
@@ -39,11 +39,11 @@ None.
 Per coordinator decision in `.brief-3.md`, the daemon home is `/`; each product is routed under `/products/{folder}/`, with its app pages under `/products/{folder}/p/...` and API under `/products/{folder}/api/...`. The app reads its base path once from its location, with empty base for the established root foreground mode. Daemon state is validated against the running process command before reuse or termination; a stale pid is never assumed to be Madarch.
 
 ## Acceptance evidence
-- Focused root checks: `bun run check` and `bun test test/product-daemon.test.ts test/server-wiki.test.ts test/product-cli.test.ts`.
-- Wiki app checks: `bun run check`, `bun test`, and `bun run build` from `wiki/app`.
-- Independent read-only review: no findings after fixes.
-- Owner approval: recorded on `madarch-zcti.1`; approved decision digest `ec4292603fe2b0c99ef76d7d20e72a6458c06e64b00d9ebf45936b3e45cc18c8`.
-- `new`/`init` start-or-reuse wiring remains deferred follow-up; do not change their output/help until the dependent task lands.
+- Focused root checks (single `bun test` processes, free ports only): `bun run check` exit 0; `test/product-daemon.test.ts`, `test/product-cli.test.ts`, `test/product-serve.test.ts`, `test/server-wiki.test.ts`, `test/product-cli-script.test.ts` exit 0 (167 pass pre-fix, re-run green after the review fixes); `wiki/app`: `bun install --frozen-lockfile`, `bun run check`, `bun test` (174 pass), `bun run build` exit 0.
+- The `new`/`init` start-or-reuse wiring is implemented against the contract madarch-74k4.2.6 landed (PR #52, `63eaa62b`): the commands return at once, print what happened, the address under `/products/<folder>/`, the SSH tunnel hint over SSH and the next step, and `--json` carries folder, id, name, url, pid, port and reused.
+- Independent read-only review by a fresh `prime-agent --provider shady2k-gateway --model glm-5.3-flash-auto` session over `bee81955`: verdict `fail`, four findings, all fixed and tested — `--port 0` resolved to a free port instead of recording 0 and failing the readiness probe; `--host` refused on the daemon path (start, daemon-serve, new, init) naming what it accepts, kept on the foreground `serve`/`demo`, help and usage lines corrected; `--json` coverage added for `new` and `init`; this record corrected to match the landed wiring.
+- Re-run after the fixes: `bun run check` exit 0; `test/product-daemon.test.ts` 7 pass; `test/product-cli.test.ts` 92 pass; `test/product-serve.test.ts`, `test/product-cli-script.test.ts` 121 pass.
+- Owner approval: recorded on `madarch-zcti.1` (comments 4127, 4130, 4131; decision digest `ec4292603fe2b0c99ef76d7d20e72a6458c06e64b00d9ebf45936b3e45cc18c8`); the record correction after the dependency landed carries its own approval record naming the same owner decision.
 
 ## DONE WHEN
 `madarch start`, `stop`, and `status` manage one detached shared local server; it lists all products at `/` and serves each wiki at its isolated prefix. Existing foreground `madarch serve` still serves at `/`. Tests use a scratch products home and free ports only.

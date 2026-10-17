@@ -73,7 +73,9 @@ function commandHelp(command: string): string {
   const flags: string[] = [];
   if (spec.flags.home) flags.push('  --home <folder>       Products home');
   if (spec.flags.product) flags.push('  --product <folder>    Product folder');
-  if (spec.flags.port) flags.push('  --port <n>            Wiki port (default 4180)', '  --host <address>      Wiki bind address (default 127.0.0.1)', '  --no-open             Do not open a browser');
+  if (spec.flags.port) flags.push('  --port <n>            Wiki port (default 4180)');
+  if (spec.flags.host) flags.push('  --host <address>      Wiki bind address (default 127.0.0.1)');
+  if (spec.flags.port) flags.push('  --no-open             Do not open a browser');
   if (spec.flags.source) flags.push('  --source <path>       Local Git checkout to connect');
   if (spec.flags.mode) flags.push('  --mode <mode>         link, move or clone the checkout');
   if (spec.flags.branch) flags.push('  --branch <name>       Branch to clone');
@@ -100,8 +102,8 @@ function whereHelp(): string {
 /** The usage lines, shaped the way `scripts/serve.ts` and `scripts/wiki.ts` print theirs. */
 export const USAGE = [
   'usage: madarch serve [--product <folder>] [--port <n>] [--host <address>] [--no-open]',
-  '   or: madarch new [--home <folder>] [--port <n>] [--host <address>] [--no-open]',
-  '   or: madarch init [--home <folder>] [--port <n>] [--host <address>] [--no-open]',
+  '   or: madarch new [--home <folder>] [--port <n>] [--no-open]',
+  '   or: madarch init [--home <folder>] [--port <n>] [--no-open]',
   '   or: madarch demo [--home <folder>] [--port <n>] [--host <address>] [--no-open]',
   '   or: madarch start [--home <folder>] [--port <n>]',
   '   or: madarch stop [--home <folder>]',
@@ -120,8 +122,8 @@ export const USAGE = [
 /** The text `--help` prints: the subcommands and the options each does what. */
 export const HELP = [
   'usage: madarch serve [--product <folder>] [--port <n>] [--host <address>] [--no-open]',
-  '   or: madarch new [--home <folder>] [--port <n>] [--host <address>] [--no-open]',
-  '   or: madarch init [--home <folder>] [--port <n>] [--host <address>] [--no-open]',
+  '   or: madarch new [--home <folder>] [--port <n>] [--no-open]',
+  '   or: madarch init [--home <folder>] [--port <n>] [--no-open]',
   '   or: madarch demo [--home <folder>] [--port <n>] [--host <address>] [--no-open]',
   '   or: madarch start [--home <folder>] [--port <n>]',
   '   or: madarch stop [--home <folder>]',
@@ -210,7 +212,7 @@ interface CommandSpec {
   /** The positional words it takes, in order, by their label for the refusals. */
   positionals: readonly string[];
   /** The flags it takes, beside the ones they both share. */
-  flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean; yes: boolean; source?: boolean; mode?: boolean };
+  flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean; yes: boolean; source?: boolean; mode?: boolean; host?: boolean };
 }
 
 /** The specs the subcommands answer to, whole. */
@@ -219,10 +221,10 @@ export const COMMANDS: Record<string, CommandSpec> = {
   stop: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
   status: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
   'daemon-serve': { positionals: [], flags: { home: true, product: false, port: true, open: false, branch: false, yes: false } },
-  demo: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
+  demo: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false, host: true } },
   init: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
   new: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
-  serve: { positionals: [], flags: { home: false, product: true, port: true, open: true, branch: false, yes: false } },
+  serve: { positionals: [], flags: { home: false, product: true, port: true, open: true, branch: false, yes: false, host: true } },
   list: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
   rename: { positionals: ['name'], flags: { home: false, product: true, port: false, open: false, branch: false, yes: false } },
   remote: { positionals: ['url'], flags: { home: false, product: true, port: false, open: false, branch: false, yes: false } },
@@ -255,7 +257,7 @@ function flagNamesFor(flags: CommandSpec['flags']): readonly string[] {
     ...(flags.home ? ['--home'] : []),
     ...(flags.product ? ['--product'] : []),
     ...(flags.port ? ['--port'] : []),
-    ...(flags.port ? ['--host'] : []),
+    ...(flags.host ? ['--host'] : []),
     ...(flags.open ? ['--no-open'] : []),
     ...(flags.branch ? ['--branch'] : []),
     ...(flags.source ? ['--source'] : []),
@@ -344,6 +346,7 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
       continue;
     }
     if (name === '--host') {
+      if (!spec.flags.host) return unknownOption(arg, flags);
       const value = flagValue();
       const problem = valueProblem('--host', value);
       if (problem !== undefined) { console.error(problem); console.error('run madarch --help for help'); return 2; }

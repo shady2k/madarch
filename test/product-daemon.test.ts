@@ -140,6 +140,32 @@ test('daemon start reuses a live daemon, replaces a stale record, and stop clear
   expect(daemonStatus({ home })).toBe(0);
 });
 
+test('daemon start treats --port 0 as a free port, records the real one, and status reports it', async () => {
+  root = mkdtempSync(join(tmpdir(), 'madarch-daemon-port0-'));
+  const home = join(root, 'products'); mkdirSync(home);
+  product(home, 'alpha', 'alpha-id');
+  previousAppDist = process.env.MADARCH_APP_DIST;
+  process.env.MADARCH_APP_DIST = appDist(root);
+  previousMadarchHome = process.env.MADARCH_HOME;
+  process.env.MADARCH_HOME = root;
+  daemonHome = home;
+  expect(await startDaemon({ home, port: 0 })).toBe(0);
+  const state = JSON.parse(readFileSync(join(home, '.madarch-daemon.json'), 'utf8')) as { pid: number; port: number };
+  // The requirement's words: on port 4180 unless another free port is
+  // explicitly named. The state names a port the machine actually serves,
+  // never 0, and it answers the same address the status prints.
+  expect(state.port).toBeGreaterThan(0);
+  expect(state.pid).toBeGreaterThan(0);
+  daemonPid = state.pid;
+  const status = spawnSync('bun', ['scripts/madarch.ts', 'status', '--home', home], { encoding: 'utf8', env: process.env });
+  expect(status.status).toBe(0);
+  expect(status.stdout).toContain(`running: http://127.0.0.1:${state.port}`);
+  const answer = await fetch(`http://127.0.0.1:${state.port}/products/alpha/api/product`);
+  expect((await answer.json() as { id: string }).id).toBe('alpha-id');
+  expect(stopDaemon({ home })).toBe(0);
+  expect(existsSync(join(home, '.madarch-daemon.json'))).toBe(false);
+});
+
 test('daemon start refuses a port another process holds', async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-daemon-port-'));
   const home = join(root, 'products'); mkdirSync(home);

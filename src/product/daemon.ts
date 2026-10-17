@@ -12,7 +12,7 @@
  * a failed start can be read up.
  */
 import { existsSync, openSync, readFileSync, unlinkSync, mkdirSync, writeFileSync } from 'node:fs';
-import { connect as netConnect } from 'node:net';
+import { connect as netConnect, createServer as netServer } from 'node:net';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,6 +33,20 @@ const processEnv = process.env as DraftEnv;
 function homePath(home?: string): string { return resolve(productsHome(processEnv, home)); }
 function statePath(home: string): string { return join(home, STATE_FILE); }
 function logPath(home: string): string { return join(home, LOG_FILE); }
+
+/** One port nothing on the machine holds right now, at the address the daemon binds; undefined when no port can be found. */
+async function freePort(): Promise<number | undefined> {
+  return await new Promise((answer) => {
+    const listener = netServer();
+    listener.unref();
+    listener.once('error', () => answer(undefined));
+    listener.listen(0, '127.0.0.1', () => {
+      const address = listener.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      listener.close(() => answer(port > 0 ? port : undefined));
+    });
+  });
+}
 
 function readState(home: string): DaemonState | undefined {
   try {
@@ -146,7 +160,16 @@ export type DaemonStart =
  */
 export async function ensureDaemon(options: { home?: string; port?: number; appFolder?: string; buildCommand?: string; env?: ServeEnv; print?: (line: string) => void }): Promise<DaemonStart> {
   const print = options.print ?? ((line: string) => console.log(line));
-  const port = options.port ?? 4180;
+  // Port 0 names a free port the way the foreground serve reads it: the
+  // daemon's state and readiness probe need the real port, so it is found
+  // before the child is spawned.
+  const requested = options.port ?? 4180;
+  let port = requested;
+  if (port === 0) {
+    const found = await freePort();
+    if (found === undefined) return { ok: false, message: 'the daemon could not find a free port on 127.0.0.1; name another --port' };
+    port = found;
+  }
   const built = ensureBuilt({ appFolder: options.appFolder, buildCommand: options.buildCommand, env: options.env }, print);
   if (!built.ok) return { ok: false, message: built.message };
   const home = homePath(options.home);
@@ -156,14 +179,14 @@ export async function ensureDaemon(options: { home?: string; port?: number; appF
   try { lock = acquireLock(home); }
   catch (error) { return { ok: false, message: `the daemon state under ${home} cannot be locked: ${(error as Error).message}` }; }
   if (lock === undefined) return { ok: false, message: `another madarch lifecycle operation is active or left a lock at ${join(home, LOCK_FILE)}; inspect and remove a stale lock before retrying` };
-  try { return await ensureDaemonUnderLock(home, port, built.dist); }
+  try { return await ensureDaemonUnderLock(home, port, requested, built.dist); }
   finally { releaseLock(home, lock); }
 }
 
-async function ensureDaemonUnderLock(home: string, port: number, appDist: string): Promise<DaemonStart> {
+async function ensureDaemonUnderLock(home: string, port: number, requested: number, appDist: string): Promise<DaemonStart> {
   const existing = readState(home);
   if (existing !== undefined && daemonIsAlive(existing)) {
-    return { ok: true, url: `http://127.0.0.1:${existing.port}`, pid: existing.pid, port: existing.port, reused: true, note: existing.port !== port ? `the running daemon keeps port ${existing.port}; --port ${port} was ignored` : undefined };
+    return { ok: true, url: `http://127.0.0.1:${existing.port}`, pid: existing.pid, port: existing.port, reused: true, note: existing.port !== port ? `the running daemon keeps port ${existing.port}; --port ${requested} was ignored` : undefined };
   }
   if (existsSync(statePath(home))) clearState(home);
   if (await portOccupied(port)) {
