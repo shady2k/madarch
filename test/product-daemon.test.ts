@@ -20,9 +20,17 @@ function product(home: string, folder: string, id: string): void {
 }
 function appDist(rootFolder: string): string {
   const app = join(rootFolder, 'app'); mkdirSync(app, { recursive: true });
-  writeFileSync(join(app, 'index.html'), '<!doctype html><script src="/assets/app.js"></script><link href="/assets/style.css"><title>wiki</title>');
-  mkdirSync(join(app, 'assets')); writeFileSync(join(app, 'assets', 'app.js'), 'ok');
+  writeFileSync(join(app, 'index.html'), '<!doctype html><script src="/assets/app.js"></script><link href="/assets/style.css" rel="stylesheet"><title>wiki</title>');
+  mkdirSync(join(app, 'assets'));
+  writeFileSync(join(app, 'assets', 'app.js'), 'ok');
+  writeFileSync(join(app, 'assets', 'style.css'), 'body { font-family: var(--font-sans); }');
   return app;
+}
+/** The product declares the problem its home card names: a registry whose overview reads one vision section. */
+function productWithDescription(home: string, folder: string, id: string, problem: string): void {
+  product(home, folder, id);
+  mkdirSync(join(home, folder, 'docs'), { recursive: true }); writeFileSync(join(home, folder, 'docs', 'kinds.yaml'), `contract: 1\nstages:\n  - id: idea\n    name: Idea\nkinds: []\noverview:\n  problem: { document: docs/vision.md, section: Problem }\n`);
+  writeFileSync(join(home, folder, 'docs', 'vision.md'), `# ${folder} vision\n\n## Problem\n\n${problem}\n`);
 }
 function freePort(): Promise<number> {
   return new Promise<number>((resolvePort) => { const listener = netServer(); listener.listen(0, '127.0.0.1', () => { const address = listener.address(); const port = typeof address === 'object' && address ? address.port : 0; listener.close(() => resolvePort(port)); }); });
@@ -73,6 +81,37 @@ test('products-home mode lists products and routes each wiki under its folder', 
   expect(pages.pages[0]!.address).toBe('/p/docs/vision.md');
 });
 
+test("the home answers in the app's own look with product cards and a language switch", async () => {
+  root = mkdtempSync(join(tmpdir(), 'madarch-daemon-home-look-'));
+  const home = join(root, 'products'); mkdirSync(home);
+  product(home, 'alpha', 'alpha-id');
+  productWithDescription(home, 'beta', 'beta-id', 'Notes from a small trip: the route, the budget and the photos.');
+  server = await startServer({ productHome: home, appFolder: appDist(root), port: 0 });
+  const index = await fetch(server.url);
+  expect(index.status).toBe(200);
+  const page = await index.text();
+  // The page is the app's own look: its built stylesheet (tokens and fonts) is
+  // linked the way its shell is, and the shell's brand, toolbar, reading area
+  // and language switch stand on it.
+  expect(page).toContain('<link rel="stylesheet" crossorigin href="/assets/style.css">');
+  expect(page).toContain('data-testid="nav-brand"');
+  expect(page).toContain('>madarch</strong>');
+  expect(page).toContain('data-testid="language-toggle"');
+  expect(page).toContain('madarch-wiki-language');
+  // The product cards: one per product, code-point ordered, with the one-line
+  // description the product declares and none where it declares none.
+  expect(page.split('data-testid="product-card"').length - 1).toBe(2);
+  expect(page.indexOf('>alpha</strong>')).toBeGreaterThan(-1);
+  expect(page.indexOf('>beta</strong>')).toBeGreaterThan(page.indexOf('>alpha</strong>'));
+  expect(page).toContain('Notes from a small trip: the route, the budget and the photos.');
+  // The builds' own assets answer the home with: the stylesheet by its plain path.
+  const css = await fetch(`${server.url}/assets/style.css`);
+  expect(css.status).toBe(200);
+  expect(await css.text()).toContain('font-family');
+  const missing = await fetch(`${server.url}/assets/nothing.js`);
+  expect(missing.status).toBe(404);
+  expect((await missing.json() as { message: string }).message).toContain('no built app file answers');
+});
 test('products-home mode refuses unknown products and paths the home does not hold', async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-daemon-unknown-'));
   const home = join(root, 'products'); mkdirSync(home);

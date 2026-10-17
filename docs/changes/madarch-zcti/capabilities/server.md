@@ -231,9 +231,14 @@ A server serving a product wiki shall expose the discussion read and write opera
 
 
 ## Requirement: serves-products-home — one daemon serves every product at a stable path
-When started in products-home mode, the server shall serve an index at `/` listing every readable product in code-point order, with each product's wiki and app under `/products/{folder}/` and its API under `/products/{folder}/api/...`. The path prefix selects exactly one product; requests cannot read another product's pages. This mode shall use one local server and the same built wiki app. The existing single-product foreground mode shall continue to serve its wiki at `/` and API at `/api/...`.
+When started in products-home mode, the server shall serve an index at `/` listing every readable product in code-point order, with each product's wiki and app under `/products/{folder}/` and its API under `/products/{folder}/api/...`. The index answers in the wiki app's own look — the app's built stylesheet (the tokens and fonts its shell reads), the shell's brand, toolbar and reading area, one card per product naming it with the one-line description the product itself declares, and the wiki's language switch (en/ru, kept in the same storage key the app reads); without the built app's stylesheet the index answers as plain HTML. The app's own built files answer at the index's `/assets/...`. The path prefix selects exactly one product; requests cannot read another product's pages. This mode shall use one local server and the same built wiki app. The existing single-product foreground mode shall continue to serve its wiki at `/` and API at `/api/...`.
 
 ### Scenario: products-home-routing
 - Given: two valid products in one home
 - When: the daemon home and each product route are requested
 - Then: the index lists both, each wiki and API returns its own product, and the single-product foreground URL remains at root
+
+### Scenario: products-home-index-look
+- Given: the app's built styles and one product that declares its problem, another that does not
+- When: the index and the app's own asset paths are requested
+- Then: the index carries the app's built stylesheet and language switch, its card names the product with the declared one-line description and nothing where none is declared, and `/assets/...` answers the app's own build as a named refusal where nothing answers
