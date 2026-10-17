@@ -196,7 +196,7 @@ export async function synthesizePages(input: {
   pages.push(await synthesizeRegistryPage({ ...input, target: { ...input.overview, allClaims: true }, missingQuestion: undefined }));
   for (const kind of input.kinds) {
     if (kind.name === input.overview.name) continue;
-    pages.push(await synthesizeRegistryPage({ ...input, target: { name: kind.name, folder: kind.folder, hint: kind.hint, registryKind: kind }, missingQuestion: input.missingQuestion ?? ((target) => ({ id: `q-${sha(target.name + target.hint).slice(0, 24)}`, type: 'unverifiable', kind: target.name, reason: `No supported entity was found. Registry hint: ${target.hint}` })) }));
+    pages.push(await synthesizeRegistryPage({ ...input, target: { name: kind.name, folder: kind.folder, hint: kind.hint, registryKind: kind }, missingQuestion: input.missingQuestion ?? ((target) => ({ id: `q-${sha(target.name + target.hint).slice(0, 24)}`, type: 'unverifiable', kind: target.name, reason: `No supported entity was found. Registry hint: ${target.hint}`, dependsOn: [], rank: 0 })) }));
   }
   return pages;
 }

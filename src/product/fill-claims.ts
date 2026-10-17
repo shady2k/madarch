@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, resolve, sep } from 'node:path';
 import { parseContractText, type RegistryKind } from './contract.js';
+import { QUESTION_TYPES, type QuestionType } from '../product-wiki/questions.js';
 import { writeFillJsonAtomic } from './fill-runtime.js';
 import type { IndexedComment, IndexedSymbol, IndexedTaskKey, StructuralIndexResult } from './fill-index.js';
 
@@ -17,8 +18,16 @@ export interface ExtractedClaim {
   id: string; kind: string; text: string; layer: ClaimLayer; confidence: number;
   unitId: string; sourceIds: string[]; verification: ClaimVerification;
 }
+/** The `access` or `document` need an access-or-document-needed question names explicitly. */
+export type QuestionMissing = 'access' | 'document';
 export interface ClaimQuestion {
-  id: string; type: string; reason: string; kind: string; rank?: number;
+  id: string; type: QuestionType; reason: string; kind?: string;
+  /** Set for access-or-document-needed records, the way the question documents carry it. */
+  missing?: QuestionMissing;
+  /** The claim and unit ids whose work this question's answer resolves. */
+  dependsOn: string[];
+  /** Distinct dependent page/unit count (claims excluded), the ranking score the wiki recomputes. */
+  rank: number;
 }
 export interface AnchoredCodeFact { kind: string; text: string; path: string; anchor: string; blob: string; startByte: number; endByte: number; }
 export type IndexedEvidence = IndexedSymbol | IndexedComment | IndexedTaskKey;
@@ -43,9 +52,69 @@ export interface ClaimsExtraction {
   usage: { elapsedMs: number; inputTokens: number; outputTokens: number };
 }
 export interface ExtractionMaterial { path: string; text: string; type: ClaimSource['type']; mediaType?: string; blob?: string; }
+/** The deterministic marks a claims answer may carry per claim, turned into typed questions. */
+type ClaimMarks = { conflictsWith?: string; undocumented?: boolean; termPair?: { documentTerm: string; codeTerm: string } };
+
+/**
+ * Derive typed open questions deterministically from what the extraction carries, in the types the
+ * question records use: each assumed-meaning claim stands only as an interpretation to confirm
+ * (assumption-check); a claim marked as conflicting with a published document asks its contradiction;
+ * code behaviour no document mentions asks undocumented-behaviour; a document/code term pair asks a
+ * term question; an unread link asks what access or document would resolve it. Questions the agent
+ * reports itself join for the types a claim mark cannot carry, like meaning or decision rationale.
+ * Every question names the claims and unit it touches and carries the dependency rank.
+ */
+function deriveClaimQuestions(input: {
+  runId: string; unitId: string; kinds: readonly RegistryKind[];
+  agentQuestions?: readonly AgentQuestion[]; inaccessibleLinks?: readonly UnattemptedLink[];
+}, claims: readonly ExtractedClaim[], agentMarks: ReadonlyMap<string, ClaimMarks>, present: ReadonlySet<string>): ClaimQuestion[] {
+  const questions: ClaimQuestion[] = [];
+  const qid = (...pieces: string[]): string => `q-${claimId(input.runId, ...pieces)}`;
+  for (const kind of input.kinds) {
+    if (present.has(kind.name)) continue;
+    const dependsOn = [input.unitId];
+    questions.push({ id: qid('unverifiable', kind.name, kind.hint), type: 'unverifiable', kind: kind.name, reason: `No supported entity was found. Registry hint: ${kind.hint}`, dependsOn, rank: rankOf(dependsOn) });
+  }
+  for (const claim of claims) {
+    const marks = agentMarks.get(claim.id);
+    const dependsOn = [claim.id, input.unitId].sort();
+    if (claim.layer === 'assumed-meaning') questions.push({ id: qid('assumption-check', claim.id), type: 'assumption-check', kind: claim.kind, reason: `Assumed meaning the reader should confirm: ${claim.text}`, dependsOn, rank: rankOf(dependsOn) });
+    if (marks?.conflictsWith !== undefined) questions.push({ id: qid('contradiction', claim.id, marks.conflictsWith), type: 'contradiction', kind: claim.kind, reason: `The claim conflicts with the published document ${marks.conflictsWith}: ${claim.text}`, dependsOn, rank: rankOf(dependsOn) });
+    if (marks?.undocumented) questions.push({ id: qid('undocumented-behaviour', claim.id), type: 'undocumented-behaviour', kind: claim.kind, reason: `Code behaviour no document mentions: ${claim.text}`, dependsOn, rank: rankOf(dependsOn) });
+    if (marks?.termPair) questions.push({ id: qid('term', claim.id, marks.termPair.documentTerm, marks.termPair.codeTerm), type: 'term', kind: claim.kind, reason: `Documents and code name one thing differently: ${marks.termPair.documentTerm} versus ${marks.termPair.codeTerm}`, dependsOn, rank: rankOf(dependsOn) });
+  }
+  for (const link of input.inaccessibleLinks ?? []) {
+    const cited = claims.filter((claim) => claim.sourceIds.includes(link.sourceId));
+    const kind = cited[0]?.kind;
+    const dependsOn = [...new Set([input.unitId, ...cited.map((claim) => claim.id)])].sort();
+    questions.push({ id: qid('access-or-document-needed', link.url, link.sourceId), type: 'access-or-document-needed', ...(kind === undefined ? {} : { kind }), missing: 'access', reason: `Unread link, recorded as not attempted: ${link.url}`, dependsOn, rank: rankOf(dependsOn) });
+  }
+  for (const question of input.agentQuestions ?? []) {
+    if (!QUESTION_TYPES.includes(question.type as QuestionType)) throw new Error(`Unknown question type in agent answer: ${String(question.type)}`);
+    if (!question.title.trim() || !question.prompt.trim()) throw new Error('Agent question needs a non-empty title and prompt');
+    if (question.kind !== undefined && !input.kinds.some((kind) => kind.name === question.kind)) throw new Error(`Unknown registry kind in agent question: ${question.kind}`);
+    if (question.missing !== undefined && question.missing !== 'access' && question.missing !== 'document') throw new Error(`Agent question missing must be access or document: ${question.missing}`);
+    const touched = claims.filter((claim) => (question.claimTexts ?? []).some((text) => text.trim() === claim.text.trim())).map((claim) => claim.id).sort();
+    const dependsOn = [...new Set([input.unitId, ...touched])].sort();
+    questions.push({
+      id: qid(question.type, question.title), type: question.type as QuestionType, reason: question.prompt,
+      ...(question.kind === undefined ? {} : { kind: question.kind }),
+      ...(question.missing === undefined ? {} : { missing: question.missing as QuestionMissing }),
+      dependsOn, rank: rankOf(dependsOn),
+    });
+  }
+  const seen = new Set<string>();
+  for (const question of questions) {
+    if (seen.has(question.id)) throw new Error(`Duplicate question id ${question.id}`);
+    seen.add(question.id);
+  }
+  return questions.sort(byCodePoint);
+}
+
 
 const claimId = (...pieces: string[]): string => createHash('sha256').update(pieces.join('\0')).digest('hex').slice(0, 24);
 const byCodePoint = <T extends { id: string }>(a: T, b: T): number => a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+const rankOf = (dependencies: readonly string[]): number => new Set(dependencies.filter((id) => !id.startsWith('claim-') && !id.startsWith('clm-'))).size;
 const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex');
 
 /** Prompts are repository data, selected by stable file name rather than embedded agent strings. */
@@ -72,15 +141,33 @@ export function createClaimSources(commit: string, materials: readonly Extractio
   return sources.sort(byCodePoint);
 }
 
+/** A typed, unverified link a fill recorded without fetching, tied to its source record. */
+export interface UnattemptedLink { url: string; status: 'not-attempted'; sourceId: string }
+/** One typed question the agent reports on top of its claims, matched to claims by exact text. */
+export interface AgentQuestion { type: string; title: string; prompt: string; kind?: string; missing?: string; claimTexts?: readonly string[] }
+
 /** Assemble validated deterministic claim output from structured agent output plus anchored index facts. */
 export function assembleClaims(input: {
   runId: string; unitId: string; kinds: readonly RegistryKind[]; sources: readonly ClaimSource[];
-  agentClaims: readonly { kind: string; text: string; layer: ClaimLayer; confidence: number; sourceIds: string[] }[];
+  agentClaims: readonly {
+    kind: string; text: string; layer: ClaimLayer; confidence: number; sourceIds: string[];
+    /** The published document this claim conflicts with; its presence derives a contradiction question. */
+    conflictsWith?: string;
+    /** Marks code behaviour no document mentions; its presence derives an undocumented-behaviour question. */
+    undocumented?: boolean;
+    /** A document/code term pair this claim records; its presence derives a term question. */
+    termPair?: { documentTerm: string; codeTerm: string };
+  }[];
+  /** Questions the agent reports itself, for the types no claim mark can carry (meaning, decision rationale). */
+  agentQuestions?: readonly AgentQuestion[];
   anchoredFacts?: readonly AnchoredCodeFact[]; sourceTexts?: Readonly<Record<string, string>>;
+  /** Links recorded as not attempted; each derives an access-or-document-needed question. */
+  inaccessibleLinks?: readonly UnattemptedLink[];
 }): Pick<ClaimsExtraction, 'claims' | 'sources' | 'questions' | 'inaccessibleLinks'> {
   const sourceById = new Map(input.sources.map((source) => [source.id, source]));
   const kindByName = new Map(input.kinds.map((kind) => [kind.name, kind]));
   const claims: ExtractedClaim[] = [];
+  const agentMarks = new Map<string, ClaimMarks>();
   for (const item of input.agentClaims) {
     if (!kindByName.has(item.kind)) throw new Error(`Unknown registry kind in claim: ${item.kind}`);
     if (!item.text.trim() || !Number.isFinite(item.confidence) || item.confidence < 0 || item.confidence > 1) throw new Error(`Invalid claim text or confidence for ${item.kind}`);
@@ -88,7 +175,14 @@ export function assembleClaims(input: {
     if (sourceIds.length === 0 || sourceIds.some((id) => !sourceById.has(id))) throw new Error(`Claim for ${item.kind} has missing or unknown source ids`);
     if (!['fact', 'intent-evidence', 'assumed-meaning'].includes(item.layer)) throw new Error(`Invalid claim layer: ${String(item.layer)}`);
     const layer: ClaimLayer = item.layer;
-    claims.push({ id: `clm-${claimId(input.runId, input.unitId, item.kind, item.text, ...sourceIds)}`, kind: item.kind, text: item.text, layer, confidence: item.confidence, unitId: input.unitId, sourceIds, verification: layer === 'assumed-meaning' ? 'unverified' : 'verified' });
+    const claim = { id: `clm-${claimId(input.runId, input.unitId, item.kind, item.text, ...sourceIds)}`, kind: item.kind, text: item.text, layer, confidence: item.confidence, unitId: input.unitId, sourceIds, verification: layer === 'assumed-meaning' ? 'unverified' : 'verified' } as const;
+    claims.push({ ...claim });
+    const marks = {
+      ...(item.conflictsWith === undefined ? {} : { conflictsWith: item.conflictsWith }),
+      ...(item.undocumented === undefined ? {} : { undocumented: item.undocumented }),
+      ...(item.termPair === undefined ? {} : { termPair: item.termPair }),
+    };
+    if (Object.keys(marks).length > 0) agentMarks.set(claim.id, marks);
   }
   for (const fact of input.anchoredFacts ?? []) {
     if (!kindByName.has(fact.kind)) throw new Error(`Unknown registry kind in anchored fact: ${fact.kind}`);
@@ -113,8 +207,10 @@ export function assembleClaims(input: {
   }
   claims.sort(byCodePoint);
   const present = new Set(claims.map((claim) => claim.kind));
-  const questions: ClaimQuestion[] = input.kinds.filter((kind) => !present.has(kind.name)).map((kind) => ({ id: `q-${claimId(input.runId, kind.name, kind.hint)}`, type: 'unverifiable', kind: kind.name, reason: `No supported entity was found. Registry hint: ${kind.hint}` })).sort(byCodePoint);
-  return { claims, sources: [...input.sources].sort(byCodePoint), questions, inaccessibleLinks: [] };
+  const questions = deriveClaimQuestions(input, claims, agentMarks, present);
+  // The links the questions were derived from stay in the extraction as typed records.
+  const inaccessibleLinks = [...(input.inaccessibleLinks ?? [])].sort((a, b) => a.url < b.url ? -1 : a.url > b.url ? 1 : a.sourceId < b.sourceId ? -1 : 1);
+  return { claims, sources: [...input.sources].sort(byCodePoint), questions, inaccessibleLinks };
 }
 
 
@@ -147,9 +243,9 @@ export async function persistClaimsOutput(directory: string, extraction: ClaimsE
 }
 
 /** Extract anonymous-link references only; Monday extraction never fetches network URLs. */
-export function recordUnattemptedLinks(materials: readonly ExtractionMaterial[], sources: readonly ClaimSource[]) {
+export function recordUnattemptedLinks(materials: readonly ExtractionMaterial[], sources: readonly ClaimSource[]): UnattemptedLink[] {
   const sourceByAddress = new Map(sources.map((source) => [source.address, source.id]));
-  const found: Array<{ url: string; status: 'not-attempted'; sourceId: string }> = [];
+  const found: UnattemptedLink[] = [];
   for (const material of materials) {
     for (const match of material.text.matchAll(/https?:\/\/[^\s)\]>]+/g)) {
       const sourceId = sourceByAddress.get(material.path);
@@ -183,8 +279,23 @@ export async function scoreTrainingExtraction(input: { extraction: ClaimsExtract
   }
   foundExpected.sort(); missed.sort();
   const invented = claimMaterial.filter(({ claim }) => !matchedClaims.has(claim.id)).map(({ claim }) => normalizeScoreClaim(claim.text)).sort();
-  return { found: foundExpected, missed, invented, counts: { expected: expected.length, found: foundExpected.length, missed: missed.length, invented: invented.length }, unitUsage: input.extraction.usage };
+  const questionScore = scoreQuestionTypes(input.extraction.questions, key.expectedOpenQuestions ?? []);
+  return {
+    found: foundExpected, missed, invented, counts: { expected: expected.length, found: foundExpected.length, missed: missed.length, invented: invented.length },
+    questions: questionScore, unitUsage: input.extraction.usage,
+  };
 }
+
+/** Score the extraction's question types against the answer key's expected open questions. */
+export function scoreQuestionTypes(questions: readonly { type: string }[], expected: readonly { type: string }[]): TrainingQuestionScore {
+  const expectedTypes = [...new Set(expected.map((question) => normalizeQuestionType(question.type)))].sort();
+  const foundTypes = [...new Set(questions.map((question) => normalizeQuestionType(question.type)).filter((type) => expectedTypes.includes(type)))].sort();
+  const missingTypes = expectedTypes.filter((type) => !foundTypes.includes(type));
+  return { expectedTypes, foundTypes, missingTypes, counts: { expected: expectedTypes.length, found: foundTypes.length } };
+}
+
+/** Fold an answer key's question type into the record's hyphenated type name ('access or document needed' included). */
+function normalizeQuestionType(value: string): string { return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); }
 
 type ScoreTarget = { id: string; aliases: string[]; files?: string[] };
 function trainingTargets(key: TrainingAnswerKey): ScoreTarget[] {
@@ -202,8 +313,9 @@ function trainingTargets(key: TrainingAnswerKey): ScoreTarget[] {
   ].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 function normalizeScoreClaim(value: string): string { return value.toLocaleLowerCase('en-US').replace(/[^\p{L}\p{N}]+/gu, ' ').trim(); }
-interface TrainingAnswerKey { entities: Array<{ id: string; name: string; file: string; symbol: string }>; businessRules: Array<{ id: string; expected: string; file: string; symbol: string }>; stateMachine: { file: string; states: string[]; transitions: Array<{ from?: string; event: string; to: string; condition?: string; file?: string; symbol?: string; fromStates?: string[] }> }; interactions: Array<{ caller: string; callee: string; kind: string; file: string; symbol: string }>; contradictions: Array<{ claim: string; document: string; file: string; symbol: string }>; undocumentedBehaviour: Array<{ claim: string; file: string; symbol: string }>; intentEvidence: Array<{ claim: string; file: string; symbol: string; comment: string }>; terms: Array<{ documentTerm: string; codeTerm: string; codeFile: string; symbol: string }> }
-export interface TrainingScore { found: string[]; missed: string[]; invented: string[]; counts: { expected: number; found: number; missed: number; invented: number }; unitUsage: ClaimsExtraction['usage']; }
+interface TrainingAnswerKey { entities: Array<{ id: string; name: string; file: string; symbol: string }>; businessRules: Array<{ id: string; expected: string; file: string; symbol: string }>; stateMachine: { file: string; states: string[]; transitions: Array<{ from?: string; event: string; to: string; condition?: string; file?: string; symbol?: string; fromStates?: string[] }> }; interactions: Array<{ caller: string; callee: string; kind: string; file: string; symbol: string }>; contradictions: Array<{ claim: string; document: string; file: string; symbol: string }>; undocumentedBehaviour: Array<{ claim: string; file: string; symbol: string }>; intentEvidence: Array<{ claim: string; file: string; symbol: string; comment: string }>; terms: Array<{ documentTerm: string; codeTerm: string; codeFile: string; symbol: string }>; expectedOpenQuestions?: Array<{ type: string; subject: string; file: string }> }
+export interface TrainingQuestionScore { expectedTypes: string[]; foundTypes: string[]; missingTypes: string[]; counts: { expected: number; found: number } }
+export interface TrainingScore { found: string[]; missed: string[]; invented: string[]; counts: { expected: number; found: number; missed: number; invented: number }; questions: TrainingQuestionScore; unitUsage: ClaimsExtraction['usage']; }
 
 /** Read a path from a pinned git commit and produce the line-indexed source text. */
 export function readPinnedGitMaterial(repository: string, commit: string, file: string, type: ExtractionMaterial['type'] = 'code'): ExtractionMaterial {
