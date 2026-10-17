@@ -118,6 +118,7 @@ export {
 } from './product-wiki/pages.js';
 
 export { loadAndCompileModel, type LoadAndCompileResult } from './model/load-and-compile.js';
+export { inventoryRepository, indexRepository, inventoryUnitPlan, structuralIndexUnitPlans, executeInventoryUnit, executeStructuralIndexUnit, type SourceAnchor, type InventoryFile, type RepositoryInventory, type FillEstimate, type RepositoryInventoryResult, type IndexedSymbol, type IndexedReference, type IndexedComment, type IndexedTaskKey, type StructuralFile, type StructuralIndexResult } from './product/fill-index.js';
 export {
   FILL_STATE_VERSION, FILL_STAGES, FILL_UNIT_STATUSES,
   appendFillEventAtomic, countFillUnits, createFillFileStore, createFillRun, createFillUnit, fillInputsMatch, fillStatePaths, hashFillInput, hashFillInputs, orchestrateFillUnits, persistFillRun, persistFillUnit, readFillJson, reconcileFillUnit, writeFillJsonAtomic,
