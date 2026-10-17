@@ -1,0 +1,1 @@
+Build a bottom-up code map only from supplied index anchors and claims. Return structured JSON. Every fact must cite a supplied source and exact anchor. Distinguish components, interactions, state transitions, and business rules. Do not infer absence from incomplete coverage. Keep the map deterministic and do not add registry kind names unless the registry supplies them.
