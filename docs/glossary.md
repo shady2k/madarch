@@ -194,6 +194,13 @@ The asynchronous SQL projection built from the fact log for graph traversals.
 Local use runs on PGlite; server compositions inject PostgreSQL. It is
 rebuildable at any time.
 
+**Database owner**:
+The one PostgreSQL-compatible database a process opens and lends where data is
+kept — embedded PGlite on a laptop, a `pg` pool on a server — to the fact log,
+the query database and, by decision 0027, the queue and the orchestrator's
+tables. Its transactions can be passed to any operation of the adapters it
+serves, so a write of one and a write of another commit or roll back together.
+
 **Compiled model**:
 The normalized JSON the server publishes (`model.json`); the contract every
 frontend and agent reads.

@@ -1,4 +1,4 @@
-import type { AssertionChange, AssertionRecord } from '../history/types.js';
+import type { AssertionChange, AssertionRecord, OuterTransaction } from '../history/types.js';
 import type { AsyncVectorIndex } from '../vector/types.js';
 
 /**
@@ -131,13 +131,20 @@ export interface QuerySnapshot {
 export interface AsyncQueryEngine extends QuerySnapshot {
   /**
    * Runs several reads against one revision; use only the supplied reader
-   * inside the callback, and prevent queued writes from starving.
+   * inside the callback, and prevent queued writes from starving. Given an
+   * outer transaction of the database owner, every read runs inside it
+   * instead of a snapshot of the engine's own, so a caller composing a
+   * history write and a projection read sees its own uncommitted rows.
    */
-  withSnapshot<T>(work: (snapshot: QuerySnapshot) => Promise<T>): Promise<T>;
-  /** Replaces everything the engine holds, built from a full assertion list. */
-  rebuild(assertions: readonly AssertionRecord[]): Promise<void>;
-  /** Applies one store report instead of a full rebuild. */
-  update(opened: readonly AssertionChange[], closed: readonly AssertionChange[]): Promise<void>;
+  withSnapshot<T>(work: (snapshot: QuerySnapshot) => Promise<T>, transaction?: OuterTransaction): Promise<T>;
+  /**
+   * Replaces everything the engine holds, built from a full assertion list.
+   * Given an outer transaction of the database owner, the replacement runs
+   * inside it and is neither committed nor rolled back here.
+   */
+  rebuild(assertions: readonly AssertionRecord[], transaction?: OuterTransaction): Promise<void>;
+  /** Applies one store report instead of a full rebuild, inside the given outer transaction when one is passed. */
+  update(opened: readonly AssertionChange[], closed: readonly AssertionChange[], transaction?: OuterTransaction): Promise<void>;
   /** Waits for this scope's in-flight work and closes it. A borrowed scope leaves the shared connection to its database owner. */
   close(): Promise<void>;
 }
