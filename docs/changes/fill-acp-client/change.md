@@ -27,9 +27,10 @@ JSON-RPC client. The library exists — `@agentclientprotocol/sdk` 1.9.0, the
 protocol's own TypeScript implementation, with `zod` as its peer dependency —
 and both were measured before it was taken: a client built on it answers a
 hand-written agent under `bun run`, and the same code inside `bun build
---compile` works too (the binary carries ~290 KB more than an empty one). Its
-README says nothing about Bun or compiling, so the measurement, not its
-documentation, is the evidence. The probe's catalogue comes from the protocol's
+--compile` works too — the compiled `madarch` runs the whole handshake and a
+prompt turn, and the binary grows by 278 528 bytes for the client, the library
+and `zod` (91 256 288 → 91 534 816 bytes). Its README says nothing about Bun or
+compiling, so the measurement, not its documentation, is the evidence. The probe's catalogue comes from the protocol's
 own registry read on 2026-10-18: Claude Code through `@agentclientprotocol/claude-agent-acp`
 (a later name for Zed's `claude-code-acp`, which the probe still accepts), Codex
 through `@agentclientprotocol/codex-acp`, pi through `pi-acp`; omp is the one

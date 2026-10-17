@@ -34,7 +34,6 @@ import {
 import { readProduct } from './manifest.js';
 import { runGit } from './git.js';
 import { startFill, type StartFillOptions } from './fill.js';
-import { formatAcpProbe, probeAcpAgents } from '../fill/acp-probe.js';
 
 /** The compact command list shown after context-aware first-run guidance. */
 export const SHORT_HELP = [
@@ -611,8 +610,11 @@ async function fillCommand(args: readonly string[]): Promise<number> {
   if (probe) {
     if (seen.size > 0) { console.error(`--probe-acp reports the agents on this machine and fills nothing: drop ${[...seen].join(', ')}`); return 2; }
     try {
-      const report = await probeAcpAgents({ cwd: process.cwd() });
-      console.log(json ? JSON.stringify(report) : formatAcpProbe(report));
+      // The ACP client and its protocol library are loaded only here: every
+      // other command starts without them.
+      const acp = await import('../fill/acp-probe.js');
+      const report = await acp.probeAcpAgents({ cwd: process.cwd() });
+      console.log(json ? JSON.stringify(report) : acp.formatAcpProbe(report));
       return 0;
     } catch (error) { console.error((error as Error).message); return 1; }
   }
