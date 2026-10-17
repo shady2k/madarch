@@ -318,5 +318,9 @@ describe('typed open questions from claims, marks, agent answers and unread link
     expect(prompt).toContain('decision-rationale');
     expect(prompt).toContain('"missing"');
     expect(prompt).toContain('Example answer');
+    // The stated shape allows every field the validator accepts, so a conforming answer is not punished.
+    const shape = prompt.slice(prompt.indexOf('{'), prompt.indexOf('\n\nExample answer'));
+    expect(shape).toContain('"missing"');
+    expect(shape).toContain('access-or-document-needed');
   });
 });

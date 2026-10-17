@@ -208,7 +208,9 @@ export function assembleClaims(input: {
   claims.sort(byCodePoint);
   const present = new Set(claims.map((claim) => claim.kind));
   const questions = deriveClaimQuestions(input, claims, agentMarks, present);
-  return { claims, sources: [...input.sources].sort(byCodePoint), questions, inaccessibleLinks: [] };
+  // The links the questions were derived from stay in the extraction as typed records.
+  const inaccessibleLinks = [...(input.inaccessibleLinks ?? [])].sort((a, b) => a.url < b.url ? -1 : a.url > b.url ? 1 : a.sourceId < b.sourceId ? -1 : 1);
+  return { claims, sources: [...input.sources].sort(byCodePoint), questions, inaccessibleLinks };
 }
 
 

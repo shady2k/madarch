@@ -290,7 +290,7 @@ describe('a malformed agent answer fails one unit and the run goes on', () => {
         }
         return 'not json on purpose';
       } }) })).rejects.toThrow('Agent returned no JSON object');
-      const extraction = await readFillJson<{ claims: { id: string; text: string }[]; questions: { type: string; reason: string; dependsOn: string[]; rank: number; missing?: string }[] }>(join(fillStatePaths(root).outputs, 'claims-repository', 'claims.json'));
+      const extraction = await readFillJson<{ claims: { id: string; text: string; sourceIds?: string[] }[]; questions: { type: string; reason: string; dependsOn: string[]; rank: number; missing?: string }[]; inaccessibleLinks: { url: string; status: string; sourceId: string }[] }>(join(fillStatePaths(root).outputs, 'claims-repository', 'claims.json'));
       const claimBy = (text: string) => extraction.claims.find((claim) => claim.text === text)!.id;
       expect(extraction.questions.map((question) => question.type).sort()).toEqual(['access-or-document-needed', 'assumption-check', 'contradiction', 'decision-rationale', 'undocumented-behaviour']);
       const contradiction = extraction.questions.find((question) => question.type === 'contradiction')!;
@@ -302,6 +302,11 @@ describe('a malformed agent answer fails one unit and the run goes on', () => {
       const rationale = extraction.questions.find((question) => question.type === 'decision-rationale')!;
       expect(rationale.dependsOn).toContain(claimBy('The service serves a versioned wiki.'));
       expect(rationale.rank).toBe(1);
+      const readmeClaim = extraction.claims.find((claim) => claim.text === 'README promises a guide the code never shows.')!;
+      expect(extraction.inaccessibleLinks).toHaveLength(1);
+      const unread = extraction.inaccessibleLinks[0]!;
+      expect(unread).toEqual({ url: 'https://example.test/guide', status: 'not-attempted', sourceId: expect.stringMatching(/^src-/) });
+      expect(readmeClaim.sourceIds).toContain(unread.sourceId);
     } finally { await rm(root, { recursive: true, force: true }); }
   }, 60000);
 });
