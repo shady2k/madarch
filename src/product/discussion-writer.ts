@@ -4,12 +4,15 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { parseDiscussionMessage, scanDiscussionMarkers } from './discussion-contract.js';
 import { mapParagraphSelection, renderedMarkdownParagraphs } from './discussion-selection.js';
 import { runGit } from './git.js';
+import { parseDocument } from 'yaml';
+import { fillStatePaths, persistFillUnit, type FillUnit } from './fill-runtime.js';
 
 export type DiscussionRange = { start: number; end: number; quote: string; before: string; after: string; paragraph: number; from: number; to: number };
 export type DiscussionWriteInput = { document: string; range: DiscussionRange; body: string };
 export type DiscussionActionInput = { document: string; thread: string; action: 'reply' | 'resolve'; body?: string };
 export type DiscussionRecoveryInput = { document: string; thread: string; range: DiscussionRange };
 export type DiscussionPageInput = { document: string; body: string };
+export type QuestionAnswerInput = { document: string; answer: string; evidence?: string; answerSection: string };
 export type DiscussionMessageEntry = { message: string; author: string; time: string; body: string };
 export type DiscussionEntry = { message: string; thread: string; document: string; anchor: Record<string, unknown>; author: string; time: string; status: string; body: string; messages?: DiscussionMessageEntry[] };
 export type DiscussionReadResult = { ok: true; entries: DiscussionEntry[] } | { ok: false; status: number; message: string };
@@ -344,6 +347,128 @@ export function restoreProductDiscussionAnchor(product: string, input: Discussio
     }
     return { ok: false, status: 409, message: `not sent: ${(error as Error).message}`, retry: { document: input.document, thread: input.thread, action: 'recover', range: input.range } };
   } finally { locks.delete(root); }
+}
+
+/** Answers an open question by editing its Markdown through the same guarded product-git path as page discussions. */
+export async function answerProductQuestion(product: string, input: QuestionAnswerInput): Promise<DiscussionWriteResult> {
+  const root = resolve(product);
+  if (!safeDocument(input.document) || typeof input.answer !== 'string' || input.answer.trim() === '' || input.answer.length > 20_000 || !/^[A-Za-z][A-Za-z0-9 _-]*$/.test(input.answerSection)) return { ok: false, status: 400, message: 'question answer needs a normalized document, a 1–20000 character Markdown answer, and a configured answer section' };
+  if (locks.has(root)) return { ok: false, status: 409, message: 'another product write is in progress; retry the answer' };
+  locks.add(root);
+  let file = ''; let original = ''; let edited = ''; let committed = false; let parent = ''; let commitHash = '';
+  try {
+    if (!ownRepo(root)) return { ok: false, status: 409, message: `the selected product is not its own git repository: ${JSON.stringify(root)}` };
+    const clean = cleanTree(root); if (!clean.ok) return { ok: false, status: 409, message: clean.message };
+    const absolute = resolveSafePage(root, input.document); if (typeof absolute !== 'string') return { ok: false, status: 404, message: absolute.message };
+    original = readFileSync(absolute, 'utf8');
+    const lines = original.split('\n');
+    const heading = `## ${input.answerSection}`;
+    const headingIndex = lines.findIndex((line) => line.trim() === heading);
+    if (headingIndex < 0) return { ok: false, status: 400, message: `question document has no configured ${heading} section` };
+    let end = headingIndex + 1;
+    while (end < lines.length && !/^ {0,3}##\s/.test(lines[end]!)) end++;
+    const body = lines.slice(headingIndex + 1, end);
+    if (body.some((line) => line.trim() !== '')) return { ok: false, status: 409, message: 'this question already has an answer; reload before editing' };
+    lines.splice(headingIndex + 1, end - headingIndex - 1, '', input.answer.trim(), '');
+    edited = lines.join('\n');
+    if (readFileSync(absolute, 'utf8') !== original) return { ok: false, status: 409, message: 'the question changed while the answer was prepared; reload and retry' };
+    parent = runGit(root, ['rev-parse', 'HEAD']).output;
+    const author = runGit(root, ['config', '--get', 'user.name']);
+    if (!/^[0-9a-f]{40}$/.test(parent) || !author.ok || author.output.trim() === '') return { ok: false, status: 409, message: 'the product git HEAD or author is not configured' };
+    const temporary = `${absolute}.madarch-${newDiscussionUlid()}.tmp`;
+    writeFileSync(temporary, edited, { flag: 'wx', mode: 0o600 }); renameSync(temporary, absolute);
+    file = input.document;
+    const added = runGit(root, ['add', '--', file]); const staged = runGit(root, ['diff', '--cached', '--name-only', '--no-renames']);
+    if (!added.ok || !staged.ok || staged.output.trim() !== file) throw new Error(`could not stage exactly ${file}: ${staged.output}`);
+    await invalidateDependentFillUnits(root, input.document);
+    const result = runGit(root, ['commit', '--quiet', '-m', 'Answer product question']); if (!result.ok) throw new Error(result.output);
+    const head = runGit(root, ['rev-parse', 'HEAD']); if (!head.ok) throw new Error('cannot read answer commit');
+    committed = true; commitHash = head.output;
+    const pushed = runGit(root, ['push', 'origin', 'HEAD']); if (!pushed.ok) throw new Error(`push failed: ${pushed.output}`);
+    return { ok: true, thread: '', message: '', document: input.document, markdown: edited };
+  } catch (error) {
+    if (committed && commitHash !== '' && parent !== '') {
+      const head = runGit(root, ['rev-parse', 'HEAD']); const status = runGit(root, ['status', '--porcelain', '--untracked-files=all']);
+      if (head.ok && head.output === commitHash && status.ok && status.output === '') runGit(root, ['reset', '--hard', parent]);
+    } else if (file !== '') {
+      runGit(root, ['reset', '--', file]);
+      const current = resolve(root, ...file.split('/'));
+      if (readFileSync(current, 'utf8') === edited) { const temp = `${current}.madarch-${newDiscussionUlid()}.tmp`; writeFileSync(temp, original, { flag: 'wx', mode: 0o600 }); renameSync(temp, current); }
+    }
+    return { ok: false, status: 409, message: `not sent: ${(error as Error).message}`, retry: { document: input.document, answer: input.answer } };
+  } finally { locks.delete(root); }
+}
+
+/** Read dependency ids from the design's YAML front matter, with legacy flat fields accepted. */
+function questionDependencies(markdown: string): string[] {
+  const lines = markdown.split(/\r?\n/);
+  if (lines[0] === '---') {
+    const end = lines.findIndex((line, index) => index > 0 && line.trim() === '---');
+    if (end > 0) {
+      const parsed = parseDocument(lines.slice(1, end).join('\n'));
+      if (parsed.errors.length > 0) throw new Error(`question front matter could not be read: ${parsed.errors[0]!.message}`);
+      const metadata = parsed.toJS() as unknown;
+      if (metadata === null || typeof metadata !== 'object' || Array.isArray(metadata)) throw new Error('question front matter must be a YAML mapping');
+      const depends = (metadata as Record<string, unknown>)['depends-on'];
+      if (Array.isArray(depends) && depends.every((item) => typeof item === 'string')) return depends as string[];
+      if (typeof depends === 'string') return depends.split(',').map((value) => value.trim()).filter(Boolean);
+      if (depends !== undefined) throw new Error('question depends-on must be a string or list of strings');
+    }
+  }
+  return markdown.match(/^(?:depends-on|Depends on): (.*)$/m)?.[1]?.split(',').map((value) => value.trim()).filter(Boolean) ?? [];
+}
+
+/** Map claim records embedded in unit outputs back to the synthesis unit that consumes them. */
+function claimConsumerUnits(product: string, units: ReadonlyMap<string, FillUnit>): Map<string, Set<string>> {
+  const consumers = new Map<string, Set<string>>();
+  for (const unit of units.values()) for (const output of unit.outputPaths) {
+    const file = resolve(product, output);
+    if (!file.startsWith(`${resolve(product)}${sep}`) || !file.endsWith('.json') || !existsSync(file)) continue;
+    let parsed: unknown;
+    try { parsed = JSON.parse(readFileSync(file, 'utf8')) as unknown; }
+    catch (error) { throw new Error(`${file}: cannot read claim references for question invalidation: ${(error as Error).message}`); }
+    const visit = (value: unknown): void => {
+      if (Array.isArray(value)) { for (const item of value) visit(item); return; }
+      if (value === null || typeof value !== 'object') return;
+      const record = value as Record<string, unknown>;
+      if (typeof record.id === 'string' && /^clm-[A-Za-z0-9_-]+$/.test(record.id)) {
+        const found = consumers.get(record.id) ?? new Set<string>(); found.add(unit.id); consumers.set(record.id, found);
+      }
+      for (const child of Object.values(record)) visit(child);
+    };
+    visit(parsed);
+  }
+  return consumers;
+}
+
+/** Mark units that declare the answered question document as an input stale; they rerun on next resume. */
+async function invalidateDependentFillUnits(product: string, document: string): Promise<void> {
+  const paths = fillStatePaths(product);
+  if (!existsSync(paths.units)) return;
+  const questionText = readFileSync(resolve(product, ...document.split('/')), 'utf8');
+  const questionId = questionText.match(/^# ([A-Za-z][A-Za-z0-9_-]*)\s*(?:—|:)/m)?.[1];
+  const mentioned = questionDependencies(questionText);
+  const invalidated = new Set([document, ...(questionId === undefined ? [] : [questionId]), ...mentioned]);
+  const units = new Map<string, FillUnit>();
+  for (const name of readdirSync(paths.units).filter((entry) => entry.endsWith('.json')).sort()) {
+    const unitPath = join(paths.units, name);
+    try { units.set(name.slice(0, -5), JSON.parse(readFileSync(unitPath, 'utf8')) as FillUnit); }
+    catch (error) { throw new Error(`${unitPath}: cannot invalidate question-dependent fill unit: ${(error as Error).message}`); }
+  }
+  const claimConsumers = claimConsumerUnits(product, units);
+  for (const id of mentioned) for (const consumer of claimConsumers.get(id) ?? []) invalidated.add(consumer);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const unit of units.values()) {
+      if (invalidated.has(unit.id) || !(unit.dependencies ?? []).some((dependency) => invalidated.has(dependency))) continue;
+      invalidated.add(unit.id); changed = true;
+    }
+  }
+  for (const unit of units.values()) {
+    const inputNamesQuestion = Object.keys(unit.inputHashes).some((key) => key === document || key === questionId || mentioned.includes(key));
+    if ((invalidated.has(unit.id) || inputNamesQuestion) && (unit.status === 'complete' || unit.status === 'running')) await persistFillUnit(product, { ...unit, status: 'stale', error: undefined, finishedAt: undefined });
+  }
 }
 
 /** Creates a page-level thread as one message-only git action. */

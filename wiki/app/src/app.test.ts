@@ -18,7 +18,7 @@ import { groupNav } from './shell.js';
 import { languageStorageKey, setWikiLanguage } from './i18n.js';
 import { addressOfGroup, addressOfPage, routeOf } from './routes.js';
 
-import type { Product, ProductWithAudience, PageList, Page, QuestionList, QuestionEntry, RegistryOffer, StagesIndex } from './api.js';
+import { answerQuestion, type Product, type ProductWithAudience, type PageList, type Page, type QuestionList, type QuestionEntry, type RegistryOffer, type StagesIndex } from './api.js';
 import { type HomeOverviewProjection, registryDisplayLabel } from './overview.js';
 
 beforeAll(async () => {
@@ -1071,6 +1071,19 @@ describe('a page linking by the wiki\'s own address', () => {
   });
 });
 
+describe('question answer API mount path', () => {
+  test('posts under the product mount prefix', async () => {
+    const previous = window.history.state;
+    window.history.pushState({}, '', '/products/demo/questions');
+    let requested = '';
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => { requested = String(input); return new Response('{}', { status: 200 }); }) as typeof fetch;
+    try { await answerQuestion('docs/questions/Q-001.md', '## Decision\nApproved.'); }
+    finally { globalThis.fetch = originalFetch; window.history.replaceState(previous, '', '/'); }
+    expect(requested).toBe('/products/demo/api/questions/answer');
+  });
+});
+
 describe('addresses', () => {
   test('a page address encodes its path', () => {
     expect(addressOfPage('docs/vision.md')).toBe('/p/docs/vision.md');
@@ -1809,6 +1822,21 @@ describe('the open questions', () => {
     expect(view.querySelector('[data-testid="questions-count"]')?.textContent).toContain('1');
     expect(view.querySelector('[data-testid="questions-closed"]')).not.toBeNull();
     expect(view.textContent).toContain('Not applicable: chains are out of the vision.');
+  });
+
+  test('an open question offers a Markdown answer form and posts it to the wiki write path', async () => {
+    const list: QuestionList = { questions: [openQuestion], openCount: 1 };
+    const installed = install((target) => target === '/api/questions/answer'
+      ? { body: {}, status: 201 }
+      : answerFor(product, listWithPages, pagesAtR1, list)(target));
+    goto('/questions'); await intoApp(createElement(App));
+    await until(() => document.querySelector('[data-testid=\"questions-view\"]') !== null, 'questions');
+    const form = document.querySelector('.question-answer-form') as HTMLFormElement;
+    const textarea = form.querySelector('textarea') as HTMLTextAreaElement;
+    textarea.value = '**The answer.**'; textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await until(() => installed.calls.includes('/api/questions/answer'), 'answer request');
+    expect(installed.calls).toContain('/api/questions/answer');
   });
 
   test('answering a question closes it: the count drops and the row moves to the closed read', async () => {

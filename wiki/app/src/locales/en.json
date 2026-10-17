@@ -70,7 +70,12 @@
       "open": "Open",
       "answered": "Answered",
       "not-applicable": "Not applicable"
-    }
+    },
+    "answerLabel": "Your answer (Markdown)",
+    "answerSubmit": "Save answer",
+    "type": "Type",
+    "rank": "Rank",
+    "dependsOn": "Depends on"
   },
   "document": {
     "changed": "changed {{when}}",

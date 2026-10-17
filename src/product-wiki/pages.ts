@@ -436,7 +436,7 @@ class FreshProductWiki implements ProductWiki {
       if (parsed === undefined) continue;
       questions.push(parsed);
     }
-    questions.sort((a, b) => byCodePoint(a.path, b.path));
+    questions.sort((a, b) => b.rank - a.rank || byCodePoint(a.id, b.id));
     const withChange = questions.map((question) => {
       const changedAt = changedAtOf(question.path, this.product.folder);
       return changedAt === undefined ? question : { ...question, changedAt };

@@ -338,6 +338,7 @@ export function createHandler(dependencies: {
       { method: 'GET', path: '/api/page', handle: wiki.page },
       { method: 'GET', path: '/api/discussions', handle: wiki.discussions },
       { method: 'POST', path: '/api/discussions', handle: (request) => serializeState(() => wiki.discussion(request)) },
+      { method: 'POST', path: '/api/questions/answer', handle: (request) => serializeState(() => wiki.answerQuestion(request)) },
       { method: 'GET', path: '/api/stages', handle: () => wiki.stages() },
       { method: 'GET', path: '/api/registry', handle: () => wiki.registry() },
       { method: 'GET', path: '/api/events', handle: wiki.events },
