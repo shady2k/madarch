@@ -7,11 +7,11 @@ import { readProduct } from './manifest.js';
 import { readProductRegistry } from './registry.js';
 import { inventoryRepository, indexRepository, inventoryUnitPlan, structuralIndexUnitPlans, executeInventoryUnit, executeStructuralIndexUnit, type StructuralIndexResult, type RepositoryInventoryResult } from './fill-index.js';
 import { createFillRun, createFillFileStore, fillStatePaths, hashFillInput, hashFillInputs, readFillJson, consumeFillControl, withFillControlLock, type FillRun, type FillStage, type FillUnit, type FillUnitPlan } from './fill-runtime.js';
-import { createHeadlessAgentExecutor, type AgentKind } from './fill-agents.js';
+import { createHeadlessAgentExecutor, type AgentKind, type AgentSettings } from './fill-agents.js';
 import { assembleClaims, createClaimSources, readPinnedGitMaterial, readPinnedGitHistory, type ClaimsExtraction, type ClaimSource, type ExtractedClaim, type ClaimLayer } from './fill-claims.js';
 import { buildCodeMap, persistCodeMap, synthesizePages, applySynthesisPages, type SynthesisClaim, type SynthesizedPage } from './fill-synthesis.js';
 
-export interface StartFillOptions { agent?: AgentKind; maxUnits?: number; executorFactory?: (context: { stage: FillStage; repository: string; prompt: string; onEvent: (event: unknown) => Promise<void> }) => { execute: (prompt: string, signal: AbortSignal, onEvent: (event: unknown) => Promise<void>) => Promise<string> }; }
+export interface StartFillOptions { agent?: AgentKind; model?: string; ompExecutable?: string; ompExtension?: string; ompTools?: string; maxUnits?: number; executorFactory?: (context: { stage: FillStage; repository: string; prompt: string; onEvent: (event: unknown) => Promise<void> }) => { execute: (prompt: string, signal: AbortSignal, onEvent: (event: unknown) => Promise<void>) => Promise<string> }; }
 export interface StartFillResult { run: FillRun; counts: { reused: number; run: number }; questionReview: 'hook-pending-co2d.1'; }
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore','pipe','pipe'] }).trim();
 export function createAgentCallBudget(maxCalls:number, initialCalls=0, onDispatch?: (calls:number)=>Promise<void>): { dispatch<T>(call:()=>Promise<T>):Promise<T>; count:()=>number } { let calls=initialCalls; return { count:()=>calls, dispatch:async<T>(call:()=>Promise<T>)=>{if(calls>=maxCalls)throw new Error(`maxUnits ${maxCalls} exhausted before agent call ${calls+1}`); calls++; await onDispatch?.(calls); return call();} }; }
@@ -32,11 +32,11 @@ async function agentJson(options: StartFillOptions, agent: AgentKind, repository
     return jsonFromText(raw);
   }
   let output = '';
-  const executor = createHeadlessAgentExecutor({ kind: agent, snapshot: repository, promptFor: () => prompt, onEvent: async (event) => { await events(event); }, onRawLine: async (_unit, line) => { output += `${line}\n`; } });
+  const executor = createHeadlessAgentExecutor({ kind: agent, snapshot: repository, promptFor: () => prompt, settings:{model:options.model,executable:options.ompExecutable,extension:options.ompExtension,tools:options.ompTools}, onEvent: async (event) => { await events(event); }, onRawLine: async (_unit, line) => { output += `${line}\n`; } });
   await executor.execute(unit, signal, async (summary) => { await events({ summary }); });
   // Provider stream-json wraps final text in several event shapes; collect only assistant text blocks.
   const texts: string[] = [];
-  for (const line of output.split('\n')) { try { const row = JSON.parse(line); if (typeof row.result === 'string') texts.push(row.result); for (const c of row.message?.content ?? []) if (typeof c.text === 'string') texts.push(c.text); if (typeof row.text === 'string') texts.push(row.text); } catch { /* ignored provider protocol lines */ } }
+  for (const line of output.split('\n')) { try { const row = JSON.parse(line); if (typeof row.result === 'string') texts.push(row.result); for (const c of row.message?.content ?? []) if (typeof c.text === 'string') texts.push(c.text); for (const c of row.assistantMessageEvent?.content ?? []) if (typeof c.text === 'string') texts.push(c.text); if (typeof row.text === 'string') texts.push(row.text); } catch { /* ignored provider protocol lines */ } }
   if (!texts.length) throw new Error(`${agent} returned no structured assistant output for ${stage}`);
   return jsonFromText(texts.at(-1)!);
 }
@@ -50,7 +50,7 @@ async function startFillUnlocked(productFolder: string, options: StartFillOption
   const registry = readProductRegistry(product);
   if (!registry.present || 'refused' in registry) throw new Error(!registry.present ? `Fill requires ${join(product, 'docs/kinds.yaml')}` : registry.refused.map(e => `${e.file}:${e.line}: ${e.message}`).join('\n'));
   const agent = options.agent ?? 'claude';
-  if (agent !== 'claude' && agent !== 'codex') throw new Error(`Unsupported fill agent: ${String(agent)}`);
+  if (agent !== 'claude' && agent !== 'codex' && agent !== 'omp') throw new Error(`Unsupported fill agent: ${String(agent)}`); if(agent==='omp'&&(!options.model||!options.ompExtension)) throw new Error('OMP requires --model and a configured OMP gateway extension.');
   const maxUnits = options.maxUnits ?? 60;
   if (!Number.isInteger(maxUnits) || maxUnits < 1 || maxUnits > 10000) throw new Error('maxUnits must be a whole number from 1 through 10000');
   const repos = identity.product.repos.length ? identity.product.repos.map(r => resolve(product, 'repos', r.name)) : [product];

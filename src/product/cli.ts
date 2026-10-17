@@ -103,7 +103,7 @@ export const USAGE = [
   '   or: madarch repo add <name> <url> [--source <path>] [--mode <link|move|clone>] [--branch <b>] [--product <folder>]',
   '   or: madarch bootstrap [--product <folder>]',
   '   or: madarch clone <url> [--home <folder>]',
-  '   or: madarch fill [--agent claude|codex] [--max-units N] [--json]',
+  '   or: madarch fill [--agent claude|codex|omp] [--model NAME] [--omp-extension PATH] [--omp-executable PATH] [--max-units N] [--json]',
   '   or: madarch version',
   '   or: madarch upgrade [--yes]',
 ].join('\n');
@@ -572,12 +572,12 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
 }
 
 async function fillCommand(args: readonly string[]): Promise<number> {
-  let agent: StartFillOptions['agent'] = 'claude'; let maxUnits = 60; let json = false; const seen = new Set<string>();
-  for (let i=0;i<args.length;i++) { const arg=args[i]!; if (arg==='--json') { json=true; continue; } if (arg==='--help'||arg==='-h') { console.log('usage: madarch fill [--agent claude|codex] [--max-units N] [--json]'); return 0; }
-    if (arg!=='--agent'&&arg!=='--max-units') { console.error(`unknown fill option ${JSON.stringify(arg)}`); return 2; } if(seen.has(arg)){console.error(`repeated fill option ${arg}`);return 2;} seen.add(arg); const value=args[++i]; if(!value||value.startsWith('--')){console.error(`${arg} needs a value`);return 2;}
-    if(arg==='--agent'){if(value!=='claude'&&value!=='codex'){console.error('--agent must be claude or codex');return 2;}agent=value;} else {maxUnits=Number(value);if(!Number.isInteger(maxUnits)||maxUnits<1){console.error('--max-units must be a positive whole number');return 2;}}
+  let agent: StartFillOptions['agent'] = 'claude'; let maxUnits = 60; let model=process.env.MADARCH_FILL_MODEL; let ompExtension=process.env.MADARCH_OMP_EXTENSION; let ompExecutable=process.env.MADARCH_OMP_EXECUTABLE; let json = false; const seen = new Set<string>();
+  for (let i=0;i<args.length;i++) { const arg=args[i]!; if (arg==='--json') { json=true; continue; } if (arg==='--help'||arg==='-h') { console.log('usage: madarch fill [--agent claude|codex|omp] [--model NAME] [--omp-extension PATH] [--omp-executable PATH] [--max-units N] [--json]'); return 0; }
+    if (!['--agent','--max-units','--model','--omp-extension','--omp-executable'].includes(arg)) { console.error(`unknown fill option ${JSON.stringify(arg)}`); return 2; } if(seen.has(arg)){console.error(`repeated fill option ${arg}`);return 2;} seen.add(arg); const value=args[++i]; if(!value||value.startsWith('--')){console.error(`${arg} needs a value`);return 2;}
+    if(arg==='--agent'){if(value!=='claude'&&value!=='codex'&&value!=='omp'){console.error('--agent must be claude, codex, or omp');return 2;}agent=value;} else if(arg==='--model')model=value; else if(arg==='--omp-extension')ompExtension=value; else if(arg==='--omp-executable')ompExecutable=value; else {maxUnits=Number(value);if(!Number.isInteger(maxUnits)||maxUnits<1){console.error('--max-units must be a positive whole number');return 2;}}
   }
-  try { const result=await startFill(process.cwd(),{agent,maxUnits}); if(json) console.log(JSON.stringify(result)); else { console.log(`Fill ${result.run.id}: ${result.run.status}`); console.log(`Units reused: ${result.counts.reused}; run: ${result.counts.run}`); console.log(`Branch: ${result.run.agentBranch}`); console.log(`Watch progress in the wiki with: madarch serve`); console.log('Next: review the proposed pages and their sources.'); } return 0; } catch(error) { console.error((error as Error).message); return 1; }
+  try { const result=await startFill(process.cwd(),{agent,maxUnits,model,ompExtension,ompExecutable}); if(json) console.log(JSON.stringify(result)); else { console.log(`Fill ${result.run.id}: ${result.run.status}`); console.log(`Units reused: ${result.counts.reused}; run: ${result.counts.run}`); console.log(`Branch: ${result.run.agentBranch}`); console.log(`Watch progress in the wiki with: madarch serve`); console.log('Next: review the proposed pages and their sources.'); } return 0; } catch(error) { console.error((error as Error).message); return 1; }
 }
 
 function displayPath(folder: string): string {

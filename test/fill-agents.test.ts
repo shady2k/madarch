@@ -14,9 +14,16 @@ describe('headless agent adapters', () => {
     const claude = agentCommand('claude', '/tmp/code snapshot', 'inspect');
     expect(claude.command).toBe('claude'); expect(claude.cwd).toBe('/tmp/code snapshot');
     expect(claude.args).toEqual(['-p', '--output-format', 'stream-json', '--permission-mode', 'plan', '--permission-prompts', 'none', '--add-dir', '/tmp/code snapshot', 'inspect', '--disallowed-tools', 'Write', 'Edit', 'Bash']);
+    const omp=agentCommand('omp','/source','inspect',{model:'shady2k-gateway/glm-5.3-flash-auto',extension:'/tmp/gateway.js',executable:'/tmp/omp'});
+    expect(omp).toEqual({command:'/tmp/omp',cwd:'/source',args:['-p','--no-session','--no-extensions','-e','/tmp/gateway.js','--model','shady2k-gateway/glm-5.3-flash-auto','--mode','json','--tools','read,grep,glob','inspect']});
+    expect(()=>agentCommand('omp','/source','inspect')).toThrow(/explicit --model/); expect(()=>agentCommand('omp','/source','inspect',{model:'m',extension:'e',tools:'bash'})).toThrow(/not allowed/);
     const codex = agentCommand('codex', '/tmp/code', 'inspect');
     expect(codex.args).toEqual(['exec', '--json', '--sandbox', 'read-only', '--cd', '/tmp/code', 'inspect']);
     expect(() => agentCommand('claude', '', 'inspect')).toThrow();
+  });
+  test('runs OMP via a fake process with configured model, extension and safe tools',async()=>{
+    let invoked:any; const executor=createHeadlessAgentExecutor({kind:'omp',snapshot:'/source',promptFor:()=>'{\"claims\":[]}',settings:{model:'shady2k-gateway/glm-5.3-flash-auto',extension:'/tmp/gateway.js'},onEvent:()=>{},spawn:((command:string,args:string[],options:any)=>{invoked={command,args,options};return fakeProcess(0,'{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"{\\\"claims\\\":[]}\"}],\"usage\":{\"input\":19,\"cacheRead\":6,\"output\":4}}}\n');}) as never});
+    const result=await executor.execute(unit,new AbortController().signal,async()=>{}); expect(invoked.command).toBe('omp'); expect(invoked.args).toContain('shady2k-gateway/glm-5.3-flash-auto'); expect(invoked.args).toContain('read,grep,glob'); expect(result.agentUsage?.elapsedMs).toBeGreaterThanOrEqual(0); expect(result.agentUsage?.inputTokens).toBe(25); expect(result.agentUsage?.outputTokens).toBe(4);
   });
   test('normalizes JSONL provider events and redacts credential-like summary text', () => {
     expect(normalizeAgentEvent('{"type":"assistant","message":"token=secret-value"}', unit, '2026-01-01T00:00:00Z')).toEqual({ unitId: 'unit-1', stage: 'claims', type: 'assistant', timestamp: '2026-01-01T00:00:00Z', payload: { type: 'assistant', summary: '[REDACTED]', data: { type: 'assistant', message: '[REDACTED]' } } });
