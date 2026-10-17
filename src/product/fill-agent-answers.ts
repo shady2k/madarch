@@ -44,6 +44,9 @@ export function validateClaimsAnswer(answer: unknown, kinds: readonly RegistryKi
   const kindByName = new Map(kinds.map((kind) => [kind.name, kind]));
   const knownSourceIds = new Set(sources.map((source) => source.id));
   const errors: string[] = [];
+  // assembleClaims derives one claim id from kind, text and the sorted source-id set and refuses a
+  // duplicate; such an answer must be retried, not passed through to a throw past the unit failure.
+  const seenClaims = new Map<string, number>();
   rows.forEach((row, index) => {
     const at = `claims[${index}]`;
     if (!row || typeof row !== 'object' || Array.isArray(row)) { errors.push(`${at}: claim must be a JSON object`); return; }
@@ -58,6 +61,12 @@ export function validateClaimsAnswer(answer: unknown, kinds: readonly RegistryKi
     else {
       if (ids.length === 0) errors.push(`${at}.sourceIds: must cite at least one source id`);
       for (const id of ids) if (typeof id !== 'string' || !knownSourceIds.has(id)) errors.push(`${at}.sourceIds: unknown source id ${JSON.stringify(id)}`);
+      if (typeof claim.kind === 'string' && typeof claim.text === 'string') {
+        const key = `${claim.kind}\u0000${claim.text}\u0000${[...new Set(ids.filter((id): id is string => typeof id === 'string'))].sort().join('\u0000')}`;
+        const first = seenClaims.get(key);
+        if (first !== undefined) errors.push(`${at}: duplicate of claims[${first}]: the same kind, text and source ids are one claim, return it once`);
+        else seenClaims.set(key, index);
+      }
     }
   });
   return errors;

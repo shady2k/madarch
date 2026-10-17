@@ -67,6 +67,15 @@ describe('claims answer validation collects every error', () => {
     ]);
   });
 
+  test('a duplicated claim is retried instead of reaching assembleClaims and throwing', () => {
+    const duplicate = { claims: [validClaim, { ...validClaim }, { ...validClaim, sourceIds: ['src-1a2b3c4d', 'src-5e6f7081'] }, { ...validClaim, sourceIds: ['src-5e6f7081', 'src-1a2b3c4d'] }] };
+    expect(validateClaimsAnswer(duplicate, kinds, sources)).toEqual([
+      'claims[1]: duplicate of claims[0]: the same kind, text and source ids are one claim, return it once',
+      'claims[3]: duplicate of claims[2]: the same kind, text and source ids are one claim, return it once',
+    ]);
+    expect(validateClaimsAnswer({ claims: [validClaim, { ...validClaim, text: 'A different claim.' }] }, kinds, sources)).toEqual([]);
+  });
+
   test('a missing confidence defaults and an absent claims array is one clear error', () => {
     expect(validateClaimsAnswer({ claims: [{ kind: 'Overview', text: 'x', layer: 'fact', sourceIds: ['src-5e6f7081'] }] }, kinds, sources)).toEqual([]);
     expect(validateClaimsAnswer({ nope: true }, kinds, sources)).toEqual(['Agent output field claims must be an array']);
