@@ -36,13 +36,18 @@ export interface NextStepRecommendation {
 /** The page's Markdown without its fenced code blocks: a badge quoted in an example is not the page's own claim. */
 function withoutFencedCode(markdown: string): string {
   const lines: string[] = [];
-  let fence: string | undefined;
+  // A fence opens with three or more backticks or tildes and closes on a line
+  // of the same character at least as long, carrying nothing after it (the
+  // closing rule CommonMark holds), so a documented example that itself
+  // contains a fence stays inside the scan's blind spot.
+  let fence: { char: string; length: number } | undefined;
   for (const line of markdown.split('\n')) {
-    const marker = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+    const marker = line.match(/^\s{0,3}(`{3,}|~{3,})\s*$/);
     if (fence === undefined) {
-      if (marker !== null) fence = marker[1]![0]!;
+      const opening = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+      if (opening !== null) fence = { char: opening[1]![0]!, length: opening[1]!.length };
       else lines.push(line);
-    } else if (marker !== null && marker[1]![0]! === fence) {
+    } else if (marker !== null && marker[1]![0]! === fence.char && marker[1]!.length >= fence.length) {
       fence = undefined;
     }
   }

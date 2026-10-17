@@ -48,9 +48,10 @@ export function NextStep({ recommendation, pagePaths = [], offer, currentPath }:
   const target = addressForTarget(recommendation.target, pagePaths, recommendation, offer);
   const action = recommendation.rule === 'answer-question'
     ? t('nextStep.answerAction', { title: recommendation.questionTitle ?? '' })
-    : recommendation.rule === 'fill-required' && kindLabel !== undefined
-      ? t('nextStep.fillKindAction', { kind: kindLabel })
-      : recommendation.action;
+    : recommendation.rule === 'review-assumption' ? t('nextStep.reviewAssumptionAction')
+      : recommendation.rule === 'fill-required'
+        ? (kindLabel !== undefined ? t('nextStep.fillKindAction', { kind: kindLabel }) : t('nextStep.fillLinkAction'))
+        : recommendation.rule === 'inspect-update' ? t('nextStep.genericAction') : recommendation.action;
   const reason = recommendation.rule === 'answer-question' ? t('nextStep.answerReason')
     : recommendation.rule === 'review-assumption'
       ? (recommendation.target === currentPath ? t('nextStep.reviewAssumptionReason') : t('nextStep.reviewAssumptionPageReason', { page: recommendation.target }))

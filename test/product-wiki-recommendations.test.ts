@@ -33,6 +33,10 @@ describe('registry-driven next-step recommendations', () => {
   test('an Unverified badge quoted inside a fenced code block is not the page\'s own claim', () => {
     const result = recommendNextStep({ ...base, kinds: [kinds[0]!], pages: [{ ...base.pages[0]!, markdown: '# Vision\n\n```md\n**Unverified**\n```\n' }], pagePath: 'docs/vision.md' });
     expect(result.rule).toBe('registry-hint');
+    const nested = recommendNextStep({ ...base, kinds: [kinds[0]!], pages: [{ ...base.pages[0]!, markdown: '# Vision\n\n````md\n```js\n**Unverified**\n```\n````\n\n**Unverified** stays outside\n' }], pagePath: 'docs/vision.md' });
+    expect(nested.rule).toBe('review-assumption');
+    const infoString = recommendNextStep({ ...base, kinds: [kinds[0]!], pages: [{ ...base.pages[0]!, markdown: '# Vision\n\n````md\n```js unterminated\n**Unverified**\n' }], pagePath: 'docs/vision.md' });
+    expect(infoString.rule).toBe('registry-hint');
   });
   test('the review-assumption reason names the page when the ask is the home', () => {
     const result = recommendNextStep({ ...base, pages: [{ path: 'docs/notes/n1.md', title: 'N-001', markdown: 'text **Unverified** here' }] });
