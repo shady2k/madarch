@@ -102,6 +102,13 @@ export type QuestionEntry = {
   path: string;
   /** The document's configured identity. */
   id: string;
+  /** The typed category, from the question Markdown record. */
+  type?: 'meaning' | 'contradiction' | 'undocumented-behaviour' | 'assumption-check' | 'term' | 'unverifiable' | 'decision-rationale' | 'access-or-document-needed';
+  missing?: 'access' | 'document';
+  prompt?: string;
+  dependsOn?: readonly string[];
+  rank?: number;
+  evidence?: string;
   /** The identity line's title: the question in one line. */
   title: string;
   /** The `## Question` section: what is not known, in full. */
@@ -152,6 +159,7 @@ export type Page = {
   findings?: PageFinding[];
   /** This page's structural findings the registry's reads computed; absent where an older server sent none. */
   structural?: PageStructuralFinding[];
+  questions?: QuestionEntry[];
   check?: PageCheck;
 };
 
@@ -261,6 +269,15 @@ export const getProduct = (signal?: AbortSignal): Promise<ProductWithAudience> =
 
 export const getQuestions = (signal?: AbortSignal): Promise<QuestionList> =>
   readJson<QuestionList>('read the questions', '/api/questions', signal);
+
+export async function answerQuestion(document: string, answer: string): Promise<void> {
+  const response = await fetch(appPath('/api/questions/answer'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ document, answer }) });
+  if (!response.ok) {
+    let message = `the server answered ${response.status}`;
+    try { const body = await response.json() as { message?: unknown }; if (typeof body.message === 'string') message = body.message; } catch { /* status is enough */ }
+    throw new RequestError('answer the question', message);
+  }
+}
 
 export const getArchitecture = (signal?: AbortSignal): Promise<Architecture> =>
   readJson<Architecture>('read the architecture', '/api/architecture', signal);

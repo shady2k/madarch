@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, test } from 'bun:test';
-import { readProductDiscussions, writeProductDiscussion, writeProductDiscussionAction, writeProductPageDiscussion, restoreProductDiscussionAnchor, type DiscussionWriteInput } from '../src/product/discussion-writer.js';
+import { answerProductQuestion, readProductDiscussions, writeProductDiscussion, writeProductDiscussionAction, writeProductPageDiscussion, restoreProductDiscussionAnchor, type DiscussionWriteInput } from '../src/product/discussion-writer.js';
 import { gitEnv } from './git-env.js';
 
 let root: string | undefined;
@@ -32,6 +32,35 @@ function fixture(): { product: string; input: DiscussionWriteInput } {
   return { product: root, input: { document: 'docs/guide.md', range: { start: 9, end: 24, quote: 'Selected phrase', before: '', after: ' here.', paragraph: 0, from: 0, to: 15 }, body: 'A useful comment.' } };
 }
 afterEach(() => { if (root !== undefined) rmSync(join(root, '..'), { recursive: true, force: true }); root = undefined; remote = undefined; });
+
+describe('answerProductQuestion', () => {
+  test('writes Markdown into the configured answer section, commits and pushes only that page, then invalidates dependent units', async () => {
+    const { product } = fixture();
+    const questionPath = join(product, 'docs', 'question.md');
+    writeFileSync(questionPath, '# Q-001 — What now?\nType: meaning\nDepends on: clm-abc\n\n## Question\nWhat should happen?\n\n## Answer\n\n');
+    git(product, ['add', '--', 'docs/question.md']); git(product, ['commit', '--quiet', '-m', 'question']); git(product, ['push', '--quiet', 'origin', 'HEAD']);
+    const paths = join(product, '.madarch', 'fill', 'units'); mkdirSync(paths, { recursive: true });
+    writeFileSync(join(paths, 'dependent.json'), JSON.stringify({ id: 'dependent', stage: 'synthesis', inputHashes: { question: 'docs/question.md' }, dependencies: ['docs/question.md'], status: 'complete', outputPaths: ['.madarch/fill/outputs/dependent/page.json'], attempt: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
+    mkdirSync(join(product, '.madarch', 'fill', 'outputs', 'dependent'), { recursive: true });
+    writeFileSync(join(product, '.madarch', 'fill', 'outputs', 'dependent', 'page.json'), JSON.stringify({ path: 'docs/question.md', claims: [{ id: 'clm-abc' }] }));
+    git(product, ['add', '--', '.madarch/fill/units/dependent.json', '.madarch/fill/outputs/dependent/page.json']); git(product, ['commit', '--quiet', '-m', 'fill state']); git(product, ['push', '--quiet', 'origin', 'HEAD']);
+    const result = await answerProductQuestion(product, { document: 'docs/question.md', answer: '**The answer.**', answerSection: 'Answer' });
+    expect(result).toMatchObject({ ok: true });
+    expect(readFileSync(questionPath, 'utf8')).toContain('## Answer\n\n**The answer.**');
+    expect(git(product, ['show', '--pretty=format:', '--name-only', 'HEAD']).split('\n').filter(Boolean)).toEqual(['docs/question.md']);
+    expect(JSON.parse(readFileSync(join(paths, 'dependent.json'), 'utf8')).status).toBe('stale');
+    expect(git(remote!, ['log', '--format=%s', '-1'])).toBe('Answer product question');
+  });
+
+  test('refuses an already answered question without changing the repository', async () => {
+    const { product } = fixture();
+    const document = 'docs/guide.md';
+    const before = git(product, ['rev-parse', 'HEAD']);
+    const result = await answerProductQuestion(product, { document, answer: 'Answer', answerSection: 'Answer' });
+    expect(result).toMatchObject({ ok: false, status: 400 });
+    expect(git(product, ['rev-parse', 'HEAD'])).toBe(before);
+  });
+});
 
 describe('writeProductDiscussion', () => {
   test('commits and pushes exactly the source page and one v1 message', () => {

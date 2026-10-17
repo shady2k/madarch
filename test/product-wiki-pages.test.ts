@@ -7,6 +7,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { openProductWiki } from '../src/product-wiki/pages.js';
 import { readRegistryServing } from '../src/product-wiki/registry.js';
 import { readProductRegistry } from '../src/product/registry.js';
+import { rankQuestions } from '../src/product-wiki/questions.js';
 
 /**
  * A product's pages read from the working tree (docs/changes/draft-product/
@@ -647,6 +648,7 @@ describe('the kinds registry the wiki serves', () => {
 describe('the product\'s open questions', () => {
   const OPEN = [
     '# Q-004 — Who collects the unclaimed portions?',
+    'Type: meaning',
     '',
     'Concerns: UC-001, FR-002',
     'Who can answer: the cafe owner',
@@ -685,7 +687,7 @@ describe('the product\'s open questions', () => {
       'stages:', '  - id: explore', 'kinds:', '  - name: inquiry', '    prefix: IQ', '    folder: docs/inquiries', '    stage: explore', '    hint: ask the question',
       '    questions:', '      identityPrefix: ASK', '      titleSeparator: \":\"', '      promptSection: Unknown', '      answerSection: Decision', '      answererField: Steward', '      concernsField: Touches', '      notApplicablePrefix: "Out of scope:"',
     ].join('\n') + '\n');
-    write('docs/inquiries/ASK-001.md', '# ASK-001: Is the route known?\n\nSteward: Maintainer\nTouches: IQ-002, ADR-003\n\n## Unknown\nWhich route should be used?\n\n## Decision\nOut of scope: not needed now.\n');
+    write('docs/inquiries/ASK-001.md', '# ASK-001: Is the route known?\nType: decision-rationale\n\nSteward: Maintainer\nTouches: IQ-002, ADR-003\n\n## Unknown\nWhich route should be used?\n\n## Decision\nOut of scope: not needed now.\n');
     write('docs/brief.md', '# Brief\n\n## Readers\nOperators of small labs.\n');
     const product = requireProduct(openProductWiki(folder!));
     const asked = product.questions();
@@ -703,6 +705,7 @@ describe('the product\'s open questions', () => {
     write('docs/questions/Q-001-open.md', OPEN.replace('Q-004', 'Q-001') + '\n');
     write('docs/questions/Q-002-answered.md', [
       '# Q-002 — Should leftovers be delivered?',
+      'Type: meaning',
       '',
       'Concerns: VISION',
       'Who can answer: the product owner',
@@ -718,6 +721,7 @@ describe('the product\'s open questions', () => {
     ].join('\n') + '\n');
     write('docs/questions/Q-003-na.md', [
       '# Q-003 — Chains with their own apps?',
+      'Type: decision-rationale',
       '',
       'Concerns: VISION',
       'Who can answer: the product owner',
@@ -745,6 +749,7 @@ describe('the product\'s open questions', () => {
     write('docs/kinds.yaml', ['contract: 1', 'overview:', '  audience:', '    document: docs/vision.md', '    section: Audience', 'stages:', '  - id: idea', 'kinds:', '  - name: question', '    prefix: Q', '    folder: docs/questions', '    stage: idea', '    hint: write a question', '    questions:', '      identityPrefix: Q', '      titleSeparator: —', '      promptSection: Question', '      answerSection: Answer', '      answererField: Who can answer', '      concernsField: Concerns', '      notApplicablePrefix: "Not applicable:"'].join('\n') + '\n');
     write('docs/questions/Q-005-fenced.md', [
       '# Q-005 — Which kernel do we bind?',
+      'Type: decision-rationale',
       '',
       'Concerns: VISION',
       'Who can answer: the owner',
@@ -841,7 +846,42 @@ describe('the product\'s open questions', () => {
  */
 import { parseQuestion as parseConfiguredQuestion, audienceOf as audienceOfSection } from '../src/product-wiki/questions.js';
 const questionForm = { identityPrefix: 'Q', titleSeparator: '—', promptSection: 'Question', answerSection: 'Answer', answererField: 'Who can answer', concernsField: 'Concerns', notApplicablePrefix: 'Not applicable:' };
-const parseQuestion = (path: string, markdown: string) => parseConfiguredQuestion(path, markdown, questionForm);
+const parseQuestion = (path: string, markdown: string) => parseConfiguredQuestion(path, /^(?:Type|type): /m.test(markdown) || /^---\n[\s\S]*?^type:/m.test(markdown) ? markdown : markdown.replace(/(^|\n)(# Q-[^\n]*\n)/, '$1$2Type: unverifiable\n'), questionForm);
+
+describe('typed question metadata and ranking', () => {
+  test('rejects a missing type instead of classifying it by guess', () => {
+    expect(() => parseConfiguredQuestion('docs/q.md', '# Q-010 — Untyped\n\n## Question\nWhat?\n\n## Answer\n', questionForm)).toThrow('question type is missing');
+  });
+
+  test('supports the eight designed categories with explicit missing access or document', () => {
+    const types = ['meaning', 'contradiction', 'undocumented-behaviour', 'assumption-check', 'term', 'unverifiable', 'decision-rationale', 'access-needed', 'document-needed'];
+    const questions = types.map((type, index) => parseQuestion(`docs/q-${index}.md`, `# Q-${String(index + 1).padStart(3, '0')} — Question ${index}\nType: ${type}\n${type === 'access-needed' ? 'Missing: access\n' : type === 'document-needed' ? 'Missing: document\n' : ''}depends-on: claim-1, page-1, claim-1\n\n## Question\nPrompt ${index}\n\n## Answer\n`));
+    expect(questions.map((question) => question?.type)).toEqual(['meaning', 'contradiction', 'undocumented-behaviour', 'assumption-check', 'term', 'unverifiable', 'decision-rationale', 'access-or-document-needed', 'access-or-document-needed']);
+    expect(questions.slice(0, 7).map((question) => question?.rank)).toEqual([1, 1, 1, 1, 1, 1, 1]);
+    expect(questions[7]?.missing).toBe('access');
+    expect(questions[8]?.missing).toBe('document');
+    expect(() => parseQuestion('docs/q.md', '# Q-010 — Need access\nType: access-or-document-needed\n\n## Question\nNeed help\n\n## Answer\n')).toThrow('Missing must be access or document');
+  });
+
+  test('rejects front matter without a closing delimiter', () => {
+    expect(() => parseConfiguredQuestion('docs/q.md', '---\ntype: meaning\n# Q-013 — Unterminated\n\n## Question\nWhat?\n', questionForm)).toThrow('question front matter is missing its closing delimiter');
+  });
+
+  test('refuses malformed or non-string YAML dependencies', () => {
+    expect(() => parseConfiguredQuestion('docs/q.md', '---\ntype: meaning\ndepends-on: [\n---\n# Q-011 — Broken\n\n## Question\nWhat?\n\n## Answer\n', questionForm)).toThrow('question front matter could not be read');
+    expect(() => parseConfiguredQuestion('docs/q.md', '---\ntype: meaning\ndepends-on: [page-1, 42]\n---\n# Q-012 — Broken dependency\n\n## Question\nWhat?\n\n## Answer\n', questionForm)).toThrow('depends-on must be a string or a list of strings');
+  });
+
+  test('reads designed lower-case YAML front matter without guessing missing detail', () => {
+    const parsed = parseQuestion('docs/q.md', '---\ntype: access-or-document-needed\nmissing: access\ndepends-on:\n  - unit-1\n  - page-1\nevidence: We checked the permission boundary.\n---\n# Q-020 — Need access?\n\n## Question\nWhich permission is needed?\n\n## Answer\nGranted by the owner.\n');
+    expect(parsed).toMatchObject({ type: 'access-or-document-needed', missing: 'access', dependsOn: ['unit-1', 'page-1'], rank: 2, evidence: 'We checked the permission boundary.' });
+  });
+
+  test('ranks by distinct dependencies and breaks ties by stable id', () => {
+    expect(rankQuestions([{ id: 'Q-003', dependsOn: ['a'] }, { id: 'Q-002', dependsOn: ['b', 'c'] }, { id: 'Q-001', dependsOn: ['a', 'b'] }]).map((q) => [q.id, q.rank])).toEqual([['Q-001', 2], ['Q-002', 2], ['Q-003', 1]]);
+  });
+});
+
 const audienceOf = (markdown: string) => audienceOfSection(markdown, 'Audience');
 
 describe('parseQuestion edges, one branch at a time', () => {
@@ -906,6 +946,7 @@ describe('parseQuestion edges, one branch at a time', () => {
   test('Not applicable is the first line only; any other answer is answered; no Answer section is open', () => {
     const base = (answer: string): string => [
       '# Q-007 — Ends?',
+      'Type: assumption-check',
       '',
       'Who can answer: the owner',
       '',

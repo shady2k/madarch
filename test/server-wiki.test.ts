@@ -8,6 +8,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { startServer, type StartedServer } from '../src/index.js';
 import { createPGliteQueryDatabase } from '../src/adapters/pglite-query-database.js';
 import { gitEnv } from './git-env.js';
+const productGitEnv = gitEnv({ GIT_AUTHOR_NAME: 'Question Test', GIT_AUTHOR_EMAIL: 'question@example.test', GIT_COMMITTER_NAME: 'Question Test', GIT_COMMITTER_EMAIL: 'question@example.test' });
 
 /** One real git repository checked out under the product's repos/, committed with a sealed identity. */
 function fixtureCheckout(product: string, name: string, subject: string): string {
@@ -259,6 +260,7 @@ describe('the server\'s product mode', () => {
     mkdirSync(questions, { recursive: true });
     writeFileSync(join(questions, 'Q-001-open.md'), [
       '# Q-001 — Who collects the unclaimed portions?',
+      'Type: meaning',
       '',
       'Concerns: UC-001, FR-002',
       'Who can answer: the cafe owner',
@@ -274,6 +276,7 @@ describe('the server\'s product mode', () => {
     ].join('\n') + '\n');
     writeFileSync(join(questions, 'Q-002-na.md'), [
       '# Q-002 — Should leftovers be delivered?',
+      'Type: decision-rationale',
       '',
       'Concerns: VISION',
       'Who can answer: the product owner',
@@ -294,6 +297,33 @@ describe('the server\'s product mode', () => {
     expect(body.questions.map((each) => each.id)).toEqual(['Q-001', 'Q-002']);
     expect(body.questions.map((each) => each.state)).toEqual(['open', 'not-applicable']);
     expect(body.openCount).toBe(1);
+  });
+
+  test('POST /api/questions/answer commits the Markdown answer and refuses a non-question page', async () => {
+    draft();
+    writeFileSync(join(folder!, 'docs', 'kinds.yaml'), ['contract: 1', 'stages:', '  - id: idea', 'kinds:', '  - name: inquiry', '    prefix: Q', '    folder: docs/questions', '    stage: idea', '    hint: resolve the inquiry', '    questions:', '      identityPrefix: Q', '      titleSeparator: —', '      promptSection: Question', '      answerSection: Answer'].join('\n') + '\n');
+    mkdirSync(join(folder!, 'docs', 'questions'), { recursive: true });
+    writeFileSync(join(folder!, 'docs', 'questions', 'Q-001.md'), '---\ntype: meaning\ndepends-on: [clm-abc]\n---\n# Q-001 — What next?\n\n## Question\nWhat should happen?\n\n## Answer\n\n');
+    writeFileSync(join(folder!, 'docs', 'guide.md'), '# Guide\n\n## Answer\n\n');
+    const unitDirectory = join(folder!, '.madarch', 'fill', 'units');
+    const outputDirectory = join(folder!, '.madarch', 'fill', 'outputs', 'synthesis-guide');
+    mkdirSync(unitDirectory, { recursive: true }); mkdirSync(outputDirectory, { recursive: true });
+    writeFileSync(join(unitDirectory, 'synthesis-guide.json'), JSON.stringify({ id: 'synthesis-guide', stage: 'synthesis', inputHashes: {}, dependencies: [], status: 'complete', outputPaths: ['.madarch/fill/outputs/synthesis-guide/page.json'], attempt: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
+    writeFileSync(join(outputDirectory, 'page.json'), JSON.stringify({ path: 'docs/guide.md', claims: [{ id: 'clm-abc' }] }));
+    const git = (args: string[]): void => { const result = spawnSync('git', args, { cwd: folder!, encoding: 'utf8', env: productGitEnv }); if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`); };
+    git(['init', '--quiet', '--initial-branch=main']); git(['config', 'user.name', 'Question Test']); git(['config', 'user.email', 'question@example.test']); git(['add', '-A']); git(['commit', '--quiet', '-m', 'fixture']);
+    const remote = join(folder!, '..', `question-remote-${basename(folder!)}.git`); spawnSync('git', ['init', '--quiet', '--bare', '--initial-branch=main', remote], { encoding: 'utf8', env: productGitEnv });
+    git(['remote', 'add', 'origin', remote]); git(['push', '--quiet', '-u', 'origin', 'HEAD']);
+    const url = await startProduct();
+    const pageWithQuestion = await (await fetch(`${url}/api/page?path=docs%2Fquestions%2FQ-001.md`)).json() as { questions?: { id: string }[] };
+    expect(pageWithQuestion.questions?.map((question) => question.id)).toContain('Q-001');
+    const pageWithClaimDependentQuestion = await (await fetch(`${url}/api/page?path=docs%2Fguide.md`)).json() as { questions?: { id: string }[] };
+    expect(pageWithClaimDependentQuestion.questions?.map((question) => question.id)).toContain('Q-001');
+    const answer = await fetch(`${url}/api/questions/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ document: 'docs/questions/Q-001.md', answer: '**Answer in Markdown.**' }) });
+    expect(answer.status).toBe(201);
+    expect(readFileSync(join(folder!, 'docs', 'questions', 'Q-001.md'), 'utf8')).toContain('## Answer\n\n**Answer in Markdown.**');
+    const invalid = await fetch(`${url}/api/questions/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ document: 'docs/guide.md', answer: 'Not a question.' }) });
+    expect(invalid.status).toBe(404);
   });
 
   test('GET /api/pages lists the pages with paths, titles, addresses and the revision', async () => {

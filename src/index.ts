@@ -101,6 +101,8 @@ export { createPostgresQueryDatabase, type PostgresQueryDatabaseOptions } from '
 export { createSourceStores, sourceNameProblem, type SourceHead, type SourceStores, type SourceStoresOptions, type SourceStoreResult } from './server/sources.js';
 export { createGraphs, type Graph, type Graphs, type GraphsOptions } from './server/graphs.js';
 export { startServer, type ServerOptions, type StartedServer } from './server/http.js';
+export { answerProductQuestion, type QuestionAnswerInput } from './product/discussion-writer.js';
+export { QUESTION_TYPES, rankQuestions, type QuestionType, type OpenQuestion, type QuestionState } from './product-wiki/questions.js';
 export {
   createWikiPart,
   type WikiPart,

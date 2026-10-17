@@ -18,7 +18,7 @@
  */
 import { basename as nameOf } from 'node:path';
 import type { ProductWiki } from '../product-wiki/pages.js';
-import { readProductDiscussions, writeProductDiscussion, writeProductDiscussionAction, writeProductPageDiscussion, restoreProductDiscussionAnchor } from '../product/discussion-writer.js';
+import { readProductDiscussions, writeProductDiscussion, writeProductDiscussionAction, writeProductPageDiscussion, answerProductQuestion, restoreProductDiscussionAnchor } from '../product/discussion-writer.js';
 import { readProductRepos } from '../product-wiki/repos.js';
 import { readProductModel } from '../product-wiki/model.js';
 import { architectureBundle } from '../product-wiki/architecture.js';
@@ -26,8 +26,8 @@ import { likec4Webcomponent } from '../product-wiki/likec4-webcomponent.js';
 import { renderModel } from '../render/prepare.js';
 import { readStagesIndex, type StagesIndex } from '../wiki/stages.js';
 import { readProductRegistry, registryKit } from '../product/registry.js';
-import { readFileSync, statSync, watch } from 'node:fs';
-import { join as joinPath, normalize, resolve } from 'node:path';
+import { existsSync, readFileSync, statSync, watch } from 'node:fs';
+import { join as joinPath, normalize, resolve, sep } from 'node:path';
 import { readdirSync, readFileSync as readFillFileSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { fillStatePaths, withFillControlLock } from '../product/fill-runtime.js';
@@ -165,6 +165,8 @@ export interface WikiPart {
   discussions: (request: Request) => Handled;
   /** `POST /api/discussions`: validate and write one discussion action. */
   discussion: (request: Request) => Promise<Handled>;
+  /** `POST /api/questions/answer`: write an answer through the product Git path. */
+  answerQuestion: (request: Request) => Promise<Handled>;
   /** `GET /api/stages`: the stage index, read from the product's files now. */
   stages: () => Handled;
   /** `GET /api/registry`: the product's kinds registry as the wiki reads it — the kinds and stages, or the refusals, or absence. */
@@ -181,6 +183,32 @@ export interface WikiPart {
   reposDeclared: boolean;
   /** The app's files: called for a path outside the route table, answering a file or index.html. */
   app: (pathname: string) => Handled | undefined;
+}
+
+/** Resolve persisted fill-unit outputs back to their dependent pages for question backlinks. */
+function dependentFillUnitsForPage(product: string, page: string): Set<string> {
+  const directory = joinPath(product, '.madarch', 'fill', 'units');
+  if (!existsSync(directory)) return new Set();
+  const result = new Set<string>();
+  for (const name of readdirSync(directory).filter((entry) => entry.endsWith('.json')).sort()) {
+    const file = joinPath(directory, name);
+    try {
+      const unit = JSON.parse(readFileSync(file, 'utf8')) as { id?: unknown; outputPaths?: unknown };
+      if (typeof unit.id === 'string' && Array.isArray(unit.outputPaths) && unit.outputPaths.includes(page)) result.add(unit.id);
+      if (typeof unit.id === 'string' && Array.isArray(unit.outputPaths)) for (const output of unit.outputPaths) {
+        if (typeof output !== 'string') continue;
+        const resolvedOutput = resolve(product, output);
+        if (!resolvedOutput.startsWith(`${resolve(product)}${sep}`) || !resolvedOutput.endsWith('.json') || !existsSync(resolvedOutput)) continue;
+        const data = JSON.parse(readFileSync(resolvedOutput, 'utf8')) as { path?: unknown; claims?: unknown };
+        if (data.path === page && Array.isArray(data.claims)) for (const claim of data.claims) {
+          if (claim !== null && typeof claim === 'object' && typeof (claim as { id?: unknown }).id === 'string') result.add((claim as { id: string }).id);
+        }
+      }
+    } catch (error) {
+      throw new Error(`${file}: cannot read dependent fill-unit output paths: ${(error as Error).message}`);
+    }
+  }
+  return result;
 }
 
 /** Builds the wiki part from an already-opened product wiki and the app folder's path. */
@@ -272,6 +300,27 @@ export function createWikiPart(
       if (!result.ok) return refused(result.status, { field: 'path', message: result.message });
       return { response: json(200, { discussions: result.entries }) };
     },
+    answerQuestion: async (request: Request): Promise<Handled> => {
+      const declared = request.headers.get('content-length');
+      if (declared !== null && Number(declared) > 1_000_000) return refused(413, { message: 'the answer request is larger than 1 MB' });
+      const text = await request.text();
+      if (Buffer.byteLength(text) > 1_000_000) return refused(413, { message: 'the answer request is larger than 1 MB' });
+      let body: unknown;
+      try { body = JSON.parse(text); } catch { return refused(400, { message: 'the answer request body must be valid JSON' }); }
+      if (body === null || typeof body !== 'object' || Array.isArray(body)) return refused(400, { message: 'the answer request must be an object' });
+      const value = body as Record<string, unknown>;
+      if (typeof value.document !== 'string' || typeof value.answer !== 'string') return refused(400, { message: 'the answer request needs a question document and Markdown answer' });
+      const registry = readProductRegistry(wiki.product.folder);
+      const questionKind = registry.present && !('refused' in registry) ? registry.kinds.find((kind) => kind.questions !== undefined) : undefined;
+      if (questionKind === undefined) return refused(409, { message: 'the product has no configured question kind' });
+      const questions = wiki.questions();
+      if (!questions.ok) return refused(500, { message: questions.message });
+      const question = questions.questions.find((entry) => entry.path === value.document && entry.state === 'open' && (entry.path === questionKind.folder || entry.path.startsWith(questionKind.folder.replace(/\/$/, '') + '/')));
+      if (question === undefined) return refused(404, { field: 'document', message: 'the document is not an open question in the configured question folder' });
+      const result = await answerProductQuestion(wiki.product.folder, { document: value.document, answer: value.answer, answerSection: questionKind.questions!.answerSection });
+      if (!result.ok) return refused(result.status, { field: 'document', message: result.message });
+      return { response: json(201, result) };
+    },
     discussion: async (request: Request): Promise<Handled> => {
       const declared = request.headers.get('content-length');
       if (declared !== null && Number(declared) > 1_000_000) return refused(413, { message: 'the discussion request is larger than 1 MB' });
@@ -336,6 +385,9 @@ export function createWikiPart(
           ? refused(404, { field: 'path', message: asked.message })
           : refused(500, { field: 'path', message: asked.message });
       }
+      const questionList = wiki.questions();
+      const unitIdsForPage = dependentFillUnitsForPage(wiki.product.folder, asked.page.path);
+      const dependentQuestions = questionList.ok ? questionList.questions.filter((question) => question.path === asked.page.path || question.dependsOn.includes(asked.page.path) || (asked.page.document?.id !== undefined && question.dependsOn.includes(asked.page.document.id)) || question.dependsOn.some((id) => unitIdsForPage.has(id))) : [];
       return {
         response: json(200, {
           path: asked.page.path,
@@ -343,6 +395,7 @@ export function createWikiPart(
           markdown: asked.page.markdown,
           changedAt: asked.page.changedAt,
           document: asked.page.document,
+          questions: dependentQuestions,
           findings: asked.page.findings,
           structural: asked.page.structural,
           check: asked.page.check,

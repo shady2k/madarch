@@ -70,7 +70,12 @@
       "open": "Открыт",
       "answered": "Отвечен",
       "not-applicable": "Не применимо"
-    }
+    },
+    "answerLabel": "Ваш ответ (Markdown)",
+    "answerSubmit": "Сохранить ответ",
+    "type": "Тип",
+    "rank": "Ранг",
+    "dependsOn": "Зависит от"
   },
   "document": {
     "changed": "изменён {{when}}",

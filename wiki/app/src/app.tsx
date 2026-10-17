@@ -266,7 +266,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
         ) : route.name === 'stage' ? (
           <StageRoute key={"stage:" + route.stage + ":" + list.revision} stage={route.stage} revision={list.revision} offer={data.registry} />
         ) : route.name === 'questions' ? (
-          <QuestionsView key={"questions:" + list.revision} questions={data.questions ?? null} />
+          <QuestionsView key={"questions:" + list.revision} questions={data.questions ?? null} onAnswered={() => setRefresh((value) => value + 1)} />
 
         ) : (
           <PageReader
@@ -719,6 +719,7 @@ export function PageReader({
         </article>)}
       </aside> : null}
       <DocumentLinks page={page} />
+      {(page.questions?.length ?? 0) > 0 && <section className="doc-links-row" data-testid="dependent-questions"><h2 className="doc-links-head">{t('questions.title')}</h2><ul className="doc-links-list">{page.questions!.map((question) => <li className="doc-links-item" key={question.id}><PageLink path={question.path} className="doc-links-link"><span className="doc-links-id">{question.id}</span><span className="doc-links-title">{question.title}</span></PageLink><span className="questions-row-fact">{question.type}{question.rank === undefined ? '' : ` · ${t('questions.rank')}: ${question.rank}`}</span></li>)}</ul></section>}
       <StructuralBlock page={page} />
       <FindingsBlock page={page} />
     </main>
