@@ -352,7 +352,11 @@ export function createHandler(dependencies: {
         if (asked.agent !== 'claude' && asked.agent !== 'codex' && asked.agent !== 'omp') return refused(400, { message: 'agent must be claude, codex, or omp' });
         if (asked.maxUnits !== undefined && (!Number.isInteger(asked.maxUnits) || (asked.maxUnits as number) < 1 || (asked.maxUnits as number) > 10000)) return refused(400, { message: 'maxUnits must be a whole number from 1 through 10000' });
         if (asked.model !== undefined && typeof asked.model !== 'string') return refused(400, { message: 'model must be a string' });
-        const askedModel = typeof asked.model === 'string' ? asked.model : undefined;
+        // The wizard's field is always sent for omp, an empty string
+        // included: it means the reader left the field to the machine's
+        // setting, so it must not become the choice yet not defeat the
+        // environment the refusal message and both hints advertise.
+        const askedModel = typeof asked.model === 'string' && asked.model !== '' ? asked.model : undefined;
         // The omp adapter needs an explicit model and a gateway extension. The
         // model is the per-machine setting (the wizard's field, or the
         // environment the CLI reads); the extension stays environment-only.

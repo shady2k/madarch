@@ -192,6 +192,35 @@ describe('the server\'s product mode', () => {
     }
   });
 
+  test('an empty wizard model field falls back to MADARCH_FILL_MODEL and is not saved as the choice', async () => {
+    // The wizard sends the field even when the reader left it empty; the
+    // empty value means the environment's setting, not an empty choice.
+    const choicePath=agentSettingsPath(); const choiceExisted=existsSync(choicePath); const choiceBefore=choiceExisted?readFileSync(choicePath,'utf8'):undefined;
+    const hadModel=process.env.MADARCH_FILL_MODEL!==undefined; const modelBefore=process.env.MADARCH_FILL_MODEL;
+    const hadExtension=process.env.MADARCH_OMP_EXTENSION!==undefined; const extensionBefore=process.env.MADARCH_OMP_EXTENSION;
+    try {
+      process.env.MADARCH_FILL_MODEL='env-model'; process.env.MADARCH_OMP_EXTENSION='/tmp/madarch-omp-extension.mjs';
+      delete process.env.MADARCH_OMP_EXECUTABLE;
+      rmSync(choicePath,{force:true});
+      draft(); builtApp();
+      const init=spawnSync('git',['init','--quiet','--initial-branch=main'],{cwd:folder!,env:gitEnv(),encoding:'utf8'});expect(init.status).toBe(0);
+      writeFileSync(join(folder!,'README.md'),'# Example\n');spawnSync('git',['add','-A'],{cwd:folder!,env:gitEnv()});
+      spawnSync('git',['commit','--quiet','-m','fixture'],{cwd:folder!,env:{...gitEnv(),GIT_AUTHOR_NAME:'Fixture',GIT_AUTHOR_EMAIL:'fixture@example.com',GIT_COMMITTER_NAME:'Fixture',GIT_COMMITTER_EMAIL:'fixture@example.com'}});
+      let captured: {agent?:string;model?:string;ompExtension?:string}|undefined;
+      const url=await startProduct({startFill:async (_product,input)=>{captured=input as {agent?:string;model?:string;ompExtension?:string};return {run:{id:'run-omp'},counts:{run:0,reused:0},questionReview:'hook-pending-co2d.1'} as never;}});
+      const empty=await fetch(`${url}/api/fill/start`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({agent:'omp',model:''})});
+      expect(empty.status).toBe(202);expect(await empty.json()).toMatchObject({accepted:true,status:'starting'});
+      await new Promise((resolve)=>setTimeout(resolve,50));
+      expect(captured).toMatchObject({agent:'omp',model:'env-model',ompExtension:'/tmp/madarch-omp-extension.mjs'});
+      // An empty field does not overwrite the machine's saved choice.
+      expect(await readChosenModel()).toBeUndefined();
+    } finally {
+      if (hadModel) process.env.MADARCH_FILL_MODEL=modelBefore; else delete process.env.MADARCH_FILL_MODEL;
+      if (hadExtension) process.env.MADARCH_OMP_EXTENSION=extensionBefore; else delete process.env.MADARCH_OMP_EXTENSION;
+      if (choiceExisted && choiceBefore!==undefined) writeFileSync(choicePath, choiceBefore); else if (!choiceExisted) rmSync(choicePath,{force:true});
+    }
+  });
+
   test('fill inventory scans declared repository checkouts instead of product documents', async () => {
     draft(); builtApp();
     writeFileSync(join(folder!, 'workspace.yaml'), 'schemaVersion: 1\nid: demo\nname: Demo\nrepos:\n  - name: sample\n    url: https://example.invalid/sample.git\n');

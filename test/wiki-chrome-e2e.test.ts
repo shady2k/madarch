@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from '../scripts/chromium.js';
 import { startServer, type StartedServer } from '../src/index.js';
+import { fillStatePaths, type FillRun } from '../src/product/fill-runtime.js';
 
 /**
  * Reader acceptance for dead wiki chrome against the built app and real server.
@@ -121,6 +122,17 @@ runDescribe('wiki reader chrome (built app and Chromium)', () => {
 
   test('first-run overview cards render at the expected top padding and repository names stay intact', async () => {
     await page.goto(`${server!.url}/`, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('[data-testid="fill-wizard"]');
+    // The wizard is the full-width first-run view: the product overview stays
+    // out of the way until the fill starts, and returns once a run exists.
+    const overviewHidden = await page.evaluate(() => getComputedStyle(document.querySelector('main#home') as HTMLElement).display === 'none');
+    expect(overviewHidden).toBe(true);
+    const fillPaths = fillStatePaths(fixture!.product);
+    mkdirSync(join(fillPaths.root, 'units'), { recursive: true });
+    const stoppedRun = { schemaVersion: 1, id: 'e2e-overview', productSnapshot: { repository: 'Fieldnote', defaultBranch: 'main', commit: 'fixture', registryHash: 'fixture' }, agentBranch: 'main', status: 'stopped', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } satisfies FillRun;
+    writeFileSync(fillPaths.run, JSON.stringify(stoppedRun));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => document.querySelector('main#home') !== null && getComputedStyle(document.querySelector('main#home') as HTMLElement).display !== 'none', { timeout: 15000 });
     await page.waitForSelector('[data-testid="home-repositories"]');
     const metrics = await page.evaluate(() => {
       const card = document.querySelector('[data-kind="architecture"]') as HTMLElement;
@@ -146,7 +158,7 @@ runDescribe('wiki reader chrome (built app and Chromium)', () => {
     expect(metrics.longName.nameHeight).toBeLessThanOrEqual(metrics.viewportWidth <= 500 ? 60 : 22);
     expect(metrics.longName.nameWidth).toBeLessThan(metrics.longName.rowClient);
     expect(metrics.longName.rowScroll).toBeLessThanOrEqual(metrics.longName.rowClient);
-    expect(metrics.headingText).toBe('Architecture');
+    expect(metrics.headingText).toBe(LANGUAGE === 'ru' ? 'Архитектура' : 'Architecture');
     const overviewScreenshot = `${SCREENSHOT}.overview.png`;
     await mkdirSync(join(overviewScreenshot, '..'), { recursive: true });
     await page.screenshot({ path: overviewScreenshot, fullPage: true });
