@@ -17,6 +17,8 @@ export type FillRunStatus = 'running' | 'paused' | 'stopped' | 'complete' | 'blo
 export interface FillRun {
   schemaVersion: number;
   id: string;
+  /** The one fill this run belongs to: a blocked run resumes under a new id but the same chain, and a completed fill ends its chain. */
+  fillChainId?: string;
   productSnapshot: { repository: string; defaultBranch: string; commit: string; registryHash: string };
   agentBranch: string;
   status: FillRunStatus;

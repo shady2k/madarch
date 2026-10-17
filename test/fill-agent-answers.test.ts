@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { asArray, asSourceIdList, claimRowsFromAnswer, parseAgentAnswer, requestValidatedAgentAnswer, validateClaimsAnswer } from '../src/product/fill-agent-answers.js';
+import { asArray, asSourceIdList, claimRowsFromAnswer, parseAgentAnswer, parseSynthesisAnswer, requestValidatedAgentAnswer, validateClaimsAnswer } from '../src/product/fill-agent-answers.js';
 import { hashFillInput, readFillJson, fillStatePaths, type FillRun, type FillUnit } from '../src/product/fill-runtime.js';
 import { startFill } from '../src/product/fill.js';
 import type { ClaimSource } from '../src/product/fill-claims.js';
@@ -239,13 +239,12 @@ describe('a malformed agent answer fails one unit and the run goes on', () => {
     } finally { await rm(root, { recursive: true, force: true }); }
   }, 60000);
 
-  test('a corrected answer on the retry completes the claims unit', async () => {
+  test('a corrected answer completes the claims unit; a synthesis answer still invalid fails the synthesis unit and the run goes on', async () => {
     const { root } = await productFixture();
     try {
       let call = 0;
       const prompts: string[] = [];
-      // Synthesis is out of scope here: its first answer is refused, which stops the run after claims.
-      await expect(startFill(root, { executorFactory: () => ({ execute: async (prompt: string) => {
+      const result = await startFill(root, { executorFactory: () => ({ execute: async (prompt: string) => {
         prompts.push(prompt);
         call++;
         if (call === 1) return malformedAnswer;
@@ -256,13 +255,213 @@ describe('a malformed agent answer fails one unit and the run goes on', () => {
           return JSON.stringify({ claims: [{ ...validClaim, sourceIds: [catalogue[0]!.id] }] });
         }
         return 'not json on purpose';
-      } }) })).rejects.toThrow('Agent returned no JSON object');
-      const unit = await readFillJson<FillUnit>(join(fillStatePaths(root).units, 'claims-repository.json'));
-      expect(unit.status).toBe('complete');
+      } }) });
+      // The synthesis stage retries its answer with the exact errors, then fails its one unit.
+      expect(prompts).toHaveLength(5);
+      expect(prompts[2]!).toContain('Target: {"name":"overview"');
+      expect(prompts[3]).toContain('- Agent returned no JSON object');
+      expect(prompts[3]).toContain('Your previous answer was');
+      expect(result.run.status).toBe('blocked');
+      expect(result.agentCalls).toEqual({ used: 5, cap: 60 });
+      const claims = await readFillJson<FillUnit>(join(fillStatePaths(root).units, 'claims-repository.json'));
+      expect(claims.status).toBe('complete');
       expect(prompts[1]).toContain('- claims[0].sourceIds: must be an array of source ids');
       const extraction = await readFillJson<{ claims: { sourceIds: string[] }[] }>(join(fillStatePaths(root).outputs, 'claims-repository', 'claims.json'));
       expect(extraction.claims).toHaveLength(1);
       expect(extraction.claims[0]!.sourceIds).toHaveLength(1);
+      const synthesis = await readFillJson<FillUnit>(join(fillStatePaths(root).units, 'synthesis-pages.json'));
+      expect(synthesis.status).toBe('blocked');
+      expect(synthesis.attempt).toBe(1);
+      expect(synthesis.error).toContain('Agent returned no JSON object');
+      const raw = await readFillJson<{ unitId: string; attempts: number; errors: string[]; answers: string[] }>(join(fillStatePaths(root).outputs, 'synthesis-pages', 'invalid-answers.json'));
+      expect(raw.unitId).toBe('synthesis-pages');
+      expect(raw.attempts).toBe(3);
+      expect(raw.answers.every((answer) => answer === 'not json on purpose')).toBe(true);
+      const report = await readFillJson<{ failedUnits: { id: string; errors: string[] }[]; agentCalls: { used: number; cap: number } }>(join(fillStatePaths(root).root, 'report.json'));
+      expect(report.failedUnits.map((unit) => unit.id)).toEqual(['synthesis-pages']);
+      expect(report.agentCalls).toEqual({ used: 5, cap: 60 });
+    } finally { await rm(root, { recursive: true, force: true }); }
+  }, 60000);
+});
+
+// ---- synthesis answers: the checkpoint's real model answers are the fixtures ----
+
+const fixtureDir = join(import.meta.dir, 'fixtures', 'fill-synthesis-answers');
+const fixtureAnswer = async (name: string): Promise<unknown> => {
+  const raw = JSON.parse(await readFile(join(fixtureDir, `checkpoint-1-${name}.json`), 'utf8')).raw as string;
+  const parsed = parseAgentAnswer(raw);
+  if (!parsed.ok) throw new Error(`fixture ${name} must be parseable: ${parsed.error}`);
+  return parsed.value;
+};
+const supportedClaims = await readFile(join(fixtureDir, 'supported-claims.json'), 'utf8').then((text) => JSON.parse(text) as { id: string; layer: string; sourceIds: string[] }[]);
+const catalogue = await readFile(join(fixtureDir, 'source-catalogue.json'), 'utf8').then((text) => JSON.parse(text) as { id: string }[]);
+const synthesisRules = { claims: supportedClaims, sourceIds: catalogue.map((source) => source.id), absenceAllowed: false };
+
+describe('synthesis answer parsing against the recorded checkpoint answers', () => {
+  test('the stored best answer (call 007) becomes a full page: prose/proseSegments and claim-id attribution are tolerated', async () => {
+    const parsed = parseSynthesisAnswer(await fixtureAnswer('007'), synthesisRules);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.title).toBe('Training-Source Commerce Platform: Product Overview');
+    expect(parsed.value.segments).toHaveLength(7);
+    // Claims resolve to the supplied records: the answer may not alter a claim.
+    expect(parsed.value.claims).toEqual(supportedClaims);
+    const segment = parsed.value.segments[0]!;
+    expect(segment.claimIds).toEqual(['clm-5886d7ab1752d4ed07ac060c']);
+    expect(segment.sourceIds).toEqual(['src-eb6f77d808b91471e95a045b']);
+    expect(segment.text).toContain('order lifecycle first');
+    // The body is derived from the segments when the answer does not carry one.
+    expect(parsed.value.body).toContain(parsed.value.segments.map((s) => s.text.trim()).join('\n\n').slice(0, 40));
+  });
+
+  test('the stored call 003 answer (prose keys) is parsed but refused with exact, fixable errors', async () => {
+    const parsed = parseSynthesisAnswer(await fixtureAnswer('003'), synthesisRules);
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    // prose moves into text; the remaining errors say exactly what is missing.
+    expect(parsed.errors).toContain('segments[2].sourceIds: unknown source id "src-35de00d87d0e574454d00490203f35cc"');
+    expect(parsed.errors.every((error) => error.includes('names no supported claim') || error.includes('unknown source id') || error.startsWith('claims:'))).toBe(true);
+  });
+
+  test('the stored call 005 answer (proseSegments key) parses prose but is refused until claims are named', async () => {
+    const parsed = parseSynthesisAnswer(await fixtureAnswer('005'), synthesisRules);
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    // The answer copies the supplied claims but never names which segment rests on which claim.
+    expect(parsed.errors.filter((error) => error.includes('names no supported claim'))).toHaveLength(11);
+    expect(parsed.errors.every((error) => error.includes('names no supported claim'))).toBe(true);
+  });
+
+  test('a schema-shaped answer with every documented field passes, and a wrong claim id is refused', () => {
+    const claim = supportedClaims.find((row) => row.layer === 'fact')!;
+    const good = { title: 'Overview', segments: [{ claimIds: [claim.id], text: 'The system was built up incrementally.', layer: 'fact', sourceIds: claim.sourceIds }], claims: [claim] };
+    expect(parseSynthesisAnswer(good, synthesisRules).ok).toBe(true);
+    const altered = { ...good, segments: [{ ...good.segments[0]!, claimIds: ['clm-not-supplied'] }] };
+    const refused = parseSynthesisAnswer(altered, synthesisRules);
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.errors.join('\n')).toContain('unknown claim id "clm-not-supplied"');
+  });
+
+
+  test('an answer that echoes claims but carries no prose segments is refused, so it retries instead of crashing past the reader', () => {
+    const claim = supportedClaims.find((row) => row.layer === 'fact')!;
+    const parsed = parseSynthesisAnswer({ title: 'T', claims: [claim] }, { ...synthesisRules, absenceAllowed: true });
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.errors).toEqual(['Agent output field segments must be an array (a "proseSegments" key is also accepted)', 'segments: must contain the prose segments the named claims support, or return no claims for an absent kind']);
+  });
+
+  test('a segment citing a source no named claim covers is refused, and an overview with no content is refused', () => {
+    const claim = supportedClaims[0]!;
+    const good = { title: 'T', segments: [{ claimIds: [claim.id], text: 'x.', layer: 'fact', sourceIds: claim.sourceIds }], claims: [claim] };
+    const uncovered = { ...good, segments: [{ ...good.segments[0]!, sourceIds: ['src-0d3fa8b9c9e96b02f486b77a'] }] };
+    const parsed = parseSynthesisAnswer(uncovered, synthesisRules);
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.errors.join('\n')).toContain('cited source "src-0d3fa8b9c9e96b02f486b77a" is not named by any claim');
+    expect(parseSynthesisAnswer({ title: 'T', segments: [], claims: [] }, synthesisRules).ok).toBe(false);
+    const kindPage = { ...synthesisRules, absenceAllowed: true };
+    expect(parseSynthesisAnswer({ title: 'T', segments: [], claims: [] }, kindPage)).toEqual({ ok: true, value: { title: 'T', body: '', claims: [], segments: [] } });
+  });
+});
+
+// ---- madarch-tzte.15: the call cap holds across resumes; attempts survive restarts ----
+
+const readAgentCalls = async (root: string): Promise<{ chainId: string; runId: string; calls: number }> =>
+  readFillJson(join(fillStatePaths(root).root, 'agent-calls.json'));
+
+describe('the agent-call cap bounds one fill across its resumes', () => {
+  test('a resume carries the spent calls of the chain and refuses to call past the cap', async () => {
+    const { root } = await productFixture();
+    try {
+      const bad = '{"claims":[{"kind":"Overview","text":"x","layer":"fact","confidence":0.9,"sourceIds":42}]}';
+      // Run 1: two spent calls, the cap stops the third agent call mid-claims-unit.
+      await expect(startFill(root, { maxUnits: 2, executorFactory: () => ({ execute: async () => bad }) })).rejects.toThrow('maxUnits 2 exhausted before agent call 3');
+      const spent = await readAgentCalls(root);
+      expect(spent.calls).toBe(2);
+      const runOneId = (await readFillJson<FillRun>(fillStatePaths(root).run)).id;
+      // Same fill resumed: the two calls of the blocked run count toward the same cap.
+      const result = await startFill(root, { maxUnits: 5, executorFactory: () => ({ execute: async () => bad }) });
+      expect(result.run.status).toBe('blocked');
+      expect(result.agentCalls).toEqual({ used: 5, cap: 5 });
+      // counts.run names this run's calls; the chain-wide figure lives in agentCalls.used.
+      expect(result.counts.run).toBe(3);
+      const resumed = await readAgentCalls(root);
+      expect(resumed.chainId).toBe(runOneId);
+      expect(resumed.calls).toBe(5);
+      // A unit left 'running' by the stopped first start keeps its attempt count.
+      const claims = await readFillJson<FillUnit>(join(fillStatePaths(root).units, 'claims-repository.json'));
+      expect(claims.attempt).toBe(2);
+      // Only completed work is reused: the deterministic inventory unit, not the failed claims one.
+      expect(result.counts.reused).toBe(1);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  }, 60000);
+
+  test('a fill blocked before its first agent call does not inherit a completed fill\u2019s spent budget', async () => {
+    const { root } = await productFixture();
+    try {
+      // A previous fill completed and spent its whole budget; agent-calls.json still holds it.
+      const runState = fillStatePaths(root);
+      await mkdir(runState.root, { recursive: true });
+      const commit = git(root, 'rev-parse', 'HEAD').trim();
+      const previous: FillRun = { schemaVersion: 1, id: 'prior-complete', fillChainId: 'prior-complete', productSnapshot: { repository: root, defaultBranch: 'main', commit, registryHash: hashFillInput('contract: 1\nstages:\n  - id: overview\n    name: Overview\nkinds:\n  - name: Overview\n    prefix: OV\n    folder: docs/overview\n    stage: overview\n    hint: Describe the product\n') }, agentBranch: 'madarch/fill/prior-complete', status: 'complete', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      await writeFile(runState.run, JSON.stringify(previous));
+      await writeFile(join(runState.root, 'agent-calls.json'), JSON.stringify({ chainId: 'prior-complete', runId: 'prior-complete', calls: 60 }));
+      // A new fill ran and blocked before dispatching any agent call; its run record owns the chain.
+      const blocked: FillRun = { ...previous, id: 'blocked-early', fillChainId: undefined, status: 'blocked', agentBranch: 'madarch/fill/blocked-early' };
+      await writeFile(runState.run, JSON.stringify(blocked));
+      const result = await startFill(root, { maxUnits: 60, executorFactory: () => ({ execute: async (prompt: string) => prompt.includes('Allowed source records') ? malformedAnswer : 'not json' }) });
+      // The spent 60 calls of the unrelated fill are not carried; this fill got its own fresh chain.
+      expect(result.agentCalls).toEqual({ used: 3, cap: 60 });
+      const saved = await readAgentCalls(root);
+      // The resumed run joins the blocked fill's chain, seeded by that run's own id, not the completed one.
+      expect(saved.chainId).toBe('blocked-early');
+      expect(saved.calls).toBe(3);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  }, 60000);
+
+  test('a completed fill ends the chain: the next fill starts a fresh budget and the synthesis attempt count survives', async () => {
+    const { root } = await productFixture();
+    try {
+      const validAnswer = (prompt: string): string => {
+        if (prompt.includes('Allowed source records')) {
+          const marker = 'Allowed source records (cite these ids exactly):\n';
+          const tail = prompt.slice(prompt.indexOf(marker) + marker.length);
+          const catalogue = JSON.parse(tail.slice(tail.indexOf('['), tail.indexOf(']') + 1)) as { id: string }[];
+          return JSON.stringify({ claims: [{ ...validClaim, sourceIds: [catalogue[0]!.id] }] });
+        }
+        if (prompt.includes('Supported claims:')) {
+          const claimsJson = prompt.slice(prompt.indexOf('Supported claims: ') + 'Supported claims: '.length, prompt.indexOf('\nSource catalogue:'));
+          const supplied = JSON.parse(claimsJson) as { id: string; sourceIds: string[] }[];
+          const claim = supplied[0]!;
+          return JSON.stringify({ title: 'Example overview', segments: [{ claimIds: [claim.id], text: `The example serves a wiki, per claim ${claim.id}.`, layer: 'fact', sourceIds: claim.sourceIds }], claims: [claim] });
+        }
+        return JSON.stringify({ findings: [] });
+      };
+      const executor = () => ({ execute: async (prompt: string) => validAnswer(prompt) });
+      const first = await startFill(root, { maxUnits: 60, executorFactory: executor });
+      expect(first.run.status).toBe('complete');
+      expect(first.agentCalls).toEqual({ used: 5, cap: 60 });
+      const firstChain = await readAgentCalls(root);
+      expect(firstChain.chainId).toBe(first.run.id);
+      expect(firstChain.calls).toBe(5);
+      // A second fill of the same completed product starts a fresh chain: the first fill's spent
+      // calls do not count. Its synthesis answer refuses, so the run blocks before any write.
+      // The first fill's stage commit changed the product docs, so the claims unit runs again;
+      // it answers correctly, and only the synthesis answer refuses, blocking before any write.
+      const second = await startFill(root, { maxUnits: 60, executorFactory: () => ({ execute: async (prompt: string) => prompt.includes('Allowed source records') ? validAnswer(prompt) : 'still not json' }) });
+      expect(second.run.status).toBe('blocked');
+      expect(second.agentCalls).toEqual({ used: 4, cap: 60 });
+      expect(second.counts.reused).toBe(3);
+      const runTwo = await readAgentCalls(root);
+      expect(runTwo.chainId).toBe(second.run.id);
+      expect(runTwo.calls).toBe(4);
+      // The synthesis unit's attempt count survives the restart instead of resetting to 1.
+      const synthesis = await readFillJson<FillUnit>(join(fillStatePaths(root).units, 'synthesis-pages.json'));
+      expect(synthesis.attempt).toBe(2);
+      expect(synthesis.status).toBe('blocked');
+      const claims = await readFillJson<FillUnit>(join(fillStatePaths(root).units, 'claims-repository.json'));
+      // The claims unit ran again because the stage commit changed the product docs it reads.
+      expect(claims.attempt).toBe(2);
+      expect(claims.status).toBe('complete');
     } finally { await rm(root, { recursive: true, force: true }); }
   }, 60000);
 
@@ -278,8 +477,8 @@ describe('a malformed agent answer fails one unit and the run goes on', () => {
           { type: 'decision-rationale', title: 'Why the wiki is versioned', prompt: 'Why does the service version its wiki pages?', kind: 'Overview', claimTexts: ['The service serves a versioned wiki.', 'README promises a guide the code never shows.'] },
         ],
       };
-      // Synthesis is out of scope here: its first answer is refused, which stops the run after claims.
-      await expect(startFill(root, { executorFactory: () => ({ execute: async (prompt: string) => {
+      // Synthesis is out of scope here: its answer is refused, which blocks the synthesis unit only.
+      const result = await startFill(root, { executorFactory: () => ({ execute: async (prompt: string) => {
         if (prompt.includes('Allowed source records')) {
           const marker = 'Allowed source records (cite these ids exactly):\n';
           const tail = prompt.slice(prompt.indexOf(marker) + marker.length);
@@ -289,7 +488,10 @@ describe('a malformed agent answer fails one unit and the run goes on', () => {
           return JSON.stringify(answer);
         }
         return 'not json on purpose';
-      } }) })).rejects.toThrow('Agent returned no JSON object');
+      } }) });
+      expect(result.run.status).toBe('blocked');
+      const synthesis = await readFillJson<FillUnit>(join(fillStatePaths(root).units, 'synthesis-pages.json'));
+      expect(synthesis.status).toBe('blocked');
       const extraction = await readFillJson<{ claims: { id: string; text: string; sourceIds?: string[] }[]; questions: { type: string; reason: string; dependsOn: string[]; rank: number; missing?: string }[]; inaccessibleLinks: { url: string; status: string; sourceId: string }[] }>(join(fillStatePaths(root).outputs, 'claims-repository', 'claims.json'));
       const claimBy = (text: string) => extraction.claims.find((claim) => claim.text === text)!.id;
       expect(extraction.questions.map((question) => question.type).sort()).toEqual(['access-or-document-needed', 'assumption-check', 'contradiction', 'decision-rationale', 'undocumented-behaviour']);

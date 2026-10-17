@@ -7,6 +7,18 @@ import type { ClaimSource } from './fill-claims.js';
 export const AGENT_ANSWER_MAX_RETRIES = 2;
 export const CLAIM_LAYERS = ['fact', 'intent-evidence', 'assumed-meaning'] as const;
 
+/** Thrown when an answer is still invalid after the bounded retries: it carries every raw answer and the last errors, so a caller can fail one unit and let the run go on. */
+export class AgentAnswerError extends Error {
+  readonly errors: string[];
+  readonly answers: string[];
+  constructor(errors: string[], answers: string[]) {
+    super(`Agent answer stayed invalid after the retries: ${errors.join('; ')}`);
+    this.name = 'AgentAnswerError';
+    this.errors = errors;
+    this.answers = answers;
+  }
+}
+
 /** Pull the JSON value out of a raw answer: plain JSON, a fenced block, or JSON surrounded by prose. */
 export function parseAgentAnswer(raw: string): { ok: true; value: unknown } | { ok: false; error: string } {
   const trimmed = raw.trim();
@@ -148,6 +160,102 @@ export interface AgentAnswerOutcome {
   answers: string[];
   attempts: number;
 }
+
+/** A synthesis candidate claim record as it was supplied to the generator. */
+export interface SynthesisCandidateClaim { id: string; kind?: string; text?: string; layer?: string; confidence?: number; unitId?: string; sourceIds?: readonly string[]; verification?: string }
+
+/** A parsed synthesis prose segment: the paraphrase plus the claims that support it. */
+export interface ParsedSynthesisSegment { text: string; layer: typeof CLAIM_LAYERS[number]; sourceIds: string[]; claimIds?: string[] }
+export interface ParsedSynthesisAnswer { title: string; body: string; claims: unknown[]; segments: ParsedSynthesisSegment[] }
+
+/** What a segment needs from the supplied claims to carry prose: unambiguous shapes only. */
+export interface SynthesisAnswerRules {
+  /** The claim records supplied to the generator for this page, authoritative and unaltered. */
+  claims: readonly SynthesisCandidateClaim[];
+  /** Every source id the page may cite. */
+  sourceIds: readonly string[];
+  /** A kind page may answer with neither claims nor segments and get the absence question. */
+  absenceAllowed: boolean;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+const unique = (ids: readonly string[]): string[] => [...new Set(ids)];
+
+/**
+ * Segment rows tolerate `prose` for `text` and `proseSegments` for `segments` (the shapes the
+ * checkpoint's flash model produced); a claim id cited inside `sourceIds` names a claim, not a
+ * source, and moves to `claimIds`. The supplied claim records stay authoritative: an echoed id
+ * resolves to the supplied record, so an answer can never alter a claim.
+ */
+export function parseSynthesisAnswer(answer: unknown, rules: SynthesisAnswerRules): { ok: true; value: ParsedSynthesisAnswer } | { ok: false; errors: string[] } {
+  const errors: string[] = [];
+  if (!isRecord(answer)) return { ok: false, errors: ['Agent answer must be a JSON object'] };
+  const candidateById = new Map(rules.claims.map((claim) => [claim.id, claim]));
+  const knownSources = new Set(rules.sourceIds);
+  const rawTitle = answer.title;
+  const title = typeof rawTitle === 'string' ? rawTitle : '';
+  if (!title.trim()) errors.push('title: must be a non-empty string');
+  const rawSegments = Array.isArray(answer.segments) ? answer.segments : Array.isArray(answer.proseSegments) ? answer.proseSegments : undefined;
+  if (!rawSegments) errors.push('Agent output field segments must be an array (a "proseSegments" key is also accepted)');
+  const selected = new Map<string, SynthesisCandidateClaim>();
+  if (answer.claims !== undefined) {
+    if (!Array.isArray(answer.claims)) errors.push('Agent output field claims must be an array');
+    else for (const [index, row] of answer.claims.entries()) {
+      const id = isRecord(row) && typeof row.id === 'string' ? row.id : undefined;
+      const candidate = id !== undefined ? candidateById.get(id) : undefined;
+      if (!candidate) errors.push(`claims[${index}]: unknown claim id ${JSON.stringify(id ?? null)}; copy the supplied claim records unchanged, by their claim ids`);
+      else selected.set(candidate.id, candidate);
+    }
+  }
+  const segments: ParsedSynthesisSegment[] = [];
+  for (const [index, row] of (rawSegments ?? []).entries()) {
+    const at = `segments[${index}]`;
+    if (!isRecord(row)) { errors.push(`${at}: must be a JSON object`); continue; }
+    const text = typeof row.text === 'string' && row.text.trim() ? row.text : typeof row.prose === 'string' && row.prose.trim() ? row.prose : undefined;
+    if (text === undefined) errors.push(`${at}.text: must be a non-empty string ("text"; "prose" is also accepted)`);
+    const layer = typeof row.layer === 'string' && CLAIM_LAYERS.includes(row.layer as typeof CLAIM_LAYERS[number]) ? row.layer as typeof CLAIM_LAYERS[number] : undefined;
+    if (layer === undefined) errors.push(`${at}.layer: must be one of ${CLAIM_LAYERS.join(', ')}`);
+    const ids = typeof row.sourceIds === 'string' ? [row.sourceIds] : Array.isArray(row.sourceIds) ? row.sourceIds : undefined;
+    if (!ids) { errors.push(`${at}.sourceIds: must be an array of source ids`); continue; }
+    const strings = ids.filter((id): id is string => typeof id === 'string');
+    if (strings.length !== ids.length) errors.push(`${at}.sourceIds: must be an array of source id strings`);
+    if (strings.length === 0) errors.push(`${at}.sourceIds: must cite at least one source or claim id`);
+    const citedClaims = strings.filter((id) => candidateById.has(id));
+    const citedSources = strings.filter((id) => !candidateById.has(id));
+    for (const id of citedSources) if (!knownSources.has(id)) errors.push(`${at}.sourceIds: unknown source id ${JSON.stringify(id)}`);
+    // A single claim id string is unambiguously a one-element list; non-string list entries are refused.
+    const rawClaimIds = typeof row.claimIds === 'string' ? [row.claimIds] : Array.isArray(row.claimIds) ? row.claimIds : undefined;
+    const explicit = rawClaimIds === undefined ? [] : rawClaimIds.filter((id): id is string => typeof id === 'string');
+    if (rawClaimIds !== undefined && explicit.length !== rawClaimIds.length) errors.push(`${at}.claimIds: must be an array of claim id strings`);
+    for (const id of explicit) if (!candidateById.has(id)) errors.push(`${at}.claimIds: unknown claim id ${JSON.stringify(id)}; cite the supplied claim records, unchanged`);
+    const claimIds = unique([...explicit, ...citedClaims]);
+    for (const id of claimIds) { const candidate = candidateById.get(id); if (candidate) selected.set(id, candidate); }
+    if (claimIds.length > 0) {
+      const resolved = claimIds.map((claimId) => candidateById.get(claimId)).filter((claim): claim is SynthesisCandidateClaim => Boolean(claim));
+      for (const id of citedSources) if (!resolved.some((claim) => claim.sourceIds?.includes(id))) errors.push(`${at}: cited source ${JSON.stringify(id)} is not named by any claim the segment rests on; every cited source must come from a named claim`);
+      // The segment's layer must describe at least one claim it rests on, so fact prose cannot rest on assumptions alone.
+      if (layer !== undefined && !resolved.some((claim) => claim.layer === layer)) errors.push(`${at}: layer ${layer} matches none of the named claims (${resolved.map((claim) => `${claim.id} of layer ${String(claim.layer)}`).join(', ')}); the segment layer must be the layer of at least one claim it names`);
+    } else if (strings.length > 0) {
+      errors.push(`${at}: names no supported claim; name the claim ids the prose rests on (put them in claimIds or in sourceIds), and copy those claim records into claims`);
+    }
+    if (text !== undefined && layer !== undefined) {
+      // A segment citing only claim ids takes the sources of the claims it names: unambiguous, and
+      // the reader's coverage check then sees the same ids the named claims carry.
+      const sourceIds = citedSources.length > 0 ? citedSources : claimIds.flatMap((claimId) => [...(candidateById.get(claimId)!.sourceIds ?? [])]);
+      segments.push({ text, layer, sourceIds: unique(sourceIds), ...(claimIds.length ? { claimIds: [...claimIds].sort() } : {}) });
+    }
+  }
+  // The reader refuses an overview (no absence question) with neither claims nor segments.
+  if (!rules.absenceAllowed && selected.size === 0 && segments.length === 0) errors.push('segments: must contain at least one segment, and claims: must name the supplied claim records the prose rests on');
+  else if (!rules.absenceAllowed && selected.size === 0 && segments.length > 0) errors.push('claims: must name the supplied claim records the prose rests on; cite their claim ids');
+  else if (selected.size > 0 && segments.length === 0) errors.push('segments: must contain the prose segments the named claims support, or return no claims for an absent kind');
+  if (errors.length > 0) return { ok: false, errors };
+  const joined = segments.map((segment) => segment.text.trim()).join('\n\n');
+  const rawBody = answer.body;
+  const bodyValue = typeof rawBody === 'string' && rawBody.trim() ? rawBody : joined;
+  return { ok: true, value: { title, body: bodyValue, claims: [...selected.values()], segments } };
+}
+
 
 /**
  * Ask the agent for an answer and retry a bounded number of times, feeding the exact validation

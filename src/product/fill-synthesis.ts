@@ -18,7 +18,8 @@ export interface CodeMap {
   components: CodeMapFact[]; interactions: CodeMapFact[]; stateTransitions: CodeMapFact[]; businessRules: CodeMapFact[];
 }
 export interface SynthesisClaim extends ExtractedClaim { sourceIds: string[] }
-export interface SynthesisSegment { text: string; sourceIds: string[]; layer: ExtractedClaim['layer'] }
+/** One piece of source-backed prose. `claimIds` names the claim records a paraphrase rests on; without it the text must quote a supporting claim verbatim. */
+export interface SynthesisSegment { text: string; sourceIds: string[]; layer: ExtractedClaim['layer']; claimIds?: string[] }
 export interface SynthesizedPage {
   path: string; title: string; kind: string; body: string; segments: SynthesisSegment[]; questions: ClaimQuestion[]; claims: SynthesisClaim[]; sourceIds: string[];
   unverified: boolean; critic: { passes: number; findings: string[] };
@@ -136,6 +137,39 @@ function validateClaimSources(claims: readonly SynthesisClaim[], sources: readon
     if (claim.layer === 'assumed-meaning' && claim.verification !== 'unverified') throw new Error(`Assumed claim ${claim.id} must be unverified`);
   }
 }
+/**
+ * The named-claim support rule, shared by the reader and the controlled apply path. A segment that
+ * names claim ids may paraphrase: every named claim must be one of the selected supplied records
+ * and the named claims' sources must cover every cited source; each claim keeps its own layer on
+ * the page, so one segment may rest on both fact and assumed-meaning claims. A segment
+ * that names none keeps the stricter rule: one supporting claim of the segment's layer must cover
+ * all of its sources and the prose must quote it verbatim, so prose is never weakened past a claim.
+ */
+export function segmentProseIssues(segment: SynthesisSegment, selected: readonly SynthesisClaim[], sources: readonly ClaimSource[], subject: string): string[] {
+  const sentence = segment.text.trim().replace(/\s+/g, ' ');
+  if (!sentence || !segment.sourceIds.length) return [`Generated prose for ${subject} is missing a source`];
+  const unknown = segment.sourceIds.find((id) => !sources.some((source) => source.id === id));
+  if (unknown) return [`Generated prose for ${subject} has unsupported source attribution: unknown source id ${JSON.stringify(unknown)}`];
+  if (segment.claimIds?.length) {
+    const byId = new Map(selected.map((claim) => [claim.id, claim]));
+    for (const id of segment.claimIds) {
+      const claim = byId.get(id);
+      if (!claim) return [`Generated prose for ${subject} names claim ${id} that is not one of the selected claim records; cite only the supplied claims, copied unchanged`];
+    }
+    const named = segment.claimIds.map((id) => byId.get(id)!);
+    // The segment's layer must describe at least one claim it rests on, so fact prose cannot rest on assumptions alone.
+    if (!named.some((claim) => claim.layer === segment.layer)) return [`Generated prose for ${subject} of layer ${segment.layer} names no claim of that layer; the segment layer must be the layer of at least one claim it names`];
+    const covered = new Set(named.flatMap((claim) => claim.sourceIds));
+    const uncovered = segment.sourceIds.find((id) => !covered.has(id));
+    if (uncovered) return [`Generated prose for ${subject} has unsupported source attribution: cited source ${JSON.stringify(uncovered)} is not covered by the named claims`];
+    return [];
+  }
+  const supporting = selected.filter((claim) => claim.layer === segment.layer && segment.sourceIds.every((id) => claim.sourceIds.includes(id)));
+  if (!supporting.length) return [`Generated prose for ${subject} has unsupported source attribution`];
+  if (!supporting.some((claim) => claim.text.trim().replace(/\s+/g, ' ') === sentence)) return [`Generated prose for ${subject} must preserve a supported claim verbatim, or name the claim ids (claimIds) the paraphrase rests on`];
+  return [];
+}
+
 function claimsForTarget(target: SynthesisTarget, claims: readonly SynthesisClaim[]): SynthesisClaim[] {
   return sort(claims.filter((claim) => target.allClaims || claim.kind === target.name).map((claim) => ({ ...claim, sourceIds: [...claim.sourceIds].sort() })));
 }
@@ -156,7 +190,8 @@ export async function synthesizeRegistryPage(input: {
   for (let revision = 0; revision <= maxRevisions; revision++) {
     passes++;
     const generated = await input.generate({ target: input.target, codeMap: input.codeMap, claims: candidates, priorDraft: draft, criticFindings: findings, pass: passes });
-    if (!generated.title.trim() || !generated.body.trim()) throw new Error(`Generator returned an empty ${input.target.name} page`);
+    // The page body is rebuilt from the segments; an empty body is only fatal with none.
+    if (!generated.title.trim() || (!generated.body.trim() && generated.segments.length === 0)) throw new Error(`Generator returned an empty ${input.target.name} page`);
     if (!Array.isArray(generated.segments) || (generated.segments.length === 0 && (generated.claims.length > 0 || !questionForEmpty))) throw new Error(`Generator returned no source-backed prose segments for ${input.target.name}`);
     const selected = generated.claims;
     validateClaimSources(selected, input.sources);
@@ -166,12 +201,8 @@ export async function synthesizeRegistryPage(input: {
       if (allowed.get(claim.id) !== stableJson(claim)) throw new Error(`Generator returned an unsupported or altered claim ${claim.id} for ${input.target.name}`);
     }
     const slug = `${input.target.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'kind'}-${sha(input.target.name).slice(0, 8)}`;
-    for (const segment of generated.segments) {
-      if (!segment.text.trim() || !segment.sourceIds.length) throw new Error(`Generated prose for ${input.target.name} is missing a source`);
-      const supporting = selected.filter((claim) => claim.layer === segment.layer && segment.sourceIds.every((id) => claim.sourceIds.includes(id)));
-      if (!supporting.length || segment.sourceIds.some((id) => !input.sources.some((source) => source.id === id))) throw new Error(`Generated prose for ${input.target.name} has unsupported source attribution`);
-      const canonicalSentence = segment.text.trim().replace(/\s+/g, ' ');
-      if (!supporting.some((claim) => claim.text.trim().replace(/\s+/g, ' ') === canonicalSentence)) throw new Error(`Generated prose for ${input.target.name} must preserve a supported claim verbatim`);
+    for (const issue of generated.segments.flatMap((segment) => segmentProseIssues(segment, selected, input.sources, input.target.name))) {
+      if (issue) throw new Error(issue);
     }
     const supportedBody = generated.segments.map((segment) => segment.text.trim()).join('\n\n');
     const relevantQuestions = (input.questions ?? []).filter((question) => question.kind === input.target.name);
@@ -216,9 +247,8 @@ export async function applySynthesisPages(input: { agentWorktree: string; source
     validateClaimSources(page.claims, input.sources);
     if (!Number.isInteger(page.critic.passes) || page.critic.passes < 1 || page.critic.findings.length !== 0) throw new Error(`Page ${page.path} has not passed its critic`);
     if (!Array.isArray(page.segments) || (page.claims.length > 0 && page.segments.length === 0)) throw new Error(`Page ${page.path} has no source-backed prose segments`);
-    for (const segment of page.segments) {
-      const supporting = page.claims.filter((claim) => claim.layer === segment.layer && segment.sourceIds.every((id) => claim.sourceIds.includes(id)));
-      if (!segment.text.trim() || !segment.sourceIds.length || !supporting.some((claim) => claim.text.trim().replace(/\s+/g, ' ') === segment.text.trim().replace(/\s+/g, ' '))) throw new Error(`Page ${page.path} contains prose without an exact supporting claim`);
+    for (const issue of page.segments.flatMap((segment) => segmentProseIssues(segment, page.claims, input.sources, page.path))) {
+      if (issue) throw new Error(issue);
     }
     if (page.claims.length === 0 && page.questions.length === 0) throw new Error(`Page ${page.path} has neither a supported entity nor an absence question`);
     if (!page.title.trim() || !page.body.trim()) throw new Error(`Refusing empty proposed page: ${page.path}`);

@@ -9,11 +9,11 @@ import { inventoryRepository, indexRepository, inventoryUnitPlan, structuralInde
 import { consumeFillControl, createFillRun, createFillFileStore, fillStatePaths, hashFillInput, hashFillInputs, readFillJson, reconcileFillUnit, withFillControlLock, writeFillJsonAtomic, type FillRun, type FillStage, type FillUnit, type FillUnitPlan } from './fill-runtime.js';
 import { createHeadlessAgentExecutor, type AgentKind, type AgentSettings } from './fill-agents.js';
 import { assembleClaims, createClaimSources, readPinnedGitMaterial, readPinnedGitHistory, recordUnattemptedLinks, type ClaimsExtraction, type ClaimSource, type ExtractedClaim, type ClaimLayer } from './fill-claims.js';
-import { buildCodeMap, persistCodeMap, synthesizePages, applySynthesisPages, type SynthesisClaim, type SynthesizedPage } from './fill-synthesis.js';
-import { agentQuestionsFromAnswer, asArray, asSourceIdList, claimRowsFromAnswer, parseAgentAnswer, requestValidatedAgentAnswer, validateClaimsAnswer } from './fill-agent-answers.js';
+import { buildCodeMap, persistCodeMap, synthesizePages, applySynthesisPages, type SynthesisClaim, type SynthesisSegment, type SynthesizedPage } from './fill-synthesis.js';
+import { AgentAnswerError, agentQuestionsFromAnswer, asArray, asSourceIdList, claimRowsFromAnswer, parseAgentAnswer, parseSynthesisAnswer, requestValidatedAgentAnswer, validateClaimsAnswer, type SynthesisCandidateClaim } from './fill-agent-answers.js';
 
 export interface StartFillOptions { agent?: AgentKind; model?: string; ompExecutable?: string; ompExtension?: string; ompTools?: string; maxUnits?: number; executorFactory?: (context: { stage: FillStage; repository: string; prompt: string; onEvent: (event: unknown) => Promise<void> }) => { execute: (prompt: string, signal: AbortSignal, onEvent: (event: unknown) => Promise<void>) => Promise<string> }; }
-export interface StartFillResult { run: FillRun; counts: { reused: number; run: number }; questionReview: 'hook-pending-co2d.1'; }
+export interface StartFillResult { run: FillRun; counts: { reused: number; run: number }; agentCalls: { used: number; cap: number }; questionReview: 'hook-pending-co2d.1'; }
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore','pipe','pipe'] }).trim();
 export function createAgentCallBudget(maxCalls:number, initialCalls=0, onDispatch?: (calls:number)=>Promise<void>): { dispatch<T>(call:()=>Promise<T>):Promise<T>; count:()=>number } { let calls=initialCalls; return { count:()=>calls, dispatch:async<T>(call:()=>Promise<T>)=>{if(calls>=maxCalls)throw new Error(`maxUnits ${maxCalls} exhausted before agent call ${calls+1}`); calls++; await onDispatch?.(calls); return call();} }; }
 const codePoint = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
@@ -52,7 +52,10 @@ async function startFillUnlocked(productFolder: string, options: StartFillOption
   const paths = fillStatePaths(product); await mkdir(paths.root, { recursive: true });
   let prior: FillRun | undefined; try { prior = await readFillJson<FillRun>(paths.run); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   if (prior && ['running','paused','stopped'].includes(prior.status) && (prior.productSnapshot.commit !== commit || prior.productSnapshot.registryHash !== registryHash || prior.productSnapshot.defaultBranch !== branchName)) throw new Error(`Cannot resume fill run ${prior.id}: source commit, registry hash, or default branch changed.`);
-  const run = prior && ['running','paused','stopped'].includes(prior.status) ? { ...prior, status: 'running' as const, controlOpen: true, updatedAt: new Date().toISOString() } : createFillRun({ productSnapshot: { repository: source, defaultBranch: branchName, commit, registryHash }, agentBranch: `madarch/fill/${randomUUID()}` });
+  const freshRun = createFillRun({ productSnapshot: { repository: source, defaultBranch: branchName, commit, registryHash }, agentBranch: `madarch/fill/${randomUUID()}` });
+  // A blocked run resumes under a new id but the same fill chain; a fresh fill starts its own chain.
+  const priorChainId = prior && prior.status !== 'complete' ? prior.fillChainId ?? prior.id : undefined;
+  const run = prior && ['running','paused','stopped'].includes(prior.status) ? { ...prior, status: 'running' as const, controlOpen: true, updatedAt: new Date().toISOString() } : { ...freshRun, fillChainId: priorChainId ?? freshRun.id };
   const store = createFillFileStore(product); await store.saveRun(run);
   const runController=new AbortController(); let controlWatch=true; let paused=false; const controlWatcher=(async()=>{ while(controlWatch&&!runController.signal.aborted){ try { const control=await consumeFillControl(product,run.id); if(control==='stopped'){runController.abort(); await store.saveRun({...run,status:'stopped',controlOpen:false,updatedAt:new Date().toISOString()}); break;} paused=control==='paused'; if(paused){runController.abort(); await store.saveRun({...run,status:'paused',controlOpen:false,updatedAt:new Date().toISOString()}); break;} if(control==='paused'){ await new Promise(resolve=>{const timer=setTimeout(resolve,250);timer.unref();}); } else await new Promise(resolve=>{const timer=setTimeout(resolve,250);timer.unref();}); } catch { await new Promise(resolve=>{const timer=setTimeout(resolve,250);timer.unref();}); } } })();
   const assertRunning=async()=>{ while(paused&&!runController.signal.aborted) await new Promise(resolve=>{const timer=setTimeout(resolve,100);timer.unref();}); if(runController.signal.aborted)throw new Error(`Fill run ${run.id} was ${paused?'paused':'stopped'}; start fill again to resume.`); };
@@ -78,7 +81,18 @@ async function startFillUnlocked(productFolder: string, options: StartFillOption
   const materialPaths=execFileSync('git',['-C',source,'ls-tree','-r','--name-only',commit],{encoding:'utf8'}).split('\n').filter(path=>path && (path.toLowerCase().endsWith('.md')||path.toLowerCase()==='readme')).sort(codePoint); const materials=[...materialPaths.map(path=>readPinnedGitMaterial(source,commit,path,'document')),readPinnedGitHistory(source,commit)];
   const allSources = createClaimSources(commit,[...materials,...fullIndex.files.map(file=>({path:file.path,text:execFileSync('git',['show',`${commit}:${file.path}`],{cwd:source,encoding:'utf8'}),type:'code' as const,blob:file.blob}))]);
   const prompt = await (await import('node:fs/promises')).readFile(new URL('./claims-prompts/repository-claims.md', import.meta.url),'utf8');
-  const callsPath=join(paths.root,'agent-calls.json'); let initialCalls=0; try { const saved=JSON.parse(await readFile(callsPath,'utf8')); if(saved.runId===run.id) initialCalls=Number(saved.calls)||0; } catch {} const agentBudget=createAgentCallBudget(maxUnits,initialCalls,async calls=>{await import('./fill-runtime.js').then(({writeFillJsonAtomic})=>writeFillJsonAtomic(callsPath,{runId:run.id,calls}));}); const callAgent=(...args: Parameters<typeof agentRaw>)=>agentBudget.dispatch(()=>agentRaw(...args));
+  // The cap bounds one fill, not one run id: a resume of the same fill carries the budget across
+  // the resumed run (a blocked run restarts under a new id), and only a completed fill ends it.
+  const callsPath=join(paths.root,'agent-calls.json'); let savedCalls: { chainId?: string; runId?: string; calls?: number } = {}; try { savedCalls=JSON.parse(await readFile(callsPath,'utf8')); } catch { savedCalls={}; }
+  // The cap bounds one fill, not one run id: a resume of the same fill carries the budget across
+  // the resumed run (a blocked run restarts under a new id), and only a completed fill ends it.
+  // The saved budget counts for this fill only when the prior run's chain owns it; a file left by
+  // another, completed fill is ignored, so a fill stopped before its first call starts at zero.
+  const chainContinues=Boolean(prior && prior.status!=='complete');
+  const chainId=run.fillChainId ?? run.id;
+  const carriedCalls=chainContinues && prior && savedCalls.chainId===chainId ? Number(savedCalls.calls)||0 : chainContinues && prior && prior.fillChainId===undefined && savedCalls.runId===prior.id ? Number(savedCalls.calls)||0 : 0;
+  const initialCalls=carriedCalls;
+  const agentBudget=createAgentCallBudget(maxUnits,initialCalls,async calls=>{await import('./fill-runtime.js').then(({writeFillJsonAtomic})=>writeFillJsonAtomic(callsPath,{chainId,runId:run.id,calls}));}); const callAgent=(...args: Parameters<typeof agentRaw>)=>agentBudget.dispatch(()=>agentRaw(...args));
   const claimPlan: FillUnitPlan = { id:'claims-repository',stage:'claims',inputHashes:hashFillInputs({index:JSON.stringify(fullIndex),registry:registryText,docs:JSON.stringify(materials)}),outputPaths:[`.madarch/fill/outputs/claims-repository/claims.json`],dependencies:units.map(u=>u.id) };
   const codeMap=buildCodeMap(fullIndex,allSources); const mapPath=await persistCodeMap(join(outputFolder,'code-map'),codeMap);
   let claimUnit = priorById.get(claimPlan.id); let extraction: ClaimsExtraction;
@@ -107,24 +121,36 @@ async function startFillUnlocked(productFolder: string, options: StartFillOption
       await writeFillJsonAtomic(resolve(product,rawAnswersPath),{unitId:claimPlan.id,attempts:outcome.attempts,errors:outcome.errors,answers:outcome.answers});
       claimUnit={...claimUnit,status:'blocked' as const,error:outcome.errors.join('\n'),finishedAt:new Date().toISOString()}; await store.saveUnit(claimUnit);
       await assertRunning();
-      const summary={runId:run.id,agent,branch:run.agentBranch,stages:['inventory','index','claims','code-map','synthesis'],outputs:[],questionReview:'hook-pending-co2d.1',counts:{reused:previousUnits.filter(u=>u.status==='complete').length,run:agentBudget.count()},failedUnits:[{id:claimPlan.id,errors:outcome.errors,rawAnswers:rawAnswersPath}],nextStep:'Fix the failed unit and start fill again to resume; its recorded raw answers name what went wrong.'};
+      const summary={runId:run.id,agent,branch:run.agentBranch,stages:['inventory','index','claims','code-map','synthesis'],outputs:[],questionReview:'hook-pending-co2d.1',counts:{reused:previousUnits.filter(u=>u.status==='complete').length,run:agentBudget.count()-initialCalls},agentCalls:{used:agentBudget.count(),cap:maxUnits},failedUnits:[{id:claimPlan.id,errors:outcome.errors,rawAnswers:rawAnswersPath}],nextStep:'Fix the failed unit and start fill again to resume; its recorded raw answers name what went wrong.'};
       controlWatch=false; const blockedRun={...run,status:'blocked' as const,controlOpen:false,updatedAt:new Date().toISOString()}; await store.saveRun(blockedRun); await writeFillJsonAtomic(join(paths.root,'report.json'),summary);
-      void controlWatcher; return {run:blockedRun,counts:summary.counts,questionReview:'hook-pending-co2d.1'};
+      void controlWatcher; return {run:blockedRun,counts:summary.counts,agentCalls:summary.agentCalls,questionReview:'hook-pending-co2d.1'};
     }
   }
   const mapSource: ClaimSource={id:`src-${hashFillInput(JSON.stringify(codeMap)).slice(0,24)}`,address:'fill/code-map.json',version:commit,anchor:'whole',readAt:new Date().toISOString(),sha256:hashFillInput(JSON.stringify(codeMap)),mediaType:'application/json',byteLength:Buffer.byteLength(JSON.stringify(codeMap)),type:'code'};
   const synthesisClaimUnitPlan: FillUnitPlan={id:'synthesis-pages',stage:'synthesis',inputHashes:hashFillInputs({claims:JSON.stringify(extraction.claims),map:JSON.stringify(codeMap),registry:registryText}),outputPaths:['.madarch/fill/outputs/synthesis-pages/pages.json'],dependencies:[claimPlan.id]};
-  const synthesisUnit={...synthesisClaimUnitPlan,status:'running',attempt:1,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()} as FillUnit; await store.saveUnit(synthesisUnit);
+  // A unit's attempt count survives restarts: the prior record, running or blocked, names it.
+  const priorSynthesis=priorById.get(synthesisClaimUnitPlan.id);
+  let synthesisUnit={...synthesisClaimUnitPlan,status:'running',attempt:(priorSynthesis?.attempt??0)+1,createdAt:priorSynthesis?.createdAt??new Date().toISOString(),updatedAt:new Date().toISOString()} as FillUnit; await store.saveUnit(synthesisUnit);
   const target={name:'Overview',folder:'docs/overview',hint:'Describe this product from its sources.'};
   const overviewTarget={name:'overview',folder:'docs/overview',hint:'Describe the product and its users from sourced evidence.'};
   const synthesisPrompt=await (await import('node:fs/promises')).readFile(new URL('./synthesis-prompts/page-synthesis.md',import.meta.url),'utf8');
   const criticPrompt=await (await import('node:fs/promises')).readFile(new URL('./synthesis-prompts/page-critic.md',import.meta.url),'utf8');
-  const pages=await synthesizePages({ overview:overviewTarget, kinds:registry.kinds, codeMap, claims:extraction.claims as SynthesisClaim[], sources:allSources,
+  let pages; try {
+  pages=await synthesizePages({ overview:overviewTarget, kinds:registry.kinds, codeMap, claims:extraction.claims as SynthesisClaim[], sources:allSources,
     generate:async({target,claims,priorDraft,criticFindings,pass})=>{
-      const raw=await callAgent(options,agent,source,'synthesis',synthesisUnit,`${synthesisPrompt}\nTarget: ${JSON.stringify(target)}\nPass: ${pass}\nPrior draft: ${priorDraft??''}\nCritic findings: ${JSON.stringify(criticFindings??[])}\nCode map: ${JSON.stringify(codeMap)}\nSupported claims: ${JSON.stringify(claims)}\nSource catalogue: ${JSON.stringify(allSources)}`,async()=>{},runController.signal);
-    await assertRunning();
-      const parsed=parseAgentAnswer(raw); if (!parsed.ok) throw new Error(parsed.error); const response=parsed.value as any;
-      return {title:String(response.title??target.name),body:String(response.body??''),claims:asArray<SynthesisClaim>(response.claims,'claims'),segments:asArray<any>(response.segments,'segments')};
+      const basePrompt=`${synthesisPrompt}\nTarget: ${JSON.stringify(target)}\nPass: ${pass}\nPrior draft: ${priorDraft??''}\nCritic findings: ${JSON.stringify(criticFindings??[])}\nCode map: ${JSON.stringify(codeMap)}\nSupported claims: ${JSON.stringify(claims)}\nSource catalogue: ${JSON.stringify(allSources)}`;
+      // Tolerant parsing, strict validation and bounded retry, exactly as the claims unit does it.
+        const answerRules={claims:[...claims] as SynthesisCandidateClaim[],sourceIds:allSources.map(s=>s.id),absenceAllowed:!target.allClaims};
+      const outcome=await requestValidatedAgentAnswer({
+        prompt: basePrompt,
+        call: (retryPrompt) => callAgent(options,agent,source,'synthesis',synthesisUnit,retryPrompt,async()=>{},runController.signal),
+        validate: (value) => { const parsed=parseSynthesisAnswer(value,answerRules); return parsed.ok?[]:parsed.errors; },
+      });
+      await assertRunning();
+      if (!outcome.ok) throw new AgentAnswerError(outcome.errors,outcome.answers);
+      const parsed=parseSynthesisAnswer(outcome.value,answerRules); if (!parsed.ok) throw new AgentAnswerError(parsed.errors,outcome.answers);
+      const generated=parsed.value;
+      return {title:generated.title,body:generated.body,claims:generated.claims as SynthesisClaim[],segments:generated.segments as SynthesisSegment[]};
     },
     critique:async(page,pass)=>{
       const raw=await callAgent(options,agent,source,'synthesis',synthesisUnit,`${criticPrompt}\nPass: ${pass}\nPage: ${JSON.stringify(page)}\nRegistry kind: ${JSON.stringify(page.kind)}\nClaims: ${JSON.stringify(page.claims)}\nSources: ${JSON.stringify(allSources)}`,async()=>{},runController.signal);
@@ -132,8 +158,20 @@ async function startFillUnlocked(productFolder: string, options: StartFillOption
       const parsed=parseAgentAnswer(raw); if (!parsed.ok) throw new Error(parsed.error); const response=parsed.value as any;
       return {findings:asArray<string>(response.findings ?? [],'findings')};
     }, maxRevisions:2, questions:extraction.questions,
-  });
-  const mapUnit={...synthesisClaimUnitPlan,status:'complete',finishedAt:new Date().toISOString()} as FillUnit; await store.saveUnit(mapUnit);
+  }); } catch(error) {
+    // The generate answer stayed invalid past every retry: fail this unit with the errors and raw
+    // answers saved, instead of blocking the whole run with the unit left 'running'.
+    if (!(error instanceof AgentAnswerError)) throw error;
+    await assertRunning();
+    const rawAnswersPath=resolve(product,synthesisClaimUnitPlan.outputPaths[0]!,'..','invalid-answers.json');
+    await writeFillJsonAtomic(rawAnswersPath,{unitId:synthesisClaimUnitPlan.id,attempts:error.answers.length,errors:error.errors,answers:error.answers});
+    synthesisUnit={...synthesisUnit,status:'blocked' as const,error:error.errors.join('\n'),finishedAt:new Date().toISOString()}; await store.saveUnit(synthesisUnit);
+    const summary={runId:run.id,agent,branch:run.agentBranch,stages:['inventory','index','claims','code-map','synthesis'],outputs:[],questionReview:'hook-pending-co2d.1',counts:{reused:previousUnits.filter(u=>u.status==='complete').length,run:agentBudget.count()-initialCalls},agentCalls:{used:agentBudget.count(),cap:maxUnits},failedUnits:[{id:synthesisClaimUnitPlan.id,errors:error.errors,rawAnswers:rawAnswersPath}],nextStep:'Fix the failed unit and start fill again to resume; its recorded raw answers name what went wrong.'};
+    controlWatch=false; const blockedRun={...run,status:'blocked' as const,controlOpen:false,updatedAt:new Date().toISOString()}; await store.saveRun(blockedRun); await writeFillJsonAtomic(join(paths.root,'report.json'),summary);
+    void controlWatcher; return {run:blockedRun,counts:summary.counts,agentCalls:summary.agentCalls,questionReview:'hook-pending-co2d.1'};
+  }
+  // The completed record is the worked unit, so its attempt count and history survive restarts.
+  const mapUnit={...synthesisUnit,status:'complete',finishedAt:new Date().toISOString()} as FillUnit; await store.saveUnit(mapUnit);
   // A real product worktree is created for controlled proposed-page writes.
   const worktree=join(resolve(product,'..'),`.madarch-fill-${run.id}`); await mkdir(paths.root,{recursive:true});
   try { const existing=execFileSync('git',['-C',product,'worktree','list','--porcelain'],{encoding:'utf8'}); if(!existing.split('\n').some(line=>line===`worktree ${worktree}`)) execFileSync('git',['-C',product,'worktree','add','-B',run.agentBranch,worktree,defaultHead],{stdio:'ignore'}); } catch(error) { throw new Error(`Cannot create or resume fill agent worktree ${worktree}: ${(error as Error).message}`); }
@@ -144,9 +182,9 @@ async function startFillUnlocked(productFolder: string, options: StartFillOption
   if (git(worktree,'branch','--show-current') !== run.agentBranch) throw new Error(`Fill worktree ${worktree} is not on expected branch ${run.agentBranch}.`);
   // Merge only as a fast-forward: any human commit on the default branch makes this stage wait rather than overwrite it.
   try { await withFillControlLock(product, async()=>{ await assertRunning(); let pending:any; try { pending=JSON.parse(await readFile(join(paths.root,'control.json'),'utf8')); } catch(error) { if((error as NodeJS.ErrnoException).code!=='ENOENT') throw error; } if(pending?.runId===run.id) { const requested=pending.action; await consumeFillControl(product,run.id,true); const status=requested==='stop'?'stopped':'paused'; await store.saveRun({...run,status,controlOpen:false,updatedAt:new Date().toISOString()}); throw new Error(`Fill run ${run.id} was ${status}; start fill again to resume.`); } await store.saveRun({...run,controlOpen:false,updatedAt:new Date().toISOString()}); if(git(source,'rev-parse','HEAD')!==commit || hashFillInput(await readFile(join(product,'docs/kinds.yaml'),'utf8'))!==registryHash) throw new Error(`Fill inputs changed during run ${run.id}; refusing to merge stale output.`); const currentHead=git(product,'rev-parse',branchName); execFileSync('git',['-C',product,'merge-base','--is-ancestor',currentHead,stageCommit],{stdio:'ignore'}); execFileSync('git',['-C',product,'update-ref',`refs/heads/${branchName}`,stageCommit,currentHead],{stdio:'ignore'}); }); } catch(error) { const message=(error as Error).message; if(message.includes('was paused')||message.includes('was stopped')) throw error; if(message.includes('Fill inputs changed')) { await store.saveRun({...run,status:'blocked',controlOpen:false,updatedAt:new Date().toISOString()}); throw error; } const blocked={...run,status:'blocked' as const,controlOpen:false,updatedAt:new Date().toISOString()}; await store.saveRun(blocked); throw new Error(`The default branch ${branchName} changed during synthesis; agent output remains on ${run.agentBranch} for review: ${message}`); }
-  await assertRunning(); const summary={runId:run.id,agent,branch:run.agentBranch,stages:['inventory','index','claims','code-map','synthesis'],outputs,questionReview:'hook-pending-co2d.1',counts:{reused:previousUnits.filter(u=>u.status==='complete').length,run:agentBudget.count()},nextStep:'Review the proposed pages and their sources in the wiki.'};
+  await assertRunning(); const summary={runId:run.id,agent,branch:run.agentBranch,stages:['inventory','index','claims','code-map','synthesis'],outputs,questionReview:'hook-pending-co2d.1',counts:{reused:previousUnits.filter(u=>u.status==='complete').length,run:agentBudget.count()-initialCalls},agentCalls:{used:agentBudget.count(),cap:maxUnits},nextStep:'Review the proposed pages and their sources in the wiki.'};
   controlWatch=false; const completed={...run,status:'complete' as const,controlOpen:false,updatedAt:new Date().toISOString()}; await store.saveRun(completed); const summaryPath=join(paths.root,'report.json'); await import('./fill-runtime.js').then(({writeFillJsonAtomic})=>writeFillJsonAtomic(summaryPath,summary));
-  void controlWatcher; return {run:completed,counts:summary.counts,questionReview:'hook-pending-co2d.1'};
+  void controlWatcher; return {run:completed,counts:summary.counts,agentCalls:summary.agentCalls,questionReview:'hook-pending-co2d.1'};
 }
 
 /** Refuse overlapping starts; release the per-product lock on every outcome. */

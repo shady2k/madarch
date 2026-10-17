@@ -137,4 +137,34 @@ describe('fill code map and synthesis', () => {
       await expect(applySynthesisPages({ agentWorktree: agent, sourceCheckout: code, expectedAgentBranch: 'madarch/fill/run-1', pages: [{ ...base, path: 'docs/linked/page.md', questions: [{ id: 'q', kind: 'Overview', type: 'unverifiable', reason: 'No entity found', dependsOn: [], rank: 0 }] }], sources })).rejects.toThrow(/symlink outside/);
     } finally { await rm(root, { recursive: true, force: true }); }
   });
+
+  test('a segment may paraphrase when it names the supplied claims it rests on', async () => {
+    const page = await synthesizePages({ overview: { name: 'Overview', folder: 'docs/overview', hint: 'overview' }, kinds: [], codeMap: buildCodeMap(index, sources), claims, sources,
+      generate: async ({ target }) => ({ title: 'Overview', body: '', claims: [claims[0]!], segments: [{ text: 'The product validates each order before payment is taken.', sourceIds: ['src-code'], layer: 'fact' as const, claimIds: ['claim-fact'] }] }),
+      critique: () => ({ findings: [] }) });
+    expect(page[0]!.segments[0]!.claimIds).toEqual(['claim-fact']);
+    expect(page[0]!.body).toBe('The product validates each order before payment is taken.');
+  });
+  test('a paraphrase still refuses invented or foreign claims and uncovered sources', async () => {
+    const generate = (claimIds: string[], sourceIds: string[]) => async () => ({ title: 'T', body: 'x', claims: [claims[0]!], segments: [{ text: 'prose', sourceIds, layer: 'fact' as const, claimIds }] });
+    await expect(synthesizePages({ overview: { name: 'Overview', folder: 'docs/overview', hint: 'overview' }, kinds: [], codeMap: buildCodeMap(index, sources), claims, sources, generate: generate(['claim-foreign'], ['src-code']), critique: () => ({ findings: [] }) })).rejects.toThrow(/names claim claim-foreign that is not one of the selected claim records/);
+    await expect(synthesizePages({ overview: { name: 'Overview', folder: 'docs/overview', hint: 'overview' }, kinds: [], codeMap: buildCodeMap(index, sources), claims, sources, generate: generate(['claim-fact'], ['src-doc']), critique: () => ({ findings: [] }) })).rejects.toThrow(/cited source "src-doc" is not covered by the named claims/);
+  });
+  test('the controlled apply path accepts named-claim paraphrase and rejects it when a claim is foreign', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'madarch-synthesis-paraphrase-'));
+    const agent = join(root, 'agent'); const code = join(root, 'source');
+    await mkdir(agent); await mkdir(code);
+    for (const dir of [agent, code]) { execFileSync('git', ['init', '-q'], { cwd: dir }); execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '--allow-empty', '-qm', 'fixture'], { cwd: dir }); }
+    execFileSync('git', ['checkout', '-qb', 'madarch/fill/run-2'], { cwd: agent });
+    try {
+      const paraphrased = { path: 'docs/overview/index.md', title: 'Product', kind: 'Overview', body: 'Orders go through validation first.', segments: [{ text: 'Orders go through validation first.', sourceIds: ['src-code'], layer: 'fact' as const, claimIds: ['claim-fact'] }], questions: [],
+        claims, sourceIds: ['src-code', 'src-doc'], unverified: true, critic: { passes: 1, findings: [] } };
+      const result = await applySynthesisPages({ agentWorktree: agent, sourceCheckout: code, expectedAgentBranch: 'madarch/fill/run-2', pages: [paraphrased], sources });
+      const markdown = await readFile(String(result[0]), 'utf8');
+      expect(markdown).toContain('Orders go through validation first.');
+      expect(markdown).toContain('**Overview:** Orders are validated before payment.');
+      const foreign = { ...paraphrased, segments: [{ ...paraphrased.segments[0]!, claimIds: ['claim-absent'] }] };
+      await expect(applySynthesisPages({ agentWorktree: agent, sourceCheckout: code, expectedAgentBranch: 'madarch/fill/run-2', pages: [foreign], sources })).rejects.toThrow(/claim-absent/);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
 });
