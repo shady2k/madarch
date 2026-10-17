@@ -2,10 +2,10 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appendFillEventAtomic, consumeFillControl, countFillUnits, createFillFileStore, createFillRun, createFillUnit, fillInputsMatch, hashFillInputs, orchestrateFillUnits, reconcileFillUnit, writeFillJsonAtomic, type FillEvent, type FillUnit, type FillUnitPlan } from '../src/product/fill-runtime.js';
+import { appendFillEventAtomic, consumeFillControl, countFillUnits, createFillFileStore, createFillRun, createFillUnit, fillInputsMatch, hashFillInputs, orchestrateFillUnits, reconcileFillUnit, withFillControlLock, writeFillJsonAtomic, type FillEvent, type FillUnit, type FillUnitPlan } from '../src/product/fill-runtime.js';
 
 const plan = (id: string, stage: FillUnitPlan['stage'], inputHashes: Record<string, string>, dependencies: string[] = []): FillUnitPlan => ({ id, stage, inputHashes, outputPaths: [`outputs/${id}.json`], dependencies });
-const run = createFillRun({ productSnapshot: { repository: '/product', defaultBranch: 'main', commit: 'abc123', registryHash: 'registry' }, agentBranch: 'madarch/fill/run' }, 'run-1');
+const run = createFillRun({ productSnapshot: { repository: join(tmpdir(), `madarch-fill-runtime-product-${process.pid}-${Date.now()}`), defaultBranch: 'main', commit: 'abc123', registryHash: 'registry' }, agentBranch: 'madarch/fill/run' }, 'run-1');
 const hooks = (extra: Partial<import('../src/product/fill-runtime.js').FillOrchestrationHooks> = {}) => ({ lastEventSequence: async () => 0, persistRun: async () => undefined, refreshInputs: async () => ({}), commitStage: async () => 'clean' as const, ...extra });
 
 describe('fill runtime contract', () => {
@@ -56,7 +56,7 @@ describe('fill runtime contract', () => {
     expect(countFillUnits(result).stages.synthesis.complete).toBe(1);
     expect(persisted.some((unit) => unit.status === 'running')).toBe(true);
     expect(persisted.every((unit) => unit.attempt === 1)).toBe(true);
-    expect(persistedRuns).toEqual(['complete']);
+    expect(persistedRuns).toEqual(['running', 'complete']);
   });
 
   test('file store resumes event sequence and reloads units', async () => {
@@ -97,9 +97,10 @@ describe('fill runtime contract', () => {
     let control: 'running' | 'paused' = 'running';
     const runStatuses: string[] = [];
     const result = await orchestrateFillUnits(run, plans, [], { execute: async (unit) => { if (unit.id === 'inventory') control = 'paused'; return {}; } }, async () => undefined, async () => undefined, () => control, hooks({ persistRun: async (next) => { runStatuses.push(next.status); } }));
-    expect(runStatuses).toEqual(['paused']);
+    expect(runStatuses).toEqual(['running', 'paused']);
     expect(result.find((unit) => unit.id === 'inventory')?.status).toBe('complete');
     expect(result.find((unit) => unit.id === 'index')?.status).toBe('pending');
+    expect(runStatuses).toEqual(['running', 'paused']);
   });
 
   test('preserves a human edit and blocks the affected stage for review', async () => {
@@ -119,6 +120,32 @@ describe('fill runtime contract', () => {
     expect(result.find((unit) => unit.id === 'index')?.status).toBe('blocked');
     expect(countFillUnits(result, [finished]).reused).toBe(1);
     expect(countFillUnits(result, [finished]).run).toBe(1);
+  });
+
+  test('blocks units with missing dependencies instead of leaving a live unmanageable run', async () => {
+    const plans = [plan('orphan', 'claims', { source: 'x' }, ['missing-unit'])];
+    const result = await orchestrateFillUnits(run, plans, [], { execute: async () => ({}) }, async () => undefined, async () => undefined, () => 'running', hooks());
+    expect(result[0]?.status).toBe('blocked');
+    expect(result[0]?.error).toContain('missing-unit');
+  });
+
+  test('serializes coordinator and control actions for the same product', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'madarch-fill-lock-'));
+    try {
+      const order: string[] = [];
+      let releaseFirst!: () => void;
+      const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+      let firstStarted!: () => void;
+      const firstReady = new Promise<void>((resolve) => { firstStarted = resolve; });
+      const first = withFillControlLock(root, async () => { order.push('first-start'); firstStarted(); await firstGate; order.push('first-end'); });
+      await firstReady;
+      const second = withFillControlLock(root, async () => { order.push('second'); });
+      await Promise.resolve();
+      expect(order).toEqual(['first-start']);
+      releaseFirst();
+      await Promise.all([first, second]);
+      expect(order).toEqual(['first-start', 'first-end', 'second']);
+    } finally { await rm(root, { recursive: true, force: true }); }
   });
 
   test('consumes only a matching persisted pause or stop request', async () => {

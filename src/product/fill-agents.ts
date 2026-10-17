@@ -19,11 +19,11 @@ export function agentCommand(kind: AgentKind, snapshot: string, prompt: string):
   return { command: 'codex', cwd: snapshot, args: ['exec', '--json', '--sandbox', 'read-only', '--cd', snapshot, prompt] };
 }
 
-const safeText = (text: string): string => text.replace(/(?:sk-ant-[A-Za-z0-9_-]{8,}|(?:api[_-]?key|token|secret)[=: ]+[^\s,;]+|Bearer\s+[^\s]+)/gi, '[REDACTED]').slice(0, 500);
+const safeText = (text: string): string => text.replace(/(?:sk-ant-[A-Za-z0-9_-]{8,}|(?:[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET(?:[_-]ACCESS[_-]KEY)?|PASSWORD|CREDENTIAL|PRIVATE[_-]?KEY))[\"']?\s*[:=]\s*[\"']?[^\"'\s,;}]+|(?:api[_-]?key|token|secret)[=: ]+[^\s,;]+|Bearer\s+[^\s]+)/gi, '[REDACTED]').slice(0, 500);
 const redact = (value: unknown): unknown => {
   if (typeof value === 'string') return safeText(value);
   if (Array.isArray(value)) return value.map(redact);
-  if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [/^(?:api[_-]?key|apiKey|access[_-]?token|accessToken|refresh[_-]?token|refreshToken|auth(?:orization)?|secret|password|credential)$/i.test(key) ? key : key, /^(?:api[_-]?key|apiKey|access[_-]?token|accessToken|refresh[_-]?token|refreshToken|auth(?:orization)?|secret|password|credential)$/i.test(key) ? '[REDACTED]' : redact(item)]));
+  if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [/(?:api[_-]?key|access[_-]?token|refresh[_-]?token|auth(?:orization)?|secret|password|credential|private[_-]?key|client[_-]?secret|_token$)/i.test(key) ? key : key, /(?:api[_-]?key|access[_-]?token|refresh[_-]?token|auth(?:orization)?|secret|password|credential|private[_-]?key|client[_-]?secret|_token$)/i.test(key) ? '[REDACTED]' : redact(item)]));
   return value;
 };
 const safeSummary = (value: unknown): string => safeText(typeof value === 'string' ? value : JSON.stringify(value ?? ''));
@@ -53,6 +53,9 @@ export function createHeadlessAgentExecutor(options: {
       const child = spawn(invocation.command, invocation.args, { cwd: invocation.cwd, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CI: '1' } });
       let stdout = '';
       let stderr = '';
+      let callbackQueue = Promise.resolve();
+      let callbackError: unknown;
+      let callbackFailed = false;
       let settled = false;
       const terminate = (): void => { if (!settled) child.kill('SIGTERM'); };
       signal.addEventListener('abort', terminate, { once: true });
@@ -63,20 +66,24 @@ export function createHeadlessAgentExecutor(options: {
       });
       lines.on('line', (line) => {
         stdout += line + '\n';
-        void options.onRawLine?.(unit, line);
-        const event = normalizeAgentEvent(line, unit);
-        if (event) {
-          void options.onEvent(event);
-          const content = (event.payload as { summary?: string }).summary;
-          void progress(content ?? 'Agent event');
-        }
+        callbackQueue = callbackQueue.then(async () => {
+          await options.onRawLine?.(unit, line);
+          const event = normalizeAgentEvent(line, unit);
+          if (event) {
+            await options.onEvent(event);
+            const content = (event.payload as { summary?: string }).summary;
+            await progress(content ?? 'Agent event');
+          }
+        }).catch((error: unknown) => { callbackFailed = true; callbackError ??= error; child.kill('SIGTERM'); });
       });
       child.stderr.on('data', (chunk: Buffer | string) => { stderr += String(chunk); });
       const result = await done;
+      await callbackQueue;
       settled = true;
       signal.removeEventListener('abort', terminate);
       lines.close();
       if (signal.aborted) throw new Error('Agent invocation aborted');
+      if (callbackFailed) throw new Error(`Could not persist agent event: ${safeSummary(callbackError instanceof Error ? callbackError.message : callbackError)}`);
       if (result.error) throw new Error(`${invocation.command} could not start: ${safeSummary(result.error.message)}`);
       if (result.code !== 0) throw new Error(`${invocation.command} exited with ${String(result.code)}${stderr ? `: ${safeSummary(stderr)}` : ''}`);
       return { outputPaths: unit.outputPaths, agentUsage: { elapsedMs: undefined, inputTokens: parseUsage(stdout, 'input_tokens'), outputTokens: parseUsage(stdout, 'output_tokens') } };

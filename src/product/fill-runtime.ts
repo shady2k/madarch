@@ -20,6 +20,7 @@ export interface FillRun {
   productSnapshot: { repository: string; defaultBranch: string; commit: string; registryHash: string };
   agentBranch: string;
   status: FillRunStatus;
+  controlOpen?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -190,6 +191,22 @@ export function countFillUnits(units: readonly FillUnit[], priorUnits?: readonly
   return { stages, reused, run };
 }
 export type FillControl = 'running' | 'paused' | 'stopped';
+/** Serialize coordinator transitions and control writers within the serving process. */
+const fillControlQueues = new Map<string, Promise<void>>();
+export async function withFillControlLock<T>(productRoot: string, action: () => Promise<T>): Promise<T> {
+  const key = fillStatePaths(productRoot).root;
+  const previous = fillControlQueues.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  fillControlQueues.set(key, current);
+  await previous;
+  try { return await action(); }
+  finally {
+    release();
+    if (fillControlQueues.get(key) === current) fillControlQueues.delete(key);
+  }
+}
+
 /** Run dependency-ready units; pause drains active work, stop aborts active work and dispatches nothing else. */
 export async function orchestrateFillUnits(
   run: FillRun,
@@ -220,6 +237,7 @@ export async function orchestrateFillUnits(
     units.set(plan.id, unit);
   }
   let sequence = await hooks.lastEventSequence();
+  let requestedControl: FillControl | undefined;
   let eventQueue = Promise.resolve();
   const send = (event: Omit<FillEvent, 'runId' | 'seq' | 'at'>): Promise<void> => {
     const full: FillEvent = { ...event, runId: run.id, seq: ++sequence, at: now() };
@@ -227,7 +245,7 @@ export async function orchestrateFillUnits(
     return eventQueue;
   };
   const active = new Map<string, { controller: AbortController; promise: Promise<void> }>();
-  let requestedControl: FillControl | undefined;
+  let finalizing = false;
   const startedStages = new Set<FillStage>();
   const finishedStages = new Set<FillStage>();
   const start = (unit: FillUnit) => {
@@ -258,18 +276,19 @@ export async function orchestrateFillUnits(
     void promise.finally(() => active.delete(unit.id));
   };
   while (true) {
-    requestedControl = await consumeFillControl(run.productSnapshot.repository, run.id) ?? requestedControl;
-    const state = requestedControl ?? control();
-    if (state === 'stopped') for (const entry of active.values()) entry.controller.abort();
-    if (state === 'running') {
-      for (const unit of units.values()) {
+    const state = await withFillControlLock(run.productSnapshot.repository, async () => {
+      if (!finalizing) requestedControl = await consumeFillControl(run.productSnapshot.repository, run.id, true) ?? requestedControl;
+      const selected = requestedControl ?? control();
+      if (selected === 'stopped') for (const entry of active.values()) entry.controller.abort();
+      if (selected === 'running') for (const unit of units.values()) {
         if ((unit.status !== 'pending' && unit.status !== 'stale') || active.has(unit.id) || finishedStages.has(unit.stage)) continue;
-        const prerequisites = stagePrerequisites[unit.stage];
-        const dependencies = unit.dependencies ?? plans.get(unit.id)?.dependencies ?? [];
+        const prerequisites = stagePrerequisites[unit.stage]; const dependencies = unit.dependencies ?? plans.get(unit.id)?.dependencies ?? [];
         const prerequisitesComplete = prerequisites.every((stage) => (stageUnits.get(stage) ?? []).every((id) => units.get(id)?.status === 'complete'));
         if (prerequisitesComplete && dependencies.every((id) => units.get(id)?.status === 'complete')) start(unit);
       }
-    }
+      return selected;
+    });
+
     if (active.size === 0) {
       // At a stage boundary, check the default branch and invalidate only units declaring changed inputs.
       let boundaryChanged = false;
@@ -320,13 +339,17 @@ export async function orchestrateFillUnits(
       }
       const unfinished = [...units.values()].some((unit) => unit.status === 'pending' || unit.status === 'running' || unit.status === 'stale');
       if (unfinished && state === 'running' && !boundaryChanged) {
-        for (const unit of units.values()) if (unit.status === 'pending' && (unit.dependencies ?? []).some((id) => units.get(id)?.status !== 'complete')) {
-          const blocked: FillUnit = { ...unit, status: 'blocked', error: 'A dependency did not complete', updatedAt: now(), finishedAt: now() };
+        for (const unit of units.values()) if (unit.status === 'pending' || unit.status === 'stale') {
+          const unresolved = (unit.dependencies ?? []).filter((id) => units.get(id)?.status !== 'complete');
+          if (!unresolved.length) continue;
+          const blocked: FillUnit = { ...unit, status: 'blocked', error: `Dependencies could not complete: ${unresolved.join(', ')}`, updatedAt: now(), finishedAt: now() };
           units.set(unit.id, blocked);
           await persist(blocked);
         }
       }
       if (boundaryChanged || (state === 'running' && [...units.values()].some((unit) => (unit.status === 'pending' || unit.status === 'stale') && stagePrerequisites[unit.stage].every((stage) => (stageUnits.get(stage) ?? []).every((id) => units.get(id)?.status === 'complete')) && (unit.dependencies ?? []).every((id) => units.get(id)?.status === 'complete')))) continue;
+      finalizing = true;
+      requestedControl = await withFillControlLock(run.productSnapshot.repository, async () => { await hooks.persistRun({ ...run, controlOpen: false, updatedAt: now() }); return await consumeFillControl(run.productSnapshot.repository, run.id, true) ?? requestedControl; });
       break;
     }
     await Promise.race([...active.values()].map((entry) => entry.promise).concat(new Promise<void>((resolve) => setTimeout(resolve, 200))));
@@ -336,7 +359,7 @@ export async function orchestrateFillUnits(
   const failed = finalUnits.some((unit) => unit.status === 'blocked');
   const incomplete = finalUnits.some((unit) => unit.status === 'pending' || unit.status === 'running' || unit.status === 'stale');
   const nextStatus: FillRunStatus = finalControl === 'stopped' ? 'stopped' : finalControl === 'paused' ? 'paused' : failed ? 'blocked' : incomplete ? 'running' : 'complete';
-  const finalRun = { ...run, status: nextStatus, updatedAt: now() };
+  const finalRun = { ...run, status: nextStatus, controlOpen: nextStatus === 'paused', updatedAt: now() };
   await hooks.persistRun(finalRun);
   if (finalControl === 'stopped') await send({ stage: 'inventory', unitId: '', type: 'run-stopped', summary: 'Run stopped; active work was aborted' });
   else if (finalControl === 'paused') await send({ stage: 'inventory', unitId: '', type: 'run-paused', summary: 'Dispatch paused after active work drained' });
@@ -344,7 +367,8 @@ export async function orchestrateFillUnits(
 }
 
 /** Read and consume a server-requested pause/stop control file. The orchestration caller maps it to its control callback. */
-export async function consumeFillControl(productRoot: string, runId: string): Promise<FillControl | undefined> {
+export async function consumeFillControl(productRoot: string, runId: string, locked = false): Promise<FillControl | undefined> {
+  if (!locked) return withFillControlLock(productRoot, () => consumeFillControl(productRoot, runId, true));
   const file = join(fillStatePaths(productRoot).root, 'control.json');
   let request: { runId?: string; action?: string };
   try { request = JSON.parse(await readFile(file, 'utf8')) as { runId?: string; action?: string }; }

@@ -30,7 +30,7 @@ import { readFileSync, statSync, watch } from 'node:fs';
 import { join as joinPath, normalize, resolve } from 'node:path';
 import { readdirSync, readFileSync as readFillFileSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { fillStatePaths } from '../product/fill-runtime.js';
+import { fillStatePaths, withFillControlLock } from '../product/fill-runtime.js';
 import type { Handled, Refusal, ReplyMaker } from './http.js';
 
 /** How long the event stream holds a burst of tree events back before it asks the wiki what changed. */
@@ -423,21 +423,32 @@ export function createWikiPart(
     },
     async fillControl(request, runId, action): Promise<Handled> {
       const paths = fillStatePaths(wiki.product.folder);
+      return withFillControlLock(wiki.product.folder, async () => {
       try {
-        const run = JSON.parse(readFillFileSync(paths.run, 'utf8')) as { id?: string; status?: string };
+        const run = JSON.parse(readFillFileSync(paths.run, 'utf8')) as { id?: string; status?: string; controlOpen?: boolean };
         if (run.id !== runId) return refused(404, { message: `no fill run has id ${JSON.stringify(runId)}` });
+        if (run.controlOpen === false || (run.status !== 'running' && run.status !== 'paused')) return refused(409, { message: `fill run ${JSON.stringify(runId)} is final and cannot accept control requests` });
         if (action === 'pause' && run.status !== 'running') return refused(409, { message: `fill run ${JSON.stringify(runId)} is not running` });
-        if (action === 'stop' && (run.status === 'complete' || run.status === 'stopped')) return refused(409, { message: `fill run ${JSON.stringify(runId)} cannot be stopped from ${JSON.stringify(run.status)}` });
         mkdirSync(paths.root, { recursive: true });
         const file = joinPath(paths.root, 'control.json');
+        let pending: { runId?: string; action?: string } | undefined;
+        try { pending = JSON.parse(readFillFileSync(file, 'utf8')) as { runId?: string; action?: string }; } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+        if (pending?.runId === runId && pending.action === 'stop' && action === 'pause') return refused(409, { message: 'a stop request is already pending for this fill run' });
+        const acceptedAction = pending?.runId === runId && pending.action === 'stop' ? 'stop' : action;
+        if (run.status === 'paused' && acceptedAction === 'stop') {
+          writeFileSync(file, `${JSON.stringify({ runId, action: 'stop', requestedAt: new Date().toISOString() })}\n`);
+          writeFileSync(paths.run, `${JSON.stringify({ ...run, status: 'stopped', controlOpen: false, updatedAt: new Date().toISOString() }, null, 2)}\n`);
+          return { response: json(202, { runId, action: 'stop', accepted: true }) };
+        }
         const temporary = `${file}.${randomUUID()}.tmp`;
-        writeFileSync(temporary, `${JSON.stringify({ runId, action, requestedAt: new Date().toISOString() })}\n`, { flag: 'wx' });
+        writeFileSync(temporary, `${JSON.stringify({ runId, action: acceptedAction, requestedAt: new Date().toISOString() })}\n`, { flag: 'wx' });
         renameSync(temporary, file);
-        return { response: json(202, { runId, action, accepted: true }) };
+        return { response: json(202, { runId, action: acceptedAction, accepted: true }) };
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') return refused(404, { message: 'No fill run is active' });
         return refused(500, { message: `could not request ${action} for fill run ${JSON.stringify(runId)}: ${(error as Error).message}` });
       }
+      });
     },
     events: (request) => streamingEvents(wiki, request),
     repos: (): Handled => {

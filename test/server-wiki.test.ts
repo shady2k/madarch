@@ -132,6 +132,9 @@ describe('the server\'s product mode', () => {
       expect((await fetch(`${url}/api/fill/control?runId=run-1&action=${action}`, { method: 'POST' })).status).toBe(202);
       expect(JSON.parse(readFileSync(join(folder!, '.madarch', 'fill', 'control.json'), 'utf8'))).toMatchObject({ runId: 'run-1', action });
     }
+    writeFileSync(join(folder!, '.madarch', 'fill', 'run.json'), JSON.stringify({ id: 'run-1', status: 'paused', controlOpen: true }));
+    expect((await fetch(`${url}/api/fill/control?runId=run-1&action=stop`, { method: 'POST' })).status).toBe(202);
+    expect(JSON.parse(readFileSync(join(folder!, '.madarch', 'fill', 'run.json'), 'utf8'))).toMatchObject({ status: 'stopped', controlOpen: false });
   });
 
   test('GET /api/product names the product\'s id and name and its folder', async () => {

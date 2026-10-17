@@ -25,6 +25,13 @@ describe('headless agent adapters', () => {
     expect(credential.payload).toMatchObject({ data: { api_key: '[REDACTED]', data: { password: '[REDACTED]' } } });
     const camel = normalizeAgentEvent('{"type":"result","apiKey":"abc","accessToken":"xyz"}', unit)!;
     expect(camel.payload).toMatchObject({ data: { apiKey: '[REDACTED]', accessToken: '[REDACTED]' } });
+    const envSecrets = normalizeAgentEvent('{"type":"result","OPENAI_API_KEY":"key1","GITHUB_TOKEN":"key2","AWS_SECRET_ACCESS_KEY":"key3"}', unit)!;
+    expect(envSecrets.payload).toMatchObject({ data: { OPENAI_API_KEY: '[REDACTED]', GITHUB_TOKEN: '[REDACTED]', AWS_SECRET_ACCESS_KEY: '[REDACTED]' } });
+    expect(normalizeAgentEvent('{"type":"message","text":"AWS_SECRET_ACCESS_KEY=abc123"}', unit)?.payload).toMatchObject({ summary: '[REDACTED]' });
+  });
+  test('propagates asynchronous event persistence failures to the unit executor', async () => {
+    const executor = createHeadlessAgentExecutor({ kind: 'codex', snapshot: '/source', promptFor: () => 'inspect', onEvent: async () => { throw undefined; }, spawn: (() => fakeProcess(0, '{"type":"item.completed"}\n')) as never });
+    await expect(executor.execute(unit, new AbortController().signal, async () => undefined)).rejects.toThrow('Could not persist agent event');
   });
   test('executes fake child process and emits normalized progress without a real agent call', async () => {
     const seen: unknown[] = [];
