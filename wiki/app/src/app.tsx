@@ -20,7 +20,7 @@ import { FileTextIcon, FolderGit2Icon, GitBranch, NetworkIcon } from 'lucide-rea
 import { relativeTime } from './i18n.js';
 import { FillWizard } from './fill-wizard.js';
 import { getProduct, getPages, getPage, getQuestions, getRepos, getRegistry, type Product, type ProductWithAudience, type PageList, type Page, type QuestionList, type QuestionEntry, type PageDocument, type Architecture, type RepoEntry, type ReposList, type RegistryOffer, getDiscussions, postDiscussion, type DiscussionEntry, type DiscussionRange } from './api.js';
-import { routeOf, addressOfPage, architectureAddress, type Route } from './routes.js';
+import { routeOf, addressOfPage, architectureAddress, REPOS_ADDRESS, type Route } from './routes.js';
 import { Markdown, PageLink } from './view.js';
 import { mapParagraphSelection, renderedMarkdownParagraphs } from './discussion-selection.js';
 import { routeContext, statusContext } from './hold.js';
@@ -415,7 +415,7 @@ export function HomePage({ product, list, architecture, offer, overview, repos =
       ) : normalizedLegacyAudience !== undefined && normalizedLegacyAudience.length > 0 ? (
         <p className="home-audience" data-testid="home-audience">{t('home.audience', { audience: normalizedLegacyAudience })}</p>
       ) : null}
-      {repos.length > 0 ? <section className="home-group mt-7" data-testid="home-repositories"><h2 className="text-h2 font-medium">{t('repos.title')}</h2><ul className="home-rows">{repos.map((entry) => <li key={entry.name} className="home-row home-repository-row"><a className="home-repository-part" href={`/r#${encodeURIComponent(entry.name)}`} title={entry.name}><strong className="home-repository-name">{entry.name}</strong></a><span className="home-repository-part">{entry.url ?? t('repos.noOrigin')}</span><span className="home-repository-part">{entry.path}</span><span className="home-repository-part">{stateLabelOf(entry, t)}</span></li>)}</ul></section> : null}
+      {repos.length > 0 ? <section className="home-group mt-7" data-testid="home-repositories"><h2 className="text-h2 font-medium">{t('repos.title')}</h2><ul className="home-rows">{repos.map((entry) => <li key={entry.name} className="home-row home-repository-row"><a className="home-repository-part" href={`${appPath(REPOS_ADDRESS)}#${encodeURIComponent(entry.name)}`} title={entry.name}><strong className="home-repository-name">{entry.name}</strong></a><span className="home-repository-part">{entry.url ?? t('repos.noOrigin')}</span><span className="home-repository-part">{entry.path}</span><span className="home-repository-part">{stateLabelOf(entry, t)}</span></li>)}</ul></section> : null}
       {documents === 0 ? (
         <section className="home-group mt-0" data-testid="empty-home-guidance" aria-labelledby="empty-home-guidance-title">
           <h2 id="empty-home-guidance-title" className="text-h2 font-medium">{t(product.id === undefined ? 'home.noManifestTitle' : 'home.gettingStartedTitle')}</h2>
@@ -455,7 +455,7 @@ export function HomePage({ product, list, architecture, offer, overview, repos =
           </header>
           <ul className="home-rows">
             <li>
-              <a className="home-row" href={architectureAddress()}>
+              <a className="home-row" href={appPath(architectureAddress())}>
                 <NetworkIcon aria-hidden="true" className="home-row-icon" />
                 <span className="home-row-title">{t('architecture.openIndex')}</span>
               </a>

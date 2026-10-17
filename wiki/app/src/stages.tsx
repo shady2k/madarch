@@ -15,6 +15,7 @@
  * duplicated here.
  */
 import { useEffect, useState, type ReactElement } from 'react';
+import { appPath } from './app-base.js';
 import { useTranslation } from 'react-i18next';
 import { CircleDashedIcon, CircleIcon, CircleCheckBigIcon, ListTodoIcon } from 'lucide-react';
 import { getStages, type StagesIndex, type TaskFeature, type StageSection, type StageSectionLink, type StageNote, type RegistryOffer } from './api.js';
@@ -133,7 +134,7 @@ function SectionLinks({ links }: { links: readonly StageSectionLink[] }): ReactE
         if (known) {
           return (
             <p key={link.kind} className="stage-section-link" data-testid={`stage-section-${link.kind}`}>
-              <a href={address}>{line}</a>
+              <a href={appPath(address)}>{line}</a>
             </p>
           );
         }

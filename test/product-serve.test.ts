@@ -5,7 +5,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, test } from 'bun:test';
+import { createServer } from 'node:net';
 import { homeOfCommand, noStrayDrafts, sealedHome } from './scratch-home.js';
+import { stopDaemon } from '../src/product/daemon.js';
+
+/** A port the machine holds free right now, for a daemon the test stops again. */
+async function freePort(): Promise<number> {
+  return await new Promise<number>((resolvePort) => { const listener = createServer(); listener.listen(0, '127.0.0.1', () => { const address = listener.address(); const port = typeof address === 'object' && address ? address.port : 0; listener.close(() => resolvePort(port)); }); });
+}
 
 /**
  * The `madarch` command's serve step (docs/changes/draft-product/
@@ -539,21 +546,24 @@ describe('madarch serve: an existing product served', () => {
 });
 
 describe('madarch new serving the draft it just created', () => {
-  test('new creates the draft, serves it, prints the address, and the home page answers over HTTP', async () => {
+  test('new creates the draft, starts the shared server, prints the address, and returns with the wiki answering over HTTP', async () => {
     const base = scratchFolder();
     const built = builtApp(base);
     const opener = injectableOpener('ok');
-    const serve = serveLive(['new', '--home', base, '--port', '0', '--no-open'],
+    const port = await freePort();
+    const serve = serveLive(['new', '--home', base, '--port', String(port), '--no-open'],
       { MADARCH_HOME: base, MADARCH_APP: built, MADARCH_BROWSER: opener });
-    const address = await whenServing(serve, '/api/product');
-    await Bun.sleep(500);
+    // The command returns at once where serve would keep running.
+    await Promise.race([serve.raw.exited, Bun.sleep(20_000).then(() => { throw new Error('new did not return at once'); })]);
     // The draft's facts come first, one per line, then the address.
     const lines = serve.stdout.split('\n').filter((line) => line !== '');
     expect(lines[0]).toContain('✓ Created the product');
     expect(lines.some((line) => line.startsWith('Next:'))).toBeTrue();
-    const body = (await (await fetch(`${address}/api/product`)).json()) as { name: string };
+    const url = lines.find((line) => line.startsWith('The wiki is running at '))!.match(/(https?:\/\/\S+)/)![1];
+    expect(url).toBe(`http://127.0.0.1:${port}/products/${basename(lines[0]!.match(/ in (.+)$/)?.[1]!)}/`);
+    const body = (await (await fetch(`${url}api/product`)).json()) as { name: string };
     expect(body.name).toStartWith('idea-');
-    await serve.finish();
+    expect(stopDaemon({ home: base })).toBe(0);
   }, 30_000);
 
   test('new keeps refusing an unknown option with exit 2, before any draft is created', () => {

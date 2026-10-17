@@ -106,7 +106,7 @@ function ensureLikec4(): void {
   if (likec4State !== 'unasked') return;
   setLikec4State('loading');
   const script = document.createElement('script');
-  script.src = '/api/architecture/likec4.js';
+  script.src = appPath('/api/architecture/likec4.js');
   script.onload = () => noteLikec4ScriptReady();
   script.onerror = () => setLikec4State('failed');
   document.head.appendChild(script);
@@ -185,6 +185,7 @@ export function LikeC4Diagram({ viewId, title }: { viewId: string; title?: strin
 }
 
 import type { JSX as ReactJSX } from 'react';
+import { appPath } from './app-base.js';
 
 declare module 'react' {
   // eslint-disable-next-line @typescript-eslint/no-namespace

@@ -23,7 +23,7 @@
  * default (128 MB) are never reached by honest clients; a client that
  * lies by omission costs one read, then is refused.
  */
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { dirname, join as joinPath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Value } from 'typebox/value';
@@ -38,7 +38,9 @@ import { createGraphs } from './graphs.js';
 import type { SourceStoreResult, SourceStores } from './sources.js';
 import { createSourceStores, sourceNameProblem } from './sources.js';
 import { createWikiPart, type WikiPart } from './wiki-app.js';
-import { openProductWiki } from '../product-wiki/pages.js';
+import { openProductWiki, type ProductWiki } from '../product-wiki/pages.js';
+import { listProducts } from '../product/list.js';
+import { basename } from 'node:path';
 import type { StartFillOptions, StartFillResult } from '../product/fill.js';
 import { saveChosenAgent } from '../product/fill-wizard.js';
 
@@ -72,6 +74,8 @@ export interface ServerOptions {
   productFolder?: string;
   /** Shared fill entry point injected by the product host. */
   startFill?: (productFolder: string, options: StartFillOptions) => Promise<StartFillResult>;
+  /** Products home for a single server with per-product URL prefixes. */
+  productHome?: string;
   /** Serving-only opt-in for an existing directory with no manifest; defaults to strict product recognition. */
   allowNoManifest?: boolean;
   /** The folder the app's built files served from (stage 2's build); without it only the API answers. */
@@ -172,7 +176,7 @@ interface ClaimedRename {
 
 export async function startServer(options: ServerOptions): Promise<StartedServer> {
   const queryDatabase = options.queryDatabase;
-  if (options.dataFolder === undefined && options.productFolder === undefined) {
+  if (options.dataFolder === undefined && options.productFolder === undefined && options.productHome === undefined) {
     await queryDatabase?.close().catch(() => {});
     throw new Error("the server is started with neither a data folder nor a product folder: give --data <folder> for the sources' histories, --product <folder> for a product's wiki, or both");
   }
@@ -186,21 +190,16 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   let wiki: ReturnType<typeof openProductWiki> | undefined;
   let appFolder = options.appFolder;
   try {
-    wiki = options.productFolder === undefined ? undefined : openProductWiki(options.productFolder, { allowNoManifest: options.allowNoManifest });
-    if (wiki !== undefined && !wiki.ok) {
-      throw new Error(`the product ${JSON.stringify(options.productFolder!)} cannot be served as a wiki: ${wiki.message}`);
+    if (options.productFolder !== undefined) {
+      wiki = openProductWiki(options.productFolder, { allowNoManifest: options.allowNoManifest });
+      if (wiki !== undefined && !wiki.ok) throw new Error(`the product ${JSON.stringify(options.productFolder)} cannot be served as a wiki: ${wiki.message}`);
     }
-
-    // A product folder means the product's wiki, its app included (requirement
-    // serves-wiki): the app folder defaults to the checkout's built app. A
-    // checkout whose app was never built refuses here with what to do, rather
-    // than start a server that answers 404 at `/`.
-    if (options.productFolder !== undefined && appFolder === undefined) {
+    if ((options.productFolder !== undefined || options.productHome !== undefined) && appFolder === undefined) {
       const candidate = joinPath(dirname(fileURLToPath(import.meta.url)), '..', '..', 'wiki', 'app', 'dist');
-      if (existsSync(joinPath(candidate, 'index.html'))) {
-        appFolder = candidate;
-      } else {
-        throw new Error(`the product ${JSON.stringify(options.productFolder)} cannot be served as a wiki: the app's built files are not at ${JSON.stringify(candidate)} — build the app first (bun install --frozen-lockfile && bun run build in wiki/app of the madarch checkout), or name the built folder with the app folder option`);
+      if (existsSync(joinPath(candidate, 'index.html'))) appFolder = candidate;
+      else {
+        const subject = options.productFolder !== undefined ? `the product ${JSON.stringify(options.productFolder)} cannot be served as a wiki: ` : '';
+        throw new Error(`${subject}the app's built files are not at ${JSON.stringify(candidate)} — build the app first (bun install --frozen-lockfile && bun run build in wiki/app), or name the built folder with the app folder option`);
       }
     }
   } catch (error) {
@@ -236,12 +235,81 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     startFill: options.startFill,
     productFolder: options.productFolder,
   });
+  // The products home is served by one server: the home page lists the
+  // products, and each product's wiki answers under `/products/<folder>/`.
+  // The wiki app derives that prefix from its own address (app-base), so the
+  // only server-side rewriting is the app shell's absolute asset references.
+  // The home is re-read when its folder changes and at most every few
+  // seconds, so a product created after the server started is served without
+  // a restart, and no request pays for a re-read when nothing changed.
+  interface ProductEntry { wiki: ProductWiki; handler: ServerHandler; }
+  const productHome = options.productHome;
+  const productEntries = new Map<string, ProductEntry>();
+  let homeStamp = -1;
+  let lastRefresh = 0;
+  const refreshProducts = (): void => {
+    if (productHome === undefined) return;
+    let stamp = -1;
+    try { stamp = statSync(productHome).mtimeMs; } catch { stamp = -1; }
+    if (stamp === homeStamp && Date.now() - lastRefresh < 5000) return;
+    homeStamp = stamp;
+    lastRefresh = Date.now();
+    const listed = listProducts({ home: productHome });
+    if (listed.outcome !== 'listed') {
+      errorLog(`the products home ${productHome} could not be listed: ${listed.message}`);
+      return;
+    }
+    const next = new Map<string, ProductEntry>();
+    for (const item of listed.products) {
+      const opened = openProductWiki(item.folder);
+      if (!opened.ok) {
+        errorLog(`the product ${JSON.stringify(item.folder)} cannot be served as a wiki: ${opened.message}`);
+        continue;
+      }
+      next.set(basename(item.folder), {
+        wiki: opened.wiki,
+        handler: createHandler({ sources, graphs, log, errorLog, wiki: createWikiPart(makeJson, wikiRefused, opened.wiki, appFolder), appFolder, startFill: options.startFill, productFolder: item.folder }),
+      });
+    }
+    productEntries.clear();
+    for (const [name, entry] of next) productEntries.set(name, entry);
+  };
+  const productsHomePage = (): Response => {
+    refreshProducts();
+    const names = [...productEntries.keys()].sort(byCodePoint);
+    const items = names.map((name) => `<li><a href="/products/${encodeURIComponent(name)}/">${escapeHtml(name)}</a></li>`).join('');
+    const empty = names.length === 0 ? '<p>No products yet: run madarch new.</p>' : '';
+    return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Madarch products</title></head><body><h1>Products</h1><ul>${items}</ul>${empty}</body></html>`, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+  };
+  const notServed = (message: string): Response => Response.json({ message }, { status: 404 });
+  /** The app shell's absolute asset references must answer under the product's own prefix. */
+  const withProductPrefix = async (response: Response, prefix: string): Promise<Response> => {
+    if (!(response.headers.get('content-type') ?? '').includes('text/html')) return response;
+    const headers = new Headers(response.headers);
+    headers.delete('content-length');
+    const html = (await response.text()).replaceAll('="/', `="${prefix}/`);
+    return new Response(html, { status: response.status, headers });
+  };
+  const handleProductsHome = async (request: Request): Promise<Response> => {
+    const url = new URL(request.url);
+    if (url.pathname === '/' || url.pathname === '') return productsHomePage();
+    const match = /^\/products\/([^/]+)(?:\/(.*))?$/.exec(url.pathname);
+    if (match === null) return notServed(`this server serves a products home: the products are listed at ${new URL('/', url).href}, and each product's wiki answers under /products/<folder>/`);
+    let name: string;
+    try { name = decodeURIComponent(match[1]!); } catch { return notServed(`the product path ${JSON.stringify(url.pathname)} holds a percent escape the server cannot read: ask for the product by its folder name`); }
+    refreshProducts();
+    const entry = productEntries.get(name);
+    if (entry === undefined) return notServed(`no product ${JSON.stringify(name)} is served: the products are listed at ${new URL('/', url).href}`);
+    const rest = match[2] === undefined ? '/' : `/${match[2]}`;
+    const forwarded = new Request(new URL(rest + url.search, url), request);
+    return withProductPrefix(await entry.handler(forwarded), `/products/${encodeURIComponent(name)}`);
+  };
   let server: ReturnType<typeof Bun.serve>;
   try {
     server = Bun.serve({
       hostname: options.host ?? '127.0.0.1',
       port: options.port ?? 4180,
-      fetch: handle,
+      fetch: (request) => (options.productHome === undefined ? handle(request) : handleProductsHome(request)),
       // A wiki's change stream goes quiet for minutes; the idle default would
       // end it. 255 s between incoming frames, plus the stream's own 30 s
       // comments, keeps one long-lived request alive without polling.
@@ -1001,3 +1069,5 @@ function valueAtPointer(root: unknown, pointer: string): unknown {
   }
   return current;
 }
+
+function escapeHtml(text: string): string { return text.replace(/[&<>"\']/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;", "\'":"&#39;"}[char]!)); }

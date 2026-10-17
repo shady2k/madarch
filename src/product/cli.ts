@@ -16,8 +16,9 @@ import { createDraft } from './draft.js';
 import { prepareDemo, type DemoOptions } from './demo.js';
 import { listProducts, type ProductList } from './list.js';
 import { runningVersion } from './version.js';
+import { startDaemon, stopDaemon, daemonStatus, serveDaemon, ensureDaemon } from './daemon.js';
 import { upgrade, type UpgradeOptions } from './upgrade.js';
-import { serveWiki, type Opener, type ServeOptions } from '../product-wiki/serve.js';
+import { serveWiki, machineOpener, type Opener, type ServeEnv, type ServeOptions } from '../product-wiki/serve.js';
 import {
   cloneLife,
   initLife,
@@ -52,6 +53,11 @@ export const SHORT_HELP = [
   "  bootstrap Clone a product's code repositories",
   '  demo      Open the Madarch demo wiki',
   '  fill      Fill this product wiki from its connected code repositories',
+  '',
+  'Server:',
+  '  start     Start one background server for every product',
+  '  stop      Stop the background server',
+  '  status    Show it: address, pid, uptime, products',
   '',
   'Other:',
   '  version   Show the version',
@@ -97,6 +103,9 @@ export const USAGE = [
   '   or: madarch new [--home <folder>] [--port <n>] [--host <address>] [--no-open]',
   '   or: madarch init [--home <folder>] [--port <n>] [--host <address>] [--no-open]',
   '   or: madarch demo [--home <folder>] [--port <n>] [--host <address>] [--no-open]',
+  '   or: madarch start [--home <folder>] [--port <n>]',
+  '   or: madarch stop [--home <folder>]',
+  '   or: madarch status [--home <folder>]',
   '   or: madarch list [--home <folder>]',
   '   or: madarch rename <name> [--product <folder>]',
   '   or: madarch remote <url> [--product <folder>]',
@@ -114,6 +123,9 @@ export const HELP = [
   '   or: madarch new [--home <folder>] [--port <n>] [--host <address>] [--no-open]',
   '   or: madarch init [--home <folder>] [--port <n>] [--host <address>] [--no-open]',
   '   or: madarch demo [--home <folder>] [--port <n>] [--host <address>] [--no-open]',
+  '   or: madarch start [--home <folder>] [--port <n>]',
+  '   or: madarch stop [--home <folder>]',
+  '   or: madarch status [--home <folder>]',
   '   or: madarch list [--home <folder>]',
   '   or: madarch rename <name> [--product <folder>]',
   '   or: madarch remote <url> [--product <folder>]',
@@ -174,6 +186,9 @@ export const HELP = [
   '  init       create a product around this Git checkout and serve its wiki',
   '  new        create a draft product repository and serve its wiki',
   '  serve      serve the product of the given or the current folder',
+  '  start      start one background server for every product in the home',
+  '  stop       stop that background server and clear its state',
+  '  status     show whether it runs: address, pid, uptime, products',
   '  list       name the products the products home holds',
   '  rename     name a product: the draft, in place, its id kept',
   '  remote     add origin to a product: its url, never a push',
@@ -200,6 +215,10 @@ interface CommandSpec {
 
 /** The specs the subcommands answer to, whole. */
 export const COMMANDS: Record<string, CommandSpec> = {
+  start: { positionals: [], flags: { home: true, product: false, port: true, open: false, branch: false, yes: false } },
+  stop: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
+  status: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
+  'daemon-serve': { positionals: [], flags: { home: true, product: false, port: true, open: false, branch: false, yes: false } },
   demo: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
   init: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
   new: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
@@ -492,12 +511,12 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
     return 0;
   }
   if (command.startsWith('--')) {
-    console.error(`unknown option "${command}" before the subcommand: the subcommands are "new", "init", "demo", "serve", "list", "rename", "remote", "repo add", "bootstrap", "version" and "upgrade"`);
+    console.error(`unknown option "${command}" before the subcommand: the subcommands are "new", "init", "demo", "serve", "start", "stop", "status", "list", "rename", "remote", "repo add", "bootstrap", "version" and "upgrade"`);
     console.error('run madarch --help for help');
     return 2;
   }
   if (!(command in COMMANDS)) {
-    console.error(`unknown subcommand "${command}": the subcommands are "new", "init", "demo", "serve", "list", "rename", "remote", "repo add", "bootstrap", "version" and "upgrade"`);
+    console.error(`unknown subcommand "${command}": the subcommands are "new", "init", "demo", "serve", "start", "stop", "status", "list", "rename", "remote", "repo add", "bootstrap", "version" and "upgrade"`);
     console.error('run madarch --help for help');
     return 2;
   }
@@ -513,19 +532,22 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
   const { home, product, port, open } = parsed;
 
   if (command === 'list') return list(home, parsed.json);
+  if (command === 'start') return await startDaemon({ home, port: port ?? 4180 });
+  if (command === 'stop') return stopDaemon({ home });
+  if (command === 'status') return daemonStatus({ home });
+  if (command === 'daemon-serve') return await serveDaemon({ home, port: port ?? 4180 });
   if (command === 'init') {
     const result = initLife({ cwd: process.cwd(), home });
     if (result.exit !== 0) return report(result);
     const folder = result.prints.find((line) => line.startsWith('folder: '))!.slice('folder: '.length);
     const source = result.prints.find((line) => line.startsWith('source: '))?.slice('source: '.length);
-    if (parsed.json) console.log(JSON.stringify({ folder, ...Object.fromEntries(result.prints.map((line) => { const at = line.indexOf(': '); return at < 0 ? [line, true] : [line.slice(0, at), line.slice(at + 2)]; })) }));
-    else {
+    const facts = Object.fromEntries(result.prints.map((line) => { const at = line.indexOf(': '); return at < 0 ? [line, true] : [line.slice(0, at), line.slice(at + 2)]; }));
+    if (!parsed.json) {
       console.log(`✓ Created the product "${basename(folder)}" in ${displayPath(folder)}`);
       if (source !== undefined) console.log(`✓ Connected your repository ${displayPath(source)} (it stays where it is)`);
       else if (result.prints.some((line) => line.startsWith('already linked to product: '))) console.log(`✓ Connected your repository ${displayPath(process.cwd())} (it stays where it is)`);
     }
-    if (!parsed.json) nextSteps(folder, true);
-    return serve(serveOptions(parsed, deps), folder);
+    return await serveShared(parsed, deps, folder, true, parsed.json ? { folder, ...facts } : undefined);
   }
   if (command === 'version') return versionCommand();
   if (command === 'upgrade') {
@@ -565,10 +587,8 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
     console.error(draft.message);
     return draft.outcome === 'refused' ? 2 : 1;
   }
-  if (parsed.json) console.log(JSON.stringify({ folder: draft.folder, id: draft.id, name: draft.name }));
-  else console.log(`✓ Created the product "${draft.name}" in ${displayPath(draft.folder)}`);
-  if (!parsed.json) nextSteps(draft.folder, false);
-  return serve(serveOptions(parsed, deps), draft.folder);
+  if (!parsed.json) console.log(`✓ Created the product "${draft.name}" in ${displayPath(draft.folder)}`);
+  return await serveShared(parsed, deps, draft.folder, false, parsed.json ? { folder: draft.folder, id: draft.id, name: draft.name } : undefined);
 }
 
 async function fillCommand(args: readonly string[]): Promise<number> {
@@ -585,13 +605,50 @@ function displayPath(folder: string): string {
   return home && folder.startsWith(`${home}/`) ? `~/${folder.slice(home.length + 1)}` : folder;
 }
 
+/** The next steps one reader follows after the product's wiki is up. */
 function nextSteps(folder: string, init: boolean): void {
   const shown = displayPath(folder);
   console.log('');
   console.log('Next:');
   console.log(`  • Product documents are Markdown files in ${shown}/docs/. Write them by hand or with any agent; or let an agent set them up with the shady2k-skills set.`);
-  console.log(`  • Open the wiki again later: cd ${shown} && madarch serve`);
+  console.log('  • The wiki keeps running in the background: open the address again any time; madarch stop ends it.');
   if (init) console.log('  • Your code stays where it is.');
+}
+
+/**
+ * The non-blocking tail of `new` and `init` (change madarch-zcti): the
+ * home's shared server is started or reused, the product's address under it
+ * is printed — over SSH with the tunnel command — and the command returns
+ * at once where `serve` would have kept running. `jsonBase` carries the
+ * facts already collected; the daemon's own are added beside them and one
+ * JSON line is printed.
+ */
+async function serveShared(parsed: Parsed, deps: CliDeps, folder: string, init: boolean, jsonBase?: Record<string, unknown>): Promise<number> {
+  const started = await ensureDaemon({ home: parsed.home, port: parsed.port, appFolder: deps.app?.appFolder, buildCommand: deps.app?.buildCommand, env: deps.app?.env });
+  if (!started.ok) { console.error(started.message); return 1; }
+  const name = encodeURIComponent(basename(folder));
+  const url = `${started.url}/products/${name}/`;
+  const env: ServeEnv = deps.app?.env ?? process.env;
+  const ssh = Boolean(env.SSH_CONNECTION || env.SSH_TTY);
+  const tunnel = `ssh -L ${started.port}:127.0.0.1:${started.port} ${env.USER || '<user>'}@${(env.SSH_CONNECTION ?? '').split(/\s+/)[2] ?? '<host>'}`;
+  if (jsonBase !== undefined) {
+    console.log(JSON.stringify({ ...jsonBase, url, pid: started.pid, port: started.port, reused: started.reused, ...(ssh ? { sshTunnel: tunnel } : {}) }));
+    return 0;
+  }
+  console.log(started.reused ? `The wiki is already running at ${url}` : `The wiki is running at ${url}`);
+  if (started.note !== undefined) console.log(started.note);
+  if (ssh) {
+    console.log('This machine is remote (SSH). To open the wiki on your computer, run there:');
+    console.log(`  ${tunnel}`);
+    console.log(`and open http://localhost:${started.port}/products/${name}/`);
+  }
+  const noDesktop = process.platform === 'linux' && !env.DISPLAY && !env.WAYLAND_DISPLAY;
+  const open = parsed.open !== false && !ssh && (!noDesktop || Boolean(deps.opener || env.MADARCH_BROWSER?.trim() || env.BROWSER?.trim()));
+  if (open) {
+    void (deps.opener ?? machineOpener(env))(url).then((opened) => { if (!opened.ok) console.error(`The browser was not opened: ${opened.message}`); });
+  }
+  nextSteps(folder, init);
+  return 0;
 }
 
 /** `madarch version`: one fact the release answers with (or `dev` in a checkout); 0, always. */
