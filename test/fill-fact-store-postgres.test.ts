@@ -125,6 +125,10 @@ test.skipIf(connectionString === undefined)(`a fact another unit is publishing i
   });
   // Each publication opens its own owner, so no two of them share a connection pool or an owner's own
   // context: what this test is about is two transactions of the database, not two users of one owner.
+  // The release is named here, outside the try: a step that failed before it must still let the held
+  // transaction commit, or closing an owner whose client is inside an open transaction would wait for it
+  // and the run would report a bare timeout instead of the failure.
+  let releaseTheHeldPublication: (() => void) | undefined;
   const book = await createPostgresDatabaseOwner({ connectionString: connectionString! });
   const heldOwner = await createPostgresDatabaseOwner({ connectionString: connectionString! });
   const besideOwner = await createPostgresDatabaseOwner({ connectionString: connectionString! });
@@ -140,6 +144,7 @@ test.skipIf(connectionString === undefined)(`a fact another unit is publishing i
     const holds = new Promise<void>((resolve) => { holding = resolve; });
     let releasing!: () => void;
     const release = new Promise<void>((resolve) => { releasing = resolve; });
+    releaseTheHeldPublication = releasing;
     const publishes = heldOwner.transaction('write', async (executor) => {
       await FACT_APPLICATION.apply(request('sweep-a', shared, executor));
       holding();
@@ -162,6 +167,7 @@ test.skipIf(connectionString === undefined)(`a fact another unit is publishing i
     expect((await readUnitFacts(book, 'sweep-b')).map((entry) => entry.fact.id)).toEqual([own.id]);
     expect((await readUnitFacts(book, 'sweep-a')).map((entry) => entry.fact.id)).toEqual([shared.id]);
   } finally {
+    releaseTheHeldPublication?.();
     for (const owner of [book, heldOwner, besideOwner, watcher]) await owner.close();
   }
 }, 60_000);

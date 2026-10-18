@@ -21,7 +21,7 @@
  */
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact, type FactProvenance } from '../src/fill/facts.js';
-import { FACT_APPLICATION, createFactStoreSchema, readFact, readUnitDraft, readUnitFacts } from '../src/fill/fact-store.js';
+import { FACT_APPLICATION, createFactStoreSchema, factsOfWrites, readFact, readUnitDraft, readUnitFacts } from '../src/fill/fact-store.js';
 import {
   createOrchestratorSchema,
   publishUnit,
@@ -85,6 +85,8 @@ export interface ScenarioFacts {
   readonly otherFolderContains: Fact;
   /** A write whose `value` is not a fact the schema reads: its id is not the digest of its identity. */
   readonly malformed: unknown;
+  /** A write the schema refuses in three places at once: no id, an empty repository and an empty name. */
+  readonly manyProblems: unknown;
 }
 
 /** The scenario's own facts, built by the schema and by nothing else. */
@@ -131,6 +133,7 @@ export function scenarioFacts(): ScenarioFacts {
     entity: makeNodeFact({ kind: 'entity-proposal', value: { repository: 'acme-shop', proposed: 'concept', name: 'Cart' }, provenance: provenance('src/cart.ts'), layer: 'inferred' }),
     question: makeNodeFact({ kind: 'question', value: { repository: 'acme-shop', type: 'contradiction', prompt: 'Is the total used?' }, provenance: provenance('src/cart.ts'), layer: 'inferred' }),
     malformed: { kind: 'module', schemaVersion: 1, id: `module:${'f'.repeat(64)}`, provenance: provenance('src/cart.ts'), layer: 'extracted', status: 'proposed', value: { repository: 'acme-shop', name: 'invented', seed: 'package' } },
+    manyProblems: { kind: 'module', schemaVersion: 1, provenance: provenance('src/cart.ts'), layer: 'extracted', status: 'proposed', value: { repository: '', name: '', seed: 'package' } },
   };
 }
 
@@ -176,6 +179,10 @@ export interface FactStoreScenarioReport {
   readonly invalidWriteStillDraft: number;
   /** The four write kinds, as the store holds them. */
   readonly storedKinds: readonly string[];
+  /** One write the schema refuses in three places: the refusal counts the write, not the problems. */
+  readonly manyProblemsRefusal: string;
+  /** Write kinds none of the four, the prototype's own names included: each is refused by name, never a TypeError. */
+  readonly unknownKindRefusals: readonly string[];
   /** A write whose fact is not the kind that write writes. */
   readonly wrongKindRefusal: string;
   readonly wrongKindUnitHolds: readonly string[];
@@ -330,6 +337,15 @@ export async function runFactStoreScenario(owner: DatabaseOwner): Promise<FactSt
   ], NOW + 9_000);
   const storedKinds = (await readUnitFacts(owner, 'unit-kinds')).map((entry) => entry.fact.kind).sort();
 
+  await createUnit(owner, { unitId: 'unit-many-problems', product: PRODUCT, runId: RUN, stageId: 'modules', scopeKey: 'many-problems', inputsDigest: 'unit-many-problems-inputs', retries: 2, at: NOW + 9_500 });
+  const manyFence = await draftAndValidate('unit-many-problems', 1, [writeOf('fact', facts.manyProblems)], NOW + 9_500);
+  let manyProblemsRefusal = '';
+  try {
+    await publish('unit-many-problems', 1, 'modules', 'many-problems', manyFence, NOW + 9_600);
+  } catch (error) {
+    manyProblemsRefusal = (error as Error).message;
+  }
+
   await createUnit(owner, { unitId: 'unit-wrong-kind', product: PRODUCT, runId: RUN, stageId: 'modules', scopeKey: 'wrong-kind', inputsDigest: 'unit-wrong-kind-inputs', retries: 2, at: NOW + 10_000 });
   const wrongFence = await draftAndValidate('unit-wrong-kind', 1, [writeOf('entity', facts.moduleB)], NOW + 10_000);
   let wrongKindRefusal = '';
@@ -339,6 +355,16 @@ export async function runFactStoreScenario(owner: DatabaseOwner): Promise<FactSt
     wrongKindRefusal = (error as Error).message;
   }
   const wrongKindUnitHolds = await held('unit-wrong-kind');
+
+  // ---- a write kind none of the four, the prototype's own names included ----
+  const unknownKindRefusals = ['constructor', 'toString', '__proto__', 'valueOf', 'bogus'].map((kind) => {
+    try {
+      const { problems } = factsOfWrites([{ kind, evidence: 'src/cart.ts:1', value: facts.moduleA } as unknown as StageDraftWrite]);
+      return problems.map((problem) => problem.message).join('; ') || 'the write was read as a fact of the schema';
+    } catch (error) {
+      return (error as Error).message;
+    }
+  });
 
   // ---- the publishers of one fact, in this store's own order and not the database's ----
   await publishUnitFacts('unit-case', 'modules', 'case-lower', [writeOf('fact', facts.caseFact)], NOW + 10_500);
@@ -397,6 +423,8 @@ export async function runFactStoreScenario(owner: DatabaseOwner): Promise<FactSt
     invalidWriteState,
     invalidWriteStillDraft,
     storedKinds,
+    manyProblemsRefusal,
+    unknownKindRefusals,
     wrongKindRefusal,
     wrongKindUnitHolds,
     casePublishersOfTheUnit,

@@ -126,7 +126,13 @@ Taken from decisions 0026 and 0027; nothing here re-decides them.
 - **A publication applies a set of facts.** A stage that saw one fact twice
   writes it once (a call folded from two sites is one edge), so what a publication
   applies is the distinct ids of its draft set's facts, and the count it answers
-  is the number of facts the unit then holds from that publication.
+  is the number of facts the unit then holds from that publication. A draft set
+  with no fact in it is a publication of nothing, and it replaces the unit's
+  earlier facts with none: a stage that read a file that is no longer there
+  publishes exactly that, and the coordinator's note from madarch-tzte.21.1's
+  hand-over names it for the inventory stage. The scenario publishes a unit's one
+  fact and then nothing, and holds the unit to no fact at all and the fact's row
+  gone.
 - **This store's order is code point order, whatever the database collates.** A
   database orders text by its own collation — PostgreSQL's is `en_US.UTF-8` in
   CI, where `unit-a` sorts before `Unit-a` — so the publishers a unit's facts
@@ -148,11 +154,12 @@ Taken from decisions 0026 and 0027; nothing here re-decides them.
   that names no store gets the fill's own (`FACT_APPLICATION`), so the production
   path publishes into the process's own graph without a caller wiring one, and a
   host that keeps its graph elsewhere still wins by naming it.
-- **What the review changed.** One independent read-only review ran over this
-  change (a fresh `prime-agent --provider shady2k-gateway --model deepseek-v4.1-flash-auto`
-  session over `git diff origin/main...HEAD`), read the code and ran both suites
-  itself. It found one blocking defect and three should-fix items, all answered
-  here with a test where a test can say it.
+- **What the review changed.** A fresh read-only review
+  (`prime-agent --provider shady2k-gateway --model deepseek-v4.1-flash-auto` over
+  `git diff origin/main...HEAD`) read this change and ran both suites itself; a
+  second round reviewed the answers below. The first round found one blocking
+  defect and three should-fix items, each answered here with a test where a test
+  can say it.
 
   - **Blocking.** The orphan sweep decided from its own transaction's snapshot, so
     a holding another publication had inserted but not committed was invisible and
@@ -166,7 +173,11 @@ Taken from decisions 0026 and 0027; nothing here re-decides them.
     `test/fill-fact-store-postgres.test.ts` holds one publication open at its fact's
     row, runs a second unit's publication beside it, waits for the lock it takes,
     and asserts the shared fact still has both publishers; with the sweep as it was,
-    no publication ever waits and the test fails on its own message.
+    no publication ever waits and the test fails on the sweep's own message
+    (`no publication waited on the fact row`), which is what releasing the held
+    publication in the test's `finally` is for — a failure before that release
+    would otherwise be reported as a bare timeout while the owner's close waits for
+    the client the open transaction holds.
   - **Should-fix.** `readUnitFacts` answered the publishers of a fact in the
     database's collation while `readFact` answered them in code point order, and
     the comment claimed the opposite; both sort in code point order now and the
@@ -182,6 +193,28 @@ Taken from decisions 0026 and 0027; nothing here re-decides them.
     row read back from `fill_unit_draft`, where a kind can be anything — was read
     as a property of nothing and threw a `TypeError` naming no file, line or path;
     it is refused by name now.
+
+  - **Round two**, over the answers above, returned `ship` and these items, all
+    answered here: a write kind that names something of the object itself
+    (`constructor`, `toString`) was still read as a property of nothing, since the
+    lookup walked the prototype chain — it is an own-property lookup now, and the
+    scenario holds four such kinds to a refusal by name; the refusal's
+    "(3 problems)" for one write is what the checks hold, the scenario naming a
+    write the schema refuses in three places; `createFactStoreSchema` restores the
+    holding table's foreign key on a database whose table predates it (a store
+    without it would be a sweep that waits for nobody), which the store's own test
+    holds; and the held publication is released even when a step failed, so the
+    sweep's own message is what a reader sees.
+  - **What the foreign key makes loud, named for the orchestrator.** With it, two
+    ordinary interleavings abort a publication instead of damaging rows: a
+    publisher whose holding insert loses the race to a sweep that already removed
+    the fact is refused by the foreign key (SQLSTATE 23503), and two publications
+    that each drop a fact the other publishes deadlock (40P01). Both leave no
+    dangling holding and no removed fact a holding names, and both are errors of
+    the caller's own transaction: the attempt is what retries them, which is
+    0027's lease sweep (madarch-tzte.19.5) — and the open point for
+    madarch-tzte.19.6 is that a raised publication must be a retried attempt
+    rather than a lost run.
 
   The review's judgement of the two interface decisions, in its own words: a link
   must carry its edge fact ("the write kind alone can neither name the edge kind nor

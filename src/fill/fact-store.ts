@@ -79,6 +79,17 @@ const SCHEMA: readonly string[] = [
   )`,
   'CREATE INDEX IF NOT EXISTS fill_fact_kind ON fill_fact (kind)',
   'CREATE INDEX IF NOT EXISTS fill_fact_holding_unit ON fill_fact_holding (unit_id)',
+  // A table this branch created before the foreign key existed: the constraint is what makes a
+  // concurrent publisher hold its fact's row, so a table without it would be a store whose sweep waits
+  // for nobody. The name is the one PostgreSQL gives the constraint the declaration above makes.
+  `DO $$
+   BEGIN
+     IF NOT EXISTS (
+       SELECT 1 FROM pg_constraint WHERE conname = 'fill_fact_holding_id_fkey' AND conrelid = 'fill_fact_holding'::regclass
+     ) THEN
+       ALTER TABLE fill_fact_holding ADD CONSTRAINT fill_fact_holding_id_fkey FOREIGN KEY (id) REFERENCES fill_fact (id);
+     END IF;
+   END $$`,
 ];
 
 /** The narrow slice of the process's one database owner these tables borrow: the owner's `transaction`. */
@@ -170,9 +181,10 @@ export function factsOfWrites(writes: readonly StageDraftWrite[]): FactWrites {
   for (const [position, write] of writes.entries()) {
     const index = position + 1;
     const kind = write.kind;
-    // The writes are read back from `fill_unit_draft`, where a row is JSON: a kind the union does not
-    // know is a problem with a name, never a property read of nothing.
-    const writesThis = (WRITE_KINDS as Readonly<Record<string, { readonly describe: string; readonly accepts: (kind: string) => boolean } | undefined>>)[kind];
+    // The writes are read back from `fill_unit_draft`, where a row is JSON: a kind the union does not know
+    // is a problem with a name, never a property read of nothing. The lookup is an own-property one, so a
+    // kind that names something of the object itself (`constructor`, `toString`) is no write kind either.
+    const writesThis = Object.hasOwn(WRITE_KINDS, kind) ? WRITE_KINDS[kind as StageDraftWrite['kind']] : undefined;
     if (writesThis === undefined) {
       problems.push({
         index, kind, path: 'kind',
@@ -184,7 +196,7 @@ export function factsOfWrites(writes: readonly StageDraftWrite[]): FactWrites {
     if (typeof value !== 'object' || value === null) {
       problems.push({
         index, kind, path: 'value',
-        message: `the write carries ${value === undefined ? 'no fact' : `a ${typeof value}`}: a draft write's value is the fact it writes, ${WRITE_KINDS[kind].describe}`,
+        message: `the write carries ${value === undefined ? 'no fact' : `a ${typeof value}`}: a draft write's value is the fact it writes, ${writesThis.describe}`,
       });
       continue;
     }
@@ -200,10 +212,10 @@ export function factsOfWrites(writes: readonly StageDraftWrite[]): FactWrites {
       continue;
     }
     const fact = value as Fact;
-    if (!WRITE_KINDS[kind].accepts(fact.kind)) {
+    if (!writesThis.accepts(fact.kind)) {
       problems.push({
         index, kind, path: 'kind',
-        message: `${article(kind)} "${kind}" write writes ${WRITE_KINDS[kind].describe}, and this one is ${article(fact.kind)} "${fact.kind}" fact`,
+        message: `${article(kind)} "${kind}" write writes ${writesThis.describe}, and this one is ${article(fact.kind)} "${fact.kind}" fact`,
       });
       continue;
     }

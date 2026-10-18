@@ -130,6 +130,25 @@ export function factStoreChecks(facts: ScenarioFacts): readonly FactStoreCheck[]
       },
     },
     {
+      name: 'the refusal counts the writes it refuses, and names the problems behind them',
+      check: (report) => {
+        // One write, three refusals of the schema: it is one write that is not a fact, with three problems.
+        expect(report.manyProblemsRefusal).toContain('the draft set of unit "unit-many-problems" generation 1 holds 1 write that is not a fact of the schema (3 problems)');
+        expect(report.manyProblemsRefusal).toContain('id:');
+        expect(report.manyProblemsRefusal).toContain('value.repository:');
+        expect(report.manyProblemsRefusal).toContain('value.name:');
+      },
+    },
+    {
+      name: 'a write whose kind is none of the four is refused by name, whatever the string names',
+      check: (report) => {
+        for (const refusal of report.unknownKindRefusals) {
+          expect(refusal).toContain('is no write kind: a draft write is a fact, an entity, a link or a question');
+          expect(refusal).not.toContain('TypeError');
+        }
+      },
+    },
+    {
       name: 'a write whose fact is not the kind that write writes is refused by name',
       check: (report) => {
         expect(report.wrongKindRefusal).toContain('an "entity" write writes an "entity-proposal" fact, and this one is a "module" fact');

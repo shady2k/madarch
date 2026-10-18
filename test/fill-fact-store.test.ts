@@ -54,6 +54,21 @@ describe('the store\'s own tables', () => {
     await createFactStoreSchema(owner!);
     expect(await readUnitFacts(owner!, 'unit-a')).toEqual(before);
   }, 30_000);
+
+  test('a holding table without its foreign key gets it back: it is what makes a publication hold its fact', async () => {
+    const foreign = async (): Promise<number> => await owner!.run(async (transaction) => (
+      await transaction.query<{ count: number }>("SELECT count(*)::int AS count FROM pg_constraint WHERE conname = 'fill_fact_holding_id_fkey'")
+    ).rows[0]?.count ?? -1);
+    expect(await foreign()).toBe(1);
+    await owner!.run(async (transaction) => { await transaction.query('ALTER TABLE fill_fact_holding DROP CONSTRAINT fill_fact_holding_id_fkey'); });
+    expect(await foreign()).toBe(0);
+    await createFactStoreSchema(owner!);
+    expect(await foreign()).toBe(1);
+    // And the constraint refuses a holding without its fact, which is the invariant it stands for.
+    await expect(owner!.transaction('write', async (transaction) => {
+      await transaction.query("INSERT INTO fill_fact_holding (id, unit_id, stage_id, generation, publication) VALUES ('module:' || repeat('a', 64), 'unit-orphan', 'modules', 1, 'publication-orphan')");
+    })).rejects.toThrow(/foreign key constraint "fill_fact_holding_id_fkey"/);
+  }, 30_000);
 });
 
 /** The pinned snapshot a run of the host's tests stands on: fill-runtime's own shape. */
