@@ -51,8 +51,13 @@ link and no key; an inline code span's content is no link either; a relative
 target is resolved by the wiki's own resolver (`.`, `..`, climbing out refused,
 an address with a scheme outside the repositories); and a heading's anchor is the
 one a reader of the rendered page follows (`Requirement: strict YAML` →
-`requirement-strict-yaml`, a repeat `-1`). One rule, so the graph and the page
-cannot disagree about what a document says.
+`requirement-strict-yaml`, a repeat `-1`). The marking of examples and the
+resolution of a target are the wiki's own, so the graph and a rendered page agree
+about what a link names and where a section begins. Two places the sharing is
+this stage's own, and the record names them: a code span is masked however many
+backticks open it, where the wiki's reader masks a single-backtick span, and the
+fill's own address form, `/p/` and then a path, is read by the wiki's resolver as
+the path its page stands at.
 
 ## Out of scope
 
@@ -95,6 +100,10 @@ rebuild's own requirement text lands with the stage that closes decision 0026
 - product-repository/manifest: test
 - product-wiki/pages: test
 - release-binary/installers: test
+
+## Blocking questions
+
+None.
 
 ## DONE WHEN
 
@@ -157,10 +166,15 @@ two stages. The one change to landed modules is the two kinds' value shapes
   decodes each line as `readText` decodes a file: UTF-8, the byte order mark kept.
   Every section's byte span is the offsets of its lines in those bytes, and its
   line span is its own place, whose columns are the line's UTF-16 length; the
-  document's line span is `wholeFileRange`'s answer, imported from the inventory
-  so the two stages count a file's lines the same way. A section runs from its
-  heading's line to the line before the next heading at any depth, its trailing
-  blank lines out.
+  document's line span is `wholeFileRange`'s answer over the lines as a reader
+  sees them — the function the inventory exports, so a whole file's range is
+  counted once in the fill, with one difference the record states: a CRLF file's
+  carriage returns are not characters of this stage's lines (the wiki's own reader
+  folds them), while stage 1's `file` fact counts a file's raw lines, so the two
+  differ by one column on the last line of such a file. The document's *byte*
+  span is the commit's bytes exactly, carriage returns included. A section runs
+  from its heading's line to the line before the next heading at any depth, its
+  trailing blank lines out.
 - **A heading is one a reader's renderer sees.** One to six `#` within three
   spaces of the margin (four make a code block), followed by a space unless the
   heading is empty, a closing sequence of `#` removed; a line inside a fence or
@@ -179,6 +193,14 @@ two stages. The one change to landed modules is the two kinds' value shapes
   of whitespace one `-`; a repeat within the document takes `-1`, `-2`, …. A
   heading whose words name no anchor opens no section and its place is a
   `coverage` gap (`unsupported`), so a shorter heading tree is never silent.
+- **A link is resolved inside the repository the document stands in.** The pins
+  of a run are the product's repositories, code repositories and the product
+  repository alike, and each document's links are paths of its own repository: a
+  product document's link written through the `repos/<name>/…` mount into a
+  connected repository stays unresolved, because which mount names which
+  repository is the wiring's business (madarch-tzte.21.8) and not a path this
+  stage may read. The plan and the unit treat every pinned repository the same
+  way, so the product's own documents are indexed like any other repository's.
 - **A link's end is a node of the graph, an address, or the target as written.**
   A fragment names a section of the linking document (a `section` node the same
   unit writes); a target with a scheme is an address outside the repositories; a
@@ -190,9 +212,12 @@ two stages. The one change to landed modules is the two kinds' value shapes
   a path the commit does not hold, a folder, an absolute target, a
   scheme-relative one — is a literal holding the target as the document wrote it:
   the schema's three term forms leave a node end that names nothing impossible, so
-  an unresolved link is written with its place and never dropped. Two links to one
-  end are one edge, at the first place the document names it, as the call graph
-  folds two call sites of one pair.
+  an unresolved link is written with its place and never dropped. A link's
+  identity is the node it stands in and the end it names (the schema's own
+  `from` and `to`), so the same end named twice under one section is one edge, at
+  the first place the document names it, and the same end named under two
+  sections is two edges, each at its own place. A task key is folded the same
+  way: one key under one section is one edge.
 - **A link stands in the section that holds it.** The edge's `from` is the
   `section` node whose lines hold the link's line, and the `document` node where
   none does (a link before the first heading); the edge's place is the line and
@@ -201,18 +226,23 @@ two stages. The one change to landed modules is the two kinds' value shapes
 - **A task key is read by the tracker's own marker, and by the shape of a
   tracker's id.** The marker is `Task:` or `Tasks:` (case-insensitive — a commit
   message writes the first, a change record's header writes the second) anywhere
-  on a structural line, and the keys after it are the tokens the tracker's own
-  reader splits on (commas and whitespace) that read as an id
-  (`madarch-tzte.21.4`: a word, then `-`- or `.`-separated parts and no other
-  character), each once. The shape is what a document's prose needs and a commit
-  message's `Task:` line does not: it is what keeps the words after a key from
-  being read as keys — stage 7's own `taskKeys` splits a message line and takes
-  every token, which on a document's line would invent facts. A key written
-  inside a code span or a fence is an example, no key. Stage 7 writes the same
-  kind: `FACT_KINDS['task-key'].stages` now names both stages, and
-  `EDGE_END_KINDS['task-key'].from` names the kinds both write it from
-  (`commit`, `document`, `section`), which the facts test's stage-order check
-  reads.
+  on a structural line; the keys after it are the tokens the tracker's own reader
+  splits on (commas and whitespace), each read whole and with the punctuation
+  that surrounds it in a sentence taken off (a full stop, a comma, a bracket),
+  and a token is a key when what remains is shaped as a tracker's id — a letter
+  first, then one or more `-`- or `.`-separated parts of letters and digits
+  (`madarch-tzte.21.4`, `madarch-1xq`) and nothing else. The shape is what keeps
+  the words of a sentence from being read as keys: a date (`2026-10-17`) and a
+  time (`15:14`) begin with a digit and are no keys, and a key the sentence wraps
+  (`Task: madarch-tzte.21.4),` or `Task: madarch-p45j.4.`) is read. Its bound is
+  the shape itself: a hyphenated word right after a marker reads as a key, since
+  nothing tells `release-notes` from `madarch-1xq` and the marker is what says a
+  key follows (an open point below). Stage 7's own `taskKeys` splits a commit
+  message's `Task:` line and takes every token, which a document's line cannot
+  do; stage 7 writes the same kind, so `FACT_KINDS['task-key'].stages` names both
+  stages and `EDGE_END_KINDS['task-key'].from` names the kinds both write it
+  from (`commit`, `document`, `section`), which the facts test's stage-order
+  check reads. A key written inside a code span or a fence is an example, no key.
 - **The stage consumes what it names, and its own kind.** `snapshot` and `file`
   are required: a link to a code path names the node stage 1 published, so the
   derived graph runs the inventory first — the stage graph orders itself, nothing
@@ -253,6 +283,13 @@ Open points for the integrator, in the order they matter:
   DONE WHEN names. No other stage produces or reads those kinds today; the first
   consumer (stage 10) reads the fields, and a fact written at version 1 by
   nothing is not a fact of any run.
+- A link from a product document into a connected code repository — written
+  through the product's `repos/<name>/…` mount — is written unresolved with its
+  place: which mount names which repository is the run's wiring (madarch-tzte.21.8,
+  as madarch-tzte.21.1 recorded), and this stage resolves a target within the
+  repository the document itself stands in. The plan reads and writes every
+  pinned repository the same way, the product repository among them, so the
+  product's own documents are indexed like any other repository's.
 - The two kinds' spans are optional in the schema, as `FileValue.bytes` and
   `FileValue.blob` are: this stage always writes them, and the schema does not
   refuse a fact that leaves one out. A reader that needs a span asks the fact for
@@ -268,10 +305,18 @@ Open points for the integrator, in the order they matter:
   text: a commit message's `Task:` line holds keys and nothing else, so stage 7
   splits the line on commas and whitespace and takes every token; a document's
   line holds prose after the keys, so this stage reads the marker anywhere on the
-  line, both spellings, and takes the tokens shaped as a tracker's id. Where the
-  two read the same text they agree (a list of ids), and neither can import the
-  other as it stands. A later task may give the rule one home, with stage 7's
-  tests read again against it.
+  line, both spellings, and takes the tokens whose text, once the punctuation
+  around them is off, is shaped as a tracker's id. On a line that is a key list
+  the two agree; on a line that is a sentence they cannot, and this stage's rule
+  is the one a document needs (stage 7's would read the sentence's words as
+  keys). A later task may give the rule one home, with stage 7's tests read again
+  against it.
+- The task-key rule is a shape and the marker, and nothing else: a hyphenated
+  word right after a `Task:` marker (`Task: release-notes`) is read as a key,
+  because no shape tells it from `madarch-1xq`. A document that writes prose
+  after a marker therefore names keys the fill reads. Narrowing this needs
+  something the fill does not have today — the project's own key prefix, or the
+  run's task list as input — and is a later task's, not this one's.
 - Mutation is not run (the owner's rule runs Stryker once per assembled stage);
   acceptance escalates per `mutationFallback`.
 

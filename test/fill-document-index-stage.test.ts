@@ -384,7 +384,7 @@ describe('one document, through its own plan and execute', () => {
     }
   });
 
-  test('a document that names one end twice holds one edge, at the first place it names it', async () => {
+  test('a document that names one end twice in one section holds one edge, at the first place it names it', async () => {
     const f = await fixture();
     try {
       await f.write('docs/a.md', '# A\n\nSee [one](b.md).\n\nSee [two](b.md).\n');
@@ -394,6 +394,76 @@ describe('one document, through its own plan and execute', () => {
       const links = factsOfKind(recorder.writes, 'document-link');
       expect(links.length).toBe(1);
       expect(links[0]?.provenance.place?.range.startLine).toBe(3);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a link whose line stands in another section is another edge: the identity is the section and the end', async () => {
+    const f = await fixture();
+    try {
+      await f.write('docs/a.md', '# A\n\n## One\n\nSee [b](b.md).\n\n## Two\n\nSee [b](b.md).\n');
+      await f.write('docs/b.md', '# B\n');
+      const commit = f.commit();
+      const { recorder } = await runUnit(sourceOf(f, commit), unitOf('orders-api', 'docs/a.md'));
+      const sections = factsOfKind(recorder.writes, 'section');
+      const links = factsOfKind(recorder.writes, 'document-link');
+      // Two sections name one end: the schema's `document-link` identity is its
+      // `from` and its `to`, so these are two facts, each at its own place.
+      expect(sections.map((fact) => fact.value['anchor'])).toEqual(['a', 'one', 'two']);
+      expect(links.length).toBe(2);
+      expect(links.map((fact) => fact.value['from'])).toEqual([sections[1]?.id, sections[2]?.id]);
+      expect(links.map((fact) => fact.provenance.place?.range.startLine)).toEqual([5, 9]);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a task key named under two sections is two edges, and the same key twice under one is one', async () => {
+    const f = await fixture();
+    try {
+      await f.write('docs/a.md', '# A\n\n## One\n\nTask: madarch-a.1\n\nTask: madarch-a.1\n\n## Two\n\nTask: madarch-a.1\n');
+      const commit = f.commit();
+      const { recorder } = await runUnit(sourceOf(f, commit), unitOf('orders-api', 'docs/a.md'));
+      const sections = factsOfKind(recorder.writes, 'section');
+      const keys = factsOfKind(recorder.writes, 'task-key');
+      expect(keys.map((fact) => [fact.value['key'], fact.value['from']])).toEqual([
+        ['madarch-a.1', sections[1]?.id],
+        ['madarch-a.1', sections[2]?.id],
+      ]);
+    } finally {
+      await f.dispose();
+    }
+  });
+});
+
+// ---- the rule a task key is read by ---------------------------------------
+
+describe('a task key named in a document', () => {
+  test('the words a key stands beside are no keys: a date, a version, a bare word', async () => {
+    const f = await fixture();
+    try {
+      // The shape of the lines the fill will meet in this product's own change
+      // records: a marker in a sentence, and a key the sentence's own punctuation
+      // wraps (a full stop after the key, brackets around it).
+      await f.write('docs/a.md', [
+        '# A',
+        '',
+        'Change: fill-pipeline-monday. Task: madarch-p45j.4. Run date: 2026-10-17, 15:14-15:19 UTC.',
+        '',
+        'End: commit (Task: madarch-tzte.21.4), push, and one line on 2026-10-18 at 15:50 MSK.',
+        '',
+      ].join('\n'));
+      const commit = f.commit();
+      const { recorder } = await runUnit(sourceOf(f, commit), unitOf('orders-api', 'docs/a.md'));
+      const keys = factsOfKind(recorder.writes, 'task-key').map((fact) => fact.value['key']);
+      // Both real keys, whichever punctuation of the sentence wraps them, and
+      // none of the words beside them: a date and a time are no keys (a key
+      // begins with a letter), and a word with no separator is none either.
+      expect(keys).toEqual(['madarch-p45j.4', 'madarch-tzte.21.4']);
+      // Each key stands at its own columns.
+      const first = factsOfKind(recorder.writes, 'task-key').find((fact) => fact.value['key'] === 'madarch-p45j.4');
+      expect(first?.provenance.place?.range).toEqual({ startLine: 3, startColumn: 36, endLine: 3, endColumn: 50 });
     } finally {
       await f.dispose();
     }
@@ -550,6 +620,9 @@ describe('what a reader of the document sees', () => {
       expect(coverage?.value['scope']).toBe(documentScope('orders-api', 'docs/a.md'));
       expect(coverage?.value['complete']).toBe(true);
       expect(coverage?.value['unread']).toEqual([]);
+      // The coverage stands at the document it read, so a publication that
+      // attributes a unit's facts by their place can retract it with them.
+      expect(coverage?.provenance.place).toEqual({ file: 'docs/a.md', range: wholeFileRange('# A\n') });
       const read = coverage?.value['read'] as readonly string[];
       expect([...read]).toEqual([...read].sort());
     } finally {
@@ -622,6 +695,10 @@ describe('what a plan names, and what a later run reads back', () => {
       const { plan, queries } = await runPlan(sourceOf(f, commit));
       expect(queries).toEqual([publishedDocumentsRead('orders-api')]);
       expect(unitIds(plan)).toEqual([documentUnitId('orders-api', 'docs/a.md'), documentUnitId('orders-api', 'docs/b.markdown'), documentUnitId('orders-api', 'docs/c.mdx')]);
+      // The id and the scope are the stage's own contract with the run's wiring:
+      // read them as literals and not through the function under test.
+      expect(unitIds(plan)[0]).toBe('document:orders-api:docs/a.md');
+      expect(plan.units[0]?.scope).toBe('orders-api:docs/a.md');
       expect(plan.units[2]?.scope).toBe('orders-api:docs/c.mdx');
       expect(plan.coverage).toBe('planned');
       expect(markdownMediaType('docs/c.mdx')).toBe('text/mdx');
@@ -852,6 +929,12 @@ describe('a draft is judged before it is published', () => {
       const orphanFragment = await stage.validate({ writes: [{ kind: 'fact', evidence: 'e', value: unknownSection as never }] }, EMPTY_GRAPH);
       expect(orphanFragment.ok).toBe(false);
       expect(orphanFragment.ok ? [] : orphanFragment.errors.join('\n')).toContain('names a section of the document the link stands in');
+
+      // A fact write the schema already refused — no value at all, a value that
+      // is no object — is named by the check and never read past it.
+      const noValue = await stage.validate({ writes: [{ kind: 'fact', evidence: 'e', value: null as never }] }, EMPTY_GRAPH);
+      expect(noValue.ok).toBe(false);
+      expect(noValue.ok ? [] : noValue.errors.join('\n')).toContain('a fact is an object with kind, schemaVersion, id, provenance, layer, status and value, not null');
 
       // An empty draft is a draft whole: it is the retraction a vanished
       // document asks for.

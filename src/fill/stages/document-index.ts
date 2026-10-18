@@ -137,7 +137,13 @@ const MARKDOWN_MEDIA_TYPES: Readonly<Record<string, string>> = {
   '.mdx': 'text/mdx',
 };
 
-/** The media type of a document's name (`text/markdown`), or `undefined` where the name is no Markdown. */
+/**
+ * The media type of a document's name (`text/markdown`), or `undefined` where
+ * the name is no Markdown. A name whose whole text is an extension (`.md`) is a
+ * hidden file and no document, which is the inventory's own reading of a name's
+ * extension (`extensionOf`: a dot at the name's first character starts no
+ * extension).
+ */
 export function markdownMediaType(path: string): string | undefined {
   const name = path.slice(path.lastIndexOf('/') + 1);
   const at = name.lastIndexOf('.');
@@ -222,7 +228,10 @@ export function linesOfBytes(bytes: Uint8Array): DocumentLine[] {
   let line = 1;
   for (let at = 0; at <= bytes.length; at += 1) {
     if (at < bytes.length && bytes[at] !== 0x0a) continue;
-    const end = at > start && bytes[at - 1] === 0x0d ? at - 1 : at;
+    // A carriage return is not part of a line's text only where a newline
+    // follows it: that is the pair a CRLF document writes, and a lone carriage
+    // return at the end of the buffer is a character of the last line.
+    const end = at < bytes.length && at > start && bytes[at - 1] === 0x0d ? at - 1 : at;
     lines.push({ line, startByte: start, endByte: end, text: decoder.decode(bytes.subarray(start, end)), content: true });
     start = at + 1;
     line += 1;
@@ -358,21 +367,32 @@ export interface LineTaskKey {
 /** The marker a document writes a task key after: the tracker's own `Task:`, and the header's `Tasks:`. */
 const TASK_KEY_MARKER = /\btasks?:/giu;
 
-/** The shape a tracker's id has: a word, one or more `-`- or `.`-separated parts, and no other character. */
-const TASK_KEY = /[A-Za-z0-9]+(?:[-.][A-Za-z0-9]+)+/gu;
+/** One token of a key list: the run of characters between the commas and the whitespace a reader splits on. */
+const KEY_TOKEN = /[^\s,]+/gu;
 
-/** What ends a token in a key list: a comma or whitespace, the two the tracker's own reader splits on. */
-const KEY_SEPARATOR = /[\s,]/u;
+/** What surrounds a key and is not part of it: a bracket, a quote, a sentence's full stop or comma. */
+const SURROUNDING_PUNCTUATION = /^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/gu;
+
+/**
+ * The shape a tracker's id has, whole: a letter first (so a date, a version or a
+ * number is no key), then one or more `-`- or `.`-separated parts of letters and
+ * digits (`madarch-tzte.21.4`, `madarch-1xq`), and nothing else.
+ */
+const TRACKER_KEY = /^[A-Za-z][A-Za-z0-9]*(?:[-.][A-Za-z0-9]+)+$/u;
 
 /**
  * The task keys one line names: the tokens after a `Task:` or `Tasks:` marker
- * (case-insensitive — the tracker's own rule for a commit message is `Task:`,
- * and the project's change records write the header `Tasks:`) that read as a
- * tracker's id. The tracker's own reader splits a key list on commas and
- * whitespace; a word of prose after a marker is no key, because a key is written
- * with the separators its project's ids carry (`madarch-tzte.21.4`), and a key
- * each line names once. A token that holds anything else — a path, a sentence's
- * full stop with nothing after it — is not a key.
+ * (case-insensitive — the tracker's own rule for a commit message is `Task:`, and
+ * the project's change records write the header `Tasks:`) that read as a
+ * tracker's id once the punctuation a reader's eye ignores around them is off.
+ * The tracker's own reader splits a key list on commas and whitespace, so a key
+ * is a whole token; a key a document writes in a sentence carries a full stop, a
+ * comma or a bracket around it, which is not part of the key, and a token that
+ * reads as prose — a word with no separator, a date, a time, a bare number — is
+ * no key. The shape is all the rule has: a hyphenated word right after a marker
+ * reads as a key, since nothing tells `release-notes` from `madarch-1xq` and
+ * the marker is what says a key follows. Each key is written once per line, at
+ * the columns it stands at.
  */
 export function taskKeysOf(line: DocumentLine): LineTaskKey[] {
   if (!line.content) return [];
@@ -382,21 +402,17 @@ export function taskKeysOf(line: DocumentLine): LineTaskKey[] {
   for (const marker of masked.matchAll(TASK_KEY_MARKER)) {
     const after = (marker.index ?? 0) + marker[0].length;
     const rest = masked.slice(after);
-    for (const token of rest.matchAll(TASK_KEY)) {
-      const at = token.index ?? 0;
-      const before = at === 0 ? '' : rest.slice(at - 1, at);
-      const end = at + token[0].length;
-      const following = end >= rest.length ? '' : rest.slice(end, end + 1);
-      // A token's ends are the two the tracker's reader splits on: a key stands
-      // between a separator (or the line's start) and one (or its end).
-      if (before !== '' && !KEY_SEPARATOR.test(before)) continue;
-      if (following !== '' && !KEY_SEPARATOR.test(following)) continue;
-      if (seen.has(token[0])) continue;
-      seen.add(token[0]);
-      keys.push({ key: token[0], startColumn: after + at, endColumn: after + end });
+    for (const token of rest.matchAll(KEY_TOKEN)) {
+      const raw = token[0];
+      const bare = raw.replace(SURROUNDING_PUNCTUATION, '');
+      if (!TRACKER_KEY.test(bare)) continue;
+      if (seen.has(bare)) continue;
+      seen.add(bare);
+      const start = after + (token.index ?? 0) + (raw.length - raw.replace(/^[^A-Za-z0-9]+/u, '').length);
+      keys.push({ key: bare, startColumn: start, endColumn: start + bare.length });
     }
   }
-  return keys.sort((left, right) => byCodePoint(left.key, right.key) || left.startColumn - right.startColumn);
+  return keys.sort((left, right) => left.startColumn - right.startColumn);
 }
 
 /** The anchor one heading's words name: lower case, punctuation dropped, each run of whitespace one `-`. */
@@ -528,6 +544,8 @@ export interface DocumentReading {
   readonly facts: readonly Fact[];
   /** What the reading could not read, each with its reason, in code point order of what it names. */
   readonly gaps: readonly CoverageGap[];
+  /** The document's own line span: what its unit's `coverage` fact stands at. */
+  readonly range: FactRange;
   /** How many sections the document opened. */
   readonly sections: number;
   /** How many links the document holds (one edge per end, however many times it names it). */
@@ -643,16 +661,19 @@ export function readDocument(reader: SnapshotReader, path: RepositoryPath, bytes
   // The links: one edge per end, at the first place the document names it, from
   // the section the link stands in where a section holds its line.
   const { held, markdown } = treePathsOf(reader);
+  // A link's identity is the node it stands in and the end it names: the same
+  // end named twice in one section is one edge, and the same end named in two
+  // sections is two — each at its own place.
   const linkEnds = new Set<string>();
   let links = 0;
   for (const line of lines) {
     for (const link of linksOf(line)) {
       const end = linkTerm(reader, path, link.target, held, markdown, sections);
-      const key = JSON.stringify(end);
+      const from = sectionAt(sections, line.line) ?? document.id;
+      const key = `${from}\u0000${JSON.stringify(end)}`;
       if (linkEnds.has(key)) continue;
       linkEnds.add(key);
       links += 1;
-      const from = sectionAt(sections, line.line) ?? document.id;
       facts.push(makeEdgeFact({
         kind: 'document-link',
         value: { from, to: end },
@@ -662,14 +683,17 @@ export function readDocument(reader: SnapshotReader, path: RepositoryPath, bytes
     }
   }
 
+  // A task key's identity is the node it stands in and the key: the same key
+  // named twice in one section is one edge, and in two sections two of them.
   const keyEnds = new Set<string>();
   let keys = 0;
   for (const line of lines) {
     for (const named of taskKeysOf(line)) {
-      if (keyEnds.has(named.key)) continue;
-      keyEnds.add(named.key);
-      keys += 1;
       const from = sectionAt(sections, line.line) ?? document.id;
+      const namedKey = `${from}\u0000${named.key}`;
+      if (keyEnds.has(namedKey)) continue;
+      keyEnds.add(namedKey);
+      keys += 1;
       facts.push(makeEdgeFact({
         kind: 'task-key',
         value: { from, key: named.key },
@@ -679,7 +703,7 @@ export function readDocument(reader: SnapshotReader, path: RepositoryPath, bytes
     }
   }
 
-  return { facts, gaps: sortGaps(gaps), sections: sections.length, links, keys };
+  return { facts, gaps: documentGaps(gaps, repository, path), range: documentRange, sections: sections.length, links, keys };
 }
 
 /**
@@ -716,7 +740,10 @@ function linkTerm(
   const literal = (): FactTerm => ({ form: 'literal', text: written });
   if (written === '') return literal();
   if (written.startsWith('#')) {
-    const named = sections.find((section) => section.anchor === written.slice(1));
+    // A reader's link resolves an anchor without regard to case, and the
+    // anchors this stage writes are lower case.
+    const wanted = written.slice(1).toLowerCase();
+    const named = sections.find((section) => section.anchor === wanted);
     return named === undefined ? literal() : { form: 'node', id: named.id };
   }
   if (/^[a-z][a-z0-9+.-]*:/iu.test(written)) return { form: 'external', url: written };
@@ -755,26 +782,48 @@ function sectionAt(sections: readonly ReadingSection[], line: number): string | 
   return undefined;
 }
 
-/** The gaps in code point order of what they name, each pair of a `what` and a reason once. */
-function sortGaps(gaps: readonly CoverageGap[]): CoverageGap[] {
+/**
+ * The gaps of one document's reading, in code point order of what they name,
+ * each pair of a `what` and a reason once. The schema refuses a coverage that
+ * names one `what` twice, so a second cause naming a `what` an earlier one named
+ * is refused here, naming the document and both reasons — a unit that failed
+ * inside `makeNodeFact` would lose its facts to a refusal about a list, where
+ * this says what the reading could not say once.
+ */
+function documentGaps(gaps: readonly CoverageGap[], repository: string, path: RepositoryPath): CoverageGap[] {
   const seen = new Set<string>();
   const unique: CoverageGap[] = [];
   for (const gap of [...gaps].sort((left, right) => byCodePoint(left.what, right.what) || byCodePoint(left.reason, right.reason))) {
-    const key = `${gap.what}\\u0000${gap.reason}`;
+    const key = `${gap.what}\u0000${gap.reason}`;
     if (seen.has(key)) continue;
     seen.add(key);
+    const named = unique.find((one) => one.what === gap.what);
+    if (named !== undefined) {
+      throw new Error(`document-index: the coverage of ${repository} at ${path} would name ${JSON.stringify(gap.what)} twice, as ${named.reason} and as ${gap.reason}: a coverage names each thing it could not read once`);
+    }
     unique.push(gap);
   }
   return unique;
 }
 
-/** The questions a unit's read answers, as the coverage's own words, in code point order. */
-const DOCUMENT_READ: readonly string[] = ['the links the Markdown holds', 'the sections the headings open', 'the task keys the text names'];
+/**
+ * What one unit's read answers, as the coverage's own words, in code point
+ * order. The words name the read this stage makes and no more: the inline links
+ * a line holds (a reference-style link, an autolink and a label that reaches over
+ * a line's end are not among them), the sections its headings open and the task
+ * keys its text names.
+ */
+const DOCUMENT_READ: readonly string[] = ['the inline links a line holds', 'the sections the headings open', 'the task keys the text names'];
 
 // ---- one unit's work ------------------------------------------------------
 
-/** The `coverage` fact of one document's unit: what the read answered, and every heading it could not anchor. */
-function coverageFact(reader: SnapshotReader, path: RepositoryPath, gaps: readonly CoverageGap[]): Fact {
+/**
+ * The `coverage` fact of one document's unit: what the read answered and every
+ * heading it could not anchor. Its place is the document's own span, so a
+ * publication that attributes a unit's facts by their place can retract this one
+ * with them (madarch-tzte.20.2 and 21.8).
+ */
+function coverageFact(reader: SnapshotReader, path: RepositoryPath, range: FactRange, gaps: readonly CoverageGap[]): Fact {
   const value: CoverageValue = {
     repository: reader.repository,
     scope: documentScope(reader.repository, path),
@@ -782,7 +831,7 @@ function coverageFact(reader: SnapshotReader, path: RepositoryPath, gaps: readon
     read: [...DOCUMENT_READ],
     unread: [...gaps],
   };
-  return makeNodeFact({ kind: 'coverage', value, provenance: provenanceOf(reader), layer: 'extracted' });
+  return makeNodeFact({ kind: 'coverage', value, provenance: { ...provenanceOf(reader), place: placeAt(path, range) }, layer: 'extracted' });
 }
 
 /**
@@ -809,7 +858,7 @@ async function executeUnit(sources: SnapshotSource, unit: StageUnit, context: St
   const bytes = await reader.read(place.path);
   const reading = readDocument(reader, place.path, bytes);
   const evidence = evidenceAt(reader, place.path);
-  for (const fact of [...reading.facts, coverageFact(reader, place.path, reading.gaps)]) {
+  for (const fact of [...reading.facts, coverageFact(reader, place.path, reading.range, reading.gaps)]) {
     context.draft.write({ kind: 'fact', evidence, value: fact });
   }
   const gapNote = reading.gaps.length === 0 ? '' : `, and could not anchor ${reading.gaps.length} ${reading.gaps.length === 1 ? 'heading' : 'headings'}`;
@@ -868,7 +917,7 @@ export function validateDraft(draft: StageDraftSet): StageValidation {
       nodes.add(held.id);
       return;
     }
-    if ((held.kind === 'document-link' || held.kind === 'task-key') && typeof held.kind === 'string') {
+    if (held.kind === 'document-link' || held.kind === 'task-key') {
       edges.push({ index, evidence: write.evidence, value });
       return;
     }
@@ -876,6 +925,10 @@ export function validateDraft(draft: StageDraftSet): StageValidation {
   draft.writes.forEach((write: StageDraftWrite, index: number) => {
     if (write.kind !== 'fact') return;
     const fact = write.value as { readonly kind?: unknown; readonly value?: unknown };
+    // A write the schema already refused (no value at all, a value that is no
+    // object) is named by `checkFactDraft`; any check here would read the value
+    // it did not read.
+    if (typeof fact !== 'object' || fact === null || Array.isArray(fact)) return;
     if (fact.kind !== 'section') return;
     const value = typeof fact.value === 'object' && fact.value !== null && !Array.isArray(fact.value) ? fact.value as Record<string, unknown> : undefined;
     if (value === undefined) return;
