@@ -13,21 +13,20 @@ import { StageRegistry } from '../registry.js';
 import type { SnapshotSource } from '../snapshot.js';
 import { createInventoryStage } from './inventory.js';
 import { createSnapshotStage } from './snapshot.js';
+import { createGitHistoryReader, createHistoryStage, type CheckoutFolderOf } from './history.js';
 
-/** What a run's stages read from outside the graph: the repositories it pins. */
+/** What a run's stages read from outside the graph: pinned repositories and their Git checkouts. */
 export interface FillStageWiring {
-  /** How a stage opens the pinned repositories' trees and bytes (the snapshot reader, stage 0). */
+  /** How stages read the pinned repository trees and bytes. */
   readonly snapshots: SnapshotSource;
+  /** The checked-out folder for a repository name, used by the Git history stage. */
+  readonly checkoutOf: CheckoutFolderOf;
 }
 
-/**
- * Every stage of this madarch, registered over the run's wiring: stage 0 the
- * snapshot, stage 1 the inventory. The order of the calls is not the order the
- * stages run in — the graph decides that from what they declare — so a stage
- * added anywhere in the chain lands correctly.
- */
+/** Registers current deterministic stages over this run's wiring. */
 export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
   return new StageRegistry()
     .register(createSnapshotStage(wiring.snapshots))
-    .register(createInventoryStage(wiring.snapshots));
+    .register(createInventoryStage(wiring.snapshots))
+    .register(createHistoryStage(createGitHistoryReader(wiring.checkoutOf)));
 }

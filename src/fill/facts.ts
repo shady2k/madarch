@@ -716,11 +716,33 @@ export interface CommitValue {
   readonly repository: string;
   /** The commit: 40 lower-case hexadecimal digits. */
   readonly commit: string;
-  /** The commit's own time, ISO 8601 with `Z`, as git recorded it — a value, never the clock this run read. */
+  /** The commit's own time — git's committer time — ISO 8601 with `Z`, as git recorded it: a value, never the clock this run read. */
   readonly committedAt: string;
+  /**
+   * The time the commit was authored, ISO 8601 with `Z`: git keeps the two
+   * times apart (a rebase, an amend or a cherry-pick writes a new committer
+   * time over an author time that stays), so a reader that means "when this
+   * work was written" reads this one.
+   */
+  readonly authoredAt: string;
   /** The commit's subject line. */
   readonly subject: string;
+  /** The name the commit was authored under, as git records it. */
   readonly author?: string;
+  /**
+   * The commit's parents, in git's own order — the first parent first, a
+   * merge's several as it records them — because that order is a fact of the
+   * commit (which line of history the merge is on) and is not sorted; empty at
+   * a root, and empty too where the parent's own object is not in this
+   * checkout, which the read reports as a coverage gap.
+   */
+  readonly parents: readonly string[];
+  /**
+   * The paths the commit changed, from the repository's root, in code point
+   * order, each once; a merge's are what it changed against its first parent,
+   * and a rename is the path it left and the path it took.
+   */
+  readonly files: readonly RepositoryPath[];
 }
 
 /**
@@ -1857,7 +1879,7 @@ const VALUE_FIELDS: { readonly [K in FactKind]: readonly (keyof FactValueOf<K> &
   'module': ['repository', 'name', 'parent', 'seed', 'members', 'importance'],
   'document': ['repository', 'path', 'mediaType', 'title'],
   'section': ['repository', 'document', 'anchor', 'heading', 'level'],
-  'commit': ['repository', 'commit', 'committedAt', 'subject', 'author'],
+  'commit': ['repository', 'commit', 'committedAt', 'authoredAt', 'subject', 'author', 'parents', 'files'],
   'claim': ['subject', 'predicate', 'object', 'text', 'confidence'],
   'entity-proposal': ['repository', 'proposed', 'name', 'summary', 'aliases'],
   'rule': ['statement', 'subject', 'form'],
@@ -1902,7 +1924,28 @@ const BINDING_FIELDS: Readonly<Record<string, readonly string[]>> = {
  * list the shape names is refused when it is not a list at all, rather than
  * skipped (a coverage whose `read` is one string is not a coverage).
  */
-const NAME_LIST_FIELDS: readonly string[] = ['coverage.read', 'entity-proposal.aliases', 'test.covers'];
+const NAME_LIST_FIELDS: readonly string[] = ['commit.files', 'coverage.read', 'entity-proposal.aliases', 'test.covers'];
+
+/**
+ * The fields a kind's value holds as a list of names in the order its reader
+ * read them, not sorted: a commit's parents are git's own order, the first
+ * parent first, and that order carries which line of history a merge continues.
+ * A repeat is a defect there like anywhere else; the order is the reader's.
+ */
+const OWN_ORDER_LIST_FIELDS: readonly string[] = ['commit.parents'];
+
+/**
+ * The fields a kind's value holds as a list of parts the schema itself gives a
+ * form to, by the kind and the field's own name: every entry of such a list is
+ * read by the part's own checker — the same one its identity's parts are read
+ * with — so a commit's changed paths are repository paths and its parents are
+ * commits, and a list can never carry a machine's path or a name the graph
+ * cannot join.
+ */
+const PART_LIST_FIELDS: Readonly<Record<string, (entry: unknown) => string | undefined>> = {
+  'commit.files': repositoryPathPart,
+  'commit.parents': commitPart,
+};
 
 /** Every key of a record its shape does not name, in code point order. */
 function unknownKeys(record: Record<string, unknown>, fields: readonly string[]): string[] {
@@ -2231,10 +2274,13 @@ export function checkFact(fact: unknown): FactProblem[] {
       }
       // The shape decides the branch, never the content: a name list is read as
       // names even when one entry is not one, and a list of records as records.
-      const nameList = closed?.many === true || NAME_LIST_FIELDS.includes(`${kind}.${field}`);
+      const nameList = closed?.many === true || NAME_LIST_FIELDS.includes(`${kind}.${field}`) || OWN_ORDER_LIST_FIELDS.includes(`${kind}.${field}`);
+      // A list in its reader's own order (a commit's parents) is kept as read,
+      // so only a repeat is a defect there; every other list of names is sorted.
+      const ownOrder = OWN_ORDER_LIST_FIELDS.includes(`${kind}.${field}`);
       if (nameList) {
         if (!Array.isArray(held)) {
-          add(`value.${field}`, `${shown(held)} is no list of names: this field holds the names the fact carries, in code point order, each once`);
+          add(`value.${field}`, `${shown(held)} is no list of names: this field holds the names the fact carries, ${ownOrder ? 'in the order the reader read them' : 'in code point order'}, each once`);
           continue;
         }
         if (closed?.atLeastOne === true && held.length === 0) {
@@ -2246,6 +2292,8 @@ export function checkFact(fact: unknown): FactProblem[] {
             add(`value.${field}[${index}]`, `${shown(current)} is no name: this list holds names`);
             continue;
           }
+          const partProblem = PART_LIST_FIELDS[`${kind}.${field}`]?.(current);
+          if (partProblem !== undefined) add(`value.${field}[${index}]`, partProblem);
           if (closed !== undefined) {
             const message = partIn(closed.values, closed.what)(current);
             if (message !== undefined) add(`value.${field}[${index}]`, message);
@@ -2253,8 +2301,8 @@ export function checkFact(fact: unknown): FactProblem[] {
           const previous = index === 0 ? undefined : held[index - 1];
           if (typeof previous !== 'string') continue;
           const order = byCodePoint(previous, current);
-          if (order > 0) add(`value.${field}[${index}]`, `${shown(current)} stands after ${shown(previous)}: a list of names is in code point order`);
-          else if (order === 0) add(`value.${field}[${index}]`, `${shown(current)} is named twice: a list of names names each once`);
+          if (order === 0) add(`value.${field}[${index}]`, `${shown(current)} is named twice: a list of names names each once`);
+          else if (order > 0 && !ownOrder) add(`value.${field}[${index}]`, `${shown(current)} stands after ${shown(previous)}: a list of names is in code point order`);
         }
         continue;
       }

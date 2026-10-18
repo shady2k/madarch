@@ -104,7 +104,7 @@ const SAMPLES: { readonly [K in FactKind]: FactValueOf<K> } = {
   'module': { repository: REPOSITORY, name: 'checkout-payment', seed: 'cluster', members: 12, importance: 0.42 },
   'document': { repository: REPOSITORY, path: repositoryPath('docs/requirements/orders.md'), mediaType: 'text/markdown', title: 'Orders' },
   'section': { repository: REPOSITORY, document: repositoryPath('docs/requirements/orders.md'), anchor: 'placing-an-order', heading: 'Placing an order', level: 2 },
-  'commit': { repository: REPOSITORY, commit: COMMIT, committedAt: '2026-10-18T09:15:00Z', subject: 'Place an order', author: 'Example Author' },
+  'commit': { repository: REPOSITORY, commit: COMMIT, committedAt: '2026-10-18T09:15:00Z', authoredAt: '2026-10-18T08:40:00Z', subject: 'Place an order', author: 'Example Author', parents: [OTHER_COMMIT], files: [repositoryPath('src/order.ts'), repositoryPath('test/order.test.ts')] },
   'claim': { subject: { form: 'node', id: anyId('symbol') }, predicate: 'is-implemented-by', object: { form: 'literal', text: 'the order service' }, text: 'Orders are placed by the order service.', confidence: 0.7 },
   'entity-proposal': { repository: REPOSITORY, proposed: 'concept', name: 'Order', summary: 'What a customer buys.', aliases: ['purchase'] },
   'rule': { statement: 'An order is placed once its card is authorized.', subject: anyId('symbol'), form: 'invariant' },
@@ -383,6 +383,59 @@ describe('one sample of every kind', () => {
   test('every kind has a sample, so no kind is left untested', () => {
     expect(Object.keys(SAMPLES).sort()).toEqual([...FACT_KINDS_IN_ORDER].sort());
     for (const kind of FACT_KINDS_IN_ORDER) expect(SAMPLES[kind]).toBeDefined();
+  });
+});
+
+describe('the ancestry one commit fact carries', () => {
+  /** The sample commit with the fields a merge gives it: two parents and the paths it changed. */
+  const merge = { ...SAMPLES['commit'], parents: [OTHER_COMMIT, COMMIT], files: [repositoryPath('src/order.ts'), repositoryPath('test/order.test.ts')] };
+
+  /** The paths a fact's own check refuses it at, in the order the check names them. */
+  function pathsOf(fact: unknown): string[] {
+    return checkFact(fact).map((problem) => problem.path);
+  }
+
+  /** One commit fact of the value, built with the id its own identity digests to. */
+  function commitOf(value: FactValueOf<'commit'>): unknown {
+    const provenance = provenanceFor('commit');
+    return { ...makeNodeFact({ kind: 'commit', value: merge, provenance, layer: 'extracted' }), value, id: factId({ kind: 'commit', value, provenance }) };
+  }
+
+  test('a commit carries its parents in git own order and its changed files in code point order', () => {
+    // Decision 0026's stage 7 and the task's DONE WHEN: a commit fact carries
+    // the parents of the ancestry and the paths the commit changed. A parent
+    // list is git's own order — the first parent first, which is what says
+    // which line of history a merge continues — so it is kept as it was read
+    // even where code point order would sort it the other way; the changed
+    // paths are a set and stand in code point order, each once.
+    expect(byCodePoint(COMMIT, OTHER_COMMIT)).toBeLessThan(0);
+    const fact = makeNodeFact({ kind: 'commit', value: merge, provenance: provenanceFor('commit'), layer: 'extracted' });
+    expect(checkFact(fact)).toEqual([]);
+    expect(fact.value.parents).toEqual([OTHER_COMMIT, COMMIT]);
+    expect(fact.value.files).toEqual([repositoryPath('src/order.ts'), repositoryPath('test/order.test.ts')]);
+  });
+
+  test('a changed path out of code point order, a path named twice and a repeated parent are each refused where they stand', () => {
+    const disordered = { ...merge, files: [repositoryPath('test/order.test.ts'), repositoryPath('src/order.ts')] };
+    expect(pathsOf(commitOf(disordered))).toEqual(['value.files[1]']);
+    const twice = { ...merge, files: [repositoryPath('src/order.ts'), repositoryPath('src/order.ts')] };
+    expect(pathsOf(commitOf(twice))).toEqual(['value.files[1]']);
+    const repeatedParent = { ...merge, parents: [COMMIT, COMMIT] };
+    expect(pathsOf(commitOf(repeatedParent))).toEqual(['value.parents[1]']);
+  });
+
+  test('a machine path and a name that is no commit are each refused where they stand in the list', () => {
+    // The schema's own rule 3, for a list: a path is a repository path, and a
+    // parent is a commit, whoever wrote the fact.
+    expect(pathsOf(commitOf({ ...merge, files: ['/opt/madarch-checkout/src/order.ts'] as never }))).toEqual(['value.files[0]']);
+    expect(pathsOf(commitOf({ ...merge, files: ['../src/order.ts'] as never }))).toEqual(['value.files[0]']);
+    expect(pathsOf(commitOf({ ...merge, parents: ['HEAD'] }))).toEqual(['value.parents[0]']);
+    expect(checkFact(makeNodeFact({ kind: 'commit', value: merge, provenance: provenanceFor('commit'), layer: 'extracted' }))).toEqual([]);
+  });
+
+  test('a commit fact is the same fact whatever it changed: the ancestry is its value, never its identity', () => {
+    const other = { ...merge, files: [repositoryPath('c.md')], parents: [] };
+    expect(factId({ kind: 'commit', value: merge, provenance: provenanceFor('commit') })).toBe(factId({ kind: 'commit', value: other, provenance: provenanceFor('commit') }));
   });
 });
 
