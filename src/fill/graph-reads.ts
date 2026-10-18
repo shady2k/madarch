@@ -81,7 +81,14 @@ export interface GraphReadLimits {
 /** The caps 0026 fixes: what a unit reads under when its server names none. */
 export const DEFAULT_GRAPH_READ_LIMITS: GraphReadLimits = { answerTokens: 8_000, spanLines: 200, charactersPerToken: 4 };
 
-/** The caps a caller left out, filled with 0026's numbers; a cap below one is refused by name. */
+/**
+ * The caps a caller left out, filled with 0026's numbers; a cap below one is
+ * refused by name. A cap smaller than an answer's own envelope — the request it
+ * echoes, the reads it names and the marker it writes — cannot be met and is not
+ * refused: the answer holds none of its rows and says so in its marker, and its
+ * own `tokens` is then the envelope's size, which is the smallest answer this
+ * module can write. Every cap 0026 or a unit's server names is far above it.
+ */
 export function graphReadLimits(limits: Partial<GraphReadLimits> | undefined, at = here()): GraphReadLimits {
   const resolved = { ...DEFAULT_GRAPH_READ_LIMITS, ...limits };
   if (!Number.isInteger(resolved.answerTokens) || resolved.answerTokens < 1) raise(`${at}: the answer cap is ${resolved.answerTokens}: a tool answer holds at least one token`);
@@ -317,12 +324,16 @@ interface EdgeEndFields {
 
 /**
  * How each edge kind's own value names its two ends. The store is a table of
- * facts and an edge's ends stand inside its value, so a reader of the graph
- * needs this table: it is what `adjacent` asks the store for and what the tools
- * read the ends out of. `provides` ends at a contract id and `binds` at an
- * environment name, and `task-key` at the tracker's own key: none of the three
- * is a fact id, so those ends are no nodes of the graph and are named null here
- * rather than joined to something that does not exist.
+ * facts and an edge's ends stand inside its value, so a reader of the graph needs
+ * this table: it is what `adjacent` asks the store for, what the tools read the
+ * ends out of, and what `held` joins on.
+ *
+ * Three kinds name an end that is no fact id, and they are named exactly:
+ * `provides` ends at an api-endpoint through its contract id — a node of the
+ * graph, but not named by the id the store joins; `binds` ends at an environment's
+ * name; and `task-key` at the tracker's own key. `document-link` ends at a term,
+ * which may name a node or an address outside the repositories, so the field is
+ * read as a term rather than as an id (`toTerm`).
  */
 export const EDGE_END_FIELDS: { readonly [K in FactEdgeKind]: EdgeEndFields } = {
   'contains': { from: 'from', to: 'to' },
@@ -379,15 +390,30 @@ export const SCOPE_KINDS: readonly FactKind[] = ['directory', 'file', 'module', 
 export const REFERENCE_EDGE_KINDS: readonly FactEdgeKind[] = ['call', 'consumes', 'dependency', 'document-link', 'import', 'inherits', 'interaction', 'reference', 'resolves', 'transition'];
 
 /**
- * The edge kinds whose ends the store's own rows hold as the edge value's `from`
- * and `to` fields, which is what a count of a scope's members joins on: the
- * structural kinds and the relational ones, and never `provides`, `binds`,
- * `task-key` or `document-link`, whose ends are a contract, a name, a key and a
- * term.
+ * The edge kinds whose to end is a node named by its fact id — wherever the edge's
+ * own value keeps that id (`to`, `variable`, `callee`) — which is what a count of
+ * a scope's members joins on. `provides`, `binds`, `task-key` and `document-link`
+ * are not among them: their to end is a contract id, a name, a key and a term.
  */
 export const HOLDING_EDGE_KINDS: readonly FactEdgeKind[] = FACT_EDGE_KINDS
-  .filter((kind) => EDGE_END_FIELDS[kind].from === 'from' && EDGE_END_FIELDS[kind].to === 'to' && EDGE_END_FIELDS[kind].toTerm !== true)
+  .filter((kind) => EDGE_END_FIELDS[kind].to !== null && EDGE_END_FIELDS[kind].toTerm !== true)
   .sort(byCodePoint);
+
+/** Why one edge kind's to end is no fact id, for a refusal that must name it. */
+function whyNotHeld(kind: FactEdgeKind): string {
+  switch (kind) {
+    case 'provides':
+      return "the api-endpoint's contract id, which is the endpoint's own identity and not the fact id this read joins";
+    case 'binds':
+      return "the environment's name, not a node of the graph";
+    case 'task-key':
+      return "the tracker's key, not a node of the graph";
+    case 'document-link':
+      return 'a term, which may name a node of the graph or an address outside the repositories';
+    default:
+      return 'no node of the graph';
+  }
+}
 
 /** The edge kinds that place a node inside another: what a scope holds, and never a neighbourhood. */
 export const STRUCTURE_EDGE_KINDS: readonly FactEdgeKind[] = ['contains', 'defines'];
@@ -495,18 +521,22 @@ export async function answerGraphRead(options: FactGraphReaderOptions, request: 
       case 'held': {
         if (request.via.length === 0) raise(`${at}: the read ${describedRead(request)} names no edge kind: a read of what a scope holds counts the edges of the kinds it is given`);
         for (const kind of request.via) {
-          // The count joins the store's own rows on the edge value's `from` and `to` fields, so only the kinds
-          // whose ends stand there can be counted: a `provides` edge names a contract, a `binds` edge an
-          // environment and a `task-key` edge a key, and a `document-link` edge names its target as a term — a
-          // kind whose end is not that field would answer nothing rather than be counted, and that silence is
-          // what this refusal is for.
+          // The count joins the store's own rows on the ends the edge value carries as a fact id, wherever the
+          // kind keeps them (`to`, `variable`, `callee`), so a kind whose to end is no id cannot be counted:
+          // a read that asked for one would answer nothing rather than be counted, and that silence is what
+          // this refusal is for.
           if (HOLDING_EDGE_KINDS.includes(kind) === false) {
-            raise(`${at}: the read ${describedRead(request)} counts what the edges of "${kind}" hold, and a "${kind}" edge's end is ${EDGE_END_FIELDS[kind].to === null ? 'no node of the graph' : `its value's "${EDGE_END_FIELDS[kind].to}" field, not the id itself`}: the kinds whose ends this read joins are ${HOLDING_EDGE_KINDS.join(', ')}`);
+            raise(`${at}: the read ${describedRead(request)} counts what the edges of "${kind}" hold, and a "${kind}" edge's to end is ${whyNotHeld(kind)}: the kinds whose to end this read joins by fact id are ${HOLDING_EDGE_KINDS.join(', ')}`);
           }
         }
+        // One statement, its joins built from the same end table `adjacent` reads: a kind that keeps its to
+        // end in another field of its value (`consumes` in `variable`, `interaction` in `callee`) and a kind
+        // that keeps its from end elsewhere (`interaction` in `caller`) are joined where they keep it.
+        const toEnd = endJoin('value->>\'to\'', request.via, 2);
+        const fromEnd = endJoin('value->>\'from\'', request.via, 2 + toEnd.values.length);
         const rows = await inTransaction(options, async (executor) => (await executor.query(
-          `SELECT n.kind AS kind, count(*)::int AS count FROM fill_fact e JOIN fill_fact n ON n.id = e.value->>'to' WHERE e.kind = ANY($1::text[]) AND e.value->>'from' = $2 GROUP BY n.kind`,
-          [request.via, request.id],
+          `SELECT n.kind AS kind, count(*)::int AS count FROM fill_fact e JOIN fill_fact n ON n.id = ${toEnd.sql} WHERE e.kind = ANY($1::text[]) AND ${fromEnd.sql} = $2 GROUP BY n.kind`,
+          [request.via, request.id, ...toEnd.values, ...fromEnd.values],
         )).rows);
         // The order is read here and not left to the query: a database orders text by its own collation
         // (PostgreSQL's is `en_US.UTF-8` in CI, where `Unit-a` sorts before `unit-a`), and a read of this
@@ -530,6 +560,31 @@ export async function answerGraphRead(options: FactGraphReaderOptions, request: 
 /** The rows of a read of facts, in code point order of the ids they carry. */
 function byId(rows: readonly Record<string, unknown>[]): readonly Record<string, unknown>[] {
   return [...rows].sort((left, right) => byCodePoint(String(left['id']), String(right['id'])));
+}
+
+/**
+ * The expression that reads one end of the edges of the given kinds, wherever each
+ * kind of the table keeps it: the plain field of the end (`value->>'to'`,
+ * `value->>'from'`) for the kinds that name it there, and one parameter per kind
+ * group it does not (`consumes`'s `variable`, `interaction`'s `caller` and
+ * `callee`). The values are the kind groups, in the order they are read.
+ */
+function endJoin(plain: string, kinds: readonly FactEdgeKind[], firstParameter: number): { readonly sql: string; readonly values: readonly (readonly FactEdgeKind[])[] } {
+  const side = plain.endsWith("'from'") ? 'from' : 'to';
+  const grouped = new Map<string, FactEdgeKind[]>();
+  for (const kind of kinds) {
+    const field = EDGE_END_FIELDS[kind][side];
+    if (field === null) continue;
+    const expression = `value->>'${field}'`;
+    if (expression === plain) continue;
+    const held = grouped.get(expression) ?? [];
+    held.push(kind);
+    grouped.set(expression, held);
+  }
+  const groups = [...grouped.entries()].map(([expression, group]) => ({ expression, kinds: [...new Set(group)].sort(byCodePoint) })).sort((left, right) => byCodePoint(left.expression, right.expression));
+  const values = groups.map((group) => group.kinds);
+  const clauses = groups.map((group, index) => `WHEN e.kind = ANY($${firstParameter + index}::text[]) THEN e.${group.expression}`);
+  return { sql: clauses.length === 0 ? `e.${plain}` : `CASE ${clauses.join(' ')} ELSE e.${plain} END`, values };
 }
 
 /** How the ends of the given edge kinds stand in the store, as one expression per field name. */
@@ -1018,9 +1073,11 @@ export interface DescribeScopeAnswer extends GraphReadEnvelope {
  * What one scope is, what it holds and how it stands in the graph: the scope
  * node, the kinds of the nodes it holds (`contains`, `defines`) by count, the
  * edges touching it by kind and direction, and the coverage facts that name it.
- * A scope the graph does not hold is refused by name — an answer about a node
- * that is not there would read as "nothing here", which is a statement about the
- * graph nobody made.
+ * A scope the graph does not hold, or an id of a kind no scope is, is refused by
+ * name — an answer about a node that is not there would read as "nothing here",
+ * which is a statement about the graph nobody made. The `fact` read behind that
+ * refusal is made and recorded like any other: the unit did read the graph, and a
+ * generation that then fails keeps the dependency it made.
  */
 export async function describeScope(context: GraphReadContext, request: DescribeScopeRequest): Promise<DescribeScopeAnswer> {
   const at = here();
@@ -1104,7 +1161,10 @@ export interface NeighborsAnswer extends GraphReadEnvelope {
  * unless they are asked for) that names it at an end, with the node at the other
  * end of that edge. A symbol three callers call is three rows here, in code point
  * order of the caller's label and id, and nothing else stands between the reader
- * and that answer.
+ * and that answer. An edge whose other end is no fact id (`provides` names a
+ * contract, `binds` an environment, `task-key` a key, `document-link` a term) has
+ * no node to name and is not one of the rows: the answer's own `kinds` says which
+ * kinds it walked.
  */
 export async function neighbors(context: GraphReadContext, request: NeighborsRequest): Promise<NeighborsAnswer> {
   const at = here();
@@ -1168,7 +1228,9 @@ export interface ReferencesAnswer extends GraphReadEnvelope {
  * at the node, each with the node it comes from and the place the edge stands at
  * (a call's place is the code-point-smallest call site its producer folded, with
  * the count it folded). The rows are in code point order of the file, then by
- * line, then by the referencing node's label and id, then the edge's id.
+ * line, then by the referencing node's label and id, then the edge's id. An edge
+ * whose from end is no fact id names no citing node and is not one of the rows;
+ * the answer's own `kinds` says which kinds it walked.
  */
 export async function references(context: GraphReadContext, request: ReferencesRequest): Promise<ReferencesAnswer> {
   const at = here();
@@ -1265,11 +1327,15 @@ export async function claimsAbout(context: GraphReadContext, request: ClaimsAbou
     const confidence = value['confidence'];
     const text = value['text'];
     if (typeof value['predicate'] !== 'string') raise(`${at}: the claim ${claim.id} carries the predicate ${shown(value['predicate'])}: a claim says what it asserts about its subject, as one lower-case kebab token`);
+    const subject = term(claim.value, 'subject');
+    const object = term(claim.value, 'object');
+    if (subject === undefined) raise(`${at}: the claim ${claim.id} carries ${shown(value['subject'])} at value.subject: a claim's subject is a node, an address outside the repositories, or a literal (src/fill/facts.ts)`);
+    if (object === undefined) raise(`${at}: the claim ${claim.id} carries ${shown(value['object'])} at value.object: a claim's object is a node, an address outside the repositories, or a literal (src/fill/facts.ts)`);
     return {
       id: claim.id,
       predicate: value['predicate'],
-      subject: termRef(term(claim.value, 'subject'), refs),
-      object: termRef(term(claim.value, 'object'), refs),
+      subject: termRef(subject, refs),
+      object: termRef(object, refs),
       ...(typeof text === 'string' ? { text } : {}),
       ...(typeof confidence === 'number' ? { confidence } : {}),
       layer: claim.layer,
@@ -1299,8 +1365,7 @@ function term(value: unknown, field: 'subject' | 'object'): { readonly form: 'no
 }
 
 /** One term as a reader sees it, with the label of the node it names where the graph holds it. */
-function termRef(held: ReturnType<typeof term>, refs: ReadonlyMap<string, GraphNodeRef>): GraphTermRef {
-  if (held === undefined) return { form: 'literal', text: '' };
+function termRef(held: NonNullable<ReturnType<typeof term>>, refs: ReadonlyMap<string, GraphNodeRef>): GraphTermRef {
   if (held.form !== 'node' || held.id === undefined) {
     return { form: held.form, ...(held.url === undefined ? {} : { url: held.url }), ...(held.text === undefined ? {} : { text: held.text }) };
   }
@@ -1450,7 +1515,11 @@ export interface EvidenceSpanAnswer extends GraphReadEnvelope {
   /** The lines this answer holds: `endLine` is one less than `startLine` when the caps held none of them. */
   readonly startLine: number;
   readonly endLine: number;
-  /** What was asked for, before the caps cut it. */
+  /**
+   * What the caller asked for, as it asked it (an end past the file's own last
+   * line is not rewritten here). The marker and `cut` count the lines the file
+   * has of that request.
+   */
   readonly asked: { readonly startLine: number; readonly endLine: number };
   /** How many lines the file has at that commit. */
   readonly totalLines: number;

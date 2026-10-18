@@ -23,6 +23,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { byCodePoint } from '../src/model/order.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { FACT_APPLICATION, applyPublishedFacts, createFactStoreSchema } from '../src/fill/fact-store.js';
 import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact, type FactEdgeKind, type FactProvenance } from '../src/fill/facts.js';
@@ -119,6 +120,8 @@ interface Fixture {
   readonly contains: readonly Fact[];
   readonly claims: readonly Fact[];
   readonly coverage: Fact;
+  readonly variable: Fact;
+  readonly consumes: Fact;
   readonly hub: Fact;
   readonly hubCalls: readonly Fact[];
   readonly wideCoverage: Fact;
@@ -171,6 +174,10 @@ function fixture(): Fixture {
     provenance: provenance(FILE, 1),
     layer: 'extracted',
   });
+  // The one edge of the fixture whose to end stands in another field of the edge's value: `consumes` names the
+  // environment variable it uses in its `variable`, and the count of what a scope holds joins it there.
+  const variable = makeNodeFact({ kind: 'environment-variable', value: { name: 'ORDER_API_BASE' }, provenance: provenance(FILE, 2), layer: 'extracted' });
+  const consumes = makeEdgeFact({ kind: 'consumes', value: { from: file.id, variable: variable.id }, provenance: provenance(FILE, 2), layer: 'extracted' });
   const hub = symbol('OrderService.hub', 100);
   const hubCalls = Array.from({ length: 20 }, (_unused, index) => call(symbol(`OrderService.caller${String(index).padStart(2, '0')}`, 101 + index), hub, 101 + index));
   const wideCoverage = makeNodeFact({
@@ -185,13 +192,13 @@ function fixture(): Fixture {
     provenance: provenance(FILE, 1),
     layer: 'extracted',
   });
-  return { repository, file, module, target, isolated, lonely, callers, calls, defines, contains, claims, coverage: coverageFact, hub, hubCalls, wideCoverage };
+  return { repository, file, module, target, isolated, lonely, variable, consumes, callers, calls, defines, contains, claims, coverage: coverageFact, hub, hubCalls, wideCoverage };
 }
 
 /** Everything the fixture publishes, in one unit: the graph the reads answer from. */
 function fixtureFacts(graph: Fixture): readonly Fact[] {
   return [
-    graph.repository, graph.file, graph.module, graph.target, graph.isolated, graph.lonely, graph.hub,
+    graph.repository, graph.file, graph.module, graph.target, graph.isolated, graph.lonely, graph.variable, graph.consumes, graph.hub,
     ...graph.callers, ...graph.calls, ...graph.hubCalls, ...graph.defines, ...graph.contains,
     ...graph.claims, graph.coverage, graph.wideCoverage,
   ];
@@ -289,7 +296,7 @@ afterEach(async () => {
  */
 function canonicalRead(parts: Record<string, unknown>): string {
   const sorted: Record<string, unknown> = {};
-  for (const key of Object.keys(parts).sort()) sorted[key] = parts[key];
+  for (const key of Object.keys(parts).sort(byCodePoint)) sorted[key] = parts[key];
   return JSON.stringify(sorted);
 }
 
@@ -437,6 +444,21 @@ describe('describe_scope', () => {
     ]);
   });
 
+  test('the count joins every kind whose to end is a fact id, wherever the edge keeps it', async () => {
+    const opened = await world();
+    const reads = await opened.reads('reads/all', 1);
+    // `consumes` names the environment variable it uses in its value's `variable`, not in a `to`.
+    const held = await reads.read({ read: 'held', id: opened.graph.file.id, via: ['consumes'] });
+    expect(held).toEqual([{ kind: 'environment-variable', count: 1 }]);
+    // The kinds whose ends this read joins, and why the others are refused: each with what its end is.
+    await expect(reads.read({ read: 'held', id: opened.graph.file.id, via: ['provides'] })).rejects
+      .toThrow(/a "provides" edge's to end is the api-endpoint's contract id, which is the endpoint's own identity and not the fact id this read joins: the kinds whose to end this read joins by fact id are binds, call, contains, consumes, defines, dependency, import, inherits, interaction, reference, resolves, transition/);
+    await expect(reads.read({ read: 'held', id: opened.graph.file.id, via: ['task-key'] })).rejects
+      .toThrow(/a "task-key" edge's to end is the tracker's key, not a node of the graph/);
+    await expect(reads.read({ read: 'held', id: opened.graph.file.id, via: ['document-link'] })).rejects
+      .toThrow(/a "document-link" edge's to end is a term, which may name a node of the graph or an address outside the repositories/);
+  });
+
   test('a file holds the symbols it defines, and the repository holds its files', async () => {
     const opened = await world();
     const reads = await opened.reads('reads/all', 1);
@@ -478,6 +500,23 @@ describe('claims_about', () => {
       digestOf(canonicalRead({ read: 'facts-with', kind: 'claim', field: 'object.id', value: opened.graph.target.id })),
       digestOf(canonicalRead({ read: 'facts', ids: [opened.graph.target.id, opened.graph.callers[1]!.id].sort() })),
     ]);
+  });
+
+  test('a claim row the schema does not read is refused by name, never answered with empty fields', async () => {
+    const opened = await world();
+    // A damaged row reaches the store only from outside it (the store checks a write with `checkFact`), and a
+    // reader that answered it with empty fields would answer a claim nobody made.
+    const damaged = `claim:${'d'.repeat(64)}`;
+    await opened.owner.transaction('write', async (executor) => {
+      await executor.query(
+        `INSERT INTO fill_fact (id, kind, schema_version, provenance, layer, status, value)
+         VALUES ($1, 'claim', 1, $2::jsonb, 'inferred', 'proposed', $3::jsonb)`,
+        [damaged, JSON.stringify(provenance(FILE, 40)), JSON.stringify({ subject: { form: 'node', id: opened.graph.target.id }, object: { form: 'literal', text: 'the cart' } })],
+      );
+    });
+    const reads = await opened.reads('reads/all', 1);
+    await expect(claimsAbout(reads, { tool: 'claims_about', id: opened.graph.target.id })).rejects
+      .toThrow(new RegExp(`${damaged} carries undefined at value.predicate: a claim says what it asserts about its subject`));
   });
 
   test('a node no claim names answers nothing', async () => {
@@ -553,7 +592,9 @@ describe('the caps 0026 fixes', () => {
     expect(answer.rows).toEqual([]);
     expect(answer.truncated).toBe(true);
     expect(answer.marker).toBe(`truncated: the neighbours of ${opened.graph.hub.id} holds 20 rows and the answer's 1-token cap holds 0: 20 rows were cut`);
-    expect(answer.tokens).toBeLessThanOrEqual(DEFAULT_GRAPH_READ_LIMITS.answerTokens);
+    // A cap below the answer's own envelope (its request and its reads) cannot be met: the smallest answer this
+    // module writes is that envelope, and the marker says the cap held none of the rows.
+    expect(answer.tokens).toBeGreaterThan(1);
   });
 });
 

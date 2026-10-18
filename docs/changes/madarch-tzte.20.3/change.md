@@ -80,7 +80,7 @@ from one of them, it is named.
 
 - **One read grammar, and the recorded query is the request.** A tool answers only
   through the context it is given (`GraphReadContext.read`), and every read is one
-  value of `GraphRead`: one of four reads of the store (`fact`, `facts`,
+  value of `GraphRead`: one of the five reads of the store (`fact`, `facts`,
   `adjacent`, `held`, `facts-with`) or a `span` read of the pinned commit's bytes.
   The query a dependency is recorded by is the canonical JSON of that value
   (`readText`, keys in code point order), so two reads differ exactly when their
@@ -176,8 +176,11 @@ from one of them, it is named.
   is the file from the start of the window to the cap; an end past the file's last
   line is the file's own last line (nothing was cut); a start past it is refused
   naming the file, the line, the file's own line count and the path. The read this
-  answer stands on is exactly the window it shows, so a unit's dependency is what
-  it read and no more.
+  answer stands on is the window the span's line cap lets the store answer — what
+  the answer shows is clasped to that window — so the unit's dependency covers the
+  bytes it read, and a further cut by the answer's token cap is the answer's own,
+  named in the marker. `asked` echoes the request as it was made, while the marker
+  and `cut` count the lines the file has of it.
 - **What a reader sees.** `GraphNodeRef` is the id a join uses, the kind, the label
   a person reads and the place the fact stands at, and `labelOf` is that label by
   kind (a symbol by its qualified name in its file, a file by its path in its
@@ -266,3 +269,25 @@ from one of them, it is named.
   - `COVERAGE_READ_SAMPLE` (50) and `COVERAGE_GAP_LIMIT` (200) are this module's
     numbers, not 0026's: they bound one coverage row's own lists inside the answer's
     token cap, and every cut they make is counted in the answer's marker.
+
+## Acceptance evidence
+The checks of this change, each command's own exit status, recorded on the task as
+`check:` comments against the revision they were made on:
+
+- `bun run check` (tsc --noEmit) exit 0 at every commit of the branch.
+- `madarch-sky-test <worktree> test/fill-graph-reads.test.ts` — the owners' rule
+  that tests run in SkyPilot, not on this machine — exit 0: 26 pass, 0 fail
+  (22 pass at the first revision, 26 after the two review rounds' cases were
+  added), full logs under `/home/dev/.cache/madarch-sky-test/…` and the run's own
+  log name in the hand-over section of `.worker-report.md`.
+- The feature document gate (`node .shady2k/documents.mjs check --phase feature
+  --change madarch-tzte.20.3 --candidate worktree --target origin/main`) exit 0,
+  clean, at every commit (it runs in the pre-commit hook too).
+- The independent review: two rounds, each a fresh read-only
+  `prime-agent --provider shady2k-gateway --model deepseek-v4.1-flash-auto`
+  session over `git diff origin/main...HEAD` (logs
+  `/tmp/graph-reads-review.log`, `/tmp/graph-reads-review2.log`). Round 1:
+  `fix-before-ship`; round 2 over the fixed revision: `fix-before-ship`, with the
+  findings answered in the third commit and this record.
+- CI on the exact SHA of the branch: recorded in the task's `check:` records and
+  in the queue entry (`## madarch-tzte.20.3 — READY …`).
