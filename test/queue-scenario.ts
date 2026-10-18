@@ -25,8 +25,15 @@
  *   a claim that is never heartbeated is noticed by the interval rather than by
  *   the lease.
  * - `equal-priority` takes three jobs of the same priority, which come back in
- *   the order they were enqueued, and then three enqueued in one transaction,
- *   which share their instant and are ordered by their ids.
+ *   the order they were enqueued, and then five enqueued in one transaction —
+ *   one clock tick — which must come back in that order too.
+ * - `kept-retry` retries once after a second, `kept-recover` has a one-second
+ *   lease, and `kept-dead` dead-letters on its first failure: each shows that a
+ *   job keeps the place it was enqueued at through a retry, a recovery and a
+ *   dead letter.
+ * - `foreign-order` is written into directly, by two rows of one instant whose
+ *   ids run against the order they were written in, so the adapter's own
+ *   tie-break is what can answer them.
  * - `two-dead` dead-letters two jobs, so the read's own order and its limit can
  *   be told apart.
  * - `frozen-retries` and `raised-retries` are each re-declared after their job
@@ -102,8 +109,24 @@ export interface QueueScenarioReport {
   readonly deadLettersBeyondTheBound: string | null;
   /** Jobs of equal priority come back in the order they were enqueued. */
   readonly equalPriorityOrder: ObservedJob[];
-  /** Three jobs enqueued in one transaction, so they share their creation instant: the tie-break is their ids. */
-  readonly sameInstantOrder: Array<{ id: string; unit: string }>;
+  /** Five jobs enqueued in one transaction, claimed two and then three. */
+  readonly oneTickFirstClaim: ObservedJob[];
+  readonly oneTickSecondClaim: ObservedJob[];
+  /** Two jobs written into the queue's table at one instant, in the reverse of their ids' order. */
+  readonly foreignOrder: Array<{ id: string; unit: string }>;
+  /** A job claimed, failed and retried: it is the older one, so it comes back before the job enqueued after it. */
+  readonly keptRetryOutcome: FailOutcome | null;
+  readonly keptRetryAttempt: number | null;
+  readonly keptRetryUnit: string | null;
+  readonly keptRetryNextUnit: string | null;
+  /** A claim whose lease lapsed, recovered while a newer job waited: the recovered job comes first. */
+  readonly keptRecoverAttempt: number | null;
+  readonly keptRecoverUnit: string | null;
+  /** A job dead-lettered while another waited: the copy holds the failed job's id and the other keeps its place. */
+  readonly keptDeadOutcome: FailOutcome | null;
+  readonly keptDeadJobId: string | null;
+  readonly keptDeadLetters: DeadLetter[];
+  readonly keptDeadNextUnit: string | null;
   /** The doubling delay of `backoff-retry`. */
   readonly backoffFirstOutcome: FailOutcome | null;
   readonly backoffAttemptAfterFirstWait: number | null;
@@ -140,6 +163,11 @@ export const SCENARIO_QUEUES = {
   leaseSpentDead: 'lease-spent-dead',
   heartbeatQuiet: 'heartbeat-quiet',
   equalPriority: 'equal-priority',
+  keptRetry: 'kept-retry',
+  keptRecover: 'kept-recover',
+  keptDead: 'kept-dead',
+  keptDeadDead: 'kept-dead-dead',
+  foreignOrder: 'foreign-order',
   twoDead: 'two-dead',
   twoDeadDead: 'two-dead-dead',
   frozen: 'frozen-retries',
@@ -188,6 +216,11 @@ export async function runQueueScenario(owner: DatabaseOwner, schema: string): Pr
     await queue.declare({ name: SCENARIO_QUEUES.leaseSpent, leaseSeconds: 1, retries: 0, retryDelaySeconds: 0, retryBackoff: false, deadLetter: SCENARIO_QUEUES.leaseSpentDead });
     await queue.declare({ name: SCENARIO_QUEUES.heartbeatQuiet, leaseSeconds: 60, retries: 1, retryDelaySeconds: 0, retryBackoff: false, heartbeatSeconds: 10 });
     await queue.declare({ name: SCENARIO_QUEUES.equalPriority, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false });
+    await queue.declare({ name: SCENARIO_QUEUES.keptRetry, leaseSeconds: 60, retries: 2, retryDelaySeconds: 1, retryBackoff: false });
+    await queue.declare({ name: SCENARIO_QUEUES.keptRecover, leaseSeconds: 1, retries: 2, retryDelaySeconds: 0, retryBackoff: false });
+    await queue.declare({ name: SCENARIO_QUEUES.keptDeadDead, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false });
+    await queue.declare({ name: SCENARIO_QUEUES.keptDead, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false, deadLetter: SCENARIO_QUEUES.keptDeadDead });
+    await queue.declare({ name: SCENARIO_QUEUES.foreignOrder, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false });
     await queue.declare({ name: SCENARIO_QUEUES.twoDeadDead, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false });
     await queue.declare({ name: SCENARIO_QUEUES.twoDead, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false, deadLetter: SCENARIO_QUEUES.twoDeadDead });
     await queue.declare({ name: SCENARIO_QUEUES.frozen, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false });
@@ -288,14 +321,63 @@ export async function runQueueScenario(owner: DatabaseOwner, schema: string): Pr
     await queue.enqueue({ queue: SCENARIO_QUEUES.equalPriority, data: { unit: 'third-equal' } });
     const equalPriorityOrder = (await queue.claim<{ unit: string }>({ queue: SCENARIO_QUEUES.equalPriority, limit: 3 })).map(observed);
 
-    // Three jobs enqueued inside one transaction share the transaction's clock,
-    // so their creation instants are one and the order between them is the ids'.
+    // Five jobs enqueued inside one transaction: the store stamps every statement
+    // of a transaction with one instant, so this is one clock tick made certain
+    // rather than waited for, and the queue's own place for each enqueue is what
+    // keeps the order — a claim of two takes the two oldest, and the rest follow.
     await owner.transaction('write', async (transaction) => {
-      for (const unit of ['tie-one', 'tie-two', 'tie-three']) {
+      for (const unit of ['tick-one', 'tick-two', 'tick-three', 'tick-four', 'tick-five']) {
         await queue.enqueue({ queue: SCENARIO_QUEUES.equalPriority, data: { unit }, transaction });
       }
     });
-    const sameInstantOrder = (await queue.claim<{ unit: string }>({ queue: SCENARIO_QUEUES.equalPriority, limit: 3 })).map((job) => ({ id: job.id, unit: job.data.unit }));
+    const oneTickFirstClaim = (await queue.claim<{ unit: string }>({ queue: SCENARIO_QUEUES.equalPriority, limit: 2 })).map(observed);
+    const oneTickSecondClaim = (await queue.claim<{ unit: string }>({ queue: SCENARIO_QUEUES.equalPriority, limit: 3 })).map(observed);
+
+    // Two rows written straight into the jobs table the queue keeps in its
+    // schema, at one instant — `now()` is one statement's — and in the reverse of
+    // their ids' code point order. The adapter gave them no place of their own, so
+    // the last key it promises, ids in code point order, is the only thing that
+    // can order them, and insertion order is not it. They carry the table's own
+    // defaults rather than the queue's declaration, which is why the check of
+    // this part reads their units and their ids and nothing else.
+    await owner.run(async (transaction) => {
+      await transaction.query(
+        `INSERT INTO ${schema}.job (id, name, data, priority, created_on, start_after, keep_until)
+         VALUES ('22222222-2222-4222-8222-222222222222', $1, '{"unit":"written-first"}'::jsonb, 0, now() - interval '1 hour', now() - interval '1 hour', now() + interval '1 day'),
+                ('11111111-1111-4111-8111-111111111111', $1, '{"unit":"written-second"}'::jsonb, 0, now() - interval '1 hour', now() - interval '1 hour', now() + interval '1 day')`,
+        [SCENARIO_QUEUES.foreignOrder],
+      );
+    });
+    const foreignOrder = (await queue.claim<{ unit: string }>({ queue: SCENARIO_QUEUES.foreignOrder, limit: 2 })).map((job) => ({ id: job.id, unit: job.data.unit }));
+
+    // A job that failed and waits for its retry keeps its place: it was enqueued
+    // before the job behind it, so it is the one claimed once its retry is due.
+    await queue.enqueue({ queue: SCENARIO_QUEUES.keptRetry, data: { unit: 'kept-retry-first' } });
+    await queue.enqueue({ queue: SCENARIO_QUEUES.keptRetry, data: { unit: 'kept-retry-second' } });
+    const keptRetryFirst = (await queue.claim<{ unit: string }>({ queue: SCENARIO_QUEUES.keptRetry }))[0]!;
+    const keptRetryOutcome = await queue.fail(SCENARIO_QUEUES.keptRetry, keptRetryFirst, 'the first attempt failed');
+    await wait(1.3);
+    const keptRetryAgain = (await queue.claim<{ unit: string }>({ queue: SCENARIO_QUEUES.keptRetry }))[0]!;
+    await queue.complete(SCENARIO_QUEUES.keptRetry, keptRetryAgain);
+    const keptRetryNext = (await queue.claim<{ unit: string }>({ queue: SCENARIO_QUEUES.keptRetry }))[0]!;
+    await queue.complete(SCENARIO_QUEUES.keptRetry, keptRetryNext);
+
+    // The same for a claim recovered after its lease lapsed.
+    await queue.enqueue({ queue: SCENARIO_QUEUES.keptRecover, data: { unit: 'kept-recover-first' } });
+    await queue.enqueue({ queue: SCENARIO_QUEUES.keptRecover, data: { unit: 'kept-recover-second' } });
+    await queue.claim({ queue: SCENARIO_QUEUES.keptRecover });
+    await wait(1.3);
+    await queue.recover(SCENARIO_QUEUES.keptRecover);
+    const keptRecoverAgain = (await queue.claim<{ unit: string }>({ queue: SCENARIO_QUEUES.keptRecover }))[0]!;
+
+    // And for a job whose only attempt failed: the copy is in the dead letter
+    // queue under the failed job's id, and the job behind it is claimed next.
+    await queue.enqueue({ queue: SCENARIO_QUEUES.keptDead, data: { unit: 'kept-dead-first' } });
+    await queue.enqueue({ queue: SCENARIO_QUEUES.keptDead, data: { unit: 'kept-dead-second' } });
+    const keptDeadFirst = (await queue.claim<{ unit: string }>({ queue: SCENARIO_QUEUES.keptDead }))[0]!;
+    const keptDeadOutcome = await queue.fail(SCENARIO_QUEUES.keptDead, keptDeadFirst, 'the only attempt failed');
+    const keptDeadLetters = await queue.deadLetters<{ unit: string }>(SCENARIO_QUEUES.keptDead);
+    const keptDeadNext = (await queue.claim<{ unit: string }>({ queue: SCENARIO_QUEUES.keptDead }))[0]!;
 
     // The same one-second delay, doubling: the second wait is not the first.
     await queue.enqueue({ queue: SCENARIO_QUEUES.backoff, data: { unit: 'slow' } });
@@ -378,7 +460,19 @@ export async function runQueueScenario(owner: DatabaseOwner, schema: string): Pr
       fixedDeadLettersWithoutAQueue,
       deadLettersBeyondTheBound,
       equalPriorityOrder,
-      sameInstantOrder,
+      oneTickFirstClaim,
+      oneTickSecondClaim,
+      foreignOrder,
+      keptRetryOutcome,
+      keptRetryAttempt: keptRetryAgain.attempt,
+      keptRetryUnit: keptRetryAgain.data.unit,
+      keptRetryNextUnit: keptRetryNext.data.unit,
+      keptRecoverAttempt: keptRecoverAgain.attempt,
+      keptRecoverUnit: keptRecoverAgain.data.unit,
+      keptDeadOutcome,
+      keptDeadJobId: keptDeadFirst.id,
+      keptDeadLetters,
+      keptDeadNextUnit: keptDeadNext.data.unit,
       backoffFirstOutcome,
       backoffAttemptAfterFirstWait: backoffSecond.attempt,
       backoffSecondOutcome,

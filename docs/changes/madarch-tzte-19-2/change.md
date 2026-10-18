@@ -145,6 +145,65 @@ None.
   metadata and orders the batch itself — priority descending, then the oldest,
   then ids in code point order — so a caller that claims with a limit can rely on
   the order, and two claims of the same rows answer the same order.
+- **Every enqueue takes the queue's next place, so "the oldest" is enqueue
+  order.** pg-boss orders a claim by priority and then by the job's creation
+  time, and its own source says what that means for a tie: a batch insert shares
+  one `job_now()`, the ids are random uuids and carry no order, and ties resolve
+  in index order. A store's clock is coarse on some backends — pg-boss's own
+  fetch comment names PGlite — and it is one transaction's for every statement
+  inside that transaction, so equal-priority jobs enqueued one after another did
+  tie and did come back in a random order: this change's first landing failed CI
+  on exactly that (`test/queue-scenario.ts`, three jobs of `equal-priority`, run
+  `39147690524` shard 2, where the same SHA passed on the re-run). The adapter
+  gives each enqueue a place of its own: an upsert into
+  `<schema>.madarch_enqueue_stamp` takes the queue's last stamp plus at least a
+  millisecond, or the clock if that is later, and the same statement writes it as
+  the job's `created_on`, inside the enqueue's own transaction — the caller's
+  where one is given, one short write transaction of the owner's otherwise. Two
+  enqueues of one queue therefore cannot share a place: the upsert holds the
+  queue's stamp row until its transaction ends, so they take their places in the
+  order they reach it. The step is a whole millisecond because every reader of
+  the instant here is a JavaScript `Date`, and the microseconds a timestamp
+  stores would be lost on the way back. This is what makes the store's own
+  selection the enqueue order, so a claim of fewer than the jobs waiting takes
+  the oldest rather than an arbitrary subset; the adapter still orders the batch
+  it is handed, and its id tie-break stays as the answer for a row written into
+  the queue beside the adapter. A job's place is written once and never changes,
+  so a retried job, and one whose claim a maintenance pass recovered, keep the
+  order they were enqueued in, and a dead-lettered job's copy carries the failed
+  job's id and its own arrival time, which is what the dead letter read orders by.
+  A copy is the one row here that gets no place of its own: pg-boss writes it
+  inside its own settlement statement, and nothing in the adapter's hands names
+  it. Two copies of one queue made in the same millisecond are therefore answered
+  in the store's order, which is what the read asks for up to the millisecond it
+  can tell apart; the scenario tells its two apart by dead-lettering them a
+  thirty-millisecond pause apart, which is the same bound stated as a test.
+  Reaching into pg-boss's `job` table is deliberate: the library offers no way
+  to name a job's creation time, and `created_on` is the column its own fetch —
+  and its own `findJobs` paging and its monitor's oldest-queued reading — treats
+  as enqueue order. The table and column are pg-boss 12.38.0's; a version that
+  renames them fails loudly at the first enqueue rather than silently losing the
+  order, and the statement that writes the place checks the row it matched, so a
+  write that reached nothing fails the enqueue instead of answering a job whose
+  order the queue cannot keep. This is the `created_on` the jobs table carries:
+  `<schema>.job` is its partitioned parent and a normal queue's rows live in
+  `job_common`, its default partition, which an update through the parent
+  reaches. Cost, stated for the orchestrator that wires a caller
+  (madarch-tzte.19.5): the upsert holds the queue's stamp row until the enqueue's
+  transaction ends, so an enqueue inside a long caller's transaction makes every
+  other enqueue into that queue wait for it, and two transactions enqueuing into
+  two queues in opposite order can deadlock, which the database answers by
+  aborting one and nothing here retries. Publishing into one queue per
+  transaction, or taking the places in one fixed queue order, is the caller's
+  side of that. Two smaller consequences are recorded rather than fixed: a queue
+  enqueued into faster than once a millisecond keeps its places ahead of the
+  store's clock, which the monitor's oldest-queued reading reports as a negative
+  number of seconds and nothing functional reads; and pg-boss's queue cache,
+  evicted when another instance deletes and re-creates a declared queue, falls
+  back to the owner's connection on a miss, so that enqueue inside our own
+  transaction is refused by the owner with its own message where pg-boss would
+  have said the queue does not exist. It fails either way; only the sentence is
+  worse.
 - **A declaration is applied to the queue as it stands.** pg-boss's `create_queue`
   inserts a queue once and never touches the row again, so a product that changes
   a stage's limits would keep the old ones silently. `declare` creates the queue
@@ -229,9 +288,31 @@ None.
   fractional priority) now in the scenario, the job's retry allowance in the order
   check, and one timing window widened from a tenth of a second of margin to half
   a second on either side. Its one confirmed residual: on PGlite a dropped
-  tie-break comparator still passes the same-instant check, because the store's
-  own `UPDATE … RETURNING` answers ascending ids (measured over thirty runs), so
-  that check proves the promise rather than the comparator.
+  tie-break comparator still passed the check that asked for ascending ids,
+  because the store's own `UPDATE … RETURNING` answers ascending ids (measured
+  over thirty runs), so that check proved the promise rather than the comparator;
+  the follow-up below closes it with rows written in the reverse of their ids'
+  order.
+- **What the follow-up changed.** This change's first landing passed its own CI
+  and failed another branch's: `test/queue-scenario.ts`'s three jobs of
+  `equal-priority` came back in the wrong order on shard 2 of run `39147690524`,
+  and the same SHA passed when the shard was re-run — the tie-break was a random
+  id, so the failure was a coin toss away rather than gone. Claim order is now
+  enqueue order by construction (the bullet above), the scenario puts five
+  enqueues inside one transaction so the tie is made rather than waited for. The
+  tie is made certain, the check's failure without the fix is not: five tied jobs
+  claimed two at a time come back in the wanted order by chance about one run in
+  ten, which is what the fix removes rather than a certainty it adds — the seam
+  is the one instant, not the failing. Three more parts pin the paths that keep a
+  job's place: a retry, a recovered claim and a dead letter. The comparator's
+  residual from the review is closed by two rows written into the queue's table
+  in the reverse of their ids' order: the claim answers them in id order, which
+  insertion order gets wrong (whether a store happens to answer ascending ids is
+  its own affair, and the adapter's sort is what the check holds). That promise
+  is about the batch a claim is handed, and the requirement now says so: which of
+  several jobs sharing one instant a claim of fewer takes is the store's own
+  choice, since the store holds no order between them. The same scenario runs on
+  PGlite and on PostgreSQL.
 
 ## DONE WHEN
 

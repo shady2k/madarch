@@ -126,6 +126,47 @@ None.
   environment to a plain program: there the command line — the subcommand, this
   home and this port — is the whole check, read through the system's own
   process list (`Get-CimInstance Win32_Process`), and no `ps` is looked for.
+- **A child that has not exec'd yet is still starting.** A start records the
+  child's pid and waits for the port it must answer on; the liveness check runs
+  beside that wait, and the kernel answers the *parent's* argv for a pid whose
+  child has not exec'd yet, so the first pass of a start could read the starting
+  command's own line and fail the start on it as if the pid belonged to a
+  foreign process — main CI run on 46865274, shard 2, failed exactly so, reading
+  `bun test test/ --shard=2/5 …` (the test runner's own line) out of the pid
+  `madarch new` had just spawned. The read is now judged before it is acted on,
+  into four cases: the daemon's own command line for this home and port
+  (`daemon`); a command line that is still this process's own, which is the
+  fork's copy of it, or one that reads empty — the 0 bytes the exec itself gives
+  for the microseconds it takes over the child's address space (measured on the
+  pod: 15 of 40 spawns), and the same shape a platform answers for a process its
+  list has not reached yet — or none at all (`starting`); another program
+  (`foreign`); and a pid no process holds (`ended`). Only `ended` and `foreign`
+  end the wait early; `starting` keeps it, so a start never fails on the read of
+  a child the kernel has not let exec yet, and a pid that is not this record's
+  daemon is still refused at once with what was read. The wait is the one it
+  always had (8 s), so nothing is left unchecked: a child that never becomes the
+  daemon still fails the start, and the message is built from the reading the
+  wait actually saw — ended, another program (naming the line), answered and then
+  ended, a daemon's line without this record's token (a claim made only where the
+  token was read), this record's daemon never answering, or still starting when
+  the wait ran out. The earlier wording could only say "was not the daemon of
+  this record" for a daemon that had answered and then died, and could call a
+  child that never exec'd the same thing. The check order matters and is
+  deliberate: a command line equal to this process's own is `starting` *before*
+  the daemon's shape is asked, so a parent that is itself a daemon cannot make
+  its child's pre-exec read look like its own daemon. The pause between the
+  wait's passes awaits a timer instead of blocking the thread, because only the
+  runtime can reap the child the wait is watching: a `pause` loop left the child
+  that had ended a zombie for its whole 3 s (its `/proc` state stayed `Z`, so no
+  existence check ever answered), where awaiting a timer lets the platform reap
+  it in 40 ms and the end be read as one. `madarch status` reads a record another
+  process wrote: a daemon that has not exec'd yet reads as its *starter's* own
+  command line, which is `foreign` to the status process — `starting` is only
+  ever answered for the process that spawned the child — and that is
+  indistinguishable from a recycled pid holding something else, so the record is
+  deleted only when no process holds it at all. A live pid keeps its record, or a
+  status would take a starting server's record away and nothing would then find
+  it; `stop` and the next `start` replace what is stale.
 - **What the smoke proves.** The port it names is one it found free itself (so
   the assertion `facts.port === the port it passed` says the flag reached the
   server), the command's own `--json` line is the address it then reads, the
@@ -151,6 +192,43 @@ None.
 - The clean install walks workflow, run 39139319609 on 1490659a: every job green — build-linux-fixture, linux-supported, linux-homebrew, macos-arm64, windows-x64 (the platform the liveness and bundle rules exist for; its walk reads "npx madarch stop ended that server") and published-linux-homebrew.
 - CI on the exact head 1490659a: run 39139313486 success (checks and test shards 1-5 with the aggregate `test` job), Product documents run 39139313672 success.
 - Independent review: a fresh `prime-agent --provider shady2k-gateway --model deepseek-v4.1-flash-auto` session over `git diff origin/main...HEAD`, verdict "fixes needed" with one blocking, one medium and three low findings; every one answered (the record's own bullets say how), its cross-compiled Windows probe supplying the `~BUN` marker spelling, and its note on `src/fill/fsm-core.ts` filed as madarch-ntth.
+- The pre-exec read — the reopened task's defect, fixed on this branch. Main CI on
+  46865274 failed shard 2 at `test/product-daemon.test.ts:211`, "the process it started
+  (pid 7327) was not the daemon of this record; its command line read `bun test test/
+  --shard=2/5 …`". The window between a spawn and the child's exec is now put under the
+  start's own first read through `ensureDaemon`'s `readings` seam, not by luck: the new
+  test answers the first read with this process's own command line and the second with
+  the empty line the exec itself gives, then lets the real reads run, and the start
+  serves the product. With the previous judgement restored by one throwaway line, the
+  same test fails at once on the pod (`run-20261018-194052.log.txt`), reading "bun test
+  test/product-daemon.test.ts " out of the child its own start had just spawned — so the
+  test catches the defect, not merely the fix.
+- This round's focused tests on the pod, where this machine runs no suite: the daemon and
+  CLI files 115 pass 0 fail exit 0 (`run-20261018-193936.log.txt`; 113 pass 0 fail in
+  `run-20261018-191056.log.txt` and `run-20261018-191243.log.txt` before the review
+  round's tests were added), the daemon file alone 15 pass 0 fail exit 0
+  (`run-20261018-191029.log.txt`), and with `test/product-cli-script.test.ts` 115 pass
+  0 fail exit 0 once the pod's staging restores the executable bit
+  (`run-20261018-191625.log.txt`). `run-20261018-193730.log.txt` is the review round
+  before its two test-seam corrections: 113 pass, 2 fail, both of them the new tests'
+  own seams, both corrected and green in the run above.
+- Measured on the pod for the two facts this round's code rests on
+  (`run-20261018-193140.log.txt`, `run-20261018-193343.log.txt`): the empty command line
+  the exec itself gives (15 of 40 spawns in a tight sampling loop read 0 bytes before the
+  exec'd line appeared, and one round read empty at 16 µs and the exec'd line at 44 µs),
+  and the reap a blocking pause denies the wait that watches it (a child that exits at
+  once kept its id for the whole 3 s with `/proc` state `Z`, and was gone 40 ms after the
+  same loop awaited a timer instead).
+- CI on the exact head 8f68be27: run 39146245554 success — checks, test shards 1-5 and
+  the aggregate `test`. Its first attempt failed shard 1 in `bun install
+  --frozen-lockfile`, exit 1 eight seconds in, on puppeteer's Chromium download (the same
+  step green in every other job of that run and in the shard's re-run); the failed jobs
+  were re-run green on the same SHA. Product documents run 39146245541 success.
+- The clean install walks, run 39146256533 dispatched on this branch and green on all six
+  jobs: build-linux-fixture, macos-arm64 and windows-x64 each build the binary and run
+  its graph-store smoke (which starts and stops the daemon), linux-supported,
+  linux-homebrew and macos-arm64 walk `npx madarch new` then `stop`, and the
+  windows-x64 walk is the platform whose liveness reading is the command line alone.
 - Mutation: not run (owner's rule: Stryker once per assembled stage); acceptance therefore escalates per `mutationFallback: escalate`.
 
 ## DONE WHEN
