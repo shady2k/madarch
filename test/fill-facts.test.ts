@@ -353,13 +353,16 @@ describe('the kinds the fill writes', () => {
     expect(FACT_KINDS['claim'].stages.every((stage) => AGENT_STAGES.includes(stage))).toBe(true);
   });
 
-  test('every kind carries its value shape version, the schema version today', () => {
+  test('every kind carries its value shape version, and only a moved kind stands past the schema version', () => {
     expect(Number.isInteger(FACTS_SCHEMA_VERSION)).toBe(true);
+    // A kind whose value shape changes moves alone; `file` moved to 2 when the
+    // blob its bytes stand under was added to it (madarch-tzte.21.1, stage 1).
+    const moved: Readonly<Record<string, number>> = { 'file': 2 };
     for (const kind of FACT_KINDS_IN_ORDER) {
       expect(Number.isInteger(FACT_KINDS[kind].version)).toBe(true);
       // 0027: a stage declares the fact kind's version for what it produces,
       // and every kind starts at the schema's own version.
-      expect(FACT_KINDS[kind].version).toBe(FACTS_SCHEMA_VERSION);
+      expect(FACT_KINDS[kind].version).toBe(moved[kind] ?? FACTS_SCHEMA_VERSION);
     }
   });
 });
@@ -589,7 +592,10 @@ describe('the check that names every reason a fact is not one the schema reads',
   });
 
   test('a schema version, an id, a layer and a status each at their own path', () => {
-    expect(problemsOf({ ...file, schemaVersion: 2 }).paths).toEqual(['schemaVersion']);
+    // `file` is the one kind that has moved past the schema's own version
+    // (madarch-tzte.21.1 added the blob its bytes stand under), so the version
+    // it does not carry is the one after its own.
+    expect(problemsOf({ ...file, schemaVersion: FACT_KINDS['file'].version + 1 }).paths).toEqual(['schemaVersion']);
     expect(problemsOf({ ...file, id: 'file:not-hex' }).paths).toEqual(['id']);
     expect(problemsOf({ ...file, id: 'f' + file.id }).paths).toEqual(['id']);
     expect(problemsOf({ ...file, layer: 'guessed' }).paths).toEqual(['layer']);

@@ -540,6 +540,16 @@ export interface FileValue {
   /** The language the file is written in, as stage 3's parser names it (`typescript`, `go`). */
   readonly language?: string;
   readonly bytes?: number;
+  /**
+   * The git blob the file's bytes stand under at the fact's commit: 40
+   * lower-case hexadecimal digits, as git writes them (a symbolic link's blob
+   * holds the path it points at). The blob is not part of what the file is —
+   * a file whose bytes changed is the same file with the same id — and it is
+   * what tells one reading of it from the next: stage 3 and stage 6 read a
+   * file again exactly when this moved (0026: a file whose blob id did not
+   * change is not re-planned).
+   */
+  readonly blob?: string;
 }
 
 /** Stage 2: a package, a build target or a workspace (0026's clustering seeds). */
@@ -1133,7 +1143,9 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     stages: ['1-inventory'],
     place: 'required',
     layers: ['extracted'],
-    version: FACTS_SCHEMA_VERSION,
+    // 1: the file's path, roles and language. 2: the blob its bytes stand
+    // under at the commit (its own move, per FACTS_SCHEMA_VERSION above).
+    version: 2,
     identityValue: (value) => [['repository', value.repository], ['path', value.path]],
   },
   'package': {
@@ -1830,7 +1842,7 @@ const VALUE_FIELDS: { readonly [K in FactKind]: readonly (keyof FactValueOf<K> &
   'snapshot': ['repository', 'commit', 'tree', 'fileCount', 'byteCount'],
   'repository': ['repository', 'form', 'defaultBranch'],
   'directory': ['repository', 'path'],
-  'file': ['repository', 'path', 'roles', 'language', 'bytes'],
+  'file': ['repository', 'path', 'roles', 'language', 'bytes', 'blob'],
   'package': ['repository', 'name', 'form', 'ecosystem', 'version', 'manifest'],
   'deploy-unit': ['repository', 'name', 'form', 'manifest'],
   'api-endpoint': ['contract', 'framework'],
