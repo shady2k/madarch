@@ -1843,6 +1843,10 @@ const IDENTITY_PART_FORMS: Readonly<Record<string, (part: unknown) => string | u
   'environment-variable.name': textPart,
   'symbol.qualifiedName': textPart,
   'symbol.disambiguator': orAbsent(textPart),
+  // An interaction names the carrier it goes through only when the agent saw one: the part is `null`
+  // when it names none (madarch-tzte.20.4 — the write path could not write an interaction at all while
+  // this form was missing, since the absent part read as text and was refused).
+  'interaction.via': orAbsent(textPart),
   'section.anchor': textPart,
   'task-key.key': textPart,
   'coverage.scope': textPart,

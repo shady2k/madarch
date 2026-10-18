@@ -600,6 +600,21 @@ describe('ids: content-addressed, stable, and never a run', () => {
     const otherObject = makeNodeFact({ kind: 'claim', value: { ...SAMPLES['claim'], object: { form: 'literal', text: 'the checkout service' } }, provenance: provenanceFor('claim'), layer: 'inferred' });
     expect(otherObject.id).not.toBe(atThree.id);
   });
+
+  test('a part a fact may leave out is null in its identity, and the fact reads without it', () => {
+    // An interaction names the carrier it goes through only when its reader saw one
+    // (`InteractionEdgeValue.via`). A fact that names none is one the schema reads, and the
+    // carrier it names is part of what the fact is: the same two nodes through two carriers are
+    // two interactions.
+    const { via, ...withoutVia } = SAMPLES['interaction'];
+    expect(via).toBe('POST /api/orders');
+    const named = makeEdgeFact({ kind: 'interaction', value: SAMPLES['interaction'], provenance: provenanceFor('interaction'), layer: 'inferred' });
+    const unnamed = makeEdgeFact({ kind: 'interaction', value: withoutVia, provenance: provenanceFor('interaction'), layer: 'inferred' });
+    expect(checkFact(unnamed)).toEqual([]);
+    expect(FACT_KINDS['interaction'].identityValue(withoutVia, provenanceFor('interaction'))).toContainEqual(['via', null]);
+    expect(FACT_KINDS['interaction'].identityValue(SAMPLES['interaction'], provenanceFor('interaction'))).toContainEqual(['via', 'POST /api/orders']);
+    expect(unnamed.id).not.toBe(named.id);
+  });
 });
 
 describe('repository paths: the machine checkout never reaches a fact', () => {
