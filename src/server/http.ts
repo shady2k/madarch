@@ -86,6 +86,13 @@ export interface ServerOptions {
   port?: number;
   /** Supplies recorded time; tests inject a fake clock. */
   clock?: Clock;
+  /**
+   * The fill's orchestrator, when this process owns one (decision 0027): the
+   * background server creates it, holds it for the life of the process and
+   * stops it here, so the fill runs beside the wikis it fills rather than in a
+   * command of its own.
+   */
+  orchestrator?: { stop(): Promise<void> };
   /** Where request lines go; standard output by default. */
   log?: (line: string) => void;
   /** Where error-level lines go; standard error by default. */
@@ -386,6 +393,7 @@ const notServed = (message: string): Response => Response.json({ message }, { st
       try { await graphs?.close(); } catch (error) { failure ??= error; }
       try { await queryDatabase?.close(); } catch (error) { failure ??= error; }
       try { await sources?.close(); } catch (error) { failure ??= error; }
+      try { await options.orchestrator?.stop(); } catch (error) { failure ??= error; }
       if (failure !== undefined) throw failure;
     },
   };

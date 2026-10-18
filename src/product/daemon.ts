@@ -23,6 +23,8 @@ import { startFill } from './fill.js';
 import { ensureBuilt } from '../product-wiki/app.js';
 import type { ServeEnv } from '../product-wiki/serve.js';
 import { startServer } from '../server/http.js';
+import { createFillOrchestratorService, type FillOrchestratorService, type FillOrchestratorServiceOptions } from '../fill/orchestrator-host.js';
+import { StageRegistry } from '../fill/registry.js';
 
 interface DaemonState { pid: number; port: number; startedAt: number; home: string; token: string; }
 const STATE_FILE = '.madarch-daemon.json';
@@ -418,13 +420,31 @@ export function daemonStatus(options: { home?: string }): number {
   return 0;
 }
 
+/**
+ * The fill orchestrator the daemon owns (decision 0027, "the background server
+ * owns the orchestrator"): one service per server process, over the server's own
+ * products home. It opens the process's fill database and its queue only when a
+ * run is first asked for, so a server that serves wikis pays nothing for a fill
+ * nobody started. The fill's own stages are registered by the tasks that write
+ * them (madarch-tzte.19.6 registers the first ones), and until a wiring is given
+ * a run is refused with what is missing rather than publishing nothing.
+ */
+export function daemonFillOrchestrator(home: string, options: Omit<FillOrchestratorServiceOptions, 'home' | 'registry'> & { readonly registry?: StageRegistry } = {}): FillOrchestratorService {
+  return createFillOrchestratorService({ home, registry: options.registry ?? new StageRegistry(), ...options });
+}
+
 /** The daemon child's own entry (`madarch daemon-serve`): serves every valid product in the home until stopped. */
 export async function serveDaemon(options: { home?: string; port: number }): Promise<number> {
   const home = homePath(options.home);
+  const orchestrator = daemonFillOrchestrator(home);
   try {
-    const server = await startServer({ productHome: home, appFolder: process.env.MADARCH_APP_DIST, port: options.port, host: '127.0.0.1', startFill });
+    const server = await startServer({ productHome: home, appFolder: process.env.MADARCH_APP_DIST, port: options.port, host: '127.0.0.1', startFill, orchestrator });
     await new Promise<void>((resolveDone) => { process.once('SIGTERM', resolveDone); process.once('SIGINT', resolveDone); });
     await server.stop();
     return 0;
-  } catch (error) { console.error(`the products server could not start: ${(error as Error).message}`); return 1; }
+  } catch (error) {
+    await orchestrator.stop().catch(() => undefined);
+    console.error(`the products server could not start: ${(error as Error).message}`);
+    return 1;
+  }
 }
