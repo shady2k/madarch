@@ -49,7 +49,8 @@ import {
   validateDraft,
   type HistoryReader,
 } from '../src/fill/stages/history.js';
-import { registerFillStages } from '../src/fill/stages/index.js';
+import { createStageRegistry } from '../src/fill/stages/index.js';
+import type { SnapshotSource } from '../src/fill/snapshot.js';
 import { gitEnv } from './git-env.js';
 
 // ---- repositories the tests make ------------------------------------------
@@ -266,6 +267,12 @@ function rowsFor(entries: {
   for (const [key, value] of entries.coverage ?? []) rows.set(key, [{ value }]);
   return rows;
 }
+
+/** The snapshot source a history test never reads: the stage under test reads a repository's Git, not its tree. */
+const NO_TREES: SnapshotSource = {
+  pins: async () => [],
+  open: () => { throw new Error('the history stage reads no tree'); },
+};
 
 /** The stage over a real Git reader reading the checkouts the test made: git itself is what a stage reads. */
 function stageOver(checkouts: ReadonlyMap<string, string>, reader?: HistoryReader): FillStage {
@@ -731,7 +738,9 @@ describe('the stage declaration and the draft it judges', () => {
     const fixture = await makeRepository('registered', THREE);
     try {
       const [, , third] = fixture.commits as [string, string, string];
-      const registry = registerFillStages(new StageRegistry(), { checkoutOf: () => fixture.folder });
+      // The history stage reads Git, never a tree: the wiring's snapshot source
+      // is one this test never opens.
+      const registry = createStageRegistry({ snapshots: NO_TREES, checkoutOf: () => fixture.folder });
       const stage = registry.get(HISTORY_STAGE_ID);
       expect(stage?.id).toBe(HISTORY_STAGE_ID);
       const run = recorder({ id: 'plan', scope: 'plan' }, { rows: rowsFor({ pins: [{ repository: 'orders-api', commit: third }] }) });

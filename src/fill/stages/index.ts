@@ -19,14 +19,22 @@ import { createGitHistoryReader, createHistoryStage, type CheckoutFolderOf } fro
 export interface FillStageWiring {
   /** How stages read the pinned repository trees and bytes. */
   readonly snapshots: SnapshotSource;
-  /** The checked-out folder for a repository name, used by the Git history stage. */
-  readonly checkoutOf: CheckoutFolderOf;
+  /**
+   * The checked-out folder for a repository name, used by the Git history stage.
+   * A run that leaves it out can hold every stage that reads no Git: the history
+   * stage refuses each of its units, naming the wiring, rather than reading
+   * somewhere it was not pointed at.
+   */
+  readonly checkoutOf?: CheckoutFolderOf;
 }
+
+/** The folder a run that wired no Git answers with: no folder, which the history stage refuses by name. */
+const noCheckout: CheckoutFolderOf = () => '';
 
 /** Registers current deterministic stages over this run's wiring. */
 export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
   return new StageRegistry()
     .register(createSnapshotStage(wiring.snapshots))
     .register(createInventoryStage(wiring.snapshots))
-    .register(createHistoryStage(createGitHistoryReader(wiring.checkoutOf)));
+    .register(createHistoryStage(createGitHistoryReader(wiring.checkoutOf ?? noCheckout)));
 }
