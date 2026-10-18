@@ -126,6 +126,34 @@ None.
   environment to a plain program: there the command line — the subcommand, this
   home and this port — is the whole check, read through the system's own
   process list (`Get-CimInstance Win32_Process`), and no `ps` is looked for.
+- **A child that has not exec'd yet is still starting.** A start records the
+  child's pid and waits for the port it must answer on; the liveness check runs
+  beside that wait, and the kernel answers the *parent's* argv for a pid whose
+  child has not exec'd yet, so the first pass of a start could read the starting
+  command's own line and fail the start on it as if the pid belonged to a
+  foreign process — main CI run on 46865274, shard 2, failed exactly so, reading
+  `bun test test/ --shard=2/5 …` (the test runner's own line) out of the pid
+  `madarch new` had just spawned. The read is now judged before it is acted on,
+  into four cases: the daemon's own command line for this home and port
+  (`daemon`); a command line that is still this process's own, which is the
+  fork's copy of it — or none at all, which is the same window on Windows, where
+  the system's process list lags the creation of a process (`starting`); another
+  program (`foreign`); and a pid no process holds (`ended`). Only `ended` and
+  `foreign` end the wait early; `starting` keeps it, so a start never fails on
+  the read of a child the kernel has not let exec yet, and a pid that is not this
+  record's daemon is still refused at once with what was read. The wait is the
+  one it always had (8 s), so nothing is left unchecked: a child that never
+  becomes the daemon still fails the start, and the message names which of the
+  four readings it saw — the earlier wording could only say "was not the daemon
+  of this record" for a daemon that had answered and then died, which it now
+  says plainly. The check order matters and is deliberate: a command line equal
+  to this process's own is `starting` *before* the daemon's shape is asked, so a
+  parent that is itself a daemon cannot make its child's pre-exec read look like
+  its own daemon. `madarch status` reads a record another process wrote, and
+  cannot tell a daemon that has not exec'd yet from a recycled pid — both are a
+  live process that is not that record's daemon — so it no longer deletes a
+  record whose process exists; a record no process holds still goes with the
+  read, and `stop` and the next `start` replace what is stale.
 - **What the smoke proves.** The port it names is one it found free itself (so
   the assertion `facts.port === the port it passed` says the flag reached the
   server), the command's own `--json` line is the address it then reads, the

@@ -3,7 +3,7 @@ import { cpSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, ex
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/server/http.js';
-import { startDaemon, stopDaemon, daemonStatus, daemonCommand, isDaemonCommandLine } from '../src/product/daemon.js';
+import { startDaemon, stopDaemon, daemonStatus, daemonCommand, isDaemonCommandLine, childReading, childReadings, ensureDaemon } from '../src/product/daemon.js';
 import { spawnSync } from 'node:child_process';
 import { createServer as netServer } from 'node:net';
 
@@ -225,6 +225,91 @@ test('daemon start treats --port 0 as a free port, records the real one, and sta
   expect(existsSync(join(home, '.madarch-daemon.json'))).toBe(false);
 });
 
+test("a start goes on through the read of a child that has not exec'd yet", async () => {
+  root = mkdtempSync(join(tmpdir(), 'madarch-daemon-preexec-'));
+  const home = join(root, 'products'); mkdirSync(home);
+  product(home, 'alpha', 'alpha-id');
+  previousAppDist = process.env.MADARCH_APP_DIST;
+  previousApp = process.env.MADARCH_APP;
+  process.env.MADARCH_APP_DIST = appDist(root);
+  process.env.MADARCH_APP = appFolderAround(process.env.MADARCH_APP_DIST, root);
+  previousMadarchHome = process.env.MADARCH_HOME;
+  process.env.MADARCH_HOME = root;
+  daemonHome = home;
+  const allocated = await freePort();
+  // The window between a spawn and the child's exec, put under the start's own
+  // first read on purpose: no machine can be made to lose that race to order,
+  // and the read is exactly what the kernel answers in it — the parent's own
+  // command line (`childReading`). CI run 46865274 shard 2 lost the race for
+  // real and failed the start on this read.
+  const own = childReadings.ownArgs();
+  let preExecReads = 0;
+  let readPid: number | undefined;
+  let reads = 0;
+  const started = await ensureDaemon({
+    home,
+    port: allocated,
+    readings: {
+      ownArgs: () => own,
+      exists: (pid) => childReadings.exists(pid),
+      args: (pid) => { readPid = pid; if (reads++ === 0) { preExecReads++; return own; } return childReadings.args(pid); },
+    },
+  });
+  if (!started.ok) throw new Error(`the start failed on the pre-exec read: ${started.message}`);
+  // The first read really was the fork's copy of this process's own line, and
+  // the start read it as a child on its way to the daemon and went on waiting.
+  expect(preExecReads).toBe(1);
+  expect(readPid).toBe(started.pid);
+  daemonPid = started.pid;
+  expect(started.reused).toBeFalse();
+  expect(started.port).toBe(allocated);
+  const answer = await fetch(`http://127.0.0.1:${allocated}/products/alpha/api/product`);
+  expect((await answer.json() as { id: string }).id).toBe('alpha-id');
+  expect(stopDaemon({ home })).toBe(0);
+});
+
+test('a start still refuses a child whose command line is another program, and ends it', async () => {
+  root = mkdtempSync(join(tmpdir(), 'madarch-daemon-foreign-read-'));
+  const home = join(root, 'products'); mkdirSync(home);
+  product(home, 'alpha', 'alpha-id');
+  previousAppDist = process.env.MADARCH_APP_DIST;
+  previousApp = process.env.MADARCH_APP;
+  process.env.MADARCH_APP_DIST = appDist(root);
+  process.env.MADARCH_APP = appFolderAround(process.env.MADARCH_APP_DIST, root);
+  previousMadarchHome = process.env.MADARCH_HOME;
+  process.env.MADARCH_HOME = root;
+  daemonHome = home;
+  const allocated = await freePort();
+  // A pid whose read names another program: a recycled process id, or a child
+  // that exec'd into something this record did not start. It is never trusted,
+  // and the start fails at once naming what it read.
+  let refusedPid: number | undefined;
+  let reads = 0;
+  const started = await ensureDaemon({
+    home,
+    port: allocated,
+    readings: {
+      ownArgs: () => childReadings.ownArgs(),
+      exists: (pid) => childReadings.exists(pid),
+      args: (pid) => { refusedPid = pid; return reads++ === 0 ? 'sleep 4711' : childReadings.args(pid); },
+    },
+  });
+  if (started.ok) throw new Error(`the start trusted another program's command line and served pid ${started.pid} from it`);
+  expect(started.message).toContain('was not the daemon of this record; its command line read "sleep 4711"');
+  expect(started.message).toContain(join(home, '.madarch-daemon.log'));
+  expect(existsSync(join(home, '.madarch-daemon.json'))).toBe(false);
+  // The child the start had spawned is ended with it, not left serving the
+  // home with no record of it.
+  const spawned = refusedPid!;
+  let alive = true;
+  const deadline = Date.now() + 3000;
+  while (alive && Date.now() < deadline) {
+    try { process.kill(spawned, 0); } catch { alive = false; break; }
+    await Bun.sleep(40);
+  }
+  expect(alive).toBeFalse();
+});
+
 test('daemon stop on a home with nothing to stop reports not running and never creates the home', async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-daemon-stop-absent-'));
   const absent = join(root, 'absent');
@@ -247,12 +332,43 @@ test('a record whose pid is a live process that is not this daemon is never stop
   try {
     writeFileSync(join(home, '.madarch-daemon.json'), JSON.stringify({ pid: foreign.pid, port: 1, startedAt: 0, home, token: 'not-ours' }));
     expect(daemonStatus({ home })).toBe(0);
+    // A status reports what it read and takes no record away while the process
+    // it names exists: that process may be a daemon that has not exec'd yet,
+    // whose command line still reads its starter's (`childReading`), and
+    // clearing the record would leave the server it started unfindable.
+    expect(existsSync(join(home, '.madarch-daemon.json'))).toBeTrue();
     expect(stopDaemon({ home })).toBe(0);
     expect(existsSync(join(home, '.madarch-daemon.json'))).toBe(false);
+    // A record whose process is really gone does go with the status read.
+    writeFileSync(join(home, '.madarch-daemon.json'), JSON.stringify({ pid: 2147483000, port: 1, startedAt: 0, home, token: 'stale' }));
+    expect(daemonStatus({ home })).toBe(0);
+    expect(existsSync(join(home, '.madarch-daemon.json'))).toBeFalse();
     let alive = true;
     try { process.kill(foreign.pid, 0); } catch { alive = false; }
     expect(alive).toBeTrue();
   } finally { foreign.kill(); }
+});
+
+test("a child that has not exec'd yet reads as still starting, never as another program", () => {
+  const state = { home: '/tmp/products', port: 43137 };
+  // The kernel answers the parent's own argv for a fork until the child's exec
+  // lands: exactly the line CI run 46865274 shard 2 read out of the pid
+  // `madarch new` had just spawned (`bun test test/ --shard=2/5 …`), and the
+  // start failed on it.
+  const own = 'bun test test/ --shard=2/5';
+  expect(childReading(own, own, state)).toBe('starting');
+  // A platform that has not listed the process yet — Windows lists one a
+  // moment after it starts — answers nothing, and that is the same window.
+  expect(childReading(undefined, own, state)).toBe('starting');
+  // A parent that is itself a daemon does not make the fork's copy a daemon
+  // either: the read is this process's own line first, whatever it says.
+  const daemonLine = 'bun /opt/madarch/scripts/madarch.ts daemon-serve --home /tmp/products --port 43137';
+  expect(childReading(daemonLine, daemonLine, state)).toBe('starting');
+  // The daemon's own line is the daemon of this record; every other program is
+  // foreign, so a record whose pid another program holds is stale.
+  expect(childReading(daemonLine, own, state)).toBe('daemon');
+  expect(childReading('sleep daemon-serve 60', own, state)).toBe('foreign');
+  expect(childReading('bun /opt/madarch/scripts/madarch.ts daemon-serve --home /tmp/other --port 43137', own, state)).toBe('foreign');
 });
 
 test("the daemon's own command line is recognised on every platform's shape", () => {
