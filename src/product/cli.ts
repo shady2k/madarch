@@ -73,7 +73,13 @@ function commandHelp(command: string): string {
   const flags: string[] = [];
   if (spec.flags.home) flags.push('  --home <folder>       Products home');
   if (spec.flags.product) flags.push('  --product <folder>    Product folder');
-  if (spec.flags.port) flags.push('  --port <n>            Wiki port (default 4180)');
+  if (spec.flags.port) {
+    flags.push('  --port <n>            Wiki port (default 4180)');
+    // The three commands that serve through the products home's one server
+    // say whose port it is: the server was started on it, and a command that
+    // names another is told so rather than served elsewhere.
+    if (['new', 'init', 'start'].includes(command)) flags.push("                        the products home's server names the port it starts on; one it does not keep is reported, not ignored");
+  }
   if (spec.flags.host) flags.push('  --host <address>      Wiki bind address (default 127.0.0.1)');
   if (spec.flags.open) flags.push('  --no-open             Do not open a browser');
   if (spec.flags.source) flags.push('  --source <path>       Local Git checkout to connect');
@@ -535,7 +541,7 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
   const { home, product, port, open } = parsed;
 
   if (command === 'list') return list(home, parsed.json);
-  if (command === 'start') return await startDaemon({ home, port: port ?? 4180 });
+  if (command === 'start') return await startDaemon({ home, port });
   if (command === 'stop') return stopDaemon({ home });
   if (command === 'status') return daemonStatus({ home });
   if (command === 'daemon-serve') return await serveDaemon({ home, port: port ?? 4180 });
@@ -653,7 +659,19 @@ async function serveShared(parsed: Parsed, deps: CliDeps, folder: string, init: 
   const ssh = Boolean(env.SSH_CONNECTION || env.SSH_TTY);
   const tunnel = `ssh -L ${started.port}:127.0.0.1:${started.port} ${env.USER || '<user>'}@${(env.SSH_CONNECTION ?? '').split(/\s+/)[2] ?? '<host>'}`;
   if (jsonBase !== undefined) {
-    console.log(JSON.stringify({ ...jsonBase, url, pid: started.pid, port: started.port, reused: started.reused, ...(ssh ? { sshTunnel: tunnel } : {}) }));
+    // The same facts the human lines carry, the port note included: a
+    // machine consumer is told that --port did not apply exactly as a
+    // person reading the lines is.
+    console.log(JSON.stringify({
+      ...jsonBase,
+      url,
+      pid: started.pid,
+      port: started.port,
+      reused: started.reused,
+      ...(started.requestedPort === undefined ? {} : { requestedPort: started.requestedPort }),
+      ...(started.note === undefined ? {} : { portNote: started.note }),
+      ...(ssh ? { sshTunnel: tunnel } : {}),
+    }));
     return 0;
   }
   console.log(started.reused ? `The wiki is already running at ${url}` : `The wiki is running at ${url}`);

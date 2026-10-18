@@ -5,9 +5,8 @@ BINARY=${1:?usage: clean-homebrew-walk.sh <platform artifact>}
 BINARY=$(cd "$(dirname "$BINARY")" && pwd)/$(basename "$BINARY")
 TMP=$(mktemp -d)
 TAP_NAME="madarch-walk/local-$$"
-PORT=$(($(od -An -N2 -tu2 /dev/urandom) % 20000 + 20000))
 TAP_CREATED=0
-trap 'if [ -n "${PID:-}" ]; then kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; fi; if [ "$TAP_CREATED" -eq 1 ]; then brew uninstall --formula madarch >/dev/null 2>&1 || true; brew untap "$TAP_NAME" >/dev/null 2>&1 || true; fi; if [ -n "${ORIGINAL_PATH:-}" ]; then PATH=$ORIGINAL_PATH; export PATH; fi; rm -rf "$TMP"' EXIT
+trap 'if [ -n "${PID:-}" ]; then kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; fi; if [ -n "${MADARCH:-}" ] && [ -n "${HOME:-}" ]; then "$MADARCH" stop --home "$HOME/products" >/dev/null 2>&1 || true; fi; if [ "$TAP_CREATED" -eq 1 ]; then brew uninstall --formula madarch >/dev/null 2>&1 || true; brew untap "$TAP_NAME" >/dev/null 2>&1 || true; fi; if [ -n "${ORIGINAL_PATH:-}" ]; then PATH=$ORIGINAL_PATH; export PATH; fi; rm -rf "$TMP"' EXIT
 ORIGINAL_PATH=$PATH
 case "$(uname -s)" in
   Linux) SUM=$(sha256sum "$BINARY" | awk '{print $1}') ;;
@@ -58,17 +57,32 @@ MADARCH="$PREFIX/bin/madarch"
 madarch() { "$MADARCH" "$@"; }
 export GIT_AUTHOR_NAME='Madarch Homebrew Walk' GIT_AUTHOR_EMAIL='walk@example.invalid' GIT_COMMITTER_NAME='Madarch Homebrew Walk' GIT_COMMITTER_EMAIL='walk@example.invalid'
 export HOME="$TMP/home"; mkdir -p "$HOME"
-madarch new --json --home "$HOME/products" --port "$PORT" --no-open > "$TMP/new.txt" 2>&1 & PID=$!
-SERVED=0
-for n in $(seq 1 200); do if curl -fsS "http://127.0.0.1:$PORT/api/product" | grep -q '"id"'; then SERVED=1; break; fi; sleep .1; done
-[ "$SERVED" -eq 1 ] || { cat "$TMP/new.txt"; echo 'Homebrew madarch new did not serve the graph-backed product' >&2; exit 1; }
+# new returns at once: the products home's background server serves the draft,
+# so the walk reads the address the command printed instead of waiting on a
+# foreground that no longer exists.
+PORT=$(($(od -An -N2 -tu2 /dev/urandom) % 20000 + 20000))
+madarch new --json --home "$HOME/products" --port "$PORT" --no-open > "$TMP/new.txt" 2>&1
 cat "$TMP/new.txt"
-PRODUCT=$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read().splitlines()[0])["folder"])' < "$TMP/new.txt")
-kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; PID=
-PORT=$((PORT + 1))
-madarch serve --product "$PRODUCT" --port "$PORT" --no-open > "$TMP/serve.txt" 2>&1 & PID=$!
+URL=$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read().splitlines()[-1])["url"])' < "$TMP/new.txt")
+PRODUCT=$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read().splitlines()[-1])["folder"])' < "$TMP/new.txt")
+case "$URL" in *":$PORT/"*) ;; *) echo "Homebrew madarch new served at $URL, not on the port $PORT it was given" >&2; exit 1 ;; esac
 SERVED=0
-for n in $(seq 1 200); do if curl -fsS "http://127.0.0.1:$PORT/api/product" | grep -q '"id"'; then SERVED=1; break; fi; sleep .1; done
-[ "$SERVED" -eq 1 ] || { cat "$TMP/serve.txt"; echo 'Homebrew madarch serve did not reopen the graph-backed product' >&2; exit 1; }
+for n in $(seq 1 200); do if curl -fsS "${URL}api/product" | grep -q '"id"'; then SERVED=1; break; fi; sleep .1; done
+[ "$SERVED" -eq 1 ] || { cat "$TMP/new.txt"; echo "Homebrew madarch new did not serve the graph-backed product at $URL" >&2; exit 1; }
+# The server stays up until it is stopped: the walk stops it, then serves the
+# product again in the foreground.
+madarch stop --home "$HOME/products"
+madarch serve --product "$PRODUCT" --port 0 --no-open > "$TMP/serve.txt" 2>&1 & PID=$!
+ADDRESS=
+for n in $(seq 1 200); do
+  ADDRESS=$(sed -n 's/^The wiki is running at \(http[^ ]*\).*/\1/p; s/^Wiki: \(http[^ ]*\).*/\1/p' "$TMP/serve.txt" | head -1)
+  [ -n "$ADDRESS" ] && break
+  sleep .1
+done
+[ -n "$ADDRESS" ] || { cat "$TMP/serve.txt"; echo 'Homebrew madarch serve printed no address for the product it serves' >&2; exit 1; }
+case "$ADDRESS" in */) ;; *) ADDRESS="$ADDRESS/" ;; esac
+SERVED=0
+for n in $(seq 1 200); do if curl -fsS "${ADDRESS}api/product" | grep -q '"id"'; then SERVED=1; break; fi; sleep .1; done
+[ "$SERVED" -eq 1 ] || { cat "$TMP/serve.txt"; echo "Homebrew madarch serve did not reopen the graph-backed product at $ADDRESS" >&2; exit 1; }
 cat "$TMP/serve.txt"
-printf 'Homebrew walk passed: brew install local release formula, madarch new, then madarch serve; graph-backed product API answered.\n'
+printf 'Homebrew walk passed: brew install local release formula, madarch new (served by the background server on the port it chose), madarch stop, then madarch serve; graph-backed product API answered.\n'
