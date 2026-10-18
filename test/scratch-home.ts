@@ -29,6 +29,7 @@ import { existsSync, mkdtempSync, readdirSync, realpathSync, statSync } from 'no
 import { userInfo } from 'node:os';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
+import { RUN_SCRATCH_VARIABLE } from './run-scratch.js';
 
 /** The account's own home: what `~` and the machine's default mean, whatever `HOME` says. */
 export const ACCOUNT_HOME = userInfo().homedir;
@@ -71,13 +72,29 @@ export function refuseNonScratchHome(home: string, what: string, unless?: { allo
   } catch {
     real = undefined; // a path that cannot be resolved is refused below, not assumed inside
   }
+  const zones = scratchZones();
   const insideScratch = real !== undefined
-    && (real === tmpdir() || real.startsWith(tmpdir() + sep))
+    && zones.some((zone) => real === zone || real.startsWith(zone + sep))
     && !real.startsWith(REAL_PRODUCTS_HOME + sep);
   if (insideScratch) return resolved;
   if (unless?.allow === 'the root home test' && real === '/') return resolved;
   const named = real ?? resolved;
-  throw new Error(`${what} names the products home ${named}, not under the scratch folder (${tmpdir()})${unless ? ` — the allowance named was ${unless.allow}` : ''}: the product tests must never reach a real home`);
+  throw new Error(`${what} names the products home ${named}, not under the scratch folders (${zones.join(', ')})${unless ? ` — the allowance named was ${unless.allow}` : ''}: the product tests must never reach a real home`);
+}
+
+/**
+ * The folders a scratch home may stand in: the system temporary folder, and
+ * the run's own scratch root above it (madarch-1xq's preload points `TMPDIR`
+ * at `<scratch>/tmp`, `HOME` at `<scratch>/home` and `MADARCH_HOME` at
+ * `<scratch>/madarch`, so a products home derived from either is a scratch
+ * home). Where no run scratch was made — a run started outside the package —
+ * the temporary folder alone is the zone.
+ */
+function scratchZones(): string[] {
+  const zones = [tmpdir()];
+  const run = process.env[RUN_SCRATCH_VARIABLE];
+  if (run !== undefined && run !== '') zones.push(resolve(run));
+  return zones;
 }
 
 /**

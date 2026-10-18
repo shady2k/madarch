@@ -70,15 +70,90 @@ function scriptCache(): { MADARCH_WIKI_CACHE: string } {
 }
 
 /**
+ * Bun's `spawnSync` honours a detached child — one that leads a process group
+ * of its own, which is what makes the kill below reach the child's children —
+ * although its option type leaves `detached` out (measured on 1.4.2: the group
+ * of a detached child is killed by `process.kill(-pid)` and its own members die
+ * with it; a child that finished by itself reports `signal: null`).
+ */
+const DETACHED_CHILD: { detached: boolean } = { detached: true };
+
+/**
+ * The child and everything it started — the `likec4` a build generates its view
+ * bundle with above all — killed when a signal ended the child: a `SIGKILL`-ed
+ * or timed-out build leaves its own children running otherwise (madarch-1xq:
+ * two likec4 processes outlived the run that spawned them). Only a child that a
+ * signal ended is signalled: one that exited by itself reports `signal: null`
+ * and its pid may already belong to another process by the time this runs.
+ */
+function killOwnGroup(run: { pid?: number; signal?: NodeJS.Signals | null }): void {
+  if (typeof run.signal !== 'string') return; // it exited by itself; never signal a pid that may be reused
+  if (run.pid === undefined || !(run.pid > 1)) return;
+  try {
+    process.kill(-run.pid, 'SIGKILL'); // the group leader's pid is the group's
+  } catch {
+    // the group is already gone: nothing to kill
+  }
+}
+
+/**
  * Runs the wiki script with `path` as the child's whole PATH. The fake
  * bins come first so they are the `uv`/`uvx` the script finds, with the
  * real system kept behind them for the fakes' own commands; a PATH of one
- * empty dir (the no-uv case) strips everything.
+ * empty dir (the no-uv case) strips everything. The child leads its own
+ * process group and is bounded, so a build that hangs is killed at its bound
+ * and a build that is killed takes its own children with it.
  */
 function runWiki(args: readonly string[], path: string = `${FAKE_BIN}:${process.env.PATH ?? ''}`, extraEnv: Record<string, string> = {}): { status: number | null; stdout: string; stderr: string } {
-  const run = spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8', env: { ...process.env, PATH: path, ...extraEnv } });
+  const run = spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8', env: { ...process.env, PATH: path, ...extraEnv }, ...DETACHED_CHILD, timeout: 300_000, killSignal: 'SIGKILL' });
+  killOwnGroup(run);
   return { status: run.status, stdout: run.stdout ?? '', stderr: run.stderr ?? '' };
 }
+
+describe('a build child that is killed', () => {
+  test('takes the children it started with it, so no likec4 outlives the run', () => {
+    // The shape of a build: one child that starts another (the pinned likec4
+    // generating the view bundle) and is then killed at its bound. The child
+    // prints the pid of the process it started, and the kill must reach it.
+    const run = spawnSync('/bin/sh', ['-c', 'sleep 60 & echo "started $!"; sleep 60'], {
+      encoding: 'utf8', ...DETACHED_CHILD, timeout: 1000, killSignal: 'SIGKILL',
+    });
+    expect(run.signal).toBe('SIGKILL');
+    const started = Number(/started (\d+)/.exec(run.stdout ?? '')?.[1]);
+    expect(Number.isInteger(started)).toBe(true);
+    expect(() => process.kill(started, 0)).not.toThrow(); // it was running a moment ago
+    killOwnGroup(run);
+    const deadline = Date.now() + 5000;
+    let alive = true;
+    while (alive && Date.now() < deadline) {
+      try { process.kill(started, 0); } catch { alive = false; }
+    }
+    expect(alive).toBe(false);
+  }, 30_000);
+
+  test('a child that exited by itself is never signalled: nothing of its own is killed', () => {
+    // The other half of the rule: a finished build reports `signal: null`, and
+    // its pid may be someone else's by now — so a group it led is left alone.
+    // The background child holds nothing of the child's stdout: a pipe it kept
+    // open would keep `spawnSync` waiting for it, which is not this test's point.
+    const run = spawnSync('/bin/sh', ['-c', 'sleep 60 >/dev/null 2>&1 & echo "started $!"; echo done'], { encoding: 'utf8', ...DETACHED_CHILD });
+    expect(run.signal).toBeNull();
+    expect(run.status).toBe(0);
+    const started = Number(/started (\d+)/.exec(run.stdout ?? '')?.[1]);
+    expect(Number.isInteger(started)).toBe(true);
+    try {
+      killOwnGroup(run);
+      const deadline = Date.now() + 2000;
+      let alive = true;
+      while (alive && Date.now() < deadline) {
+        try { process.kill(started, 0); } catch { alive = false; }
+      }
+      expect(alive).toBe(true); // still running: the finished child's group was not touched
+    } finally {
+      try { process.kill(started, 'SIGKILL'); } catch { /* it ended on its own */ }
+    }
+  }, 30_000);
+});
 
 function combined(run: { stdout: string; stderr: string }): string {
   return `${run.stdout}\n${run.stderr}`;
@@ -212,17 +287,22 @@ describe('scripts/wiki.ts', () => {
 
   test('a build keeps the machine cache root untouched: its install goes to the folder MADARCH_WIKI_CACHE names', () => {
     rmSync(FAKE_BUN_LOG, { force: true });
-    const real = wikiCacheRoot(process.env);
-    const before = existsSync(real) ? readdirSync(real).sort() : null;
+    // The roots a fallback would write into: the account's own cache root, and
+    // the one the run's home names (`HOME` is the run's scratch home under the
+    // preload, madarch-1xq) — the child build reads `homedir()`, which is that
+    // home. Neither may gain a folder.
+    const roots = [wikiCacheRoot({}), join(process.env.HOME ?? tmpdir(), '.cache', 'madarch', 'wiki')];
+    const listed = (): (string[] | null)[] => roots.map((root) => existsSync(root) ? readdirSync(root).sort() : null);
+    const before = listed();
     const cache = scriptCache();
     const out = outFolder();
     const run = runWiki([REFERENCE_SYSTEM, '--out', out, '--engine', 'starlight'], `${FAKE_BUN}:${process.env.PATH ?? ''}`, cache);
     expect(run.status).toBe(0);
     // The install the script made sits in the moved cache...
     expect(readdirSync(cache.MADARCH_WIKI_CACHE).some((name) => existsSync(join(cache.MADARCH_WIKI_CACHE, name, 'node_modules', 'fake-installed')))).toBe(true);
-    // ...and the real cache root is exactly as the run found it: no fake
-    // install of this run where a real build would look for a real one.
-    expect(existsSync(real) ? readdirSync(real).sort() : null).toEqual(before);
+    // ...and neither cache root is what the run found: no fake install of this
+    // run where a real build would look for a real one.
+    expect(listed()).toEqual(before);
   }, { timeout: 60_000 });
 
   test('the starlight engine comes from MADARCH_WIKI_ENGINE, and --engine wins over it', () => {
@@ -372,7 +452,8 @@ describe('scripts/wiki.ts', () => {
       const cwd = tempFolder('madarch-wiki-emptyout-');
       mkdirSync(join(cwd, 'source'));
       writeFileSync(join(cwd, 'source', 'marker.txt'), 'kept');
-      const run = spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8', cwd, env: { ...process.env, PATH: `${FAKE_BIN}:${process.env.PATH ?? ''}` } });
+      const run = spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8', cwd, env: { ...process.env, PATH: `${FAKE_BIN}:${process.env.PATH ?? ''}` }, ...DETACHED_CHILD, timeout: 300_000, killSignal: 'SIGKILL' });
+      killOwnGroup(run);
       expect(run.status).toBe(2);
       expect(`${run.stderr ?? ''}\n${run.stdout ?? ''}`).toContain('usage: bun scripts/wiki.ts');
       expect(readFileSync(join(cwd, 'source', 'marker.txt'), 'utf8')).toBe('kept');
@@ -512,8 +593,10 @@ describe('scripts/wiki.ts', () => {
     const scratch = join(cache.MADARCH_WIKI_CACHE, scratchName);
     expect(existsSync(join(scratch, 'model.c4'))).toBe(true);
     expect(statSync(scratch).mode & 0o777).toBe(0o700);
-    // And no predictable scratch of the old shape is created in the system temp directory.
-    expect(readdirSync(tmpdir()).some((name) => name.startsWith('madarch-wiki-likec4-'))).toBe(false);
+    // Nothing of the old shape is written beside the run either: with TMPDIR in
+    // the run's scratch folder a temp-folder scratch would land there and die
+    // with the run, and the machine-wide promise is what
+    // `.shady2k/run-scratch-check.mjs` checks around the whole run in CI.
   }, { timeout: 60_000 });
 
   test('the documents fixture becomes pages on both engines, links rewritten and images copied', () => {

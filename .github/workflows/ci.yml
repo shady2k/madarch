@@ -35,6 +35,12 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
+      # What the run may leave behind (madarch-1xq): the home and the temporary
+      # folder as they stand before the suite, compared with how they stand after
+      # it. A suite that writes into either one fails here instead of filling the
+      # disk, whatever the tests themselves assert.
+      - name: Note the home and the temporary folder before the run
+        run: node .shady2k/run-scratch-check.mjs snapshot "$RUNNER_TEMP/before-run.txt"
       # Refresh the full-suite timings locally with:
       # bun test test/ --timings=.github/workflows/test-timings.json --update-timings
       # Seed with historical durations for balancing; Bun's shard update writes
@@ -45,6 +51,11 @@ jobs:
           cp .github/workflows/test-timings.json "$shard_files"
           bun test test/ --shard=${{ matrix.shard }}/5 \
             --timings="$shard_files" --update-timings
+      - name: The run left the home and the temporary folder as it found them
+        if: always()
+        run: |
+          node .shady2k/run-scratch-check.mjs snapshot "$RUNNER_TEMP/after-run.txt"
+          node .shady2k/run-scratch-check.mjs compare "$RUNNER_TEMP/before-run.txt" "$RUNNER_TEMP/after-run.txt"
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -75,6 +86,8 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
+      - name: Note the home and the temporary folder before the checks
+        run: node .shady2k/run-scratch-check.mjs snapshot "$RUNNER_TEMP/before-run.txt"
       - run: bun run check
       - run: bun test test/postgres-query-database.test.ts
         env:
@@ -86,6 +99,11 @@ jobs:
       # the product's: a broken app fails CI.
       - run: bun install --frozen-lockfile && bun run check && bun test && bun run build
         working-directory: wiki/app
+      - name: The checks left the home and the temporary folder as they found them
+        if: always()
+        run: |
+          node .shady2k/run-scratch-check.mjs snapshot "$RUNNER_TEMP/after-run.txt"
+          node .shady2k/run-scratch-check.mjs compare "$RUNNER_TEMP/before-run.txt" "$RUNNER_TEMP/after-run.txt"
 
   # Keep the stable "test" status required by branch protection. always() makes
   # this run after a failed, skipped, or cancelled dependency; none can go green.

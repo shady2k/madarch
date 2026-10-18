@@ -7,7 +7,15 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 const exec = promisify(execFile);
 export type WizardAgent = 'claude' | 'codex' | 'omp';
 export interface DetectedAgent { name: WizardAgent; available: boolean; version?: string; reason?: string }
-export function agentSettingsPath(home = homedir()): string { return join(home,'.config','madarch','fill-agent.json'); }
+/**
+ * The user's home as this process reads it: the environment's `HOME`, which is
+ * what `os.homedir()` reports when a process starts — and which is the only one
+ * a run can point elsewhere, since Bun resolves `homedir()` once and a preload
+ * cannot move it afterwards (madarch-1xq: the settings file must follow the
+ * home a test run gives the process, not the account's own).
+ */
+function defaultHome(): string { const named = process.env.HOME?.trim(); return named !== undefined && named !== '' ? named : homedir(); }
+export function agentSettingsPath(home = defaultHome()): string { return join(home,'.config','madarch','fill-agent.json'); }
 export async function detectFillAgents(pathValue = process.env.PATH ?? ''): Promise<DetectedAgent[]> {
  const result: DetectedAgent[]=[];
  for(const name of ['claude','codex','omp'] as const){try{const {stdout,stderr}=await exec(name,['--version'],{env:{...process.env,PATH:pathValue},timeout:5000});result.push({name,available:true,version:(stdout||stderr).trim().split(/\r?\n/)[0]||'unknown version'});}catch(error){const e=error as NodeJS.ErrnoException;result.push({name,available:false,reason:e.code==='ENOENT'?'Not installed':(e.message||'Could not read version').slice(0,300)});}}
@@ -22,10 +30,10 @@ export async function testFillAgent(name:WizardAgent,pathValue=process.env.PATH?
 }
 interface AgentChoice { agent?: unknown; model?: unknown }
 async function readAgentChoice(home:string):Promise<AgentChoice|undefined>{try{return JSON.parse(await readFile(agentSettingsPath(home),'utf8')) as AgentChoice;}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return undefined;throw error;}}
-export async function readChosenAgent(home=homedir()):Promise<WizardAgent|undefined>{const choice=await readAgentChoice(home);return choice!==undefined&&(choice.agent==='claude'||choice.agent==='codex'||choice.agent==='omp')?choice.agent:undefined;}
-export async function readChosenModel(home=homedir()):Promise<string|undefined>{const choice=await readAgentChoice(home);return typeof choice?.model==='string'?choice.model:undefined;}
+export async function readChosenAgent(home=defaultHome()):Promise<WizardAgent|undefined>{const choice=await readAgentChoice(home);return choice!==undefined&&(choice.agent==='claude'||choice.agent==='codex'||choice.agent==='omp')?choice.agent:undefined;}
+export async function readChosenModel(home=defaultHome()):Promise<string|undefined>{const choice=await readAgentChoice(home);return typeof choice?.model==='string'?choice.model:undefined;}
 /** Save the agent choice; a given model (possibly '' for none) overrides, an omitted one keeps the saved value. */
-export async function saveChosenAgent(agent:WizardAgent,options:{model?:string}={},home=homedir()):Promise<void>{
+export async function saveChosenAgent(agent:WizardAgent,options:{model?:string}={},home=defaultHome()):Promise<void>{
  const choice=await readAgentChoice(home);
  const merged={...(choice&&typeof choice.model==='string'?{model:choice.model}:{}),agent,...(options.model===undefined?{}:{model:options.model})};
  const file=agentSettingsPath(home);await mkdir(dirname(file),{recursive:true});const temp=`${file}.${process.pid}.tmp`;await writeFile(temp,`${JSON.stringify(merged,null,2)}\n`,{mode:0o600});await rename(temp,file);

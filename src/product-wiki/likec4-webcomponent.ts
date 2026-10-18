@@ -23,6 +23,8 @@ import { ensureWikiCacheRoot } from '../wiki/cache.js';
 
 /** The checkout's root: where the pinned likec4 lives. */
 const PACKAGE_ROOT = fileURLToPath(new URL('../..', import.meta.url));
+/** How long the pinned likec4 may generate the bundle before it is killed: seconds of work, never a hang (madarch-1xq). */
+const LIKEC4_GEN_TIMEOUT_MS = 120_000;
 
 /** Where the LikeC4 binary is expected, as the static build names it. */
 function likec4Bin(): string {
@@ -51,11 +53,14 @@ export function likec4Webcomponent(workspace: string, env: Readonly<Record<strin
   if (!existsSync(bundle)) {
     mkdirSync(scratch, { recursive: true, mode: 0o700 });
     writeFileSync(join(scratch, 'model.c4'), workspace);
-    const gen = spawnSync(bin, ['gen', 'webcomponent', scratch, '-o', bundle], { encoding: 'utf8' });
+    // Bounded like the build's generator: a likec4 that hangs must not hold a
+    // running server open, and must not outlive it by more than the bound
+    // (madarch-1xq).
+    const gen = spawnSync(bin, ['gen', 'webcomponent', scratch, '-o', bundle], { encoding: 'utf8', timeout: LIKEC4_GEN_TIMEOUT_MS, killSignal: 'SIGKILL' });
     if (gen.status !== 0 || !existsSync(bundle)) {
       return {
         ok: false,
-        message: `the LikeC4 webcomponent could not be generated for the product's model:\n${`${gen.stdout ?? ''}${gen.stderr ?? ''}`.trim()}`,
+        message: `the LikeC4 webcomponent could not be generated for the product's model:\n${assertionOf(gen)}`,
       };
     }
   }
@@ -64,6 +69,13 @@ export function likec4Webcomponent(workspace: string, env: Readonly<Record<strin
   } catch (error) {
     return { ok: false, message: `the LikeC4 webcomponent at ${bundle} could not be read: ${(error as Error).message}` };
   }
+}
+
+/** What the generator said: its output, or how it was ended when it said nothing. */
+function assertionOf(run: { stdout: string | null; stderr: string | null; signal: NodeJS.Signals | null }): string {
+  const said = `${run.stdout ?? ''}${run.stderr ?? ''}`.trim();
+  if (said !== '') return said;
+  return run.signal === null ? 'it printed nothing' : `it was killed with ${run.signal} after ${LIKEC4_GEN_TIMEOUT_MS / 1000} s`;
 }
 
 /** The bundle's text, read whole. */

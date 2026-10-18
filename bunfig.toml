@@ -1,0 +1,7 @@
+# Every `bun test` run of this package gets its own scratch home and temporary
+# folder, created before any test file loads and removed when the run ends
+# (madarch-1xq): see test/run-scratch.ts. Bun reads this file only from the
+# folder the run starts in, so the isolation covers `bun test`, `bun run test`
+# and CI's `bun test test/` — runs started from inside `test/` do not get it.
+[test]
+preload = ["./test/run-scratch.ts"]

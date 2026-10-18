@@ -266,7 +266,10 @@ describe('the pages a product holds', () => {
       expect(refused.ok).toBe(false);
       if (!refused.ok) expect(refused.message).toContain(docsDir);
     } finally {
+      // Both folders, whatever the reads did: a refusal the test did not expect
+      // must not leave a folder it locked behind (madarch-1xq).
       chmodSync(docsDir, 0o755);
+      chmodSync(privateDir, 0o755);
     }
   });
 

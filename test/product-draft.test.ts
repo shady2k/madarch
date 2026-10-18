@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -554,18 +554,26 @@ describe('createDraft: a cleanup that fails is reported', () => {
     writeFileSync(join(stubs, 'git'), script);
     chmodSync(join(stubs, 'git'), 0o700);
     const home = tempFolder('madarch-products-');
-    const draft = createDraft({ home: refuseNonScratchHome(home, 'a stub test'), today: EXAMPLE_DAY, gitEnv: gitEnv({ ...GIT_ENV, PATH: stubs }) });
-    expect(draft).toMatchObject({ outcome: 'failed' });
-    if (draft.outcome !== 'failed') return;
-    expect(draft.message).toContain('refusing to add');
-    const leftover = readdirSync(home).find((name) => name.startsWith('idea-'));
-    expect(leftover).toBeDefined();
-    expect(draft.message).toContain(join(home, leftover ?? ''));
-    expect(draft.message).toContain('could not be removed');
-    // Let the tests' own cleanup remove the leftover: the stub made the
-    // draft's own folders unwritable, and this undoes exactly that.
-    for (const dir of ['', 'docs', 'model', 'skills', 'prototypes', 'repos']) {
-      chmodSync(join(home, leftover!, dir), 0o700);
+    try {
+      const draft = createDraft({ home: refuseNonScratchHome(home, 'a stub test'), today: EXAMPLE_DAY, gitEnv: gitEnv({ ...GIT_ENV, PATH: stubs }) });
+      expect(draft).toMatchObject({ outcome: 'failed' });
+      if (draft.outcome !== 'failed') return;
+      expect(draft.message).toContain('refusing to add');
+      const leftover = readdirSync(home).find((name) => name.startsWith('idea-'));
+      expect(leftover).toBeDefined();
+      expect(draft.message).toContain(join(home, leftover ?? ''));
+      expect(draft.message).toContain('could not be removed');
+    } finally {
+      // Let the tests' own cleanup remove the leftovers: the stub made the
+      // draft's own folders unwritable, and this undoes exactly that — whatever
+      // the assertions above did, so a folder this test locked never outlives
+      // it (madarch-1xq).
+      for (const leftover of readdirSync(home).filter((name) => name.startsWith('idea-'))) {
+        for (const dir of ['', 'docs', 'model', 'skills', 'prototypes', 'repos']) {
+          const locked = join(home, leftover, dir);
+          if (existsSync(locked)) chmodSync(locked, 0o700);
+        }
+      }
     }
   });
 });
