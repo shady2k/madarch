@@ -77,8 +77,14 @@ function withArticle(word: string): string {
 function shown(value: unknown): string {
   if (typeof value === 'string') return JSON.stringify(value);
   if (value === undefined) return 'nothing';
-  const text = JSON.stringify(value);
-  return text === undefined ? String(value) : text;
+  // A value that is not JSON — a BigInt, a circular record — is still named,
+  // not thrown out of: the check reads rows it did not make.
+  try {
+    const text = JSON.stringify(value);
+    return text === undefined ? String(value) : text;
+  } catch {
+    return Object.prototype.toString.call(value);
+  }
 }
 
 // ---- repository paths ----------------------------------------------------
@@ -124,20 +130,6 @@ export function repositoryPath(value: string): RepositoryPath {
   const problem = repositoryPathProblem(folded);
   if (problem !== undefined) throw new FactSchemaError('', problem);
   return folded as RepositoryPath;
-}
-
-/**
- * A repository path as one identity part names it. The refusal keeps the
- * constructor's words and takes the value's own field as its path, so a fact
- * refused for a machine path says `value.path` and not just "path".
- */
-function identityPath(path: string, value: string): RepositoryPath {
-  try {
-    return repositoryPath(value);
-  } catch (error) {
-    if (error instanceof FactSchemaError) throw new FactSchemaError(path, error.detail);
-    throw error;
-  }
 }
 
 /** Whether a value is a repository path, without throwing: the write path's cheap pre-check. */
@@ -321,8 +313,9 @@ export type FactNodeKind = (typeof FACT_NODE_KINDS)[number];
 
 /**
  * Every edge kind. An edge joins two nodes of any kind the edge's own value
- * names (`EDGE_END_KINDS`). The list is grouped the same way the node kinds
- * are: the stages' order first, the alphabet's only in `FACT_KINDS_IN_ORDER`.
+ * names (`EDGE_END_KINDS`). The list is grouped by subject — the edges of the
+ * tree, of the code, of 0004's atoms, of documents and history, of the agent
+ * stages — and not sorted: `FACT_KINDS_IN_ORDER` is the one code point order.
  */
 export const FACT_EDGE_KINDS = [
   // stages 1–7
@@ -1033,8 +1026,18 @@ export interface FactKindDefinition<K extends FactKind = FactKind> {
    * What the fact is, as the parts its id is the digest of: never a commit,
    * an extractor's version, a layer, a status, a run, a unit, an attempt or a
    * time. Two facts with the same parts are one fact.
+   *
+   * These are the parts the fact's own value carries, and only those: a kind
+   * whose place is identity adds the place's parts through `identityOfKind`,
+   * so the check can read the value's parts even when the place does not read.
    */
-  readonly identity: (value: FactValueOf<K>, provenance: FactProvenance) => readonly IdentityPart[];
+  readonly identityValue: (value: FactValueOf<K>, provenance: FactProvenance) => readonly IdentityPart[];
+  /**
+   * The parts of `identityValue` that come from the provenance rather than
+   * from the value (a coverage's reader): the check reads them where it reads
+   * the provenance, never at a value field.
+   */
+  readonly provenanceParts?: readonly string[];
 }
 
 /** A name as identity sees it: trimmed, inner whitespace collapsed to one space; case and characters kept. */
@@ -1074,9 +1077,19 @@ function identityPlace(provenance: FactProvenance): readonly IdentityPart[] {
   }
   return [
     ['repository', provenance.repository.id],
-    ['file', identityPath('provenance.place.file', place.file)],
+    ['file', place.file],
     ['range', identityRange(place.range)],
   ];
+}
+
+/**
+ * Every part of a fact's identity: the parts its value carries, then the
+ * place's when the kind's place is identity. `factId` digests exactly this.
+ */
+function identityOfKind<K extends FactKind>(definition: FactKindDefinition<K>, value: FactValueOf<K>, provenance: FactProvenance): readonly IdentityPart[] {
+  const parts = [...definition.identityValue(value, provenance)];
+  if (definition.place === 'identity') parts.push(...identityPlace(provenance));
+  return parts;
 }
 
 /**
@@ -1094,7 +1107,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'optional',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['commit', value.commit]],
+    identityValue: (value) => [['repository', value.repository], ['commit', value.commit]],
   },
   'repository': {
     kind: 'repository',
@@ -1103,7 +1116,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'optional',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository]],
+    identityValue: (value) => [['repository', value.repository]],
   },
   'directory': {
     kind: 'directory',
@@ -1112,7 +1125,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'optional',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['path', identityPath('value.path', value.path)]],
+    identityValue: (value) => [['repository', value.repository], ['path', value.path]],
   },
   'file': {
     kind: 'file',
@@ -1121,7 +1134,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['path', identityPath('value.path', value.path)]],
+    identityValue: (value) => [['repository', value.repository], ['path', value.path]],
   },
   'package': {
     kind: 'package',
@@ -1130,7 +1143,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['form', value.form], ['name', identityName(value.name)]],
+    identityValue: (value) => [['repository', value.repository], ['form', value.form], ['name', identityName(value.name)]],
   },
   'deploy-unit': {
     kind: 'deploy-unit',
@@ -1139,7 +1152,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['form', value.form], ['name', identityName(value.name)]],
+    identityValue: (value) => [['repository', value.repository], ['form', value.form], ['name', identityName(value.name)]],
   },
   'api-endpoint': {
     kind: 'api-endpoint',
@@ -1148,7 +1161,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['contract', identityName(value.contract)]],
+    identityValue: (value) => [['contract', identityName(value.contract)]],
   },
   'table': {
     kind: 'table',
@@ -1157,7 +1170,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['name', identityName(value.name)]],
+    identityValue: (value) => [['repository', value.repository], ['name', identityName(value.name)]],
   },
   'column': {
     kind: 'column',
@@ -1166,7 +1179,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['table', identityName(value.table)], ['name', identityName(value.name)]],
+    identityValue: (value) => [['repository', value.repository], ['table', identityName(value.table)], ['name', identityName(value.name)]],
   },
   'environment-variable': {
     kind: 'environment-variable',
@@ -1175,7 +1188,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['name', value.name]],
+    identityValue: (value) => [['name', identityName(value.name)]],
   },
   'symbol': {
     kind: 'symbol',
@@ -1184,12 +1197,12 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [
+    identityValue: (value) => [
       ['repository', value.repository],
-      ['file', identityPath('value.file', value.file)],
+      ['file', value.file],
       ['qualifiedName', identityName(value.qualifiedName)],
       ['symbolKind', value.symbolKind],
-      ['disambiguator', value.disambiguator ?? null],
+      ['disambiguator', identityNameOrNull(value.disambiguator)],
     ],
   },
   'occurrence': {
@@ -1199,7 +1212,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'identity',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value, provenance) => [['symbol', value.symbol], ...identityPlace(provenance)],
+    identityValue: (value, provenance) => [['symbol', value.symbol]],
   },
   'entry-point': {
     kind: 'entry-point',
@@ -1208,9 +1221,9 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [
+    identityValue: (value) => [
       ['repository', value.repository],
-      ['file', identityPath('value.file', value.file)],
+      ['file', value.file],
       ['form', value.form],
       ['name', identityName(value.name)],
     ],
@@ -1222,7 +1235,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'identity',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (_value, provenance) => identityPlace(provenance),
+    identityValue: () => [],
   },
   'test': {
     kind: 'test',
@@ -1231,7 +1244,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['file', identityPath('value.file', value.file)], ['name', identityName(value.name)]],
+    identityValue: (value) => [['repository', value.repository], ['file', value.file], ['name', identityName(value.name)]],
   },
   'module': {
     kind: 'module',
@@ -1240,7 +1253,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'optional',
     layers: ['extracted', 'inferred'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['parent', value.parent ?? null], ['name', identityName(value.name)]],
+    identityValue: (value) => [['repository', value.repository], ['parent', value.parent ?? null], ['name', identityName(value.name)]],
   },
   'document': {
     kind: 'document',
@@ -1249,7 +1262,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['path', identityPath('value.path', value.path)]],
+    identityValue: (value) => [['repository', value.repository], ['path', value.path]],
   },
   'section': {
     kind: 'section',
@@ -1258,7 +1271,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['document', identityPath('value.document', value.document)], ['anchor', value.anchor]],
+    identityValue: (value) => [['repository', value.repository], ['document', value.document], ['anchor', identityName(value.anchor)]],
   },
   'commit': {
     kind: 'commit',
@@ -1267,7 +1280,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'optional',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['commit', value.commit]],
+    identityValue: (value) => [['repository', value.repository], ['commit', value.commit]],
   },
 
   // ---- agent stages: what an agent read and proposed ----------------------
@@ -1284,7 +1297,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'identity',
     layers: ['declared', 'inferred'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value, provenance) => [['subject', value.subject], ['predicate', value.predicate], ['object', value.object], ...identityPlace(provenance)],
+    identityValue: (value, provenance) => [['subject', value.subject], ['predicate', value.predicate], ['object', value.object]],
   },
   'entity-proposal': {
     kind: 'entity-proposal',
@@ -1293,7 +1306,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'optional',
     layers: ['inferred'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['proposed', value.proposed], ['name', identityName(value.name)]],
+    identityValue: (value) => [['repository', value.repository], ['proposed', value.proposed], ['name', identityName(value.name)]],
   },
   'rule': {
     kind: 'rule',
@@ -1302,7 +1315,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'identity',
     layers: ['inferred'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value, provenance) => [['subject', value.subject ?? null], ['statement', identityName(value.statement)], ...identityPlace(provenance)],
+    identityValue: (value, provenance) => [['subject', value.subject ?? null], ['statement', identityName(value.statement)]],
   },
   'state': {
     kind: 'state',
@@ -1311,7 +1324,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['inferred'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['machine', identityName(value.machine)], ['name', identityName(value.name)]],
+    identityValue: (value) => [['repository', value.repository], ['machine', identityName(value.machine)], ['name', identityName(value.name)]],
   },
   'coverage': {
     kind: 'coverage',
@@ -1320,7 +1333,8 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'optional',
     layers: ['extracted', 'inferred'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value, provenance) => [['repository', value.repository], ['scope', value.scope], ['reader', provenance.source.system]],
+    identityValue: (value, provenance) => [['repository', value.repository], ['scope', value.scope], ['reader', provenance.source.system]],
+    provenanceParts: ['reader'],
   },
   'question': {
     kind: 'question',
@@ -1329,7 +1343,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'optional',
     layers: ['inferred'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['type', value.type], ['about', value.about ?? null], ['prompt', identityName(value.prompt)]],
+    identityValue: (value) => [['repository', value.repository], ['type', value.type], ['about', value.about ?? null], ['prompt', identityName(value.prompt)]],
   },
 
   // ---- edges -------------------------------------------------------------
@@ -1340,7 +1354,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'optional',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['from', value.from], ['to', value.to]],
+    identityValue: (value) => [['from', value.from], ['to', value.to]],
   },
   'defines': {
     kind: 'defines',
@@ -1349,7 +1363,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['from', value.from], ['to', value.to]],
+    identityValue: (value) => [['from', value.from], ['to', value.to]],
   },
   'import': {
     kind: 'import',
@@ -1360,7 +1374,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['from', value.from], ['to', value.to]],
+    identityValue: (value) => [['from', value.from], ['to', value.to]],
   },
   'dependency': {
     kind: 'dependency',
@@ -1371,7 +1385,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['from', value.from], ['to', value.to], ['basis', value.basis]],
+    identityValue: (value) => [['from', value.from], ['to', value.to], ['basis', value.basis]],
   },
   'call': {
     kind: 'call',
@@ -1380,7 +1394,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['from', value.from], ['to', value.to]],
+    identityValue: (value) => [['from', value.from], ['to', value.to]],
   },
   'reference': {
     kind: 'reference',
@@ -1389,7 +1403,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['from', value.from], ['to', value.to]],
+    identityValue: (value) => [['from', value.from], ['to', value.to]],
   },
   'inherits': {
     kind: 'inherits',
@@ -1398,7 +1412,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['from', value.from], ['to', value.to], ['form', value.form]],
+    identityValue: (value) => [['from', value.from], ['to', value.to], ['form', value.form]],
   },
   'provides': {
     kind: 'provides',
@@ -1409,7 +1423,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['from', value.from], ['contract', identityName(value.contract)]],
+    identityValue: (value) => [['from', value.from], ['contract', identityName(value.contract)]],
   },
   'consumes': {
     kind: 'consumes',
@@ -1420,7 +1434,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['from', value.from], ['variable', value.variable]],
+    identityValue: (value) => [['from', value.from], ['variable', value.variable]],
   },
   'binds': {
     kind: 'binds',
@@ -1429,7 +1443,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['variable', value.variable], ['environment', identityName(value.environment)]],
+    identityValue: (value) => [['variable', value.variable], ['environment', identityName(value.environment)]],
   },
   'resolves': {
     kind: 'resolves',
@@ -1438,7 +1452,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['from', value.from], ['to', value.to]],
+    identityValue: (value) => [['from', value.from], ['to', value.to]],
   },
   'document-link': {
     kind: 'document-link',
@@ -1447,7 +1461,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['from', value.from], ['to', value.to]],
+    identityValue: (value) => [['from', value.from], ['to', value.to]],
   },
   'task-key': {
     kind: 'task-key',
@@ -1456,7 +1470,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'optional',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['from', value.from], ['key', value.key]],
+    identityValue: (value) => [['from', value.from], ['key', value.key]],
   },
   'transition': {
     kind: 'transition',
@@ -1465,7 +1479,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['inferred'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['from', value.from], ['to', value.to], ['event', identityName(value.event)]],
+    identityValue: (value) => [['from', value.from], ['to', value.to], ['event', identityName(value.event)]],
   },
   'interaction': {
     kind: 'interaction',
@@ -1474,7 +1488,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'identity',
     layers: ['inferred'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value, provenance) => [['caller', value.caller], ['callee', value.callee], ['form', value.form], ['via', identityNameOrNull(value.via)], ...identityPlace(provenance)],
+    identityValue: (value, provenance) => [['caller', value.caller], ['callee', value.callee], ['form', value.form], ['via', identityNameOrNull(value.via)]],
   },
 };
 
@@ -1527,7 +1541,7 @@ export function factId<K extends FactKind>(fact: {
   readonly provenance: FactProvenance;
 }): string {
   const definition = FACT_KINDS[fact.kind] as FactKindDefinition<K>;
-  const parts = definition.identity(fact.value, fact.provenance);
+  const parts = identityOfKind(definition, fact.value, fact.provenance);
   const identity: Record<string, unknown> = {};
   for (const [field, part] of parts) {
     if (Object.hasOwn(identity, field)) {
@@ -1630,6 +1644,12 @@ export interface FactProblem {
   readonly message: string;
 }
 
+/** A repository path as an identity part reads it: relative, `/`-separated, with no `.` or `..` leg. */
+function repositoryPathPart(part: unknown): string | undefined {
+  if (typeof part !== 'string') return `${shown(part)} is no path: a repository path is text`;
+  return repositoryPathProblem(part.replace(/\\/g, '/').replace(/^\.\//, ''));
+}
+
 /** A commit's own form: 40 lower-case hexadecimal digits, as git writes them. */
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/;
 
@@ -1727,14 +1747,18 @@ function termPart(part: unknown): string | undefined {
  * product's name for it and never a machine path, a commit is a commit, an
  * end of an edge is a fact id, a name of the fill's own is one token, and a
  * part the kind closes to a list of forms is one of them. A field this table
- * does not name is read by its kind's own value (`identityPath` for the paths,
- * `identityPlace` for the place).
+ * does not name is text, and the place's own parts are read with the place.
  */
 const IDENTITY_PART_FORMS: Readonly<Record<string, (part: unknown) => string | undefined>> = {
   ...Object.fromEntries(REPOSITORY_NAMED_KINDS.map((kind) => [`${kind}.repository`, repositoryNamePart])),
   ...Object.fromEntries(['snapshot', 'commit'].map((kind) => [`${kind}.commit`, commitPart])),
   ...Object.fromEntries(FACT_ID_PARTS.map((part) => [part, factIdPart])),
   ...Object.fromEntries(ABSENT_FACT_ID_PARTS.map((part) => [part, orAbsent(factIdPart)])),
+  // The parts a kind's value names a file or a folder by: a repository path,
+  // never the machine's.
+  ...Object.fromEntries([
+    'directory.path', 'document.path', 'entry-point.file', 'file.path', 'section.document', 'symbol.file', 'test.file',
+  ].map((part) => [part, repositoryPathPart])),
   'claim.object': termPart,
   'claim.subject': termPart,
   'claim.predicate': tokenPart,
@@ -1765,14 +1789,16 @@ const IDENTITY_PART_FORMS: Readonly<Record<string, (part: unknown) => string | u
  * field's own name: a value (or a list of values) the schema names, so a role,
  * a form or a reason a reader does not know is refused rather than published.
  */
-const CLOSED_VALUE_FORMS: Readonly<Record<string, { readonly values: readonly string[]; readonly what: string; readonly many: boolean }>> = {
+const CLOSED_VALUE_FORMS: Readonly<Record<string, { readonly values: readonly string[]; readonly what: string; readonly many: boolean; readonly atLeastOne?: boolean }>> = {
   'comment.form': { values: COMMENT_FORMS, what: 'form a comment is written in', many: false },
-  'file.roles': { values: FILE_ROLES, what: 'role a file plays', many: true },
+  'file.roles': { values: FILE_ROLES, what: 'role a file plays', many: true, atLeastOne: true },
   'module.seed': { values: MODULE_SEEDS, what: 'seed a module came from', many: false },
-  'occurrence.roles': { values: OCCURRENCE_ROLES, what: 'role a name plays at its position', many: true },
+  'occurrence.roles': { values: OCCURRENCE_ROLES, what: 'role a name plays at its position', many: true, atLeastOne: true },
   'repository.form': { values: REPOSITORY_FORMS, what: 'form a repository is', many: false },
   'rule.form': { values: RULE_FORMS, what: 'form a business rule takes', many: false },
 };
+
+const GAP_FIELDS: readonly string[] = ['reason', 'what'];
 
 /**
  * The lists of records whose documented order and uniqueness are read by one
@@ -1782,8 +1808,8 @@ const CLOSED_VALUE_FORMS: Readonly<Record<string, { readonly values: readonly st
  * rather than to a repeat (0004's `coverage`), and each gap's reason is one
  * the schema names.
  */
-const RECORD_LIST_FIELDS: Readonly<Record<string, { readonly key: string; readonly closed: Readonly<Record<string, { readonly values: readonly string[]; readonly what: string }>> }>> = {
-  'coverage.unread': { key: 'what', closed: { reason: { values: COVERAGE_GAP_REASONS, what: 'reason a gap was left' } } },
+const RECORD_LIST_FIELDS: Readonly<Record<string, { readonly key: string; readonly fields: readonly string[]; readonly closed: Readonly<Record<string, { readonly values: readonly string[]; readonly what: string }>> }>> = {
+  'coverage.unread': { key: 'what', fields: GAP_FIELDS, closed: { reason: { values: COVERAGE_GAP_REASONS, what: 'reason a gap was left' } } },
 };
 
 /**
@@ -1834,11 +1860,47 @@ const VALUE_FIELDS: { readonly [K in FactKind]: readonly (keyof FactValueOf<K> &
   'interaction': ['caller', 'callee', 'form', 'via'],
 };
 
+/** The keys each record shape holds, and no others: an unnamed key is refused wherever a record stands. */
+const PROVENANCE_FIELDS: readonly string[] = ['place', 'repository', 'source'];
+const SOURCE_FIELDS: readonly string[] = ['system', 'version'];
+const REPOSITORY_FIELDS: readonly string[] = ['commit', 'id'];
+const PLACE_FIELDS: readonly string[] = ['file', 'range'];
+const RANGE_FIELDS: readonly string[] = ['endColumn', 'endLine', 'startColumn', 'startLine'];
+const TERM_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  external: ['form', 'url'],
+  literal: ['form', 'text'],
+  node: ['form', 'id'],
+};
+const BINDING_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  digest: ['form', 'sha256'],
+  literal: ['form', 'text'],
+};
+
+/**
+ * The fields a kind's value holds as a list of names, and no other shape: a
+ * list the shape names is refused when it is not a list at all, rather than
+ * skipped (a coverage whose `read` is one string is not a coverage).
+ */
+const NAME_LIST_FIELDS: readonly string[] = ['coverage.read', 'entity-proposal.aliases', 'test.covers'];
+
+/** Every key of a record its shape does not name, in code point order. */
+function unknownKeys(record: Record<string, unknown>, fields: readonly string[]): string[] {
+  return Object.keys(record).filter((key) => !fields.includes(key)).sort(byCodePoint);
+}
+
+/** One reason a record holds a key its shape does not name, or `undefined` when it holds none. */
+function unknownKeyProblem(record: Record<string, unknown>, fields: readonly string[]): string | undefined {
+  const unknown = unknownKeys(record, fields);
+  return unknown.length === 0 ? undefined : `${unknown.map((key) => shown(key)).join(', ')} ${unknown.length === 1 ? 'is' : 'are'} no part of this record: it holds ${fields.join(', ')}, and a run, a unit, an attempt or a session is none of them`;
+}
+
 /** The kinds that stand at their own file, with the value's field naming it: a place that names another file is a defect. */
 const SELF_PLACE_FIELDS: Readonly<Record<string, string>> = {
+  'deploy-unit': 'manifest',
   'document': 'path',
   'entry-point': 'file',
   'file': 'path',
+  'package': 'manifest',
   'section': 'document',
   'symbol': 'file',
   'test': 'file',
@@ -1898,6 +1960,8 @@ function placeProblemsOf(place: unknown): FactProblem[] {
   }
   const problems: FactProblem[] = [];
   const record = place as Record<string, unknown>;
+  const unknownPlace = unknownKeyProblem(record, PLACE_FIELDS);
+  if (unknownPlace !== undefined) problems.push({ path: 'provenance.place', message: unknownPlace });
   const file = record['file'];
   if (typeof file !== 'string') {
     problems.push({ path: 'provenance.place.file', message: `a place names its file as a repository path, not ${shown(file)}` });
@@ -1911,6 +1975,8 @@ function placeProblemsOf(place: unknown): FactProblem[] {
     return problems;
   }
   const fields = range as Record<string, unknown>;
+  const unknownRange = unknownKeyProblem(fields, RANGE_FIELDS);
+  if (unknownRange !== undefined) problems.push({ path: 'provenance.place.range', message: unknownRange });
   const numbers: Partial<Record<'startLine' | 'startColumn' | 'endLine' | 'endColumn', number>> = {};
   for (const field of ['startLine', 'startColumn', 'endLine', 'endColumn'] as const) {
     const value = fields[field];
@@ -2042,37 +2108,59 @@ export function checkFact(fact: unknown): FactProblem[] {
 
   // The provenance every fact carries, and the place the kind asks of it.
   const provenance = record['provenance'];
+  let sourceIsRead = false;
+  let repositoryIsRead = false;
+  let citedRepositoryId: string | undefined;
+  let citedCommit: string | undefined;
   let provenanceReads = false;
   let placeReads = false;
   if (typeof provenance !== 'object' || provenance === null || Array.isArray(provenance)) {
     add('provenance', `a fact cites its provenance — the source and its version, the repository and commit, and for this kind ${definition.place === 'optional' ? 'a place when it has one' : 'the place it stands on'} — not ${shown(provenance)}`);
   } else {
     const cited = provenance as Record<string, unknown>;
+    const unknownProvenance = unknownKeyProblem(cited, PROVENANCE_FIELDS);
+    if (unknownProvenance !== undefined) add('provenance', unknownProvenance);
     const source = cited['source'];
     if (typeof source !== 'object' || source === null || Array.isArray(source)) {
       add('provenance.source', `a fact names the system that read it, not ${shown(source)}`);
     } else {
       const sourceRecord = source as Record<string, unknown>;
+      const unknownSource = unknownKeyProblem(sourceRecord, SOURCE_FIELDS);
+      if (unknownSource !== undefined) add('provenance.source', unknownSource);
+      let sourceReads = true;
       for (const field of ['system', 'version']) {
         const value = sourceRecord[field];
-        if (typeof value !== 'string' || value.trim() === '') add(`provenance.source.${field}`, `a fact names its source's ${field}, and ${shown(value)} is empty`);
+        if (typeof value !== 'string' || value.trim() === '') {
+          sourceReads = false;
+          add(`provenance.source.${field}`, `a fact names its source's ${field}, and ${shown(value)} is empty`);
+        }
       }
+      sourceIsRead = sourceReads;
     }
     const repository = cited['repository'];
     if (typeof repository !== 'object' || repository === null || Array.isArray(repository)) {
       add('provenance.repository', `a fact names the repository it is about, not ${shown(repository)}`);
     } else {
       const repositoryRecord = repository as Record<string, unknown>;
+      const unknownRepository = unknownKeyProblem(repositoryRecord, REPOSITORY_FIELDS);
+      if (unknownRepository !== undefined) add('provenance.repository', unknownRepository);
+      let repositoryReads = true;
       const repositoryId = repositoryRecord['id'];
+      if (typeof repositoryId === 'string' && ID_PATTERN.test(repositoryId)) citedRepositoryId = repositoryId;
       if (typeof repositoryId !== 'string' || !ID_PATTERN.test(repositoryId)) {
+        repositoryReads = false;
         add('provenance.repository.id', `${shown(repositoryId)} is no repository name: the product's own name for the repository, like "orders-api", never a path or a URL`);
       }
       const commit = repositoryRecord['commit'];
       if (typeof commit !== 'string' || !COMMIT_PATTERN.test(commit)) {
+        repositoryReads = false;
         add('provenance.repository.commit', `${shown(commit)} is no commit: 40 lower-case hexadecimal digits, the commit the fact was read at`);
+      } else {
+        citedCommit = commit;
       }
-      provenanceReads = true;
+      repositoryIsRead = repositoryReads;
     }
+    provenanceReads = sourceIsRead && repositoryIsRead;
     if (cited['place'] !== undefined) {
       const placeProblems = placeProblemsOf(cited['place']);
       for (const problem of placeProblems) add(problem.path, problem.message);
@@ -2108,36 +2196,52 @@ export function checkFact(fact: unknown): FactProblem[] {
         add(`value.${field}`, `${shown(held)} is no token: the fill writes one lower-case word of letters, digits and dashes, like "is-implemented-by"`);
       }
       const closed = CLOSED_VALUE_FORMS[`${kind}.${field}`];
-      if (closed !== undefined) {
-        if (closed.many) {
-          if (!Array.isArray(held)) {
-            add(`value.${field}`, `${shown(held)} is no list of ${closed.what}s: this field holds the ones the fact carries, each once`);
-          } else {
-            held.forEach((entry, index) => {
-              const message = partIn(closed.values, closed.what)(entry);
-              if (message !== undefined) add(`value.${field}[${index}]`, message);
-            });
-          }
-        } else if (Array.isArray(held)) {
+      const recordKey = RECORD_LIST_FIELDS[`${kind}.${field}`];
+      if (closed !== undefined && !closed.many) {
+        // One value the kind closes to a list of forms: a list where one belongs
+        // is a defect, and so is a value outside the list.
+        if (Array.isArray(held)) {
           add(`value.${field}`, `${shown(held)} is one ${closed.what}, not a list of them`);
         } else {
           const message = partIn(closed.values, closed.what)(held);
           if (message !== undefined) add(`value.${field}`, message);
         }
+        continue;
       }
-      if (!Array.isArray(held)) continue;
-      if (held.every((entry) => typeof entry === 'string')) {
-        for (let index = 1; index < held.length; index += 1) {
-          const previous = held[index - 1] as string;
-          const current = held[index] as string;
+      // The shape decides the branch, never the content: a name list is read as
+      // names even when one entry is not one, and a list of records as records.
+      const nameList = closed?.many === true || NAME_LIST_FIELDS.includes(`${kind}.${field}`);
+      if (nameList) {
+        if (!Array.isArray(held)) {
+          add(`value.${field}`, `${shown(held)} is no list of names: this field holds the names the fact carries, in code point order, each once`);
+          continue;
+        }
+        if (closed?.atLeastOne === true && held.length === 0) {
+          add(`value.${field}`, `a list of ${closed.what}s holds at least one: a fact that names none leaves the field out`);
+        }
+        for (let index = 0; index < held.length; index += 1) {
+          const current = held[index];
+          if (typeof current !== 'string') {
+            add(`value.${field}[${index}]`, `${shown(current)} is no name: this list holds names`);
+            continue;
+          }
+          if (closed !== undefined) {
+            const message = partIn(closed.values, closed.what)(current);
+            if (message !== undefined) add(`value.${field}[${index}]`, message);
+          }
+          const previous = index === 0 ? undefined : held[index - 1];
+          if (typeof previous !== 'string') continue;
           const order = byCodePoint(previous, current);
           if (order > 0) add(`value.${field}[${index}]`, `${shown(current)} stands after ${shown(previous)}: a list of names is in code point order`);
           else if (order === 0) add(`value.${field}[${index}]`, `${shown(current)} is named twice: a list of names names each once`);
         }
         continue;
       }
+      if (!Array.isArray(held)) {
+        if (recordKey !== undefined) add(`value.${field}`, `${shown(held)} is no list of records: this field holds the records the fact carries`);
+        continue;
+      }
       const seenKeys = new Map<string, number>();
-      const recordKey = RECORD_LIST_FIELDS[`${kind}.${field}`];
       held.forEach((entry, index) => {
         if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
           add(`value.${field}[${index}]`, `a list of a fact holds objects or names, not ${shown(entry)}`);
@@ -2151,6 +2255,8 @@ export function checkFact(fact: unknown): FactProblem[] {
           return;
         }
         if (recordKey !== undefined) {
+          const unknownRecord = unknownKeyProblem(recordFields, recordKey.fields);
+          if (unknownRecord !== undefined) add(`value.${field}[${index}]`, unknownRecord);
           for (const [closedField, closed] of Object.entries(recordKey.closed)) {
             const message = partIn(closed.values, closed.what)(recordFields[closedField]);
             if (message !== undefined) add(`value.${field}[${index}].${closedField}`, message);
@@ -2179,12 +2285,40 @@ export function checkFact(fact: unknown): FactProblem[] {
     // fact carries a closed form inside its value.
     const terms: readonly string[] = kind === 'claim' ? ['subject', 'object'] : kind === 'document-link' ? ['to'] : [];
     for (const field of terms) {
-      const message = termProblem((value as Record<string, unknown>)[field]);
+      const term = (value as Record<string, unknown>)[field];
+      const message = termProblem(term);
       if (message !== undefined) add(`value.${field}`, message);
+      if (typeof term === 'object' && term !== null && !Array.isArray(term)) {
+        const record = term as Record<string, unknown>;
+        const shape = TERM_FIELDS[String(record['form'])];
+        if (shape !== undefined) {
+          const unknown = unknownKeyProblem(record, shape);
+          if (unknown !== undefined) add(`value.${field}`, unknown);
+        }
+      }
     }
     if (kind === 'binds') {
-      const message = bindingProblem((value as Record<string, unknown>)['value']);
+      const binding = (value as Record<string, unknown>)['value'];
+      const message = bindingProblem(binding);
       if (message !== undefined) add('value.value', message);
+      if (typeof binding === 'object' && binding !== null && !Array.isArray(binding)) {
+        const record = binding as Record<string, unknown>;
+        const shape = BINDING_FIELDS[String(record['form'])];
+        if (shape !== undefined) {
+          const unknown = unknownKeyProblem(record, shape);
+          if (unknown !== undefined) add('value.value', unknown);
+        }
+      }
+    }
+    // A fact names one repository and one commit, in its value and in its
+    // provenance: a file read from one repository is never filed under another.
+    const namedRepository = (value as Record<string, unknown>)['repository'];
+    if (typeof namedRepository === 'string' && ID_PATTERN.test(namedRepository) && citedRepositoryId !== undefined && namedRepository !== citedRepositoryId) {
+      add('value.repository', `the value names ${shown(namedRepository)} but the fact was read from ${shown(citedRepositoryId)}: one fact is one repository`);
+    }
+    const namedCommit = (value as Record<string, unknown>)['commit'];
+    if ((kind === 'commit' || kind === 'snapshot') && typeof namedCommit === 'string' && COMMIT_PATTERN.test(namedCommit) && citedCommit !== undefined && namedCommit !== citedCommit) {
+      add('value.commit', `the value names commit ${shown(namedCommit)} but the fact was read at ${shown(citedCommit)}: ${withArticle(kind)} fact is one commit`);
     }
     // A kind that stands at its own file: the place names that file, and no other.
     const selfField = SELF_PLACE_FIELDS[kind];
@@ -2200,35 +2334,32 @@ export function checkFact(fact: unknown): FactProblem[] {
     }
   }
 
-  // The identity's parts and the id they give. The parts are read whenever the
-  // value and the provenance did, so a part the graph cannot join is named
-  // beside every other reason; the digest is compared once every part read,
-  // since an id computed from a refused part says nothing.
-  if (valueReads && provenanceReads && (definition.place !== 'identity' || placeReads)) {
-    let parts: readonly IdentityPart[] | undefined;
-    try {
-      parts = (definition.identity as (value: unknown, provenance: FactProvenance) => readonly IdentityPart[])(value, provenance as FactProvenance);
-    } catch (error) {
-      if (!(error instanceof FactSchemaError)) throw error;
-      add(error.path, error.detail);
-    }
-    if (parts !== undefined) {
-      let partsRead = true;
-      for (const [field, part] of parts) {
-        // A part the table does not name is text — a name, a statement, a key —
-        // which is what every part that is not a path, a fact id, a token, a
-        // commit or one of the kind's closed forms is.
-        const message = (IDENTITY_PART_FORMS[`${kind}.${field}`] ?? textPart)(part);
-        if (message !== undefined) {
-          partsRead = false;
-          add(`value.${field}`, message);
-        }
+  // The identity's parts and the id they give. The value's own parts are read
+  // whenever the value read, so a part the graph cannot join is named beside
+  // every other reason — a provenance that did not read costs the provenance's
+  // reasons and never a value's. The digest is compared only once every part
+  // read: an id computed from a refused part, or from a provenance this check
+  // refused, says nothing.
+  if (valueReads) {
+    const readProvenance: FactProvenance = provenanceReads
+      ? (provenance as FactProvenance)
+      : { source: { system: '', version: '' }, repository: { id: '', commit: '' } };
+    let partsRead = true;
+    for (const [field, part] of definition.identityValue(value as FactValueOf<FactKind>, readProvenance)) {
+      if (definition.provenanceParts?.includes(field) === true) continue;
+      // A part the table does not name is text — a name, a statement, a key —
+      // which is what every part that is not a path, a fact id, a token, a
+      // commit or one of the kind's closed forms is.
+      const message = (IDENTITY_PART_FORMS[`${kind}.${field}`] ?? textPart)(part);
+      if (message !== undefined) {
+        partsRead = false;
+        add(`value.${field}`, message);
       }
-      if (partsRead && idReads) {
-        const recomputed = factId({ kind, value: value as FactValueOf<FactKind>, provenance: provenance as FactProvenance });
-        if (recomputed !== id) {
-          add('id', `${shown(id)} is not the id of this fact: its identity digests to ${shown(recomputed)}, and an id is never written but computed`);
-        }
+    }
+    if (partsRead && provenanceReads && (definition.place !== 'identity' || placeReads) && idReads) {
+      const recomputed = factId({ kind, value: value as FactValueOf<FactKind>, provenance: provenance as FactProvenance });
+      if (recomputed !== id) {
+        add('id', `${shown(id)} is not the id of this fact: its identity digests to ${shown(recomputed)}, and an id is never written but computed`);
       }
     }
   }

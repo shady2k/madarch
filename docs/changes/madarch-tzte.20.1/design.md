@@ -348,9 +348,10 @@ node. `call`, `reference` and `inherits` are per pair of symbols rather than one
 edge per mention, and the aggregated ones carry the code-point-smallest site as
 their provenance, so an edge's evidence is deterministic. An import whose specifier resolves to no
 node is a coverage gap, never an edge with an invented end (0026: referenced
-nodes exist). Which kinds each edge's ends may be is `EDGE_END_KINDS`, the one
-table a write's "referenced nodes exist" check and the stages' own order are
-read from.
+nodes exist). Which kinds each edge's ends may be is `EDGE_END_KINDS`: a write's
+"referenced nodes exist" check reads that table, and the test over it is where
+the stages' own order is held — the last stage that writes an edge is at or
+after the first stage that writes each kind its end may name.
 
 ## Identity
 
@@ -410,10 +411,20 @@ place's file and line. It reads, in this order:
   the commit, and the place — every reason at its own field, and a range whose
   fields do not read takes no part in a comparison that would compare it;
 - the value's own fields, and no others: a field the kind's value does not hold
-  is refused at its key, so a stray `runId` inside a value is refused too;
-- every path as a repository path, every token, every closed form (one form or
-  a list of them), every list of names in code point order with each name
-  once, and every list of records in the order and uniqueness of its
+  is refused at its key, so a stray `runId` inside a value is refused too. The
+  same rule holds inside every record a fact carries — a provenance, its
+  source, its repository, the place, the range, an assertion's end, a binding's
+  value and a coverage's gap — each shape has the keys it holds and no others,
+  so no run id rides anywhere the check calls clean;
+- the value's own repository and commit against the provenance's: one fact is
+  filed under one repository at one commit;
+- every path as a repository path, and every token;
+- the shape of each field the kind declares as a list: a list is refused when
+  it is not one (a coverage whose `read` is one string is not a coverage), a
+  kind's roles hold at least one, and the shape — never the content of the
+  list — decides whether it is read as names or as records;
+- every closed form, one or a list, and every list of names in code point order
+  with each name once, every list of records in the order and uniqueness of its
   documented key (`coverage.unread` is in code point order of `what`, each
   `what` once, and each gap's reason is one the schema names);
 - the two places a fact carries a closed form inside its value (an assertion's

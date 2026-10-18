@@ -60,7 +60,7 @@ function anyId(kind: 'file' | 'symbol' | 'state' | 'commit' | 'document' | 'api-
 }
 
 /** The field of a kind's value that names the file the fact itself stands at, where the kind stands at its own file. */
-const SELF_PLACE_FIELD: Readonly<Record<string, string>> = { 'document': 'path', 'entry-point': 'file', 'file': 'path', 'section': 'document', 'symbol': 'file', 'test': 'file' };
+const SELF_PLACE_FIELD: Readonly<Record<string, string>> = { 'deploy-unit': 'manifest', 'document': 'path', 'entry-point': 'file', 'file': 'path', 'package': 'manifest', 'section': 'document', 'symbol': 'file', 'test': 'file' };
 
 /** The place a sample of the kind stands at: its own file where the kind has one, `src/order.ts` otherwise. */
 function placePathOf(kind: FactKind): RepositoryPath {
@@ -215,10 +215,16 @@ function sampleFact(kind: FactKind): Fact {
     : makeEdgeFact({ kind: kind as never, value: SAMPLES[kind] as never, provenance, layer: layerOf(kind) });
 }
 
-/** The identity parts of the sample, as the schema computes them. */
+/** The identity parts of the sample, as the schema computes them: its value's, then its place's where the place is identity. */
 function identityOf(kind: FactKind, provenance: FactProvenance = provenanceFor(kind)): readonly (readonly [string, unknown])[] {
   const definition = FACT_KINDS[kind];
-  return (definition.identity as (value: unknown, read: FactProvenance) => readonly (readonly [string, unknown])[])(SAMPLES[kind], provenance);
+  const parts = [...(definition.identityValue as (value: unknown, read: FactProvenance) => readonly (readonly [string, unknown])[])(SAMPLES[kind], provenance)];
+  if (definition.place === 'identity') {
+    const place = provenance.place;
+    if (place === undefined) throw new Error('the test read the identity of a place-identity kind without a place');
+    parts.push(['repository', provenance.repository.id], ['file', place.file], ['range', `${place.range.startLine}:${place.range.startColumn}-${place.range.endLine}:${place.range.endColumn}`]);
+  }
+  return parts;
 }
 
 describe('the kinds the fill writes', () => {
@@ -459,7 +465,7 @@ describe('ids: content-addressed, stable, and never a run', () => {
 
   test('a state is one machine of one repository: the same name in another repository is another state', () => {
     const here = makeNodeFact({ kind: 'state', value: SAMPLES['state'], provenance: provenanceFor('state'), layer: 'inferred' });
-    const elsewhere = makeNodeFact({ kind: 'state', value: { ...SAMPLES['state'], repository: 'checkout-web' }, provenance: provenanceFor('state'), layer: 'inferred' });
+    const elsewhere = makeNodeFact({ kind: 'state', value: { ...SAMPLES['state'], repository: 'checkout-web' }, provenance: { ...provenanceFor('state'), repository: { id: 'checkout-web', commit: COMMIT } }, layer: 'inferred' });
     expect(elsewhere.id).not.toBe(here.id);
   });
 
@@ -498,7 +504,7 @@ describe('ids: content-addressed, stable, and never a run', () => {
     const moved = makeNodeFact({ kind: 'file', value: { ...SAMPLES['file'], path: repositoryPath('src/order/index.ts') }, provenance: provenanceOf(repositoryPath('src/order/index.ts')), layer: 'extracted' });
     expect(moved.id).not.toBe(base.id);
     // Two repositories' files at one relative path are never one fact.
-    const otherRepository = makeNodeFact({ kind: 'file', value: { ...SAMPLES['file'], repository: 'catalog-api' }, provenance: provenanceFor('file'), layer: 'extracted' });
+    const otherRepository = makeNodeFact({ kind: 'file', value: { ...SAMPLES['file'], repository: 'catalog-api' }, provenance: { ...provenanceFor('file'), repository: { id: 'catalog-api', commit: COMMIT } }, layer: 'extracted' });
     expect(otherRepository.id).not.toBe(base.id);
   });
 
@@ -615,7 +621,9 @@ describe('the check that names every reason a fact is not one the schema reads',
 
   test('a place the kind stands at is required, and a place read as a repository path with an ascending range', () => {
     const occurrence = sampleFact('occurrence');
-    expect(problemsOf({ ...occurrence, provenance: { ...provenanceFor('occurrence'), place: undefined } }).messages[0]).toContain('an occurrence fact stands at a place');
+    // The design's scenario says the place is the only reason named: a fact
+    // that stands at no place has no other defect.
+    expect(problemsOf({ ...occurrence, provenance: { ...provenanceFor('occurrence'), place: undefined } }).paths).toEqual(['provenance.place']);
     expect(problemsOf({ ...occurrence, provenance: { ...provenanceFor('occurrence'), place: { file: '/opt/madarch-checkout/src/order.ts', range: provenanceFor('occurrence').place?.range } } }).paths).toEqual(['provenance.place.file']);
     expect(problemsOf({ ...occurrence, provenance: { ...provenanceFor('occurrence'), place: { file: repositoryPath('src/order.ts'), range: { startLine: 0, startColumn: 0, endLine: 1, endColumn: 0 } } } }).paths).toEqual(['provenance.place.range.startLine']);
     expect(problemsOf({ ...occurrence, provenance: { ...provenanceFor('occurrence'), place: { file: repositoryPath('src/order.ts'), range: { startLine: 9, startColumn: 0, endLine: 3, endColumn: 0 } } } }).paths).toEqual(['provenance.place.range.endLine']);
@@ -698,10 +706,11 @@ describe('the check that names every reason a fact is not one the schema reads',
 
   test('a fact handed to the check with no value at all is refused, never thrown out of', () => {
     // An agent's write or a damaged stored row may carry nothing where a value
-    // belongs: the check names every reason and never throws. The one kind it
-    // cannot name a missing field of is the comment, whose identity is its
-    // place alone (`checkFact`'s own note: a value field that is neither
-    // identity nor a closed form is the stage's and the write path's to check).
+    // belongs: the check names every reason and never throws. A missing field
+    // is named when it is one of the kind's identity parts, which is why the
+    // comment — whose identity is its place alone — is the one kind an empty
+    // value leaves passing; a field that is neither identity nor a closed form
+    // is the write path's to check, since only it has the kind's type.
     const placeOnly: readonly FactKind[] = ['comment'];
     for (const kind of FACT_KINDS_IN_ORDER) {
       const broken = { ...sampleFact(kind), value: {} };
@@ -769,6 +778,85 @@ describe('the check that names every reason a fact is not one the schema reads',
     expect(problemsOf({ ...rule, value: { ...rule.value, form: 'slogan' } }).paths).toEqual(['value.form']);
     const repository = sampleFact('repository');
     expect(problemsOf({ ...repository, value: { ...repository.value, form: 'mirror' } }).paths).toEqual(['value.form']);
+  });
+
+  test('a run id cannot ride inside a term, a binding, a gap or the provenance', () => {
+    // 0026: "ids are stable and never contain a run id". A nested record is a
+    // record too: an unnamed key is refused wherever it stands.
+    const claim = sampleFact('claim');
+    const runIdTerm = { ...(claim.value as unknown as Record<string, unknown>), subject: { form: 'node', id: anyId('symbol'), runId: 'run-7' } };
+    // Two reasons, both true: the key is no part of a term, and the row's id is
+    // no longer the digest of what the row now says.
+    expect(problemsOf({ ...claim, value: runIdTerm }).paths).toEqual(['value.subject', 'id']);
+    const binds = sampleFact('binds');
+    const runIdBinding = { ...(binds.value as unknown as Record<string, unknown>), value: { form: 'literal', text: 'x', runId: 'run-7' } };
+    expect(problemsOf({ ...binds, value: runIdBinding }).paths).toEqual(['value.value']);
+    const coverage = sampleFact('coverage');
+    const runIdGap = { ...(coverage.value as unknown as Record<string, unknown>), unread: [{ what: 'src/a.js', reason: 'error', runId: 'run-7' }] };
+    expect(problemsOf({ ...coverage, value: runIdGap }).paths).toEqual(['value.unread[0]']);
+    // And the provenance, its source, the repository, the place and the range.
+    expect(problemsOf({ ...file, provenance: { ...provenanceFor('file'), runId: 'run-7' } }).paths).toEqual(['provenance']);
+    expect(problemsOf({ ...file, provenance: { ...provenanceFor('file'), source: { system: 'tree-sitter', version: '0.25.10', runId: 'run-7' } } }).paths).toEqual(['provenance.source']);
+    expect(problemsOf({ ...file, provenance: { ...provenanceFor('file'), repository: { id: REPOSITORY, commit: COMMIT, runId: 'run-7' } } }).paths).toEqual(['provenance.repository']);
+    expect(problemsOf({ ...file, provenance: { ...provenanceFor('file'), place: { file: repositoryPath('src/order.ts'), range: provenanceFor('file').place!.range, runId: 'run-7' } } }).paths).toEqual(['provenance.place']);
+    expect(problemsOf({ ...file, provenance: { ...provenanceFor('file'), place: { file: repositoryPath('src/order.ts'), range: { ...provenanceFor('file').place!.range, runId: 'run-7' } } } }).paths).toEqual(['provenance.place.range']);
+  });
+
+  test('a value that did not read does not stop the identity parts from being read, and neither does a provenance that did not', () => {
+    // The design's `check` requirement: every reason. A broken place or
+    // provenance costs its own reasons, never the value's.
+    const across = { ...sampleFact('package') };
+    const value = { ...(across.value as unknown as Record<string, unknown>), form: 'library' };
+    expect(problemsOf({ ...across, value, provenance: undefined }).paths).toEqual(['provenance', 'value.form']);
+    expect(problemsOf({ ...across, value, provenance: { ...provenanceFor('package'), repository: { id: 'orders api', commit: COMMIT } } }).paths).toEqual(['provenance.repository.id', 'value.form']);
+    const rule = sampleFact('rule');
+    const blank = { ...(rule.value as unknown as Record<string, unknown>), statement: '   ' };
+    expect(problemsOf({ ...rule, value: blank, provenance: { ...provenanceFor('rule'), place: { file: '/opt/madarch-checkout/src/order.ts', range: provenanceFor('rule').place!.range } } }).paths).toEqual(['provenance.place.file', 'value.statement']);
+  });
+
+  test('a provenance the check refused is not digested into an id complaint', () => {
+    // A name that is not a repository's is one defect, not two: the id was
+    // computed from the fact as written, so the check says nothing about it.
+    const claim = sampleFact('claim');
+    const problems = problemsOf({ ...claim, provenance: { ...provenanceFor('claim'), repository: { id: 'orders api', commit: COMMIT } } });
+    expect(problems.paths).toEqual(['provenance.repository.id']);
+  });
+
+  test('a field the kind holds as a list is refused when it is not one, and an empty list of roles is refused too', () => {
+    const coverage = sampleFact('coverage');
+    expect(problemsOf({ ...coverage, value: { ...coverage.value, read: 5 } }).paths).toEqual(['value.read']);
+    expect(problemsOf({ ...coverage, value: { ...coverage.value, unread: {} } }).paths).toEqual(['value.unread']);
+    const testFact = sampleFact('test');
+    expect(problemsOf({ ...testFact, value: { ...testFact.value, covers: anyId('symbol') } }).paths).toEqual(['value.covers']);
+    const proposal = sampleFact('entity-proposal');
+    expect(problemsOf({ ...proposal, value: { ...proposal.value, aliases: 'purchase' } }).paths).toEqual(['value.aliases']);
+    // A file's roles are one or more (its own doc), and a list one entry wrong
+    // names that entry and no other.
+    const fileFact = sampleFact('file');
+    expect(problemsOf({ ...fileFact, value: { ...fileFact.value, roles: [] } }).paths).toEqual(['value.roles']);
+    expect(problemsOf({ ...fileFact, value: { ...fileFact.value, roles: ['source', 5 as never] } }).paths).toEqual(['value.roles[1]']);
+  });
+
+  test('a value and its provenance name one repository and one commit', () => {
+    // The fact log files a fact by its provenance and the graph joins it by its
+    // id; one fact in two repositories would be two.
+    expect(problemsOf({ ...file, value: { ...file.value, repository: 'catalog-api' } }).paths).toEqual(['value.repository', 'id']);
+    const snapshot = sampleFact('snapshot');
+    expect(problemsOf({ ...snapshot, value: { ...snapshot.value, commit: OTHER_COMMIT } }).paths).toEqual(['value.commit', 'id']);
+  });
+
+  test('a name part is one name however it was spelled', () => {
+    // The design's "A name is one name": trimmed, inner whitespace collapsed.
+    const spaced = (kind: FactKind, field: string, spelled: string): void => {
+      const fact = sampleFact(kind);
+      const value = { ...(fact.value as unknown as Record<string, unknown>), [field]: spelled };
+      const built = factId({ kind, value, provenance: provenanceFor(kind) } as never);
+      expect(built).toBe(sampleFact(kind).id);
+    };
+    spaced('environment-variable', 'name', ' ORDERS_TOPIC ');
+    spaced('section', 'anchor', ' placing-an-order ');
+    spaced('symbol', 'qualifiedName', 'OrderService.create ');
+    spaced('state', 'machine', ' OrderStatus ');
   });
 
   test('a key the schema does not name is refused: a run, a unit or a time never rides on a fact', () => {

@@ -103,7 +103,7 @@ session over the diff) found fifteen defects, all fixed in the same branch:
   dependency's basis, a package's, deploy unit's, entry point's, interaction's
   and inherits' form, a symbol's kind, an entity proposal's form — and each is
   now read, in `factId` and in the check through one table;
-- the place was optional on kinds read from bytes — 29 of 40 now require it,
+- the place was optional on kinds read from bytes — 30 of 40 now require it,
   and the ten exceptions are named above and tested;
 - `provides` and `consumes` named a stage at which their documented ends cannot
   exist — a module end needs stage 5 and a symbol end stage 4, and the new
@@ -121,6 +121,21 @@ session over the diff) found fifteen defects, all fixed in the same branch:
 - five tests took an expected value from the module or asserted a property
   without varying what it is about; each now reads its expectation from the
   decisions.
+
+A second round over those fixes (the same reviewer role, a fresh session) found
+the same class one level down, and this branch fixes it too: a run id could
+still ride inside a claim's `subject` or `object`, a binding's value, a
+coverage's gap or the provenance, the place and the range, because a record was
+read by its named fields and never for the keys it does not name. Every record
+shape now holds its keys and no others, a value's repository and commit are
+checked against the provenance's, a field the kind declares as a list is
+refused when it is not one, a kind's roles hold at least one, the shape rather
+than the content of a list decides how it is read, and the identity's
+value-borne parts are read even when the provenance or the place did not — a
+broken provenance costs its own reasons and never a value's, and never invents
+an `id` defect. `environment-variable`'s name, `section`'s anchor and
+`symbol`'s disambiguator are now normalized like every other name part, and a
+`package` or a `deploy-unit` stands at the manifest it was read from.
 
 ## DONE WHEN
 `src/fill/facts.ts` declares every kind madarch-tzte.20.1 names, each with its
