@@ -7,8 +7,8 @@
  * The catalogue below is the machine-independent half: which agent, the
  * command that starts it as an ACP server, and — for a machine that has none
  * of them — how it would be installed and how large it is. The adapters are
- * the ones the protocol's own registry lists (`https://agentclientprotocol.com/get-started/registry`,
- * read 2026-10-18), each package with the unpacked size `npm view <package>
+ * the ones the protocol's own registry (agentclientprotocol.com, its
+ * get-started page, read 2026-10-18) lists, each package with the unpacked size `npm view <package>
  * dist.unpackedSize` answered that day. omp is the exception: it speaks ACP
  * from its own binary (`omp acp`), measured on this machine's omp 18.10.4,
  * and it is not in the registry. Nothing here installs anything.
@@ -162,6 +162,8 @@ export function formatAcpProbe(report: AcpProbeReport): string {
     lines.push('');
     lines.push(`${finding.status === 'connected' ? '✓' : finding.status === 'failed' ? '✗' : '–'} ${finding.label}${finding.status === 'connected' ? ' — connected' : finding.status === 'failed' ? ' — failed' : ' — not installed'}`);
     lines.push(`  ${finding.detail}`);
+    // The evidence for the claim, so a reader can check it rather than trust it.
+    lines.push(`  Evidence: ${finding.evidence}`);
   }
   lines.push('');
   lines.push('The probe sent no prompt: it stopped at the initialize handshake.');

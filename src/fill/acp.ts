@@ -16,10 +16,9 @@
  *   agent that calls `fs/read_text_file` anyway receives an error naming the
  *   method, and every permission request is answered `cancelled`.
  * - A session's token accounting is the agent's own report, kept as reported
- *   and never invented. The published v1 schema has no `usage` on the
- *   `session/prompt` response at all (checked against
- *   https://agentclientprotocol.com/protocol/v1/schema on 2026-10-18); the
- *   library's generated schema carries it as an unstable field, and its inner
+ *   and never invented. The protocol's published v1 schema, read on 2026-10-18,
+ *   has no `usage` on the `session/prompt` response at all; the library's
+ *   generated schema carries it as an unstable field, and its inner
  *   fields speak of totals across all turns while the response field speaks
  *   of this turn. Madarch therefore keeps the latest report as the session's
  *   figure, says "not reported" for a session whose agent reports none, and
@@ -276,13 +275,20 @@ function stringOf(value: unknown): string | undefined {
 }
 
 /** The `mcpServers` of `session/new`, in the shapes the protocol defines. */
-export function toMcpServers(servers: readonly AcpMcpServer[] = []): acp.McpServer[] {
+export function toMcpServers(servers: readonly AcpMcpServer[] = [], pathValue = process.env.PATH ?? ''): acp.McpServer[] {
   return servers.map((server): acp.McpServer => {
     if ('command' in server) {
       if (!server.command.trim()) throw new AcpError(`src/fill/acp.ts:toMcpServers: the MCP server ${JSON.stringify(server.name)} has no command to run`);
+      // The protocol wants the executable's absolute path, and the agent runs
+      // it in its own folder: a bare name is looked up here, never resolved
+      // against madarch's folder, which the agent would not find it in.
+      const executable = resolveExecutable(server.command, pathValue);
+      if (executable === undefined) {
+        throw new AcpError(`src/fill/acp.ts:toMcpServers: the MCP server ${JSON.stringify(server.name)} cannot be started: no program named ${JSON.stringify(server.command)} is executable on this machine (PATH ${JSON.stringify(pathValue)})`);
+      }
       return {
         name: server.name,
-        command: resolve(server.command),
+        command: executable,
         args: [...(server.args ?? [])],
         env: Object.entries(server.env ?? {}).map(([name, value]) => ({ name, value })),
       };
@@ -330,7 +336,9 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
       throw new AcpError(`src/fill/acp.ts:connectAcpAgent: ${name} must be a positive number of milliseconds, not ${JSON.stringify(value)}`);
     }
   }
-  const child: ChildProcess = spawn(executable, [...(spec.args ?? [])], { cwd, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...options.env } });
+  // Detached puts the agent in its own process group, so closing ends the
+  // helpers it started as well as itself.
+  const child: ChildProcess = spawn(executable, [...(spec.args ?? [])], { cwd, detached: true, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...options.env } });
   if (child.stdin === null || child.stdout === null) {
     child.kill('SIGKILL');
     throw new AcpError(`src/fill/acp.ts:connectAcpAgent: the agent ${spec.id} (${executable}) started without the pipes ACP needs`);
@@ -339,12 +347,37 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
   child.stderr?.setEncoding('utf8');
   child.stderr?.on('data', (chunk: string) => { stderrText = (stderrText + chunk).slice(-STDERR_LIMIT); });
 
-  const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null; failure?: string }>((settle) => {
-    child.once('error', (error: Error) => settle({ code: null, signal: null, failure: error.message }));
-    child.once('close', (code: number | null, signal: NodeJS.Signals | null) => settle({ code, signal }));
+  /**
+   * How the child ended. `exit` rather than `close` decides it: a grandchild
+   * that inherited the pipes keeps `close` from firing, and an agent's helper
+   * process must never hold madarch's close open. The whole process group is
+   * signalled on close for the same reason.
+   */
+  let ended = false;
+  /** Why the system refused to start the program at all, when it did (a bad interpreter, say). */
+  let startFailure: string | undefined;
+  const finished = new Promise<void>((settle) => {
+    child.once('error', (error: Error) => { startFailure = error.message; ended = true; settle(); });
+    child.once('exit', () => { ended = true; settle(); });
   });
+  const signalGroup = (signal: NodeJS.Signals): void => {
+    try {
+      if (child.pid !== undefined) process.kill(-child.pid, signal);
+    } catch {
+      // No process group of its own (it was not detached) or it is already
+      // gone: signal the process itself instead.
+      try { child.kill(signal); } catch { /* already gone */ }
+    }
+  };
 
-  const sessions = new Map<string, { updates: AcpUpdate[]; text: string[]; onUpdate?: (update: AcpUpdate) => void }>();
+  interface SessionState {
+    updates: AcpUpdate[];
+    text: string[];
+    onUpdate?: (update: AcpUpdate) => void;
+    /** The last context window the agent reported, whenever it reported it. */
+    context?: { used: number; size: number };
+  }
+  const sessions = new Map<string, SessionState>();
   let settleClosed: () => void = () => undefined;
   const closedPromise = new Promise<void>((settle) => { settleClosed = settle; });
 
@@ -356,6 +389,7 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
       if (session !== undefined) {
         session.updates.push(update);
         if (update.kind === 'message' && update.text !== undefined) session.text.push(update.text);
+        if (update.kind === 'usage' && update.contextUsed !== undefined && update.contextSize !== undefined) session.context = { used: update.contextUsed, size: update.contextSize };
         session.onUpdate?.(update);
       }
       options.onUpdate?.(update);
@@ -377,23 +411,20 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
   );
   const client = app.connect(stream);
   void client.closed.then(() => settleClosed());
-  void exited.then((end) => {
-    if (end.failure !== undefined) stderrText = `${stderrText}${stderrText.trim() === '' ? '' : '; '}could not start: ${end.failure}`;
-    settleClosed();
-  });
+  void finished.then(() => settleClosed());
 
   /**
-   * One request. A bounded one gives up after `bound` milliseconds with a
-   * failure naming the method, so a hung agent cannot stall a unit; a prompt
-   * turn is unbounded here because a turn may legitimately run for minutes —
-   * the unit's own limits end it (decision 0026).
+   * One request, raised on failure as a plain error whose message is the
+   * detail: the caller wraps it once, with the method, the agent and its path.
+   * A `null` bound means no bound — a prompt turn may legitimately run for
+   * minutes, and the unit's own limits end it (decision 0026).
    */
-  async function request<T>(method: string, params: unknown, bound: number | undefined = timeoutMs): Promise<T> {
+  async function request<T>(method: string, params: unknown, bound: number | null): Promise<T> {
     const call = client.agent.request(method, params as never) as Promise<T>;
-    if (bound === undefined) return await call;
+    if (bound === null) return await call;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timed = new Promise<never>((_never, refuse) => {
-      timer = setTimeout(() => refuse(new AcpError(`src/fill/acp.ts:${method}: the agent ${spec.id} (${executable}) in ${cwd} did not answer within ${bound} ms`)), bound);
+      timer = setTimeout(() => refuse(new Error(`it did not answer within ${bound} ms`)), bound);
     });
     try {
       return await Promise.race([call, timed]);
@@ -402,7 +433,34 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
     }
   }
 
+  /**
+   * Wrap a failure so it names the ACP method, the agent, the program's full
+   * path and folder, how the process ended and the end of what it wrote on
+   * standard error. A message this module already wrote is complete and is
+   * returned as it is, so a reader is never shown the same sentence twice.
+   */
+  async function wrapped(error: unknown, method: string): Promise<Error> {
+    if (error instanceof AcpError) return error;
+    // How the child ended is part of the evidence, and it may still be
+    // settling when the request rejects — a program that cannot exec, say.
+    if (child.exitCode === null && child.signalCode === null && startFailure === undefined) {
+      await Promise.race([finished, new Promise<void>((settle) => { const timer = setTimeout(settle, 100); timer.unref?.(); })]);
+    }
+    const detail = error instanceof Error ? error.message : String(error);
+    const code = error instanceof acp.RequestError ? ` (protocol error ${error.code}${error.code === AUTHENTICATION_REQUIRED ? ': the agent requires authentication' : ''})` : '';
+    const end = child.signalCode !== null
+      ? `; the process was ended by ${child.signalCode}`
+      : child.exitCode !== null
+        ? `; the process exited with ${String(child.exitCode)}`
+        : startFailure === undefined ? '' : `; the process could not start: ${startFailure}`;
+    const text = stderrText.trim();
+    const tail = text === '' ? '' : `; its standard error ended with: ${text}`;
+    return new AcpError(`src/fill/acp.ts:${method}: the agent ${spec.id} (${executable}) in ${cwd} failed: ${detail}${code}${end}${tail}`);
+  }
+
   let initialized: AcpInitializeResult | undefined;
+  /** Set by `close()`: a turn in flight then ends as cancelled, since it was madarch that ended it. */
+  let closing = false;
 
   const connection: AcpConnection = {
     spec,
@@ -417,13 +475,14 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
           protocolVersion: acp.PROTOCOL_VERSION,
           clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
           clientInfo: { name: 'madarch', title: 'madarch', version: runningVersion() },
-        });
+        }, timeoutMs);
       } catch (error) {
-        throw wrapped(error, 'initialize', spec, executable, cwd, stderrText);
+        throw await wrapped(error, 'initialize');
       }
       if (answer.protocolVersion !== acp.PROTOCOL_VERSION) {
+        const refusal = await wrapped(new Error(`it answered protocol version ${String(answer.protocolVersion)}; madarch speaks version ${acp.PROTOCOL_VERSION}`), 'initialize');
         await connection.close();
-        throw new AcpError(`src/fill/acp.ts:initialize: the agent ${spec.id} (${executable}) answered protocol version ${String(answer.protocolVersion)}; madarch speaks version ${acp.PROTOCOL_VERSION}`);
+        throw refusal;
       }
       const info = answer.agentInfo;
       const result: AcpInitializeResult = {
@@ -447,29 +506,39 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
       if (sessionCwd !== cwd) {
         throw new AcpError(`src/fill/acp.ts:newSession: the session folder ${sessionCwd} is not the folder the agent ${spec.id} (${executable}) runs in (${cwd})`);
       }
+      const mcpServers = toMcpServers(sessionOptions.mcpServers ?? [], searchPath);
+      const capabilities = (initialized.agentCapabilities.mcpCapabilities ?? {}) as { http?: unknown; sse?: unknown };
+      for (const server of mcpServers) {
+        const transport = 'url' in server ? (server.type ?? 'http') : undefined;
+        if (transport === 'http' && capabilities.http !== true) {
+          throw new AcpError(`src/fill/acp.ts:newSession: the agent ${spec.id} (${executable}) did not advertise the http MCP transport, so the MCP server ${JSON.stringify(server.name)} cannot be attached over http`);
+        }
+        if (transport === 'sse' && capabilities.sse !== true) {
+          throw new AcpError(`src/fill/acp.ts:newSession: the agent ${spec.id} (${executable}) did not advertise the sse MCP transport, so the MCP server ${JSON.stringify(server.name)} cannot be attached over sse`);
+        }
+      }
       let answer: acp.NewSessionResponse;
       try {
-        answer = await request<acp.NewSessionResponse>(acp.methods.agent.session.new, { cwd: sessionCwd, mcpServers: toMcpServers(sessionOptions.mcpServers ?? []) }, sessionTimeoutMs);
+        answer = await request<acp.NewSessionResponse>(acp.methods.agent.session.new, { cwd: sessionCwd, mcpServers }, sessionTimeoutMs);
       } catch (error) {
-        throw wrapped(error, 'session/new', spec, executable, cwd, stderrText);
+        throw await wrapped(error, 'session/new');
       }
       const sessionId = answer.sessionId;
       if (typeof sessionId !== 'string' || sessionId === '') {
-        throw new AcpError(`src/fill/acp.ts:newSession: the agent ${spec.id} (${executable}) answered session/new without a session id`);
+        throw await wrapped(new Error('it answered session/new without a session id'), 'session/new');
       }
-      const state = { updates: [] as AcpUpdate[], text: [] as string[] as string[], onUpdate: undefined as ((update: AcpUpdate) => void) | undefined };
+      const state: SessionState = { updates: [], text: [] };
       sessions.set(sessionId, state);
       let turns = 0;
       let reports = 0;
       let last: AcpUsageReport | undefined;
-      let context: { used: number; size: number } | undefined;
       let inFlight = false;
       const session: AcpSession = {
         sessionId,
         modes: answer.modes,
         running: () => inFlight,
         usage() {
-          return { ...(last ?? {}), reported: reports > 0, turns, reports, ...(context === undefined ? {} : { context }) };
+          return { ...(last ?? {}), reported: reports > 0, turns, reports, ...(state.context === undefined ? {} : { context: state.context }) };
         },
         async prompt(text, promptOptions) {
           if (inFlight) throw new AcpError(`src/fill/acp.ts:prompt: session ${sessionId} of ${spec.id} (${executable}) already has a prompt in flight`);
@@ -477,23 +546,23 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
           inFlight = true;
           state.updates = [];
           state.text = [];
-          state.onUpdate = (update) => {
-            if (update.kind === 'usage' && update.contextUsed !== undefined && update.contextSize !== undefined) context = { used: update.contextUsed, size: update.contextSize };
-            promptOptions?.onUpdate?.(update);
-          };
-          turns += 1;
+          state.onUpdate = (update) => promptOptions?.onUpdate?.(update);
           try {
-            const answer = await request<acp.PromptResponse>(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: 'text', text }] }, undefined);
+            const answer = await request<acp.PromptResponse>(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: 'text', text }] }, null);
+            turns += 1;
             const usage = readUsage(answer.usage);
             if (usage !== undefined) { reports += 1; last = usage; }
             return { stopReason: String(answer.stopReason), text: state.text.join(''), ...(usage === undefined ? {} : { usage }), updates: [...state.updates] };
           } catch (error) {
             // A cancelled turn may end as the protocol's own `-32800` instead
-            // of a `cancelled` stop reason; both mean the same to a caller.
-            if (error instanceof acp.RequestError && error.code === REQUEST_CANCELLED) {
+            // of a `cancelled` stop reason, and a turn cut short by this
+            // client's own close is a cancel too; all three mean the same to a
+            // caller.
+            if (closing || (error instanceof acp.RequestError && error.code === REQUEST_CANCELLED)) {
+              turns += 1;
               return { stopReason: 'cancelled', text: state.text.join(''), updates: [...state.updates] };
             }
-            throw wrapped(error, 'session/prompt', spec, executable, cwd, stderrText);
+            throw await wrapped(error, 'session/prompt');
           } finally {
             inFlight = false;
             state.onUpdate = undefined;
@@ -506,25 +575,18 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
       return session;
     },
     async close() {
+      closing = true;
       sessions.clear();
       try { client.close(); } catch { /* already closed */ }
-      if (child.exitCode === null && child.signalCode === null) {
-        child.kill('SIGTERM');
-        const timer = setTimeout(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); }, KILL_GRACE_MS);
+      if (!ended) {
+        signalGroup('SIGTERM');
+        const timer = setTimeout(() => { if (!ended) signalGroup('SIGKILL'); }, KILL_GRACE_MS);
         timer.unref();
-        await exited;
+        await finished;
         clearTimeout(timer);
       }
       settleClosed();
     },
   };
   return connection;
-}
-
-/** Wrap a failure so it names the method, the agent, the program's full path and its folder. */
-function wrapped(error: unknown, method: string, spec: AcpAgentSpec, executable: string, cwd: string, stderrText: string): Error {
-  const detail = error instanceof Error ? error.message : String(error);
-  const code = error instanceof acp.RequestError ? ` (protocol error ${error.code}${error.code === AUTHENTICATION_REQUIRED ? ': the agent requires authentication' : ''})` : '';
-  const tail = stderrText.trim() === '' ? '' : `; its standard error ended with: ${stderrText.trim()}`;
-  return new AcpError(`src/fill/acp.ts:${method}: the agent ${spec.id} (${executable}) in ${cwd} failed: ${detail}${code}${tail}`);
 }

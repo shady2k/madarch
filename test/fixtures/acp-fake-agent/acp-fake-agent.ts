@@ -16,6 +16,10 @@
  *   cancellable   one message chunk, then waits for session/cancel
  *   cancel-error  like cancellable, but answers a cancel with protocol error -32800
  *   auth-required answers session/new with protocol error -32000
+ *   no-http-mcp   advertises no MCP transport at all
+ *   slow-turn     takes longer than the client's bound before it answers the prompt
+ *   helper        starts a long-lived helper process, then waits for a cancel
+ *   dies-mid-turn sends a message chunk, then exits without answering
  *   fs-call       asks the client for fs/read_text_file and reports the answer
  *   permission    asks the client for permission and reports the outcome
  *   unknown       streams an update kind the protocol's schema does not define
@@ -23,9 +27,10 @@
  *   old-protocol  answers initialize with a protocol version the client lacks
  *   no-session-id answers session/new without an id
  *   hang          never answers initialize
+ *   late-initialize answers initialize long after the client's bound
  *   crash         writes to standard error and exits 1 before answering
  */
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 
 const argv = process.argv.slice(2);
@@ -35,6 +40,8 @@ const option = (name: string): string | undefined => {
 };
 const scenario = option('scenario') ?? 'default';
 const record = option('record');
+const pidFile = option('pid-file');
+if (pidFile !== undefined) writeFileSync(pidFile, `${process.pid}\n`);
 
 interface Message { jsonrpc?: string; id?: number | string; method?: string; params?: Record<string, unknown>; result?: unknown; error?: unknown }
 
@@ -69,6 +76,26 @@ function chunk(sessionId: string, text: string): void {
 
 async function runPrompt(id: number | string, sessionId: string, text: string): Promise<void> {
   turn += 1;
+  if (scenario === 'dies-mid-turn') {
+    chunk(sessionId, 'stopping');
+    setTimeout(() => process.exit(1), 20);
+    return;
+  }
+  if (scenario === 'slow-turn') {
+    setTimeout(() => respond(id, { stopReason: 'end_turn', usage: { totalTokens: 5, inputTokens: 4, outputTokens: 1 } }), 600);
+    chunk(sessionId, 'slow');
+    return;
+  }
+  if (scenario === 'helper') {
+    pendingPrompt = { id, sessionId, text, turn };
+    // The helper inherits the agent's own stdout and stderr, so it holds the
+    // client's pipes open as a real adapter's helper process does: a client
+    // that waits for the stream to close would wait for this process's end.
+    const helper = Bun.spawn(['sleep', '30'], { stdio: ['ignore', 'inherit', 'inherit'] });
+    appendFileSync(process.env.ACP_FAKE_HELPER_RECORD ?? '/dev/null', `${helper.pid}\n`);
+    chunk(sessionId, `helper ${helper.pid}`);
+    return;
+  }
   if (scenario === 'cancellable' || scenario === 'cancel-error') {
     pendingPrompt = { id, sessionId, text, turn };
     chunk(sessionId, 'working');
@@ -143,13 +170,19 @@ lines.on('line', (line: string) => {
   switch (message.method) {
     case 'initialize':
       if (scenario === 'hang') return;
+      if (scenario === 'late-initialize') {
+        // Answers well after any sane bound, to prove the client survives a
+        // request that settles when nothing is waiting for it any more.
+        setTimeout(() => { send({ jsonrpc: '2.0', id: message.id, error: { code: -32603, message: 'late failure' } }); }, 400);
+        return;
+      }
       if (scenario === 'crash') {
         process.stderr.write('fake agent: the credentials are missing\n');
         process.exit(1);
       }
       respond(message.id, {
         protocolVersion: scenario === 'old-protocol' ? 99 : 1,
-        agentCapabilities: { loadSession: false, promptCapabilities: { image: false } },
+        agentCapabilities: { loadSession: false, promptCapabilities: { image: false }, ...(scenario === 'no-http-mcp' ? {} : { mcpCapabilities: { http: true, sse: true } }) },
         agentInfo: { name: 'fake-agent', title: 'Fake ACP agent', version: '1.0.0' },
         authMethods: [{ id: 'local', name: 'Local credentials', description: 'Use the credentials on this machine' }],
       });

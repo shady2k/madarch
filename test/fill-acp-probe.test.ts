@@ -127,6 +127,8 @@ describe('the ACP probe reports what this machine can connect', () => {
     expect(text).toContain('Agents that connect over ACP on this machine (1 folder on PATH');
     expect(text).toContain('– Claude Code — not installed');
     expect(text).toContain('– Codex — not installed');
+    // The report names where each claim comes from, not only what it found.
+    expect(text).toContain('Evidence: test catalogue');
     expect(text).toContain('The probe sent no prompt: it stopped at the initialize handshake.');
   });
 });

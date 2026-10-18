@@ -676,7 +676,10 @@ as cancelled, and a file system call as an error naming the method and saying
 that code is read through the session's MCP server, since an agent's own file
 tools are off. A failure shall name the ACP method in flight, the agent's id,
 the program resolved to its full path, the folder it ran in and the end of what
-it wrote on standard error.
+it wrote on standard error; a program the system refuses to run shall be named
+with the reason it gave. Closing the connection shall end the agent and the
+helper processes it started, and shall not wait for a helper that holds the
+connection's pipes; a turn in flight at that moment shall end as cancelled.
 
 For each session, madarch shall report the input and output tokens the agent
 reported, or say that token usage was not reported: it keeps the agent's latest
@@ -708,6 +711,11 @@ as one JSON object.
 - Given: a fake agent holding a turn open until it is cancelled
 - When: madarch cancels the turn
 - Then: the turn ends as cancelled, whether the agent answers with the cancelled stop reason or with the protocol's request-cancelled error
+
+### Scenario: acp-close
+- Given: a fake agent that starts a helper process holding the connection's pipes and then holds a turn open
+- When: madarch closes the connection while that turn is in flight
+- Then: the turn ends as cancelled within the client's kill grace, and both the agent and its helper are gone
 
 ### Scenario: acp-no-file-system
 - Given: a fake agent that asks the client to read text from a file, and one that asks for permission

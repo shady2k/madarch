@@ -27,9 +27,12 @@ JSON-RPC client. The library exists — `@agentclientprotocol/sdk` 1.9.0, the
 protocol's own TypeScript implementation, with `zod` as its peer dependency —
 and both were measured before it was taken: a client built on it answers a
 hand-written agent under `bun run`, and the same code inside `bun build
---compile` works too — the compiled `madarch` runs the whole handshake and a
-prompt turn, and the binary grows by 278 528 bytes for the client, the library
-and `zod` (91 256 288 → 91 534 816 bytes). Its README says nothing about Bun or
+--compile` works too — a binary compiled on 2026-10-18 from an entry that only
+imports the client answered the hand-written fake agent's `initialize` and ran
+one prompt turn in it (protocol version 1, stop reason `end_turn`, 30 input and
+12 output tokens as reported, exit 0), and madarch's own compiled binary grows by
+278 528 bytes for the client, the library and `zod` (91 256 288 → 91 534 816
+bytes). Its README says nothing about Bun or
 compiling, so the measurement, not its documentation, is the evidence. The probe's catalogue comes from the protocol's
 own registry read on 2026-10-18: Claude Code through `@agentclientprotocol/claude-agent-acp`
 (a later name for Zed's `claude-code-acp`, which the probe still accepts), Codex
@@ -38,6 +41,14 @@ agent this machine carries itself — `omp acp` — and answers an `initialize`
 handshake, which is why it is the one agent the probe reports connected here.
 Nothing was installed: the task's instruction was to report a missing adapter's
 install command and size, not to install it.
+
+A second measurement decided how the process ends: an agent's own helpers inherit
+the connection's pipes, so waiting for the stream to close can wait forever, and
+an agent left to itself can outlive the unit. The client starts the agent in its
+own process group, treats the process's exit as the end of the connection, and
+signals the whole group on close — SIGTERM, then SIGKILL after two seconds — so a
+unit's helpers end with it. The test starts a helper that holds the pipes and
+asserts that both are gone.
 
 ## Out of scope
 - The unit's limits and how they are enforced — the 272K window, the wrap at
