@@ -102,15 +102,21 @@ None.
   macOS and `error: Module not found "B:\scripts\madarch.ts"` on Windows (runs
   39134773495 and 39135836826), while a `bun` that happened to stand in the
   checkout served by accident and an installed binary could not serve at all.
-  Two measured facts say "this is a bundle", and either is enough: the bundle's
-  own marker in the module URL or in `Bun.main` — `$bunfs` on Linux and macOS
+  Three measured facts say "this is a bundle", and any one is enough: the
+  embedded files the release carries (an empty list in every source and test
+  run), the bundle marker in this module's own URL — `$bunfs` on Linux and macOS
   (`file:///$bunfs/root/<binary>`) and `~BUN` on Windows
   (`B:/~BUN/root/<binary>.exe`, read out of a `--target=bun-windows-x64` build
-  on 2026-10-18) — and a derived script path answering no file. The module URL
-  itself is never asked whether it names a file: the bundle's own filesystem
-  answers its own paths as existing (measured the same day: `existsSync` on the
-  bundle's path is true inside the binary), which is what made an earlier
-  attempt at this rule start `bun /scripts/madarch.ts` on every platform. The
+  on 2026-10-18) — and a derived script path answering no file. `Bun.main` is
+  deliberately none of them: in `bun test` it names the test file rather than
+  the running module (measured on the pod), and trusting it in CI run
+  39137149685's shard started `bun daemon-serve …` inside a test process and the
+  daemon never came up — the defect that run caught before it reached main. Two
+  rules that were tried and dropped, with the measurement that dropped each:
+  the module URL is never asked whether it names a file, because the bundle's
+  own filesystem answers its own paths as existing (`existsSync` on the bundle's
+  path is true inside the binary), and the marker alone is not trusted either,
+  since a path the system cannot resolve is what every platform agrees on. The
   build smoke runs every command from outside the checkout, which is what an
   installed binary sees and what would have caught this.
 - **Liveness where the platform allows it.** Linux and macOS let a process read

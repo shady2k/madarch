@@ -137,29 +137,32 @@ const BUNDLE_MARKER = /[/\\](?:\$bunfs|~BUN)[/\\]/;
  * `daemon-serve`: the bundle holds the command, and a `bun` has no file to
  * read — the release's own words were `error: Module not found
  * "/scripts/madarch.ts"` on Linux and macOS and `error: Module not found
- * "B:\scripts\madarch.ts"` on Windows (runs 39134773495 and 39135836826),
- * each derived from a module URL that names no file a checkout would hold.
+ * "B:\scripts\madarch.ts"` on Windows (runs 39134773495 and 39135836826).
  *
- * Two measured facts say "this is a bundle", and either is enough: the marker
- * in the module URL or in `Bun.main`, and a derived script path that answers
- * no file. The marker is the exact one; the missing file is the fact every
- * platform agrees on (the bundle's fs answers its own paths as existing, so the
- * file is asked for where it would stand, never through the bundle). A program
- * that is neither — a checkout whose script is gone — still starts itself,
- * since that is the only command line left that can answer.
+ * Three measured facts say "this is a bundle", and any one is enough: the
+ * embedded files the release carries (an empty list in every source and test
+ * run, measured 2026-10-18), the bundle marker in this module's own URL, and a
+ * derived script path answering no file. `Bun.main` is deliberately *not* one
+ * of them: in `bun test` it is not this program's module — measured on the pod
+ * as the test file, and in CI run 39137149685, where trusting it started
+ * `bun daemon-serve …` inside a shard and the daemon never came up. A program
+ * that is none of the three — a checkout whose script is gone — still starts
+ * itself, since that is the only command line left that can answer.
  */
 export function daemonCommand(
   home: string,
   port: number,
-  options: { scriptPath?: string; scriptExists?: (path: string) => boolean; moduleUrl?: string; mainModule?: string } = {},
+  options: { scriptPath?: string; scriptExists?: (path: string) => boolean; moduleUrl?: string; embeddedFiles?: readonly unknown[] } = {},
 ): { command: string; args: string[] } {
   const words = ['daemon-serve', '--home', home, '--port', String(port)];
   const scriptPath = options.scriptPath ?? fileURLToPath(new URL('../../scripts/madarch.ts', import.meta.url));
   const scriptExists = options.scriptExists ?? existsSync;
   const moduleUrl = options.moduleUrl ?? import.meta.url;
-  const mainModule = options.mainModule ?? Bun.main;
-  const bundled = BUNDLE_MARKER.test(moduleUrl) || BUNDLE_MARKER.test(mainModule);
-  if (bundled || !scriptExists(scriptPath)) return { command: process.execPath, args: words };
+  // What this program carries inside itself: the release binary embeds the
+  // wiki app and the version, and no source or test run embeds anything.
+  const embedded = options.embeddedFiles ?? (Bun as unknown as { embeddedFiles?: readonly unknown[] }).embeddedFiles ?? [];
+  const bundled = embedded.length > 0 || BUNDLE_MARKER.test(moduleUrl) || !scriptExists(scriptPath);
+  if (bundled) return { command: process.execPath, args: words };
   return { command: 'bun', args: [scriptPath, ...words] };
 }
 
