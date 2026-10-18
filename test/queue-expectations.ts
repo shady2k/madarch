@@ -39,20 +39,68 @@ export const QUEUE_SCENARIO_CHECKS: readonly QueueScenarioCheck[] = [
     },
   },
   {
-    name: 'a singleton key holds a second job back until the first settles, and different keys are independent',
+    name: 'a singleton key holds a second job back while the first is queued or claimed, until it settles, and different keys are independent',
     check: (report) => {
       expect(report.secondKeyCreated).toBe(false);
+      expect(report.keyWhileClaimedCreated).toBe(false);
       expect(report.otherKeyCreated).toBe(true);
       expect(report.keyFreedCreated).toBe(true);
     },
   },
   {
-    name: 'a claim whose lease lapsed is recovered as the next attempt, and the attempt that lost it can neither settle nor heartbeat it',
+    name: 'claiming three jobs of equal priority answers them in the order they were enqueued',
+    check: (report) => {
+      expect(report.equalPriorityOrder).toEqual([
+        { unit: 'first-equal', attempt: 0, leaseSeconds: 60 },
+        { unit: 'second-equal', attempt: 0, leaseSeconds: 60 },
+        { unit: 'third-equal', attempt: 0, leaseSeconds: 60 },
+      ]);
+    },
+  },
+  {
+    name: 'jobs enqueued in one instant come back in code point order of their ids, whatever order the store returns them in',
+    check: (report) => {
+      const ids = report.sameInstantOrder.map((job) => job.id);
+      expect([...report.sameInstantOrder.map((job) => job.unit)].sort()).toEqual(['tie-one', 'tie-three', 'tie-two']);
+      expect(ids).toEqual([...ids].sort());
+    },
+  },
+  {
+    name: 'a claim whose lease lapsed is recovered as the next attempt, and the attempt that lost it can neither settle, heartbeat nor fail the job',
     check: (report) => {
       expect(report.claimsWhileLeaseHeld).toBe(0);
       expect(report.attemptAfterRecover).toBe(1);
       expect(report.staleComplete).toBe(false);
       expect(report.staleHeartbeat).toBe(false);
+      expect(report.staleFail ?? '').toContain('was not failed: its attempt 0 is no longer the one the queue hands out');
+    },
+  },
+  {
+    name: 'a claim that goes quiet past the declared heartbeat interval is recovered before its lease lapses',
+    check: (report) => {
+      // The lease is a minute, so nothing lapsed: only the heartbeat interval
+      // can have made this claim dead.
+      expect(report.heartbeatQuietClaimsBeforeRecover).toBe(0);
+      expect(report.heartbeatLostAttempt).toBe(1);
+      expect(report.heartbeatLostDeadLetters).toBe(0);
+    },
+  },
+  {
+    name: 'a lease that lapses on a job with no retries left dead-letters it',
+    check: (report) => {
+      expect(report.spentLeaseClaims).toBe(0);
+      expect(report.spentLeaseDeadLetters).toEqual([
+        {
+          id: expect.any(String),
+          jobId: expect.any(String),
+          queue: SCENARIO_QUEUES.leaseSpentDead,
+          sourceQueue: SCENARIO_QUEUES.leaseSpent,
+          data: { unit: 'spent' },
+          reason: expect.any(String),
+          retriesSpent: 0,
+          deadLetteredAt: expect.any(Number),
+        },
+      ]);
     },
   },
   {
@@ -75,15 +123,41 @@ export const QUEUE_SCENARIO_CHECKS: readonly QueueScenarioCheck[] = [
       expect(report.fixedClaimsAfterDeadLetter).toBe(0);
       expect(report.fixedDeadLetters).toEqual([
         {
+          // The copy has an id of its own and names the job that failed, whose
+          // id every claim of it carried.
           id: expect.any(String),
+          jobId: report.fixedFailedJobId ?? '',
           queue: SCENARIO_QUEUES.fixedDead,
           sourceQueue: SCENARIO_QUEUES.fixed,
           data: { unit: 'flaky' },
           reason: 'the second attempt failed',
-          attempts: 1,
+          retriesSpent: 1,
           deadLetteredAt: expect.any(Number),
         },
       ]);
+      expect(report.fixedDeadLetters[0]?.id).not.toBe(report.fixedFailedJobId);
+    },
+  },
+  {
+    name: 'dead letters answer newest first, at most the number asked for, none for a queue with no dead letter queue, and a limit beyond the bound is refused naming the queue',
+    check: (report) => {
+      expect(report.twoDeadLetters.map((letter) => letter.data)).toEqual([{ unit: 'second-spent' }, { unit: 'first-spent' }]);
+      expect(report.twoDeadLettersLimited.map((letter) => letter.data)).toEqual([{ unit: 'second-spent' }]);
+      expect(report.fixedDeadLettersWithoutAQueue).toEqual([]);
+      expect(report.deadLettersBeyondTheBound ?? '').toContain(`the read of the queue "${SCENARIO_QUEUES.twoDead}"'s dead letters asked for 100001 of them: a limit is a whole number between 1 and 100000`);
+    },
+  },
+  {
+    name: 'a failure answers what the settlement did: the job’s own retry allowance, not the queue’s latest declaration',
+    check: (report) => {
+      // Enqueued with no retries, so its first failure is final even though the
+      // queue was declared again with three.
+      expect(report.retriesFrozenOutcome).toBe('failed');
+      expect(report.retriesFrozenDeadLetters).toEqual([]);
+      // Enqueued with one retry, so it is retried even though the queue was
+      // declared again with none.
+      expect(report.retriesRaisedOutcome).toBe('retry');
+      expect(report.retriesRaisedAttemptAfterwards).toBe(1);
     },
   },
   {
@@ -109,6 +183,8 @@ export const QUEUE_SCENARIO_CHECKS: readonly QueueScenarioCheck[] = [
       expect(report.undeclaredDeadLetters).toContain(`the queue "${SCENARIO_QUEUES.undeclared}" was never declared`);
       expect(report.missingSingletonKey).toContain(`the queue "${SCENARIO_QUEUES.plans}" holds one unfinished job per singleton key`);
       expect(report.keyOnAPlainQueue).toContain(`the queue "${SCENARIO_QUEUES.units}" holds no singletons`);
+      expect(report.emptySingletonKey ?? '').toContain(`the enqueue into the queue "${SCENARIO_QUEUES.plans}" named an empty singleton key`);
+      expect(report.shortHeartbeat ?? '').toContain('the queue "short-heartbeat" was declared with a heartbeat of 9 seconds: a heartbeat is a whole number of seconds, at least 10, or left out');
     },
   },
 ];

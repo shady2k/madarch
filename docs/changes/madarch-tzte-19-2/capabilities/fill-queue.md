@@ -59,14 +59,19 @@ declaration that would change a queue's singleton rule shall each be refused,
 naming the queue and the field.
 
 ### Scenario: declare-once
-- Given: no queue named `units` exists
+- Given: the queue `units-dead` exists and holds no job
 - When: `units` is declared with a 60-second lease, two retries, a one-second doubling delay and `units-dead` as its dead letter queue
-- Then: the queue exists with exactly those settings, and `units-dead` is a queue too
+- Then: `units` exists with exactly those settings, and a job failed for good on `units` lies in `units-dead`
 
 ### Scenario: declared-again
 - Given: a queue declared with a 60-second lease, and a job enqueued after that declaration
 - When: the queue is declared again with a 30-second lease
 - Then: a job enqueued after the second declaration is claimed with a 30-second lease
+
+### Scenario: heartbeat-too-short
+- Given: a queue that is not declared yet
+- When: it is declared with a nine-second heartbeat interval
+- Then: the declaration is refused with `the queue "short-heartbeat" was declared with a heartbeat of 9 seconds: a heartbeat is a whole number of seconds, at least 10, or left out`
 
 ### Scenario: singleton-rule-fixed
 - Given: a queue created holding no singletons
@@ -85,18 +90,28 @@ claimed first, and its singleton key on a queue that holds singletons, and shall
 answer the job it created or that a job with that key is already unfinished, in
 which case nothing is created. A job may name the moment it may first be claimed,
 and it may be enqueued inside a caller's transaction. A non-whole-number priority,
-a singleton key on a queue that holds no singletons and a missing key on one that
-does shall each be refused, naming the queue.
+a singleton key on a queue that holds no singletons, a missing key on one that
+does and an empty key shall each be refused, naming the queue.
 
 ### Scenario: singleton-held
 - Given: a queue declared with singletons and a job enqueued under the key `a`
 - When: another job is enqueued under `a` and a third under `b`
 - Then: the second created nothing, the third was created, and both keys' jobs are claimed independently
 
+### Scenario: singleton-held-while-claimed
+- Given: the job under `a` claimed
+- When: another job is enqueued under `a`
+- Then: it creates nothing, since a claimed job is unfinished too
+
 ### Scenario: singleton-freed
 - Given: the job under `a` claimed and completed
 - When: a job is enqueued under `a` again
 - Then: it is created, since no unfinished job holds that key
+
+### Scenario: singleton-key-empty
+- Given: a queue declared with singletons
+- When: a job is enqueued with the empty singleton key
+- Then: the enqueue is refused with `the enqueue into the queue "plans" named an empty singleton key: a key is the name a job is unique by, and the queue folds an empty one with no key at all, so it would hold every job of the queue back`
 
 ### Scenario: priority-stored
 - Given: three jobs enqueued with the priorities 1, 5 and 3
@@ -120,7 +135,12 @@ answer no jobs.
 ### Scenario: order
 - Given: three jobs enqueued with the priorities 1, 5 and 3, in that order
 - When: two jobs are claimed, and then one
-- Then: the first claim answers the priority-5 job and then the priority-3 job, and the second answers the priority-1 job, each with attempt 0 and the queue's lease
+- Then: the first claim answers the priority-5 job and then the priority-3 job, and the second answers the priority-1 job, each with attempt 0, the queue's lease and the retry allowance the job was enqueued with
+
+### Scenario: order-equal-priority
+- Given: three jobs of one priority, enqueued one after another
+- When: all three are claimed
+- Then: they come back in the order they were enqueued
 
 ### Scenario: empty
 - Given: a declared queue holding no job
@@ -140,7 +160,9 @@ is still held: false when the attempt is no longer the one the queue hands out,
 or when the job has been settled. A queue that declares a heartbeat interval
 shall treat a claim whose heartbeat is older than that interval as dead at its
 next maintenance pass, which is how a worker that died without settling is
-noticed sooner than the lease would notice it.
+noticed sooner than the lease would notice it: a claim of a job on such a queue,
+never heartbeated, is recovered by a pass ten and a half seconds after the claim
+whose lease is a whole minute.
 
 ### Scenario: kept
 - Given: a claimed job whose attempt is the one in force
@@ -156,6 +178,11 @@ noticed sooner than the lease would notice it.
 - Given: a job claimed and completed
 - When: the attempt that completed it sends a heartbeat
 - Then: the answer is that the claim is not held
+
+### Scenario: interval-lapsed
+- Given: a queue declared with a ten-second heartbeat interval and a 60-second lease, and a job of it claimed and never heartbeated
+- When: ten and a half seconds have passed and a maintenance pass runs
+- Then: the job is claimable again as attempt 1, the answer for its first attempt is that the claim is not held, and nothing was dead-lettered, since a retry was left
 
 ## Requirement: complete — A settlement is fenced to its attempt
 
@@ -182,7 +209,10 @@ while the job has attempts left it shall wait for its next attempt under the
 queue's retry delay, which doubles with the attempt where the queue declares
 backoff, and the answer shall say it will be retried; when its retries are spent
 it shall be marked failed and copied into the queue's dead letter queue, and the
-answer shall say it failed. A failure named by an attempt that is no longer the
+answer shall say it failed. What the answer says is what the settlement did,
+judged by the retry allowance the job itself carries from its enqueue, never by
+the queue's latest declaration: a queue declared again after a job was enqueued
+changes neither that job's allowance nor the answer about it. A failure named by an attempt that is no longer the
 one in force shall settle nothing and shall be refused, naming the job and the
 queue. A failure given a caller's transaction shall commit or roll back with it.
 
@@ -204,17 +234,26 @@ queue. A failure given a caller's transaction shall commit or roll back with it.
 ### Scenario: stale-failure
 - Given: an attempt whose lease lapsed and whose job was handed out again
 - When: the lapsed attempt fails the job
-- Then: the failure is refused with `the job "…" of the queue "units" was not failed: its attempt 0 is no longer the one the queue hands out, or the claim lapsed and the job is already somewhere else`
+- Then: the failure is refused with `the job "…" of the queue "leases" was not failed: its attempt 0 is no longer the one the queue hands out, or the claim lapsed and the job is already somewhere else`
+
+### Scenario: allowance-fixed-at-enqueue
+- Given: a job enqueued on a queue declared with no retries, whose queue is then declared again with three, and a job enqueued on a queue declared with one retry, whose queue is then declared again with none
+- When: each job's first attempt fails
+- Then: the first answers `failed` and is not dead-lettered or claimable again, and the second answers `retry` and is claimable again as attempt 1
 
 ## Requirement: recover — A lapsed claim is recovered
 
-A maintenance pass over a declared queue shall settle every claim whose lease
-lapsed, or whose heartbeat went quiet past the declared interval, as a failed
-attempt through the same retry and dead letter rules as a failure: the job
-returns as its next attempt or is dead-lettered when its retries are spent. A
-process serving the queue shall run such passes while it lives, so a worker that
-died is recovered without anyone asking; the pass shall also be runnable on
-demand.
+A maintenance pass over a declared queue shall settle the claims whose lease
+lapsed, or whose heartbeat went quiet past the declared interval, as failed
+attempts through the same retry and dead letter rules as a failure: the job
+returns as its next attempt or is dead-lettered when its retries are spent. The
+pass shall be runnable on demand, and a service serving a queue shall also run
+passes on its own while the process lives, so that a worker which died is
+recovered without anyone asking; the interval between those passes shall be
+configurable, and a queue shall come due for a sweep once per interval. Those two
+facts together are what "recovered within an interval" means: a pass asked for
+inside a queue's own interval sweeps that queue at its next turn rather than
+twice, and the tests show both the automatic pass and the on-demand one.
 
 ### Scenario: lease-lapsed
 - Given: a job claimed under a one-second lease, whose attempt settles nothing
@@ -226,18 +265,37 @@ demand.
 - When: the maintenance pass runs
 - Then: the job is in the queue's dead letter queue with its reason, and the queue hands out no job
 
+### Scenario: runs-while-the-process-lives
+- Given: a service left to its own passes, over a queue with a one-second lease and a pass every second
+- When: a job is claimed and its attempt does nothing
+- Then: the job is claimable again as attempt 1 within a few passes, without anyone running a pass by hand, and the attempt that abandoned it settles nothing
+
 ## Requirement: dead-letters — Spent jobs are readable with their reason
 
 Reading a queue's dead letters shall answer the jobs its retries were spent on,
-each with the original job's id and data, the queue it failed on, the reason its
-last attempt failed with, how many times it was handed out and when it was
-dead-lettered, newest first and at most the number asked for. A queue that
-declares no dead letter queue shall answer no dead letters.
+each with the copy's own id, the id of the job that failed, that job's data, the
+queue it failed on, the reason its last attempt failed with, how many retries it
+consumed and when it was dead-lettered, newest first and at most the number
+asked for, which shall be a whole number between 1 and 100000 and refused,
+naming the queue, outside that. The order shall be the reader's, not the store's:
+the queue keeps its dead letters oldest first, so a limited read shall take the
+newest of them rather than the oldest. A queue that declares no dead letter queue shall
+answer no dead letters.
 
 ### Scenario: one-dead-letter
 - Given: a job dead-lettered after its retries were spent with the reason `the second attempt failed`
 - When: the queue's dead letters are read
-- Then: one job is answered, with that reason, its source queue, `attempts: 1` and a time
+- Then: one job is answered, with that reason, its source queue, a `jobId` that is the id its claims carried and is not the copy's own `id`, `retriesSpent: 1` and a time
+
+### Scenario: newest-first-and-limited
+- Given: two jobs of one queue dead-lettered, the second after the first
+- When: the queue's dead letters are read, and then read with a limit of one
+- Then: both are answered newest first, and the limited read answers only the second
+
+### Scenario: beyond-the-bound
+- Given: a queue whose dead letters are read with a limit of 100001
+- When: the read is made
+- Then: it is refused with `the read of the queue "two-dead"'s dead letters asked for 100001 of them: a limit is a whole number between 1 and 100000`
 
 ### Scenario: none
 - Given: a queue whose declaration names no dead letter queue, holding a job whose retries were spent

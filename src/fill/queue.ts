@@ -38,6 +38,13 @@ export interface ClaimedJob<Data = unknown> {
   readonly queue: string;
   /** How many times the job was claimed before: 0 on its first attempt, and one more on each retry. */
   readonly attempt: number;
+  /**
+   * How many times this job may be handed out again after a failure: the retry
+   * allowance the job itself carries, stamped when it was enqueued. A queue
+   * declared again after that does not change the jobs already in it, so this is
+   * the number a settlement is judged by, never the queue's latest declaration.
+   */
+  readonly retries: number;
   /** The job's data as it was enqueued. */
   readonly data: Data;
   /**
@@ -146,22 +153,29 @@ export type FailOutcome = 'retry' | 'failed';
 
 /**
  * One job a queue's retries were spent on, as it lies in that queue's dead
- * letter queue. Its data is the original job's, and its reason is the reason its
- * last attempt failed with.
+ * letter queue. The queue keeps a copy rather than the job itself: the copy has
+ * an id of its own and names the job that failed, and its data and its reason
+ * are the failed job's.
  */
 export interface DeadLetter<Data = unknown> {
-  /** The dead letter copy's id, which is the failed job's own id. */
+  /** The dead letter copy's own id, which is the id of the job lying in the dead letter queue. */
   readonly id: string;
-  /** The dead letter queue it lies in. */
+  /**
+   * The id of the job that failed: the id every claim of it carried, which the
+   * copy keeps as its source. A caller holding a unit's job id relates its dead
+   * letter this way.
+   */
+  readonly jobId: string;
+  /** The dead letter queue the copy lies in. */
   readonly queue: string;
-  /** The queue the job failed on. */
-  readonly sourceQueue: string;
-  /** The job's data, as it was enqueued. */
+  /** The queue the job failed on, or null where the copy names none. */
+  readonly sourceQueue: string | null;
+  /** The failed job's data, as it was enqueued. */
   readonly data: Data;
   /** The reason the last attempt failed with, or null where none was given. */
   readonly reason: string | null;
-  /** How many times the job was handed out before it was dead-lettered. */
-  readonly attempts: number;
+  /** How many retries the job consumed before it was dead-lettered: 0 when its first attempt failed. */
+  readonly retriesSpent: number;
   /** When the copy landed in the dead letter queue, in epoch milliseconds. */
   readonly deadLetteredAt: number;
 }
@@ -236,9 +250,11 @@ export interface QueueService {
   recover(queue: string): Promise<void>;
   /**
    * The jobs a queue's retries were spent on, newest first, at most `limit` of
-   * them — 1000 when it is left out, the most one read answers. Refused, naming
-   * the queue, when it was never declared; a queue with no dead letter queue
-   * answers none.
+   * them — 1000 when it is left out, at most 100 000. The read takes the queue's
+   * whole dead letter list, since the queue keeps it oldest first and offers no
+   * order of its own, so a queue holding many dead letters costs the read all of
+   * them. Refused, naming the queue, when it was never declared or the limit is
+   * outside the bound; a queue with no dead letter queue answers none.
    */
   deadLetters<Data>(queue: string, options?: { limit?: number }): Promise<DeadLetter<Data>[]>;
   /**

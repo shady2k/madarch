@@ -27,6 +27,7 @@
  */
 import { PgBoss, fromPglite } from 'pg-boss';
 import type { CommandResponse, Db, Job, JobAttempt, JobWithMetadata, PgBoss as PgBossInstance } from 'pg-boss';
+import { byCodePoint } from '../model/order.js';
 import type { DatabaseOwner } from './database-owner.js';
 import type { OuterTransaction } from '../history/types.js';
 import type {
@@ -43,6 +44,9 @@ import type {
 /** The schema pg-boss's own tables live in, in the database the owner holds. */
 export const DEFAULT_QUEUE_SCHEMA = 'pgboss';
 
+/** The most dead letters one read answers: the bound the database itself takes for a list read. */
+const MAX_DEAD_LETTERS = 100_000;
+
 export interface PgBossQueueOptions {
   /** The process's database owner, opened once and lent: the queue never opens a second database. */
   owner: DatabaseOwner;
@@ -55,6 +59,16 @@ export interface PgBossQueueOptions {
    * for it turns it off.
    */
   supervise?: boolean;
+  /**
+   * How many seconds apart those passes run, at least 1 and at most 3600; 60
+   * when it is left out. A shorter interval recovers a killed worker sooner and
+   * costs the database a pass per interval. It is also the interval at which a
+   * queue's own sweep comes due — pg-boss sweeps a queue only when its monitor
+   * claim is due, which it otherwise takes once a minute whatever this is — so
+   * `recover` inside that window asks for a pass the queue is not due yet and
+   * the next pass takes it.
+   */
+  superviseIntervalSeconds?: number;
 }
 
 /** The shape pg-boss's PGlite adapter reads: a query and a batch, both on the owner's one connection. */
@@ -113,12 +127,6 @@ function settled(answer: CommandResponse): boolean {
   return typeof affected === 'number' && affected > 0;
 }
 
-/** Two ids in code point order, the tie-break that makes a batch's order total. */
-function compareIds(left: string, right: string): number {
-  if (left === right) return 0;
-  return left < right ? -1 : 1;
-}
-
 /** A stored object's name, as the database itself takes one. */
 const OBJECT_NAME = /^[\w.\-/]+$/;
 
@@ -155,8 +163,19 @@ function assertDeclaration(declaration: QueueDeclaration, declared: ReadonlyMap<
   }
 }
 
+/** The pg-boss options one declaration maps to, in the shape both `createQueue` and `updateQueue` take. */
+interface QueueSettings {
+  policy: 'standard' | 'exclusive';
+  expireInSeconds: number;
+  retryLimit: number;
+  retryDelay: number;
+  retryBackoff: boolean;
+  heartbeatSeconds?: number;
+  deadLetter?: string;
+}
+
 /** The pg-boss options one declaration maps to. */
-function queueOptions(declaration: QueueDeclaration): Parameters<PgBossInstance['createQueue']>[1] {
+function queueOptions(declaration: QueueDeclaration): QueueSettings {
   return {
     policy: declaration.singletons === true ? 'exclusive' : 'standard',
     expireInSeconds: declaration.leaseSeconds,
@@ -226,14 +245,23 @@ class PgBossQueue implements QueueService {
         `the queue "${judged.name}" was already created ${holdsSingletons ? 'holding one unfinished job per singleton key' : 'holding no singletons'}, and a queue's singleton rule cannot change after it is created: take the change to a queue of its own name, or declare it as it stands`,
       );
     }
-    const { policy, ...updatable } = queueOptions(judged) ?? {};
-    await this.boss.updateQueue(judged.name, {
-      ...updatable,
-      // Absent means "no heartbeat" and "no dead letter queue", and pg-boss reads an
-      // absent key as "leave as it was": nulls are the way to say the queue has none.
-      heartbeatSeconds: judged.heartbeatSeconds ?? null,
-      deadLetter: judged.deadLetter ?? null,
-    });
+    const { policy, ...updatable } = queueOptions(judged);
+    try {
+      await this.boss.updateQueue(judged.name, {
+        ...updatable,
+        // Absent means "no heartbeat" and "no dead letter queue", and pg-boss reads
+        // an absent key as "leave as it was": nulls are the way to say the queue has
+        // none.
+        heartbeatSeconds: judged.heartbeatSeconds ?? null,
+        deadLetter: judged.deadLetter ?? null,
+      });
+    } catch (error) {
+      // The declaration did not land: the queue stands as the earlier one left it,
+      // or as this declaration's own `createQueue` created it, and this service
+      // does not hold it. Said here, because the caller's next call would
+      // otherwise be refused as if it had never declared the queue at all.
+      throw new Error(`the queue "${judged.name}" was created but its settings were not applied, so it stands as it was: ${error instanceof Error ? error.message : String(error)}`);
+    }
     this.declared.set(judged.name, judged);
   }
 
@@ -241,6 +269,9 @@ class PgBossQueue implements QueueService {
     const declaration = this.declarationOf(request.queue);
     if (declaration.singletons === true && request.singletonKey === undefined) {
       throw new Error(`the queue "${request.queue}" holds one unfinished job per singleton key, and the enqueue named none: pass the key the job is unique by`);
+    }
+    if (request.singletonKey === '') {
+      throw new Error(`the enqueue into the queue "${request.queue}" named an empty singleton key: a key is the name a job is unique by, and the queue folds an empty one with no key at all, so it would hold every job of the queue back`);
     }
     if (declaration.singletons !== true && request.singletonKey !== undefined) {
       throw new Error(`the queue "${request.queue}" holds no singletons, and the enqueue named the singleton key "${request.singletonKey}": a key only holds a job back on a queue declared with singletons`);
@@ -275,15 +306,18 @@ class PgBossQueue implements QueueService {
     const jobs = await this.boss.fetch<Data & object>(request.queue, { batchSize: limit, includeMetadata: true });
     return jobs
       .slice()
-      .sort((left, right) => right.priority - left.priority || left.createdOn.getTime() - right.createdOn.getTime() || compareIds(left.id, right.id))
+      .sort((left, right) => right.priority - left.priority || left.createdOn.getTime() - right.createdOn.getTime() || byCodePoint(left.id, right.id))
       .map((job) => this.claimed(job));
   }
 
-  private claimed<Data>(job: Job<Data>): ClaimedJob<Data> {
+  private claimed<Data>(job: JobWithMetadata<Data>): ClaimedJob<Data> {
     return {
       id: job.id,
       queue: job.name,
       attempt: job.retryCount,
+      // The job's own allowance, not the queue's latest declaration: pg-boss
+      // stamps it on the job when it is enqueued, and a settle is judged by it.
+      retries: job.retryLimit,
       data: job.data,
       leaseSeconds: job.expireInSeconds,
     };
@@ -314,12 +348,15 @@ class PgBossQueue implements QueueService {
 
   async fail(queue: string, job: ClaimedJob, reason: string, transaction?: OuterTransaction): Promise<FailOutcome> {
     const attempt = this.jobOf(queue, job);
-    const declaration = this.declarationOf(queue);
     const answer = await this.boss.fail(queue, attempt, { value: { message: reason } }, transaction === undefined ? undefined : { db: transactionDatabase(transaction) });
     if (!settled(answer)) {
       throw new Error(`the job "${job.id}" of the queue "${queue}" was not failed: its attempt ${String(job.attempt)} is no longer the one the queue hands out, or the claim lapsed and the job is already somewhere else`);
     }
-    return job.attempt < declaration.retries ? 'retry' : 'failed';
+    // The answer is what the settlement did, and pg-boss judges it on the job's
+    // own allowance (`retry_count < retry_limit`), which the job carries from
+    // its enqueue. Reading the queue's latest declaration here would answer
+    // `retry` for a job pg-boss has just failed for good.
+    return job.attempt < job.retries ? 'retry' : 'failed';
   }
 
   async recover(queue: string): Promise<void> {
@@ -332,24 +369,33 @@ class PgBossQueue implements QueueService {
     if (declaration.deadLetter === undefined) {
       return [];
     }
-    const limit = options?.limit ?? 1000;
-    if (!Number.isInteger(limit) || limit < 1) {
-      throw new Error(`the read of the queue "${queue}"'s dead letters asked for ${String(options?.limit)} of them: a limit is a whole number, at least 1`);
+    const limit = options?.limit ?? MAX_DEAD_LETTERS;
+    if (!Number.isInteger(limit) || limit < 1 || limit > MAX_DEAD_LETTERS) {
+      throw new Error(`the read of the queue "${queue}"'s dead letters asked for ${String(options?.limit)} of them: a limit is a whole number between 1 and ${String(MAX_DEAD_LETTERS)}`);
     }
-    const jobs = await this.boss.findJobs<Data & object>(declaration.deadLetter, { limit });
+    // The queue lists its dead letters oldest first and offers no order of its
+    // own, so the whole list is read — at most the bound the database takes for
+    // one read — and the newest of it are answered. Asking the queue for `limit`
+    // rows directly would answer the *oldest* ones, which is not what "newest
+    // first, at most the number asked for" means.
+    const jobs = await this.boss.findJobs<Data & object>(declaration.deadLetter, { limit: MAX_DEAD_LETTERS });
     return jobs
       .map((job) => this.deadLetter(job, declaration.deadLetter as string))
-      .sort((left, right) => right.deadLetteredAt - left.deadLetteredAt);
+      .sort((left, right) => right.deadLetteredAt - left.deadLetteredAt)
+      .slice(0, limit);
   }
 
   private deadLetter<Data>(job: JobWithMetadata<Data>, deadLetterQueue: string): DeadLetter<Data> {
     return {
+      // The copy has an id of its own; the job it was copied from is the source
+      // pg-boss keeps beside it.
       id: job.id,
+      jobId: job.sourceId ?? job.id,
       queue: deadLetterQueue,
-      sourceQueue: job.sourceName ?? '',
+      sourceQueue: job.sourceName,
       data: job.data,
       reason: reasonOf(job.sourceOutput),
-      attempts: job.sourceRetryCount ?? 0,
+      retriesSpent: job.sourceRetryCount ?? 0,
       deadLetteredAt: job.createdOn.getTime(),
     };
   }
@@ -368,6 +414,7 @@ class PgBossQueue implements QueueService {
 export async function createPgBossQueue(options: PgBossQueueOptions): Promise<QueueService> {
   const { owner } = options;
   const database = owner.backend === 'pglite' ? fromPglite(pgliteFace(owner)) : ownerDatabase(owner);
+  const superviseInterval = options.superviseIntervalSeconds ?? 60;
   const boss = new PgBoss({
     // The owner names the engine; pg-boss's profiles for the two are the same
     // set of gates, and naming the one the database really is keeps its own
@@ -376,6 +423,11 @@ export async function createPgBossQueue(options: PgBossQueueOptions): Promise<Qu
     db: database,
     schema: options.schema ?? DEFAULT_QUEUE_SCHEMA,
     supervise: options.supervise ?? true,
+    superviseIntervalSeconds: superviseInterval,
+    // Without this, a queue's monitor claim (taken for a minute whatever the
+    // pass interval is) would hold back the very recovery a shorter interval
+    // was set for.
+    monitorIntervalSeconds: superviseInterval,
     schedule: false,
   });
   await boss.start();

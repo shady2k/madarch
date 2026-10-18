@@ -154,7 +154,37 @@ test('an enqueue inside the caller’s transaction commits with the fact log, an
   }
 }, 60_000);
 
-/** The scenario's own queues, so an edit to it that drops one is caught here rather than silently unused. */
-test('the scenario declares the queues the expectations name', () => {
-  expect(Object.values(SCENARIO_QUEUES)).toEqual(['units', 'units-dead', 'plans', 'leases', 'fixed-retry', 'fixed-retry-dead', 'backoff-retry', 'stale-read']);
-});
+test('every queue the scenario names was declared, and the one it never declares was not', async () => {
+  await scenario;
+  const names = await owner.run(async (transaction) => (await transaction.query<{ name: string }>(`SELECT name FROM ${SCHEMA}.queue`)).rows.map((row) => row.name));
+  // Each queue the scenario uses, dead letter queues included, is a row of the
+  // owner's own queue table; the one it only refuses against is not.
+  expect(names).toEqual(expect.arrayContaining([...Object.values(SCENARIO_QUEUES)].filter((name) => name !== SCENARIO_QUEUES.undeclared)));
+  expect(names).not.toContain(SCENARIO_QUEUES.undeclared);
+}, 60_000);
+
+test('a service left to itself recovers a lapsed claim without anyone asking', async () => {
+  // The adapter's own passes are what make a killed worker recoverable while a
+  // process lives; this shows the pass really runs on its own timer, over a
+  // one-second lease with a pass every second.
+  const alone = createPGliteDatabaseOwner();
+  const queue = await createPgBossQueue({ owner: alone, schema: 'supervised', supervise: true, superviseIntervalSeconds: 1 });
+  try {
+    await queue.declare({ name: 'supervised', leaseSeconds: 1, retries: 2, retryDelaySeconds: 0, retryBackoff: false });
+    await queue.enqueue({ queue: 'supervised', data: { unit: 'abandoned' } });
+    const claimed = (await queue.claim<{ unit: string }>({ queue: 'supervised' }))[0]!;
+    expect(claimed.attempt).toBe(0);
+    const deadline = Date.now() + 15_000;
+    let again = (await queue.claim<{ unit: string }>({ queue: 'supervised' }))[0];
+    while (again === undefined && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      again = (await queue.claim<{ unit: string }>({ queue: 'supervised' }))[0];
+    }
+    // The claim that abandoned it is not the one the queue hands out any more.
+    expect(again?.attempt).toBe(1);
+    expect(await queue.complete('supervised', claimed)).toBe(false);
+  } finally {
+    await queue.stop();
+    await alone.close();
+  }
+}, 60_000);

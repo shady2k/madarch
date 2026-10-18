@@ -129,6 +129,14 @@ None.
   one short transaction — is expressible. A call made from inside the owner's own
   transaction without being given it is refused by the owner, as madarch-tzte.19.1
   made it.
+- **A dead letter is a copy, and it says so.** pg-boss keeps a spent job as a new
+  row in the dead letter queue: the copy has an id of its own and carries the
+  failed job's id as its source, so `DeadLetter` answers both — `id` for the copy
+  and `jobId` for the job that failed — with the failed job's data, its queue and
+  the reason its last attempt failed with, and `retriesSpent` rather than a count
+  of hand-outs, which is what pg-boss's `sourceRetryCount` is (the review of this
+  change found the first version answering the copy's id as the job's, and the
+  tests now pin both ids apart).
 - **A claim is ordered by the adapter, because pg-boss does not order a batch.**
   pg-boss selects the top-N jobs by priority and creation time, but the rows an
   `UPDATE … RETURNING` hands back are in no promised order: `fetch` with a batch
@@ -148,8 +156,12 @@ None.
 - **Failures and recovery settle through pg-boss's own rules.** `fail` stores the
   reason as the job's output (`{ value: { message } }`, which is where pg-boss
   keeps a failure's message) and answers `retry` or `failed` from the attempt it
-  was given against the queue's retries, so a caller learns what happened without
-  a second read. `recover` runs one pg-boss supervision pass over the queue,
+  was given against the retry allowance the *job* carries, which pg-boss stamps
+  on it at enqueue: a queue declared again after a job was enqueued does not
+  change that job's allowance, so reading the queue's latest declaration would
+  answer `retry` for a job pg-boss had just failed for good (found by the review
+  of this change; the scenario now declares a queue again between enqueue and
+  failure, both ways round). `recover` runs one pg-boss supervision pass over the queue,
   which is what expires the claims whose lease lapsed and fails those whose
   heartbeat went quiet; the adapter leaves pg-boss's own background passes on
   while the process lives, so a killed worker is recovered without anyone asking,
@@ -172,12 +184,45 @@ None.
   walk in CI builds the binary that way on this change's pull request, since it
   watches `package.json`), and the queue's compiled-binary test stages the same
   three for the binary it builds.
+- **A queue's own sweep is due once per pass interval.** pg-boss sweeps a queue
+  only when its monitor claim comes due, which it takes for a minute whatever the
+  pass interval is; with a one-second pass interval that gate would hold back the
+  very recovery the interval was set for (measured: a lapsed one-second claim
+  stayed `active` for eight seconds with the default gate, and was recovered
+  within two with the gate aligned). The adapter therefore sets the monitor
+  interval to the pass interval, and says in the option's own words that a pass
+  asked for inside a queue's interval sweeps at its next turn.
+- **The PostgreSQL leg runs in CI's checks job.** The queue's PostgreSQL suite
+  skips itself where `MADARCH_TEST_POSTGRES_URL` is unset, and no sharded test
+  job sets one, so `.github/workflows/ci.yml` now runs `test/queue-postgres.test.ts`
+  beside the query adapter's own PostgreSQL test, in the one job that has a
+  server. Without it the queue's postgres profile, its pooled statements and
+  `PostgresOwner.exec` — the batch path its schema install needs — ran nowhere.
 - **Messages are stated after measuring pg-boss, not assumed.** The claim order
   above, and that a settled or lapsed attempt's settle answers `affected: 0`
   (pg-boss's published answer type is empty while its runtime carries `{ jobs,
   requested, affected, settled }`), were read from the library's behaviour in a
   probe on this machine before they were written down; `settled()` in the adapter
   reads the runtime shape and the tests pin it.
+
+- **What the review changed.** One independent review ran over this change's
+  first commit and found two defects, one pipeline gap and five coverage
+  weaknesses; all are fixed with tests, and its nits are taken. The defects: a
+  dead letter answered the *copy's* id where the capability promises the failed
+  job's (the queue keeps a new row and names the original in its source, so
+  `DeadLetter` answers both ids now, pinned apart by the scenario); and `fail`
+  judged its answer on the queue's latest declaration while pg-boss judges it on
+  the allowance stamped on the job, so a queue declared again between enqueue and
+  failure could answer `retry` for a job already failed for good (it now reads
+  the job's own allowance, and the scenario re-declares such a queue both ways
+  round). The gap: no CI job gives the sharded suite a PostgreSQL server, so the
+  PostgreSQL leg was skipped everywhere — the checks job runs it now beside the
+  query adapter's own PostgreSQL test. The coverage the review asked for is in
+  the scenario: the stale attempt's failure refusal, a queue's heartbeat interval
+  (its refusal under ten seconds and a claim recovered when its heartbeat went
+  quiet), a lapsed lease on a job with no retries left, the automatic passes, the
+  dead letter queue's absent, newest-first, limited and out-of-bound reads, and
+  the batch's three ordering keys.
 
 ## DONE WHEN
 
