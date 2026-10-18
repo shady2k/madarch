@@ -11,11 +11,8 @@
  */
 import { StageRegistry } from '../registry.js';
 import type { SnapshotSource } from '../snapshot.js';
-<<<<<<< HEAD
 import { createDocumentIndexStage } from './document-index.js';
-=======
 import { createGitHistoryReader, createHistoryStage, type CheckoutFolderOf } from './history.js';
->>>>>>> 1c08e03e (Read each source file's declarations with tree-sitter, as facts of the graph)
 import { createInventoryStage } from './inventory.js';
 import { createSnapshotStage } from './snapshot.js';
 import { createSyntaxStage } from './syntax.js';
