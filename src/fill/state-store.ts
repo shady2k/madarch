@@ -599,22 +599,35 @@ export async function readRunUnits(database: FillStateDatabase, runId: string): 
 }
 
 /**
- * Revokes the lease in force on a unit generation, if it holds one: the storage
- * half of the machine's `suspend-parent` effect, whose words are "the
- * orchestrator releases the parent's lease while its children run". The lease
- * row stays as the record of the attempt, marked revoked at this moment, so a
- * late worker of that attempt is refused by the machine's own `fence-current`
- * guard and by this revocation alike. The fencing token is not touched: it
- * belongs to the generation, not to the attempt that held it.
+ * Revokes the lease of one fencing token on a unit generation: the storage half
+ * of the machine's `suspend-parent` effect, whose words are "the orchestrator
+ * releases the parent's lease while its children run". The lease row stays as
+ * the record of the attempt, marked revoked at this moment, so a late worker of
+ * that attempt is refused by the machine's own `fence-current` guard and by this
+ * revocation alike. The fencing token is not touched: it belongs to the
+ * generation, not to the attempt that held it. Answers the lease as it stands
+ * afterwards, or null when the generation held no lease under that token.
  */
-export async function revokeUnitLease(database: FillStateDatabase, options: { readonly unitId: string; readonly generation: number; readonly at: number }): Promise<UnitLeaseRecord | null> {
+export async function revokeUnitLease(database: FillStateDatabase, options: { readonly unitId: string; readonly generation: number; readonly fence: number; readonly at: number }): Promise<UnitLeaseRecord | null> {
   const at = here();
   return run(at, database, `revokeUnitLease(${options.unitId}/${options.generation})`, ['fill_unit_lease'], async (executor) => {
     await executor.query(
-      'UPDATE fill_unit_lease SET revoked_at = COALESCE(revoked_at, $3) WHERE unit_id = $1 AND generation = $2',
-      [options.unitId, options.generation, options.at],
+      'UPDATE fill_unit_lease SET revoked_at = COALESCE(revoked_at, $4) WHERE unit_id = $1 AND generation = $2 AND fence = $3',
+      [options.unitId, options.generation, options.fence, options.at],
     );
-    return null;
+    const { rows } = await executor.query<LeaseRow>(
+      'SELECT attempt, fence, holder, issued_at, expires_at, revoked_at FROM fill_unit_lease WHERE unit_id = $1 AND generation = $2 AND fence = $3',
+      [options.unitId, options.generation, options.fence],
+    );
+    const row = rows[0];
+    return row === undefined ? null : {
+      attempt: millis(row.attempt),
+      fence: millis(row.fence),
+      holder: row.holder,
+      issuedAt: millis(row.issued_at),
+      expiresAt: millis(row.expires_at),
+      revokedAt: maybeMillis(row.revoked_at),
+    };
   }, 'write');
 }
 

@@ -120,6 +120,15 @@ export interface FillOrchestratorServiceOptions {
   readonly registry: StageRegistry;
   /** One product's wiring; a service without it refuses every run, naming what is missing. */
   readonly wiring?: (product: FillProduct) => Promise<ProductFillWiring> | ProductFillWiring;
+  /**
+   * The process's own database owner, when the host already holds one (decision
+   * 0027's one owner per process, which is what lets a publication's facts and
+   * the orchestrator's record share a transaction): the service borrows it for
+   * the fill's tables and the queue and never closes it. Left out, the service
+   * opens its own PGlite under the home on the first run asked for and closes it
+   * with everything else it opened.
+   */
+  readonly owner?: DatabaseOwner;
   /** The process's database's data directory; `<home>/.madarch/fill/state.db` when it is left out. */
   readonly databasePath?: string;
   /** The units' queue's name; `fill-units` when it is left out. */
@@ -153,16 +162,17 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
   const databasePath = options.databasePath ?? fillDatabasePath(options.home);
   const queueName = options.queueName ?? DEFAULT_FILL_QUEUE;
   const limits = { ...DEFAULT_ORCHESTRATOR_LIMITS, ...options.limits };
-  let opening: Promise<{ owner: DatabaseOwner; queue: QueueService }> | undefined;
+  let opening: Promise<{ owner: DatabaseOwner; queue: QueueService; opened: boolean }> | undefined;
   let stopped = false;
 
-  async function open(owner?: DatabaseOwner): Promise<{ owner: DatabaseOwner; queue: QueueService }> {
+  async function open(): Promise<{ owner: DatabaseOwner; queue: QueueService; opened: boolean }> {
     if (opening !== undefined) return await opening;
     opening = (async () => {
       // PGlite opens a data directory, and the state folder it stands in may not be there yet: the
       // process's own folder under the products home is made on the first run asked for.
-      if (owner === undefined) await mkdir(dirname(databasePath), { recursive: true });
-      const database = owner ?? createPGliteDatabaseOwner({ path: databasePath });
+      const lent = options.owner;
+      if (lent === undefined) await mkdir(dirname(databasePath), { recursive: true });
+      const database = lent ?? createPGliteDatabaseOwner({ path: databasePath });
       await createFillStateSchema(database);
       await createOrchestratorSchema(database);
       const queue = options.queueFactory !== undefined
@@ -178,7 +188,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
         retryBackoff: false,
         singletons: true,
       });
-      return { owner: database, queue };
+      return { owner: database, queue, opened: lent === undefined };
     })();
     return await opening;
   }
@@ -253,7 +263,10 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       const opened = await opening;
       let failure: unknown;
       try { await opened.queue.stop(); } catch (error) { failure ??= error; }
-      try { await opened.owner.close(); } catch (error) { failure ??= error; }
+      // A lent owner is the host's: only an owner this service opened is closed here.
+      if (opened.opened) {
+        try { await opened.owner.close(); } catch (error) { failure ??= error; }
+      }
       if (failure !== undefined) throw failure;
     },
   };

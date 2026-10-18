@@ -430,7 +430,10 @@ export function daemonStatus(options: { home?: string }): number {
  * a run is refused with what is missing rather than publishing nothing.
  */
 export function daemonFillOrchestrator(home: string, options: Omit<FillOrchestratorServiceOptions, 'home' | 'registry'> & { readonly registry?: StageRegistry } = {}): FillOrchestratorService {
-  return createFillOrchestratorService({ home, registry: options.registry ?? new StageRegistry(), ...options });
+  // The registry is taken out before the rest is spread: a caller that leaves it out gets the empty
+  // registry this process holds today, never the `undefined` a spread would put back.
+  const { registry, ...rest } = options;
+  return createFillOrchestratorService({ home, registry: registry ?? new StageRegistry(), ...rest });
 }
 
 /** The daemon child's own entry (`madarch daemon-serve`): serves every valid product in the home until stopped. */

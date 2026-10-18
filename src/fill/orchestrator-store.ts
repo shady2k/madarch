@@ -28,6 +28,7 @@
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
 import { byCodePoint } from '../model/order.js';
+import type { FillRun } from '../product/fill-runtime.js';
 import type { SqlExecutor } from '../query/sql-driver.js';
 import { here, raise } from './fsm-core.js';
 import { advanceUnitIn, type UnitRecord } from './state-store.js';
@@ -413,12 +414,23 @@ export type PublicationOutcome =
   | { readonly outcome: 'replayed'; readonly record: PublicationRecord }
   | { readonly outcome: 'refused'; readonly code: string; readonly reason: string; readonly record: PublicationRecord | null };
 
-/** One publication request: the generation, the fence, the digest and how its facts are applied. */
+/** One publication request: the generation, the fence, what identifies it and how its facts are applied. */
 export interface PublicationRequest {
   readonly unitId: string;
   readonly generation: number;
   readonly fence: number;
-  readonly digest: string;
+  /**
+   * What the publication publishes, beside the draft set it reads inside the
+   * transaction: the inputs the generation recorded and the stage module's id
+   * and version. A rerun under a newer stage module is therefore a different
+   * publication of the same generation, which the unique record refuses rather
+   * than overwriting.
+   */
+  readonly identity: {
+    readonly inputsDigest: string;
+    readonly stageId: string;
+    readonly stageVersion: number;
+  };
   readonly at: number;
   /**
    * Rechecks one recorded read against the graph as it stands now: the digest of
@@ -429,8 +441,11 @@ export interface PublicationRequest {
   readonly revalidate: (read: TrackedRead) => Promise<{ readonly membership: string; readonly members: number }>;
   /**
    * Applies the unit's fact set within its ownership scope, inside this same
-   * transaction, and answers how many facts it applied. The database owner is
-   * the only writer; this callback is where the facts reach it.
+   * transaction, and answers how many facts it applied. It runs after the
+   * generation entered `published` in this transaction and before the
+   * publication record is written, so a failure here — or the record's own
+   * refusal — rolls back the facts, the state and the record together. The
+   * database owner is the only writer; this callback is where the facts reach it.
    */
   readonly apply: (executor: SqlExecutor, writes: readonly StageDraftWrite[]) => Promise<number>;
 }
@@ -439,8 +454,8 @@ export interface PublicationRequest {
  * Publishes one unit generation exactly once, in one transaction of the
  * caller's: the checks decision 0027 names (the generation and the fence as the
  * machine holds them, the run's control and its cancellation intent), the
- * recorded reads rechecked, the facts applied through `apply`, the machine's own
- * `publish` step, and the uniquely constrained record. A repeated request with
+ * recorded reads rechecked, the machine's own `publish` step, the facts applied
+ * through `apply`, and the uniquely constrained record. A repeated request with
  * the same identity and digest answers the existing record; a different digest
  * is refused and nothing is written.
  */
@@ -449,24 +464,18 @@ export async function publishUnit(
   options: PublicationRequest,
 ): Promise<PublicationOutcome> {
   const at = here();
-  return run(at, database, `publishUnit(${options.unitId}/${options.generation})`, ['fill_publication', 'fill_unit_read', 'fill_unit_draft', ...ORCHESTRATOR_TABLES], async (executor) => publishUnitIn(executor, options), 'write');
+  return run(at, database, `publishUnit(${options.unitId}/${options.generation})`, ['fill_publication', 'fill_unit_read', 'fill_unit_draft'], async (executor) => publishUnitIn(executor, options), 'write');
 }
 
-/** Publishes one unit generation inside a transaction the caller already opened. */
+/**
+ * Publishes one unit generation inside a transaction the caller already opened.
+ * The order is the decision's own: the generation's identity, the run's control,
+ * the reads the draft stands on, the machine's `publish` step — which takes the
+ * generation's row `FOR UPDATE`, so two publishers of one generation are
+ * serialized here — the facts, and the record. A step the machine refuses is a
+ * value, and it is answered before anything is applied or written.
+ */
 export async function publishUnitIn(executor: SqlExecutor, options: PublicationRequest): Promise<PublicationOutcome> {
-  const existing = await readPublicationIn(executor, options.unitId, options.generation);
-  if (existing !== null) {
-    if (existing.digest !== options.digest) {
-      return {
-        outcome: 'refused',
-        code: 'fill-publication/digest-mismatch',
-        reason: `fill-publication: unit "${options.unitId}" generation ${options.generation} was already published as ${existing.digest}, and this request publishes ${options.digest}: one generation has one publication, and a different one would replace what was published`,
-        record: existing,
-      };
-    }
-    return { outcome: 'replayed', record: existing };
-  }
-
   // The run's own control, inside the same transaction: a run that is cancelling or cancelled revokes
   // the authority of everything it planned, and a failed run publishes nothing. A pause drains, so a
   // publication already under way is allowed to finish — the pause's settlement waits for it.
@@ -492,23 +501,47 @@ export async function publishUnitIn(executor: SqlExecutor, options: PublicationR
     };
   }
 
-  // The draft the publication applies: a retracted one is not there to publish.
+  // What this request would publish: the draft set as it stands in the same transaction.
   const draft = await readUnitDraftIn(executor, options.unitId, options.generation);
-  if (draft === null || draft.retractedAt !== null) {
+  if (draft === null) {
     return {
       outcome: 'refused',
       code: 'fill-publication/no-draft',
-      reason: draft === null
-        ? `fill-publication: unit "${options.unitId}" generation ${options.generation} has no recorded draft set to publish`
-        : `fill-publication: the draft set of unit "${options.unitId}" generation ${options.generation} was retracted at ${draft.retractedAt}; a retracted draft is not published`,
+      reason: `fill-publication: unit "${options.unitId}" generation ${options.generation} has no recorded draft set to publish`,
+      record: null,
+    };
+  }
+  const digest = publicationDigest({
+    inputsDigest: options.identity.inputsDigest,
+    draft: draft.digest,
+    stageId: options.identity.stageId,
+    stageVersion: options.identity.stageVersion,
+  });
+
+  const existing = await readPublicationIn(executor, options.unitId, options.generation);
+  if (existing !== null) {
+    if (existing.digest !== digest) {
+      return {
+        outcome: 'refused',
+        code: 'fill-publication/digest-mismatch',
+        reason: `fill-publication: unit "${options.unitId}" generation ${options.generation} was already published as ${existing.digest}, and this request publishes ${digest}: one generation has one publication, and a different one would replace what was published`,
+        record: existing,
+      };
+    }
+    return { outcome: 'replayed', record: existing };
+  }
+  if (draft.retractedAt !== null) {
+    return {
+      outcome: 'refused',
+      code: 'fill-publication/no-draft',
+      reason: `fill-publication: the draft set of unit "${options.unitId}" generation ${options.generation} was retracted at ${draft.retractedAt}; a retracted draft is not published`,
       record: null,
     };
   }
 
   // Every recorded read, rechecked as it stands now. An empty answer that became
   // a non-empty one refuses here like any other moved membership.
-  const reads = await readUnitReadsIn(executor, options.unitId, options.generation);
-  for (const read of reads) {
+  for (const read of await readUnitReadsIn(executor, options.unitId, options.generation)) {
     const now = await options.revalidate(read);
     if (now.membership !== read.membership) {
       return {
@@ -520,7 +553,8 @@ export async function publishUnitIn(executor: SqlExecutor, options: PublicationR
     }
   }
 
-  const facts = await options.apply(executor, draft.writes);
+  // The machine's own step first, then the facts, then the record: a refusal here writes nothing at all,
+  // and a failure of the facts rolls the step back with them.
   const step = await advanceUnitIn(executor, {
     unitId: options.unitId,
     event: { type: 'publish', at: options.at, generation: options.generation, fence: options.fence, readsFresh: true },
@@ -528,13 +562,14 @@ export async function publishUnitIn(executor: SqlExecutor, options: PublicationR
   if (!step.ok) {
     return { outcome: 'refused', code: step.refusal.code, reason: step.refusal.reason, record: null };
   }
+  const facts = await options.apply(executor, draft.writes);
   await executor.query(
     'INSERT INTO fill_publication (unit_id, generation, digest, facts, published_at) VALUES ($1, $2, $3, $4, $5)',
-    [options.unitId, options.generation, options.digest, facts, options.at],
+    [options.unitId, options.generation, digest, facts, options.at],
   );
   return {
     outcome: 'published',
-    record: { unitId: options.unitId, generation: options.generation, digest: options.digest, facts, publishedAt: options.at },
+    record: { unitId: options.unitId, generation: options.generation, digest, facts, publishedAt: options.at },
     effects: step.effects,
   };
 }
@@ -576,13 +611,12 @@ export type { UnitRecord };
 // The run's snapshot and its units' place in the plan
 // ---------------------------------------------------------------------------------------------
 
-/** The pinned product snapshot one run was planned against (fill-runtime's own shape, kept by decision 0027). */
-export interface RunSnapshot {
-  readonly repository: string;
-  readonly defaultBranch: string;
-  readonly commit: string;
-  readonly registryHash: string;
-}
+/**
+ * The pinned product snapshot one run was planned against: fill-runtime's own
+ * `productSnapshot` shape, kept by decision 0027 rather than written again here,
+ * so the old path and the orchestrator name one snapshot the same way.
+ */
+export type RunSnapshot = FillRun['productSnapshot'];
 
 /** One run's resolved configuration: the pinned snapshot and the digest of the stage configurations it planned with. */
 export interface RunConfigurationRecord {
@@ -745,6 +779,7 @@ export interface FillProgressEvent {
 export const PROGRESS_KINDS = [
   'run-planned', 'run-started', 'run-blocked', 'run-paused', 'run-resumed', 'run-cancelling', 'run-cancelled',
   'run-completed', 'run-completed-partial', 'run-failed',
+  'stage-found-nothing',
   'unit-planned', 'unit-admitted', 'unit-leased', 'unit-started', 'unit-read', 'unit-progress', 'unit-drafted', 'unit-validating',
   'unit-published', 'unit-split', 'unit-joined', 'unit-blocked', 'unit-unblocked', 'unit-retried', 'unit-failed',
   'unit-stale', 'unit-cancelled',

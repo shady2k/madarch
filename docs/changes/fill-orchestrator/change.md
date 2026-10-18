@@ -164,13 +164,72 @@ None.
   the generation that was sealed, never as the one in force), and the storage half
   of the machine's `suspend-parent` effect, which releases a parent's lease while
   its children run.
+- **The run records what it resolved before anything else.** A starved consumer
+  is a run that planned and is then blocked, not a run that never planned: the
+  machine allows `block` only from `planning`, so the `plan` step (and the
+  configuration record it stands on) is taken first, and a graph that does not
+  read at all is refused where it stands, before any step. A run whose units were
+  all reused plans nothing and still succeeds: its required coverage is "nothing
+  the run planned was lost", and decision 0027's distinction between "no producer"
+  and "producer found nothing" is reported as its own durable event
+  (`stage-found-nothing`) rather than read from a count of units.
+- **Ageing lifts a unit one place per step it waited.** The order is the earlier
+  stage first, then the plan's own position with the ageing subtracted, then the
+  unit id in code point order; one step brings a unit level with the one before
+  it, where the id decides, and the second takes it past. A later stage's unit
+  never overtakes an earlier stage's, however long it waited: the stage graph is
+  the fill's own order.
+
 - **The server owns it.** `createFillOrchestratorService` builds the service the
   background server holds: it opens the process's database, creates the fill's
   tables and declares the queue on the first run asked for, and closes them when
   the server stops. The daemon creates it beside the wikis it serves and the
   server stops it with what it opened. The fill's own stages are registered by
-  later tasks, so a run asked for today is refused at planning with the stage
-  graph it does not have, never served a partial result.
+  later tasks and no product's graph or fact store is wired yet, so a run asked
+  for today is refused before it starts, with `fill-orchestrator/no-wiring`
+  naming the snapshot, the configuration, the graph the units read, the inputs
+  their facts stand on and the store a published fact set lands in — never served
+  a run that would publish nothing in silence. The daemon still owns the service
+  and stops it with everything else it opened, so the wiring a later task adds is
+  a change to what the daemon passes and nothing else.
+- **What the review changed.** One independent read-only review ran over this
+  change and found two defects, eight should-fix items and nine nits; all of them
+  are answered here, with a test where a test can say it.
+  - The two defects: the publication applied the unit's facts **before** the
+    machine's `publish` step, so a step the machine refused — a generation that
+    went stale, a fence an attempt had lost — still committed its facts, because
+    a refusal is a value and not a throw; the step is now taken first (its own
+    `FOR UPDATE` on the generation's row serializes two publishers), the facts
+    follow, and the record is written last, so a refusal writes nothing and a
+    failure of the facts rolls the step back with them. And a run recorded
+    `succeeded` while one of its units waited for a retry that was not due yet:
+    the run's own evidence now counts every `retry_wait` generation as work it
+    still owes, so a run cannot finish with a retry coming.
+  - The should-fixes: the staleness sweep had no production caller, and the
+    scheduler now runs it when the run has nothing else outstanding, before the
+    run may finish; "reuse" was wider than the capability claims, and planning
+    now inherits exactly a published generation whose inputs did not move,
+    replaces a published or stale one whose inputs did, and refuses a unit
+    another run is working on or left behind, by name; `record-resolution` is
+    performed as the run's own durable event in the person's words (said in the
+    code where the effect is performed); the claimed-but-untested scenarios now
+    have tests, the server stopping the orchestrator it was given among them; the
+    three transactions the orchestrator opens itself name their file, their line
+    and the tables they touched, as the store's own operations do; and a step the
+    machine refuses on a unit is reported (`UnitRefusal`) by the cancellation, the
+    staleness sweep and the human-edit guard, never dropped in silence.
+  - The nits: a dead ternary; the digest a starved run records says it resolved
+    no configuration and names the paths rather than digesting the empty set of
+    stages; `revokeUnitLease` revokes the fence it is given and answers that
+    lease; `unit-leased` is emitted; a stage's progress notes are written durably
+    after the attempt instead of being fired and forgotten; the run's snapshot is
+    fill-runtime's own `productSnapshot` type rather than a second shape; whether
+    planning created a unit is read before the creation rather than guessed from
+    timestamps; the queue's heartbeat answer is honoured, so an attempt whose
+    claim lapsed spends nothing; the publication's digest is computed inside the
+    publication's transaction from the draft that transaction holds; and the
+    daemon's default registry is no longer overridable by a spread.
+
 
 The owner approval required for a behavior change is pending the coordinator;
 the record on the task says so in the coordinator's own words.
