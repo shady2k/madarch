@@ -428,6 +428,33 @@ describe('the syntax stage reads one source file', () => {
     }
   });
 
+  test('a file nested past what the walk can read is the unit\'s coverage gap, not a raised unit', async () => {
+    const f = await fixture();
+    try {
+      // The walk is recursive, so only a depth well past any real file reaches
+      // this: the threshold is the machine's stack, hence the headroom here.
+      const depth = 12_000;
+      const deep = `${Array.from({ length: depth }, (_, index) => `function f${index}() {`).join('\n')}\n${'}'.repeat(depth)}\n`;
+      await f.write('src/deep.ts', deep);
+      const commit = f.commit();
+      const stage = createSyntaxStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const unit = { id: fileUnitId('orders-api', 'src/deep.ts'), scope: 'orders-api:src/deep.ts' };
+      const run = contextFor(unit);
+      expect(await stage.execute(unit, run.context)).toEqual({ outcome: 'draft' });
+      expect(kindsOf(run.recorder.writes)).toEqual(['coverage']);
+      expect(factOfKind(run.recorder.writes, 'coverage').value).toEqual({
+        repository: 'orders-api',
+        scope: 'src/deep.ts',
+        complete: false,
+        read: [],
+        unread: [{ what: 'src/deep.ts', reason: 'error' }],
+      });
+      expect(run.recorder.notes.join(' ')).toContain('nested past what this reader can walk');
+    } finally {
+      await f.dispose();
+    }
+  });
+
   test('the same file read twice is the same facts, and a cancelled unit publishes nothing', async () => {
     const f = await fixture();
     try {

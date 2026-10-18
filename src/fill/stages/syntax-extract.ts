@@ -265,9 +265,9 @@ function emptyFindings(path: string, language: SyntaxLanguage | null, unread: re
  * both use.
  */
 const TS_CONTAINERS: readonly string[] = [
-  'abstract_class_declaration', 'class', 'class_declaration', 'enum_declaration', 'function_declaration',
-  'function_expression', 'generator_function_declaration', 'interface_declaration', 'internal_module',
-  'method_definition', 'module', 'type_alias_declaration',
+  'abstract_class_declaration', 'arrow_function', 'class', 'class_declaration', 'enum_declaration',
+  'function_declaration', 'function_expression', 'generator_function_declaration', 'interface_declaration',
+  'internal_module', 'method_definition', 'module', 'type_alias_declaration',
 ];
 
 /**
@@ -276,7 +276,10 @@ const TS_CONTAINERS: readonly string[] = [
  * function expression that is nobody's default export is an expression, not a
  * declaration, and no gap either.
  */
-const ANONYMOUS_EXPRESSIONS: readonly string[] = ['class', 'function_expression', 'arrow_function'];
+const ANONYMOUS_EXPRESSIONS: readonly string[] = ['class', 'function_expression'];
+
+/** The expression kinds whose own name is local to the expression, and no way into the module. */
+const EXPRESSION_NAMES: readonly string[] = ['class', 'function_expression'];
 
 const GO_CONTAINERS: readonly string[] = ['function_declaration', 'method_declaration', 'type_spec', 'field_declaration', 'const_spec', 'var_spec'];
 
@@ -486,8 +489,10 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
     // where every other declaration names itself by an identifier, and a name of
     // neither shape (`declare module '*'`) is this declaration's gap.
     const moduleName = type === 'module' || type === 'internal_module' ? node.childForFieldName('name') : null;
-    const nameNodes = moduleName !== null && stringNode(moduleName) !== null
-      ? (named(stringValue(text, moduleName)) ? [moduleName] : [])
+    const nameNodes = moduleName !== null
+      ? (stringNode(moduleName) !== null
+        ? (IDENTIFIER.test(stringValue(text, moduleName)) ? [moduleName] : [])
+        : (nestedName(text.slice(moduleName.startIndex, moduleName.endIndex)) !== undefined ? [moduleName] : []))
       : withEmbeddedField(nameNodesOf(node), node, text, go)
         .filter((candidate) => IDENTIFIER.test(text.slice(candidate.startIndex, candidate.endIndex)));
     if (nameNodes.length === 0) {
@@ -525,7 +530,11 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
       // module may call, by a name it can reach. A method or a nested
       // declaration is no way in from outside the file.
       const exported = go ? /^\p{Lu}/u.test(name) : exportedByClause.has(name) || withinExport(node);
-      if (exported && owned.length === 0 && (go || !withinExportedValue(node))) {
+      // A name a *named expression* carries is local to that expression
+      // (`export const C = class Named {…}` exports `C`, and `Named` is nobody
+      // else's name), so it is no way into the module.
+      const reachable = !EXPRESSION_NAMES.includes(type) && !defaultExportCarries(node);
+      if (reachable && exported && owned.length === 0 && (go || !withinExportedValue(node))) {
         entryPoints.push({ name, form: 'library-export', span: spanOf(nameNode) });
       }
       if (go && kind === 'function' && name === 'main' && declaresMainPackage(root, text)) {
@@ -545,7 +554,7 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
 
   const visit = (node: SyntaxNode, container: readonly string[]): void => {
     record(node, container);
-    const name = declaredName(node, text);
+    const name = declaredName(node, text) ?? holderName(node, text);
     const containers = go ? GO_CONTAINERS : TS_CONTAINERS;
     const inner = name !== undefined && name !== '' && containers.includes(node.type) ? [...container, name] : container;
     for (const child of node.namedChildren) {
@@ -720,9 +729,15 @@ function declaredName(node: SyntaxNode, text: string): string | undefined {
   const held = (node.type === 'module' || node.type === 'internal_module') ? node.childForFieldName('name') : null;
   if (held !== null && stringNode(held) !== null) {
     const name = stringValue(text, held);
-    return named(name) ? name : undefined;
+    return IDENTIFIER.test(name) ? name : undefined;
   }
+  if (held !== null) return nestedName(text.slice(held.startIndex, held.endIndex));
   return nameOf(node, text);
+}
+
+/** A dotted name as a module writes it (`namespace A.B`), or `undefined` where it is no such name. */
+function nestedName(written: string): string | undefined {
+  return /^[\p{ID_Start}_$][\p{ID_Continue}_$]*(\.[\p{ID_Start}_$][\p{ID_Continue}_$]*)*$/u.test(written) ? written : undefined;
 }
 
 /** The name one declaration binds, or `undefined` where it binds none this stage can name. */
@@ -731,6 +746,26 @@ function nameOf(node: SyntaxNode, text: string): string | undefined {
   if (named === null) return undefined;
   const name = text.slice(named.startIndex, named.endIndex);
   return IDENTIFIER.test(name) ? name : undefined;
+}
+
+/**
+ * The name that holds an anonymous expression (`const f = () => { … }`, a
+ * class or function expression assigned to a variable, or a pair's value): the
+ * declarations inside it are qualified by what the reader calls it, rather than
+ * standing at the file's own scope under a name that exists nowhere.
+ */
+function holderName(node: SyntaxNode, text: string): string | undefined {
+  if (node.type !== 'arrow_function' && !ANONYMOUS_EXPRESSIONS.includes(node.type)) return undefined;
+  const held = node.parent;
+  if (held === null) return undefined;
+  if (held.type === 'variable_declarator') return nameOf(held, text);
+  if (held.type === 'pair' || held.type === 'public_field_definition' || held.type === 'field_definition') {
+    const key = held.childForFieldName('key') ?? held.childForFieldName('name');
+    if (key === null) return undefined;
+    const name = text.slice(key.startIndex, key.endIndex);
+    return IDENTIFIER.test(name) ? name : undefined;
+  }
+  return undefined;
 }
 
 /**
@@ -757,11 +792,12 @@ function receiverNames(node: SyntaxNode, text: string): string[] {
 /** The kind of an anonymous default export (`export default function () {}`), `undefined` for anything else. */
 function anonymousDefaultKind(node: SyntaxNode, language: SyntaxLanguage): SymbolKind | undefined {
   if (language === 'go') return undefined;
-  if (node.type !== 'function_expression' && node.type !== 'arrow_function' && node.type !== 'function' && node.type !== 'class') return undefined;
-  // `export default (class {})` writes the expression inside parentheses, so the
-  // statement is looked for above them.
+  if (!ANONYMOUS_DEFAULT_SHAPES.includes(node.type)) return undefined;
+  // `export default (class {})`, `(class {})!`, `(class {}) as unknown` and
+  // `(class {}) satisfies unknown` write the expression inside something: the
+  // statement is looked for above each of them.
   let parent = node.parent;
-  while (parent !== null && parent.type === 'parenthesized_expression') parent = parent.parent;
+  while (parent !== null && ANONYMOUS_DEFAULT_WRAPPERS.includes(parent.type)) parent = parent.parent;
   if (parent === null || parent.type !== 'export_statement') return undefined;
   // A named export's declaration stands in `declaration`; an anonymous one, which
   // is what this branch is for, stands in the statement's `value`.
@@ -769,6 +805,14 @@ function anonymousDefaultKind(node: SyntaxNode, language: SyntaxLanguage): Symbo
   if (held === null || held.startIndex > node.startIndex || node.endIndex > held.endIndex) return undefined;
   return node.type === 'class' ? 'class' : 'function';
 }
+
+/** The shapes an anonymous default export is written in: an expression of one of these. */
+const ANONYMOUS_DEFAULT_SHAPES: readonly string[] = ['arrow_function', 'class', 'function', 'function_expression', 'generator_function'];
+
+/** The wrappers an anonymous default export may stand inside, each walked through. */
+const ANONYMOUS_DEFAULT_WRAPPERS: readonly string[] = [
+  'as_expression', 'non_null_expression', 'parenthesized_expression', 'satisfies_expression', 'type_assertion',
+];
 
 /** Where a module's default export is named: the statement's own `default` keyword, or the expression itself. */
 function defaultDefinitionSpan(node: SyntaxNode, spanOf: (node: SyntaxNode) => SyntaxSpan): SyntaxSpan {
@@ -809,6 +853,21 @@ function withinExportedValue(node: SyntaxNode): boolean {
     if (parent.type === 'object' || parent.type === 'pair' || parent.type === 'array' || parent.type === 'arguments') return true;
     if (parent.type === 'class_body' || parent.type === 'enum_body') return true;
     if (parent.type === 'export_statement' || parent.type === 'program' || parent.type === 'statement_block') return false;
+  }
+  return false;
+}
+
+/**
+ * Whether the export statement a declaration stands in is an `export default`:
+ * the name such a declaration carries is a binding inside its own module, and
+ * what another module reaches is the default, not that name.
+ */
+function defaultExportCarries(node: SyntaxNode): boolean {
+  for (let parent = node.parent; parent !== null; parent = parent.parent) {
+    if (parent.type === 'export_statement') {
+      return parent.children.some((child) => child !== null && child.type === 'default');
+    }
+    if (parent.type === 'program' || parent.type === 'statement_block') return false;
   }
   return false;
 }
@@ -1018,9 +1077,11 @@ interface LineIndex {
   readonly byteStarts: readonly number[];
   /**
    * The last character offset a byte offset was measured at, and the byte
-   * offset there: the walk asks for spans in the order it meets them, so a
-   * measurement pays for the distance from the last one and not for the whole
-   * line — a minified file is one very long line, and its spans are many.
+   * offset there: a walk moving forward measures the distance it moved and not
+   * the whole line, which is what a minified file (one very long line, many
+   * declarations) needs. A span behind the cursor is measured from its own
+   * line's first character instead, and does not move the cursor — measured,
+   * moving it made a nested walk measure far more text for the same time.
    */
   readonly cursor: { index: number; byte: number };
 }
@@ -1056,14 +1117,12 @@ function positionAt(lines: LineIndex, offset: number): { line: number; column: n
  */
 function byteAt(lines: LineIndex, text: string, offset: number): number {
   if (offset < lines.cursor.index) {
-    // A span behind the cursor is read from the start of the line it stands on,
-    // and the cursor follows it: a walk that steps in and out of nested
-    // declarations pays for the distance it moved, not for the whole file again.
+    // A span behind the cursor is read from the first character of the line it
+    // stands on, and the cursor stays where it was: measured, moving the cursor
+    // back with it made a walk in and out of nested declarations measure 800
+    // times more text for the same wall time, and this way costs one line.
     const line = positionAt(lines, offset).line - 1;
-    const byte = lines.byteStarts[line]! + Buffer.byteLength(text.slice(lines.starts[line]!, offset), 'utf8');
-    lines.cursor.index = offset;
-    lines.cursor.byte = byte;
-    return byte;
+    return lines.byteStarts[line]! + Buffer.byteLength(text.slice(lines.starts[line]!, offset), 'utf8');
   }
   lines.cursor.byte += Buffer.byteLength(text.slice(lines.cursor.index, offset), 'utf8');
   lines.cursor.index = offset;

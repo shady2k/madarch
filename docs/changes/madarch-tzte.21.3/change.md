@@ -112,7 +112,7 @@ no stage runs, and `src/product/fill*.ts` is untouched.
   *not* read is a parameter, a property access and a call: those are stage 4's
   symbols, where a resolver names them precisely. A declaration inside a body is
   read and qualified by what holds it (`f.inner` for a function declared inside
-  `f`), which is the same rule as above. A declaration's qualified name
+  `f`). A declaration's qualified name
   is its container's names and its own (`OrderService.create`), the container
   being the class, interface, enum, module or function it stands in — and, for a
   Go method, the type its receiver names, which is what makes it a method.
