@@ -139,6 +139,13 @@ async function planSyntax(sources: SnapshotSource, graph: StageGraphReader): Pro
   return { units, coverage: anySource ? 'planned' : 'nothing-found' };
 }
 
+/**
+ * The keys one row of the published tree's read holds: the kind, the repository
+ * it was read for, the path, and — for a file — the blob its bytes stood under.
+ * The same shape the inventory stage reads the same document with.
+ */
+const PUBLISHED_TREE_ROW_FIELDS: readonly string[] = ['blob', 'kind', 'path', 'repository'];
+
 /** Whether a path is a file this stage reads: the inventory's own rule, the role the path names. */
 function isSourcePath(path: string): boolean {
   return rolesFor(path).includes('source');
@@ -162,6 +169,12 @@ function publishedBlobs(rows: readonly unknown[], repository: string, read: stri
       throw refuse(`${JSON.stringify(row)} is no row: a row is an object naming its kind, its repository and its path`);
     }
     const held = row as PublishedTreeRow & Record<string, unknown>;
+    // A row holds what the read is for and nothing else: a run, a unit, an
+    // attempt or a session riding on one would be read past in silence.
+    const unknown = Object.keys(held).filter((key) => !PUBLISHED_TREE_ROW_FIELDS.includes(key)).sort(byCodePoint);
+    if (unknown.length > 0) {
+      throw refuse(`it holds ${unknown.map((key) => JSON.stringify(key)).join(', ')}, and a row holds ${PUBLISHED_TREE_ROW_FIELDS.join(', ')}`);
+    }
     if (held.kind !== 'file' && held.kind !== 'directory') {
       throw refuse(`its kind is ${JSON.stringify(held.kind)}, and this stage reads "file" and "directory" rows`);
     }

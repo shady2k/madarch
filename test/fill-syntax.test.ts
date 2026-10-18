@@ -12,7 +12,7 @@ import { describe, expect, test } from 'bun:test';
 import { checkFact, makeNodeFact, repositoryPath, type Fact } from '../src/fill/facts.js';
 import { extractFileSyntax, syntaxLanguageOf } from '../src/fill/stages/syntax-extract.js';
 import { languageFor, rolesFor } from '../src/fill/stages/inventory.js';
-import { resolveSpecifier, syntaxFacts } from '../src/fill/stages/syntax-facts.js';
+import { SYNTAX_SOURCE, resolveSpecifier, syntaxFacts } from '../src/fill/stages/syntax-facts.js';
 
 const encoder = new TextEncoder();
 
@@ -47,6 +47,18 @@ describe('the language a path is read as', () => {
     expect(syntaxLanguageOf('tools/script.py')).toBeUndefined();
     expect(syntaxLanguageOf('Makefile')).toBeUndefined();
     expect(syntaxLanguageOf('docs/guide.md')).toBeUndefined();
+  });
+});
+
+describe('the reader the facts stand on', () => {
+  test('the version in every fact\'s provenance is the runtime the extraction runs on', async () => {
+    // The version is a literal here because the module is pure and imports no
+    // package file; this is what keeps it from drifting when the dependency is
+    // bumped, since a provenance that names another version mislabels every
+    // fact it rides on.
+    const runtime = await Bun.file(new URL('../node_modules/web-tree-sitter/package.json', import.meta.url)).json();
+    expect(SYNTAX_SOURCE.version).toBe(runtime.version);
+    expect(SYNTAX_SOURCE.system).toBe('tree-sitter');
   });
 });
 
@@ -97,6 +109,90 @@ describe('the pure per-file extraction', () => {
     expect(found.imports[0]!.span.startByte).toBe(23);
     expect(found.imports[0]!.span.endByte).toBe(36);
     expect(found.imports[0]!.span.startColumn).toBe(23);
+  });
+
+  test('a TSX file is read by the TSX grammar: its JSX parses, and the same text in a `.ts` file does not', async () => {
+    const text = [
+      "import { panel } from './panel.js';",
+      '',
+      'export function View({ name }: { name: string }) {',
+      '  return <div className="view">{panel(name)}</div>;',
+      '}',
+      '',
+    ].join('\n');
+    const tsx = await extractFileSyntax('src/view.tsx', bytesOf(text));
+    expect(tsx.parsed).toBe(true);
+    expect(tsx.unread).toEqual([]);
+    expect(tsx.symbols.map((symbol) => [symbol.name, symbol.symbolKind])).toEqual([['View', 'function']]);
+    expect(tsx.imports.map((entry) => entry.specifier)).toEqual(['./panel.js']);
+    // The same bytes are not TypeScript: the JSX is the parser's own error, and
+    // the file says so instead of reading past it.
+    const ts = await extractFileSyntax('src/view.ts', bytesOf(text));
+    expect(ts.unread).toEqual([{ what: 'src/view.ts', reason: 'error' }]);
+  });
+
+  test('a JavaScript file is read by the JavaScript grammar, JSX and private members included', async () => {
+    const text = [
+      "import { helper } from './helper.js';",
+      '',
+      'export function greet(name) {',
+      '  return <span>{helper(name)}</span>;',
+      '}',
+      '',
+      'export class Counter {',
+      '  #count = 0;',
+      '}',
+      '',
+    ].join('\n');
+    const found = await extractFileSyntax('src/greet.jsx', bytesOf(text));
+    expect(found.parsed).toBe(true);
+    expect(found.unread).toEqual([]);
+    expect(found.symbols.map((symbol) => [symbol.qualifiedName, symbol.symbolKind])).toEqual([
+      ['Counter', 'class'],
+      ['Counter.#count', 'field'],
+      ['greet', 'function'],
+    ]);
+    expect(found.imports.map((entry) => entry.specifier)).toEqual(['./helper.js']);
+  });
+
+  test('a declaration named in another script is a symbol, and one this stage cannot name leaves the coverage incomplete', async () => {
+    const names = await extractFileSyntax('src/names.ts', bytesOf('export const caf\u00e9 = 1;\nexport function \u03a9mega(): void {}\n'));
+    expect(names.symbols.map((symbol) => symbol.name)).toEqual(['caf\u00e9', '\u03a9mega']);
+    expect(names.unread).toEqual([]);
+    // A computed class member has a kind this stage reads and no name it can
+    // read: the symbol is not invented, and the file's coverage names the place
+    // rather than leaving it complete over a declaration it dropped.
+    const computed = await extractFileSyntax('src/iterable.ts', bytesOf(['export class C {', '  [Symbol.iterator]() {}', '  ok(): void {}', '}', ''].join('\n')));
+    expect(computed.symbols.map((symbol) => symbol.qualifiedName).sort()).toEqual(['C', 'C.ok']);
+    expect(computed.unread).toEqual([{ what: 'src/iterable.ts:2', reason: 'unsupported' }]);
+  });
+
+  test('a Go declaration that binds two names declares both, in the spec or in a struct', async () => {
+    const text = [
+      'package main',
+      '',
+      'var a, b = 1, 2',
+      '',
+      'const c, d = 3, 4',
+      '',
+      'type Pair struct {',
+      '\tx, y int',
+      '\tsync.Mutex',
+      '}',
+      '',
+    ].join('\n');
+    const found = await extractFileSyntax('cmd/server/main.go', bytesOf(text));
+    expect(found.symbols.map((symbol) => [symbol.qualifiedName, symbol.symbolKind])).toEqual([
+      ['Pair', 'struct'],
+      ['Pair.Mutex', 'field'],
+      ['Pair.x', 'field'],
+      ['Pair.y', 'field'],
+      ['a', 'variable'],
+      ['b', 'variable'],
+      ['c', 'constant'],
+      ['d', 'constant'],
+    ]);
+    expect(found.unread).toEqual([]);
   });
 
   test('a byte span counts the file\'s bytes and a column counts UTF-16 code units', async () => {
@@ -226,15 +322,23 @@ describe('the pure per-file extraction', () => {
       '',
       'import "testing"',
       '',
+      'func Test(t *testing.T) {}',
       'func TestServe(t *testing.T) {}',
       'func TestServe_empty(t *testing.T) {}',
-      'func BenchmarkServe(b *testing.B) {}',
+      'func Benchmark_Helper(b *testing.B) {}',
+      'func TestMain(m *testing.M) {}',
+      'func Testme(t *testing.T) {}',
       'func helper(t *testing.T) {}',
       '',
     ].join('\n');
     const found = await extractFileSyntax('cmd/server/main_test.go', bytesOf(text));
+    // What `go test` runs and reports: the prefix, then anything but a
+    // lower-case letter — `Test`, `TestServe_empty` and `Benchmark_Helper` are
+    // tests, `Testme` is not, and `TestMain` is the runner's own entry point,
+    // which it does not report as a test.
     expect(found.tests.map((entry) => [entry.name, entry.framework])).toEqual([
-      ['BenchmarkServe', 'go-test'],
+      ['Benchmark_Helper', 'go-test'],
+      ['Test', 'go-test'],
       ['TestServe', 'go-test'],
       ['TestServe_empty', 'go-test'],
     ]);
@@ -243,6 +347,7 @@ describe('the pure per-file extraction', () => {
   test('a JavaScript test call is a test named by its runner, and a call of any other name is not', async () => {
     const text = [
       "import { describe, expect, test, it } from 'bun:test';",
+      "import * as runner from 'vitest';",
       '',
       "describe('orders', () => {",
       "  test('places an order', () => {",
@@ -251,6 +356,7 @@ describe('the pure per-file extraction', () => {
       "  it('cancels an order', () => {});",
       "  it.only('skips the rest', () => {});",
       "  test.each([1, 2])('adds %i', () => {});",
+      "  runner.test('works', () => {});",
       '});',
       '',
       'function test2(): void {}',
@@ -263,6 +369,9 @@ describe('the pure per-file extraction', () => {
       ['cancels an order', 'bun-test'],
       ['places an order', 'bun-test'],
       ['skips the rest', 'bun-test'],
+      // `runner.test('…')` through the namespace the file imported: the runner
+      // is the one the namespace came from.
+      ['works', 'vitest'],
     ]);
   });
 

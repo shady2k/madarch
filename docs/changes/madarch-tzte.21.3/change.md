@@ -113,9 +113,24 @@ no stage runs, and `src/product/fill*.ts` is untouched.
   is its container's names and its own (`OrderService.create`), the container
   being the class, interface, enum, module or function it stands in — and, for a
   Go method, the type its receiver names, which is what makes it a method.
-  A declaration this walk cannot name (a computed class member, an identifier
-  outside the shape a name has) is left out; a *file* it cannot read is a
-  coverage gap.
+  A declaration this walk cannot name (a computed class member) is no symbol,
+  and the file's coverage names the place with the reason rather than leaving
+  the file complete over a dropped declaration. A member signature is read where
+  it stands in one of the declarations that *name* their members — an interface,
+  a type alias, a class, an enum, a namespace — and not where it stands in an
+  anonymous type (`{ name: string }` in a parameter's annotation): a bare `name`,
+  or a misleading `View.name`, beside a real symbol's name is worse than the
+  silence of a member nothing can reach.
+- **A name is an identifier in the language's own alphabet.** The name a
+  declaration binds is read against Unicode's identifier rule (`\p{ID_Start}`,
+  then `\p{ID_Continue}`, with `_`, `$` and a private member's `#`), so a
+  declaration named `café` or `Ω` is a symbol rather than a hole in a file this
+  stage would otherwise call complete. A declaration of a kind this stage reads
+  whose name it cannot read — a computed class member (`[Symbol.iterator]() {}`)
+  — is not invented and not dropped in silence: the file's coverage names the
+  place with the reason `unsupported`, and `complete` stops claiming the file
+  was read whole. A Go declaration that binds several names (`var a, b = 1, 2`,
+  a struct's `x, y int`) declares every one of them.
 - **A definition is one occurrence at the name.** Every symbol carries its
   declaration's span — where the symbol stands — and the name token's span,
   where the schema's `occurrence` node stands with the one role `definition`.
@@ -144,7 +159,9 @@ no stage runs, and `src/product/fill*.ts` is untouched.
   order — as written, then with each source extension in its place (a TypeScript
   `./x.js` is the `x.ts` a reader edits), then with each extension appended, then
   as a folder's `index` file — and the first path that exists wins, so the same
-  tree always answers the same file. A bare specifier (a package outside the file
+  tree always answers the same file. Among the replacements the importing file's
+  own extension comes first, so a repository holding both `x.ts` and `x.cjs`
+  reads a TypeScript file's `./x.js` as the `x.ts` beside it. A bare specifier (a package outside the file
   tree) and a relative one that names no file are the scope's coverage gap, which
   is what the schema asks for where a resolver could not tie an import to a node:
   a Go import names a package path and never a file, so a Go file's coverage
@@ -171,8 +188,15 @@ no stage runs, and `src/product/fill*.ts` is untouched.
   include `source` (its extension is code) is read here, and a file that is no
   code is another stage's business. The extraction keeps its own language table,
   so the pure module depends on nothing but the schema; the stage asks the
-  inventory for the roles, and a test asserts the two tables agree on every
-  extension either of them names.
+  inventory for the roles, and a test asserts the two tables agree on each of the
+  nine extensions this stage parses, and that a sample of the extensions the
+  inventory calls code (`.py`, `.rs`, `.sh`) is planned here as a file no grammar
+  reads, as the task and the change intend. The four grammars themselves are
+  pinned by a test: a `.tsx` file's JSX parses (and the same text in a `.ts` file
+  is the parser's own error), a `.jsx` file's JSX parses, and a `.go` file's
+  declarations are read, so no grammar can be silently swapped for another. The
+  version every fact's provenance names is checked against the installed
+  runtime, since a literal that drifted would mislabel every fact.
 - **A unit's id is the file, and it carries no blob and no run.** The id is
   `file:<repository>:<path>`, the scope `<repository>:<path>`: a file's unit is
   the same unit at every commit, so the run's own inputs digest (the blob) is
@@ -185,6 +209,24 @@ no stage runs, and `src/product/fill*.ts` is untouched.
   names: neither is a source text, so the file's unit publishes a coverage node
   whose `unread` names it with the reason `unsupported`, and no symbol is
   invented from bytes that are not code.
+- **What one fact can and cannot tell apart.** The schema decides a fact's
+  identity, and two declarations the schema gives one identity are one fact: two
+  TypeScript overloads of one function are one `symbol` (a `disambiguator` is
+  stage 4's, SCIP's own), two same-named tests in one file are one `test`, and a
+  method of an object literal is a symbol of its own name rather than of the
+  object's (an object literal is no container). Occurrences do not collapse: each
+  declaration keeps its own place, so three overloads leave three definitions of
+  one symbol. The change states this rather than pretending the graph holds what
+  the schema's identities do not.
+- **A call named `test` or `it` is read as a test.** `test('name', …)`,
+  `it('name', …)`, the runner's own modifiers (`it.only`, `test.each`) and a
+  runner reached through a namespace a file imported (`runner.test(…)`) are test
+  facts; the framework is named where the file imports the runner from a package
+  this stage knows (`bun:test`, `jest`, `@jest/globals`, `vitest`), and left
+  unnamed where the file says nothing about which one it is — a call of a local
+  function named `test` is therefore read as a test, which is the price of
+  reading a global runner's tests at all, and stage 4's resolver is where the
+  distinction is drawn precisely.
 - **An error names what it is about.** A reader refusal names the repository, the
   commit and the path (the reader's own words); a plan's refusal names the read,
   the row's place and the field; a unit's refusal names the unit id; a cancelled
@@ -200,3 +242,24 @@ The independent review and the checks are recorded on task madarch-tzte.21.3:
 tree-sitter wasm grammars need it), the feature document gate, green CI on the
 exact SHA and one independent review round. Mutation is not run: the owner's
 rule runs Stryker once per assembled stage.
+
+The first review round (a fresh `deepseek-v4.1-flash-auto` session over
+`git diff origin/main...HEAD`) answered `fix-before-ship` with thirteen findings
+and no defect in the facts' ids, the stage contract or the plan's
+incrementality. Fixed here: a declaration the walk could not name made the
+file's coverage say `complete` while the declaration was dropped (the name rule
+is Unicode's now, a Go spec's every name is read, and an unnameable declaration
+is the file's coverage gap); the Go test rule did not match what `go test` runs
+(`Test`, `Test_x` and `Benchmark_Helper` are tests and `TestMain` is not); the
+two deviating acceptance criteria — `contains` versus the schema's `defines`,
+and the byte span a fact has no field for — are stated above as the readings
+they are and asked of the owner at acceptance; the byte offset is measured by a
+forward cursor rather than by rescanning a line, so a minified single-line file
+is read in linear time; a specifier replacement tries the importing file's own
+language first; the two dead exports are gone; the plan refuses a published-tree
+row holding a key the read does not define, as the inventory's own reader does;
+and the record's design section states what the schema's identities do and do
+not tell apart, and how a call named `test`/`it` is read. The tests the review
+found missing are there: a `.tsx` and a `.jsx` case, a non-ASCII identifier, a
+Go spec binding two names, the Go runner's own name rules, a namespace import's
+runner, and the provenance version against the installed package.

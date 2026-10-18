@@ -28,7 +28,7 @@
 import { posix } from 'node:path';
 import { byCodePoint } from '../../model/order.js';
 import {
-  factId, makeEdgeFact, makeNodeFact, FACT_KINDS, repositoryPath,
+  factId, makeEdgeFact, makeNodeFact, repositoryPath,
   type CommentValue, type CoverageGap, type CoverageValue, type Fact, type FactPlace, type FactProvenance, type FactSource,
   type ImportEdgeValue, type RepositoryPath,
 } from '../facts.js';
@@ -246,15 +246,20 @@ export function resolveSpecifier(from: string, specifier: string, known: Readonl
   if (!specifier.startsWith('./') && !specifier.startsWith('../')) return undefined;
   const base = posix.normalize(posix.join(posix.dirname(from), specifier));
   if (base.startsWith('..') || base.startsWith('/')) return undefined;
+  // The importing file's own extension is tried first among the replacements:
+  // a TypeScript file's `./x.js` is the `x.ts` beside it, and a repository that
+  // also holds an `x.cjs` does not turn that import into a CommonJS one.
+  const own = SOURCE_EXTENSIONS.find((candidate) => from.endsWith(candidate));
+  const order = own === undefined ? SOURCE_EXTENSIONS : [own, ...SOURCE_EXTENSIONS.filter((candidate) => candidate !== own)];
   const candidates: string[] = [base];
   const extension = SOURCE_EXTENSIONS.find((candidate) => base.endsWith(candidate));
   if (extension !== undefined) {
     const stem = base.slice(0, base.length - extension.length);
-    for (const candidate of SOURCE_EXTENSIONS) candidates.push(`${stem}${candidate}`);
+    for (const candidate of order) candidates.push(`${stem}${candidate}`);
   } else {
-    for (const candidate of SOURCE_EXTENSIONS) candidates.push(`${base}${candidate}`);
+    for (const candidate of order) candidates.push(`${base}${candidate}`);
   }
-  for (const candidate of SOURCE_EXTENSIONS) candidates.push(`${base}/index${candidate}`);
+  for (const candidate of order) candidates.push(`${base}/index${candidate}`);
   for (const candidate of candidates) {
     if (candidate !== base && !isSourcePath(candidate)) continue;
     if (known.has(candidate)) return candidate;
@@ -267,14 +272,3 @@ function isSourcePath(path: string): boolean {
   return SOURCE_EXTENSIONS.some((extension) => path.endsWith(extension));
 }
 
-/** One path read as a repository path, for a caller that holds a plain string (a unit's scope, say). */
-export function asSourcePath(value: string): RepositoryPath {
-  return repositoryPath(value);
-}
-
-/** The schema version each kind this stage produces is written at, as the registry declares it. */
-export function syntaxProducedKinds(): readonly { kind: string; schemaVersion: number; scope: 'file' }[] {
-  return (['comment', 'coverage', 'defines', 'entry-point', 'import', 'occurrence', 'symbol', 'test'] as const)
-    .map((kind) => ({ kind, schemaVersion: FACT_KINDS[kind].version, scope: 'file' as const }))
-    .sort((left, right) => byCodePoint(left.kind, right.kind));
-}

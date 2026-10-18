@@ -219,15 +219,12 @@ export async function extractFileSyntax(path: string, bytes: Uint8Array): Promis
     try {
       const root = tree.rootNode;
       const findings = walk(path, text, root, language);
-      return {
-        path,
-        language,
-        parsed: true,
-        ...findings,
-        // A file the parser could not read whole is read as far as it went and
-        // said so: the findings stand, and the gap carries the reason.
-        unread: root.hasError ? [{ what: path, reason: 'error' }] : [],
-      };
+      // A file the parser could not read whole, and a declaration the walk could
+      // not name, are both read as far as they went and said so: the findings
+      // stand, and each gap carries what was not read and the reason.
+      const unread = [...findings.unread];
+      if (root.hasError) unread.push({ what: path, reason: 'error' });
+      return { path, language, parsed: true, ...findings, unread: mergeGaps(unread) };
     } finally {
       tree.delete();
     }
@@ -247,6 +244,13 @@ export function unreadFileSyntax(path: string, reason: CoverageGapReason): Extra
   return emptyFindings(path, syntaxLanguageOf(path) ?? null, [{ what: path, reason }]);
 }
 
+/** The gaps one `what` once, in code point order of `what`, as the schema reads a coverage's list. */
+function mergeGaps(gaps: readonly CoverageGap[]): CoverageGap[] {
+  const byWhat = new Map<string, CoverageGap>();
+  for (const gap of gaps) if (!byWhat.has(gap.what)) byWhat.set(gap.what, gap);
+  return [...byWhat.keys()].sort(byCodePoint).map((what) => byWhat.get(what)!);
+}
+
 /** A file this reader found nothing in, with the gaps it must report. */
 function emptyFindings(path: string, language: SyntaxLanguage | null, unread: readonly CoverageGap[]): ExtractedFileSyntax {
   return { path, language, parsed: false, symbols: [], comments: [], entryPoints: [], tests: [], imports: [], unread };
@@ -263,9 +267,17 @@ function emptyFindings(path: string, language: SyntaxLanguage | null, unread: re
 const TS_CONTAINERS: readonly string[] = [
   'abstract_class_declaration', 'class_declaration', 'enum_declaration', 'function_declaration',
   'generator_function_declaration', 'interface_declaration', 'internal_module', 'method_definition', 'module',
+  'type_alias_declaration',
 ];
 
 const GO_CONTAINERS: readonly string[] = ['function_declaration', 'method_declaration', 'type_spec', 'field_declaration', 'const_spec', 'var_spec'];
+
+/**
+ * The TypeScript member signatures whose name is only a name *inside* something:
+ * read where a class, interface or type alias holds them, and left out where an
+ * anonymous type literal does.
+ */
+const MEMBER_SIGNATURES: readonly string[] = ['abstract_method_signature', 'function_signature', 'method_signature', 'property_signature'];
 
 /** The kind of symbol a TypeScript, TSX or JavaScript declaration is, by its node type. */
 const TS_DECLARATIONS: Readonly<Record<string, SymbolKind>> = {
@@ -303,13 +315,15 @@ const TEST_FRAMEWORKS: Readonly<Record<string, string>> = {
   'vitest': 'vitest',
 };
 
-/** One file's findings, before they become facts. */
+/** One file's findings, before they become facts: what the walk found, and what it could not read. */
 interface Findings {
   symbols: readonly ExtractedSymbol[];
   comments: readonly ExtractedComment[];
   entryPoints: readonly ExtractedEntryPoint[];
   tests: readonly ExtractedTest[];
   imports: readonly ExtractedImport[];
+  /** The places the walk had to leave out, each with the reason — a scope's coverage gap (0004). */
+  unread: readonly CoverageGap[];
 }
 
 /** Walks one parsed file and collects its findings, each with the span it stands at. */
@@ -321,6 +335,7 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
   const entryPoints: ExtractedEntryPoint[] = [];
   const tests: ExtractedTest[] = [];
   const imports: ExtractedImport[] = [];
+  const unread: CoverageGap[] = [];
   const go = language === 'go';
   // The names a file exports by clause (`export { later as renamed }`): a
   // declaration the clause names is exported although no `export` stands on it.
@@ -368,13 +383,12 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
         return;
       }
       const literal = firstStringArgument(args);
-      const runner = literal === null ? undefined : testCallName(callee, text);
-      if (literal !== null && runner !== undefined) {
+      const call = literal === null ? undefined : testCall(callee, text, testNames);
+      if (literal !== null && call !== undefined) {
         // `test('name', ...)`, `it('name', ...)` and the runner's own modifiers
         // (`it.only('name', ...)`): the call's own name is the test's name, and
         // the framework is the one the file imported the runner from.
-        const framework = testNames.get(runner);
-        tests.push({ name: stringValue(text, literal), ...(framework === undefined ? {} : { framework }), span: spanOf(node) });
+        tests.push({ name: stringValue(text, literal), ...(call.framework === undefined ? {} : { framework: call.framework }), span: spanOf(node) });
         return;
       }
       if (callee.type !== 'member_expression' || literal === null) return;
@@ -389,45 +403,68 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
       return;
     }
     const kind = symbolKindOf(node, language);
-    const name = nameOf(node, text);
-    if (kind === undefined || name === undefined || name === '') {
-      // An anonymous default export is the one declaration without a name this
+    if (kind !== undefined && !go && MEMBER_SIGNATURES.includes(type) && !withinNamedType(node)) {
+      // A member signature is a declaration of the type it is written in: an
+      // interface's member, a type alias's, a class's. One written in an
+      // *anonymous* type — `{ name: string }` in a parameter's annotation — is
+      // no declaration of this file's own, and reading it would put a bare
+      // `name`, or a misleading `View.name`, beside a real symbol's name.
+      return;
+    }
+    if (kind === undefined) {
+      // An anonymous default export is the one declaration without a kind this
       // stage still knows: a module's default export is a symbol by that name.
       const anonymous = anonymousDefaultKind(node, language);
       if (anonymous === undefined) return;
-      const inner: readonly string[] = [];
-      symbols.push({ name: 'default', qualifiedName: qualified(inner, 'default'), symbolKind: anonymous, span: spanOf(node), definitionSpan: spanOf(node) });
+      symbols.push({ name: 'default', qualifiedName: 'default', symbolKind: anonymous, span: spanOf(node), definitionSpan: spanOf(node) });
       return;
     }
-    const nameNode = nameNodeOf(node);
     // A Go method belongs to the type its receiver names: the receiver is what
     // makes it a method, and Go has no nesting to say it another way.
     const owned = go && type === 'method_declaration' ? [...container, ...receiverNames(node, text)] : container;
-    symbols.push({
-      name,
-      qualifiedName: qualified(owned, name),
-      symbolKind: kind,
-      span: spanOf(node),
-      definitionSpan: spanOf(nameNode ?? node),
-    });
-    // A module's export is a way into its code, which is what an entry point
-    // of the form `library-export` is: a *top-level* declaration another
-    // module may call, by a name it can reach. A method or a nested
-    // declaration is no way in from outside the file.
-    const exported = go ? /^\p{Lu}/u.test(name) : exportedByClause.has(name) || withinExport(node);
-    if (exported && owned.length === 0) {
-      entryPoints.push({ name, form: 'library-export', span: spanOf(nameNode ?? node) });
+    // The `name` field repeats where the grammar repeats it and can carry the
+    // separators of its own list (a Go `var a, b` names `a`, `,` and `b`), so
+    // only the nodes that read as an identifier are names this stage declares.
+    const nameNodes = withEmbeddedField(nameNodesOf(node), node, text, go)
+      .filter((candidate) => IDENTIFIER.test(text.slice(candidate.startIndex, candidate.endIndex)));
+    if (nameNodes.length === 0) {
+      // A declaration of a kind this stage reads, with no name it can read: a
+      // computed class member among them. Nothing is invented for it, and the
+      // file's coverage says the place was not read — a dropped declaration
+      // that left the coverage complete would be a silence.
+      const at = positionAt(lines, node.startIndex);
+      unread.push({ what: `${path}:${at.line}`, reason: 'unsupported' });
+      return;
     }
-    if (go && kind === 'function' && name === 'main' && declaresMainPackage(root, text)) {
-      entryPoints.push({ name: 'main', form: 'main', span: spanOf(node) });
-    }
-    if (!go && kind === 'function' && name === 'main' && container.length === 0) {
-      // A program's own `main`: the file declares the function a runner starts
-      // at, whether it is exported for another module or called at the bottom.
-      entryPoints.push({ name: 'main', form: 'main', span: spanOf(nameNode ?? node) });
-    }
-    if (go && kind === 'function' && isGoTestName(name) && path.endsWith('_test.go')) {
-      tests.push({ name, framework: 'go-test', span: spanOf(node) });
+    for (const nameNode of nameNodes) {
+      const name = text.slice(nameNode.startIndex, nameNode.endIndex);
+      symbols.push({
+        name,
+        qualifiedName: qualified(owned, name),
+        symbolKind: kind,
+        span: spanOf(node),
+        definitionSpan: spanOf(nameNode),
+      });
+      // A module's export is a way into its code, which is what an entry point
+      // of the form `library-export` is: a *top-level* declaration another
+      // module may call, by a name it can reach. A method or a nested
+      // declaration is no way in from outside the file.
+      const exported = go ? /^\p{Lu}/u.test(name) : exportedByClause.has(name) || withinExport(node);
+      if (exported && owned.length === 0) {
+        entryPoints.push({ name, form: 'library-export', span: spanOf(nameNode) });
+      }
+      if (go && kind === 'function' && name === 'main' && declaresMainPackage(root, text)) {
+        entryPoints.push({ name: 'main', form: 'main', span: spanOf(node) });
+      }
+      if (!go && kind === 'function' && name === 'main' && container.length === 0) {
+        // A program's own `main`: the file declares the function a runner
+        // starts at, whether it is exported for another module or called at the
+        // bottom.
+        entryPoints.push({ name: 'main', form: 'main', span: spanOf(nameNode) });
+      }
+      if (go && kind === 'function' && isGoTestName(name) && path.endsWith('_test.go')) {
+        tests.push({ name, framework: 'go-test', span: spanOf(node) });
+      }
     }
   };
 
@@ -443,6 +480,7 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
   visit(root, []);
 
   return {
+    unread: [...unread].sort((left, right) => byCodePoint(left.what, right.what)),
     symbols: [...symbols].sort((left, right) => byCodePoint(left.qualifiedName, right.qualifiedName) || byCodePoint(left.symbolKind, right.symbolKind)),
     comments: [...comments].sort((left, right) => left.span.startByte - right.span.startByte),
     entryPoints: dedupeBy([...entryPoints].sort((left, right) => byCodePoint(left.form, right.form) || byCodePoint(left.name, right.name)), (entry) => `${entry.form}\u0000${entry.name}`),
@@ -481,21 +519,54 @@ function symbolKindOf(node: SyntaxNode, language: SyntaxLanguage): SymbolKind | 
   }
 }
 
-/** The declaration's own name node: the `name` field, the JavaScript class field's `property`, or the Go spec's first name. */
-function nameNodeOf(node: SyntaxNode): SyntaxNode | null {
-  const named = node.childForFieldName('name');
-  if (named !== null) return named;
+/**
+ * Every name node a declaration binds: the `name` field — which repeats where
+ * the grammar repeats it, a Go `var a, b = 1, 2` naming two — or the JavaScript
+ * class field's `property`.
+ */
+function nameNodesOf(node: SyntaxNode): readonly SyntaxNode[] {
+  const named = node.childrenForFieldName('name').filter((held): held is SyntaxNode => held !== null);
+  if (named.length > 0) return named;
   const property = node.childForFieldName('property');
-  if (property !== null && (property.type === 'property_identifier' || property.type === 'private_property_identifier')) return property;
-  return null;
+  return property !== null && (property.type === 'property_identifier' || property.type === 'private_property_identifier') ? [property] : [];
 }
+
+/**
+ * A Go struct field's names, with the one case the `name` field does not write:
+ * an embedded field (`sync.Mutex`) declares no name of its own, and Go names it
+ * after the type it embeds — the last identifier of that type. A field that
+ * still names nothing is left to the caller's own gap.
+ */
+function withEmbeddedField(names: readonly SyntaxNode[], node: SyntaxNode, text: string, go: boolean): readonly SyntaxNode[] {
+  if (names.length > 0 || !go || node.type !== 'field_declaration') return names;
+  const embedded = node.childForFieldName('type');
+  if (embedded === null) return names;
+  const identifiers = descendantsOfType(embedded, 'type_identifier');
+  const last = identifiers[identifiers.length - 1];
+  return last === undefined ? names : [last];
+}
+
+/** The declaration's own name node, where a caller reads one declaration as one symbol. */
+function nameNodeOf(node: SyntaxNode): SyntaxNode | null {
+  return nameNodesOf(node)[0] ?? null;
+}
+
+/**
+ * The shape of an identifier in every language this stage reads: a letter or
+ * `_` or `$` first, then letters, digits, `_` or `$`. `\p{ID_Start}` is
+ * Unicode's own rule for what a letter is, so a declaration named `café` or
+ * `Ω` is read as the symbol it is rather than left out of a file this stage
+ * would otherwise call complete, and a private class member keeps the `#` its
+ * language writes it with.
+ */
+const IDENTIFIER = /^#?[\p{ID_Start}_$][\p{ID_Continue}_$]*$/u;
 
 /** The name one declaration binds, or `undefined` where it binds none this stage can name. */
 function nameOf(node: SyntaxNode, text: string): string | undefined {
   const named = nameNodeOf(node);
   if (named === null) return undefined;
-  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(text.slice(named.startIndex, named.endIndex))) return undefined;
-  return text.slice(named.startIndex, named.endIndex);
+  const name = text.slice(named.startIndex, named.endIndex);
+  return IDENTIFIER.test(name) ? name : undefined;
 }
 
 /**
@@ -535,6 +606,26 @@ function qualified(container: readonly string[], name: string): string {
   return container.length === 0 ? name : `${container.join('.')}.${name}`;
 }
 
+/**
+ * The node types that *name* the members inside them: a class, an interface, an
+ * enum, a namespace or module, a type alias. A member signature inside one of
+ * these is qualified by it; one inside a function's own parameter or return
+ * annotation is inside a callable and is no declaration of this file's.
+ */
+const TS_NAMED_TYPES: readonly string[] = [
+  'abstract_class_declaration', 'class_declaration', 'enum_declaration', 'interface_declaration',
+  'internal_module', 'module', 'type_alias_declaration',
+];
+
+/** Whether a node stands directly inside one of the type declarations that name their members. */
+function withinNamedType(node: SyntaxNode): boolean {
+  for (let parent = node.parent; parent !== null; parent = parent.parent) {
+    if (TS_NAMED_TYPES.includes(parent.type)) return true;
+    if (parent.type === 'program' || parent.type === 'statement_block') return false;
+  }
+  return false;
+}
+
 /** Whether any of a declaration's ancestors is an `export` statement, which exports it. */
 function withinExport(node: SyntaxNode): boolean {
   for (let parent = node.parent; parent !== null; parent = parent.parent) {
@@ -556,7 +647,7 @@ function exportedNamesByClause(root: SyntaxNode, text: string): Set<string> {
   return names;
 }
 
-/** Which local name each `test`/`it` of a file is, by the package the file imports it from. */
+/** Which local name each runner of a file is, by the package the file imports it from. */
 function testIdentifiers(root: SyntaxNode, text: string): Map<string, string> {
   const found = new Map<string, string>();
   for (const statement of descendantsOfType(root, 'import_statement')) {
@@ -564,12 +655,21 @@ function testIdentifiers(root: SyntaxNode, text: string): Map<string, string> {
     if (source === null) continue;
     const framework = TEST_FRAMEWORKS[stringValue(text, source)];
     if (framework === undefined) continue;
+    // `import { test, it } from 'bun:test'` and `import { test as check } …`:
+    // the local name the file calls the runner by.
     for (const specifier of descendantsOfType(statement, 'import_specifier')) {
       const named = specifier.childForFieldName('name');
       if (named === null) continue;
       const local = specifier.childForFieldName('alias') ?? named;
       const localName = text.slice(local.startIndex, local.endIndex);
       if (localName === 'test' || localName === 'it') found.set(localName, framework);
+    }
+    // `import * as runner from 'bun:test'`: the file calls `runner.test(…)`,
+    // which the namespace's own name has to be read for.
+    for (const namespace of descendantsOfType(statement, 'namespace_import')) {
+      const local = namespace.namedChildren.find((child) => child !== null && child.type === 'identifier');
+      if (local === null || local === undefined) continue;
+      found.set(text.slice(local.startIndex, local.endIndex), framework);
     }
   }
   // A file that calls `test` or `it` with no import at all is read with no
@@ -584,26 +684,41 @@ function testIdentifiers(root: SyntaxNode, text: string): Map<string, string> {
  * (`it.only`, `test.skip`, `test.each`) — the modifier's own call carries the
  * name, and the inner `test.each([…])` call carries a table, not a name.
  */
-function testCallName(callee: SyntaxNode, text: string): string | undefined {
+function testCall(callee: SyntaxNode, text: string, imported: ReadonlyMap<string, string>): { readonly framework?: string } | undefined {
   // `test.each([…])('name', …)` calls what `test.each([…])` answered: the
   // runner stands one call deeper, and its own call carries the table.
   if (callee.type === 'call_expression') {
     const inner = callee.childForFieldName('function');
-    return inner === null ? undefined : testCallName(inner, text);
+    return inner === null ? undefined : testCall(inner, text, imported);
   }
-  const identifier = (node: SyntaxNode): string | undefined => {
-    if (node.type !== 'identifier') return undefined;
-    const name = text.slice(node.startIndex, node.endIndex);
-    return name === 'test' || name === 'it' ? name : undefined;
+  const textOf = (node: SyntaxNode): string => text.slice(node.startIndex, node.endIndex);
+  /** The framework a name was imported from, where the file says which one it is. */
+  const frameworkOf = (name: string): { readonly framework?: string } => {
+    const framework = imported.get(name);
+    return framework === undefined ? {} : { framework };
   };
-  const direct = identifier(callee);
+  /** A call of `test`/`it` itself: the runner's own name. */
+  const runner = (node: SyntaxNode): { readonly framework?: string } | undefined => {
+    if (node.type !== 'identifier') return undefined;
+    const name = textOf(node);
+    return name === 'test' || name === 'it' ? frameworkOf(name) : undefined;
+  };
+  const direct = runner(callee);
   if (direct !== undefined) return direct;
   if (callee.type !== 'member_expression') return undefined;
   const object = callee.childForFieldName('object');
   const property = callee.childForFieldName('property');
   if (object === null || property === null) return undefined;
-  const modifier = text.slice(property.startIndex, property.endIndex);
-  return TEST_MODIFIERS.includes(modifier) ? identifier(object) : undefined;
+  const named = textOf(property);
+  // `it.only('name', …)`: the runner, carrying one of its own modifiers.
+  if (TEST_MODIFIERS.includes(named)) return runner(object);
+  // `runner.test('name', …)`: the runner reached through the namespace a file
+  // imported (`import * as runner from 'bun:test'`), whose framework is the
+  // namespace's own package and not whatever a local `test` was imported from.
+  if (object.type === 'identifier' && (named === 'test' || named === 'it') && imported.has(textOf(object))) {
+    return frameworkOf(textOf(object));
+  }
+  return undefined;
 }
 
 /** Whether the file declares `package main`, which is what makes its `main` the program's entry point. */
@@ -614,10 +729,18 @@ function declaresMainPackage(root: SyntaxNode, text: string): boolean {
   return false;
 }
 
-/** Whether a Go function's name is one the `testing` package runs: `Test…`, `Benchmark…` or `Fuzz…`. */
+/**
+ * Whether a Go function's name is one `go test` reports as a test, a benchmark
+ * or a fuzz target: the prefix, then anything but a lower-case letter (the
+ * runner's own rule: `Test`, `Test_x` and `Benchmark_Helper` are run, `Testme`
+ * is not). `TestMain` is the runner's own entry point, not a test it reports.
+ */
 function isGoTestName(name: string): boolean {
+  if (name === 'TestMain') return false;
   for (const prefix of ['Benchmark', 'Fuzz', 'Test']) {
-    if (name.startsWith(prefix) && name.length > prefix.length && /[A-Z0-9_]/u.test(name[prefix.length]!) && !name.startsWith(`${prefix}_`)) return true;
+    if (!name.startsWith(prefix)) continue;
+    const rest = name.slice(prefix.length);
+    if (rest === '' || !/^[a-z]/u.test(rest)) return true;
   }
   return false;
 }
@@ -688,6 +811,13 @@ interface LineIndex {
   readonly starts: readonly number[];
   /** The byte offset of each line's first character, in the file's own bytes. */
   readonly byteStarts: readonly number[];
+  /**
+   * The last character offset a byte offset was measured at, and the byte
+   * offset there: the walk asks for spans in the order it meets them, so a
+   * measurement pays for the distance from the last one and not for the whole
+   * line — a minified file is one very long line, and its spans are many.
+   */
+  readonly cursor: { index: number; byte: number };
 }
 
 function lineIndex(text: string): LineIndex {
@@ -699,7 +829,7 @@ function lineIndex(text: string): LineIndex {
     starts.push(at + 1);
     byteStarts.push(bytes);
   }
-  return { starts, byteStarts };
+  return { starts, byteStarts, cursor: { index: 0, byte: 0 } };
 }
 
 /** The line and column a character offset stands at: 1-based lines, 0-based UTF-16 columns. */
@@ -714,10 +844,19 @@ function positionAt(lines: LineIndex, offset: number): { line: number; column: n
   return { line: low + 1, column: offset - lines.starts[low]! };
 }
 
-/** The byte offset a character offset stands at, read from the line it is on. */
+/**
+ * The byte offset a character offset stands at. A walk that keeps moving
+ * forward measures only the distance it moved; a span behind the cursor is read
+ * from the line it is on, which costs that line and never the file.
+ */
 function byteAt(lines: LineIndex, text: string, offset: number): number {
-  const line = positionAt(lines, offset).line - 1;
-  return lines.byteStarts[line]! + Buffer.byteLength(text.slice(lines.starts[line]!, offset), 'utf8');
+  if (offset < lines.cursor.index) {
+    const line = positionAt(lines, offset).line - 1;
+    return lines.byteStarts[line]! + Buffer.byteLength(text.slice(lines.starts[line]!, offset), 'utf8');
+  }
+  lines.cursor.byte += Buffer.byteLength(text.slice(lines.cursor.index, offset), 'utf8');
+  lines.cursor.index = offset;
+  return lines.cursor.byte;
 }
 
 /** The span between two character offsets of one file, in lines, columns and bytes. */
