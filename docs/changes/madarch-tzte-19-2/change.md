@@ -183,7 +183,27 @@ None.
   and its own `findJobs` paging and its monitor's oldest-queued reading — treats
   as enqueue order. The table and column are pg-boss 12.38.0's; a version that
   renames them fails loudly at the first enqueue rather than silently losing the
-  order.
+  order, and the statement that writes the place checks the row it matched, so a
+  write that reached nothing fails the enqueue instead of answering a job whose
+  order the queue cannot keep. This is the `created_on` the jobs table carries:
+  `<schema>.job` is its partitioned parent and a normal queue's rows live in
+  `job_common`, its default partition, which an update through the parent
+  reaches. Cost, stated for the orchestrator that wires a caller
+  (madarch-tzte.19.5): the upsert holds the queue's stamp row until the enqueue's
+  transaction ends, so an enqueue inside a long caller's transaction makes every
+  other enqueue into that queue wait for it, and two transactions enqueuing into
+  two queues in opposite order can deadlock, which the database answers by
+  aborting one and nothing here retries. Publishing into one queue per
+  transaction, or taking the places in one fixed queue order, is the caller's
+  side of that. Two smaller consequences are recorded rather than fixed: a queue
+  enqueued into faster than once a millisecond keeps its places ahead of the
+  store's clock, which the monitor's oldest-queued reading reports as a negative
+  number of seconds and nothing functional reads; and pg-boss's queue cache,
+  evicted when another instance deletes and re-creates a declared queue, falls
+  back to the owner's connection on a miss, so that enqueue inside our own
+  transaction is refused by the owner with its own message where pg-boss would
+  have said the queue does not exist. It fails either way; only the sentence is
+  worse.
 - **A declaration is applied to the queue as it stands.** pg-boss's `create_queue`
   inserts a queue once and never touches the row again, so a product that changes
   a stage's limits would keep the old ones silently. `declare` creates the queue
@@ -279,13 +299,20 @@ None.
   and the same SHA passed when the shard was re-run — the tie-break was a random
   id, so the failure was a coin toss away rather than gone. Claim order is now
   enqueue order by construction (the bullet above), the scenario puts five
-  enqueues inside one transaction so the tie is made rather than waited for, and
-  three more parts pin the paths that keep a job's place: a retry, a recovered
-  claim and a dead letter. The comparator's residual from the review is closed by
-  two rows written into the queue's table in the reverse of their ids' order: the
-  claim answers them in id order, which insertion order gets wrong (whether a
-  store happens to answer ascending ids is its own affair, and the adapter's sort
-  is what the check holds). The same scenario runs on PGlite and on PostgreSQL.
+  enqueues inside one transaction so the tie is made rather than waited for. The
+  tie is made certain, the check's failure without the fix is not: five tied jobs
+  claimed two at a time come back in the wanted order by chance about one run in
+  ten, which is what the fix removes rather than a certainty it adds — the seam
+  is the one instant, not the failing. Three more parts pin the paths that keep a
+  job's place: a retry, a recovered claim and a dead letter. The comparator's
+  residual from the review is closed by two rows written into the queue's table
+  in the reverse of their ids' order: the claim answers them in id order, which
+  insertion order gets wrong (whether a store happens to answer ascending ids is
+  its own affair, and the adapter's sort is what the check holds). That promise
+  is about the batch a claim is handed, and the requirement now says so: which of
+  several jobs sharing one instant a claim of fewer takes is the store's own
+  choice, since the store holds no order between them. The same scenario runs on
+  PGlite and on PostgreSQL.
 
 ## DONE WHEN
 

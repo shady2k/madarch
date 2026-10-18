@@ -138,9 +138,12 @@ in the queue's own schema — and write it as the job's creation time in the
 enqueue's own transaction, so that two jobs of one queue never share an instant,
 whether the store's clock is coarse or one transaction enqueues several jobs.
 Where two jobs do share an instant — a row written into the queue beside this
-adapter — ids in code point order shall decide. A job that is retried, or whose
-claim a maintenance pass recovered, shall keep the place it was enqueued at, so
-that it is claimed before the jobs enqueued after it once it is due again. Every
+adapter — ids in code point order shall decide the order of the batch a claim is
+handed. Which of several jobs sharing one instant a claim of fewer than all of
+them takes is the store's own choice, since the store holds no order between
+them, and nothing is promised about it. A job that is retried, or whose claim a
+maintenance pass recovered, shall keep the place it was enqueued at, so that it
+is claimed before the jobs enqueued after it once it is due again. Every
 claimed job shall carry its data, how many times it was claimed before, the retry
 allowance it was enqueued with, and the lease the queue declared, and an empty
 queue shall answer no jobs.

@@ -333,16 +333,19 @@ export async function runQueueScenario(owner: DatabaseOwner, schema: string): Pr
     const oneTickFirstClaim = (await queue.claim<{ unit: string }>({ queue: SCENARIO_QUEUES.equalPriority, limit: 2 })).map(observed);
     const oneTickSecondClaim = (await queue.claim<{ unit: string }>({ queue: SCENARIO_QUEUES.equalPriority, limit: 3 })).map(observed);
 
-    // Two rows written straight into the queue's table, at one instant and in the
-    // reverse of their ids' code point order: the adapter gave them no place of
-    // their own, so the last key it promises — ids in code point order — is the
-    // only thing that can order them, and insertion order is not it.
+    // Two rows written straight into the jobs table the queue keeps in its
+    // schema, at one instant — `now()` is one statement's — and in the reverse of
+    // their ids' code point order. The adapter gave them no place of their own, so
+    // the last key it promises, ids in code point order, is the only thing that
+    // can order them, and insertion order is not it. They carry the table's own
+    // defaults rather than the queue's declaration, which is why the check of
+    // this part reads their units and their ids and nothing else.
     await owner.run(async (transaction) => {
       await transaction.query(
         `INSERT INTO ${schema}.job (id, name, data, priority, created_on, start_after, keep_until)
-         VALUES ('22222222-2222-4222-8222-222222222222', $1, '{"unit":"written-first"}'::jsonb, 0, $2::timestamptz, $2::timestamptz, $2::timestamptz + interval '1 day'),
-                ('11111111-1111-4111-8111-111111111111', $1, '{"unit":"written-second"}'::jsonb, 0, $2::timestamptz, $2::timestamptz, $2::timestamptz + interval '1 day')`,
-        [SCENARIO_QUEUES.foreignOrder, '2026-10-18 00:00:00+00'],
+         VALUES ('22222222-2222-4222-8222-222222222222', $1, '{"unit":"written-first"}'::jsonb, 0, now() - interval '1 hour', now() - interval '1 hour', now() + interval '1 day'),
+                ('11111111-1111-4111-8111-111111111111', $1, '{"unit":"written-second"}'::jsonb, 0, now() - interval '1 hour', now() - interval '1 hour', now() + interval '1 day')`,
+        [SCENARIO_QUEUES.foreignOrder],
       );
     });
     const foreignOrder = (await queue.claim<{ unit: string }>({ queue: SCENARIO_QUEUES.foreignOrder, limit: 2 })).map((job) => ({ id: job.id, unit: job.data.unit }));

@@ -160,7 +160,6 @@ function settled(answer: CommandResponse): boolean {
 /** A stored object's name, as the database itself takes one. */
 const OBJECT_NAME = /^[\w.\-/]+$/;
 
-
 function assertName(what: string, name: string): void {
   if (!OBJECT_NAME.test(name) || name.length > 50) {
     throw new Error(`the ${what} "${name}" is not a stored object's name: letters, digits, ".", "_", "-" and "/", at most 50 bytes`);
@@ -348,7 +347,7 @@ class PgBossQueue implements QueueService {
    * statement that takes it.
    */
   private async stampEnqueuedAt(transaction: OuterTransaction, queue: string, id: string): Promise<void> {
-    await transaction.query(
+    const { rows } = await transaction.query<{ id: string }>(
       `WITH next AS (
          INSERT INTO ${this.schema}.${ENQUEUE_STAMP_TABLE} AS stamp (queue, enqueued_at)
          VALUES ($1, $2::timestamptz)
@@ -357,9 +356,17 @@ class PgBossQueue implements QueueService {
        )
        UPDATE ${this.schema}.job AS job
          SET created_on = (SELECT enqueued_at FROM next)
-         WHERE job.name = $1 AND job.id = $3::uuid`,
+         WHERE job.name = $1 AND job.id = $3::uuid
+       RETURNING job.id`,
       [queue, new Date().toISOString(), id],
     );
+    // The one place this promise could be lost without a word: a statement that
+    // matched no row. Raising it here fails the enqueue — and the caller's
+    // transaction with it — rather than answering a job whose order is not the
+    // queue's to give.
+    if (rows.length === 0) {
+      throw new Error(`the job "${id}" of the queue "${queue}" was created but its place in the queue's order was not written: the queue's own table answered no row for it, so the enqueue order this queue promises cannot be kept`);
+    }
   }
 
   async claim<Data>(request: ClaimRequest): Promise<ClaimedJob<Data>[]> {

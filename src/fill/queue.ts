@@ -214,8 +214,10 @@ export interface QueueService {
    * answers the oldest of them. A job that waits for a retry, or one whose claim
    * a maintenance pass recovered, keeps the place it was enqueued at. Where two
    * jobs nevertheless share an instant — one written into the queue beside this
-   * service — ids in code point order decide. Every job carries its attempt and
-   * the lease that claim holds it under. An empty queue answers no jobs.
+   * service — ids in code point order decide the order of the batch the claim is
+   * handed, while which of them a claim of fewer than all of them takes is the
+   * store's own choice. Every job carries its attempt and the lease that claim
+   * holds it under. An empty queue answers no jobs.
    */
   claim<Data>(request: ClaimRequest): Promise<ClaimedJob<Data>[]>;
   /**
