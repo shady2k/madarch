@@ -75,7 +75,7 @@ madarch stop --home "$HOME/products"
 madarch serve --product "$PRODUCT" --port 0 --no-open > "$TMP/serve.txt" 2>&1 & PID=$!
 ADDRESS=
 for n in $(seq 1 200); do
-  ADDRESS=$(sed -n 's/^\(The wiki is running at\|Wiki:\) \(http[^ ]*\).*/\2/p' "$TMP/serve.txt" | head -1)
+  ADDRESS=$(sed -n 's/^The wiki is running at \(http[^ ]*\).*/\1/p; s/^Wiki: \(http[^ ]*\).*/\1/p' "$TMP/serve.txt" | head -1)
   [ -n "$ADDRESS" ] && break
   sleep .1
 done

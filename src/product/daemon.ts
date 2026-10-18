@@ -117,11 +117,15 @@ function clearState(home: string): void { try { unlinkSync(statePath(home)); } c
 function pause(ms: number): void { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
 /**
  * Whether this program is a compiled binary: the bundle names no file on disk,
- * so `Bun.main` is the bundle's own virtual path (`/$bunfs/root/<binary>`),
- * while a source run's is the script's real path.
+ * so `Bun.main` is the bundle's own virtual path, while a source run's is the
+ * script's real path. The marker is looked for wherever it stands — measured
+ * 2026-10-18: `/root/$bunfs`-style on Linux and macOS (`/$bunfs/root/madarch`)
+ * and with the drive letter on Windows (`B:\$bunfs\root\madarch.exe`, run
+ * 39134773495, where a leading-slash test missed it and the child ran a path
+ * that exists nowhere).
  */
 function isCompiledBinary(): boolean {
-  return Bun.main.startsWith('/$bunfs');
+  return Bun.main.includes('$bunfs');
 }
 
 /**

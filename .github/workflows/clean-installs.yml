@@ -114,7 +114,11 @@ jobs:
             hash -r
           fi
           type -a madarch
-          test "$(madarch version)" = 'version: 0.1.0'
+          # The tap's own version, never a number written here: the published
+          # release moves and this walk would fail on the day it does.
+          VERSION=$(brew list --versions madarch | awk '{print $2}')
+          test -n "$VERSION"
+          test "$(madarch version)" = "version: $VERSION"
       - name: Run new then serve using the published formula
         run: |
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
@@ -139,7 +143,7 @@ jobs:
           madarch serve --product "$PRODUCT" --port 0 --no-open > "$TMP/serve.txt" 2>&1 & PID=$!
           ADDRESS=
           for n in $(seq 1 200); do
-            ADDRESS=$(sed -n 's/^\(The wiki is running at\|Wiki:\) \(http[^ ]*\).*/\2/p' "$TMP/serve.txt" | head -1)
+            ADDRESS=$(sed -n 's/^The wiki is running at \(http[^ ]*\).*/\1/p; s/^Wiki: \(http[^ ]*\).*/\1/p' "$TMP/serve.txt" | head -1)
             [ -n "$ADDRESS" ] && break
             sleep .1
           done

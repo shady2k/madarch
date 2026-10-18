@@ -135,7 +135,7 @@ async function serveCheck(): Promise<void> {
     if (!await waitForProduct(base)) throw new Error(`npx madarch serve did not reopen the graph-backed product at ${base}. stdout: ${serveOut}; stderr: ${serveErr}`);
   } finally { finish(server); }
   console.log(`$ npx madarch serve --product ${product} --port 0 --no-open  (the foreground serve names its own free port)`);
-  console.log(`walk passed: npx madarch new --home ${home} served ${product} on the port it chose, npx madarch stop ended that server, and npx madarch serve --product ${product} served the same product again`);
+  console.log(`walk passed: npx madarch new --home ${home} served ${product} on the port the walk named, npx madarch stop ended that server, and npx madarch serve --product ${product} served the same product again`);
   await removeWork();
 }
 
