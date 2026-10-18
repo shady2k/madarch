@@ -352,7 +352,9 @@ export async function readSealedChildren(database: OrchestratorDatabase, parentU
       'SELECT parent_unit_id, parent_generation, child_unit_id, child_generation, sealed_at FROM fill_unit_split WHERE parent_unit_id = $1 AND parent_generation = $2 ORDER BY child_unit_id ASC',
       [parentUnitId, parentGeneration],
     );
-    return rows.map((row) => ({ unitId: row.child_unit_id, generation: millis(row.child_generation), sealedAt: millis(row.sealed_at) }));
+    return rows
+      .map((row) => ({ unitId: row.child_unit_id, generation: millis(row.child_generation), sealedAt: millis(row.sealed_at) }))
+      .sort((left, right) => byCodePoint(left.unitId, right.unitId));
   }, 'snapshot');
 }
 
