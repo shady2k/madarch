@@ -1526,8 +1526,12 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     kind: 'task-key',
     shape: 'edge',
     // Stage 7 reads the keys a commit message names and stage 6 the keys a
-    // document names: one kind, one rule for how a key is written, and both
-    // stages write it.
+    // document names. The kind is one and the key is written as the tracker
+    // writes it; the two readers differ in what they read a marker from — a
+    // commit message's `Task:` line is a key list and nothing else, while a
+    // document's line carries the sentence the marker stands in — so each
+    // stage's own rule says which tokens of its text are keys (see
+    // `src/fill/stages/history.ts` and `src/fill/stages/document-index.ts`).
     stages: ['6-documents', '7-history'],
     place: 'optional',
     layers: ['extracted'],

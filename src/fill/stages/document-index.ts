@@ -4,8 +4,8 @@
  * document (its media type, its title where it carries one, the bytes it spans
  * and the blob its bytes stand under), one `section` node per heading (its
  * anchor, its heading, its depth, the lines it covers and the bytes it spans),
- * one `document-link` edge per link a document holds (to another document, to a
- * code path, to an address outside the repositories, or unresolved with the
+ * one `document-link` edge per link end a section names (to another document, to
+ * a code path, to an address outside the repositories, or unresolved with the
  * place the link stands at), one `task-key` edge per task key a document names,
  * and one `coverage` node saying what the read could not read.
  *
@@ -53,10 +53,11 @@
  * **A document's id is its repository and its path**, so a link to another
  * document names the node that document's own unit writes: a Markdown target is
  * the `document` node, any other file the `file` node stage 1 published, and a
- * fragment of the linking document a `section` node this unit writes itself. Two
- * links of one document to one end are one edge (its identity), so the edge is
- * written once, at the first place the document names it — the rule the call
- * graph follows for two call sites of one pair.
+ * fragment of the linking document a `section` node this unit writes itself. An
+ * edge is folded by what its own identity names — the node it stands in and the
+ * end (a link) or the key (a task key) — so the same end named twice under one
+ * section is one edge, written at the first place, and the same end named under
+ * two sections is two edges, each at its place.
  *
  * **A heading's anchor** is the one a reader's link names: the heading's words as
  * a reader sees them (an inline link's label, a code span's content), lower
@@ -69,16 +70,17 @@
  * never silent.
  *
  * **Every error names what it is about**: a plan's refusal names the read, the
- * row's place and the field; a unit's refusal names the unit and the document it
- * read, and a draft's refusal names the write's place in the draft, what it
- * cites and the fact's own path and place.
+ * row's place and the field; a refusal of this module names what it was given —
+ * the scope, and the repository name or the path that does not read — and a
+ * draft's refusal names the write's place in the draft, what it cites and the
+ * fact's own path and place.
  */
 import { Type } from 'typebox';
 import { byCodePoint } from '../../model/order.js';
 import { ID_PATTERN } from '../../model/schema.js';
 import { resolveBodyLink } from '../../product-wiki/documents.js';
 import {
-  type CoverageGap, type CoverageValue, FACT_KINDS, type Fact, type FactPlace, type FactProvenance, type FactRange,
+  type CoverageGap, type CoverageValue, FACT_KINDS, type Fact, type FactPlace, type FactRange,
   type FactTerm, factId, isRepositoryPath, makeEdgeFact, makeNodeFact, repositoryPath, type RepositoryPath,
 } from '../facts.js';
 import type { SnapshotEntry, SnapshotReader, SnapshotSource } from '../snapshot.js';
@@ -381,18 +383,22 @@ const SURROUNDING_PUNCTUATION = /^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/gu;
 const TRACKER_KEY = /^[A-Za-z][A-Za-z0-9]*(?:[-.][A-Za-z0-9]+)+$/u;
 
 /**
- * The task keys one line names: the tokens after a `Task:` or `Tasks:` marker
+ * The task keys one line names: after a `Task:` or `Tasks:` marker
  * (case-insensitive — the tracker's own rule for a commit message is `Task:`, and
- * the project's change records write the header `Tasks:`) that read as a
- * tracker's id once the punctuation a reader's eye ignores around them is off.
- * The tracker's own reader splits a key list on commas and whitespace, so a key
- * is a whole token; a key a document writes in a sentence carries a full stop, a
- * comma or a bracket around it, which is not part of the key, and a token that
- * reads as prose — a word with no separator, a date, a time, a bare number — is
- * no key. The shape is all the rule has: a hyphenated word right after a marker
- * reads as a key, since nothing tells `release-notes` from `madarch-1xq` and
- * the marker is what says a key follows. Each key is written once per line, at
- * the columns it stands at.
+ * the project's change records write the header `Tasks:`), the run of tokens
+ * that read as a tracker's id, ending at the first token that does not. The
+ * tracker's own reader splits a key list on commas and whitespace, so a key is a
+ * whole token; a key a document writes in a sentence carries a full stop, a
+ * comma or a bracket around it, which is not part of the key, and the run ends
+ * at the first word of the sentence, which is what keeps a document's prose and
+ * the file names further along the line out of the graph. A token is a key when
+ * what remains of it is shaped as a tracker's id: a letter first, then one or
+ * more `-`- or `.`-separated parts of letters and digits, and nothing else — so a
+ * date, a time and a bare number are no keys. A token that opens a bracket ends
+ * the run with them, since a bracket opens the sentence's own aside. The shape is
+ * all the rule has: a hyphenated word inside the run reads as a key, since
+ * nothing tells `release-notes` from `madarch-1xq`. Each key is written once per
+ * line, at the columns it stands at.
  */
 export function taskKeysOf(line: DocumentLine): LineTaskKey[] {
   if (!line.content) return [];
@@ -404,8 +410,13 @@ export function taskKeysOf(line: DocumentLine): LineTaskKey[] {
     const rest = masked.slice(after);
     for (const token of rest.matchAll(KEY_TOKEN)) {
       const raw = token[0];
+      // The list ends at the first token that opens a bracket or is no key: a
+      // key list is a run, and what follows it is the sentence the marker
+      // stands in — a bracket opens that sentence's aside, and a word with no
+      // separator is its prose.
+      if (raw.startsWith('(') || raw.startsWith('[')) break;
       const bare = raw.replace(SURROUNDING_PUNCTUATION, '');
-      if (!TRACKER_KEY.test(bare)) continue;
+      if (!TRACKER_KEY.test(bare)) break;
       if (seen.has(bare)) continue;
       seen.add(bare);
       const start = after + (token.index ?? 0) + (raw.length - raw.replace(/^[^A-Za-z0-9]+/u, '').length);
@@ -548,7 +559,7 @@ export interface DocumentReading {
   readonly range: FactRange;
   /** How many sections the document opened. */
   readonly sections: number;
-  /** How many links the document holds (one edge per end, however many times it names it). */
+  /** How many links the document holds: one edge per end and section, however many times it names it. */
   readonly links: number;
   /** How many task keys the document names. */
   readonly keys: number;
@@ -571,10 +582,11 @@ function placeAt(path: RepositoryPath, range: FactRange): FactPlace {
  * What one document's bytes hold, read as its unit's facts: the document node
  * (its media type, its title where it has one, the bytes it spans and the blob
  * its bytes stand under), one section node per heading a reader sees, one
- * `document-link` edge per link the document holds, and one `task-key` edge per
- * task key it names. The order is the order above: the document, its sections as
- * a reader meets them, then the links and the keys in the order they stand. Two
- * links to one end are one edge, at the first place the document names it.
+ * `document-link` edge per end a section names, and one `task-key` edge per key
+ * it names. The order is the order above: the document, its sections as a reader
+ * meets them, then the links and the keys in the order they stand. An edge is
+ * folded by its identity (the section it stands in and the end), so one end named
+ * twice under one section is one edge, at the first place.
  *
  * The anchors are the ones a reader's link names, each distinct within the
  * document. A heading whose words hold no anchor, and a link whose target names
@@ -658,8 +670,8 @@ export function readDocument(reader: SnapshotReader, path: RepositoryPath, bytes
     facts.push(section);
   });
 
-  // The links: one edge per end, at the first place the document names it, from
-  // the section the link stands in where a section holds its line.
+  // The links: one edge per end and section, at the first place the document
+  // names it, from the section the link stands in where a section holds its line.
   const { held, markdown } = treePathsOf(reader);
   // A link's identity is the node it stands in and the end it names: the same
   // end named twice in one section is one edge, and the same end named in two
@@ -740,10 +752,10 @@ function linkTerm(
   const literal = (): FactTerm => ({ form: 'literal', text: written });
   if (written === '') return literal();
   if (written.startsWith('#')) {
-    // A reader's link resolves an anchor without regard to case, and the
-    // anchors this stage writes are lower case.
-    const wanted = written.slice(1).toLowerCase();
-    const named = sections.find((section) => section.anchor === wanted);
+    // A reader's link names the anchor exactly as the page holds it: a fragment
+    // is compared as written, so `#Requirement` reaches no section this stage
+    // writes as `requirement` (a browser's own lookup of an `id` is exact too).
+    const named = sections.find((section) => section.anchor === written.slice(1));
     return named === undefined ? literal() : { form: 'node', id: named.id };
   }
   if (/^[a-z][a-z0-9+.-]*:/iu.test(written)) return { form: 'external', url: written };
@@ -791,6 +803,9 @@ function sectionAt(sections: readonly ReadingSection[], line: number): string | 
  * this says what the reading could not say once.
  */
 function documentGaps(gaps: readonly CoverageGap[], repository: string, path: RepositoryPath): CoverageGap[] {
+  // Today every gap is one heading, and one line holds one heading, so a `what`
+  // repeats only as an exact pair, which the fold below drops; the refusal is the
+  // guard a second kind of gap will need, and it mirrors the history stage's.
   const seen = new Set<string>();
   const unique: CoverageGap[] = [];
   for (const gap of [...gaps].sort((left, right) => byCodePoint(left.what, right.what) || byCodePoint(left.reason, right.reason))) {

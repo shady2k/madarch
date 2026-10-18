@@ -366,16 +366,20 @@ describe('one document, through its own plan and execute', () => {
   test('an address outside the repositories is an address, and a fragment names a section of its own document', async () => {
     const f = await fixture();
     try {
-      await f.write('docs/a.md', '# A\n\n## B\n\nSee [out](https://example.test/x) and [in](#b) and [nowhere](#c).\n');
+      await f.write('docs/a.md', '# A\n\n## B\n\nSee [out](https://example.test/x) and [in](#b) and [nowhere](#c) and [case](#B).\n');
       const commit = f.commit();
       const { recorder } = await runUnit(sourceOf(f, commit), unitOf('orders-api', 'docs/a.md'));
       const sections = factsOfKind(recorder.writes, 'section');
       expect(sections.map((fact) => fact.value['anchor'])).toEqual(['a', 'b']);
       const links = factsOfKind(recorder.writes, 'document-link');
+      // An anchor is compared as written: `#B` names no section this document
+      // writes as `b` (a browser's lookup of an `id` is exact), so it stays
+      // unresolved with its place.
       expect(links.map((fact) => fact.value['to'])).toEqual([
         { form: 'external', url: 'https://example.test/x' },
         { form: 'node', id: sections[1]?.id },
         { form: 'literal', text: '#c' },
+        { form: 'literal', text: '#B' },
       ]);
       // A link written under a section stands in that section.
       expect(links[0]?.value['from']).toBe(sections[1]?.id);
@@ -464,6 +468,30 @@ describe('a task key named in a document', () => {
       // Each key stands at its own columns.
       const first = factsOfKind(recorder.writes, 'task-key').find((fact) => fact.value['key'] === 'madarch-p45j.4');
       expect(first?.provenance.place?.range).toEqual({ startLine: 3, startColumn: 36, endLine: 3, endColumn: 50 });
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('the key list after a marker ends at the first token that is no key, or at a bracket', async () => {
+    const f = await fixture();
+    try {
+      await f.write('docs/a.md', [
+        '# A',
+        '',
+        'Task: see registry.ts and madarch-later.1',
+        '',
+        'Task: madarch-tzte.21.4 (integrator-held; this record is the run\'s evidence)',
+        '',
+        'Tasks: madarch-a.1, madarch-b.2',
+        '',
+      ].join('\n'));
+      const commit = f.commit();
+      const { recorder } = await runUnit(sourceOf(f, commit), unitOf('orders-api', 'docs/a.md'));
+      // A marker standing in a sentence names the keys at its head: the prose
+      // after them is the sentence, and a file name further along the line is no
+      // key. A list of keys is a run, and a bracket opens the sentence's aside.
+      expect(factsOfKind(recorder.writes, 'task-key').map((fact) => fact.value['key'])).toEqual(['madarch-tzte.21.4', 'madarch-a.1', 'madarch-b.2']);
     } finally {
       await f.dispose();
     }
@@ -589,6 +617,25 @@ describe('what a reader of the document sees', () => {
       // The carriage returns are the document's bytes, not the lines' text.
       expect(sections[1]?.provenance.place?.range).toEqual({ startLine: 3, startColumn: 0, endLine: 5, endColumn: 4 });
       expect(sections[1]?.value['startByte']).toBe(Buffer.byteLength('# A\r\n\r\n'));
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a carriage return with no newline after it is a character of its line', async () => {
+    const f = await fixture();
+    try {
+      // A document whose last line ends in a lone carriage return: the pair a
+      // CRLF file writes is not there, so the byte is the line's own.
+      await f.write('docs/a.md', '# A\n\nbody\r');
+      const commit = f.commit();
+      const { recorder } = await runUnit(sourceOf(f, commit), unitOf('orders-api', 'docs/a.md'));
+      const [document] = factsOfKind(recorder.writes, 'document');
+      const section = factsOfKind(recorder.writes, 'section')[0];
+      const bytes = Buffer.byteLength('# A\n\nbody\r');
+      expect(document?.value['bytes']).toBe(bytes);
+      expect(section?.provenance.place?.range).toEqual({ startLine: 1, startColumn: 0, endLine: 3, endColumn: 5 });
+      expect(section?.value['endByte']).toBe(bytes);
     } finally {
       await f.dispose();
     }

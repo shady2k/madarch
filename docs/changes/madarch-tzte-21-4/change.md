@@ -26,7 +26,7 @@ then the repository and the path, and a unit writes what its own document holds:
 - one `section` node per heading a reader sees (the anchor a reader's link names,
   the heading's words, their depth, the lines the section covers and the bytes it
   spans) — the heading tree, as the facts' document, depth and order say it;
-- one `document-link` edge per link the document holds: the node of another
+- one `document-link` edge per end a section of the document names: the node of another
   Markdown document, the node of a code path the pinned commit holds, an address
   outside the repositories, a section of the document itself where the link is a
   fragment, and — for a path the pinned commit does not hold, a folder, an
@@ -202,7 +202,10 @@ two stages. The one change to landed modules is the two kinds' value shapes
   stage may read. The plan and the unit treat every pinned repository the same
   way, so the product's own documents are indexed like any other repository's.
 - **A link's end is a node of the graph, an address, or the target as written.**
-  A fragment names a section of the linking document (a `section` node the same
+  A fragment names a section of the linking document, compared as the document
+  writes it — an `id` a browser looks up is exact, so `#B` reaches no section
+  written as `b`, and the link keeps its place as an unresolved one — (a `section`
+  node the same
   unit writes); a target with a scheme is an address outside the repositories; a
   target the wiki's resolver ties to a path the pinned commit holds names that
   path's node — the `document` node where the path is a Markdown document named
@@ -226,23 +229,25 @@ two stages. The one change to landed modules is the two kinds' value shapes
 - **A task key is read by the tracker's own marker, and by the shape of a
   tracker's id.** The marker is `Task:` or `Tasks:` (case-insensitive — a commit
   message writes the first, a change record's header writes the second) anywhere
-  on a structural line; the keys after it are the tokens the tracker's own reader
-  splits on (commas and whitespace), each read whole and with the punctuation
-  that surrounds it in a sentence taken off (a full stop, a comma, a bracket),
-  and a token is a key when what remains is shaped as a tracker's id — a letter
-  first, then one or more `-`- or `.`-separated parts of letters and digits
-  (`madarch-tzte.21.4`, `madarch-1xq`) and nothing else. The shape is what keeps
-  the words of a sentence from being read as keys: a date (`2026-10-17`) and a
-  time (`15:14`) begin with a digit and are no keys, and a key the sentence wraps
-  (`Task: madarch-tzte.21.4),` or `Task: madarch-p45j.4.`) is read. Its bound is
-  the shape itself: a hyphenated word right after a marker reads as a key, since
-  nothing tells `release-notes` from `madarch-1xq` and the marker is what says a
-  key follows (an open point below). Stage 7's own `taskKeys` splits a commit
-  message's `Task:` line and takes every token, which a document's line cannot
-  do; stage 7 writes the same kind, so `FACT_KINDS['task-key'].stages` names both
-  stages and `EDGE_END_KINDS['task-key'].from` names the kinds both write it
-  from (`commit`, `document`, `section`), which the facts test's stage-order
-  check reads. A key written inside a code span or a fence is an example, no key.
+  on a structural line; after it the keys are the run of tokens the tracker's own
+  reader splits on (commas and whitespace), each read whole and with the
+  punctuation that surrounds it in a sentence taken off (a full stop, a comma, a
+  bracket), and a token is a key when what remains is shaped as a tracker's id —
+  a letter first, then one or more `-`- or `.`-separated parts of letters and
+  digits (`madarch-tzte.21.4`, `madarch-1xq`) and nothing else. The run ends at
+  the first token that is no key and at a token that opens a bracket, so the
+  sentence a marker stands in and the file names further along its line are no
+  keys: a date (`2026-10-17`) and a time (`15:14`) begin with a digit, a word of
+  prose carries no separator, and a key the sentence wraps (`Task:
+  madarch-tzte.21.4),` or `Task: madarch-p45j.4.`) is read. The rule's bound is
+  the shape: a hyphenated word *inside* the run reads as a key, since nothing
+  tells `release-notes` from `madarch-1xq` (an open point below). Stage 7's own
+  `taskKeys` splits a commit message's `Task:` line and takes every token, which
+  a document's line cannot do; stage 7 writes the same kind, so
+  `FACT_KINDS['task-key'].stages` names both stages and
+  `EDGE_END_KINDS['task-key'].from` names the kinds both write it from
+  (`commit`, `document`, `section`), which the facts test's stage-order check
+  reads. A key written inside a code span or a fence is an example, no key.
 - **The stage consumes what it names, and its own kind.** `snapshot` and `file`
   are required: a link to a code path names the node stage 1 published, so the
   derived graph runs the inventory first — the stage graph orders itself, nothing
@@ -311,12 +316,13 @@ Open points for the integrator, in the order they matter:
   is the one a document needs (stage 7's would read the sentence's words as
   keys). A later task may give the rule one home, with stage 7's tests read again
   against it.
-- The task-key rule is a shape and the marker, and nothing else: a hyphenated
-  word right after a `Task:` marker (`Task: release-notes`) is read as a key,
-  because no shape tells it from `madarch-1xq`. A document that writes prose
-  after a marker therefore names keys the fill reads. Narrowing this needs
-  something the fill does not have today — the project's own key prefix, or the
-  run's task list as input — and is a later task's, not this one's.
+- The task-key rule is a marker, a run and a shape, and nothing else: a
+  hyphenated word inside the run after a `Task:` marker (`Task: release-notes`)
+  is read as a key, because no shape tells it from `madarch-1xq`. A document
+  that opens its key list with prose therefore names keys the fill reads.
+  Narrowing this needs something the fill does not have today — the project's own
+  key prefix, or the run's task list as input — and is a later task's, not this
+  one's.
 - Mutation is not run (the owner's rule runs Stryker once per assembled stage);
   acceptance escalates per `mutationFallback`.
 
