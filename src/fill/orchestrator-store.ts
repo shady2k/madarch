@@ -816,7 +816,7 @@ export const PROGRESS_KINDS = [
   'stage-found-nothing',
   'unit-planned', 'unit-admitted', 'unit-leased', 'unit-started', 'unit-read', 'unit-progress', 'unit-drafted', 'unit-validating',
   'unit-published', 'unit-split', 'unit-joined', 'unit-blocked', 'unit-unblocked', 'unit-retried', 'unit-failed',
-  'unit-stale', 'unit-cancelled',
+  'unit-stale', 'unit-cancelled', 'unit-requeued',
 ] as const;
 export type ProgressKind = (typeof PROGRESS_KINDS)[number];
 

@@ -1448,3 +1448,51 @@ describe('what the second review found, kept as tests', () => {
     expect(seen).toEqual([false, false, true]);
   });
 });
+
+describe('a job the queue no longer holds', () => {
+  /** One stage with one unit, so the queue holds exactly one job of the run. */
+  const oneUnit = (): StageRegistry => new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'], concurrency: 1 }));
+
+  test('a unit standing ready with no lease is offered the queue again, and an offer it still holds changes nothing', async () => {
+    const { world: opened, runId } = await plannedWorld({ registry: oneUnit() });
+    await admitUnits(opened.orchestrator, { runId });
+    // The worker that claimed the unit's job died before it took the lease: the
+    // queue's own maintenance settles that claim, and with the queue declared with
+    // no retries of its own the job is gone while the unit stands `ready` under no
+    // lease at all.
+    const claimed = (await opened.queue.claim<{ unitId: string }>({ queue: QUEUE }))[0]!;
+    expect(claimed.data.unitId).toBe('snapshot/src');
+    expect(await opened.queue.fail(QUEUE, claimed, 'the worker died before it leased the unit')).toBe('failed');
+    expect(await opened.queue.claim({ queue: QUEUE })).toEqual([]);
+
+    const swept = await sweepUnits(opened.orchestrator, { runId });
+    expect(swept.swept.map((unit) => [unit.unitId, unit.outcome])).toEqual([['snapshot/src', 'requeued']]);
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('ready');
+    const again = await opened.queue.claim<{ unitId: string }>({ queue: QUEUE });
+    expect(again.map((job) => job.data.unitId)).toEqual(['snapshot/src']);
+
+    // The work the dead worker claimed is not lost: the unit runs and publishes.
+    const worked = await workOnce(opened.orchestrator, { worker: 'worker-2' });
+    expect(worked).toMatchObject({ unitId: 'snapshot/src', result: 'published' });
+
+    // The offer is idempotent: while an unfinished job carries the unit's key the
+    // queue creates nothing, so a pass over a unit whose job is still there
+    // changes nothing at all — and a generation that is already published is not
+    // offered again either.
+    const quiet = await sweepUnits(opened.orchestrator, { runId });
+    expect(quiet.swept).toEqual([]);
+  });
+
+  test('a unit under a lease of its own is left to that lease, never offered again', async () => {
+    const { world: opened, runId } = await plannedWorld({ registry: oneUnit() });
+    await admitUnits(opened.orchestrator, { runId });
+    const claimed = (await opened.queue.claim<{ unitId: string }>({ queue: QUEUE }))[0]!;
+    const leased = await leaseUnit(opened.owner, { unitId: claimed.data.unitId, holder: 'worker-1', ttlMs: 60_000, at: NOW });
+    expect(leased.ok).toBe(true);
+    const swept = await sweepUnits(opened.orchestrator, { runId });
+    // The unit is `leased` and its job is the attempt's own: nothing is offered,
+    // because nothing was lost — the lease is what holds it.
+    expect(swept.swept).toEqual([]);
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('leased');
+  });
+});

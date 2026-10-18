@@ -751,7 +751,7 @@ export async function admitUnits(orchestrator: FillOrchestrator, options: { read
 /** Why a unit was sent away from an attempt and what the sweep did with it. */
 export interface SweptUnit {
   readonly unitId: string;
-  readonly outcome: 'woken' | 'wake-refused' | 'retried' | 'failed' | 'join-enqueued' | 'join-failed';
+  readonly outcome: 'woken' | 'wake-refused' | 'retried' | 'failed' | 'join-enqueued' | 'join-failed' | 'requeued';
   readonly reason: string;
 }
 
@@ -796,6 +796,26 @@ export async function sweepUnits(orchestrator: FillOrchestrator, options: { read
       await orchestrator.queue.enqueue({ queue: orchestrator.queueName, data: { unitId: unit.unitId, generation: unit.generation }, singletonKey: unit.unitId });
       await emit(orchestrator, { runId: run.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-retried', summary: `${unit.unitId} waits no longer; its retry is runnable again` });
       swept.push({ unitId: unit.unitId, outcome: 'woken', reason: `its wait ended at ${unit.context.retryAt}` });
+      continue;
+    }
+    if (unit.state === 'ready' && unit.lease === null) {
+      // A unit standing `ready` with no lease at all is one whose job the queue no
+      // longer holds: the worker that claimed it died before it took the lease, and
+      // the queue's own maintenance settles such a claim as failed — which frees
+      // the unit's singleton key and leaves nothing for a worker to claim, so the
+      // unit would wait for ever while the run's evidence still counted it
+      // runnable. The run offers the job again, and the offer is idempotent: while
+      // an unfinished job carries the unit's key the queue creates nothing, so a
+      // job that is still queued or still claimed is left exactly as it stands.
+      const offered = await orchestrator.queue.enqueue({
+        queue: orchestrator.queueName,
+        data: { unitId: unit.unitId, generation: unit.generation },
+        singletonKey: unit.unitId,
+      });
+      if (offered.created) {
+        await emit(orchestrator, { runId: run.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-requeued', summary: `${unit.unitId} stands ready with no job and nothing stands leased for it; the run offers it to the queue again` });
+        swept.push({ unitId: unit.unitId, outcome: 'requeued', reason: 'the unit stands ready, holds no lease and the queue held no unfinished job for it' });
+      }
       continue;
     }
     if (ADMITTED_STATES.includes(unit.state) && unit.lease !== null && unit.lease.revokedAt === null && unit.lease.expiresAt <= at) {
