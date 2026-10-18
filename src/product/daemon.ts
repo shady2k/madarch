@@ -116,16 +116,18 @@ function clearState(home: string): void { try { unlinkSync(statePath(home)); } c
 /** Yields to other work without a busy loop; the lifecycle waits below poll with it. */
 function pause(ms: number): void { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
 /**
- * Whether this program is a compiled binary: the bundle names no file on disk,
- * so `Bun.main` is the bundle's own virtual path, while a source run's is the
- * script's real path. The marker is looked for wherever it stands — measured
- * 2026-10-18: `/root/$bunfs`-style on Linux and macOS (`/$bunfs/root/madarch`)
- * and with the drive letter on Windows (`B:\$bunfs\root\madarch.exe`, run
- * 39134773495, where a leading-slash test missed it and the child ran a path
- * that exists nowhere).
+ * Whether this program is a compiled binary: a bundle's module URL carries
+ * `$bunfs` and names no file on disk, while a source run's is the module's real
+ * path. Both markers are checked because the platforms report them
+ * differently — measured 2026-10-18: `import.meta.url` is
+ * `file:///<root>/$bunfs/root/<binary>` on Linux and Windows (Windows spelled
+ * with the drive letter: the path derived from it read
+ * `B:\scripts\madarch.ts`, run 39135227328), while `Bun.main` carries
+ * `$bunfs` on Linux and macOS and, on Windows, answered a path with no marker
+ * at all (the same run).
  */
 function isCompiledBinary(): boolean {
-  return Bun.main.includes('$bunfs');
+  return import.meta.url.includes('$bunfs') || Bun.main.includes('$bunfs');
 }
 
 /**

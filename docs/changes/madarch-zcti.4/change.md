@@ -57,11 +57,13 @@ there, instead of ignoring the flag.
   than ignoring it. Complete proposed text in
   `capabilities/product-repository.md`, with the added scenarios
   `new-port-belongs-to-the-server` and `the-port-a-start-names-is-the-one-served`.
-- release-binary/installers: the build smoke and installed walks read the
-  address `madarch new` prints, the smoke runs the binary from outside the
-  checkout, and each of them stops the server it started before it ends.
-  Complete proposed text in `capabilities/release-binary.md`, with the added
-  scenario `the-smoke-leaves-no-server`.
+- release-binary/installers: the build smoke and this repository's installed
+  walks read the address `madarch new` prints, the smoke runs the binary from
+  outside the checkout, and each of them stops the server it started before it
+  ends; the walk of the published tap formula stays the published release's own
+  while that release serves in the foreground. Complete proposed text in
+  `capabilities/release-binary.md`, with the added scenario
+  `the-smoke-leaves-no-server`.
 
 ## Preserved contracts
 

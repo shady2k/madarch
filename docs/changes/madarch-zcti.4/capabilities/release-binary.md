@@ -90,12 +90,15 @@ the checksum file of them all, the npm packages (one platform package under
 the `@madarch` scope with the binary, the `madarch` package whose bin starts
 the running platform's binary and forwards its exit), a Homebrew formula reading
 the sums, a POSIX install script and a PowerShell install script. Windows
-arm64 binaries are not provided. The build smoke and installed walks execute
-`madarch new`, read the address it prints, open the graph store, and serve the
-product there; the build smoke runs the binary from outside the checkout, as
-an installed one runs, and each of them stops the server it started —
-`madarch stop` with the same home — before it ends, pass or fail, so no
-madarch process outlives it. The compiled binary
+arm64 binaries are not provided. The build smoke and the installed walks of this
+repository's own binary execute `madarch new`, read the address it prints,
+open the graph store, and serve the product there; the build smoke runs the
+binary from outside the checkout, as an installed one runs, and each of them
+stops the server it started — `madarch stop` with the same home — before it
+ends, pass or fail, so no madarch process outlives it. The walk of the
+published tap formula exercises the published release as that release stands,
+and takes this repository's form once a release carrying the background server
+is published. The compiled binary
 runs without Bun, Node.js, or a system OpenSSL installation. `madarch new` requires Git and its author
 identity to be configured. Nothing installed reads a skill set, per decision
 0021: the wiki app, the command's parsing and its facts ride inside the
