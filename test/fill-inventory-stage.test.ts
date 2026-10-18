@@ -160,7 +160,7 @@ function unitIds(plan: { units: readonly { id: string }[] }): string[] {
 // ---- the registry ----------------------------------------------------------
 
 describe('the stages are registered', () => {
-  test('the stages register and the derived graph runs the snapshot before the history and the inventory', async () => {
+  test('the stages register and the derived graph runs the snapshot before the history, the inventory and the document index', async () => {
     const f = await fixture();
     try {
       await f.write('src/a.ts', 'export const a = 1;\n');
@@ -169,13 +169,19 @@ describe('the stages are registered', () => {
       const read = deriveStageGraph(registry);
       expect(read.ok).toBe(true);
       if (!read.ok) return;
-      // The history stage (madarch-tzte.21.2) is registered beside them and
-      // reads the snapshot too, so it is ordered between the two by code point:
-      // the stage graph is the one every registered stage derives.
-      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory']);
+      // The history stage (madarch-tzte.21.2) and the document index stage
+      // (madarch-tzte.21.4) are registered beside them: the history reads the
+      // snapshot too and is ordered between the two by code point, and the
+      // document index reads the inventory's `file` facts, so it runs last. The
+      // stage graph is the one every registered stage derives.
+      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'document-index']);
       // The inventory reads the repository node and the snapshot; the history
-      // reads the snapshot alone: all of them stage 0's facts.
+      // reads the snapshot alone; the document index reads the snapshot and a
+      // link's `file` node, and its own `document` facts, which draw no edge
+      // from itself to itself.
       expect(read.graph.edges).toEqual([
+        { from: 'inventory', to: 'document-index', via: 'file' },
+        { from: 'snapshot', to: 'document-index', via: 'snapshot' },
         { from: 'snapshot', to: 'history', via: 'snapshot' },
         { from: 'snapshot', to: 'inventory', via: 'repository' },
         { from: 'snapshot', to: 'inventory', via: 'snapshot' },
@@ -183,6 +189,7 @@ describe('the stages are registered', () => {
       expect(registry.get('history')?.produces.map((produced) => produced.kind)).toEqual(['commit', 'coverage', 'task-key']);
       expect(registry.get('snapshot')?.produces.map((produced) => produced.kind)).toEqual(['coverage', 'repository', 'snapshot']);
       expect(registry.get('inventory')?.produces.map((produced) => produced.kind)).toEqual(['contains', 'directory', 'file']);
+      expect(registry.get('document-index')?.produces.map((produced) => produced.kind)).toEqual(['coverage', 'document', 'document-link', 'section', 'task-key']);
     } finally {
       await f.dispose();
     }
