@@ -79,63 +79,90 @@ function sweepPlan(unitId: string): UnitPlanRecord {
 }
 
 /**
- * Waits for one transaction to be waiting on a lock, which is how a sweep that meets a publisher beside
- * it is seen: the wait is the behaviour under test, and a sweep that never waits removes a fact its
- * publisher counted. The loop waits for that state to be observable, bounded, and never for a duration:
- * with the sweep in place it returns on the first look.
+ * Runs one step of this test and names what it waited for when the step never ends: a step that hangs says
+ * where it hung, rather than leaving the reader with a bare timeout.
+ */
+async function settling<T>(what: string, work: Promise<T>, ms = 20_000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`the test waited ${ms}ms for ${what}`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/**
+ * Waits until one session is waiting on a lock, which is what a sweep meeting a publisher beside it does,
+ * and the wait is the behaviour under test: a sweep that never waits removes a fact its publisher holds.
+ * The loop waits for that state to be observable, bounded at two seconds and never for a duration of its
+ * own; with the sweep in place it returns on the first or second look.
  */
 async function waitForALockedSweep(owner: DatabaseOwner): Promise<void> {
-  for (let attempt = 0; attempt < 300; attempt += 1) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
     const waiting = await owner.run(async (transaction) => (
       await transaction.query<{ count: number }>("SELECT count(*)::int AS count FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND pid <> pg_backend_pid()")
     ).rows[0]?.count ?? 0);
     if (waiting > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error('no publication waited on the fact row: the sweep of one unit removed a fact another unit was publishing');
 }
 
 test.skipIf(connectionString === undefined)(`a fact another unit is publishing is not swept away (${SKIP})`, async () => {
-  const facts = scenarioFacts();
-  // Two facts of this test's own: the scenario's units hold their own, and a publication beside another
-  // one is what this test is about.
+  // Two facts of this test's own, and the shared one's only holder is the unit that drops it: the sweep
+  // has a candidate then, which is what a publication beside another one turns on. (The scenario's units
+  // hold their own, so its rows are not candidates here.)
   const shared = makeNodeFact({ kind: 'module', value: { repository: 'acme-shop', name: 'sweep-shared', seed: 'package' }, provenance: { source: { system: 'tree-sitter', version: '1.0.0' }, repository: { id: 'acme-shop', commit: 'a'.repeat(40) }, place: { file: repositoryPath('src/sweep-shared.ts'), range: { startLine: 1, startColumn: 0, endLine: 1, endColumn: 4 } } }, layer: 'extracted' });
   const own = makeNodeFact({ kind: 'module', value: { repository: 'acme-shop', name: 'sweep-own', seed: 'package' }, provenance: { source: { system: 'tree-sitter', version: '1.0.0' }, repository: { id: 'acme-shop', commit: 'a'.repeat(40) }, place: { file: repositoryPath('src/sweep-own.ts'), range: { startLine: 1, startColumn: 0, endLine: 1, endColumn: 4 } } }, layer: 'extracted' });
   /** One publication's request, as the orchestrator builds it: the transaction, the unit, its plan and its draft set. */
   const request = (unitId: string, fact: Fact, executor: SqlExecutor) => ({
     executor, unit: sweepUnit(unitId), plan: sweepPlan(unitId), digest: `publication-${unitId}`, writes: [writeOf('fact', fact)],
   });
-  const second = await createPostgresDatabaseOwner({ connectionString: connectionString! });
+  // Each publication opens its own owner, so no two of them share a connection pool or an owner's own
+  // context: what this test is about is two transactions of the database, not two users of one owner.
+  const book = await createPostgresDatabaseOwner({ connectionString: connectionString! });
+  const heldOwner = await createPostgresDatabaseOwner({ connectionString: connectionString! });
+  const besideOwner = await createPostgresDatabaseOwner({ connectionString: connectionString! });
+  const watcher = await createPostgresDatabaseOwner({ connectionString: connectionString! });
   try {
-    await createFactStoreSchema(second);
-    // The fact is published and committed before anything runs beside it.
-    await second.transaction('write', async (executor) => {
-      await FACT_APPLICATION.apply(request('sweep-seed', shared, executor));
-    });
-    // One publication holds the fact, uncommitted, and waits there.
+    await createFactStoreSchema(book);
+    // One unit publishes both facts and commits: it is the shared fact's only holder.
+    await settling('the first publication to commit', book.transaction('write', async (executor) => {
+      await FACT_APPLICATION.apply({ ...request('sweep-b', own, executor), writes: [writeOf('fact', shared), writeOf('fact', own)] });
+    }));
+    // A publication of the shared fact by another unit is open and uncommitted, waiting at its gate.
     let holding!: () => void;
     const holds = new Promise<void>((resolve) => { holding = resolve; });
     let releasing!: () => void;
     const release = new Promise<void>((resolve) => { releasing = resolve; });
-    const publishes = second.transaction('write', async (executor) => {
+    const publishes = heldOwner.transaction('write', async (executor) => {
       await FACT_APPLICATION.apply(request('sweep-a', shared, executor));
       holding();
       await release;
     });
-    await holds;
-    // A second unit publishes a fact of its own: its sweep drops nothing, and must not remove what the
-    // first publication is putting back.
-    const beside = second.transaction('write', async (executor) => {
+    await settling('the held publication to apply its facts and reach its gate', holds);
+    // The first unit publishes only its own fact now: it drops the shared one, so that fact is the sweep's
+    // candidate, and the sweep must wait for the publication beside it rather than remove what it holds.
+    const beside = besideOwner.transaction('write', async (executor) => {
       await FACT_APPLICATION.apply(request('sweep-b', own, executor));
     });
-    await waitForALockedSweep(second);
+    await settling('the publication beside it to wait on the fact row', waitForALockedSweep(watcher));
     releasing();
-    await publishes;
-    await beside;
-    const stored = await readFact(second, shared.id);
-    expect(stored?.publishers.map((publisher) => publisher.unitId)).toEqual(['sweep-a', 'sweep-seed']);
-    expect((await readUnitFacts(second, 'sweep-b')).map((entry) => entry.fact.id)).toEqual([own.id]);
+    await settling('the held publication to commit', publishes);
+    await settling('the publication beside it to settle', beside);
+    const stored = await readFact(book, shared.id);
+    // The fact is still there with the publisher that was putting it back; the other unit dropped its
+    // holding of it, which is what its publication said.
+    expect(stored?.publishers.map((publisher) => publisher.unitId)).toEqual(['sweep-a']);
+    expect((await readUnitFacts(book, 'sweep-b')).map((entry) => entry.fact.id)).toEqual([own.id]);
+    expect((await readUnitFacts(book, 'sweep-a')).map((entry) => entry.fact.id)).toEqual([shared.id]);
   } finally {
-    await second.close();
+    for (const owner of [book, heldOwner, besideOwner, watcher]) await owner.close();
   }
 }, 60_000);
 

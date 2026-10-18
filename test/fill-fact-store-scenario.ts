@@ -74,6 +74,15 @@ export interface ScenarioFacts {
   readonly question: Fact;
   /** A fact two units publish whose ids differ only in case: what tells this store's own order from the database's collation. */
   readonly caseFact: Fact;
+  /** A fact a unit publishes and then drops by publishing nothing: a renamed file's inventory fact. */
+  readonly emptiedFact: Fact;
+  /** A folder unit's facts (a directory and the edge that holds a file in it), as stages 1 and 5 write them. */
+  readonly folderDirectory: Fact;
+  readonly folderFile: Fact;
+  readonly folderContains: Fact;
+  readonly otherFolderDirectory: Fact;
+  readonly otherFolderFile: Fact;
+  readonly otherFolderContains: Fact;
   /** A write whose `value` is not a fact the schema reads: its id is not the digest of its identity. */
   readonly malformed: unknown;
 }
@@ -86,6 +95,21 @@ export function scenarioFacts(): ScenarioFacts {
   const call = (count: number): Fact => makeEdgeFact({ kind: 'call', value: { from: symbolOne.id, to: symbolTwo.id, count }, provenance: provenance('src/cart.ts'), layer: 'extracted' });
   const module = (name: string, source: string): Fact => makeNodeFact({ kind: 'module', value: { repository: 'acme-shop', name, seed: 'package' }, provenance: { source: { system: source, version: '2' }, repository: { id: 'acme-shop', commit: peer }, place: { file: repositoryPath(`src/${name}.ts`), range: { startLine: 1, startColumn: 0, endLine: 1, endColumn: 4 } } }, layer: 'extracted' });
   const fact = (name: string): Fact => makeNodeFact({ kind: 'module', value: { repository: 'acme-shop', name, seed: 'package' }, provenance: provenance(`src/${name}.ts`), layer: 'extracted' });
+  // One folder unit's facts, as stages 1 and 5 write them: the folder, the file it holds and the edge
+  // between them. Two folders, so a folder's publication can be held to its own facts alone.
+  const folder = (path: string, file: string): { readonly directory: Fact; readonly file: Fact; readonly contains: Fact } => {
+    const directory = makeNodeFact({ kind: 'directory', value: { repository: 'acme-shop', path: repositoryPath(path) }, provenance: provenance(path), layer: 'extracted' });
+    const held = makeNodeFact({ kind: 'file', value: { repository: 'acme-shop', path: repositoryPath(file), roles: ['source'] }, provenance: provenance(file), layer: 'extracted' });
+    return { directory, file: held, contains: makeEdgeFact({ kind: 'contains', value: { from: directory.id, to: held.id }, provenance: provenance(file), layer: 'extracted' }) };
+  };
+  const folderA = folder('src', 'src/cart.ts');
+  const folderB = folder('lib', 'lib/total.ts');
+  const folderDirectory = folderA.directory;
+  const folderFile = folderA.file;
+  const folderContains = folderA.contains;
+  const otherFolderDirectory = folderB.directory;
+  const otherFolderFile = folderB.file;
+  const otherFolderContains = folderB.contains;
   return {
     symbolOne,
     symbolTwo,
@@ -97,6 +121,13 @@ export function scenarioFacts(): ScenarioFacts {
     retractedFact: fact('retracted-draft'),
     publishedDraftFact: fact('published-draft'),
     caseFact: fact('case-order'),
+    emptiedFact: fact('emptied-set'),
+    folderDirectory,
+    folderFile,
+    folderContains,
+    otherFolderDirectory,
+    otherFolderFile,
+    otherFolderContains,
     entity: makeNodeFact({ kind: 'entity-proposal', value: { repository: 'acme-shop', proposed: 'concept', name: 'Cart' }, provenance: provenance('src/cart.ts'), layer: 'inferred' }),
     question: makeNodeFact({ kind: 'question', value: { repository: 'acme-shop', type: 'contradiction', prompt: 'Is the total used?' }, provenance: provenance('src/cart.ts'), layer: 'inferred' }),
     malformed: { kind: 'module', schemaVersion: 1, id: `module:${'f'.repeat(64)}`, provenance: provenance('src/cart.ts'), layer: 'extracted', status: 'proposed', value: { repository: 'acme-shop', name: 'invented', seed: 'package' } },
@@ -155,9 +186,17 @@ export interface FactStoreScenarioReport {
    */
   readonly casePublishersOfTheUnit: readonly string[];
   readonly casePublishersOfTheFact: readonly string[];
-  /** A publication whose draft set is empty. */
+  /** A publication whose draft set is empty: as a first publication it stores nothing... */
   readonly emptyPublicationHolds: readonly string[];
   readonly emptyPublicationFacts: number;
+  /** ...and as the next generation of a unit that held a fact it replaces the unit's set with none. */
+  readonly emptiedUnitHolds: readonly string[];
+  readonly emptiedFactGone: boolean;
+  readonly emptiedPublicationFacts: number;
+  /** Two folder units' facts: the one that published again holds its own set, and the other holds all of its own. */
+  readonly folderAfterItsSecond: readonly string[];
+  readonly otherFolderAfterTheFirstsSecond: readonly string[];
+  readonly otherFolderFactsStillThere: readonly boolean[];
 }
 
 /** Raises the machine's own refusal, so a scenario step that cannot be taken says why. */
@@ -313,6 +352,24 @@ export async function runFactStoreScenario(owner: DatabaseOwner): Promise<FactSt
   const emptyPublicationHolds = await held('unit-empty');
   const emptyPublicationFacts = (await readPublication(owner, 'unit-empty', 1))?.facts ?? -1;
 
+  // ---- a unit that publishes nothing replaces its own earlier facts with none (a renamed file's inventory fact) ----
+  await publishUnitFacts('unit-emptied', 'inventory', 'emptied', [writeOf('fact', facts.emptiedFact)], NOW + 11_500);
+  await publishNextGeneration('unit-emptied', 2, [], NOW + 11_600);
+  const emptiedUnitHolds = await held('unit-emptied');
+  const emptiedFactGone = (await readFact(owner, facts.emptiedFact.id)) === null;
+  const emptiedPublicationFacts = (await readPublication(owner, 'unit-emptied', 2))?.facts ?? -1;
+
+  // ---- a folder unit's publication replaces its own facts and no other folder's ----
+  await publishUnitFacts('folder-a', 'inventory', 'folder-a', [writeOf('fact', facts.folderDirectory), writeOf('fact', facts.folderFile), writeOf('fact', facts.folderContains)], NOW + 12_000);
+  await publishUnitFacts('folder-b', 'inventory', 'folder-b', [writeOf('fact', facts.otherFolderDirectory), writeOf('fact', facts.otherFolderFile), writeOf('fact', facts.otherFolderContains)], NOW + 12_100);
+  await publishNextGeneration('folder-a', 2, [writeOf('fact', facts.folderDirectory)], NOW + 12_200);
+  const folderAfterItsSecond = await held('folder-a');
+  const otherFolderAfterTheFirstsSecond = await held('folder-b');
+  const otherFolderFactsStillThere = [
+    (await readFact(owner, facts.otherFolderDirectory.id)) !== null,
+    (await readFact(owner, facts.otherFolderContains.id)) !== null,
+  ];
+
   return {
     aHoldsAfterFirst,
     bHoldsAfterFirst,
@@ -346,5 +403,11 @@ export async function runFactStoreScenario(owner: DatabaseOwner): Promise<FactSt
     casePublishersOfTheFact,
     emptyPublicationHolds,
     emptyPublicationFacts,
+    emptiedUnitHolds,
+    emptiedFactGone,
+    emptiedPublicationFacts,
+    folderAfterItsSecond,
+    otherFolderAfterTheFirstsSecond,
+    otherFolderFactsStillThere,
   };
 }

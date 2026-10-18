@@ -143,5 +143,21 @@ export function factStoreChecks(facts: ScenarioFacts): readonly FactStoreCheck[]
         expect(report.emptyPublicationFacts).toBe(0);
       },
     },
+    {
+      name: 'a unit that publishes nothing replaces its own earlier facts with none',
+      check: (report) => {
+        expect(report.emptiedUnitHolds).toEqual([]);
+        expect(report.emptiedFactGone).toBe(true);
+        expect(report.emptiedPublicationFacts).toBe(0);
+      },
+    },
+    {
+      name: 'a folder unit\'s publication replaces its own facts and no other folder\'s directory or contains facts',
+      check: (report) => {
+        expect(report.folderAfterItsSecond).toEqual(ids(facts.folderDirectory));
+        expect(report.otherFolderAfterTheFirstsSecond).toEqual(ids(facts.otherFolderDirectory, facts.otherFolderFile, facts.otherFolderContains));
+        expect(report.otherFolderFactsStillThere).toEqual([true, true]);
+      },
+    },
   ];
 }
