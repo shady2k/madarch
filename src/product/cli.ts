@@ -535,7 +535,7 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
   const { home, product, port, open } = parsed;
 
   if (command === 'list') return list(home, parsed.json);
-  if (command === 'start') return await startDaemon({ home, port: port ?? 4180 });
+  if (command === 'start') return await startDaemon({ home, port });
   if (command === 'stop') return stopDaemon({ home });
   if (command === 'status') return daemonStatus({ home });
   if (command === 'daemon-serve') return await serveDaemon({ home, port: port ?? 4180 });
@@ -653,7 +653,19 @@ async function serveShared(parsed: Parsed, deps: CliDeps, folder: string, init: 
   const ssh = Boolean(env.SSH_CONNECTION || env.SSH_TTY);
   const tunnel = `ssh -L ${started.port}:127.0.0.1:${started.port} ${env.USER || '<user>'}@${(env.SSH_CONNECTION ?? '').split(/\s+/)[2] ?? '<host>'}`;
   if (jsonBase !== undefined) {
-    console.log(JSON.stringify({ ...jsonBase, url, pid: started.pid, port: started.port, reused: started.reused, ...(ssh ? { sshTunnel: tunnel } : {}) }));
+    // The same facts the human lines carry, the port note included: a
+    // machine consumer is told that --port did not apply exactly as a
+    // person reading the lines is.
+    console.log(JSON.stringify({
+      ...jsonBase,
+      url,
+      pid: started.pid,
+      port: started.port,
+      reused: started.reused,
+      ...(started.requestedPort === undefined ? {} : { requestedPort: started.requestedPort }),
+      ...(started.note === undefined ? {} : { portNote: started.note }),
+      ...(ssh ? { sshTunnel: tunnel } : {}),
+    }));
     return 0;
   }
   console.log(started.reused ? `The wiki is already running at ${url}` : `The wiki is running at ${url}`);

@@ -308,6 +308,108 @@ describe('madarch new', () => {
     } finally { stopDaemon({ home: join(home, 'products') }); }
   });
 
+  test('a new on the running server with another --port gets the server\'s address and is told plainly that its port does not apply', async () => {
+    const base = scratchFolder('madarch-cli-app-');
+    const home = scratchFolder();
+    const app = builtApp(base);
+    const firstPort = await freePort();
+    let otherPort = await freePort();
+    while (otherPort === firstPort) otherPort = await freePort();
+    const products = join(home, 'products');
+    const first = serveNew(['new', '--port', String(firstPort), '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app });
+    await printedLiveFacts(first);
+    await first.finish();
+    try {
+      // The home has one server, and its port is the server's: a second new
+      // is served at once at the running address, and its own --port is
+      // reported as not applying — with both ports named in words and the
+      // two commands that move the server.
+      const second = runCommand(['new', '--port', String(otherPort), '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app });
+      expect(second.status).toBe(0);
+      expect(second.stderr).toBe('');
+      expect(second.stdout).toContain(`The wiki is already running at http://127.0.0.1:${firstPort}/products/idea-${todayName()}-2/`);
+      expect(second.stdout).toContain(`the running server keeps port ${firstPort}`);
+      expect(second.stdout).toContain(`--port ${otherPort} does not apply`);
+      expect(second.stdout).toContain(`madarch stop --home ${products}`);
+      expect(second.stdout).toContain(`madarch start --home ${products} --port ${otherPort}`);
+      expect(second.stdout).not.toContain('was ignored');
+      const served = await fetch(`http://127.0.0.1:${firstPort}/products/idea-${todayName()}-2/api/product`);
+      expect(served.ok).toBeTrue();
+    } finally { expect(stopDaemon({ home: products })).toBe(0); }
+  });
+
+  test('a new on the running server that names no port, or the server\'s own, says nothing about ports', async () => {
+    const base = scratchFolder('madarch-cli-app-');
+    const home = scratchFolder();
+    const app = builtApp(base);
+    const port = await freePort();
+    const products = join(home, 'products');
+    const first = serveNew(['new', '--port', String(port), '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app });
+    await printedLiveFacts(first);
+    await first.finish();
+    try {
+      const same = runCommand(['new', '--port', String(port), '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app });
+      expect(same.status).toBe(0);
+      expect(same.stdout).toContain(`The wiki is already running at http://127.0.0.1:${port}/products/idea-${todayName()}-2/`);
+      expect(same.stdout).not.toContain('does not apply');
+      const none = runCommand(['new', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app });
+      expect(none.status).toBe(0);
+      expect(none.stdout).not.toContain('does not apply');
+    } finally { expect(stopDaemon({ home: products })).toBe(0); }
+  });
+
+  test('--json carries the port the server keeps and the note that the asked port does not apply', async () => {
+    const base = scratchFolder('madarch-cli-json-');
+    const home = scratchFolder();
+    const app = builtApp(base);
+    const firstPort = await freePort();
+    let otherPort = await freePort();
+    while (otherPort === firstPort) otherPort = await freePort();
+    const products = join(home, 'products');
+    try {
+      const first = runCommand(['new', '--port', String(firstPort), '--json', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app });
+      expect(first.status).toBe(0);
+      const firstFacts = JSON.parse(first.stdout) as { port: number; reused: boolean; requestedPort?: number; portNote?: string };
+      expect(firstFacts.port).toBe(firstPort);
+      expect(firstFacts.reused).toBe(false);
+      expect(firstFacts.requestedPort).toBe(firstPort);
+      // The server keeps its port: the machine consumer is told the same
+      // thing the human lines say, never a silently smaller answer.
+      const second = runCommand(['new', '--port', String(otherPort), '--json', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app });
+      expect(second.status).toBe(0);
+      const facts = JSON.parse(second.stdout) as { port: number; reused: boolean; requestedPort?: number; portNote?: string; url: string };
+      expect(facts.reused).toBe(true);
+      expect(facts.port).toBe(firstPort);
+      expect(facts.requestedPort).toBe(otherPort);
+      expect(facts.portNote).toContain(`the running server keeps port ${firstPort}`);
+      expect(facts.portNote).toContain(`--port ${otherPort} does not apply`);
+      expect(facts.url).toBe(`http://127.0.0.1:${firstPort}/products/idea-${todayName()}-2/`);
+      // A run that names no port asked for none: no note, and no requestedPort.
+      const third = runCommand(['new', '--json', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app });
+      expect(third.status).toBe(0);
+      const thirdFacts = JSON.parse(third.stdout) as Record<string, unknown>;
+      expect('requestedPort' in thirdFacts).toBe(false);
+      expect('portNote' in thirdFacts).toBe(false);
+    } finally { expect(stopDaemon({ home: products })).toBe(0); }
+  });
+
+  test('start with another --port reports the running server and how to move it, and starts no second one', async () => {
+    const base = scratchFolder('madarch-cli-app-');
+    const home = scratchFolder();
+    const app = builtApp(base);
+    const port = await freePort();
+    let otherPort = await freePort();
+    while (otherPort === port) otherPort = await freePort();
+    const products = join(home, 'products');
+    try {
+      expect(runCommand(['start', '--port', String(port)], { MADARCH_HOME: home, MADARCH_APP: app }).status).toBe(0);
+      const again = runCommand(['start', '--port', String(otherPort)], { MADARCH_HOME: home, MADARCH_APP: app });
+      expect(again.status).toBe(0);
+      expect(again.stdout).toContain(`already running: http://127.0.0.1:${port} (pid `);
+      expect(again.stdout).toContain(`the running server keeps port ${port}, so --port ${otherPort} does not apply`);
+    } finally { expect(stopDaemon({ home: products })).toBe(0); }
+  });
+
   test('the focused help names only what the parser accepts, start for example', () => {
     const startHelp = runCommand(['start', '--help'], {});
     expect(startHelp.status).toBe(0);

@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/server/http.js';
-import { startDaemon, stopDaemon, daemonStatus } from '../src/product/daemon.js';
+import { startDaemon, stopDaemon, daemonStatus, isDaemonCommandLine } from '../src/product/daemon.js';
 import { spawnSync } from 'node:child_process';
 import { createServer as netServer } from 'node:net';
 
@@ -212,6 +212,42 @@ test('daemon stop on a home with nothing to stop reports not running and never c
   expect(existsSync(absent)).toBe(false);
   writeFileSync(join(root, 'plain'), 'a file, not a folder\n');
   expect(stopDaemon({ home: join(root, 'plain') })).toBe(0);
+});
+
+test('a record whose pid is a live process that is not this daemon is never stopped', async () => {
+  root = mkdtempSync(join(tmpdir(), 'madarch-daemon-foreign-'));
+  const home = join(root, 'products'); mkdirSync(home);
+  product(home, 'alpha', 'alpha-id');
+  // A live process whose command line merely holds the daemon's own word: it
+  // is not the child this home started, so the record is stale and the
+  // process is never signalled.
+  const script = join(root, 'foreign.ts');
+  writeFileSync(script, 'await Bun.sleep(60_000);\n');
+  const foreign = Bun.spawn([process.execPath, script, 'daemon-serve'], { stdio: ['ignore', 'ignore', 'ignore'] });
+  try {
+    writeFileSync(join(home, '.madarch-daemon.json'), JSON.stringify({ pid: foreign.pid, port: 1, startedAt: 0, home, token: 'not-ours' }));
+    expect(daemonStatus({ home })).toBe(0);
+    expect(stopDaemon({ home })).toBe(0);
+    expect(existsSync(join(home, '.madarch-daemon.json'))).toBe(false);
+    let alive = true;
+    try { process.kill(foreign.pid, 0); } catch { alive = false; }
+    expect(alive).toBeTrue();
+  } finally { foreign.kill(); }
+});
+
+test("the daemon's own command line is recognised on every platform's shape", () => {
+  const state = { home: '/tmp/products', port: 43137 };
+  // What the command starts: bun with the checkout's entry, and the compiled
+  // binary started again, on Windows and on Unix alike.
+  expect(isDaemonCommandLine('bun /home/u/madarch/scripts/madarch.ts daemon-serve --home /tmp/products --port 43137', state)).toBeTrue();
+  expect(isDaemonCommandLine('/tmp/dist/madarch-linux-x64 daemon-serve --home /tmp/products --port 43137', state)).toBeTrue();
+  expect(isDaemonCommandLine('"C:\\Program Files\\madarch\\madarch.exe" daemon-serve --home /tmp/products --port 43137', state)).toBeTrue();
+  // Everything else is another program: no daemon word, another home, another
+  // port, or a plain command of the same binary.
+  expect(isDaemonCommandLine('sleep daemon-serve 60', state)).toBeFalse();
+  expect(isDaemonCommandLine('bun /home/u/madarch/scripts/madarch.ts daemon-serve --home /tmp/other --port 43137', state)).toBeFalse();
+  expect(isDaemonCommandLine('bun /home/u/madarch/scripts/madarch.ts daemon-serve --home /tmp/products --port 4180', state)).toBeFalse();
+  expect(isDaemonCommandLine('/tmp/dist/madarch-linux-x64 status --home /tmp/products', state)).toBeFalse();
 });
 
 test('daemon start refuses a port another process holds', async () => {
