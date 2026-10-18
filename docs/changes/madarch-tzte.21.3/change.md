@@ -105,11 +105,14 @@ no stage runs, and `src/product/fill*.ts` is untouched.
   deleted with its tree.
 - **What is a symbol, and what is not.** This stage reads *declarations*: a
   function, a generator, a class, a method, a class field, an interface, a type
-  alias, an enum and its members, a namespace or module, a constant, a variable;
-  and, in Go, a function, a method, a struct or interface or named type, a struct
-  member, a constant and a variable. A parameter, a local binding, a property
-  access and a call are no declaration of this stage: those are stage 4's
-  symbols, where a resolver names them precisely. A declaration's qualified name
+  alias, an enum and its members, a namespace or module, a constant, a variable,
+  a named function or class expression, and the names a destructuring pattern
+  binds; and, in Go, a function, a method, a struct or interface or named type, a
+  struct member, an interface's method set, a constant and a variable. What is
+  *not* read is a parameter, a property access and a call: those are stage 4's
+  symbols, where a resolver names them precisely. A declaration inside a body is
+  read and qualified by what holds it (`f.inner` for a function declared inside
+  `f`), which is the same rule as above. A declaration's qualified name
   is its container's names and its own (`OrderService.create`), the container
   being the class, interface, enum, module or function it stands in — and, for a
   Go method, the type its receiver names, which is what makes it a method.
@@ -189,6 +192,14 @@ no stage runs, and `src/product/fill*.ts` is untouched.
   is what the schema asks for where a resolver could not tie an import to a node:
   a Go import names a package path and never a file, so a Go file's coverage
   names its imports as gaps. Stage 4 ties them to packages and modules.
+- **A byte offset is measured once, and the cursor follows it.** The line index
+  holds each line's first character and first byte, and a walk that moves forward
+  measures only the distance it moved. A span *behind* the cursor (a name inside
+  a declaration whose own end was read first) is measured from the start of the
+  line it stands on, and the cursor moves back to it, so a walk that steps in and
+  out of nested declarations pays for where it stands and not for the file again.
+  The record measured this: `change.md`'s claim of linear time held for flat
+  declarations and not for nested ones until the cursor followed the walk back.
 - **Every fact carries its place, and the extraction carries the byte span too.**
   A fact's place is the schema's `FactPlace`: the repository path and a range of
   lines and columns (`FactRange` carries no byte offset). The task asks for a
@@ -232,10 +243,15 @@ no stage runs, and `src/product/fill*.ts` is untouched.
   names: neither is a source text, so the file's unit publishes a coverage node
   whose `unread` names it with the reason `unsupported`, and no symbol is
   invented from bytes that are not code.
+- **A walk the machine cannot finish is the file's gap.** The walk is recursive,
+  so a file nested past the call stack's depth raises a `RangeError`; that one
+  error is caught where the unit reads the file and published as its coverage gap
+  with the reason `error`, so one pathological file loses neither the unit nor
+  the run. Every other error still travels: a defect is not a silence.
 - **A name that is no name is the file's gap, not a failed unit.** The schema
-  refuses a fact whose identity part is empty (an empty test name, an empty
-  import specifier), and a unit that raises over one file's oddity loses the
-  whole file. So a finding the schema cannot hold is a coverage gap naming the
+  refuses a fact whose identity part is empty — *after* trimming and collapsing
+  its whitespace (`identityName`), so a name of spaces is as empty as an empty
+  one — and a unit that raises over one file's oddity loses the whole file. So a finding the schema cannot hold is a coverage gap naming the
   question and the place, and the file's other facts are still made.
 - **A coverage gap says a question, a path or a kind of file.** A dropped
   declaration's gap is the question the reader could not answer, naming the
@@ -321,3 +337,22 @@ the four anonymous default shapes, the ambient declarations, an enum member in
 another script, the nested anonymous types, a member of an exported value, a
 destructuring pattern, a constructor and a Go interface's method set, an empty
 test name, an aliased runner import, and the specifier order beside an `x.cjs`.
+
+The third round verified fifteen of the second round's items as fixed and found
+the class it had graded should-fix still open in three measured ways, plus nits.
+Fixed here: a *whitespace-only* name still killed the whole unit through the
+schema (the extractor now applies the schema's own emptiness rule — trim,
+collapse — wherever it decides a name is no name, so a test, a command, a module
+and a specifier of spaces are the file's coverage gap); a *named* function or
+class expression was dropped in silence and its members took a container name
+that exists nowhere (`const C = class Named { m() {} }` gave `C` and `m`; it now
+gives `C`, `Named` and `Named.m`, and an anonymous expression is no declaration
+and no gap); a parenthesized default export (`export default (class {})`) yielded
+nothing, which the walk now reads through the parentheses and defines at the
+statement's own `default` keyword; the byte cursor now follows the walk *back*
+as well as forward, so a nested file no longer re-pays for the line it already
+measured; a walk that cannot finish (a file nested past the call stack) is that
+file's coverage gap rather than a unit that raises; the two row refusals the
+shared reader gained are pinned in the syntax suite too; the unreachable branch
+of a module's name reading is gone; and the record's own contradiction about
+local bindings is gone with it.

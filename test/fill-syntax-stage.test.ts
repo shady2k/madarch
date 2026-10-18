@@ -472,12 +472,21 @@ describe('the syntax stage refuses what it cannot read', () => {
         { kind: 'symbol', repository: 'orders-api', path: 'src/orders.ts' },
         { kind: 'file', repository: 'orders-api', path: '/etc/passwd' },
         { kind: 'file', repository: 'orders-api', path: 'src/orders.ts', blob: 'not-a-blob' },
+        { kind: 'file', repository: 'orders-api', path: 'src/orders.ts', runId: 'run-7' },
+        // The two refusals the shared reader gained: a folder carrying a blob,
+        // and one path standing in two rows.
+        { kind: 'directory', repository: 'orders-api', path: 'src', blob: 'a'.repeat(40) },
       ]) {
         const refusal = await refusedBy(() => stage.plan({ query: async () => [row] }));
         expect(refusal).not.toBe('answered');
         expect(refusal).toContain(publishedTreeRead('orders-api'));
         expect(refusal).toContain('row 1');
       }
+      const twice = await refusedBy(() => stage.plan({ query: async () => [
+        { kind: 'file', repository: 'orders-api', path: 'src/orders.ts' },
+        { kind: 'file', repository: 'orders-api', path: 'src/orders.ts' },
+      ] }));
+      expect(twice).toContain('stands in an earlier row');
       // Rows for a repository the read was not made for are refused too.
       const wrongRepository = await refusedBy(() => stage.plan({ query: async () => [{ kind: 'directory', repository: 'web', path: 'src' }] }));
       expect(wrongRepository).toContain('the read was for "orders-api"');

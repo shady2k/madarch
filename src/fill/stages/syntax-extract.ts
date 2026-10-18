@@ -265,10 +265,18 @@ function emptyFindings(path: string, language: SyntaxLanguage | null, unread: re
  * both use.
  */
 const TS_CONTAINERS: readonly string[] = [
-  'abstract_class_declaration', 'class_declaration', 'enum_declaration', 'function_declaration',
-  'generator_function_declaration', 'interface_declaration', 'internal_module', 'method_definition', 'module',
-  'type_alias_declaration',
+  'abstract_class_declaration', 'class', 'class_declaration', 'enum_declaration', 'function_declaration',
+  'function_expression', 'generator_function_declaration', 'interface_declaration', 'internal_module',
+  'method_definition', 'module', 'type_alias_declaration',
 ];
+
+/**
+ * The expression kinds whose name is optional: a *named* one declares the name
+ * it carries, and an anonymous one declares nothing — an anonymous class or
+ * function expression that is nobody's default export is an expression, not a
+ * declaration, and no gap either.
+ */
+const ANONYMOUS_EXPRESSIONS: readonly string[] = ['class', 'function_expression', 'arrow_function'];
 
 const GO_CONTAINERS: readonly string[] = ['function_declaration', 'method_declaration', 'type_spec', 'field_declaration', 'const_spec', 'var_spec'];
 
@@ -298,6 +306,11 @@ const NAMED_TYPE_HOLDERS: Readonly<Record<string, readonly string[]>> = {
 /** The kind of symbol a TypeScript, TSX or JavaScript declaration is, by its node type. */
 const TS_DECLARATIONS: Readonly<Record<string, SymbolKind>> = {
   'abstract_class_declaration': 'class',
+  // A *named* function or class expression declares the name it carries
+  // (`const f = function named() {}`); an anonymous one declares nothing and is
+  // no gap either, which is what `ANONYMOUS_EXPRESSIONS` says below.
+  'class': 'class',
+  'function_expression': 'function',
   'abstract_method_signature': 'method',
   'class_declaration': 'class',
   'enum_assignment': 'enum-member',
@@ -362,7 +375,7 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
 
   /** Records one import, or the gap of a specifier the schema cannot hold (an empty one names no module). */
   const recordImport = (specifier: string, at: SyntaxNode): void => {
-    if (specifier === '') {
+    if (!named(specifier)) {
       unread.push({ what: droppedAt(path, positionAt(lines, at.startIndex), 'the module an import names'), reason: 'unsupported' });
       return;
     }
@@ -421,22 +434,26 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
         // the framework is the one the file imported the runner from. A test the
         // schema cannot hold — one called with an empty name — is the file's
         // coverage gap, never a fact the schema refuses.
-        const named = stringValue(text, literal);
-        if (named === '') {
+        const written = stringValue(text, literal);
+        if (!named(written)) {
           unread.push({ what: droppedAt(path, positionAt(lines, literal.startIndex), 'the name of the test'), reason: 'unsupported' });
           return;
         }
-        tests.push({ name: named, ...(call.framework === undefined ? {} : { framework: call.framework }), span: spanOf(node) });
+        tests.push({ name: written, ...(call.framework === undefined ? {} : { framework: call.framework }), span: spanOf(node) });
         return;
       }
       if (callee.type !== 'member_expression' || literal === null) return;
       const method = callee.childForFieldName('property');
       const methodName = method === null ? '' : text.slice(method.startIndex, method.endIndex);
-      const named = stringValue(text, literal);
-      if (methodName === COMMAND_METHOD && named !== '') {
-        entryPoints.push({ name: named, form: 'cli-command', span: spanOf(literal) });
-      } else if (ROUTE_METHODS.includes(methodName) && named.startsWith('/')) {
-        entryPoints.push({ name: named, form: 'http-route', span: spanOf(literal) });
+      const written = stringValue(text, literal);
+      if (methodName === COMMAND_METHOD && !named(written)) {
+        // A command whose name is blank names nothing a reader can call: the
+        // call's place is the file's gap rather than an entry point.
+        unread.push({ what: droppedAt(path, positionAt(lines, literal.startIndex), 'the name of the command'), reason: 'unsupported' });
+      } else if (methodName === COMMAND_METHOD && named(written)) {
+        entryPoints.push({ name: written, form: 'cli-command', span: spanOf(literal) });
+      } else if (ROUTE_METHODS.includes(methodName) && written.startsWith('/')) {
+        entryPoints.push({ name: written, form: 'http-route', span: spanOf(literal) });
       }
       return;
     }
@@ -456,7 +473,7 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
       // stage still knows: a module's default export is a symbol by that name.
       const anonymous = anonymousDefaultKind(node, language);
       if (anonymous === undefined) return;
-      symbols.push({ name: 'default', qualifiedName: 'default', symbolKind: anonymous, span: spanOf(node), definitionSpan: spanOf(node) });
+      symbols.push({ name: 'default', qualifiedName: 'default', symbolKind: anonymous, span: spanOf(node), definitionSpan: defaultDefinitionSpan(node, spanOf) });
       return;
     }
     // A Go method belongs to the type its receiver names: the receiver is what
@@ -465,23 +482,37 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
     // The `name` field repeats where the grammar repeats it and can carry the
     // separators of its own list (a Go `var a, b` names `a`, `,` and `b`), so
     // only the nodes that read as an identifier are names this stage declares.
-    // A module declaration names itself by a string (`declare module 'x' { … }`),
-    // where every other declaration names itself by an identifier.
+    // A module declaration names itself by a string (`declare module 'x' { … }`)
+    // where every other declaration names itself by an identifier, and a name of
+    // neither shape (`declare module '*'`) is this declaration's gap.
     const moduleName = type === 'module' || type === 'internal_module' ? node.childForFieldName('name') : null;
     const nameNodes = moduleName !== null && stringNode(moduleName) !== null
-      ? moduleName.type === 'string' || moduleName.type === 'interpreted_string_literal' ? [moduleName] : patternNames(moduleName)
+      ? (named(stringValue(text, moduleName)) ? [moduleName] : [])
       : withEmbeddedField(nameNodesOf(node), node, text, go)
         .filter((candidate) => IDENTIFIER.test(text.slice(candidate.startIndex, candidate.endIndex)));
     if (nameNodes.length === 0) {
+      // An anonymous default export is a declaration whose only name is the one
+      // its statement gives it: a module's default export is the symbol
+      // `default`, defined at the keyword.
+      const anonymous = anonymousDefaultKind(node, language);
+      if (anonymous !== undefined) {
+        symbols.push({ name: 'default', qualifiedName: 'default', symbolKind: anonymous, span: spanOf(node), definitionSpan: defaultDefinitionSpan(node, spanOf) });
+        return;
+      }
       // A declaration of a kind this stage reads, with no name it can read: a
       // computed class member among them. Nothing is invented for it, and the
       // file's coverage says the place was not read — a dropped declaration
-      // that left the coverage complete would be a silence.
-      unread.push({ what: droppedAt(path, positionAt(lines, node.startIndex), 'the name of the declaration'), reason: 'unsupported' });
+      // that left the coverage complete would be a silence. An anonymous
+      // function or class *expression* is the one exception: it declares no
+      // name to read.
+      if (!ANONYMOUS_EXPRESSIONS.includes(type)) {
+        unread.push({ what: droppedAt(path, positionAt(lines, node.startIndex), 'the name of the declaration'), reason: 'unsupported' });
+      }
       return;
     }
     for (const nameNode of nameNodes) {
       const name = stringNode(nameNode) === null ? text.slice(nameNode.startIndex, nameNode.endIndex) : stringValue(text, nameNode);
+      if (!named(name)) continue;
       symbols.push({
         name,
         qualifiedName: qualified(owned, name),
@@ -670,15 +701,26 @@ function nameNodeOf(node: SyntaxNode): SyntaxNode | null {
 const IDENTIFIER = /^#?[\p{ID_Start}_$][\p{ID_Continue}_$]*$/u;
 
 /**
+ * Whether a name is one the schema can hold: `factId` refuses an identity part
+ * that is empty *after trimming and collapsing its inner whitespace*
+ * (`identityName`), so a name of spaces is as empty as an empty name — and such
+ * a finding is the file's coverage gap rather than a fact the schema throws out
+ * of.
+ */
+function named(text: string): boolean {
+  return text.trim() !== '';
+}
+
+/**
  * The name a declaration qualifies its members by, which is the name it binds:
  * an identifier for every declaration but a module, whose own name is the
  * string it names (`declare module 'x'`).
  */
 function declaredName(node: SyntaxNode, text: string): string | undefined {
-  const named = (node.type === 'module' || node.type === 'internal_module') ? node.childForFieldName('name') : null;
-  if (named !== null && stringNode(named) !== null) {
-    const name = stringValue(text, named);
-    return name === '' ? undefined : name;
+  const held = (node.type === 'module' || node.type === 'internal_module') ? node.childForFieldName('name') : null;
+  if (held !== null && stringNode(held) !== null) {
+    const name = stringValue(text, held);
+    return named(name) ? name : undefined;
   }
   return nameOf(node, text);
 }
@@ -716,13 +758,28 @@ function receiverNames(node: SyntaxNode, text: string): string[] {
 function anonymousDefaultKind(node: SyntaxNode, language: SyntaxLanguage): SymbolKind | undefined {
   if (language === 'go') return undefined;
   if (node.type !== 'function_expression' && node.type !== 'arrow_function' && node.type !== 'function' && node.type !== 'class') return undefined;
-  const parent = node.parent;
+  // `export default (class {})` writes the expression inside parentheses, so the
+  // statement is looked for above them.
+  let parent = node.parent;
+  while (parent !== null && parent.type === 'parenthesized_expression') parent = parent.parent;
   if (parent === null || parent.type !== 'export_statement') return undefined;
   // A named export's declaration stands in `declaration`; an anonymous one, which
   // is what this branch is for, stands in the statement's `value`.
   const held = parent.childForFieldName('declaration') ?? parent.childForFieldName('value');
-  if (held === null || held.startIndex !== node.startIndex) return undefined;
+  if (held === null || held.startIndex > node.startIndex || node.endIndex > held.endIndex) return undefined;
   return node.type === 'class' ? 'class' : 'function';
+}
+
+/** Where a module's default export is named: the statement's own `default` keyword, or the expression itself. */
+function defaultDefinitionSpan(node: SyntaxNode, spanOf: (node: SyntaxNode) => SyntaxSpan): SyntaxSpan {
+  for (let parent = node.parent; parent !== null; parent = parent.parent) {
+    if (parent.type === 'export_statement') {
+      const keyword = parent.children.find((child): child is SyntaxNode => child !== null && child.type === 'default');
+      return keyword === undefined ? spanOf(node) : spanOf(keyword);
+    }
+    if (parent.type === 'program') break;
+  }
+  return spanOf(node);
 }
 
 /** A qualified name: the container's names and the declaration's own, one dot between them. */
@@ -999,8 +1056,14 @@ function positionAt(lines: LineIndex, offset: number): { line: number; column: n
  */
 function byteAt(lines: LineIndex, text: string, offset: number): number {
   if (offset < lines.cursor.index) {
+    // A span behind the cursor is read from the start of the line it stands on,
+    // and the cursor follows it: a walk that steps in and out of nested
+    // declarations pays for the distance it moved, not for the whole file again.
     const line = positionAt(lines, offset).line - 1;
-    return lines.byteStarts[line]! + Buffer.byteLength(text.slice(lines.starts[line]!, offset), 'utf8');
+    const byte = lines.byteStarts[line]! + Buffer.byteLength(text.slice(lines.starts[line]!, offset), 'utf8');
+    lines.cursor.index = offset;
+    lines.cursor.byte = byte;
+    return byte;
   }
   lines.cursor.byte += Buffer.byteLength(text.slice(lines.cursor.index, offset), 'utf8');
   lines.cursor.index = offset;

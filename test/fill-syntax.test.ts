@@ -303,6 +303,58 @@ describe('the pure per-file extraction', () => {
     expect(found.unread).toEqual([{ what: 'the name of the test at test/empty.test.ts:3:5', reason: 'unsupported' }]);
   });
 
+  test('a name the schema cannot hold is the file\'s gap, whatever shape it takes', async () => {
+    // `factId` refuses an identity part that is empty *after* trimming, so a
+    // name of spaces is as empty as an empty one: each is the file's gap, and
+    // the file still answers its other findings.
+    const test = await extractFileSyntax('test/spaces.test.ts', bytesOf(["import { test } from 'bun:test';", '', "test('  ', () => {});", '', 'export function first(): void {}', ''].join('\n')));
+    expect(test.tests).toEqual([]);
+    expect(test.symbols.map((symbol) => symbol.name)).toEqual(['first']);
+    expect(test.unread).toEqual([{ what: 'the name of the test at test/spaces.test.ts:3:5', reason: 'unsupported' }]);
+    const command = await extractFileSyntax('src/cli.ts', bytesOf(["program.command(' ');", ''].join('\n')));
+    expect(command.entryPoints).toEqual([]);
+    expect(command.unread).toEqual([{ what: 'the name of the command at src/cli.ts:1:16', reason: 'unsupported' }]);
+    const module = await extractFileSyntax('src/ambient.d.ts', bytesOf(['declare module "" {', '  function f(): void;', '}', ''].join('\n')));
+    expect(module.symbols.map((symbol) => symbol.qualifiedName)).toEqual(['f']);
+    expect(module.unread.map((gap) => gap.reason)).toEqual(['unsupported']);
+  });
+
+  test('a named function or class expression is a declaration, and its members are named by it', async () => {
+    const text = [
+      'const f = function named() {};',
+      '',
+      'export const C = class Named {',
+      '  m(): void {}',
+      '};',
+      '',
+      'export function outer() {',
+      '  return class Inner {',
+      '    run(): void {}',
+      '  };',
+      '}',
+      '',
+      'const anonymous = class {};',
+      '',
+    ].join('\n');
+    const found = await extractFileSyntax('src/expressions.ts', bytesOf(text));
+    // The name each expression carries is a declaration of it, and the members
+    // of a named class are named by it — `Inner.run`, never `outer.run`.
+    expect(found.symbols.map((symbol) => symbol.qualifiedName)).toEqual([
+      'C', 'Named', 'Named.m', 'anonymous', 'f', 'named', 'outer', 'outer.Inner', 'outer.Inner.run',
+    ]);
+    // An anonymous expression is no declaration: it is no gap either, since
+    // nothing was declared.
+    expect(found.unread).toEqual([]);
+  });
+
+  test('a parenthesized default export is the symbol `default`, defined at the `default` keyword', async () => {
+    const found = await extractFileSyntax('src/component.ts', bytesOf('export default (class {\n  m(): void {}\n});\n'));
+    expect(found.symbols.map((symbol) => [symbol.name, symbol.symbolKind])).toEqual([['default', 'class'], ['m', 'method']]);
+    expect(found.unread).toEqual([]);
+    const defined = found.symbols[0]!.definitionSpan;
+    expect([defined.startLine, defined.startColumn, defined.endColumn]).toEqual([1, 7, 14]);
+  });
+
   test('a byte span counts the file\'s bytes and a column counts UTF-16 code units', async () => {
     // The emoji is four bytes and two UTF-16 code units: a span after it differs
     // between the two counts, which is why the extraction answers both.

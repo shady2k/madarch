@@ -45,7 +45,7 @@ import {
 } from '../stage.js';
 import { checkFactDraft, evidenceAt } from './draft.js';
 import { publishedTreeRead, publishedTreeRows, rolesFor } from './inventory.js';
-import { extractFileSyntax, unreadFileSyntax } from './syntax-extract.js';
+import { extractFileSyntax, unreadFileSyntax, type ExtractedFileSyntax } from './syntax-extract.js';
 import { syntaxFacts, type SyntaxFactSet } from './syntax-facts.js';
 
 /** The stage's id, as it is registered and as its units are named. */
@@ -201,7 +201,17 @@ async function executeSyntaxUnit(sources: SnapshotSource, unit: StageUnit, conte
   }
   const bytes = await reader.read(planned.path);
   refuseWhenCancelled(unit, context);
-  const findings = await extractFileSyntax(planned.path, bytes);
+  let findings: ExtractedFileSyntax;
+  try {
+    findings = await extractFileSyntax(planned.path, bytes);
+  } catch (error) {
+    // The walk is recursive, so a file nested past the call stack's depth is
+    // read as far as the machine allows and named as unread: one such file is a
+    // coverage gap of its unit, never a unit that raises and loses the file.
+    if (!(error instanceof RangeError)) throw error;
+    findings = unreadFileSyntax(planned.path, 'error');
+    context.progress(`${planned.path} of ${planned.repository} is nested past what this reader can walk: the file is published as a coverage gap and not read`, 1);
+  }
   const set = syntaxFacts({
     repository: planned.repository,
     commit: reader.commit,
