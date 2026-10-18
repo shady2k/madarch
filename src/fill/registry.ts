@@ -544,6 +544,7 @@ function shown(value: unknown): string {
  */
 function declarationProblems(registry: StageRegistry, stage: FillStage): StageProblem[] {
   const problems: StageProblem[] = [];
+  for (const problem of defaultsProblems(stage)) problems.push(problem);
   (stage.after ?? []).forEach((earlier, index) => {
     if (earlier === stage.id) {
       problems.push({
@@ -559,6 +560,40 @@ function declarationProblems(registry: StageRegistry, stage: FillStage): StagePr
       });
     }
   });
+  return problems;
+}
+
+/**
+ * The settings a stage declares for itself, judged with the rules the product's
+ * own entry is judged by: `enabled`, `concurrency`, each limit it overrides, and
+ * a limit name this madarch does not know. A declared default a rule refuses
+ * would otherwise be the value a run plans with wherever the product says
+ * nothing, and the fault is the stage's own module's: it names the stage and the
+ * declared field, since no product's manifest can be blamed for a default the
+ * stage brought itself.
+ */
+function defaultsProblems(stage: FillStage): StageProblem[] {
+  const problems: StageProblem[] = [];
+  const claimed = (path: string, value: unknown, said: string): void => {
+    problems.push({ stage: stage.id, path, message: `the stage "${stage.id}" declares ${path} as ${shown(value)}: it is ${said}` });
+  };
+  if (typeof stage.defaults.enabled !== 'boolean') claimed('defaults.enabled', stage.defaults.enabled, 'true or false');
+  const concurrency = stage.defaults.concurrency;
+  if (typeof concurrency !== 'number' || !Number.isInteger(concurrency) || concurrency < 1) {
+    claimed('defaults.concurrency', concurrency, 'a whole number of 1 or more');
+  }
+  for (const name of Object.keys(stage.defaults.limits ?? {}).sort(byCodePoint)) {
+    const value = (stage.defaults.limits as unknown as Record<string, unknown>)[name];
+    const rule = Object.hasOwn(LIMIT_RULES, name) ? LIMIT_RULES[name as keyof StageLimits] : undefined;
+    // A limit this madarch does not know is a fault of the declaration, not of a
+    // manifest: the product's own unknown limit names are read past, a stage's own
+    // are not, since the stage is the code that would have to read it.
+    if (rule === undefined) {
+      claimed(`defaults.limits.${name}`, value, `a limit this madarch knows, since the stage is the code that would read it`);
+      continue;
+    }
+    if (!rule.accepts(value)) claimed(`defaults.limits.${name}`, value, rule.said);
+  }
   return problems;
 }
 

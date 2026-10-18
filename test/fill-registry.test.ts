@@ -846,6 +846,40 @@ describe('a stage\'s own configuration is judged wherever its value came from', 
   });
 });
 
+describe('a stage\'s declared settings are judged as its own module\'s', () => {
+  test('an enabled, a concurrency or a limit a stage declares for itself is refused by the rule the product\'s own is', () => {
+    // The product's entry is judged with these rules; a stage's own declaration is
+    // the value a run plans with wherever the product says nothing, so the same
+    // rules judge it, and the fault names the stage and the declared field: no
+    // product's manifest can be blamed for a default the stage brought itself.
+    const broken = fakeStage('tuned', {
+      defaults: {
+        ...DEFAULT_STAGE_DEFAULTS,
+        enabled: 'yes' as unknown as boolean,
+        concurrency: 0,
+        limits: { maxTurns: -1, maxParagraphs: 3 } as unknown as typeof DEFAULT_STAGE_DEFAULTS.limits,
+      },
+    });
+    const read = deriveStageGraph(new StageRegistry().register(broken));
+    if (read.ok) throw new Error('expected a refusal');
+    expect(read.problems).toEqual([
+      { stage: 'tuned', path: 'defaults.enabled', message: 'the stage "tuned" declares defaults.enabled as "yes": it is true or false' },
+      { stage: 'tuned', path: 'defaults.concurrency', message: 'the stage "tuned" declares defaults.concurrency as 0: it is a whole number of 1 or more' },
+      { stage: 'tuned', path: 'defaults.limits.maxParagraphs', message: 'the stage "tuned" declares defaults.limits.maxParagraphs as 3: it is a limit this madarch knows, since the stage is the code that would read it' },
+      { stage: 'tuned', path: 'defaults.limits.maxTurns', message: 'the stage "tuned" declares defaults.limits.maxTurns as -1: it is a whole number of 0 or more' },
+    ]);
+  });
+
+  test('a stage that declares its own sensible settings is judged clean', () => {
+    const tuned = fakeStage('tuned', {
+      defaults: { ...DEFAULT_STAGE_DEFAULTS, enabled: false, concurrency: 3, limits: { ...DEFAULT_STAGE_LIMITS, maxTurns: 12, wrapAtFraction: 0.5 } },
+    });
+    const read = deriveStageGraph(new StageRegistry().register(tuned));
+    if (!read.ok) throw new Error(`expected a clean graph, refused: ${JSON.stringify(read)}`);
+    expect(read.graph.stages[0]?.concurrency).toBe(3);
+  });
+});
+
 describe('a stage declares its own default configuration, and the digest holds it as resolved', () => {
   test('a stage that declares no default is refused, even where its schema accepts anything', () => {
     const loose = fakeStage('loose', {
