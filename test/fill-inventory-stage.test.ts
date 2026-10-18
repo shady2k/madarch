@@ -160,7 +160,7 @@ function unitIds(plan: { units: readonly { id: string }[] }): string[] {
 // ---- the registry ----------------------------------------------------------
 
 describe('the stages are registered', () => {
-  test('both stages register and the derived graph runs the snapshot before the inventory', async () => {
+  test('the stages register and the derived graph runs the snapshot before the history and the inventory', async () => {
     const f = await fixture();
     try {
       await f.write('src/a.ts', 'export const a = 1;\n');
@@ -169,12 +169,18 @@ describe('the stages are registered', () => {
       const read = deriveStageGraph(registry);
       expect(read.ok).toBe(true);
       if (!read.ok) return;
-      expect(read.graph.order).toEqual(['snapshot', 'inventory']);
-      // The inventory reads the repository node and the snapshot: both are stage 0's facts.
+      // The history stage (madarch-tzte.21.2) is registered beside them and
+      // reads the snapshot too, so it is ordered between the two by code point:
+      // the stage graph is the one every registered stage derives.
+      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory']);
+      // The inventory reads the repository node and the snapshot; the history
+      // reads the snapshot alone: all of them stage 0's facts.
       expect(read.graph.edges).toEqual([
+        { from: 'snapshot', to: 'history', via: 'snapshot' },
         { from: 'snapshot', to: 'inventory', via: 'repository' },
         { from: 'snapshot', to: 'inventory', via: 'snapshot' },
       ]);
+      expect(registry.get('history')?.produces.map((produced) => produced.kind)).toEqual(['commit', 'coverage', 'task-key']);
       expect(registry.get('snapshot')?.produces.map((produced) => produced.kind)).toEqual(['coverage', 'repository', 'snapshot']);
       expect(registry.get('inventory')?.produces.map((produced) => produced.kind)).toEqual(['contains', 'directory', 'file']);
     } finally {
