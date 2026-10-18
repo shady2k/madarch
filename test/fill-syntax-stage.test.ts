@@ -539,7 +539,9 @@ describe('the syntax stage refuses what it cannot read', () => {
       const broken = await stage.validate({
         writes: [
           ...run.recorder.writes,
-          { kind: 'link', evidence: `orders-api@${commit}`, from: 'a', to: 'b' },
+          // A link write carries its fact in `value` like every other write
+          // (madarch-tzte.20.2); this stage writes facts, so it is still refused.
+          { kind: 'link', evidence: `orders-api@${commit}`, value: { kind: 'import', value: { from: 'a', to: 'b' } } },
           { kind: 'fact', evidence: `orders-api@${commit}`, value: { ...symbol, kind: 'module' } },
           { kind: 'fact', evidence: `orders-api@${commit}`, value: { ...symbol, value: { ...symbol.value, file: '/etc/passwd' } } },
         ],
