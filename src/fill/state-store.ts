@@ -15,11 +15,12 @@
  * write sets both in one statement.
  *
  * The database owner is madarch-tzte.19.1's: one owner per process, borrowed
- * here through `FillStateDatabase`. Until that lands, `test/fill-fsm-pglite.ts`
- * opens its own PGlite behind this same interface — the note for
- * madarch-tzte.19.5 is in `docs/changes/madarch-fill-fsm/change.md`.
- * The store never opens a connection, never runs outside a transaction of the
- * owner and never closes the owner.
+ * here through `FillStateDatabase`, which is the owner's own `transaction` and
+ * nothing else. The store never opens a connection, never runs outside a
+ * transaction of the owner and never closes the owner: the process's one owner
+ * is created by its caller (the background server, the CLI or a test), the
+ * history, the query projection, the queue and these tables all answer from it,
+ * and a step taken through `…In` joins the caller's transaction.
  *
  * Two shapes of operation, both of them the owner's transactions, none of them
  * their own: the plain form opens one transaction for one step
@@ -32,7 +33,9 @@
  * `fill-store/…-->…`, kept apart from the machines' `fill-unit/…`, `fill-run/…`
  * and `fill-chain/…` codes.
  */
-import type { SqlExecutor, SqlQueryDriver, SqlTransactionKind } from '../query/sql-driver.js';
+import type { DatabaseOwner } from '../adapters/database-owner.js';
+import type { SqlExecutor, SqlTransactionKind } from '../query/sql-driver.js';
+import { byCodePoint } from '../model/order.js';
 import { here, raise } from './fsm-core.js';
 import type { Refusal } from './fsm-core.js';
 import {
@@ -60,8 +63,14 @@ import type {
   UnitState,
 } from './fsm.js';
 
-/** The narrow slice of the process's one database owner that this store borrows (madarch-tzte.19.1). */
-export type FillStateDatabase = Pick<SqlQueryDriver, 'transaction'>;
+/**
+ * The narrow slice of the process's one database owner that this store borrows
+ * (madarch-tzte.19.1): the owner's `transaction`, and nothing else. An owner is
+ * what a caller passes here; nothing of an adapter's stands between the two, so
+ * a step of the state machines joins whatever transaction of the owner its
+ * caller holds.
+ */
+export type FillStateDatabase = Pick<DatabaseOwner, 'transaction'>;
 
 /** The tables this store owns; `createFillStateSchema` creates them and every error names the ones it touched. */
 export const FILL_STATE_TABLES = ['fill_chain', 'fill_run', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'] as const;
@@ -441,7 +450,13 @@ export async function advanceRun(database: FillStateDatabase, options: { readonl
  * store's back — a resume continues the unit, and only `replaceStaleGeneration`
  * and the machine's own steps open generations.
  */
-export async function createUnit(database: FillStateDatabase, options: {
+export async function createUnit(database: FillStateDatabase, options: UnitCreateOptions): Promise<UnitRecord> {
+  const at = here();
+  return run(at, database, `createUnit(${options.unitId})`, ['fill_unit', 'fill_unit_generation', 'fill_transition'], async (executor) => createUnitIn(executor, options), 'write');
+}
+
+/** What one unit is created with. */
+export interface UnitCreateOptions {
   readonly unitId: string;
   readonly product: string;
   readonly runId: string;
@@ -450,9 +465,16 @@ export async function createUnit(database: FillStateDatabase, options: {
   readonly inputsDigest: string;
   readonly retries: number;
   readonly at: number;
-}): Promise<UnitRecord> {
-  const at = here();
-  return run(at, database, `createUnit(${options.unitId})`, ['fill_unit', 'fill_unit_generation', 'fill_transition'], async (executor) => {
+}
+
+/**
+ * Creates one unit and its first generation inside a transaction the caller
+ * already opened. This is the form a split uses (madarch-tzte.19.5): the
+ * children of one split and the parent's own checkpoint land together or not at
+ * all, which is what decision 0027's "splits atomically persist the parent's
+ * checkpoint and a sealed child set" asks for.
+ */
+export async function createUnitIn(executor: SqlExecutor, options: UnitCreateOptions): Promise<UnitRecord> {
     const context = newUnitContext({ generation: 1, retries: options.retries });
     const inserted = await executor.query<UnitRow>(
       'INSERT INTO fill_unit (unit_id, product, stage_id, scope_key, generation, created_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (product, stage_id, scope_key) DO NOTHING RETURNING unit_id, product, stage_id, scope_key, generation, created_at',
@@ -490,7 +512,6 @@ export async function createUnit(database: FillStateDatabase, options: {
       updatedAt: options.at,
       lease: null,
     };
-  }, 'write');
 }
 
 interface UnitSnapshot { readonly unit: UnitRow; readonly generation: GenerationRow; readonly record: UnitRecord }
@@ -514,6 +535,87 @@ async function loadUnit(executor: SqlExecutor, unitId: string, lock: boolean): P
     [unitId, millis(generation.generation), millis(generation.fence)],
   );
   return { unit, generation, record: unitRecord(unit, generation, leases.rows[0]) };
+}
+
+/**
+ * One unit's named generation, whether or not it is the one in force, with the
+ * lease it holds. A parent's join reads its sealed children this way: the split
+ * sealed a generation, and a child that has since opened a replacement must not
+ * be read as if it were the one the split sealed.
+ */
+export async function readUnitGeneration(database: FillStateDatabase, unitId: string, generation: number): Promise<UnitRecord | null> {
+  const at = here();
+  return run(at, database, `readUnitGeneration(${unitId}/${generation})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease'], async (executor) => {
+    const units = await executor.query<UnitRow>('SELECT unit_id, product, stage_id, scope_key, generation, created_at FROM fill_unit WHERE unit_id = $1', [unitId]);
+    const unit = units.rows[0];
+    if (unit === undefined) return null;
+    const generations = await executor.query<GenerationRow>(
+      'SELECT unit_id, generation, run_id, state, inputs_digest, fence, context, published_at, stale_at, updated_at FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2',
+      [unitId, generation],
+    );
+    const row = generations.rows[0];
+    if (row === undefined) return null;
+    const leases = await executor.query<LeaseRow>(
+      'SELECT attempt, fence, holder, issued_at, expires_at, revoked_at FROM fill_unit_lease WHERE unit_id = $1 AND generation = $2 AND fence = $3',
+      [unitId, generation, millis(row.fence)],
+    );
+    return unitRecord(unit, row, leases.rows[0]);
+  }, 'snapshot');
+}
+
+/**
+ * Every unit whose current generation names this run, in code point order of
+ * their ids. The orchestrator (madarch-tzte.19.5) reads the units a run planned
+ * this way: admission needs the ones a slot may still take, and the run's own
+ * evidence counts the ones runnable, in flight and waiting.
+ */
+export async function readRunUnits(database: FillStateDatabase, runId: string): Promise<readonly UnitRecord[]> {
+  const at = here();
+  return run(at, database, `readRunUnits(${runId})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease'], async (executor) => {
+    const units = await executor.query<UnitRow>(
+      `SELECT DISTINCT u.unit_id, u.product, u.stage_id, u.scope_key, u.generation, u.created_at
+         FROM fill_unit u JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation
+        WHERE g.run_id = $1`,
+      [runId],
+    );
+    const records: UnitRecord[] = [];
+    for (const unit of units.rows) {
+      const generations = await executor.query<GenerationRow>(
+        'SELECT unit_id, generation, run_id, state, inputs_digest, fence, context, published_at, stale_at, updated_at FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2',
+        [unit.unit_id, millis(unit.generation)],
+      );
+      const generation = generations.rows[0];
+      if (generation === undefined) raise(`table fill_unit_generation: unit ${unit.unit_id} names generation ${String(unit.generation)}, which has no row`);
+      const leases = await executor.query<LeaseRow>(
+        'SELECT attempt, fence, holder, issued_at, expires_at, revoked_at FROM fill_unit_lease WHERE unit_id = $1 AND generation = $2 AND fence = $3',
+        [unit.unit_id, millis(generation.generation), millis(generation.fence)],
+      );
+      records.push(unitRecord(unit, generation, leases.rows[0]));
+    }
+    // The database's collation is not the code point order this repository's listing promises, so the
+    // order is taken here, exactly as `readUnitGenerations` takes it by generation number.
+    return records.sort((left, right) => byCodePoint(left.unitId, right.unitId));
+  }, 'snapshot');
+}
+
+/**
+ * Revokes the lease in force on a unit generation, if it holds one: the storage
+ * half of the machine's `suspend-parent` effect, whose words are "the
+ * orchestrator releases the parent's lease while its children run". The lease
+ * row stays as the record of the attempt, marked revoked at this moment, so a
+ * late worker of that attempt is refused by the machine's own `fence-current`
+ * guard and by this revocation alike. The fencing token is not touched: it
+ * belongs to the generation, not to the attempt that held it.
+ */
+export async function revokeUnitLease(database: FillStateDatabase, options: { readonly unitId: string; readonly generation: number; readonly at: number }): Promise<UnitLeaseRecord | null> {
+  const at = here();
+  return run(at, database, `revokeUnitLease(${options.unitId}/${options.generation})`, ['fill_unit_lease'], async (executor) => {
+    await executor.query(
+      'UPDATE fill_unit_lease SET revoked_at = COALESCE(revoked_at, $3) WHERE unit_id = $1 AND generation = $2',
+      [options.unitId, options.generation, options.at],
+    );
+    return null;
+  }, 'write');
 }
 
 /** Answers one unit's current generation with the lease it holds, or null when the unit does not exist. */
