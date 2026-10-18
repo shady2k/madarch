@@ -21,6 +21,7 @@ import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageDraftSet, type StageExecutionResult, type StageUnitScope } from '../src/fill/stage.js';
 import { StageRegistry } from '../src/fill/registry.js';
 import type { QueueService } from '../src/fill/queue.js';
+import { DEFAULT_QUEUE_SCHEMA } from '../src/adapters/pg-boss-queue.js';
 import {
   DEFAULT_ORCHESTRATOR_LIMITS,
   admissionOrder,
@@ -1450,8 +1451,8 @@ describe('what the second review found, kept as tests', () => {
   });
 });
 
-/** The schema pg-boss's own tables live in, as this project's test worlds declare it. */
-const QUEUE_SCHEMA = 'pgboss';
+/** The schema pg-boss's own tables live in, as the adapter declares it. */
+const QUEUE_SCHEMA = DEFAULT_QUEUE_SCHEMA;
 
 describe('a job the queue no longer holds', () => {
   /** One stage with one unit, so the queue holds exactly one job of the run. */
@@ -1493,7 +1494,7 @@ describe('a job the queue no longer holds', () => {
     // fresh unit shows: the queue creates nothing and the pass changes nothing.
     const quiet = await sweepUnits(opened.orchestrator, { runId });
     expect(quiet).toMatchObject({ swept: [], refused: [] });
-  });
+  }, 30_000);
 
   test('a unit whose unfinished job the queue still holds is not offered a second one', async () => {
     const { world: opened, runId } = await plannedWorld({ registry: oneUnit() });
@@ -1504,7 +1505,7 @@ describe('a job the queue no longer holds', () => {
     expect(swept).toMatchObject({ swept: [], refused: [] });
     expect(await unfinishedJobs(opened)).toEqual(['snapshot/src']);
     expect((await opened.queue.claim<{ unitId: string }>({ queue: QUEUE })).map((job) => job.data.unitId)).toEqual(['snapshot/src']);
-  });
+  }, 30_000);
 
   test('a unit under a lease of its own is left to that lease', async () => {
     const { world: opened, runId } = await plannedWorld({ registry: oneUnit() });
@@ -1516,5 +1517,82 @@ describe('a job the queue no longer holds', () => {
     // nothing is retried before the lease lapses.
     expect(swept).toMatchObject({ swept: [], refused: [] });
     expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('leased');
-  });
+  }, 30_000);
+});
+
+describe('an attempt that died between its draft and its publication', () => {
+  test('a lease that lapsed while the unit stood validating is retried, its draft retracted and nothing published', async () => {
+    const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
+    const { world: opened, runId } = await plannedWorld({ registry, limits: { leaseMs: 1_000, retryDelayMs: 500, retries: 2 } });
+    await admitUnits(opened.orchestrator, { runId });
+    // The unit's own job is left where the admission put it — queued, not claimed:
+    // the attempt below is the store's own, which is what a worker's steps are.
+    expect((await leaseUnit(opened.owner, { unitId: 'snapshot/src', holder: 'worker-that-dies', ttlMs: 1_000, at: NOW })).ok).toBe(true);
+    for (const event of [
+      { type: 'start', at: NOW, generation: 1, fence: 1 },
+      { type: 'submit-draft', at: NOW, generation: 1, fence: 1 },
+    ] as const) {
+      expect((await advanceUnit(opened.owner, { unitId: 'snapshot/src', event })).ok).toBe(true);
+    }
+    // The effect the machine's own step asks for: what the attempt wrote.
+    await recordUnitDraft(opened.owner, {
+      unitId: 'snapshot/src', generation: 1, at: NOW,
+      writes: [{ kind: 'fact', evidence: 'src:1', value: { kind: 'file-facts' } }],
+    });
+    expect((await advanceUnit(opened.owner, { unitId: 'snapshot/src', event: { type: 'validate-draft', at: NOW, generation: 1, fence: 1 } })).ok).toBe(true);
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('validating');
+
+    // The worker is killed here. Its lease lapses, and the sweep retries the
+    // generation: the machine allows the lapse from `validating`, the retry is
+    // spent, and the draft the dead attempt recorded is retracted.
+    opened.clock.advance(1_000);
+    const swept = await sweepUnits(opened.orchestrator, { runId });
+    expect(swept).toMatchObject({ swept: [{ unitId: 'snapshot/src', outcome: 'retried' }], refused: [] });
+    const retried = await readUnit(opened.owner, 'snapshot/src');
+    expect(retried).toMatchObject({ state: 'retry_wait', generation: 1 });
+    expect(retried?.context.retriesLeft).toBe(1);
+    expect(retried?.context.retryAt).toBe(NOW + 1_500);
+    expect((await readUnitDraft(opened.owner, 'snapshot/src', 1))?.retractedAt).toBe(NOW + 1_000);
+    expect(await readPublications(opened.owner, 'snapshot/src')).toEqual([]);
+
+    // The retry runs at its own moment and publishes exactly once.
+    opened.clock.advance(500);
+    expect((await sweepUnits(opened.orchestrator, { runId })).swept.map((unit) => unit.outcome)).toEqual(['woken']);
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('ready');
+    const worked = await workOnce(opened.orchestrator, { worker: 'worker-2' });
+    expect(worked).toMatchObject({ unitId: 'snapshot/src', result: 'published' });
+    expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(1);
+  }, 30_000);
+});
+
+
+describe('the window between a machine step and its enqueue', () => {
+  test('a unit left ready by a retry whose job was lost is offered the queue again, revoked lease and all', async () => {
+    const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
+    const { world: opened, runId } = await plannedWorld({ registry, limits: { leaseMs: 1_000, retryDelayMs: 500, retries: 2 } });
+    await admitUnits(opened.orchestrator, { runId });
+    // An attempt takes the lease and dies within it: the lapse revokes the lease,
+    // which leaves the generation holding a revoked lease row.
+    expect((await leaseUnit(opened.owner, { unitId: 'snapshot/src', holder: 'worker-that-dies', ttlMs: 1_000, at: NOW })).ok).toBe(true);
+    opened.clock.advance(1_000);
+    expect((await sweepUnits(opened.orchestrator, { runId })).swept.map((unit) => unit.outcome)).toEqual(['retried']);
+
+    // The retry's own moment comes and the wake moves the unit to `ready`, and its
+    // enqueue is the step after that: here the enqueue's job is settled away, which
+    // is what a crash between the two leaves behind.
+    opened.clock.advance(500);
+    expect((await sweepUnits(opened.orchestrator, { runId })).swept.map((unit) => unit.outcome)).toEqual(['woken']);
+    const woken = await readUnit(opened.owner, 'snapshot/src');
+    expect(woken).toMatchObject({ state: 'ready', lease: { revokedAt: NOW + 1_000 } });
+    const claimed = (await opened.queue.claim<{ unitId: string }>({ queue: QUEUE }))[0]!;
+    expect(await opened.queue.fail(QUEUE, claimed, 'the worker that claimed the woken unit died before its lease')).toBe('failed');
+
+    // The unit stands `ready` holding a revoked lease and the queue holds nothing
+    // for it: it is offered again, which a guard on "no lease at all" would miss.
+    const swept = await sweepUnits(opened.orchestrator, { runId });
+    expect(swept).toMatchObject({ swept: [{ unitId: 'snapshot/src', outcome: 'requeued' }], refused: [] });
+    const worked = await workOnce(opened.orchestrator, { worker: 'worker-2' });
+    expect(worked).toMatchObject({ unitId: 'snapshot/src', result: 'published' });
+    expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(1);
+  }, 30_000);
 });

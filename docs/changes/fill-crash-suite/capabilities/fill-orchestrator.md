@@ -305,9 +305,10 @@ still claimed is left exactly as it stands. A generation whose lease lapsed whil
 its attempt stood `leased`, `running`, `draft` or `validating` shall be retried
 under the cause the lapse is, whatever step the dead attempt had reached: a worker
 killed between its draft and its publication holds nothing publishable, and its
-draft shall be retracted so the next attempt starts clean. A unit that holds a lease
-of its own shall be left to that lease, and the run shall report each unit it
-recovered as its own durable event.
+draft shall be retracted so the next attempt starts clean. A unit standing
+`leased`, `running`, `draft` or `validating` — the states an attempt holds a lease
+in — shall be left to that lease until it lapses, and the run shall report each unit
+it recovered as its own durable event.
 
 ### Scenario: lost-claim
 - Given: a run whose unit stands `ready` because the worker that claimed its job died before it took the lease, and a queue that settled that claim as failed

@@ -163,7 +163,7 @@ function site(): string {
     if (/at\s+(site|fail)\b/.test(frame)) continue;
     return `${located[1]}:${located[2]}:${located[3]}`;
   }
-  return SOURCE_PATH;
+  return `${process.cwd()}/${SOURCE_PATH}`;
 }
 
 /** Raises a failure that names this driver, its line and what went wrong; nothing here fails quietly. */
@@ -261,12 +261,20 @@ function interrupter(
   };
 }
 
-/** Blocks until the test writes one byte on this process's standard input. */
+/**
+ * Blocks until the test writes one byte on this process's standard input. A
+ * standard input that is closed — the test gave up between starting this phase and
+ * resuming it — ends the process instead of spinning on a read that answers nothing
+ * for ever: a paused phase left behind must not take a core of a shared machine.
+ */
 async function waitForOneByte(): Promise<void> {
   const buffer = new Uint8Array(1);
   for (;;) {
     const read = readSync(0, buffer, 0, 1, null);
     if (read > 0) return;
+    if (read === 0) {
+      fail('the phase is paused with nothing left on its standard input', 'the test that started it is gone, so this process ends rather than waiting for ever');
+    }
   }
 }
 
@@ -465,7 +473,11 @@ async function openWorld(spec: DriverSpec, interruption: Interruption | undefine
   // the retry at the moment its own machine recorded. The queue's own lease is
   // the real-time bound of one claim, which the suite never waits out: what the
   // tests expire by hand is the orchestrator's lease, on the suite's own clock.
-  await queue.declare({ name: spec.runId, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true });
+  // The run's own queue is declared with a dead letter queue of its own as well, so
+  // "nothing was dead-lettered" is a fact the suite can read: a queue declared
+  // without one answers no dead letters whatever happened to its jobs.
+  await queue.declare({ name: `${spec.runId}-dead`, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false });
+  await queue.declare({ name: spec.runId, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true, deadLetter: `${spec.runId}-dead` });
 
   /** The claim this process holds: every claim the queue hands it, the latest one. */
   let lastClaim: ClaimIdentity | undefined;

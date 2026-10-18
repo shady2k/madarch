@@ -461,6 +461,9 @@ const countIn = (units: readonly UnitRecord[], states: readonly UnitState[]): nu
 /** The states an admitted unit holds a slot of the run in. */
 const ADMITTED_STATES: readonly UnitState[] = ['ready', 'leased', 'running', 'draft', 'validating'];
 
+/** The states an attempt holds a lease in: a lapse in any of them is the same lapse, whatever step the attempt had reached. */
+const LEASE_HOLDING_STATES: readonly UnitState[] = ['leased', 'running', 'draft', 'validating'];
+
 /** The states a generation is live in: those a cancellation revokes and a staleness replaces. */
 const LIVE_STATES: readonly UnitState[] = ['planned', 'ready', 'leased', 'running', 'draft', 'validating', 'waiting_children', 'retry_wait', 'blocked'];
 
@@ -824,7 +827,7 @@ export async function sweepUnits(orchestrator: FillOrchestrator, options: { read
       }
       continue;
     }
-    if (ADMITTED_STATES.includes(unit.state) && unit.lease !== null && unit.lease.revokedAt === null && unit.lease.expiresAt <= at) {
+    if (LEASE_HOLDING_STATES.includes(unit.state) && unit.lease !== null && unit.lease.revokedAt === null && unit.lease.expiresAt <= at) {
       const authority = orchestrator.authority.get(authorityKey(unit.unitId, unit.generation));
       authority?.abort();
       const retryAt = at + orchestrator.limits.retryDelayMs;
@@ -851,9 +854,9 @@ export async function sweepUnits(orchestrator: FillOrchestrator, options: { read
         swept.push({ unitId: unit.unitId, outcome: 'failed', reason: `lease expired at ${unit.lease.expiresAt} with no retry left` });
       } else {
         // Neither a retry nor a failure: the machine refuses both, so this attempt's lapse moved nothing.
-        // Saying so keeps a host from spending its passes on a unit it cannot move, and keeps the
-        // machine's own words about why — a sweep that stayed silent here is what made a unit lost
-        // between its draft and its publication invisible.
+        // With the lapse retried from every state a lease is held in, this is the branch of a unit
+        // another executor moved between this pass's read and its step — the race, not a resting state —
+        // and it answers with the machine's own words rather than passing over the unit in silence.
         refused.push({ unitId: unit.unitId, code: failed.refusal.code, reason: `the lease of ${unit.unitId} generation ${unit.generation} lapsed at ${unit.lease.expiresAt} and neither the retry nor the failure was allowed: ${failed.refusal.reason}` });
       }
       continue;

@@ -32,12 +32,17 @@ export function expectOnePublicationPerGeneration(report: CrashReport): void {
   expect(asRecord(report.facts)).toEqual(asRecord(report.publications));
 }
 
-/** Every unit named published, the run succeeded, its chain quiescent and the queue empty. */
-export function expectSettled(report: CrashReport, unitIds: readonly string[] = [...PLANNED_UNITS, ...SEALED_UNITS]): void {
+/**
+ * Every unit named published, the run succeeded, its chain quiescent and the queue
+ * empty. `deadLetters` is how many jobs a test expects the queue to have failed for
+ * good: the claims a killed worker held, which the suite's recovery settles itself,
+ * and nothing else — a job that ended any other way leaves no copy.
+ */
+export function expectSettled(report: CrashReport, unitIds: readonly string[] = [...PLANNED_UNITS, ...SEALED_UNITS], deadLetters = 0): void {
   expect(report.run?.state).toBe('succeeded');
   expect(report.chain?.state).toBe('quiescent');
   expect(report.queue.unfinished).toBe(0);
-  expect(report.queue.deadLetters).toBe(0);
+  expect(report.queue.deadLetters).toBe(deadLetters);
   for (const unitId of unitIds) expect(unitOf(report, unitId).state).toBe('published');
   expectOnePublicationPerGeneration(report);
 }

@@ -139,10 +139,18 @@ None.
   settlement the queue's timed sweep would make — and reports the state a claim
   that was already settled stands in, which is how the suite shows that a
   publication's own transaction settled its job.
-- **What the suite's time is.** Nothing in it sleeps: every moment is the clock
-  file the test writes, and every kill and pause is a seam. The one timer is the
-  deadline on the pipe the driver's lines arrive through, which ends a hung phase
-  with its own message instead of the runner's.
+- **A failed claim is readable.** The fixture declares the run's queue with a dead
+  letter queue of its own, which the production host does not: a queue declared
+  without one answers no dead letters whatever happened to its jobs, so "the only
+  job the queue failed for good is the claim the killed worker held" would be
+  unreadable. Every test that recovers such a claim therefore holds the run to
+  exactly one dead letter, and every other test to none.
+- **What the suite's time is.** Nothing in it sleeps for time: every moment is the
+  clock file the test writes, and every kill and pause is a seam. The only timers
+  are the two on the pipe a driver's lines arrive through — the deadline that ends a
+  hung phase with its own message instead of the runner's, and the interval it
+  re-reads that pipe at — and the driver ends itself when the test that started it
+  is gone, so no paused phase is left holding a core.
 - **What the offer costs.** The sweep offers a job for every unit standing
   `ready` on every pass, which is one enqueue the queue answers with "nothing
   created" while the unit's own job is unfinished, and one created job when it is
@@ -153,6 +161,13 @@ None.
   `createFillOrchestratorService` — the service the background server owns — over
   the same fixture and drives a run to its end through it, so the packaged binary
   covers the host path and not only the orchestrator's steps.
+- **The refusal a raced sweep reports.** The lapse branch answers with the machine's
+  own words when neither the retry nor the failure is allowed. With the lapse
+  retried from every state a lease is held in, that is the branch of a unit another
+  executor moved between this pass's read and its step — a race, not a resting
+  state — and it exists so such a pass says what it could not do rather than
+  passing the unit over. No test of this change reaches it, and none can without a
+  second writer inside the same pass.
 - **What the suite found.** Two ways for a killed attempt to hold a run for ever,
   both closed where they stand. `src/fill/orchestrator.ts`'s sweep offers a unit
   standing `ready` with no lease its job again, under the unit's singleton key, and
@@ -160,8 +175,10 @@ None.
   retries a lapsed lease from `draft` and `validating` as well as from `leased` and
   `running`, which is what lets the sweep retry a worker killed between its draft
   and its publication. `test/fill-orchestrator.test.ts` holds every case:
-  a lost job is found by the next pass, a unit under a lease of its own is left
-  alone, and a lease that lapsed while the unit stood `validating` is retried with
-  its draft retracted and nothing published. The crash suite holds the end of each:
+  a lost job is found by the next pass, a unit whose unfinished job the queue still
+  holds is offered nothing, a unit under a lease of its own is left to it, a unit
+  left `ready` by a lost enqueue is offered again though its lease stands revoked,
+  and a lease that lapsed while the unit stood `validating` is retried with its
+  draft retracted and nothing published. The crash suite holds the end of each:
   the unit publishes exactly once after the worker that claimed it died before its
   lease, and again after the worker that died with its publication's transaction.

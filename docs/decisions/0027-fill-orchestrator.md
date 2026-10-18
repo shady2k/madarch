@@ -123,3 +123,19 @@ DBOS configuration: https://docs.dbos.dev/typescript/reference/configuration ·
 XState pure transitions: https://stately.ai/docs/pure-transitions ·
 Temporal: https://docs.temporal.io/production-deployment · Hatchet: https://docs.hatchet.run/v1/embedded ·
 Inngest: https://www.inngest.com/docs/self-hosting · BullMQ: https://docs.bullmq.io/guide/connections
+
+## Amendment (2026-10-18, madarch-tzte.19.6)
+
+The crash-injection suite found that a worker killed between its draft and its
+publication leaves its unit in `draft` or `validating`, and that the table above
+retried a lapsed lease only from `leased` and `running`: no step could move such a
+unit, while the run's evidence went on counting it runnable and the product's chain
+stayed active, so nothing could ever fill that product again. A lapsed lease is
+therefore retried from every state an attempt holds a lease in — `leased`,
+`running`, `draft` and `validating` — under the same guards, with the dead
+attempt's draft retracted; the decision's own sentence is read as the four states
+rather than the two it named. The same suite found that a unit whose job the queue
+lost before its lease stands `ready` with nothing for a worker to claim, so the
+run's sweep offers such a unit the queue again under its own singleton key, which
+is idempotent. Both are in `docs/changes/fill-crash-suite`, with the tests that
+hold them.

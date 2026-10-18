@@ -30,6 +30,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PLANNED_UNITS, expectOnePublicationPerGeneration, expectSettled, resumeRun } from './fill-crash-expectations.js';
 import {
+  CrashDriver,
   CrashFixture,
   buildCrashBinary,
   factsByGeneration,
@@ -46,12 +47,15 @@ const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 /** One build of the compiled binary for every test in this file. */
 let binary = '';
 const fixtures: CrashFixture[] = [];
+/** Every driver a test started, so a phase left paused is killed when the file ends. */
+const drivers: CrashDriver[] = [];
 
 beforeAll(() => {
   binary = buildCrashBinary(mkdtempSync(join(tmpdir(), 'madarch-fill-crash-build-')), REPO_ROOT);
 }, 300_000);
 
 afterAll(() => {
+  for (const driver of drivers) driver.kill();
   for (const fixture of fixtures) rmSync(fixture.folder, { recursive: true, force: true });
 });
 
@@ -130,7 +134,9 @@ describe('killing the process', () => {
 
     await resumeRun(world, {}, crash, 'failed');
     const report = reportOf(await world.phase({ kind: 'report' }));
-    expectSettled(report);
+    // The claim the killed worker held is the one job the queue failed for good,
+    // and it stands in the dead letter queue the fixture declares.
+    expectSettled(report, undefined, 1);
     // The unit that lost its claim was worked again and published exactly once, and
     // the run reported the offer that recovered it as its own durable event.
     expect(unitOf(report, 'extract/src')).toMatchObject({ state: 'published', attempt: 1 });
@@ -175,7 +181,7 @@ describe('killing the process', () => {
     const steps = stepsOf(report, 'modules/root');
     expect(steps).toContain('unit/running--wait-for-children-->waiting_children');
     expect(steps).toContain('unit/waiting_children--join-all-published-->ready');
-    expectSettled(report);
+    expectSettled(report, undefined, 1);
   }, 120_000);
 
   test('inside the publication: the transaction rolls back and the retry publishes exactly once', async () => {
@@ -201,7 +207,7 @@ describe('killing the process', () => {
 
     await resumeRun(world, {}, crash, 'failed');
     const report = reportOf(await world.phase({ kind: 'report' }));
-    expectSettled(report);
+    expectSettled(report, undefined, 1);
     expectOnePublicationPerGeneration(report);
     expect(publicationsByGeneration(report).get('extract/src/1')).toHaveLength(1);
     expect(factsByGeneration(report).get('extract/src/1')).toHaveLength(1);
@@ -257,6 +263,7 @@ describe('what the run does with a graph that moves', () => {
     world.setGraph('product-facts', []);
     await planFixture(world);
     const driver = world.start({ kind: 'run', workers: 1 }, { interrupt: { point: 'validation', mode: 'pause', unitId: 'overview/product' } });
+    drivers.push(driver);
     const paused = await driver.nextLine();
     expect(paused).toMatchObject({ event: 'pause', point: 'validation', unitId: 'overview/product' });
     // The pinned graph moves while the unit stands between its read and its

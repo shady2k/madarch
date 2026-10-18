@@ -47,7 +47,12 @@ const fixtures: CrashFixture[] = [];
 const running: CrashDriver[] = [];
 
 beforeAll(() => {
-  if (connectionString === undefined) return;
+  if (connectionString === undefined) {
+    // The skip's own reason, said once: every test of this file is skipped without
+    // it, and a green run must not read as if it had skipped anything.
+    console.warn(`test/fill-crash-postgres.test.ts: ${SKIP}`);
+    return;
+  }
   binary = buildCrashBinary(mkdtempSync(join(tmpdir(), 'madarch-fill-crash-build-')), REPO_ROOT);
 }, 300_000);
 
@@ -119,7 +124,7 @@ async function drive(world: CrashFixture, options: PhaseOptions, workers = 1): P
 }
 
 describe('one run, three executor processes', () => {
-  test.skipIf(connectionString === undefined)(`three executors drive the chain and every generation is published once (${SKIP})`, async () => {
+  test.skipIf(connectionString === undefined)('three executors drive the chain and every generation is published once', async () => {
     const options = postgres();
     const world = fixture();
     try {
@@ -154,7 +159,7 @@ describe('one run, three executor processes', () => {
     }
   }, 300_000);
 
-  test.skipIf(connectionString === undefined)(`the run's own slots hold across three executors (${SKIP})`, async () => {
+  test.skipIf(connectionString === undefined)('the run\'s own slots hold across three executors', async () => {
     const options = postgres();
     const world = fixture();
     const drivers: CrashDriver[] = [];
@@ -197,7 +202,7 @@ describe('one run, three executor processes', () => {
     }
   }, 300_000);
 
-  test.skipIf(connectionString === undefined)(`a claim a killed worker held is recovered, and the unit is published once (${SKIP})`, async () => {
+  test.skipIf(connectionString === undefined)('a claim a killed worker held is recovered, and the unit is published once', async () => {
     const options = postgres();
     const world = fixture();
     try {
@@ -212,13 +217,14 @@ describe('one run, three executor processes', () => {
       await resumeRun(world, options, crash, 'failed');
       const report = reportOf(await world.phase({ kind: 'report' }, options));
       expect(unitOf(report, 'extract/src')).toMatchObject({ state: 'published', generation: 1, attempt: 1 });
-      expectSettled(report);
+      // The claim the killed worker held is the one job the queue failed for good.
+      expectSettled(report, undefined, 1);
     } finally {
       await dropSchemas(options);
     }
   }, 300_000);
 
-  test.skipIf(connectionString === undefined)(`a split killed before its acknowledgement loses no child and the parent joins them (${SKIP})`, async () => {
+  test.skipIf(connectionString === undefined)('a split killed before its acknowledgement loses no child and the parent joins them', async () => {
     const options = postgres();
     const world = fixture();
     try {
@@ -244,13 +250,13 @@ describe('one run, three executor processes', () => {
       await drive(world, options);
       const report = reportOf(await world.phase({ kind: 'report' }, options));
       expectNoLostChildren(report);
-      expectSettled(report);
+      expectSettled(report, undefined, 1);
     } finally {
       await dropSchemas(options);
     }
   }, 300_000);
 
-  test.skipIf(connectionString === undefined)(`a worker that lost its fence publishes nothing (${SKIP})`, async () => {
+  test.skipIf(connectionString === undefined)('a worker that lost its fence publishes nothing', async () => {
     const options = postgres();
     const world = fixture();
     const drivers: CrashDriver[] = [];
@@ -294,14 +300,14 @@ describe('one run, three executor processes', () => {
       expect(refusals).toHaveLength(1);
       expect(refusals[0]).toMatchObject({ unitId: 'extract/src', kind: 'unit-blocked' });
       expect(publicationsByGeneration(report).get('extract/src/1')).toHaveLength(1);
-      expectSettled(report);
+      expectSettled(report, undefined, 1);
     } finally {
       for (const driver of drivers) driver.kill();
       await dropSchemas(options);
     }
   }, 300_000);
 
-  test.skipIf(connectionString === undefined)(`a disabled producer blocks the run with its starvation path (${SKIP})`, async () => {
+  test.skipIf(connectionString === undefined)('a disabled producer blocks the run with its starvation path', async () => {
     const options = postgres();
     const world = fixture();
     try {
