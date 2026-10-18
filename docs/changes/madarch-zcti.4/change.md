@@ -192,6 +192,43 @@ None.
 - The clean install walks workflow, run 39139319609 on 1490659a: every job green — build-linux-fixture, linux-supported, linux-homebrew, macos-arm64, windows-x64 (the platform the liveness and bundle rules exist for; its walk reads "npx madarch stop ended that server") and published-linux-homebrew.
 - CI on the exact head 1490659a: run 39139313486 success (checks and test shards 1-5 with the aggregate `test` job), Product documents run 39139313672 success.
 - Independent review: a fresh `prime-agent --provider shady2k-gateway --model deepseek-v4.1-flash-auto` session over `git diff origin/main...HEAD`, verdict "fixes needed" with one blocking, one medium and three low findings; every one answered (the record's own bullets say how), its cross-compiled Windows probe supplying the `~BUN` marker spelling, and its note on `src/fill/fsm-core.ts` filed as madarch-ntth.
+- The pre-exec read — the reopened task's defect, fixed on this branch. Main CI on
+  46865274 failed shard 2 at `test/product-daemon.test.ts:211`, "the process it started
+  (pid 7327) was not the daemon of this record; its command line read `bun test test/
+  --shard=2/5 …`". The window between a spawn and the child's exec is now put under the
+  start's own first read through `ensureDaemon`'s `readings` seam, not by luck: the new
+  test answers the first read with this process's own command line and the second with
+  the empty line the exec itself gives, then lets the real reads run, and the start
+  serves the product. With the previous judgement restored by one throwaway line, the
+  same test fails at once on the pod (`run-20261018-194052.log.txt`), reading "bun test
+  test/product-daemon.test.ts " out of the child its own start had just spawned — so the
+  test catches the defect, not merely the fix.
+- This round's focused tests on the pod, where this machine runs no suite: the daemon and
+  CLI files 115 pass 0 fail exit 0 (`run-20261018-193936.log.txt`; 113 pass 0 fail in
+  `run-20261018-191056.log.txt` and `run-20261018-191243.log.txt` before the review
+  round's tests were added), the daemon file alone 15 pass 0 fail exit 0
+  (`run-20261018-191029.log.txt`), and with `test/product-cli-script.test.ts` 115 pass
+  0 fail exit 0 once the pod's staging restores the executable bit
+  (`run-20261018-191625.log.txt`). `run-20261018-193730.log.txt` is the review round
+  before its two test-seam corrections: 113 pass, 2 fail, both of them the new tests'
+  own seams, both corrected and green in the run above.
+- Measured on the pod for the two facts this round's code rests on
+  (`run-20261018-193140.log.txt`, `run-20261018-193343.log.txt`): the empty command line
+  the exec itself gives (15 of 40 spawns in a tight sampling loop read 0 bytes before the
+  exec'd line appeared, and one round read empty at 16 µs and the exec'd line at 44 µs),
+  and the reap a blocking pause denies the wait that watches it (a child that exits at
+  once kept its id for the whole 3 s with `/proc` state `Z`, and was gone 40 ms after the
+  same loop awaited a timer instead).
+- CI on the exact head 8f68be27: run 39146245554 success — checks, test shards 1-5 and
+  the aggregate `test`. Its first attempt failed shard 1 in `bun install
+  --frozen-lockfile`, exit 1 eight seconds in, on puppeteer's Chromium download (the same
+  step green in every other job of that run and in the shard's re-run); the failed jobs
+  were re-run green on the same SHA. Product documents run 39146245541 success.
+- The clean install walks, run 39146256533 dispatched on this branch and green on all six
+  jobs: build-linux-fixture, macos-arm64 and windows-x64 each build the binary and run
+  its graph-store smoke (which starts and stops the daemon), linux-supported,
+  linux-homebrew and macos-arm64 walk `npx madarch new` then `stop`, and the
+  windows-x64 walk is the platform whose liveness reading is the command line alone.
 - Mutation: not run (owner's rule: Stryker once per assembled stage); acceptance therefore escalates per `mutationFallback: escalate`.
 
 ## DONE WHEN
