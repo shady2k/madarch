@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
 import { readFillStageConfiguration } from '../src/fill/config.js';
-import { deriveStageGraph, resolveStageConfiguration, snapshotStageConfigurations, StageRegistry } from '../src/fill/registry.js';
+import {
+  deriveStageGraph, resolveStageConfiguration, snapshotStageConfigurations, StageRegistry, type DerivedStageGraph,
+} from '../src/fill/registry.js';
 import { DEFAULT_STAGE_DEFAULTS, DEFAULT_STAGE_LIMITS, type FillStage } from '../src/fill/stage.js';
 import { MANIFEST_FILE } from '../src/product/manifest.js';
 import { summaryStage } from './fill-stage-summary.js';
@@ -74,6 +76,13 @@ function manifest(...stages: string[]): string[] {
   ];
 }
 
+/** The graph a derivation gave, refusing loudly where it refused: a fixture expected to plan. */
+function deriveGraph(registry: StageRegistry, configuration?: ReturnType<typeof readFillStageConfiguration>): DerivedStageGraph {
+  const read = deriveStageGraph(registry, configuration);
+  if (!read.ok) throw new Error(`expected a clean graph, refused: ${JSON.stringify(read)}`);
+  return read.graph;
+}
+
 /** The product's configuration as a run would hand it in, without a file behind it. */
 function configured(stages: Record<string, unknown>): { ok: true; file: string; stages: Record<string, unknown>; lines: Record<string, number> } {
   return { ok: true, file: '', stages, lines: Object.fromEntries(Object.keys(stages).map((id) => [id, 1])) };
@@ -89,7 +98,7 @@ describe('the stage contract and its defaults', () => {
       maxDurationMs: 10 * 60 * 1000,
       maxOutputTokens: 16_000,
     });
-    expect(DEFAULT_STAGE_DEFAULTS).toEqual({ enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS });
+    expect(DEFAULT_STAGE_DEFAULTS).toEqual({ enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS, config: {} });
   });
 
   test('a stage is registered once, and a second registration of one id is refused', () => {
@@ -152,7 +161,7 @@ describe('the stage graph derived from capabilities', () => {
       enabled: true,
       concurrency: 2,
       limits: DEFAULT_STAGE_LIMITS,
-      config: undefined,
+      config: { maxDepth: 3 },
     });
     expect(read.graph.edges.filter((edge) => edge.to === 'pages').map((edge) => edge.via))
       .toEqual(['module-facts', 'module-summaries']);
@@ -186,6 +195,59 @@ describe('the stage graph derived from capabilities', () => {
     const read = deriveStageGraph(registry);
     if (!read.ok) throw new Error('expected a clean graph');
     expect(read.graph.edges).toEqual([{ from: 'modules', to: 'pages', via: 'module-facts' }]);
+  });
+
+  test('an optional consume of a produced capability orders the consumer after its producer', () => {
+    // "Read when present" is true of this run only if the consumer runs after
+    // the producer that publishes it, so an optional consume draws the same
+    // edge a required one does — and starves nobody when the producer does not
+    // run.
+    const registry = new StageRegistry()
+      .register(fakeStage('history', { produces: [{ kind: 'history-facts', schemaVersion: 1, scope: 'repository' }] }))
+      .register(fakeStage('summary', { consumes: { required: [], optional: [{ capability: 'history-facts', scope: 'repository' }] } }));
+    const read = deriveStageGraph(registry);
+    if (!read.ok) throw new Error(`expected a clean graph, refused: ${JSON.stringify(read)}`);
+    expect(read.graph.order).toEqual(['history', 'summary']);
+    expect(read.graph.edges).toEqual([{ from: 'history', to: 'summary', via: 'history-facts' }]);
+  });
+
+  test('an optional consume whose producers are disabled draws no edge and starves nothing', () => {
+    const registry = new StageRegistry()
+      .register(fakeStage('history', { produces: [{ kind: 'history-facts', schemaVersion: 1, scope: 'repository' }] }))
+      .register(fakeStage('crawl', { produces: [{ kind: 'history-facts', schemaVersion: 1, scope: 'repository' }] }))
+      .register(fakeStage('summary', { consumes: { required: [], optional: [{ capability: 'history-facts', scope: 'repository' }] } }));
+    const read = deriveStageGraph(registry, configured({ history: { enabled: false }, crawl: { enabled: false } }));
+    if (!read.ok) throw new Error(`expected a clean graph, refused: ${JSON.stringify(read)}`);
+    expect(read.graph.order).toEqual(['summary']);
+    expect(read.graph.edges).toEqual([]);
+  });
+
+  test('one capability consumed both as required and as optional draws one edge', () => {
+    const registry = new StageRegistry()
+      .register(fakeStage('modules', { produces: [{ kind: 'module-facts', schemaVersion: 1, scope: 'repository' }] }))
+      .register(fakeStage('summary', {
+        consumes: {
+          required: [{ capability: 'module-facts', scope: 'repository' }],
+          optional: [{ capability: 'module-facts', scope: 'repository', freshness: 'current' }],
+        },
+      }));
+    const read = deriveStageGraph(registry);
+    if (!read.ok) throw new Error('expected a clean graph');
+    expect(read.graph.edges).toEqual([{ from: 'modules', to: 'summary', via: 'module-facts' }]);
+  });
+
+  test('an `after` naming a stage the product disabled orders nothing', () => {
+    // The ordering is "run after those stages that run": a disabled stage is
+    // absent from the order, so an edge from it would name a stage the plan
+    // never admits.
+    const registry = new StageRegistry()
+      .register(fakeStage('snapshot'))
+      .register(fakeStage('pages', { after: ['snapshot'] }));
+    const read = deriveStageGraph(registry, configured({ snapshot: { enabled: false } }));
+    if (!read.ok) throw new Error(`expected a clean graph, refused: ${JSON.stringify(read)}`);
+    expect(read.graph.order).toEqual(['pages']);
+    expect(read.graph.edges).toEqual([]);
+    expect(read.graph.stages.map((stage) => [stage.id, stage.enabled])).toEqual([['pages', true], ['snapshot', false]]);
   });
 
   test('deriving runs no stage: plan, execute and validate are never called', () => {
@@ -325,7 +387,7 @@ describe('the product configuration enables, disables and limits a stage', () =>
           maxDurationMs: 600_000,
           maxOutputTokens: 16_000,
         },
-        config: undefined,
+        config: {},
       });
     } finally {
       await product.dispose();
@@ -353,7 +415,7 @@ describe('the product configuration enables, disables and limits a stage', () =>
     }
   });
 
-  test('the run\'s snapshot digest follows the configuration it resolved', async () => {
+  test('the run\'s snapshot digest follows the configuration it resolved, not the order it holds it in', async () => {
     const plain = deriveStageGraph(chainRegistry());
     const limited = await productWith(manifest(
       '    modules:',
@@ -364,10 +426,44 @@ describe('the product configuration enables, disables and limits a stage', () =>
       const changed = deriveStageGraph(chainRegistry(), readFillStageConfiguration(limited.folder));
       if (!plain.ok || !changed.ok) throw new Error('expected two clean graphs');
       const left = snapshotStageConfigurations(plain.graph.stages);
-      expect(snapshotStageConfigurations(plain.graph.stages)).toBe(left);
+      // Two derivations from one configuration: the same digest. A caller that
+      // holds the same configurations in another order is the same run, so the
+      // digest is the same too; a changed configuration gives another.
+      expect(snapshotStageConfigurations(deriveGraph(chainRegistry()).stages)).toBe(left);
+      expect(snapshotStageConfigurations([...plain.graph.stages].reverse())).toBe(left);
       expect(snapshotStageConfigurations(changed.graph.stages)).not.toBe(left);
     } finally {
       await limited.dispose();
+    }
+  });
+
+  test('a configuration written in another key order digests the same', async () => {
+    // The digest is canonical in the configuration's own content: two manifests
+    // that write one stage's configuration in two key orders are one resolved
+    // configuration, and a changed value is another.
+    const registry = (): StageRegistry => new StageRegistry().register(fakeStage('tuned', {
+      configSchema: Type.Object({ maxDepth: Type.Integer({ minimum: 1 }), mode: Type.String() }),
+      defaults: { ...DEFAULT_STAGE_DEFAULTS, config: { maxDepth: 2, mode: 'deep' } },
+    }));
+    const digests: string[] = [];
+    for (const stages of [
+      ['    tuned:', '      config:', '        maxDepth: 4', '        mode: deep'],
+      ['    tuned:', '      config:', '        mode: deep', '        maxDepth: 4'],
+    ]) {
+      const product = await productWith(manifest(...stages));
+      try {
+        digests.push(snapshotStageConfigurations(deriveGraph(registry(), readFillStageConfiguration(product.folder)).stages));
+      } finally {
+        await product.dispose();
+      }
+    }
+    expect(digests[1]).toBe(digests[0]!);
+    const changed = await productWith(manifest('    tuned:', '      config:', '        maxDepth: 4', '        mode: shallow'));
+    try {
+      const other = snapshotStageConfigurations(deriveGraph(registry(), readFillStageConfiguration(changed.folder)).stages);
+      expect(other).not.toBe(digests[0]!);
+    } finally {
+      await changed.dispose();
     }
   });
 
@@ -378,7 +474,7 @@ describe('the product configuration enables, disables and limits a stage', () =>
       enabled: true,
       concurrency: 2,
       limits: DEFAULT_STAGE_LIMITS,
-      config: undefined,
+      config: { maxDepth: 3 },
     });
   });
 });
@@ -579,10 +675,18 @@ describe('a stage\'s own configuration is judged against its configSchema', () =
   });
 
   test('a configuration missing what the schema requires is named on the config field', async () => {
+    // The fault is the `config` field's: its own value is what lacks
+    // `maxDepth`, so the line is the field's and not the stage key's, however
+    // far the two stand apart in the file.
     const product = await productWith(manifest(
-      '    summary:',
-      '      config:',
-      '        depth: 2',                             // line 8, the only field
+      '    summary:',                                // line 6, the entry's key
+      '      enabled: true',
+      '      concurrency: 2',
+      '      limits:',
+      '        maxTurns: 30',
+      '      after: nothing-here',
+      '      config:',                              // line 12, the field the fault is about
+      '        depth: 2',                             // line 13, the only field written
     ));
     try {
       const read = deriveStageGraph(chainRegistry(), readFillStageConfiguration(product.folder));
@@ -590,12 +694,44 @@ describe('a stage\'s own configuration is judged against its configSchema', () =
       expect(read.problems).toEqual([{
         stage: 'summary',
         file: product.manifest,
-        line: 6,
+        line: 12,
         path: 'fill.stages.summary.config',
         message: 'must have required properties maxDepth',
       }]);
     } finally {
       await product.dispose();
+    }
+  });
+
+  test('a configuration that is no mapping, and a nested fault, are named at their own field', async () => {
+    for (const one of [
+      {
+        stages: ['    summary:', '      config: 4'],                    // `config` on line 7
+        line: 7,
+        path: 'fill.stages.summary.config',
+        message: 'must be object',
+      },
+      {
+        stages: ['    summary:', '      config:', '        maxDepth: 0'], // `maxDepth` on line 8
+        line: 8,
+        path: 'fill.stages.summary.config.maxDepth',
+        message: 'must be >= 1',
+      },
+    ]) {
+      const product = await productWith(manifest(...one.stages));
+      try {
+        const read = deriveStageGraph(chainRegistry(), readFillStageConfiguration(product.folder));
+        if (read.ok) throw new Error(`expected a refusal of ${one.path}`);
+        expect(read.problems).toEqual([{
+          stage: 'summary',
+          file: product.manifest,
+          line: one.line,
+          path: one.path,
+          message: one.message,
+        }]);
+      } finally {
+        await product.dispose();
+      }
     }
   });
 
@@ -609,6 +745,72 @@ describe('a stage\'s own configuration is judged against its configSchema', () =
       const read = deriveStageGraph(chainRegistry(), readFillStageConfiguration(product.folder));
       if (!read.ok) throw new Error(`expected a clean graph, refused: ${JSON.stringify(read)}`);
       expect(read.graph.stages.find((stage) => stage.id === 'summary')?.config).toEqual({ maxDepth: 4 });
+    } finally {
+      await product.dispose();
+    }
+  });
+});
+
+describe('a stage\'s own configuration is judged wherever its value came from', () => {
+  const strict = (id: string): FillStage => fakeStage(id, {
+    configSchema: Type.Object({ maxDepth: Type.Integer({ minimum: 1 }) }),
+  });
+
+  test('a stage whose declared default its own schema refuses is refused, entry or no entry', () => {
+    // The same missing setting two ways: no entry at all, and an entry that
+    // configures everything but `config`. A stage planned without a
+    // configuration its schema refuses would fail inside `execute`, far from
+    // the manifest its author edited, so both refuse the graph, each naming
+    // where the value it will run with came from.
+    for (const configuration of [undefined, configured({ tuned: { concurrency: 2 } })]) {
+      const read = deriveStageGraph(new StageRegistry().register(strict('tuned')), configuration);
+      if (read.ok) throw new Error('expected a refusal');
+      expect(read.problems).toEqual([{
+        stage: 'tuned',
+        path: 'defaults.config',
+        message: 'must have required properties maxDepth; the product\'s fill.stages.tuned.config replaces the stage\'s default',
+      }]);
+      expect(read.starvation).toEqual([]);
+      expect(read.cycles).toEqual([]);
+    }
+  });
+
+  test('a stage\'s declared default configuration stands where the product writes none', () => {
+    const tuned = fakeStage('tuned', {
+      configSchema: Type.Object({ maxDepth: Type.Integer({ minimum: 1 }) }),
+      defaults: { ...DEFAULT_STAGE_DEFAULTS, config: { maxDepth: 2 } },
+    });
+    const read = deriveStageGraph(new StageRegistry().register(tuned));
+    if (!read.ok) throw new Error(`expected a clean graph, refused: ${JSON.stringify(read)}`);
+    expect(read.graph.stages).toEqual([{
+      id: 'tuned',
+      version: 1,
+      enabled: true,
+      concurrency: 1,
+      limits: DEFAULT_STAGE_LIMITS,
+      config: { maxDepth: 2 },
+    }]);
+  });
+
+  test('a configuration written and left empty is judged as written, not replaced by the default', async () => {
+    // `config:` with nothing after it is YAML's null. The stage's default
+    // satisfies the schema, so a reader that fell back to it would plan the
+    // stage with a setting its author did not write; the schema refuses null
+    // at the field's own line instead.
+    const product = await productWith(manifest(
+      '    summary:',
+      '      config:',                              // line 7
+    ));
+    try {
+      const read = deriveStageGraph(chainRegistry(), readFillStageConfiguration(product.folder));
+      if (read.ok) throw new Error('expected a refusal');
+      expect(read.problems).toEqual([{
+        stage: 'summary',
+        file: product.manifest,
+        line: 7,
+        path: 'fill.stages.summary.config',
+        message: 'must be object',
+      }]);
     } finally {
       await product.dispose();
     }
@@ -749,6 +951,52 @@ describe('a cycle of the stage graph is refused, naming it', () => {
       path: 'after[0]',
       message: 'the stage "pages" orders itself after "overveiw", which the registry does not hold: register that stage or name one it has',
     }]);
+  });
+
+  test('a refusal carries every fault at once: a cycle, a starved consumer, a declaration fault and a config fault', async () => {
+    // The four classes come from one derivation: the cycle is derived from the
+    // edges, the starvation from the required capability, and the two faults
+    // from what the stages and the product wrote. A derivation that answered
+    // the first fault it met would drop the rest.
+    const registry = new StageRegistry()
+      .register(fakeStage('a', {
+        consumes: { required: [{ capability: 'b-facts', scope: 'product' }], optional: [] },
+        produces: [{ kind: 'a-facts', schemaVersion: 1, scope: 'product' }],
+      }))
+      .register(fakeStage('b', {
+        consumes: { required: [{ capability: 'a-facts', scope: 'product' }], optional: [] },
+        produces: [{ kind: 'b-facts', schemaVersion: 1, scope: 'product' }],
+      }))
+      .register(fakeStage('hungry', { consumes: { required: [{ capability: 'ghost-facts', scope: 'product' }], optional: [] } }))
+      .register(fakeStage('tuned', {
+        after: ['nowhere'],
+        configSchema: Type.Object({ maxDepth: Type.Integer({ minimum: 1 }) }),
+        defaults: { ...DEFAULT_STAGE_DEFAULTS, config: { maxDepth: 2 } },
+      }));
+    const product = await productWith(manifest('    tuned:', '      concurrency: 0'));  // line 7
+    try {
+      const read = deriveStageGraph(registry, readFillStageConfiguration(product.folder));
+      if (read.ok) throw new Error('expected a refusal');
+      expect(read.cycles).toEqual([['a', 'b', 'a']]);
+      expect(read.starvation.map((starved) => starved.path)).toEqual(['hungry → ghost-facts → no producer']);
+      expect(read.problems).toEqual([
+        {
+          stage: 'tuned',
+          path: 'after[0]',
+          message: 'the stage "tuned" orders itself after "nowhere", which the registry does not hold: register that stage or name one it has',
+        },
+        {
+          stage: 'tuned',
+          file: product.manifest,
+          line: 7,
+          path: 'fill.stages.tuned.concurrency',
+          message: 'fill.stages.tuned.concurrency is a whole number of 1 or more, not 0',
+        },
+      ]);
+      expect(read.config).toEqual([]);
+    } finally {
+      await product.dispose();
+    }
   });
 
   test('a disabled stage breaks the cycle instead of closing it', () => {

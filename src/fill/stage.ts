@@ -6,7 +6,8 @@
  * stage graph, optional ones are read when present), the fact kinds it
  * produces with schema version and ownership scope, an optional ordering
  * beside the capability-derived edges, a configuration schema with its
- * defaults (enabled, concurrency, the bounded unit limits), a `plan` that
+ * defaults (enabled, concurrency, the bounded unit limits, and the stage's own
+ * default configuration), a `plan` that
  * reads the graph to name its units, an `execute` that runs one unit and
  * returns a draft, a split or a block, and a `validate` that judges a
  * draft before publication.
@@ -83,6 +84,15 @@ export interface StageDefaults {
   concurrency: number;
   /** The stage's unit limits; the defaults above are the agent stages' own. */
   limits: StageLimits;
+  /**
+   * The stage's own default configuration, which the product's
+   * `fill.stages.<id>.config` replaces whole rather than field by field. It is
+   * judged against the stage's `configSchema` like a written one, and `{}`
+   * where the stage has nothing to configure: a stage whose schema requires a
+   * setting declares it here, since a run that found no configuration would
+   * otherwise hand the stage a value its own schema refuses.
+   */
+  config: unknown;
 }
 
 /** The defaults a stage falls back to where its declaration says nothing. */
@@ -90,6 +100,7 @@ export const DEFAULT_STAGE_DEFAULTS: StageDefaults = {
   enabled: true,
   concurrency: 1,
   limits: DEFAULT_STAGE_LIMITS,
+  config: {},
 };
 
 // ---- what a stage runs in and returns --------------------------------------
@@ -177,7 +188,11 @@ export interface ResolvedStageConfiguration {
   enabled: boolean;
   concurrency: number;
   limits: StageLimits;
-  /** The stage's own configuration, checked against the stage's `configSchema`. */
+  /**
+   * The stage's own configuration: the product's `fill.stages.<id>.config`
+   * where it wrote one, else the stage's declared default, already judged
+   * against the stage's `configSchema`.
+   */
   config: unknown;
 }
 

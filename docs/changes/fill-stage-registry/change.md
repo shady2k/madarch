@@ -16,15 +16,15 @@ After this change a stage declares its id and version, the capabilities it
 consumes and the fact kinds it produces, an optional ordering, a configuration
 schema with defaults, and how it plans, executes and validates its units. A
 registry holds those declarations and derives the stage graph from the
-capabilities: a required capability draws an edge from every enabled producer to
-its consumer, ties are broken by code point order, and a cycle is refused by its
-own path. The product's manifest decides which stages run: its `fill.stages`
-entry for a stage enables, disables and limits it, and disabling a producer
-the fill needs is
-reported as the exact starvation path consumer → capability → producer, saying
-whether no stage produces the capability or every producer of it is disabled. A
-full registry whose required capabilities are produced derives cleanly, and each
-run can snapshot the configuration it resolved.
+capabilities: every capability a stage reads draws an edge from each enabled
+producer of it, required and optional alike, ties are broken by code point
+order, and a cycle is refused by its own path. The product's manifest decides
+which stages run: its `fill.stages` entry for a stage enables, disables and
+limits it and carries the stage's own configuration, and disabling a producer
+the fill needs is reported as the exact starvation path consumer → capability →
+producer, saying whether no stage produces the capability or every producer of
+it is disabled. A full registry whose required capabilities are produced derives
+cleanly, and each run can snapshot the configuration it resolved.
 
 Adding a stage costs one module and its registration, which a test proves with a
 fake stage that arrives as a file and nothing else.
@@ -92,6 +92,28 @@ None.
   configuration problems, the cycles and the starvation paths. A configuration
   that does not read refuses the graph before anything is derived from it, since
   its defaults stand for nothing the product agreed to.
+- **An optional consume is ordered like a required one.** A stage reads an
+  optional capability "when present", and what makes it present in one run is
+  the producer of that run having published: so an optional consume whose
+  producer runs draws the same edge a required one does. Where no enabled stage
+  produces it the capability is read as absent — no edge, no starvation — since
+  an optional input may legitimately be missing, which is why it is optional.
+  Choosing this over "optional capabilities order nothing" costs a stage pair
+  that read each other optionally a refused cycle instead of an arbitrarily
+  empty read on one side: a circular dependency that cannot be ordered is
+  reported, not left to the run's timing.
+- **The stage's own configuration is judged wherever its value came from.** A
+  stage declares its default configuration (`{}` where it has nothing to
+  configure), and the value it runs with is the product's whole `config` where
+  it wrote one — a written `null` included — or that default. The value is
+  judged against the stage's `configSchema` either way: judging only a written
+  value let a stage whose schema requires a setting be planned without it and
+  fail inside `execute`, far from the manifest its author edited. A fault of a
+  written value names the manifest's full path, the line of the field the fault
+  is about — the `config` field's own line where its whole value is the fault —
+  and the field's path; a fault of the declared default names the stage and
+  `defaults.config`, and says that `fill.stages.<id>.config` replaces it, since
+  no manifest is to blame for what the module brought itself.
 - **A stage is not its own producer.** A stage consuming the capability it
   produces reads what its own earlier run published, so no edge runs from it to
   itself and another producer of it being disabled starves nothing; otherwise
@@ -101,8 +123,11 @@ None.
   edge already orders the same pair, so the graph says an ordering once.
 - **The snapshot is a digest.** `snapshotStageConfigurations` digests every
   stage's id, version, enabled flag, concurrency, limits and own configuration
-  canonically, which is what decision 0027 asks a run to keep beside its
-  resolved configuration and stage versions.
+  canonically — canonical JSON, over the stages taken in code point order of
+  their ids whatever order the caller holds them in — which is what decision
+  0027 asks a run to keep beside its resolved configuration and stage versions:
+  two ways of resolving the same configuration cannot differ in their digest,
+  and a caller resolving a subset in another order cannot fake a difference.
 
 ## Rationale
 

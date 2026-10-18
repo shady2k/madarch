@@ -19,7 +19,7 @@ export const summaryStage: FillStage = {
   produces: [{ kind: 'module-summaries', schemaVersion: 2, scope: 'repository' }],
   after: ['snapshot'],
   configSchema: Type.Object({ maxDepth: Type.Integer({ minimum: 1 }) }),
-  defaults: { enabled: true, concurrency: 2, limits: DEFAULT_STAGE_DEFAULTS.limits },
+  defaults: { enabled: true, concurrency: 2, limits: DEFAULT_STAGE_DEFAULTS.limits, config: { maxDepth: 3 } },
   plan: () => ({ units: [], coverage: 'planned' }),
   execute: () => ({ outcome: 'draft' }),
   validate: () => ({ ok: true }),

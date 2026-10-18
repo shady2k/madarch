@@ -2,9 +2,12 @@
  * The fill's stage registry and the stage graph derived from it (decision
  * 0027). A stage is registered once by its module; the registry holds the
  * declared stages and nothing else. The graph is never declared: it is
- * derived from the stages' capabilities, a required consume drawing an edge
- * from every enabled stage that produces the capability to the consumer,
- * and an `after` naming an optional ordering beside them.
+ * derived from the stages' capabilities: every consume, required or optional,
+ * draws an edge from each enabled stage that produces the capability to the
+ * consumer, and an `after` names an optional ordering beside them. An optional
+ * consume starves nothing — a capability nothing enabled produces is read as
+ * absent, which is what "read when present" means — but where a producer runs
+ * the consumer waits for it, so the presence it reads is the one of this run.
  *
  * The derivation refuses what it must name exactly: a cycle names its own
  * path (`a → b → a`), a starved consumer names the exact path
@@ -14,11 +17,15 @@
  * configuration names the manifest's full path, the 1-based line and the
  * field's path; a fault of a stage's own declaration names the stage and the
  * declared field, since a declaration is a module and not a file of the
- * product. A full registry whose required capabilities are produced plans
- * cleanly, in a deterministic topological order (code point order breaking
- * ties), and every stage carries its resolved configuration — the stage's
- * defaults with the product's `fill.stages.<id>` spoken over them — so a run
- * can snapshot what it resolved.
+ * product. A stage's own configuration is judged wherever its value came from:
+ * the product writes one, or the stage's declared default stands, and a schema
+ * neither satisfies refuses the graph before the stage could run unconfigured.
+ * A full registry whose required capabilities are produced plans cleanly, in a
+ * deterministic topological order (code point order breaking ties), and every
+ * stage carries its resolved configuration — the stage's defaults with the
+ * product's `fill.stages.<id>` spoken over them — so a run can snapshot what it
+ * resolved, in the code point order of the stages whatever order the caller
+ * holds them in.
  */
 import { Value } from 'typebox/value';
 import { canonicalJsonDigest } from '../model/canonical.js';
@@ -156,17 +163,22 @@ export function deriveStageGraph(registry: StageRegistry, configuration?: FillSt
   // Each stage's resolved configuration, read from the product's entry for it
   // and judged whether or not the stage runs: a field nobody reads is a field
   // nobody fixed. An entry for a stage this madarch does not hold is never
-  // judged, and never reaches the graph.
+  // judged, and never reaches the graph. The stage's own configuration is
+  // judged too, whether the product wrote one or the stage's declared default
+  // holds: a stage planned without a configuration its schema refuses would
+  // fail inside `execute`, far from the manifest its author edited.
   const resolved = new Map<string, ResolvedStageConfiguration>();
   for (const stage of stages) {
     const raw = configRead.stages[stage.id];
-    if (raw === undefined) {
-      resolved.set(stage.id, resolveStageConfiguration(stage));
-      continue;
-    }
-    const at = { file: configRead.file, line: configRead.lines[stage.id] ?? 1, path: `fill.stages.${stage.id}` };
-    const read = readStageConfiguration(stage, raw, at, problems);
-    resolved.set(stage.id, resolveStageConfiguration(stage, read));
+    const at: EntryPlace | undefined = raw === undefined
+      ? undefined
+      : { file: configRead.file, line: configRead.lines[stage.id] ?? 1, path: `fill.stages.${stage.id}` };
+    // An entry that did not read was named in `readStageConfiguration` and
+    // says nothing here: the stage then stands on its own defaults, and the
+    // configuration it will run with is that default, judged in its turn.
+    const read = at === undefined ? undefined : readStageConfiguration(stage, raw, at, problems);
+    judgeOwnConfiguration(stage, read, at, problems);
+    resolved.set(stage.id, resolveStageConfiguration(stage, read?.entry));
   }
   const enabled = new Set([...resolved.values()].filter((stage) => stage.enabled).map((stage) => stage.id));
 
@@ -183,34 +195,40 @@ export function deriveStageGraph(registry: StageRegistry, configuration?: FillSt
   }
   for (const held of producers.values()) held.sort(byCodePoint);
 
-  // The edges: every enabled consumer's required capability draws an edge
-  // from each of its enabled producers; a capability no enabled stage
-  // produces starves the consumer, named by its exact path. A stage that
-  // consumes the capability it produces reads what its own earlier run
-  // published, so no edge runs from it to itself and it is not starved for
+  // The edges: every enabled consumer's capability draws an edge from each of
+  // its enabled producers, whether the consume is required or optional — an
+  // optional capability is read when a producer of this run publishes it, and
+  // the consumer waiting for that producer is what makes it present. A
+  // required capability no enabled stage produces starves the consumer, named
+  // by its exact path; an optional one nothing produces is read as absent. A
+  // stage that consumes the capability it produces reads what its own earlier
+  // run published, so no edge runs from it to itself and it is not starved for
   // want of another producer.
   const edges: StageGraphEdge[] = [];
   const starvation: StarvationPath[] = [];
   for (const stage of stages) {
     if (!enabled.has(stage.id)) continue;
-    const needed = new Set<string>();
-    for (const consume of stage.consumes.required) {
-      if (needed.has(consume.capability)) continue;
-      needed.add(consume.capability);
-      const all = producers.get(consume.capability) ?? [];
+    // One need per capability, a required consume stating it over an optional
+    // one, so a capability read twice orders the pair once.
+    const needed = new Map<string, 'required' | 'optional'>();
+    for (const consume of stage.consumes.required) if (!needed.has(consume.capability)) needed.set(consume.capability, 'required');
+    for (const consume of stage.consumes.optional) if (!needed.has(consume.capability)) needed.set(consume.capability, 'optional');
+    for (const [capability, need] of needed) {
+      const all = producers.get(capability) ?? [];
       const running = all.filter((id) => enabled.has(id) && id !== stage.id);
       if (running.length > 0) {
         for (const producer of running) {
-          edges.push({ from: producer, to: stage.id, via: consume.capability });
+          edges.push({ from: producer, to: stage.id, via: capability });
         }
         continue;
       }
+      if (need === 'optional') continue;
       if (all.length === 0) {
         starvation.push({
           consumer: stage.id,
-          capability: consume.capability,
+          capability,
           reason: 'no-producer',
-          path: `${stage.id} → ${consume.capability} → no producer`,
+          path: `${stage.id} → ${capability} → no producer`,
         });
       } else if (!all.includes(stage.id)) {
         // Every producer is disabled: the path names each of them. A stage
@@ -219,10 +237,10 @@ export function deriveStageGraph(registry: StageRegistry, configuration?: FillSt
         for (const producer of all) {
           starvation.push({
             consumer: stage.id,
-            capability: consume.capability,
+            capability,
             producer,
             reason: 'producer-disabled',
-            path: `${stage.id} → ${consume.capability} → ${producer} (disabled)`,
+            path: `${stage.id} → ${capability} → ${producer} (disabled)`,
           });
         }
       }
@@ -263,7 +281,9 @@ export function deriveStageGraph(registry: StageRegistry, configuration?: FillSt
 
 /**
  * The stage's resolved configuration: the stage's own defaults with the
- * product's `fill.stages.<id>` spoken over them.
+ * product's `fill.stages.<id>` spoken over them. The stage's own configuration
+ * is the product's whole where it wrote one — a written `null` included, which
+ * its schema then refuses — and the stage's declared default otherwise.
  */
 export function resolveStageConfiguration(stage: FillStage, entry?: FillStageConfigurationEntry): ResolvedStageConfiguration {
   return {
@@ -272,13 +292,20 @@ export function resolveStageConfiguration(stage: FillStage, entry?: FillStageCon
     enabled: entry?.enabled ?? stage.defaults.enabled,
     concurrency: entry?.concurrency ?? stage.defaults.concurrency,
     limits: { ...DEFAULT_STAGE_LIMITS, ...stage.defaults.limits, ...entry?.limits },
-    config: entry?.config,
+    config: entry !== undefined && entry.config !== undefined ? entry.config : stage.defaults.config,
   };
 }
 
-/** The run's snapshot of what it resolved: the configurations' canonical digest. */
+/**
+ * The run's snapshot of what it resolved: the configurations' canonical digest.
+ * Canonical means the value follows the configurations and nothing else, so the
+ * stages are taken in code point order of their ids whatever order the caller
+ * holds them in: a publication's resolved inputs compared later must not differ
+ * because a caller resolved them in another order.
+ */
 export function snapshotStageConfigurations(stages: readonly ResolvedStageConfiguration[]): string {
-  return canonicalJsonDigest(stages.map((stage) => ({
+  const ordered = [...stages].sort((left, right) => byCodePoint(left.id, right.id));
+  return canonicalJsonDigest(ordered.map((stage) => ({
     id: stage.id,
     version: stage.version,
     enabled: stage.enabled,
@@ -298,27 +325,59 @@ interface EntryPlace {
   path: string;
 }
 
-/** The whole non-negative numbers a limit count may be. */
-const WHOLE_LIMITS: ReadonlySet<string> = new Set(['contextTokens', 'maxTurns', 'maxOutputTokens']);
-/** The positive durations a limit may carry. */
-const POSITIVE_LIMITS: ReadonlySet<string> = new Set(['maxDurationMs']);
-/** The fractions between 0 and 1 a limit may carry. */
-const FRACTION_LIMITS: ReadonlySet<string> = new Set(['wrapAtFraction', 'stopAtFraction']);
+/** How one limit's written value is judged, and how its fault says what it wants. */
+interface LimitRule {
+  /** Whether the written value is a value of this limit, which is a number. */
+  accepts(value: unknown): value is number;
+  /** What the limit must be, as the fault says it after the field's path. */
+  said: string;
+}
+
+/** A whole number of at least `least`. */
+const wholeAtLeast = (least: number): LimitRule['accepts'] =>
+  (value): value is number => typeof value === 'number' && Number.isInteger(value) && value >= least;
+
+/** A fraction strictly between 0 and 1. */
+const fraction: LimitRule['accepts'] =
+  (value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0 && value < 1;
+
+/**
+ * Every limit's own rule, keyed by the limit's name: a limit added to
+ * `StageLimits` needs its rule here, or the compiler refuses this table, so a
+ * limit can never fall into the unknown-name branch and be dropped in silence.
+ */
+const LIMIT_RULES: Readonly<Record<keyof StageLimits, LimitRule>> = {
+  contextTokens: { accepts: wholeAtLeast(0), said: 'a whole number of 0 or more' },
+  maxTurns: { accepts: wholeAtLeast(0), said: 'a whole number of 0 or more' },
+  maxOutputTokens: { accepts: wholeAtLeast(0), said: 'a whole number of 0 or more' },
+  maxDurationMs: { accepts: wholeAtLeast(1), said: 'a whole number of 1 or more' },
+  wrapAtFraction: { accepts: fraction, said: 'a fraction between 0 and 1' },
+  stopAtFraction: { accepts: fraction, said: 'a fraction between 0 and 1' },
+};
+
+/** One stage's entry as it read: what it says, and where the product wrote its own configuration. */
+interface StageEntryRead {
+  /** The fields the entry sets; a field that did not read is left out, its fault already named. */
+  entry: FillStageConfigurationEntry;
+  /** The 1-based line of the `config` field, when the product wrote one. */
+  configLine?: number;
+}
 
 /**
  * Reads one stage's entry as the product wrote it, judging `enabled`,
- * `concurrency` and `limits` and each limit's own value, then the stage's own
- * `config` against the stage's `configSchema`. Every fault is pushed onto
- * `problems` at the field's own line and path; what reads is the stage's
- * configuration entry. A field or a limit name this madarch does not know is
- * read past, the manifest's own rule for a field it does not know.
+ * `concurrency` and `limits` and each limit's own value. Every fault is pushed
+ * onto `problems` at the field's own line and path; what reads is the stage's
+ * configuration entry, and the line of its own `config` field so that the
+ * configuration is judged where the product can see it. A field or a limit name
+ * this madarch does not know is read past, the manifest's own rule for a field
+ * it does not know.
  */
 function readStageConfiguration(
   stage: FillStage,
   raw: unknown,
   at: EntryPlace,
   problems: StageProblem[],
-): FillStageConfigurationEntry | undefined {
+): StageEntryRead | undefined {
   const fault = (line: number, path: string, message: string): void => {
     problems.push({ stage: stage.id, file: at.file, line, path, message });
   };
@@ -353,20 +412,52 @@ function readStageConfiguration(
       entry.limits = readLimitOverrides(limits as Record<string, unknown>, at, fault);
     }
   }
-  if ('config' in fields) {
-    entry.config = fields['config'];
-    const configPath = `${at.path}.config`;
-    for (const error of Value.Errors(stage.configSchema, entry.config)) {
-      const segments = jsonPointerToSegments(error.instancePath);
-      const inside = segmentsToPath(segments);
-      fault(
-        lineAlong(entry.config, segments, at.line),
-        inside === '' ? configPath : `${configPath}.${inside}`,
-        error.message,
-      );
+  if (!('config' in fields)) return { entry };
+  entry.config = fields['config'];
+  return { entry, configLine: lineOf(fields, 'config') };
+}
+
+/**
+ * Judges the stage's own configuration against the stage's `configSchema`,
+ * wherever the value it will run with came from. A value the product wrote is a
+ * fault of the manifest: the fault names the manifest's full path, the line of
+ * the value — the `config` field's own line where the value is the field's
+ * whole — and the field's path from the file's top. A value the stage declares
+ * as its default is a fault of the stage's module: it names the stage and
+ * `defaults.config`, since no product's manifest can be blamed for a default
+ * the stage brought itself, and the manifest's `fill.stages.<id>.config` is
+ * where the product may replace that default.
+ */
+function judgeOwnConfiguration(
+  stage: FillStage,
+  read: StageEntryRead | undefined,
+  at: EntryPlace | undefined,
+  problems: StageProblem[],
+): void {
+  const written = read === undefined || read.entry.config === undefined || at === undefined
+    ? undefined
+    : { value: read.entry.config, at, line: read.configLine ?? at.line };
+  const value = written === undefined ? stage.defaults.config : written.value;
+  for (const error of Value.Errors(stage.configSchema, value)) {
+    const segments = jsonPointerToSegments(error.instancePath);
+    const inside = segmentsToPath(segments);
+    if (written === undefined) {
+      problems.push({
+        stage: stage.id,
+        path: inside === '' ? 'defaults.config' : `defaults.config.${inside}`,
+        message: `${error.message}; the product's fill.stages.${stage.id}.config replaces the stage's default`,
+      });
+      continue;
     }
+    const path = `${written.at.path}.config`;
+    problems.push({
+      stage: stage.id,
+      file: written.at.file,
+      line: lineAlong(written.value, segments, written.line),
+      path: inside === '' ? path : `${path}.${inside}`,
+      message: error.message,
+    });
   }
-  return entry;
 }
 
 /** The limits one entry overrides, each judged by its own kind; a name this madarch does not know is left out. */
@@ -377,28 +468,16 @@ function readLimitOverrides(
 ): StageLimitOverrides {
   const read: StageLimitOverrides = {};
   for (const name of Object.keys(limits).sort(byCodePoint)) {
+    const rule = (LIMIT_RULES as Readonly<Record<string, LimitRule | undefined>>)[name];
+    // A limit name this madarch does not know is the manifest's own unknown
+    // field: kept out, never a refusal, so a product's configuration written
+    // for a later madarch still reads.
+    if (rule === undefined) continue;
     const path = `${at.path}.limits.${name}`;
     const line = lineOf(limits, name);
     const value = limits[name];
-    if (WHOLE_LIMITS.has(name)) {
-      if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
-        fault(line, path, `${path} is a whole number of 0 or more, not ${shown(value)}`);
-        continue;
-      }
-    } else if (POSITIVE_LIMITS.has(name)) {
-      if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
-        fault(line, path, `${path} is a whole number of 1 or more, not ${shown(value)}`);
-        continue;
-      }
-    } else if (FRACTION_LIMITS.has(name)) {
-      if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value >= 1) {
-        fault(line, path, `${path} is a fraction between 0 and 1, not ${shown(value)}`);
-        continue;
-      }
-    } else {
-      // A limit name this madarch does not know is the manifest's own unknown
-      // field: kept out, never a refusal, so a product's configuration
-      // written for a later madarch still reads.
+    if (!rule.accepts(value)) {
+      fault(line, path, `${path} is ${rule.said}, not ${shown(value)}`);
       continue;
     }
     read[name as keyof StageLimits] = value;

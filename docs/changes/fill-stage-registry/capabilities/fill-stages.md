@@ -39,13 +39,16 @@ order they were registered in.
 
 ## Requirement: graph — The stage graph is derived from the declared capabilities
 
-When the stage graph is derived, a required capability of an enabled stage
-shall draw an edge from every enabled stage that produces it to the consumer,
-and the enabled stages shall be ordered so that every edge runs from an earlier
-stage to a later one. Ties shall be broken by code point order of the stage
-ids, so that the same declarations always give the same graph. A fact kind two
-stages produce at different schema versions shall refuse the graph, naming the
-kind with both stages and versions: one kind carries one schema version.
+When the stage graph is derived, a capability of an enabled stage shall draw an
+edge from every enabled stage that produces it to the consumer, whether the
+consume is required or optional, and the enabled stages shall be ordered so that
+every edge runs from an earlier stage to a later one. An optional consume is
+ordered by the same rule because it reads what a producer of this run publishes:
+a consumer that ran first would find the capability absent where the run was
+about to produce it. Ties shall be broken by code point order of the stage ids,
+so that the same declarations always give the same graph. A fact kind two stages
+produce at different schema versions shall refuse the graph, naming the kind
+with both stages and versions: one kind carries one schema version.
 
 ### Scenario: derived-order
 - Given: `snapshot` produces `file-facts`, `modules` consumes `file-facts` and produces `module-facts`, `summary` consumes `module-facts`, `pages` consumes `module-summaries` and `module-facts`, and `overview` consumes `page-drafts`, with the stages that produce those kinds registered
@@ -61,6 +64,16 @@ kind with both stages and versions: one kind carries one schema version.
 - Given: a stage whose `plan`, `execute` and `validate` would throw if they were called
 - When: the graph is derived
 - Then: the graph is clean: deriving reads the declarations and the product's configuration, and runs no stage
+
+### Scenario: optional-ordered
+- Given: `history` produces `history-facts`, and `summary` reads `history-facts` optionally
+- When: the graph is derived
+- Then: the order is `history`, `summary`, and the edge `history → summary` names `history-facts`
+
+### Scenario: optional-producer-disabled
+- Given: `history` and `crawl` both produce `history-facts`, `summary` reads it optionally, and both producers are disabled
+- When: the graph is derived
+- Then: the graph is clean, holding `summary` alone and no edge for `history-facts`
 
 ### Scenario: kind-schema-version
 - Given: `index` produces `file-facts` at schema version 2 and `crawl` produces `file-facts` at schema version 1
@@ -97,10 +110,17 @@ The product's configuration file `workspace.yaml` shall configure each stage
 under `fill.stages`, keyed by the stage's id, with `enabled`, `concurrency`,
 `limits` and the stage's own `config`. A stage the product disables shall leave
 the stage graph and nothing shall be ordered through it. Limits the product
-writes shall ride over the stage's defaults, the rest kept. Every fault shall
-be reported in one answer: a fault of an entry shall name the manifest's full
-path, the 1-based line of the field and the field's path; a fault of a stage's
-own declaration shall name the stage and the declared field. A field, a limit
+writes shall ride over the stage's defaults, the rest kept. A stage shall
+declare its own default configuration, `{}` where it has nothing to configure,
+and the stage's own `config` shall be judged against the stage's `configSchema`
+whether the product wrote one or that default stands: a stage planned with a
+value its own schema refuses fails far from the manifest its author edited.
+Every fault shall be reported in one answer: a fault of an entry shall name the
+manifest's full path, the 1-based line of the field the fault is about and the
+field's path, the `config` field's own line included where the fault is about
+the field's whole value; a fault of a value the stage's own default carries,
+and a fault of a stage's declaration, shall name the stage and the declared
+field, since no manifest is to blame for what a module brought itself. A field, a limit
 name or a stage id this madarch does not know shall be read past, never
 refused — an entry for a stage this madarch does not hold is neither judged nor
 planned — so a product's configuration written for a later madarch still opens.
@@ -130,10 +150,30 @@ planned — so a product's configuration written for a later madarch still opens
 - When: the graph is derived
 - Then: it reads cleanly and that stage is not in the graph
 
+### Scenario: config-field-line
+- Given: the stage `summary`'s entry stands on line 6 with `enabled`, `concurrency`, `limits` and `after` between it and a `config` field on line 12, and the configuration written there lacks `maxDepth`
+- When: the graph is derived
+- Then: the refusal names line 12, the `config` field's own line, and the path `fill.stages.summary.config`
+
+### Scenario: every-fault
+- Given: `a` and `b` require each other's capability, `hungry` requires `ghost-facts` that no stage produces, `tuned` declares `after: [nowhere]` and its entry writes `concurrency: 0`
+- When: the graph is derived
+- Then: one refusal carries the cycle `a → b → a`, the starvation `hungry → ghost-facts → no producer`, the declaration fault at `after[0]` and the configuration fault at `fill.stages.tuned.concurrency` on its own line
+
 ### Scenario: root-not-a-mapping
 - Given: a manifest whose whole text is `just-a-word`
 - When: the configuration is read
 - Then: the refusal names the manifest's full path, line 1 and that a manifest is a mapping of fields
+
+### Scenario: config-default-refused
+- Given: the stage `tuned` declares the configuration schema requiring `maxDepth` of 1 or more and its defaults carry `config: {}`, and the product's entry for it says only `concurrency: 2`
+- When: the graph is derived
+- Then: the graph is refused with the stage `tuned`, the path `defaults.config` and `must have required properties maxDepth; the product's fill.stages.tuned.config replaces the stage's default`, and the same refusal stands where the product writes no entry for `tuned` at all
+
+### Scenario: config-written-null
+- Given: the stage `summary` declares a default configuration its schema accepts, and the product writes `config:` with nothing after it on line 7
+- When: the graph is derived
+- Then: the graph is refused, naming the manifest's full path, line 7, the path `fill.stages.summary.config` and that it must be object: a written value is judged as written, never replaced by the default
 
 ### Scenario: config-schema
 - Given: the stage `summary` declares a configuration schema requiring `maxDepth` of 1 or more, and the product writes `maxDepth: 0` on line 8
@@ -146,9 +186,10 @@ If a required capability of an enabled stage has no enabled producer, then the
 derivation shall refuse the graph and report the exact path
 consumer → capability → producer, saying whether no stage produces the
 capability at all or every producer of it is disabled. An optional capability
-nothing produces shall not starve a stage, and a stage that produces the
-capability it consumes shall satisfy itself: the other producers of it being
-disabled starves nothing. "A producer found nothing" shall not be a starvation
+nothing enabled produces shall not starve a stage and shall draw no edge, while
+an optional capability an enabled stage produces shall order the consumer after
+that producer; a stage that produces the capability it consumes shall satisfy
+itself: the other producers of it being disabled starves nothing. "A producer found nothing" shall not be a starvation
 either: it is a plan's own answer, and deriving a graph runs no plan.
 
 ### Scenario: producer-disabled
@@ -198,8 +239,21 @@ closing it.
 
 A run shall be able to snapshot every stage's resolved configuration and
 version as one canonical digest, so that the inputs of a publication can be
-compared later. Two derivations from the same configuration shall give the same
-digest, and a configuration the product changed shall give another.
+compared later. The digest shall be canonical in what was resolved: the same
+configurations held in another order shall give the same digest, and one
+configuration written in another key order shall give the same digest too. Two
+derivations from the same configuration shall give the same digest, and a
+configuration the product changed shall give another.
+
+### Scenario: snapshot-order
+- Given: a derived graph's resolved configurations
+- When: the same configurations are digested in the reverse order
+- Then: the digest is the same one
+
+### Scenario: snapshot-key-order
+- Given: two manifests writing one stage's configuration with `maxDepth` and `mode` in the two different orders
+- When: both resolved configurations are digested
+- Then: the digests are the same, and one with another `mode` value differs
 
 ### Scenario: snapshot-digest
 - Given: the same registry, once with `modules` at its default limits and once with `maxTurns: 12`
@@ -217,8 +271,9 @@ digest, and a configuration the product changed shall give another.
 - **Security and data protection:** the manifest is read, never written. A
   stage's own configuration reaches the stage only through its resolved
   configuration.
-- **Data:** the configuration the product wrote is the only input; a run's
-  snapshot is a digest of what it resolved, kept with the run, not here.
+- **Data:** the configuration the product wrote and the stages' declared
+  defaults are the only inputs; a run's snapshot is a digest of what it
+  resolved, kept with the run, not here.
 - **Usability and accessibility:** a fault of a configuration entry names the
   manifest's full path, the line and the field's path, and every fault of one
   file is reported at once; a fault of a declaration names the stage and the
