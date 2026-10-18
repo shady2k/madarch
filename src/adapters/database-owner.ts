@@ -34,6 +34,9 @@ import type { SqlExecutor, SqlQueryDriver, SqlTransactionKind } from '../query/s
 
 export type { OuterTransaction };
 
+/** The engine behind an owner, in the vocabulary a database-adapting library uses for it. */
+export type DatabaseBackend = 'pglite' | 'postgres';
+
 /**
  * The database one process owns, opened once and lent to every adapter that
  * keeps data in it.
@@ -49,6 +52,15 @@ export interface DatabaseOwner {
   readonly ready: Promise<void>;
   /** True when independent snapshots may run on separate connections at once; false when the owner has one connection and serializes everything. */
   readonly allowConcurrentSnapshots: boolean;
+  /**
+   * Which engine answers, named the way a library that has to adapt itself
+   * to the database names it: `pglite` for the in-process database, whose
+   * one connection carries its own session, or `postgres` for a server
+   * behind a pool. The queue's adapter (madarch-tzte.19.2) reads it to
+   * select the profile pg-boss runs the PGlite data directory or the server
+   * under; nothing else depends on it, and the SQL both answer is the same.
+   */
+  readonly backend: DatabaseBackend;
   /**
    * Whether the database hands the pgvector extension to its statements: a
    * PGlite owner answers whether it was opened with `vector: true`; a
@@ -74,6 +86,20 @@ export interface DatabaseOwner {
    * a bare statement never lands inside another operation's transaction.
    */
   run<T>(work: (executor: OuterTransaction) => Promise<T>): Promise<T>;
+  /**
+   * Runs a text of statements that carries no parameters — the `BEGIN …; …
+   * COMMIT;` block and the schema creation a library sends as one message —
+   * as one message to one connection, and answers one result per statement
+   * in the order the text writes them. The extended protocol `query` speaks
+   * takes exactly one statement, so the queue's schema creation and its
+   * migrations (madarch-tzte.19.2) have nowhere else to run; serialized with
+   * every transaction of this owner, so a batch never lands inside another
+   * operation's transaction. A statement that fails leaves the connection
+   * usable: the transaction it opened is rolled back on that same connection
+   * before the failure is thrown, since nothing further is sent on it and a
+   * connection left in an aborted transaction refuses every later statement.
+   */
+  exec<Row extends object = Record<string, unknown>>(text: string): Promise<{ rows: Row[] }[]>;
   /** Waits for queued work, refuses new work and releases the database once. */
   close(): Promise<void>;
 }
@@ -120,6 +146,7 @@ function errorMessage(error: unknown): string {
 
 class PGliteOwner implements DatabaseOwner {
   readonly allowConcurrentSnapshots = false;
+  readonly backend = 'pglite' as const;
   readonly hasVector: boolean;
   readonly location: string;
   readonly ready: Promise<void>;
@@ -176,6 +203,22 @@ class PGliteOwner implements DatabaseOwner {
     return this.serialize(() => work(this.database));
   }
 
+  exec<Row extends object>(text: string): Promise<{ rows: Row[] }[]> {
+    return this.serialize(async () => {
+      try {
+        return (await this.database.exec(text)).map((result) => ({ rows: result.rows as Row[] }));
+      } catch (error) {
+        // PGlite has one connection: a statement that failed inside a
+        // `BEGIN … COMMIT` batch leaves it in an aborted transaction, and
+        // every later statement on it is refused until it is rolled back.
+        // The rollback is sent here, on the same connection, rather than
+        // left to the caller, who holds no connection at all.
+        await this.database.query('ROLLBACK').catch(() => undefined);
+        throw error;
+      }
+    });
+  }
+
   close(): Promise<void> {
     // The guard stands before the "already closing" short-circuit: a close
     // issued from inside this owner's own transaction would wait on it even
@@ -227,6 +270,7 @@ function postgresLocation(options: PoolConfig): string {
 
 class PostgresOwner implements DatabaseOwner {
   readonly allowConcurrentSnapshots = true;
+  readonly backend = 'postgres' as const;
   readonly hasVector = true;
   readonly location: string;
   readonly ready: Promise<void>;
@@ -297,6 +341,34 @@ class PostgresOwner implements DatabaseOwner {
       },
     };
     return await this.ownWork.run(true, () => work(executor));
+  }
+
+  async exec<Row extends object>(text: string): Promise<{ rows: Row[] }[]> {
+    this.ensureOpen();
+    this.ensureOutsideOwnWork();
+    await this.ready;
+    const client = await this.pool.connect();
+    let releaseError: Error | undefined;
+    try {
+      // One client for the whole text: `pg` sends a statement text with no
+      // values through the simple protocol, so a `BEGIN … COMMIT` block is
+      // one message on one connection and answers one result per statement.
+      const result = await client.query(text);
+      const results = Array.isArray(result) ? result : [result];
+      return results.map((one) => ({ rows: one.rows as Row[] }));
+    } catch (error) {
+      try {
+        // The failed statement left this client's transaction open (or
+        // aborted); returning it to the pool without rolling back would hand
+        // the next caller a connection inside someone else's transaction.
+        await client.query('ROLLBACK');
+      } catch (rollbackError) {
+        releaseError = rollbackError instanceof Error ? rollbackError : new Error(errorMessage(rollbackError));
+      }
+      throw error;
+    } finally {
+      client.release(releaseError);
+    }
   }
 
   close(): Promise<void> {
