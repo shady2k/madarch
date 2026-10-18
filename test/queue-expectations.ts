@@ -97,7 +97,10 @@ export const QUEUE_SCENARIO_CHECKS: readonly QueueScenarioCheck[] = [
       expect(report.keptRecoverUnit).toBe('kept-recover-first');
 
       expect(report.keptDeadOutcome).toBe('failed');
-      expect(report.keptDeadLetters.map((letter) => letter.data)).toEqual([{ unit: 'kept-dead-first' }]);
+      // The copy names the job that failed, and the job behind it is still there.
+      expect(report.keptDeadLetters.map((letter) => ({ data: letter.data, jobId: letter.jobId, sourceQueue: letter.sourceQueue }))).toEqual([
+        { data: { unit: 'kept-dead-first' }, jobId: report.keptDeadJobId ?? '', sourceQueue: SCENARIO_QUEUES.keptDead },
+      ]);
       expect(report.keptDeadNextUnit).toBe('kept-dead-second');
     },
   },

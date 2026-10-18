@@ -160,6 +160,7 @@ function settled(answer: CommandResponse): boolean {
 /** A stored object's name, as the database itself takes one. */
 const OBJECT_NAME = /^[\w.\-/]+$/;
 
+
 function assertName(what: string, name: string): void {
   if (!OBJECT_NAME.test(name) || name.length > 50) {
     throw new Error(`the ${what} "${name}" is not a stored object's name: letters, digits, ".", "_", "-" and "/", at most 50 bytes`);
@@ -484,14 +485,10 @@ class PgBossQueue implements QueueService {
  */
 export async function createPgBossQueue(options: PgBossQueueOptions): Promise<QueueService> {
   const { owner } = options;
+  // The schema is interpolated into the adapter's own identifier positions
+  // verbatim, exactly as pg-boss interpolates it into pg-boss's: a bare name, or
+  // one the caller has quoted itself to reach a name a bare one cannot spell.
   const schema = options.schema ?? DEFAULT_QUEUE_SCHEMA;
-  // The schema and the queue's stamp table are named in the adapter's own SQL,
-  // where nothing but a plain object's name can stand: a name that would need
-  // quoting is refused here, naming it, rather than by a statement that reads as
-  // SQL.
-  if (!OBJECT_NAME.test(schema) || schema.length > 50) {
-    throw new Error(`the queue's schema "${schema}" is not a stored object's name: letters, digits, ".", "_", "-" and "/", at most 50 bytes`);
-  }
   const database = owner.backend === 'pglite' ? fromPglite(pgliteFace(owner)) : ownerDatabase(owner);
   const superviseInterval = options.superviseIntervalSeconds ?? 60;
   const boss = new PgBoss({
@@ -526,10 +523,17 @@ async function createStampTable(owner: DatabaseOwner, schema: string): Promise<v
   try {
     await owner.run((executor) => executor.query(create));
   } catch (error) {
-    const exists = await owner.run(async (executor) => {
-      const { rows } = await executor.query<{ present: number }>(`SELECT 1 AS present FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2`, [schema, ENQUEUE_STAMP_TABLE]);
-      return rows.length > 0;
+    // Read it rather than ask the catalog: the table being there is the whole of
+    // what is wanted, and reading it needs no name resolved out of a schema the
+    // caller may have quoted.
+    const readable = await owner.run(async (executor) => {
+      try {
+        await executor.query(`SELECT 1 FROM ${schema}.${ENQUEUE_STAMP_TABLE} LIMIT 0`);
+        return true;
+      } catch {
+        return false;
+      }
     });
-    if (!exists) throw error;
+    if (!readable) throw error;
   }
 }

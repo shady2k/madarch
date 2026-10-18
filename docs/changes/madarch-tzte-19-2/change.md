@@ -172,12 +172,18 @@ None.
   so a retried job, and one whose claim a maintenance pass recovered, keep the
   order they were enqueued in, and a dead-lettered job's copy carries the failed
   job's id and its own arrival time, which is what the dead letter read orders by.
+  A copy is the one row here that gets no place of its own: pg-boss writes it
+  inside its own settlement statement, and nothing in the adapter's hands names
+  it. Two copies of one queue made in the same millisecond are therefore answered
+  in the store's order, which is what the read asks for up to the millisecond it
+  can tell apart; the scenario tells its two apart by dead-lettering them a
+  thirty-millisecond pause apart, which is the same bound stated as a test.
   Reaching into pg-boss's `job` table is deliberate: the library offers no way
   to name a job's creation time, and `created_on` is the column its own fetch —
   and its own `findJobs` paging and its monitor's oldest-queued reading — treats
   as enqueue order. The table and column are pg-boss 12.38.0's; a version that
   renames them fails loudly at the first enqueue rather than silently losing the
-  order, and `test/queue-scenario.ts` fails the scenario that asks for it.
+  order.
 - **A declaration is applied to the queue as it stands.** pg-boss's `create_queue`
   inserts a queue once and never touches the row again, so a product that changes
   a stage's limits would keep the old ones silently. `declare` creates the queue

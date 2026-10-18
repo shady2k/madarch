@@ -75,6 +75,9 @@ test('the queue holds its tables in the owner’s one database, in the schema it
   // The scenario's jobs answer from the owner's own connection, which is what
   // "one database" means: a second database would answer nothing here.
   expect(jobs[0]?.count).toBeGreaterThan(0);
+  // The places the enqueues took live in the schema the queue was given too.
+  const stamps = await owner.run(async (transaction) => (await transaction.query<{ count: number }>(`SELECT count(*)::int AS count FROM ${SCHEMA}.madarch_enqueue_stamp`)).rows);
+  expect(stamps[0]?.count).toBeGreaterThan(0);
   const schemas = await owner.run(async (transaction) => (await transaction.query<{ nspname: string }>('SELECT nspname FROM pg_namespace ORDER BY nspname')).rows.map((row) => row.nspname));
   expect(schemas).toContain(SCHEMA);
   // pg-boss's own default schema was never created: the queue went where it was told.

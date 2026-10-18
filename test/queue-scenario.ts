@@ -124,6 +124,7 @@ export interface QueueScenarioReport {
   readonly keptRecoverUnit: string | null;
   /** A job dead-lettered while another waited: the copy holds the failed job's id and the other keeps its place. */
   readonly keptDeadOutcome: FailOutcome | null;
+  readonly keptDeadJobId: string | null;
   readonly keptDeadLetters: DeadLetter[];
   readonly keptDeadNextUnit: string | null;
   /** The doubling delay of `backoff-retry`. */
@@ -466,6 +467,7 @@ export async function runQueueScenario(owner: DatabaseOwner, schema: string): Pr
       keptRecoverAttempt: keptRecoverAgain.attempt,
       keptRecoverUnit: keptRecoverAgain.data.unit,
       keptDeadOutcome,
+      keptDeadJobId: keptDeadFirst.id,
       keptDeadLetters,
       keptDeadNextUnit: keptDeadNext.data.unit,
       backoffFirstOutcome,
