@@ -53,13 +53,13 @@ None.
 
 ## Coverage
 
-- fill-stages/registry: test, madarch-tzte.19.3
-- fill-stages/graph: test, madarch-tzte.19.3
-- fill-stages/order: test, madarch-tzte.19.3
-- fill-stages/configuration: test, madarch-tzte.19.3
-- fill-stages/starvation: test, madarch-tzte.19.3
-- fill-stages/cycle: test, madarch-tzte.19.3
-- fill-stages/snapshot: test, madarch-tzte.19.3
+- fill-stages/registry: test
+- fill-stages/graph: test
+- fill-stages/order: test
+- fill-stages/configuration: test
+- fill-stages/starvation: test
+- fill-stages/cycle: test
+- fill-stages/snapshot: test
 
 ## Design and decisions
 
