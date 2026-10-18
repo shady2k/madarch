@@ -24,6 +24,22 @@
  * a spent job into. Declarations are remembered here so an operation on a queue
  * nobody declared is refused by this adapter, naming the queue, rather than by
  * the SQL that then could not name it.
+ *
+ * Enqueue order is the adapter's own promise, so the adapter gives every job a
+ * place of its own when it is enqueued. pg-boss picks a claim's batch by
+ * priority and then by the job's creation time, and resolves two jobs of one
+ * creation instant in no order at all — its own source says so, and its ids are
+ * random, so they carry no order either. A creation instant is the store's
+ * clock, which is coarse on some backends and is one transaction's for every
+ * statement inside that transaction, so equal-priority jobs enqueued one after
+ * another regularly shared an instant and came back in a random order (found by
+ * CI on this change's first landing). Each enqueue therefore takes the next
+ * stamp of its queue — at least a millisecond past the queue's previous one,
+ * kept in a table of the queue's own schema — and writes it as the job's
+ * creation time inside the enqueue's own transaction, so no two jobs of a queue
+ * share a place and the store's own selection is the enqueue order. The claim
+ * still orders the batch it is handed, for a store that answers it unordered
+ * and for a row written beside this adapter.
  */
 import { PgBoss, fromPglite } from 'pg-boss';
 import type { CommandResponse, Db, Job, JobAttempt, JobWithMetadata, PgBoss as PgBossInstance } from 'pg-boss';
@@ -46,6 +62,20 @@ export const DEFAULT_QUEUE_SCHEMA = 'pgboss';
 
 /** The most dead letters one read answers: the bound the database itself takes for a list read. */
 const MAX_DEAD_LETTERS = 100_000;
+
+/**
+ * Where the adapter keeps each queue's last enqueue stamp, in the queue's own
+ * schema: one row per queue, the place its newest job was given.
+ */
+const ENQUEUE_STAMP_TABLE = 'madarch_enqueue_stamp';
+
+/**
+ * The least distance between two enqueues' stamps. A stored instant carries
+ * microseconds, but every reader of it here is a JavaScript `Date`, which
+ * carries milliseconds, so a gap has to be a whole millisecond for two jobs'
+ * places to be told apart once they are read back.
+ */
+const ENQUEUE_STAMP_STEP = "interval '1 millisecond'";
 
 export interface PgBossQueueOptions {
   /** The process's database owner, opened once and lent: the queue never opens a second database. */
@@ -209,12 +239,18 @@ function reasonOf(output: object | null): string | null {
 class PgBossQueue implements QueueService {
   private readonly declared = new Map<string, QueueDeclaration>();
 
-  constructor(private readonly boss: PgBossInstance, private readonly location: string) {}
+  constructor(
+    private readonly boss: PgBossInstance,
+    /** The owner the enqueue stamp's table and every transaction of it live on. */
+    private readonly owner: DatabaseOwner,
+    /** The schema pg-boss's tables — and the enqueue stamps — live in. */
+    private readonly schema: string,
+  ) {}
 
   private declarationOf(queue: string): QueueDeclaration {
     const declaration = this.declared.get(queue);
     if (declaration === undefined) {
-      throw new Error(`the queue "${queue}" was never declared on the database owner "${this.location}": declare it before enqueuing, claiming or settling work in it`);
+      throw new Error(`the queue "${queue}" was never declared on the database owner "${this.owner.location}": declare it before enqueuing, claiming or settling work in it`);
     }
     return declaration;
   }
@@ -279,17 +315,50 @@ class PgBossQueue implements QueueService {
     if (request.priority !== undefined && !Number.isInteger(request.priority)) {
       throw new Error(`the enqueue into the queue "${request.queue}" named the priority ${String(request.priority)}: a priority is a whole number, higher claimed first`);
     }
-    const id = await this.boss.send({
-      name: request.queue,
-      data: request.data as object,
-      options: {
-        ...(request.priority === undefined ? {} : { priority: request.priority }),
-        ...(request.singletonKey === undefined ? {} : { singletonKey: request.singletonKey }),
-        ...(request.startAfter === undefined ? {} : { startAfter: request.startAfter }),
-        ...(request.transaction === undefined ? {} : { db: transactionDatabase(request.transaction) }),
-      },
-    });
-    return id === null ? { created: false, id: null } : { created: true, id };
+    // The job's row and its place are written together or not at all: a job whose
+    // place failed to be written would tie on its instant with another and lose
+    // the very order this adapter promises, so a caller's transaction is used
+    // where one is given and one short write transaction of the owner's is
+    // opened where none is.
+    const enqueued = async (transaction: OuterTransaction): Promise<EnqueueResult> => {
+      const id = await this.boss.send({
+        name: request.queue,
+        data: request.data as object,
+        options: {
+          ...(request.priority === undefined ? {} : { priority: request.priority }),
+          ...(request.singletonKey === undefined ? {} : { singletonKey: request.singletonKey }),
+          ...(request.startAfter === undefined ? {} : { startAfter: request.startAfter }),
+          db: transactionDatabase(transaction),
+        },
+      });
+      if (id === null) return { created: false, id: null };
+      await this.stampEnqueuedAt(transaction, request.queue, id);
+      return { created: true, id };
+    };
+    return request.transaction === undefined ? this.owner.transaction('write', enqueued) : enqueued(request.transaction);
+  }
+
+  /**
+   * Gives the job the queue's next place, as its creation time: at least a
+   * millisecond past the queue's previous one, and never behind the clock. The
+   * upsert holds the queue's stamp row until the enqueue's transaction ends, so
+   * two enqueues of one queue take their places in the order they reach the row,
+   * whatever else runs beside them, and the place is written in the same
+   * statement that takes it.
+   */
+  private async stampEnqueuedAt(transaction: OuterTransaction, queue: string, id: string): Promise<void> {
+    await transaction.query(
+      `WITH next AS (
+         INSERT INTO ${this.schema}.${ENQUEUE_STAMP_TABLE} AS stamp (queue, enqueued_at)
+         VALUES ($1, $2::timestamptz)
+         ON CONFLICT (queue) DO UPDATE SET enqueued_at = GREATEST(stamp.enqueued_at + ${ENQUEUE_STAMP_STEP}, $2::timestamptz)
+         RETURNING enqueued_at
+       )
+       UPDATE ${this.schema}.job AS job
+         SET created_on = (SELECT enqueued_at FROM next)
+         WHERE job.name = $1 AND job.id = $3::uuid`,
+      [queue, new Date().toISOString(), id],
+    );
   }
 
   async claim<Data>(request: ClaimRequest): Promise<ClaimedJob<Data>[]> {
@@ -298,11 +367,13 @@ class PgBossQueue implements QueueService {
     if (!Number.isInteger(limit) || limit < 1) {
       throw new Error(`the claim of the queue "${request.queue}" asked for ${String(request.limit)} jobs: a claim takes a whole number of jobs, at least 1`);
     }
-    // pg-boss picks the batch by priority (highest first) and creation time, but the
-    // rows an `UPDATE … RETURNING` hands back are in no promised order, so the batch
-    // is ordered here: highest priority, then oldest, then by id in code point order,
-    // which is what makes two claims of the same rows answer the same order. The
-    // metadata carries the priority and the creation time that ordering reads.
+    // pg-boss picks the batch by priority (highest first) and creation time — the
+    // place this adapter gave the job when it was enqueued — but the rows an
+    // `UPDATE … RETURNING` hands back are in no promised order, so the batch is
+    // ordered here: highest priority, then oldest, then by id in code point order.
+    // The last key is the fallback for a job this adapter did not enqueue, which
+    // may share another's instant; it keeps two claims of the same rows answering
+    // the same order. The metadata carries the priority and the time it reads.
     const jobs = await this.boss.fetch<Data & object>(request.queue, { batchSize: limit, includeMetadata: true });
     return jobs
       .slice()
@@ -413,6 +484,14 @@ class PgBossQueue implements QueueService {
  */
 export async function createPgBossQueue(options: PgBossQueueOptions): Promise<QueueService> {
   const { owner } = options;
+  const schema = options.schema ?? DEFAULT_QUEUE_SCHEMA;
+  // The schema and the queue's stamp table are named in the adapter's own SQL,
+  // where nothing but a plain object's name can stand: a name that would need
+  // quoting is refused here, naming it, rather than by a statement that reads as
+  // SQL.
+  if (!OBJECT_NAME.test(schema) || schema.length > 50) {
+    throw new Error(`the queue's schema "${schema}" is not a stored object's name: letters, digits, ".", "_", "-" and "/", at most 50 bytes`);
+  }
   const database = owner.backend === 'pglite' ? fromPglite(pgliteFace(owner)) : ownerDatabase(owner);
   const superviseInterval = options.superviseIntervalSeconds ?? 60;
   const boss = new PgBoss({
@@ -421,7 +500,7 @@ export async function createPgBossQueue(options: PgBossQueueOptions): Promise<Qu
     // diagnostics honest.
     backend: owner.backend,
     db: database,
-    schema: options.schema ?? DEFAULT_QUEUE_SCHEMA,
+    schema,
     supervise: options.supervise ?? true,
     superviseIntervalSeconds: superviseInterval,
     // Without this, a queue's monitor claim (taken for a minute whatever the
@@ -431,5 +510,26 @@ export async function createPgBossQueue(options: PgBossQueueOptions): Promise<Qu
     schedule: false,
   });
   await boss.start();
-  return new PgBossQueue(boss, owner.location);
+  await createStampTable(owner, schema);
+  return new PgBossQueue(boss, owner, schema);
+}
+
+/**
+ * Creates the queue's enqueue stamps table beside pg-boss's own, once per
+ * process that opens the queue. Two processes can open the queue in the same
+ * moment, and a table another one has just created is exactly the state this
+ * asks for rather than a failure, so a creation that lost that race is read
+ * again rather than reported.
+ */
+async function createStampTable(owner: DatabaseOwner, schema: string): Promise<void> {
+  const create = `CREATE TABLE IF NOT EXISTS ${schema}.${ENQUEUE_STAMP_TABLE} (queue text PRIMARY KEY, enqueued_at timestamp with time zone NOT NULL)`;
+  try {
+    await owner.run((executor) => executor.query(create));
+  } catch (error) {
+    const exists = await owner.run(async (executor) => {
+      const { rows } = await executor.query<{ present: number }>(`SELECT 1 AS present FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2`, [schema, ENQUEUE_STAMP_TABLE]);
+      return rows.length > 0;
+    });
+    if (!exists) throw error;
+  }
 }

@@ -88,10 +88,12 @@ naming the queue and the field.
 An enqueue shall store the job's data with its priority, where a higher number is
 claimed first, and its singleton key on a queue that holds singletons, and shall
 answer the job it created or that a job with that key is already unfinished, in
-which case nothing is created. A job may name the moment it may first be claimed,
-and it may be enqueued inside a caller's transaction. A non-whole-number priority,
-a singleton key on a queue that holds no singletons, a missing key on one that
-does and an empty key shall each be refused, naming the queue.
+which case nothing is created. It shall take the queue's next place for the job,
+which is what a claim reads to answer the jobs in the order they were enqueued.
+A job may name the moment it may first be claimed, and it may be enqueued inside
+a caller's transaction. A non-whole-number priority, a singleton key on a queue
+that holds no singletons, a missing key on one that does and an empty key shall
+each be refused, naming the queue.
 
 ### Scenario: singleton-held
 - Given: a queue declared with singletons and a job enqueued under the key `a`
@@ -127,13 +129,21 @@ does and an empty key shall each be refused, naming the queue.
 
 A claim shall take up to the number of jobs it asks for — a whole number, at
 least one, refused by name outside that — from a declared queue, the highest
-priority first, then the oldest, and ids in code point order where two jobs were
-enqueued in the same instant, so that the same set of jobs comes back in the same
-order. The tie-break is the adapter's promise to its callers: a store that
-answers an arbitrary order for one instant satisfies it, and the store this
-decision runs on answers ascending ids already. Every claimed job shall carry its
-data, how many times it was claimed before, the retry allowance it was enqueued
-with, and the lease the queue declared, and an empty queue shall answer no jobs.
+priority first and then the order the jobs were enqueued in, whatever instant
+they were enqueued in, so that the same set of jobs comes back in the same order
+and a claim of fewer answers the oldest of them. Enqueue order shall be the
+queue's own and not the store clock's: every enqueue shall take the queue's next
+place — at least a millisecond past the last one and never behind the clock, kept
+in the queue's own schema — and write it as the job's creation time in the
+enqueue's own transaction, so that two jobs of one queue never share an instant,
+whether the store's clock is coarse or one transaction enqueues several jobs.
+Where two jobs do share an instant — a row written into the queue beside this
+adapter — ids in code point order shall decide. A job that is retried, or whose
+claim a maintenance pass recovered, shall keep the place it was enqueued at, so
+that it is claimed before the jobs enqueued after it once it is due again. Every
+claimed job shall carry its data, how many times it was claimed before, the retry
+allowance it was enqueued with, and the lease the queue declared, and an empty
+queue shall answer no jobs.
 
 ### Scenario: order
 - Given: three jobs enqueued with the priorities 1, 5 and 3, in that order
@@ -144,6 +154,31 @@ with, and the lease the queue declared, and an empty queue shall answer no jobs.
 - Given: three jobs of one priority, enqueued one after another
 - When: all three are claimed
 - Then: they come back in the order they were enqueued
+
+### Scenario: order-inside-one-tick
+- Given: five jobs of one priority enqueued inside one transaction, which would give them one instant
+- When: two are claimed and then three
+- Then: they come back in the order they were enqueued: the first two, then the last three
+
+### Scenario: order-written-beside-the-adapter
+- Given: two jobs written into a queue's table at one instant, in the reverse of their ids' code point order
+- When: both are claimed
+- Then: they come back in code point order of their ids
+
+### Scenario: order-kept-through-a-retry
+- Given: a queue that retries a failed job after a second, and two jobs of it enqueued one after another
+- When: the first job's first attempt fails, and its retry comes due with the second still waiting
+- Then: the claim answers the first job as its attempt 1 before the second job
+
+### Scenario: order-kept-through-a-recovery
+- Given: a queue whose lease is a second, and two jobs of it enqueued one after another
+- When: the first job is claimed, its lease lapses and a maintenance pass recovers it
+- Then: the claim answers the recovered job as its attempt 1 before the second job
+
+### Scenario: order-kept-after-a-dead-letter
+- Given: a queue whose first failure is final, and two jobs of it enqueued one after another
+- When: the first job's only attempt fails and it is dead-lettered
+- Then: the dead letter queue holds a copy naming the failed job's id, and the claim answers the second job
 
 ### Scenario: empty
 - Given: a declared queue holding no job
