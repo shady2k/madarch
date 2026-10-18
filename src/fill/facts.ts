@@ -1272,7 +1272,9 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
   'entry-point': {
     kind: 'entry-point',
     shape: 'node',
-    stages: ['3-syntax'],
+    // A manifest declares the way in before the code that implements it is
+    // parsed (stage 2's binaries and scripts), so the kind names both stages.
+    stages: ['2-build-and-configuration', '3-syntax'],
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
