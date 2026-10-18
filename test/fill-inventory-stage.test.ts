@@ -652,7 +652,9 @@ describe('the inventory stage', () => {
       const broken = await stage.validate({
         writes: [
           ...run.recorder.writes,
-          { kind: 'link', evidence: 'orders-api@' + commit, from: 'a', to: 'b' },
+          // A link write carries the edge fact it writes (the contains edge above): the stage refuses it
+          // because it writes "fact" writes and nothing else.
+          { kind: 'link', evidence: 'orders-api@' + commit, value: contains },
           { kind: 'fact', evidence: 'orders-api@' + commit, value: { ...contains, kind: 'symbol' } },
           { kind: 'fact', evidence: 'orders-api@' + commit, value: { ...file, id: 'file:' + '0'.repeat(64), value: { ...file.value, path: '/etc/passwd' } } },
         ],

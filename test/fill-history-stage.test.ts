@@ -764,7 +764,9 @@ describe('the stage declaration and the draft it judges', () => {
     if (alone.ok) throw new Error('expected the draft to be refused');
     expect(alone.errors.join(' ')).toMatch(/writes no commit fact of that id/u);
 
-    const other = validateDraft({ writes: [{ kind: 'link', evidence: 'x', from: 'a', to: 'b' }] });
+    // The draft write carries the fact it writes, so a link write carries its edge fact: the stage
+    // refuses it because it writes "fact" writes and nothing else, not because the write is empty.
+    const other = validateDraft({ writes: [{ kind: 'link', evidence: 'x', value: edge }] });
     expect(other.ok).toBe(false);
     if (other.ok) throw new Error('expected the draft to be refused');
     expect(other.errors.join(' ')).toMatch(/the history stage writes facts and nothing else/u);
