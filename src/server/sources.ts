@@ -49,7 +49,7 @@ import { readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync 
 import { randomUUID } from 'node:crypto';
 import type { Stats } from 'node:fs';
 import { createPGliteHistory } from '../adapters/pglite-history.js';
-import type { Clock, HistoryStore, StoreInput, StoreResult } from '../history/types.js';
+import type { Clock, HistoryStore, OuterTransaction, StoreInput, StoreResult } from '../history/types.js';
 import { byCodePoint } from '../model/order.js';
 
 /** The bytes that may appear in a file name as they are: the lower-case unreserved bytes of RFC 3986 minus `~` (kept out on purpose; it encodes fine). Upper-case letters encode too, so a stem never depends on case; a stem holding a raw upper-case letter, or a lower-case `%xx` escape, was not written by this server. */
@@ -261,18 +261,24 @@ export async function createSourceStores(options: SourceStoresOptions): Promise<
     }
   }
   function serializedHistory(history: HistoryStore): HistoryStore {
+    // A call given an outer transaction runs at once, never queued here: the
+    // transaction came from the database owner, which serializes its own
+    // work, and queuing behind this folder's queue could wait on work the
+    // caller's transaction itself holds.
+    const ordered = <T>(transaction: OuterTransaction | undefined, operation: () => Promise<T>): Promise<T> =>
+      transaction === undefined ? serializeHistoryQuery(operation) : operation();
     return {
-      store: (input, registry) => serializeHistoryQuery(() => history.store(input, registry)),
-      read: (input) => serializeHistoryQuery(() => history.read(input)),
-      assertions: (input) => serializeHistoryQuery(() => history.assertions(input)),
-      sources: () => serializeHistoryQuery(() => history.sources()),
-      renameSource: (from, to, registry) => serializeHistoryQuery(() => history.renameSource(from, to, registry)),
-      registry: (source) => serializeHistoryQuery(() => history.registry(source)),
-      setRegistry: (source, id, names) => serializeHistoryQuery(() => history.setRegistry(source, id, names)),
-      hasCommit: (source, commit) => serializeHistoryQuery(() => history.hasCommit(source, commit)),
-      commitRecord: (source, commit) => serializeHistoryQuery(() => history.commitRecord(source, commit)),
-      latestCommit: (source) => serializeHistoryQuery(() => history.latestCommit(source)),
-      commits: (source) => serializeHistoryQuery(() => history.commits(source)),
+      store: (input, registry, transaction) => ordered(transaction, () => history.store(input, registry, transaction)),
+      read: (input, transaction) => ordered(transaction, () => history.read(input, transaction)),
+      assertions: (input, transaction) => ordered(transaction, () => history.assertions(input, transaction)),
+      sources: (transaction) => ordered(transaction, () => history.sources(transaction)),
+      renameSource: (from, to, registry, transaction) => ordered(transaction, () => history.renameSource(from, to, registry, transaction)),
+      registry: (source, transaction) => ordered(transaction, () => history.registry(source, transaction)),
+      setRegistry: (source, id, names, transaction) => ordered(transaction, () => history.setRegistry(source, id, names, transaction)),
+      hasCommit: (source, commit, transaction) => ordered(transaction, () => history.hasCommit(source, commit, transaction)),
+      commitRecord: (source, commit, transaction) => ordered(transaction, () => history.commitRecord(source, commit, transaction)),
+      latestCommit: (source, transaction) => ordered(transaction, () => history.latestCommit(source, transaction)),
+      commits: (source, transaction) => ordered(transaction, () => history.commits(source, transaction)),
       close: () => serializeHistoryQuery(() => history.close()),
     };
   }

@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { createPostgresDatabaseOwner } from '../src/adapters/database-owner.js';
 import { createPostgresQueryDatabase } from '../src/adapters/postgres-query-database.js';
 import type { AssertionRecord } from '../src/history/types.js';
 import type { ChildrenResult } from '../src/query/types.js';
@@ -180,6 +181,54 @@ test.skipIf(connectionString === undefined)(
       await index.close();
       await database.close();
       await pool.end();
+    }
+  },
+  30_000,
+);
+
+test.skipIf(connectionString === undefined)(
+  'one PostgreSQL owner carries a projection write and a read in one transaction, and neither after a rollback',
+  async () => {
+    const owner = await createPostgresDatabaseOwner({ connectionString: connectionString!, max: 4 });
+    const database = await createPostgresQueryDatabase({ owner });
+    const nonce = crypto.randomUUID();
+    const source = `pg-owner-${nonce}`;
+    const orders = `orders-${nonce}`;
+    const worker = `worker-${nonce}`;
+    const rejected = `rejected-${nonce}`;
+    const engine = database.forSources([source]);
+    try {
+      // One transaction of the shared owner holds the write and the read that
+      // follows it, and the write is there once it commits.
+      const rows = [
+        element(source, orders, 'service', []),
+        element(source, worker, 'service', [orders], orders),
+      ];
+      await owner.transaction('write', async (transaction) => {
+        await engine.rebuild(rows, transaction);
+        const inside = await engine.withSnapshot(async (snapshot) => await snapshot.children(orders, AT), transaction);
+        expect(inside.elements?.map(({ id }) => id)).toEqual([worker]);
+      });
+      expect((await engine.children(orders, AT)).elements?.map(({ id }) => id)).toEqual([worker]);
+
+      // The same write in a transaction that rolls back leaves no trace.
+      await expect(owner.transaction('write', async (transaction) => {
+        await engine.update([element(source, rejected, 'service', [orders], orders)], [], transaction);
+        const inside = await engine.withSnapshot(async (snapshot) => await snapshot.children(orders, AT), transaction);
+        expect(inside.elements?.map(({ id }) => id)).toEqual([rejected, worker]);
+        throw new Error('rolled back on purpose');
+      })).rejects.toThrow('rolled back on purpose');
+      expect((await engine.children(orders, AT)).elements?.map(({ id }) => id)).toEqual([worker]);
+
+      await engine.rebuild([]);
+      // The query database borrowed the owner: closing it leaves the pool open.
+      await database.close();
+      await owner.run(async (transaction) => await transaction.query('SELECT 1'));
+      await owner.close();
+      await expect(owner.run(async (transaction) => await transaction.query('SELECT 1'))).rejects.toThrow(/is closed/);
+    } finally {
+      await database.close().catch(() => {});
+      await owner.close().catch(() => {});
     }
   },
   30_000,

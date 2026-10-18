@@ -35,6 +35,17 @@ and it can be rebuilt at any time. Local commands use embedded PGlite; server
 compositions inject a PostgreSQL query database. Graphs borrow source-scoped
 query facades from that shared owner.
 
+**Database owner** (`src/adapters/database-owner.ts`): one
+PostgreSQL-compatible database per process — embedded PGlite locally, a `pg`
+pool on a server — opened once and lent to the history store, the query
+projection and, by decision 0027, the queue and the orchestrator's tables. A
+lent owner outlives the adapters that borrow it, and every operation of either
+adapter takes one of the owner's transactions, so a history write and a
+projection update commit or roll back together. PGlite serves one connection,
+so its owner serializes every transaction on it; a pool lets snapshots
+overlap. The server's own composition still opens one history per source
+(decision 0024) and its query database separately.
+
 **Renderer** (`src/render/`): turns views into text a reader sees — the view
 set's Mermaid pages and LikeC4 workspace (`src/render/view-set.ts`,
 `src/render/mermaid.ts`, `src/render/likec4.ts`), which the check and the

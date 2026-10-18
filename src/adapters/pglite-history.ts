@@ -1,4 +1,3 @@
-import { PGlite, type Transaction } from '@electric-sql/pglite';
 import type { CompiledModel } from '../model/compile.js';
 import { CLASHABLE_KINDS, assembleCompiledModel, assembleSourceModel, assertionsOf, type Assertion, type AssertionKind } from '../history/assertions.js';
 import type {
@@ -17,12 +16,22 @@ import type {
 } from '../history/types.js';
 import { byCodePoint } from '../model/order.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
+import { createPGliteDatabaseOwner, type DatabaseOwner, type OuterTransaction } from './database-owner.js';
 
 export interface PGliteHistoryOptions {
   /** The PGlite data directory; omitted for a private in-memory database. Keep persistent paths in product-local state outside the product repository. */
   path?: string;
   /** Supplies recorded time's "now"; tests inject a fake clock. */
   clock: Clock;
+  /**
+   * The process's database owner to lend, opened once and shared with the
+   * query database and the future queue tables (decision 0027). Omitted,
+   * the history opens a PGlite of its own at `path` and closes it with
+   * `close()`; lent, the history never closes it — the caller that opened
+   * it does. Giving both `owner` and `path` is refused, because the path
+   * could only be silently ignored.
+   */
+  owner?: DatabaseOwner;
 }
 
 /** A row of the `assertions` table, as read back for `store`'s own bookkeeping. */
@@ -71,7 +80,7 @@ interface SuccessorRow {
   committed_at: number;
 }
 
-/** Thrown inside `db.transaction` to roll it back on a refusal; never escapes `store`. */
+/** Thrown inside a store's own transaction to roll it back on a refusal; never escapes `store`. */
 class StoreRefused extends Error {
   constructor(public readonly errors: HistoryError[]) {
     super('store refused');
@@ -144,7 +153,13 @@ class StoreRefused extends Error {
  * `ReadModel` for how `read` reports the disagreement instead, as a
  * `Discrepancy`, not an error.
  */
-type Executor = Pick<PGlite, 'query'> | Transaction;
+/**
+ * Every statement this adapter makes runs through an owner's transaction or
+ * bare executor (`OuterTransaction`): the history never opens a database of
+ * its own when one is lent, and an operation given an outer transaction
+ * makes all of its statements inside it (see `src/adapters/database-owner.ts`).
+ */
+type Executor = OuterTransaction;
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -152,7 +167,7 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
-function statement<Row>(executor: Executor, sql: string) {
+function statement<Row extends object = Record<string, unknown>>(executor: Executor, sql: string) {
   let parameter = 0;
   const postgresSql = sql.replace(/\?/g, () => `$${++parameter}`);
   return {
@@ -179,66 +194,123 @@ async function insertAssertionRows(executor: Executor, rows: readonly unknown[][
   }
 }
 
+/**
+ * The history's own tables, created once per database the history is given
+ * — its own, or the process's shared owner — before any operation runs.
+ * Each statement is separate because an owner's transaction takes one
+ * statement at a time (PGlite's `exec` is not part of the owner's shape).
+ */
+const SCHEMA = [
+  `CREATE TABLE IF NOT EXISTS assertions (
+    source TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    valid_from DOUBLE PRECISION NOT NULL,
+    valid_to DOUBLE PRECISION,
+    opened_by TEXT NOT NULL,
+    closed_by TEXT,
+    recorded_from DOUBLE PRECISION NOT NULL,
+    recorded_to DOUBLE PRECISION
+  )`,
+  `CREATE INDEX IF NOT EXISTS assertions_current ON assertions (source, kind, entity_id, recorded_to)`,
+  `CREATE INDEX IF NOT EXISTS assertions_time ON assertions (valid_from, valid_to, recorded_from, recorded_to)`,
+  `CREATE INDEX IF NOT EXISTS assertions_other ON assertions (kind, recorded_to, source)`,
+  `CREATE TABLE IF NOT EXISTS source_commits (
+    source TEXT NOT NULL,
+    commit_id TEXT NOT NULL,
+    committed_at DOUBLE PRECISION NOT NULL,
+    content_digest TEXT NOT NULL,
+    recorded_at DOUBLE PRECISION NOT NULL,
+    canonical_digest TEXT NOT NULL,
+    PRIMARY KEY (source, commit_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS source_commits_order_c ON source_commits (source, committed_at, commit_id COLLATE "C")`,
+  `CREATE TABLE IF NOT EXISTS source_registry (
+    source TEXT PRIMARY KEY,
+    id TEXT NOT NULL UNIQUE,
+    former_names TEXT NOT NULL
+  )`,
+] as const;
+
+/**
+ * The history store over a PostgreSQL-compatible database: the owner lent in
+ * `options.owner` (the process's one database, shared with the query
+ * projection), or a PGlite of its own opened at `options.path` and closed by
+ * `close()`. The history's tables are its own; one history per database is
+ * what `renameSource` assumes (it renames the one source the history holds).
+ */
 export function createPGliteHistory(options: PGliteHistoryOptions): HistoryStore {
-  const db = new PGlite(options.path);
+  if (options.owner !== undefined && options.path !== undefined) {
+    throw new Error(`the history cannot be given both a database owner and the path "${options.path}": the owner already names the database it serves, so a path beside it could only be silently ignored`);
+  }
   const clock = options.clock;
-  const path = options.path ?? ':memory:';
-  const ready = (async () => {
+  const owner = options.owner ?? createPGliteDatabaseOwner({ path: options.path });
+  const ownsOwner = options.owner === undefined;
+  const location = owner.location;
+  // The tables are created before the first operation, and the transaction
+  // that creates them is queued on the owner at once — before this function
+  // returns, so ahead of any later work on the owner, its close included. A
+  // caller that constructs a history from inside a transaction of the same
+  // owner would deadlock on that order, and is a defect this adapter does
+  // not serve.
+  const opened = (async () => {
     try {
-      await db.waitReady;
-      await db.exec(`
-        CREATE TABLE IF NOT EXISTS assertions (
-          source TEXT NOT NULL,
-          kind TEXT NOT NULL,
-          entity_id TEXT NOT NULL,
-          content TEXT NOT NULL,
-          valid_from DOUBLE PRECISION NOT NULL,
-          valid_to DOUBLE PRECISION,
-          opened_by TEXT NOT NULL,
-          closed_by TEXT,
-          recorded_from DOUBLE PRECISION NOT NULL,
-          recorded_to DOUBLE PRECISION
+      await owner.transaction('write', async (transaction) => {
+        for (const statement of SCHEMA) await transaction.query(statement);
+        const columns = await transaction.query<{ column_name: string }>(
+          "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'source_commits'",
         );
-        CREATE INDEX IF NOT EXISTS assertions_current ON assertions (source, kind, entity_id, recorded_to);
-        CREATE INDEX IF NOT EXISTS assertions_time ON assertions (valid_from, valid_to, recorded_from, recorded_to);
-        CREATE INDEX IF NOT EXISTS assertions_other ON assertions (kind, recorded_to, source);
-        CREATE TABLE IF NOT EXISTS source_commits (
-          source TEXT NOT NULL,
-          commit_id TEXT NOT NULL,
-          committed_at DOUBLE PRECISION NOT NULL,
-          content_digest TEXT NOT NULL,
-          recorded_at DOUBLE PRECISION NOT NULL,
-          canonical_digest TEXT NOT NULL,
-          PRIMARY KEY (source, commit_id)
-        );
-        CREATE INDEX IF NOT EXISTS source_commits_order_c ON source_commits (source, committed_at, commit_id COLLATE "C");
-        CREATE TABLE IF NOT EXISTS source_registry (
-          source TEXT PRIMARY KEY,
-          id TEXT NOT NULL UNIQUE,
-          former_names TEXT NOT NULL
-        );
-      `);
-      const columns = await db.query<{ column_name: string }>(
-        "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'source_commits'",
-      );
-      if (!columns.rows.some((column) => column.column_name === 'canonical_digest')) {
-        const legacyCommit = await db.query<{ source: string; commit_id: string }>(
-          'SELECT source, commit_id FROM source_commits ORDER BY source, committed_at, commit_id LIMIT 1',
-        );
-        if (legacyCommit.rows.length > 0) {
-          const row = legacyCommit.rows[0]!;
-          throw new Error(`the history database "${path}" holds commit "${row.commit_id}" of source "${row.source}" without a canonical model digest; the stored assertions cannot faithfully recover the model's original array order, so the history must be migrated by a server that still has the original sent models`);
+        if (!columns.rows.some((column) => column.column_name === 'canonical_digest')) {
+          const legacyCommit = await transaction.query<{ source: string; commit_id: string }>(
+            'SELECT source, commit_id FROM source_commits ORDER BY source, committed_at, commit_id LIMIT 1',
+          );
+          if (legacyCommit.rows.length > 0) {
+            const row = legacyCommit.rows[0]!;
+            throw new Error(`the history database "${location}" holds commit "${row.commit_id}" of source "${row.source}" without a canonical model digest; the stored assertions cannot faithfully recover the model's original array order, so the history must be migrated by a server that still has the original sent models`);
+          }
+          await transaction.query('ALTER TABLE source_commits ADD COLUMN canonical_digest TEXT');
         }
-        await db.exec('ALTER TABLE source_commits ADD COLUMN canonical_digest TEXT');
-      }
+      });
     } catch (error) {
       const cause = error instanceof Error ? error : new Error(errorMessage(error), { cause: error });
-      throw new Error(`the history directory "${path}" cannot be opened: ${errorMessage(error)}`, { cause });
+      throw new Error(`the history directory "${location}" cannot be opened: ${errorMessage(error)}`, { cause });
     }
   })();
   // A caller observes initialization failures on its next history operation;
   // attach a handler now so a failed constructor does not become unhandled.
-  void ready.catch(() => {});
+  void opened.catch(() => {});
+
+  let closed = false;
+
+  /**
+   * Runs one history operation: inside the caller's transaction when one is
+   * given, in a transaction of the owner's own otherwise. A lent owner
+   * serializes the transactions it opens, so the history keeps no queue of
+   * its own; work given an outer transaction must not wait on one, or the
+   * caller's open transaction would deadlock with it.
+   */
+  function write<T>(outer: OuterTransaction | undefined, work: (executor: Executor) => Promise<T>): Promise<T> {
+    if (outer !== undefined) return work(outer);
+    return owner.transaction('write', work);
+  }
+
+  /**
+   * Runs one operation with no transaction of its own: in the caller's
+   * transaction when one is given, or as a bare statement of the owner's —
+   * which the owner serializes against its own transactions. Every read uses
+   * it, and so does `setRegistry`, whose single statement needs no more.
+   */
+  function bare<T>(outer: OuterTransaction | undefined, work: (executor: Executor) => Promise<T>): Promise<T> {
+    if (outer !== undefined) return work(outer);
+    return owner.run(work);
+  }
+
+  /** Refuses work once the history is closed, before any statement reaches the owner. */
+  function guard<T>(work: () => Promise<T>): Promise<T> {
+    if (closed) return Promise.reject(new Error(`the history database "${location}" is closed`));
+    return work();
+  }
 
   function statements(executor: Executor) {
     return {
@@ -277,15 +349,6 @@ export function createPGliteHistory(options: PGliteHistoryOptions): HistoryStore
       renameAssertionSource: statement(executor, 'UPDATE assertions SET source = ? WHERE source = ?'),
     };
   }
-  const q = statements(db);
-  const {
-    selectRegistry, upsertRegistry, renameRegistry, selectCommit, selectSuccessorCommit,
-    selectStateAt, selectOtherCurrentOverlapping, selectMaxRecordedAt, selectReadAllSources,
-    selectReadOneSource, selectAllAssertions, selectSources, selectCommits, selectCommitRecord,
-    selectLatestCommit, closeAssertion, insertCommit, renameCommitSource,
-    renameAssertionSource,
-  } = q;
-
   function slotOf(kind: AssertionKind, id: string): string {
     return `${kind}\u0000${id}`;
   }
@@ -341,7 +404,7 @@ export function createPGliteHistory(options: PGliteHistoryOptions): HistoryStore
     return JSON.stringify(sorted.map((a) => [a.kind, a.id, a.content]));
   }
 
-  async function store(input: StoreInput, registryInput?: SourceRegistry): Promise<StoreResult> {
+  async function store(input: StoreInput, registryInput?: SourceRegistry, outer?: OuterTransaction): Promise<StoreResult> {
     const { source, commit, committedAt, model } = input;
 
     let newAssertions: Assertion[];
@@ -356,8 +419,8 @@ export function createPGliteHistory(options: PGliteHistoryOptions): HistoryStore
     }
 
     try {
-      await ready;
-      return await db.transaction(async (tx): Promise<StoreResult> => {
+      await opened;
+      return await write(outer, async (tx): Promise<StoreResult> => {
         const {
           selectCommit, upsertRegistry, selectSuccessorCommit, selectOtherCurrentOverlapping,
           selectStateAt, selectMaxRecordedAt, closeAssertion, insertCommit,
@@ -529,30 +592,43 @@ export function createPGliteHistory(options: PGliteHistoryOptions): HistoryStore
       });
     } catch (error) {
       if (error instanceof StoreRefused) return { errors: error.errors, opened: [], closed: [] };
+      // A refusal is decided before the first write, so reporting it inside a
+      // caller's transaction leaves nothing behind. A database or code failure
+      // is not: some of this store's writes may already stand, and nothing
+      // here rolls back a transaction the caller owns, so the caller must see
+      // the failure and roll back rather than commit rows a report called
+      // failed.
+      if (outer !== undefined) {
+        throw new Error(`the history could not be updated inside the caller's transaction, and the caller decides what becomes of it: ${errorMessage(error)}`, { cause: error });
+      }
       return { errors: [{ message: `the history could not be updated: ${errorMessage(error)}` }], opened: [], closed: [] };
     }
   }
 
 
-  async function read(input: ReadInput = {}): Promise<ReadResult> {
-    await ready;
+  async function read(input: ReadInput = {}, outer?: OuterTransaction): Promise<ReadResult> {
+    await opened;
     const now = clock.now();
     const valid = input.valid ?? now;
     const known = input.known ?? now;
+    const source = input.source;
 
-    if (input.source !== undefined) {
-      const rows = await selectReadOneSource.all(input.source, valid, valid, known, known);
+    if (source !== undefined) {
+      const rows = await bare(outer, async (executor) => await statements(executor).selectReadOneSource.all(source, valid, valid, known, known));
       const { model, errors } = assembleSourceModel(rows.map((row) => ({ kind: row.kind, id: row.entity_id, content: row.content, source: row.source })));
       return { model, discrepancies: [], errors };
     }
 
-    const rows = await selectReadAllSources.all(valid, valid, known, known);
+    const rows = await bare(outer, async (executor) => await statements(executor).selectReadAllSources.all(valid, valid, known, known));
     return assembleCompiledModel(rows.map((row) => ({ kind: row.kind, id: row.entity_id, content: row.content, source: row.source })));
   }
 
-  async function assertions(input: AssertionsInput = {}): Promise<AssertionRecord[]> {
-    await ready;
-    const rows = input.source !== undefined ? await selectAllAssertions.all(input.source, input.source) : await selectAllAssertions.all(null, null);
+  async function assertions(input: AssertionsInput = {}, outer?: OuterTransaction): Promise<AssertionRecord[]> {
+    await opened;
+    const source = input.source;
+    const rows = await bare(outer, async (executor) => source === undefined
+      ? await statements(executor).selectAllAssertions.all(null, null)
+      : await statements(executor).selectAllAssertions.all(source, source));
     return rows.map((row) => ({
       source: row.source,
       kind: row.kind,
@@ -565,16 +641,16 @@ export function createPGliteHistory(options: PGliteHistoryOptions): HistoryStore
     }));
   }
 
-  async function sources(): Promise<string[]> {
-    await ready;
-    return (await selectSources.all()).map((row) => row.source).sort(byCodePoint);
+  async function sources(outer?: OuterTransaction): Promise<string[]> {
+    await opened;
+    return (await bare(outer, async (executor) => await statements(executor).selectSources.all())).map((row) => row.source).sort(byCodePoint);
   }
 
-  async function renameSource(from: string, to: string, registryInput?: SourceRegistry): Promise<void> {
+  async function renameSource(from: string, to: string, registryInput?: SourceRegistry, outer?: OuterTransaction): Promise<void> {
     // Keep validation and mutation in one transaction. Yielding between them
     // lets concurrent async callers both validate the same source.
-    await ready;
-    await db.transaction(async (tx) => {
+    await opened;
+    await write(outer, async (tx) => {
       const { selectSources, renameRegistry, upsertRegistry, renameCommitSource, renameAssertionSource } = statements(tx);
       const held = (await selectSources.all()).map((row) => row.source).sort(byCodePoint);
       if (held.length !== 1 || held[0] !== from) {
@@ -592,97 +668,82 @@ export function createPGliteHistory(options: PGliteHistoryOptions): HistoryStore
   }
 
   /** Every commit of one source, oldest first in the history's own commit order. */
-  async function commits(source: string): Promise<CommitRecord[]> {
-    await ready;
-    return (await selectCommits.all(source)).map((row) => ({ commit: row.commit_id, committedAt: row.committed_at, storedAt: row.recorded_at, canonicalDigest: row.canonical_digest }));
+  async function commits(source: string, outer?: OuterTransaction): Promise<CommitRecord[]> {
+    await opened;
+    return (await bare(outer, async (executor) => await statements(executor).selectCommits.all(source)))
+      .map((row) => ({ commit: row.commit_id, committedAt: row.committed_at, storedAt: row.recorded_at, canonicalDigest: row.canonical_digest }));
   }
 
-  async function commitRecord(source: string, commit: string): Promise<CommitRecord | undefined> {
-    await ready;
-    const row = await selectCommitRecord.get(source, commit);
-    return row === null ? undefined : { commit: row.commit_id, committedAt: row.committed_at, storedAt: row.recorded_at, canonicalDigest: row.canonical_digest };
-  }
-  async function latestCommit(source: string): Promise<CommitRecord | undefined> {
-    await ready;
-    const row = await selectLatestCommit.get(source);
+  async function commitRecord(source: string, commit: string, outer?: OuterTransaction): Promise<CommitRecord | undefined> {
+    await opened;
+    const row = await bare(outer, async (executor) => await statements(executor).selectCommitRecord.get(source, commit));
     return row === null ? undefined : { commit: row.commit_id, committedAt: row.committed_at, storedAt: row.recorded_at, canonicalDigest: row.canonical_digest };
   }
 
-  async function hasCommit(source: string, commit: string): Promise<boolean> {
-    await ready;
-    return await selectCommit.get(source, commit) !== null;
+  async function latestCommit(source: string, outer?: OuterTransaction): Promise<CommitRecord | undefined> {
+    await opened;
+    const row = await bare(outer, async (executor) => await statements(executor).selectLatestCommit.get(source));
+    return row === null ? undefined : { commit: row.commit_id, committedAt: row.committed_at, storedAt: row.recorded_at, canonicalDigest: row.canonical_digest };
   }
 
-  async function registry(source: string): Promise<{ id: string; formerNames: string[] } | undefined> {
-    await ready;
-    const row = await selectRegistry.get(source);
+  async function hasCommit(source: string, commit: string, outer?: OuterTransaction): Promise<boolean> {
+    await opened;
+    return await bare(outer, async (executor) => await statements(executor).selectCommit.get(source, commit)) !== null;
+  }
+
+  async function registry(source: string, outer?: OuterTransaction): Promise<{ id: string; formerNames: string[] } | undefined> {
+    await opened;
+    const row = await bare(outer, async (executor) => await statements(executor).selectRegistry.get(source));
     if (row === null) return undefined;
-    const path = options.path ?? ':memory:';
     if (typeof row.id !== 'string' || row.id.length === 0) {
-      throw new Error(`the history database "${path}" has invalid "source_registry.id" value ${JSON.stringify(row.id)}: it must be a non-empty string`);
+      throw new Error(`the history database "${location}" has invalid "source_registry.id" value ${JSON.stringify(row.id)}: it must be a non-empty string`);
     }
     if (typeof row.former_names !== 'string') {
-      throw new Error(`the history database "${path}" has invalid "source_registry.former_names" value ${JSON.stringify(row.former_names)}: it must be a JSON array`);
+      throw new Error(`the history database "${location}" has invalid "source_registry.former_names" value ${JSON.stringify(row.former_names)}: it must be a JSON array`);
     }
     let formerNames: unknown;
     try {
       formerNames = JSON.parse(row.former_names);
     } catch {
-      throw new Error(`the history database "${path}" has invalid "source_registry.former_names" value ${JSON.stringify(row.former_names)}: it must be a JSON array`);
+      throw new Error(`the history database "${location}" has invalid "source_registry.former_names" value ${JSON.stringify(row.former_names)}: it must be a JSON array`);
     }
     if (!Array.isArray(formerNames) || formerNames.some((name) => typeof name !== 'string' || name.length === 0)) {
-      throw new Error(`the history database "${path}" has invalid "source_registry.former_names" value ${JSON.stringify(row.former_names)}: it must be an array of non-empty strings`);
+      throw new Error(`the history database "${location}" has invalid "source_registry.former_names" value ${JSON.stringify(row.former_names)}: it must be an array of non-empty strings`);
     }
     const names = formerNames as string[];
     if (new Set(names).size !== names.length || names.includes(source) || names.some((name, index) => index > 0 && byCodePoint(names[index - 1]!, name) > 0)) {
-      throw new Error(`the history database "${path}" has invalid "source_registry.former_names" value ${JSON.stringify(row.former_names)}: names must be unique, code-point sorted, and must not include current source ${JSON.stringify(source)}`);
+      throw new Error(`the history database "${location}" has invalid "source_registry.former_names" value ${JSON.stringify(row.former_names)}: names must be unique, code-point sorted, and must not include current source ${JSON.stringify(source)}`);
     }
     return { id: row.id, formerNames: names };
   }
 
-  async function setRegistry(source: string, id: string, formerNames: readonly string[]): Promise<void> {
-    await ready;
-    await upsertRegistry.run(source, id, JSON.stringify(formerNames));
+  async function setRegistry(source: string, id: string, formerNames: readonly string[], outer?: OuterTransaction): Promise<void> {
+    await opened;
+    await bare(outer, async (executor) => await statements(executor).upsertRegistry.run(source, id, JSON.stringify(formerNames)));
   }
-  // PGlite exposes one connection per database; keep direct HistoryStore calls in order too.
-  let operationTail: Promise<void> = Promise.resolve();
-  let closed = false;
+
   let closePromise: Promise<void> | undefined;
-  function serialize<T>(operation: () => Promise<T>): Promise<T> {
-    const result = operationTail.then(async () => {
-      if (closed) throw new Error('history database is closed');
-      return await operation();
-    });
-    operationTail = result.then(() => undefined, () => undefined);
-    return result;
-  }
   function close(): Promise<void> {
     if (closePromise !== undefined) return closePromise;
-    closePromise = operationTail.then(async () => {
-      try {
-        await ready;
-      } catch {
-        // A failed operation reports initialization; close still releases PGlite.
-      }
-      closed = true;
-      await db.close();
-    });
-    operationTail = closePromise.then(() => undefined, () => undefined);
+    closed = true;
+    // A lent owner is the caller's to close: closing it here would take the
+    // query database's connection away with the history's.
+    closePromise = ownsOwner ? owner.close() : Promise.resolve();
     return closePromise;
   }
 
   return {
-    store: (input, registryInput) => serialize(() => store(input, registryInput)),
-    read: (input) => serialize(() => read(input)),
-    assertions: (input) => serialize(() => assertions(input)),
-    sources: () => serialize(() => sources()),
-    renameSource: (from, to, registryInput) => serialize(() => renameSource(from, to, registryInput)),
-    registry: (source) => serialize(() => registry(source)),
-    setRegistry: (source, id, formerNames) => serialize(() => setRegistry(source, id, formerNames)),
-    hasCommit: (source, commit) => serialize(() => hasCommit(source, commit)),
-    commitRecord: (source, commit) => serialize(() => commitRecord(source, commit)),
-    latestCommit: (source) => serialize(() => latestCommit(source)),
-    commits: (source) => serialize(() => commits(source)),
+    store: (input, registryInput, transaction) => guard(() => store(input, registryInput, transaction)),
+    read: (input, transaction) => guard(() => read(input, transaction)),
+    assertions: (input, transaction) => guard(() => assertions(input, transaction)),
+    sources: (transaction) => guard(() => sources(transaction)),
+    renameSource: (from, to, registryInput, transaction) => guard(() => renameSource(from, to, registryInput, transaction)),
+    registry: (source, transaction) => guard(() => registry(source, transaction)),
+    setRegistry: (source, id, formerNames, transaction) => guard(() => setRegistry(source, id, formerNames, transaction)),
+    hasCommit: (source, commit, transaction) => guard(() => hasCommit(source, commit, transaction)),
+    commitRecord: (source, commit, transaction) => guard(() => commitRecord(source, commit, transaction)),
+    latestCommit: (source, transaction) => guard(() => latestCommit(source, transaction)),
+    commits: (source, transaction) => guard(() => commits(source, transaction)),
     close,
   };
 }
