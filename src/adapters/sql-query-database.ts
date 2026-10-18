@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { AssertionChange, AssertionRecord, Clock } from '../history/types.js';
+import type { AssertionChange, AssertionRecord, Clock, OuterTransaction } from '../history/types.js';
 import { isOneStateChain } from '../history/assertions.js';
 import { byCodePoint } from '../model/order.js';
 import { createOperationGate } from '../query/operation-gate.js';
@@ -76,6 +76,12 @@ const SCHEMA = [
 export interface SqlQueryDatabaseOptions {
   /** Supplies the default `valid` and `known` time for queries. */
   clock?: Clock;
+  /**
+   * Where the database is — the owner's `location` — for the messages this
+   * module reports (the pgvector version it needs, for one). Left out, the
+   * message names no place.
+   */
+  location?: string;
 }
 
 interface ElementContent {
@@ -328,7 +334,8 @@ export async function createSqlQueryDatabase(driver: SqlQueryDriver, options: Sq
       );
       if (installedVector.rows.length !== 1 || installedVector.rows[0]!.extversion !== EXPECTED_PGVECTOR_VERSION) {
         const found = installedVector.rows[0]?.extversion ?? 'not installed';
-        throw new Error(`the SQL query database requires pgvector ${EXPECTED_PGVECTOR_VERSION}; found ${found}`);
+        const where = options.location === undefined ? '' : ` of "${options.location}"`;
+        throw new Error(`the SQL query database${where} requires pgvector ${EXPECTED_PGVECTOR_VERSION}; found ${found}`);
       }
     });
   } catch (error) {
@@ -352,7 +359,7 @@ export async function createSqlQueryDatabase(driver: SqlQueryDriver, options: Sq
 
   function ensureOutsideSnapshot(): void {
     if (snapshotContext.getStore() === ownerToken) {
-      throw new Error('do not call the query engine from inside withSnapshot; use the supplied snapshot reader');
+      throw new Error('do not call the query engine from inside withSnapshot; use the supplied snapshot reader (a transaction given to withSnapshot is one too: pass it to withSnapshot instead of calling the engine inside it)');
     }
   }
 
@@ -653,21 +660,26 @@ export async function createSqlQueryDatabase(driver: SqlQueryDriver, options: Sq
       return snapshot;
     }
 
-    const withSnapshot = <T>(work: (snapshot: QuerySnapshot) => Promise<T>): Promise<T> => {
+    const withSnapshot = <T>(work: (snapshot: QuerySnapshot) => Promise<T>, transaction?: OuterTransaction): Promise<T> => {
       try {
         ensureOutsideSnapshot();
         ensureScopeOpen();
       } catch (error) {
         return Promise.reject(error);
       }
-      return track(() => gate.snapshot(() => driver.transaction('snapshot', async (executor) => {
+      async function readThrough(executor: SqlExecutor): Promise<T> {
         const current = reader(executor) as QuerySnapshot & { end(): void };
         try {
           return await snapshotContext.run(ownerToken, () => work(current));
         } finally {
           current.end();
         }
-      })));
+      }
+      // An outer transaction is the caller's: it is already admitted by the
+      // database owner, it is not a snapshot of this engine's own, and it
+      // must not wait on the gate this caller's own transaction would hold.
+      if (transaction !== undefined) return track(() => readThrough(transaction));
+      return track(() => gate.snapshot(() => driver.transaction('snapshot', async (executor) => await readThrough(executor))));
     };
 
     const scopeEntry = { ownerClosed: () => { scopeClosing = true; scopeClosed = true; } };
@@ -679,30 +691,37 @@ export async function createSqlQueryDatabase(driver: SqlQueryDriver, options: Sq
       dependents: (elementId, queryOptions, at) => withSnapshot((snapshot) => snapshot.dependents(elementId, queryOptions, at)),
       dependencies: (elementId, queryOptions, at) => withSnapshot((snapshot) => snapshot.dependencies(elementId, queryOptions, at)),
       withSnapshot,
-      rebuild: (assertions: readonly AssertionRecord[]) => {
+      rebuild: (assertions: readonly AssertionRecord[], transaction?: OuterTransaction) => {
         try {
           ensureOutsideSnapshot();
           ensureScopeOpen();
           for (const assertion of assertions) assertRecordScope(assertion, sourceSet);
           const rows = preparedRows(assertions);
-          return track(() => gate.write(() => driver.transaction('write', async (executor) => {
+          const write = async (executor: SqlExecutor): Promise<void> => {
             await replaceSources(executor);
             await insertPrepared(executor, rows);
-          })));
+          };
+          // An outer transaction belongs to the caller's admission, not this
+          // engine's gate: queuing on the gate behind the caller's own
+          // transaction would deadlock.
+          if (transaction !== undefined) return track(() => write(transaction));
+          return track(() => gate.write(() => driver.transaction('write', write)));
         } catch (error) {
           return Promise.reject(error);
         }
       },
-      update: (opened: readonly AssertionChange[], closed: readonly AssertionChange[]) => {
+      update: (opened: readonly AssertionChange[], closed: readonly AssertionChange[], transaction?: OuterTransaction) => {
         try {
           ensureOutsideSnapshot();
           ensureScopeOpen();
           for (const change of [...opened, ...closed]) assertRecordScope(change, sourceSet);
           const openedRows = preparedRows(opened);
-          return track(() => gate.write(() => driver.transaction('write', async (executor) => {
+          const write = async (executor: SqlExecutor): Promise<void> => {
             await closeChanges(executor, closed);
             await insertPrepared(executor, openedRows);
-          })));
+          };
+          if (transaction !== undefined) return track(() => write(transaction));
+          return track(() => gate.write(() => driver.transaction('write', write)));
         } catch (error) {
           return Promise.reject(error);
         }

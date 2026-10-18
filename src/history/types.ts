@@ -175,11 +175,33 @@ export interface CommitRecord {
 }
 
 /**
+ * One transaction of the process's database owner — one database per
+ * process, opened once and lent to the history store, the query database
+ * and the future queue tables (decision 0027; see
+ * `src/adapters/database-owner.ts`). Passed to a history operation as its
+ * outer transaction, every statement the operation makes runs inside it:
+ * the history neither commits it nor rolls it back, and reads through it
+ * see this caller's own uncommitted writes beside the rest of the
+ * database. A PGlite transaction and a PostgreSQL client both answer this
+ * shape; this interface itself touches no database-specific API.
+ */
+export interface OuterTransaction {
+  query<Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[] }>;
+}
+
+/**
  * Keeps every version of every source's compiled model, with both time
  * axes, from the first write: nothing is ever overwritten or deleted (see
  * the model-history capability). `src/adapters/pglite-history.ts` is the
  * only implementation so far; this interface itself touches no Bun-specific
  * API.
+ *
+ * Every operation also takes an optional `OuterTransaction` of the process's
+ * database owner (decision 0027): given, all of the operation's statements
+ * run inside it, and the history neither commits nor rolls it back, so one
+ * transaction can carry a history write and a query-projection update
+ * together. Without one, the operation runs in a transaction of its own (a
+ * bare statement for a read).
  */
 export interface SourceRegistry {
   id: string;
@@ -187,12 +209,12 @@ export interface SourceRegistry {
 }
 
 export interface HistoryStore {
-  store(input: StoreInput, registry?: SourceRegistry): Promise<StoreResult>;
-  read(input?: ReadInput): Promise<ReadResult>;
+  store(input: StoreInput, registry?: SourceRegistry, transaction?: OuterTransaction): Promise<StoreResult>;
+  read(input?: ReadInput, transaction?: OuterTransaction): Promise<ReadResult>;
   /** The raw assertions behind every read, with their four times, for a source or for all of them. */
-  assertions(input?: AssertionsInput): Promise<AssertionRecord[]>;
+  assertions(input?: AssertionsInput, transaction?: OuterTransaction): Promise<AssertionRecord[]>;
   /** Every source name that has ever stored a commit. */
-  sources(): Promise<string[]>;
+  sources(transaction?: OuterTransaction): Promise<string[]>;
   /**
    * Renames one source inside the history, moving every assertion and
    * commit row to the new name — the times, contents and digests are
@@ -200,19 +222,19 @@ export interface HistoryStore {
    * name answered. Refuses, leaving the history untouched, when the
    * history holds anything but exactly the source being renamed.
    */
-  renameSource(from: string, to: string, registry?: SourceRegistry): Promise<void>;
+  renameSource(from: string, to: string, registry?: SourceRegistry, transaction?: OuterTransaction): Promise<void>;
   /** Stable server-assigned source identity and retired names kept inside this history database. */
-  registry(source: string): Promise<{ id: string; formerNames: string[] } | undefined>;
+  registry(source: string, transaction?: OuterTransaction): Promise<{ id: string; formerNames: string[] } | undefined>;
   /** Records stable source identity and retired names in this history database. */
-  setRegistry(source: string, id: string, formerNames: readonly string[]): Promise<void>;
+  setRegistry(source: string, id: string, formerNames: readonly string[], transaction?: OuterTransaction): Promise<void>;
   /** Whether a source's commit is already stored (regardless of what it asserts). */
-  hasCommit(source: string, commit: string): Promise<boolean>;
+  hasCommit(source: string, commit: string, transaction?: OuterTransaction): Promise<boolean>;
   /** One commit's own record with its times, read as one row rather than through the source's whole `commits` list; `undefined` when the source never stored that commit. */
-  commitRecord(source: string, commit: string): Promise<CommitRecord | undefined>;
+  commitRecord(source: string, commit: string, transaction?: OuterTransaction): Promise<CommitRecord | undefined>;
   /** The newest commit by the history's own order, without loading the full list. */
-  latestCommit(source: string): Promise<CommitRecord | undefined>;
+  latestCommit(source: string, transaction?: OuterTransaction): Promise<CommitRecord | undefined>;
   /** Every commit of one source, with its times, oldest first in the history's own commit order: commit time, then commit id in code point order to break a tie. */
-  commits(source: string): Promise<CommitRecord[]>;
-  /** Releases the underlying database connection. */
+  commits(source: string, transaction?: OuterTransaction): Promise<CommitRecord[]>;
+  /** Releases the underlying database connection when this history opened it; a lent database owner stays open. */
   close(): Promise<void>;
 }

@@ -76,6 +76,13 @@ export {
   type SharedEntity,
 } from './history/assertions.js';
 export { createPGliteHistory, type PGliteHistoryOptions } from './adapters/pglite-history.js';
+export {
+  createPGliteDatabaseOwner,
+  createPostgresDatabaseOwner,
+  type DatabaseOwner,
+  type OuterTransaction,
+  type PGliteDatabaseOwnerOptions,
+} from './adapters/database-owner.js';
 export type { AsyncVectorIndex, VectorDistanceMetric, VectorMatch, VectorRecord, VectorSearchInput } from './vector/types.js';
 export type {
   ChildrenResult,
