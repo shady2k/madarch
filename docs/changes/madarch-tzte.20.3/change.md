@@ -271,8 +271,9 @@ from one of them, it is named.
     token cap, and every cut they make is counted in the answer's marker.
 
 ## Acceptance evidence
-The checks of this change, each command's own exit status, recorded on the task as
-`check:` comments against the revision they were made on:
+The checks of this change, each command's own exit status, recorded here at
+hand-over and resolved on the task by the integrator's `check:` comments against
+the landed revision (this worker labels nothing and closes nothing):
 
 - `bun run check` (tsc --noEmit) exit 0 at every commit of the branch.
 - `madarch-sky-test <worktree> test/fill-graph-reads.test.ts` — the owners' rule
@@ -291,3 +292,7 @@ The checks of this change, each command's own exit status, recorded on the task 
   findings answered in the third commit and this record.
 - CI on the exact SHA of the branch: recorded in the task's `check:` records and
   in the queue entry (`## madarch-tzte.20.3 — READY …`).
+## DONE WHEN
+- `describe_scope`, `neighbors`, `references`, `claims_about`, `coverage` and `evidence_span` answer from the fact store within 0026's caps (tool answers at most 8K tokens, evidence spans about 200 lines), with a truncation marker naming what was cut.
+- Every read is recorded as the reading unit's dependency: the query and its result membership, an empty result included; a later publication that changes that membership marks the unit stale, asserted with the orchestrator's staleness.
+- Normally `neighbors` of a symbol with three callers answers those three, sorted by code point, untruncated.

@@ -532,8 +532,9 @@ export async function answerGraphRead(options: FactGraphReaderOptions, request: 
         // One statement, its joins built from the same end table `adjacent` reads: a kind that keeps its to
         // end in another field of its value (`consumes` in `variable`, `interaction` in `callee`) and a kind
         // that keeps its from end elsewhere (`interaction` in `caller`) are joined where they keep it.
-        const toEnd = endJoin('value->>\'to\'', request.via, 2);
-        const fromEnd = endJoin('value->>\'from\'', request.via, 2 + toEnd.values.length);
+        // The parameters start after the kinds and the id (`$1`, `$2`): the first group of the to end is `$3`.
+        const toEnd = endJoin('value->>\'to\'', request.via, 3);
+        const fromEnd = endJoin('value->>\'from\'', request.via, 3 + toEnd.values.length);
         const rows = await inTransaction(options, async (executor) => (await executor.query(
           `SELECT n.kind AS kind, count(*)::int AS count FROM fill_fact e JOIN fill_fact n ON n.id = ${toEnd.sql} WHERE e.kind = ANY($1::text[]) AND ${fromEnd.sql} = $2 GROUP BY n.kind`,
           [request.via, request.id, ...toEnd.values, ...fromEnd.values],

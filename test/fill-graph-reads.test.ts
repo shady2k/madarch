@@ -452,7 +452,7 @@ describe('describe_scope', () => {
     expect(held).toEqual([{ kind: 'environment-variable', count: 1 }]);
     // The kinds whose ends this read joins, and why the others are refused: each with what its end is.
     await expect(reads.read({ read: 'held', id: opened.graph.file.id, via: ['provides'] })).rejects
-      .toThrow(/a "provides" edge's to end is the api-endpoint's contract id, which is the endpoint's own identity and not the fact id this read joins: the kinds whose to end this read joins by fact id are binds, call, contains, consumes, defines, dependency, import, inherits, interaction, reference, resolves, transition/);
+      .toThrow(/a "provides" edge's to end is the api-endpoint's contract id, which is the endpoint's own identity and not the fact id this read joins: the kinds whose to end this read joins by fact id are call, consumes, contains, defines, dependency, import, inherits, interaction, reference, resolves, transition/);
     await expect(reads.read({ read: 'held', id: opened.graph.file.id, via: ['task-key'] })).rejects
       .toThrow(/a "task-key" edge's to end is the tracker's key, not a node of the graph/);
     await expect(reads.read({ read: 'held', id: opened.graph.file.id, via: ['document-link'] })).rejects
@@ -516,7 +516,20 @@ describe('claims_about', () => {
     });
     const reads = await opened.reads('reads/all', 1);
     await expect(claimsAbout(reads, { tool: 'claims_about', id: opened.graph.target.id })).rejects
-      .toThrow(new RegExp(`${damaged} carries undefined at value.predicate: a claim says what it asserts about its subject`));
+      .toThrow(new RegExp(`${damaged} carries the predicate undefined: a claim says what it asserts about its subject, as one lower-case kebab token`));
+
+    // And a claim whose subject is not a term at all: the same policy, at the field that names it. This row is
+    // read through the object it names, since a claim without a subject cannot be found by the subject it has not.
+    const subjectless = `claim:${'e'.repeat(64)}`;
+    await opened.owner.transaction('write', async (executor) => {
+      await executor.query(
+        `INSERT INTO fill_fact (id, kind, schema_version, provenance, layer, status, value)
+         VALUES ($1, 'claim', 1, $2::jsonb, 'inferred', 'proposed', $3::jsonb)`,
+        [subjectless, JSON.stringify(provenance(FILE, 41)), JSON.stringify({ object: { form: 'node', id: opened.graph.target.id }, predicate: 'is-implemented-by' })],
+      );
+    });
+    await expect(claimsAbout(reads, { tool: 'claims_about', id: opened.graph.target.id, direction: 'names' })).rejects
+      .toThrow(new RegExp(`${subjectless} carries undefined at value.subject: a claim's subject is a node, an address outside the repositories, or a literal`));
   });
 
   test('a node no claim names answers nothing', async () => {
@@ -679,7 +692,7 @@ describe('the reader over the store', () => {
     expect(rows.every((row) => (row as { kind: string }).kind === 'call')).toBe(true);
     // A read asking for no kind at all is refused by name rather than sent to the database as SQL that cannot run.
     await expect(reader.query(JSON.stringify({ read: 'adjacent', id: opened.graph.target.id, kinds: [] }))).rejects.toThrow(/names no edge kind/);
-    await expect(reader.query(JSON.stringify({ read: 'held', id: opened.graph.module.id, via: ['document-link'] }))).rejects.toThrow(/a "document-link" edge's end is its value's "to" field, not the id itself/);
+    await expect(reader.query(JSON.stringify({ read: 'held', id: opened.graph.module.id, via: ['document-link'] }))).rejects.toThrow(/a "document-link" edge's to end is a term, which may name a node of the graph or an address outside the repositories/);
     await expect(reader.query('SELECT no_such_column FROM fill_fact')).rejects.toThrow(/no_such_column/);
   });
 
