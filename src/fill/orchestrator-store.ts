@@ -30,7 +30,7 @@ import { canonicalJsonDigest } from '../model/canonical.js';
 import { byCodePoint } from '../model/order.js';
 import type { FillRun } from '../product/fill-runtime.js';
 import type { SqlExecutor } from '../query/sql-driver.js';
-import { here, raise } from './fsm-core.js';
+import { here, raise, withLocation } from './fsm-core.js';
 import { advanceUnitIn, type UnitRecord } from './state-store.js';
 import type { StageDraftWrite } from './stage.js';
 
@@ -133,22 +133,43 @@ async function run<R>(
   work: (executor: SqlExecutor) => Promise<R>,
   kind: 'snapshot' | 'write',
 ): Promise<R> {
-  try {
-    return await database.transaction(kind, work);
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith('/')) throw error;
-    throw new Error(`${site}: ${operation} failed on ${tables.join(', ')}: ${(error as Error).message}`);
-  }
+  return await withLocation(site, operation, tables, async () => await database.transaction(kind, work));
 }
 
 /**
- * The digest of one read's answer: the canonical digest of the rows, so a row
- * added, removed or changed moves it. An empty answer is the empty list, which
- * is a value of its own — "nothing here yet" is a statement a later read can
- * turn false, and decision 0027 rechecks it like any other.
+ * One read answer's value as the membership digest can hold it: a `Date` is its
+ * instant in ISO text, a `Uint8Array` its bytes in hex, a `bigint` its decimal
+ * text, an array or a plain object is taken field by field, and a value no
+ * digest can tell from another — a function, a symbol, a `Map` — is refused by
+ * name rather than collapsed to `{}`. The owner hands timestamps back as `Date`
+ * objects, and a digest that reads them as `{}` would call two different
+ * instants one membership, which is a moved read nothing could see.
+ */
+function membershipValue(value: unknown, path: string): unknown {
+  if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (typeof value === 'bigint') return `${value}n`;
+  if (typeof value === 'undefined') return { absent: true };
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? { invalid: 'date' } : value.toISOString();
+  if (value instanceof Uint8Array) return { bytes: Buffer.from(value).toString('hex') };
+  if (Array.isArray(value)) return value.map((entry, index) => membershipValue(entry, `${path}[${index}]`));
+  if (typeof value === 'object') {
+    const fields = value as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(fields).sort(byCodePoint)) out[key] = membershipValue(fields[key], `${path}.${key}`);
+    return out;
+  }
+  raise(`a read answered ${typeof value} at ${path}, which no membership digest can hold: a query answers rows of plain values, and a value two digests cannot tell apart would hide a read that moved`);
+}
+
+/**
+ * The digest of one read's answer: the membership of the rows it answered, in a
+ * canonical order of its own, so a row added, removed or changed moves it and a
+ * graph that answers the same rows in another order does not. An empty answer is
+ * the empty list, which is a value of its own — "nothing here yet" is a statement
+ * a later read can turn false, and decision 0027 rechecks it like any other.
  */
 export function readMembership(rows: readonly unknown[]): string {
-  return canonicalJsonDigest(rows);
+  return canonicalJsonDigest(rows.map((row) => membershipValue(row, 'row')).sort((left, right) => byCodePoint(canonicalJsonDigest(left), canonicalJsonDigest(right))));
 }
 
 /** One tracked read of a unit generation, as it is persisted. */
@@ -204,6 +225,9 @@ export async function recordUnitReadIn(
 ): Promise<TrackedRead> {
   const digest = queryDigest(options.query);
   const membership = readMembership(options.rows);
+  // The generation's own row is taken first: on a PostgreSQL owner two units' reads can run at once, and
+  // two reads of one generation must not take the same sequence number.
+  await executor.query('SELECT unit_id FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2 FOR UPDATE', [options.unitId, options.generation]);
   const { rows: counted } = await executor.query<{ next: unknown }>(
     'SELECT COALESCE(MAX(read_seq), 0) + 1 AS next FROM fill_unit_read WHERE unit_id = $1 AND generation = $2',
     [options.unitId, options.generation],
@@ -438,7 +462,7 @@ export interface PublicationRequest {
    * refuses the publication, rather than publishing facts the graph no longer
    * supports.
    */
-  readonly revalidate: (read: TrackedRead) => Promise<{ readonly membership: string; readonly members: number }>;
+  readonly revalidate: (read: TrackedRead, executor: SqlExecutor) => Promise<{ readonly membership: string; readonly members: number }>;
   /**
    * Applies the unit's fact set within its ownership scope, inside this same
    * transaction, and answers how many facts it applied. It runs after the
@@ -446,8 +470,11 @@ export interface PublicationRequest {
    * publication record is written, so a failure here — or the record's own
    * refusal — rolls back the facts, the state and the record together. The
    * database owner is the only writer; this callback is where the facts reach it.
+   * It is given the digest this transaction computed, which is the one the record
+   * will carry, so a caller marks what it applied with the same identity the
+   * publication has.
    */
-  readonly apply: (executor: SqlExecutor, writes: readonly StageDraftWrite[]) => Promise<number>;
+  readonly apply: (executor: SqlExecutor, writes: readonly StageDraftWrite[], digest: string) => Promise<number>;
 }
 
 /**
@@ -464,7 +491,7 @@ export async function publishUnit(
   options: PublicationRequest,
 ): Promise<PublicationOutcome> {
   const at = here();
-  return run(at, database, `publishUnit(${options.unitId}/${options.generation})`, ['fill_publication', 'fill_unit_read', 'fill_unit_draft'], async (executor) => publishUnitIn(executor, options), 'write');
+  return run(at, database, `publishUnit(${options.unitId}/${options.generation})`, ['fill_publication', 'fill_unit_read', 'fill_unit_draft', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_run', 'fill_transition'], async (executor) => publishUnitIn(executor, options), 'write');
 }
 
 /**
@@ -542,7 +569,7 @@ export async function publishUnitIn(executor: SqlExecutor, options: PublicationR
   // Every recorded read, rechecked as it stands now. An empty answer that became
   // a non-empty one refuses here like any other moved membership.
   for (const read of await readUnitReadsIn(executor, options.unitId, options.generation)) {
-    const now = await options.revalidate(read);
+    const now = await options.revalidate(read, executor);
     if (now.membership !== read.membership) {
       return {
         outcome: 'refused',
@@ -562,7 +589,7 @@ export async function publishUnitIn(executor: SqlExecutor, options: PublicationR
   if (!step.ok) {
     return { outcome: 'refused', code: step.refusal.code, reason: step.refusal.reason, record: null };
   }
-  const facts = await options.apply(executor, draft.writes);
+  const facts = await options.apply(executor, draft.writes, digest);
   await executor.query(
     'INSERT INTO fill_publication (unit_id, generation, digest, facts, published_at) VALUES ($1, $2, $3, $4, $5)',
     [options.unitId, options.generation, digest, facts, options.at],
@@ -751,7 +778,14 @@ export async function readUnitPlan(database: OrchestratorDatabase, unitId: strin
 export async function readRunPlans(database: OrchestratorDatabase, runId: string): Promise<readonly UnitPlanRecord[]> {
   const at = here();
   return run(at, database, `readRunPlans(${runId})`, ['fill_unit_plan'], async (executor) => {
-    const { rows } = await executor.query<UnitPlanRow>('SELECT unit_id, generation, run_id, stage_id, stage_unit_id, scope, stage_position, plan_position, planned_at FROM fill_unit_plan WHERE run_id = $1', [runId]);
+    // The generation in force only: a unit replaced inside one run has two plan rows, and the one the
+    // run works is the one its own unit row names. The join also fixes the order the ids are read in.
+    const { rows } = await executor.query<UnitPlanRow>(
+      `SELECT p.unit_id, p.generation, p.run_id, p.stage_id, p.stage_unit_id, p.scope, p.stage_position, p.plan_position, p.planned_at
+         FROM fill_unit_plan p JOIN fill_unit u ON u.unit_id = p.unit_id AND u.generation = p.generation
+        WHERE p.run_id = $1`,
+      [runId],
+    );
     return rows.map(unitPlanRecord).sort((left, right) => byCodePoint(left.unitId, right.unitId));
   }, 'snapshot');
 }
@@ -796,7 +830,10 @@ interface EventRow extends Record<string, unknown> { run_id: string; seq: unknow
  */
 export async function appendProgress(database: OrchestratorDatabase, event: Omit<FillProgressEvent, 'seq'>): Promise<FillProgressEvent> {
   const at = here();
-  return run(at, database, `appendProgress(${event.runId}, ${event.kind})`, ['fill_event'], async (executor) => {
+  return run(at, database, `appendProgress(${event.runId}, ${event.kind})`, ['fill_event', 'fill_run'], async (executor) => {
+    // The run's own row is taken first: two events of one run never share a number, whether the owner
+    // serializes its work (PGlite) or overlaps two transactions (a PostgreSQL pool).
+    await executor.query('SELECT run_id FROM fill_run WHERE run_id = $1 FOR UPDATE', [event.runId]);
     const { rows } = await executor.query<{ next: unknown }>('SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM fill_event WHERE run_id = $1', [event.runId]);
     const seq = millis(rows[0]?.next ?? 1);
     await executor.query(

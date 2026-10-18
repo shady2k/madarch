@@ -36,7 +36,7 @@
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { SqlExecutor, SqlTransactionKind } from '../query/sql-driver.js';
 import { byCodePoint } from '../model/order.js';
-import { here, raise } from './fsm-core.js';
+import { here, raise, withLocation } from './fsm-core.js';
 import type { Refusal } from './fsm-core.js';
 import {
   CHAIN_STATES,
@@ -250,12 +250,7 @@ async function run<R>(
   work: (executor: SqlExecutor) => Promise<R>,
   kind: SqlTransactionKind,
 ): Promise<R> {
-  try {
-    return await database.transaction(kind, work);
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith('/')) throw error;
-    throw new Error(`${site}: ${operation} failed on ${tables.join(', ')}: ${(error as Error).message}`);
-  }
+  return await withLocation(site, operation, tables, async () => await database.transaction(kind, work));
 }
 
 interface ChainRow extends Record<string, unknown> { product: string; state: string; context: unknown; updated_at: unknown }

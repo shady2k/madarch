@@ -150,11 +150,14 @@ None.
   `fill-runtime.ts`; the pause and stop control is `consumeFillControl` over the
   product's own state folder; the human-edit guard is the run's seam, and a
   conflict stales the stage's published generations and blocks the run, because a
-  published generation is only ever invalidated, never overwritten. Progress is
-  the runtime's normalized event (run, stage, unit, sequence, kind, summary),
-  and it is persisted in the database the server owns rather than the runtime's
-  JSONL journal — decision 0027 replaces "JSON state files and journal" while
-  keeping "normalized progress and usage".
+  published generation is only ever invalidated, never overwritten. Progress keeps the runtime's normalized
+  **shape** — one event per run, stage and unit, with its sequence, the moment it
+  happened, what it was and a sentence — and it is its own vocabulary of kinds
+  and of registry stage ids, persisted as rows of the database the server owns
+  rather than in the runtime's JSONL journal: decision 0027 replaces "JSON state
+  files and journal" and keeps "normalized progress and usage", and the old
+  journal's `FillEvent` carries the retired six stage names and none of the
+  orchestrator's steps, so reusing its type would have meant widening it.
 - **The store borrows the owner.** `FillStateDatabase` is now the owner's own
   `transaction`, which is what madarch-tzte.19.4 left for this task, and the
   temporary PGlite adapter its tests opened (`test/fill-fsm-pglite.ts`) is
@@ -230,6 +233,35 @@ None.
     publication's transaction from the draft that transaction holds; and the
     daemon's default registry is no longer overridable by a spread.
 
+  - The second round found three more defects and eight should-fix items over
+    those fixes, all answered. A starved plan blocked its run without settling
+    the product's chain, so a product whose stages did not resolve could never be
+    filled again: the block now settles the chain, and `startRun` frees a chain
+    whose run is terminal. A generation left `stale` was inherited as "reused",
+    so the work a person's edit (or a crash) left stale was never redone: only a
+    **published** generation whose inputs did not move is inherited, and a stale
+    one is replaced by the next run, with the staleness sweep no longer skipping
+    it. The membership a tracked read records was `canonicalJsonDigest(rows)`,
+    which reads a `Date` — what the owner hands back for a timestamp column — as
+    `{}`, so a whole class of reads could never be seen moving, and which moved
+    with the row order; it is now the digest of the rows in a canonical order,
+    with a `Date` as its instant, a byte string as its bytes, a `bigint` as its
+    text, and a value no digest can hold refused by name. The should-fixes: a
+    split now checks its children before it seals anything (a child that is the
+    parent itself, an ancestor, another run's unit, or one standing under other
+    inputs is refused with its reason, which the review showed could otherwise
+    seal a unit as its own descendant and deadlock the run); the publication's
+    read recheck goes through the publication's own transaction (the process's
+    owner refuses a second one on its connection, so the seam takes an executor);
+    a planned unit with no plan row is reported instead of dropped; the host's
+    result carries what planning inherited and what each stage found; the read and
+    event sequences are numbered under a lock on the row they belong to; the
+    human-edit guard is remembered by the published set it passed, not by the
+    orchestrator, so a stage that published again is guarded again; and the tests
+    the review showed could pass with their behaviour removed now fail without it
+    (the staleness sweep moves the graph after publication, a child's read moves
+    after it publishes, the refused publication's job is asserted unsettled, and
+    the two-world reuse test is two tests).
 
 The owner approval required for a behavior change is pending the coordinator;
 the record on the task says so in the coordinator's own words.

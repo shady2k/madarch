@@ -91,6 +91,10 @@ export interface FillRunResult {
   readonly work: number;
   readonly stoppedBecause?: string;
   readonly units: readonly { readonly unitId: string; readonly stageId: string; readonly state: string; readonly generation: number; readonly attempts: number }[];
+  /** The units the run inherited already published with their inputs unchanged: it planned nothing for them. */
+  readonly reused: readonly string[];
+  /** The enabled stages whose plan found a producer's inputs and nothing in them, so nobody reads it as a capability nothing produces. */
+  readonly foundNothing: readonly string[];
 }
 
 /** A run the service refused before it started, with what is missing. */
@@ -234,6 +238,8 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       if (!started.ok) return { ok: false, code: started.code, reason: started.reason };
       const planned = await planRun(orchestrator, { runId: request.runId });
       if (planned.outcome === 'refused') return { ok: false, code: planned.code, reason: planned.reason };
+      const reused = planned.outcome === 'planned' ? planned.reused : [];
+      const foundNothing = planned.outcome === 'planned' ? planned.foundNothing : [];
       const driven = await driveRun(orchestrator, {
         runId: request.runId,
         workers: request.workers ?? options.workers ?? 1,
@@ -249,6 +255,8 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
         work: driven.work,
         ...(driven.stoppedBecause === undefined ? {} : { stoppedBecause: driven.stoppedBecause }),
         units: (status?.units ?? []).map((unit) => ({ unitId: unit.unitId, stageId: unit.stageId, state: unit.state, generation: unit.generation, attempts: unit.attempts })),
+        reused,
+        foundNothing,
       };
     },
     async status(request: { readonly product: FillProduct; readonly runId: string }): Promise<RunStatus | null> {
