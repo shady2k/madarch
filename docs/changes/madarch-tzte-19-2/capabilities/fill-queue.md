@@ -60,8 +60,8 @@ naming the queue and the field.
 
 ### Scenario: declare-once
 - Given: the queue `units-dead` exists and holds no job
-- When: `units` is declared with a 60-second lease, two retries, a one-second doubling delay and `units-dead` as its dead letter queue
-- Then: `units` exists with exactly those settings, and a job failed for good on `units` lies in `units-dead`
+- When: `units` is declared with a 60-second lease, two retries, a one-second doubling delay and `units-dead` as its dead letter queue, and a job of `units` is then claimed and fails for good
+- Then: `units` exists with exactly those settings, every queue of the scenario is a row of the owner's own queue table, and the spent job lies in `units-dead`
 
 ### Scenario: declared-again
 - Given: a queue declared with a 60-second lease, and a job enqueued after that declaration
@@ -125,12 +125,15 @@ does and an empty key shall each be refused, naming the queue.
 
 ## Requirement: claim — A claim holds its jobs under a lease and reports their attempts
 
-A claim shall take up to the number of jobs it asks for from a declared queue,
-the highest priority first, then the oldest, and ids in code point order where
-two jobs were enqueued in the same instant, so that the same set of jobs comes
-back in the same order. Every claimed job shall carry its data, how many times it
-was claimed before, and the lease the queue declared, and an empty queue shall
-answer no jobs.
+A claim shall take up to the number of jobs it asks for — a whole number, at
+least one, refused by name outside that — from a declared queue, the highest
+priority first, then the oldest, and ids in code point order where two jobs were
+enqueued in the same instant, so that the same set of jobs comes back in the same
+order. The tie-break is the adapter's promise to its callers: a store that
+answers an arbitrary order for one instant satisfies it, and the store this
+decision runs on answers ascending ids already. Every claimed job shall carry its
+data, how many times it was claimed before, the retry allowance it was enqueued
+with, and the lease the queue declared, and an empty queue shall answer no jobs.
 
 ### Scenario: order
 - Given: three jobs enqueued with the priorities 1, 5 and 3, in that order
@@ -158,11 +161,11 @@ A heartbeat shall refresh the claim of the attempt it names, so the queue does
 not treat it as dead before its lease lapses, and shall answer whether the claim
 is still held: false when the attempt is no longer the one the queue hands out,
 or when the job has been settled. A queue that declares a heartbeat interval
-shall treat a claim whose heartbeat is older than that interval as dead at its
-next maintenance pass, which is how a worker that died without settling is
-noticed sooner than the lease would notice it: a claim of a job on such a queue,
-never heartbeated, is recovered by a pass ten and a half seconds after the claim
-whose lease is a whole minute.
+shall treat a claim whose heartbeat is older than the interval the job was
+enqueued under as dead at its next maintenance pass, which is how a worker that
+died without settling is noticed sooner than the lease would notice it: a claim
+of such a job, never heartbeated, is recovered by a pass ten and four tenths of a
+second after the claim whose lease is a whole minute.
 
 ### Scenario: kept
 - Given: a claimed job whose attempt is the one in force
@@ -181,7 +184,7 @@ whose lease is a whole minute.
 
 ### Scenario: interval-lapsed
 - Given: a queue declared with a ten-second heartbeat interval and a 60-second lease, and a job of it claimed and never heartbeated
-- When: ten and a half seconds have passed and a maintenance pass runs
+- When: ten and four tenths of a second have passed and a maintenance pass runs
 - Then: the job is claimable again as attempt 1, the answer for its first attempt is that the claim is not held, and nothing was dead-lettered, since a retry was left
 
 ## Requirement: complete — A settlement is fenced to its attempt

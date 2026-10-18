@@ -239,18 +239,23 @@ export interface QueueService {
    */
   fail(queue: string, job: ClaimedJob, reason: string, transaction?: OuterTransaction): Promise<FailOutcome>;
   /**
-   * Runs one maintenance pass over a declared queue, in short transactions of
+   * Asks a declared queue's maintenance to run now, in short transactions of
    * its own, recovering what a killed process left behind: a claim whose lease
-   * lapsed, or whose heartbeat went quiet past `heartbeatSeconds`, is settled as
-   * failed through the same retry and dead letter rules as `fail` — the attempt
-   * that held it never settles it itself, and its worker's later calls are
-   * refused. It is what makes a crash recoverable; a queue that is served by a
-   * running adapter also recovers on its own while the process lives.
+   * lapsed, or whose heartbeat went quiet past the interval the job was
+   * enqueued under, is settled as failed through the same retry and dead letter
+   * rules as `fail` — the attempt that held it never settles it itself, and its
+   * worker's later calls are refused. A queue is swept when its sweep comes due,
+   * once per pass interval, so a call made inside that window leaves the queue
+   * for its next turn rather than sweeping it twice; the adapter says so in its
+   * own options (`superviseIntervalSeconds`). A queue served by a running
+   * adapter is also swept on its own while the process lives, which is what
+   * makes a killed worker recoverable without anyone asking.
    */
   recover(queue: string): Promise<void>;
   /**
    * The jobs a queue's retries were spent on, newest first, at most `limit` of
-   * them — 1000 when it is left out, at most 100 000. The read takes the queue's
+   * them — all of them when it is left out, and never more than 100 000, the
+   * most one read takes. The read takes the queue's
    * whole dead letter list, since the queue keeps it oldest first and offers no
    * order of its own, so a queue holding many dead letters costs the read all of
    * them. Refused, naming the queue, when it was never declared or the limit is

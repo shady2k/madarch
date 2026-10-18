@@ -44,6 +44,8 @@ export interface ObservedJob {
   readonly unit: string;
   /** How many times the job had been claimed before this one. */
   readonly attempt: number;
+  /** The retry allowance the job itself carries, stamped at its enqueue. */
+  readonly retries: number;
   /** The lease the queue holds it under. */
   readonly leaseSeconds: number;
 }
@@ -95,6 +97,7 @@ export interface QueueScenarioReport {
   /** Two spent jobs in one queue: the newest first, and one at most when a limit of one is asked for. */
   readonly twoDeadLetters: DeadLetter[];
   readonly twoDeadLettersLimited: DeadLetter[];
+  readonly twoDeadLettersDefault: DeadLetter[];
   readonly fixedDeadLettersWithoutAQueue: DeadLetter[];
   readonly deadLettersBeyondTheBound: string | null;
   /** Jobs of equal priority come back in the order they were enqueued. */
@@ -120,6 +123,8 @@ export interface QueueScenarioReport {
   readonly missingSingletonKey: string | null;
   readonly keyOnAPlainQueue: string | null;
   readonly shortHeartbeat: string | null;
+  readonly claimWithoutAWholeNumber: string | null;
+  readonly fractionalPriority: string | null;
 }
 
 /** The queues the scenario declares. */
@@ -152,7 +157,7 @@ function pause(milliseconds: number): Promise<void> {
 }
 
 function observed(job: ClaimedJob<{ unit: string }>): ObservedJob {
-  return { unit: job.data.unit, attempt: job.attempt, leaseSeconds: job.leaseSeconds };
+  return { unit: job.data.unit, attempt: job.attempt, retries: job.retries, leaseSeconds: job.leaseSeconds };
 }
 
 /** The message of the refusal a call made, or null when it was not refused. */
@@ -266,6 +271,7 @@ export async function runQueueScenario(owner: DatabaseOwner, schema: string): Pr
     const secondSpent = (await queue.claim<{ unit: string }>({ queue: SCENARIO_QUEUES.twoDead }))[0]!;
     await queue.fail(SCENARIO_QUEUES.twoDead, secondSpent, 'the second spent job failed');
     const twoDeadLetters = await queue.deadLetters<{ unit: string }>(SCENARIO_QUEUES.twoDead);
+    const twoDeadLettersDefault = await queue.deadLetters<{ unit: string }>(SCENARIO_QUEUES.twoDead, {});
     const twoDeadLettersLimited = await queue.deadLetters<{ unit: string }>(SCENARIO_QUEUES.twoDead, { limit: 1 });
     const deadLettersBeyondTheBound = await refusal(() => queue.deadLetters(SCENARIO_QUEUES.twoDead, { limit: 100_001 }));
 
@@ -298,9 +304,12 @@ export async function runQueueScenario(owner: DatabaseOwner, schema: string): Pr
     await wait(2.1);
     const backoffSecond = (await queue.claim<{ unit: string }>({ queue: SCENARIO_QUEUES.backoff }))[0]!;
     const backoffSecondOutcome = await queue.fail(SCENARIO_QUEUES.backoff, backoffSecond, 'the second attempt failed');
-    await wait(1.9);
+    // A fixed delay of one second would have handed the job out by now; the
+    // doubling one waits between two and four seconds, so half a second on
+    // either side of this check keeps the margin a loaded runner needs.
+    await wait(1.5);
     const backoffClaimsBeforeTwiceTheDelay = (await queue.claim({ queue: SCENARIO_QUEUES.backoff })).length;
-    await wait(2.2);
+    await wait(2.6);
     const backoffThird = (await queue.claim<{ unit: string }>({ queue: SCENARIO_QUEUES.backoff }))[0]!;
     const backoffFinalOutcome = await queue.fail(SCENARIO_QUEUES.backoff, backoffThird, 'the third attempt failed');
 
@@ -330,6 +339,8 @@ export async function runQueueScenario(owner: DatabaseOwner, schema: string): Pr
     const shortHeartbeat = await refusal(() =>
       queue.declare({ name: 'short-heartbeat', leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false, heartbeatSeconds: 9 }),
     );
+    const claimWithoutAWholeNumber = await refusal(() => queue.claim({ queue: SCENARIO_QUEUES.units, limit: 0 }));
+    const fractionalPriority = await refusal(() => queue.enqueue({ queue: SCENARIO_QUEUES.units, data: { unit: 'half' }, priority: 1.5 }));
 
     return {
       claimedByPriority: two.map(observed),
@@ -363,6 +374,7 @@ export async function runQueueScenario(owner: DatabaseOwner, schema: string): Pr
       fixedFailedJobId,
       twoDeadLetters,
       twoDeadLettersLimited,
+      twoDeadLettersDefault,
       fixedDeadLettersWithoutAQueue,
       deadLettersBeyondTheBound,
       equalPriorityOrder,
@@ -383,6 +395,8 @@ export async function runQueueScenario(owner: DatabaseOwner, schema: string): Pr
       missingSingletonKey,
       keyOnAPlainQueue,
       shortHeartbeat,
+      claimWithoutAWholeNumber,
+      fractionalPriority,
     };
   } finally {
     await queue.stop();

@@ -158,7 +158,9 @@ test('every queue the scenario names was declared, and the one it never declares
   await scenario;
   const names = await owner.run(async (transaction) => (await transaction.query<{ name: string }>(`SELECT name FROM ${SCHEMA}.queue`)).rows.map((row) => row.name));
   // Each queue the scenario uses, dead letter queues included, is a row of the
-  // owner's own queue table; the one it only refuses against is not.
+  // owner's own queue table; the one it only refuses against is not. The rows of
+  // another test in this file (the declaration one) are beside them, which is why
+  // this asks for these by name rather than for the whole table.
   expect(names).toEqual(expect.arrayContaining([...Object.values(SCENARIO_QUEUES)].filter((name) => name !== SCENARIO_QUEUES.undeclared)));
   expect(names).not.toContain(SCENARIO_QUEUES.undeclared);
 }, 60_000);

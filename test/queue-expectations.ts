@@ -31,11 +31,13 @@ export const QUEUE_SCENARIO_CHECKS: readonly QueueScenarioCheck[] = [
   {
     name: 'a claim takes the highest priority first and then the oldest, reporting each job’s attempt and its queue’s lease',
     check: (report) => {
+      // `units` was declared with two retries, and each job carries that
+      // allowance from its own enqueue.
       expect(report.claimedByPriority).toEqual([
-        { unit: 'high', attempt: 0, leaseSeconds: 60 },
-        { unit: 'middle', attempt: 0, leaseSeconds: 60 },
+        { unit: 'high', attempt: 0, retries: 2, leaseSeconds: 60 },
+        { unit: 'middle', attempt: 0, retries: 2, leaseSeconds: 60 },
       ]);
-      expect(report.claimedLast).toEqual([{ unit: 'low', attempt: 0, leaseSeconds: 60 }]);
+      expect(report.claimedLast).toEqual([{ unit: 'low', attempt: 0, retries: 2, leaseSeconds: 60 }]);
     },
   },
   {
@@ -50,17 +52,23 @@ export const QUEUE_SCENARIO_CHECKS: readonly QueueScenarioCheck[] = [
   {
     name: 'claiming three jobs of equal priority answers them in the order they were enqueued',
     check: (report) => {
+      // `equal-priority` was declared with no retries.
       expect(report.equalPriorityOrder).toEqual([
-        { unit: 'first-equal', attempt: 0, leaseSeconds: 60 },
-        { unit: 'second-equal', attempt: 0, leaseSeconds: 60 },
-        { unit: 'third-equal', attempt: 0, leaseSeconds: 60 },
+        { unit: 'first-equal', attempt: 0, retries: 0, leaseSeconds: 60 },
+        { unit: 'second-equal', attempt: 0, retries: 0, leaseSeconds: 60 },
+        { unit: 'third-equal', attempt: 0, retries: 0, leaseSeconds: 60 },
       ]);
     },
   },
   {
-    name: 'jobs enqueued in one instant come back in code point order of their ids, whatever order the store returns them in',
+    name: 'jobs enqueued in one instant come back in code point order of their ids',
     check: (report) => {
       const ids = report.sameInstantOrder.map((job) => job.id);
+      // What this proves is the promise, not the adapter's comparator: on PGlite
+      // the store's own `UPDATE … RETURNING` already answers ascending ids
+      // (measured, 30 runs of this shape, all 30 ascending), so a comparator
+      // that was dropped would still pass here. The promise is what a caller
+      // reads, and the order is the adapter's where a store does not supply it.
       expect([...report.sameInstantOrder.map((job) => job.unit)].sort()).toEqual(['tie-one', 'tie-three', 'tie-two']);
       expect(ids).toEqual([...ids].sort());
     },
@@ -96,7 +104,8 @@ export const QUEUE_SCENARIO_CHECKS: readonly QueueScenarioCheck[] = [
           queue: SCENARIO_QUEUES.leaseSpentDead,
           sourceQueue: SCENARIO_QUEUES.leaseSpent,
           data: { unit: 'spent' },
-          reason: expect.any(String),
+          // The queue's own words for a lease that lapsed.
+          reason: 'job timed out',
           retriesSpent: 0,
           deadLetteredAt: expect.any(Number),
         },
@@ -143,6 +152,8 @@ export const QUEUE_SCENARIO_CHECKS: readonly QueueScenarioCheck[] = [
     check: (report) => {
       expect(report.twoDeadLetters.map((letter) => letter.data)).toEqual([{ unit: 'second-spent' }, { unit: 'first-spent' }]);
       expect(report.twoDeadLettersLimited.map((letter) => letter.data)).toEqual([{ unit: 'second-spent' }]);
+      // With no limit named, every dead letter of the queue is answered.
+      expect(report.twoDeadLettersDefault).toEqual(report.twoDeadLetters);
       expect(report.fixedDeadLettersWithoutAQueue).toEqual([]);
       expect(report.deadLettersBeyondTheBound ?? '').toContain(`the read of the queue "${SCENARIO_QUEUES.twoDead}"'s dead letters asked for 100001 of them: a limit is a whole number between 1 and 100000`);
     },
@@ -185,6 +196,8 @@ export const QUEUE_SCENARIO_CHECKS: readonly QueueScenarioCheck[] = [
       expect(report.keyOnAPlainQueue).toContain(`the queue "${SCENARIO_QUEUES.units}" holds no singletons`);
       expect(report.emptySingletonKey ?? '').toContain(`the enqueue into the queue "${SCENARIO_QUEUES.plans}" named an empty singleton key`);
       expect(report.shortHeartbeat ?? '').toContain('the queue "short-heartbeat" was declared with a heartbeat of 9 seconds: a heartbeat is a whole number of seconds, at least 10, or left out');
+      expect(report.claimWithoutAWholeNumber ?? '').toContain(`the claim of the queue "${SCENARIO_QUEUES.units}" asked for 0 jobs: a claim takes a whole number of jobs, at least 1`);
+      expect(report.fractionalPriority ?? '').toContain(`the enqueue into the queue "${SCENARIO_QUEUES.units}" named the priority 1.5: a priority is a whole number, higher claimed first`);
     },
   },
 ];

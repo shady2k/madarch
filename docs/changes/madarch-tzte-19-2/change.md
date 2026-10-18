@@ -222,7 +222,16 @@ None.
   (its refusal under ten seconds and a claim recovered when its heartbeat went
   quiet), a lapsed lease on a job with no retries left, the automatic passes, the
   dead letter queue's absent, newest-first, limited and out-of-bound reads, and
-  the batch's three ordering keys.
+  the batch's three ordering keys. The second round found no defect in the queue's
+  behaviour and two doc/code disagreements — the published default of a dead
+  letter read, and `recover`'s words against the sweep's own interval — both fixed
+  here, with the two refusals it named (a claim of no whole number of jobs, a
+  fractional priority) now in the scenario, the job's retry allowance in the order
+  check, and one timing window widened from a tenth of a second of margin to half
+  a second on either side. Its one confirmed residual: on PGlite a dropped
+  tie-break comparator still passes the same-instant check, because the store's
+  own `UPDATE … RETURNING` answers ascending ids (measured over thirty runs), so
+  that check proves the promise rather than the comparator.
 
 ## DONE WHEN
 
