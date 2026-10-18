@@ -13,14 +13,29 @@
  * - the repository's folder is not a git repository, or git cannot read it;
  * - the commit is not in the repository (a branch name, a short id or any other
  *   revision is resolved here, and the resolved commit is what the facts name);
- * - a path is not a repository path, is not in the tree at the commit, holds a
- *   directory, or holds a submodule's commit rather than this repository's
- *   bytes.
+ * - a path a caller asks for is not a repository path, is not in the tree at the
+ *   commit, holds a directory, or holds a submodule's commit rather than this
+ *   repository's bytes;
+ * - the tree git listed is not a tree this reader reads: a row without a shape,
+ *   an object id that is no object id, a size that is no byte count, an entry
+ *   mode or object type this reader does not know.
+ *
+ * **A path taken from the tree is never folded, and a path a caller asks for is
+ * read in the fill's own form.** Git separates with `/` on every machine, so a
+ * backslash in a tree's name is a byte of that name; folding it (which
+ * `repositoryPath` does for a machine path a caller writes) would name another
+ * file, so the tree's path is read as it stands and a tree path that is no path
+ * a fact holds is reported by `unfiled()` — named, never renamed and never
+ * dropped in silence. A path a *caller* passes (`entry`, `requireEntry`, `read`)
+ * is the fill's own form, where a backslash is a separator, exactly as the
+ * schema reads a repository path everywhere else.
  *
  * Nothing here writes: the reader opens no index, changes no ref and touches no
  * file of the checkout it reads (`git ls-tree` and `git cat-file` are read-only
- * plumbing). A tree of any size is read once, when the reader is opened, and
- * the entries are held in code point order of their paths.
+ * plumbing). A tree of any size is read once, when the reader is opened, and the
+ * entries are held in the project's code point order (`byCodePoint`, the order a
+ * fact's own lists are read in) — the same order git lists for every name of the
+ * basic plane.
  */
 import { execFile } from 'node:child_process';
 import { byCodePoint } from '../model/order.js';
@@ -35,12 +50,16 @@ export type SnapshotRefusal =
   | 'no-repository'
   /** The commit is not in the repository. */
   | 'no-commit'
-  /** The path is not a repository path: absolute, climbing out, or empty. */
+  /** The tree git listed is not a tree this reader reads: a row without a shape, an object id that is no id, a size that is no byte count. */
+  | 'unreadable-tree'
+  /** The path is not a repository path: absolute, climbing out, of a machine's drive, or empty. */
   | 'not-a-repository-path'
   /** The path is not in the tree at the commit. */
   | 'not-in-tree'
   /** The path holds a submodule's commit, whose bytes stand in another repository. */
   | 'not-read-here'
+  /** Git could not answer an object the tree named. */
+  | 'object-unreadable'
   /** The bytes git answered are not the size the tree stated for them. */
   | 'changed-bytes'
   /** The tree holds an entry mode this reader does not know. */
@@ -118,6 +137,25 @@ export function isReadableEntry(entry: SnapshotEntry): boolean {
   return entry.form === 'blob' || entry.form === 'link';
 }
 
+/**
+ * One entry of the tree the reader listed and cannot file: the tree's own path
+ * is not one a fact can hold (a fact's paths are repository paths, separated by
+ * `/`, and a name that would have to be changed to fit is never changed). It is
+ * named here rather than dropped, nothing is read for it, and a stage's
+ * coverage names it as what could not be read — a file the fill forgot in
+ * silence would be a hole in the graph nobody can see.
+ */
+export interface UnfiledEntry {
+  /** The path git lists, byte for byte, exactly as the tree holds it. */
+  readonly path: string;
+  readonly mode: SnapshotMode;
+  readonly form: SnapshotEntryForm;
+  readonly id: string;
+  readonly bytes?: number;
+  /** Why this path is no path of a fact, in the reader's own words. */
+  readonly why: string;
+}
+
 // ---- the repository to pin -------------------------------------------------
 
 /**
@@ -145,6 +183,8 @@ interface GitAnswer {
   readonly ok: boolean;
   readonly stdout: Buffer;
   readonly stderr: string;
+  /** What the call itself failed with when it never answered — a buffer past this reader's own, a git that could not start. */
+  readonly failure?: string;
 }
 
 /** Runs one read-only git command in the checkout; nothing here writes, so a caller cannot mutate what it reads. */
@@ -153,14 +193,26 @@ function git(root: string, args: readonly string[]): Promise<GitAnswer> {
     execFile('git', ['-C', root, ...args], { encoding: 'buffer', maxBuffer: 1024 * 1024 * 1024 }, (error, stdout, stderr) => {
       const out = Buffer.isBuffer(stdout) ? stdout : Buffer.from(String(stdout ?? ''), 'utf8');
       const err = Buffer.isBuffer(stderr) ? stderr.toString('utf8') : String(stderr ?? '');
-      resolve({ ok: error === null, stdout: out, stderr: err.trim() });
+      resolve({
+        ok: error === null,
+        stdout: out,
+        stderr: err.trim(),
+        ...(error === null || error.message === '' ? {} : { failure: error.message }),
+      });
     });
   });
 }
 
-/** What a failed git call said, for a refusal that names it. */
+/**
+ * What a failed git call said, for a refusal that names it: git's own words
+ * where it spoke, the call's own failure where it never answered at all (a
+ * buffer past this reader's limit, a git that could not start), and "answered
+ * nothing" only where neither said anything.
+ */
 function why(answer: GitAnswer): string {
-  return answer.stderr === '' ? 'git answered nothing' : `git said ${JSON.stringify(answer.stderr)}`;
+  if (answer.stderr !== '') return `git said ${JSON.stringify(answer.stderr)}`;
+  if (answer.failure !== undefined) return `the call itself failed: ${answer.failure}`;
+  return 'git answered nothing';
 }
 
 // ---- the reader -----------------------------------------------------------
@@ -183,13 +235,20 @@ export class SnapshotReader {
   private readonly resolvedCommit: string;
   private readonly treeId: string;
   private readonly held: readonly SnapshotEntry[];
+  /** The entries by path: a lookup is one map read, however big the tree is. */
+  private readonly byPath: ReadonlyMap<string, SnapshotEntry>;
+  private readonly unfiledEntries: readonly UnfiledEntry[];
   private readonly reader: SnapshotSourceRef;
+  /** The entries whose bytes this reader can answer, worked out once. */
+  private filesHeld: readonly SnapshotEntry[] | undefined;
 
-  private constructor(pin: RepositoryPin, resolvedCommit: string, treeId: string, tree: readonly SnapshotEntry[], reader: SnapshotSourceRef) {
+  private constructor(pin: RepositoryPin, resolvedCommit: string, treeId: string, tree: readonly SnapshotEntry[], unfiled: readonly UnfiledEntry[], reader: SnapshotSourceRef) {
     this.pin = pin;
     this.resolvedCommit = resolvedCommit;
     this.treeId = treeId;
     this.held = tree;
+    this.byPath = new Map(tree.map((entry) => [entry.path, entry]));
+    this.unfiledEntries = unfiled;
     this.reader = reader;
   }
 
@@ -242,7 +301,7 @@ export class SnapshotReader {
       });
     }
     const tree = parseTree(listed.stdout, repository, resolvedCommit);
-    return new SnapshotReader(pin, resolvedCommit, treeId.stdout.toString('utf8').trim(), tree, {
+    return new SnapshotReader(pin, resolvedCommit, treeId.stdout.toString('utf8').trim(), tree.entries, tree.unfiled, {
       system: 'git',
       version: gitVersionOf(version.stdout.toString('utf8')),
     });
@@ -283,20 +342,34 @@ export class SnapshotReader {
     return this.reader;
   }
 
-  /** Every tree entry, in code point order of the paths; a submodule's commit among them. */
+  /** Every tree entry, in the project's code point order of the paths; a submodule's commit among them. */
   entries(): readonly SnapshotEntry[] {
     return this.held;
   }
 
-  /** The entries whose bytes this reader can answer: files and symbolic links, in code point order. */
+  /** The entries whose bytes this reader can answer: files and symbolic links, in the same order. */
   files(): readonly SnapshotEntry[] {
-    return this.held.filter(isReadableEntry);
+    this.filesHeld ??= this.held.filter(isReadableEntry);
+    return this.filesHeld;
   }
 
-  /** The entry at the path, or `undefined` when the tree holds none (no refusal: this is a lookup). */
+  /**
+   * The tree entries the reader listed and cannot file, because the tree's own
+   * path is not one a fact holds. None of them is in `entries()`: a path the
+   * fill would have to change is never renamed, and it is never dropped in
+   * silence either — a stage names each of them in its coverage.
+   */
+  unfiled(): readonly UnfiledEntry[] {
+    return this.unfiledEntries;
+  }
+
+  /**
+   * The entry at the path: `undefined` when the tree holds none. A path that is
+   * no repository path is refused rather than looked up, since a machine path
+   * must never read as "the tree does not hold it".
+   */
   entry(path: string): SnapshotEntry | undefined {
-    const wanted = asRepositoryPath(path, this.pin.id, this.resolvedCommit);
-    return this.held.find((entry) => entry.path === wanted);
+    return this.byPath.get(asRepositoryPath(path, this.pin.id, this.resolvedCommit));
   }
 
   /** How many files (and links) the tree holds. */
@@ -331,7 +404,7 @@ export class SnapshotReader {
         repository: this.pin.id,
         commit: this.resolvedCommit,
         path: entry.path,
-        refusal: 'no-repository',
+        refusal: 'object-unreadable',
         detail: `the bytes of ${JSON.stringify(entry.path)} (blob ${entry.id}) could not be read from ${JSON.stringify(this.pin.root)}: ${why(answered)}`,
       });
     }
@@ -355,7 +428,7 @@ export class SnapshotReader {
   /** The entry at the path, refused where the tree holds none: the read path's own lookup. */
   requireEntry(path: string): SnapshotEntry {
     const wanted = asRepositoryPath(path, this.pin.id, this.resolvedCommit);
-    const entry = this.held.find((candidate) => candidate.path === wanted);
+    const entry = this.byPath.get(wanted);
     if (entry === undefined) {
       throw new SnapshotError({
         repository: this.pin.id,
@@ -392,34 +465,31 @@ function asRepositoryPath(path: string, repository: string, commit: string): Rep
 }
 
 /**
- * One `git ls-tree -r -l -z` answer, as the entries it lists. A row git does
- * not write as this reader reads trees, an entry whose mode this reader does
- * not know, and an object id that is no object id are all refused: an entry
- * dropped in silence would be a file the fill never learns about.
+ * One `git ls-tree -r -l -z` answer, as the entries it lists and the entries it
+ * cannot file. A row git does not write as this reader reads trees, an entry
+ * whose mode this reader does not know, an object id that is no object id and a
+ * size that is no byte count are all refused: an entry dropped in silence would
+ * be a file the fill never learns about.
+ *
+ * A tree's path is taken exactly as git writes it, and **never folded**: git
+ * separates with `/` on every machine, so a backslash in a name is a byte of
+ * that name and not a separator, and a name the fill's path form cannot hold is
+ * named as unfiled instead of being renamed into another file's path.
  */
-function parseTree(output: Buffer, repository: string, commit: string): readonly SnapshotEntry[] {
+function parseTree(output: Buffer, repository: string, commit: string): { entries: readonly SnapshotEntry[]; unfiled: readonly UnfiledEntry[] } {
   const entries: SnapshotEntry[] = [];
+  const unfiled: UnfiledEntry[] = [];
   for (const row of output.toString('utf8').split('\0')) {
     if (row === '') continue;
     const tab = row.indexOf('\t');
+    const path = tab < 0 ? row : row.slice(tab + 1);
+    const malformed = (detail: string): Error => new SnapshotError({ repository, commit, refusal: 'unreadable-tree', detail });
     if (tab < 0) {
-      throw new SnapshotError({
-        repository,
-        commit,
-        refusal: 'no-commit',
-        detail: `git listed a tree entry without a path: ${JSON.stringify(row)}`,
-      });
+      throw malformed(`git listed a tree entry without a path: ${JSON.stringify(row)}`);
     }
     const [mode, type, id, size] = row.slice(0, tab).split(/\s+/u);
-    const path = row.slice(tab + 1);
     if (mode === undefined || type === undefined || id === undefined || size === undefined) {
-      throw new SnapshotError({
-        repository,
-        commit,
-        path,
-        refusal: 'no-commit',
-        detail: `git listed the tree entry ${JSON.stringify(row)} in a shape this reader does not know: a row is "<mode> <type> <object> <size>\\t<path>"`,
-      });
+      throw malformed(`git listed the tree entry ${JSON.stringify(row)} in a shape this reader does not know: a row is "<mode> <type> <object> <size>\\t<path>"`);
     }
     if (!(SNAPSHOT_MODES as readonly string[]).includes(mode)) {
       throw new SnapshotError({
@@ -433,38 +503,49 @@ function parseTree(output: Buffer, repository: string, commit: string): readonly
     const entryMode = mode as SnapshotMode;
     const form = FORM_OF_MODE[entryMode];
     if (form !== 'commit' && type !== 'blob') {
-      throw new SnapshotError({
-        repository,
-        commit,
-        path,
-        refusal: 'unknown-mode',
-        detail: `git listed the object type ${JSON.stringify(type)} under the mode ${entryMode}: a file's mode holds a blob`,
-      });
+      throw malformed(`git listed the object type ${JSON.stringify(type)} under the mode ${entryMode}, which holds a blob: this reader reads trees git wrote`);
     }
     if (!/^[0-9a-f]{40}$/u.test(id)) {
-      throw new SnapshotError({
-        repository,
-        commit,
-        path,
-        refusal: 'no-commit',
-        detail: `git listed the object id ${JSON.stringify(id)}, which is no object id: an object id is 40 lower-case hexadecimal digits`,
-      });
+      throw malformed(`git listed the object id ${JSON.stringify(id)}, which is no object id: an object id is 40 lower-case hexadecimal digits`);
     }
     // The size is `-` for an entry whose object is no blob, and a byte count
     // for every other: a size that is neither is a row this reader misreads.
     const bytes = size === '-' ? undefined : Number(size);
     if (size !== '-' && !Number.isInteger(bytes)) {
-      throw new SnapshotError({
-        repository,
-        commit,
-        path,
-        refusal: 'no-commit',
-        detail: `git listed the size ${JSON.stringify(size)} for this path, which is no byte count`,
-      });
+      throw malformed(`git listed the size ${JSON.stringify(size)} for this path, which is no byte count`);
     }
-    entries.push({ path: asRepositoryPath(path, repository, commit), mode: entryMode, form, id, ...(bytes === undefined ? {} : { bytes }) });
+    const sized = bytes === undefined ? {} : { bytes };
+    const fillable = fillablePath(path);
+    if ('why' in fillable) {
+      unfiled.push({ path, mode: entryMode, form, id, ...sized, why: fillable.why });
+      continue;
+    }
+    entries.push({ path: fillable.path, mode: entryMode, form, id, ...sized });
   }
-  return entries.sort((left, right) => byCodePoint(left.path, right.path));
+  return {
+    entries: entries.sort((left, right) => byCodePoint(left.path, right.path)),
+    unfiled: unfiled.sort((left, right) => byCodePoint(left.path, right.path)),
+  };
+}
+
+/**
+ * A tree's path as the path of a fact, or why it is no such path. Git's paths
+ * are `/`-separated already, so nothing here folds a separator: a backslash in
+ * a name would be folded by `repositoryPath`, and folding it would name another
+ * file, so such a name is refused here instead. The rest of the path's rules
+ * are the schema's own, read through `repositoryPath`.
+ */
+function fillablePath(path: string): { path: RepositoryPath } | { why: string } {
+  if (path.includes('\\')) {
+    return {
+      why: `the tree holds the name ${JSON.stringify(path)}, which carries a backslash: the fill's repository paths separate with "/", so this name is the name of a file the fill cannot file as it stands`,
+    };
+  }
+  try {
+    return { path: repositoryPath(path) };
+  } catch (error) {
+    return { why: (error as Error).message };
+  }
 }
 
 // ---- the repositories a run pins ------------------------------------------
@@ -487,18 +568,27 @@ export type RepositoryPins = readonly RepositoryPin[] | (() => Promise<readonly 
 
 /**
  * The source over real git checkouts: the pins given here, read fresh where the
- * caller hands a function, and one `SnapshotReader` per repository id. The pin
- * itself is judged once, when the pins are read: a duplicate id, a name that is
- * no repository name, a form that is no form of a repository, a folder without
- * a name and a commit without a name are all refused there, naming the pin,
- * because a pin this reader cannot use is one no stage should plan with.
+ * caller hands a function, and one `SnapshotReader` per repository, commit and
+ * folder. The pin itself is judged once, when the pins are read — a name that is
+ * no repository name, a form that is no form of a repository, a folder without a
+ * name, a commit without a name — and a duplicate id is refused there too: a pin
+ * this reader cannot use is one no stage should plan with. Every pin is judged
+ * before any is sorted, so a pin that is no pin at all is named rather than
+ * thrown out of by the sort.
+ *
+ * A reader is held while a run fills, because a unit's `execute` must not list a
+ * large tree again for every file it writes: the tree of one commit does not
+ * change, so one reader answers as many units as ask it. The last few readers
+ * stand (eight by default) and a new commit is a new reader; a reader whose open
+ * failed is not held.
  */
-export function createGitSnapshotSource(pins: RepositoryPins): SnapshotSource {
+export function createGitSnapshotSource(pins: RepositoryPins, options: { readonly readersHeld?: number } = {}): SnapshotSource {
+  const held = new Map<string, Promise<SnapshotReader>>();
+  const limit = Math.max(1, options.readersHeld ?? 8);
   const current = async (): Promise<readonly RepositoryPin[]> => {
-    const held = typeof pins === 'function' ? await pins() : pins;
-    const sorted = [...held].sort((left, right) => byCodePoint(left.id, right.id));
+    const read = typeof pins === 'function' ? await pins() : pins;
     const seen = new Set<string>();
-    for (const pin of sorted) {
+    for (const pin of read) {
       const problem = pinProblem(pin);
       if (problem !== undefined) throw new Error(problem);
       if (seen.has(pin.id)) {
@@ -506,18 +596,29 @@ export function createGitSnapshotSource(pins: RepositoryPins): SnapshotSource {
       }
       seen.add(pin.id);
     }
-    return sorted;
+    return [...read].sort((left, right) => byCodePoint(left.id, right.id));
   };
   return {
     pins: current,
     async open(repository: string): Promise<SnapshotReader> {
-      const held = await current();
-      const pin = held.find((candidate) => candidate.id === repository);
+      const pins = await current();
+      const pin = pins.find((candidate) => candidate.id === repository);
       if (pin === undefined) {
-        const known = held.map((candidate) => candidate.id);
+        const known = pins.map((candidate) => candidate.id);
         throw new Error(`the repository ${JSON.stringify(repository)} is not one this run pins: it pins ${known.length === 0 ? 'no repository' : known.map((id) => JSON.stringify(id)).join(', ')}`);
       }
-      return await SnapshotReader.open(pin);
+      const key = `${pin.id}\u0000${pin.commit}\u0000${pin.root}`;
+      const standing = held.get(key);
+      if (standing !== undefined) return await standing;
+      const opened = SnapshotReader.open(pin);
+      held.set(key, opened);
+      void opened.catch(() => held.delete(key));
+      while (held.size > limit) {
+        const oldest = held.keys().next().value;
+        if (oldest === undefined) break;
+        held.delete(oldest);
+      }
+      return await opened;
     },
   };
 }

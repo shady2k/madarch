@@ -19,7 +19,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkFact } from '../src/fill/facts.js';
@@ -232,8 +232,10 @@ describe('the snapshot stage', () => {
       expect(repository?.value).toEqual({ repository: 'orders-api', form: 'code' });
       // One node per repository across commits: the same id at another commit.
       expect(snapshot?.provenance.repository).toEqual({ id: 'orders-api', commit });
-      // The coverage covers the repository node it was read for and found no gap.
-      expect(coverage?.value).toEqual({ repository: 'orders-api', scope: repository!.id, complete: true, read: ['blob'], unread: [] });
+      // The coverage covers the repository node it was read for and found no
+      // gap; a folder holds no bytes of its own, so the kinds it names are the
+      // kinds of file the tree held.
+      expect(coverage?.value).toEqual({ repository: 'orders-api', scope: repository!.id, complete: true, read: ['file'], unread: [] });
       // The evidence a reader can check the write against: the repository and the commit.
       for (const write of recorder.writes) expect(write.evidence).toBe(`orders-api@${commit}`);
       expect(recorder.notes).toHaveLength(1);
@@ -260,6 +262,77 @@ describe('the snapshot stage', () => {
       expect(coverage?.value['complete']).toBe(false);
       expect(coverage?.value['unread']).toEqual([{ what: 'sub', reason: 'unsupported' }]);
       expect(checkFact(factOf(recorder.writes[0]!))).toEqual([]);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a symbolic link is a file of the tree: it is counted, and the coverage names its kind', async () => {
+    const f = await fixture();
+    try {
+      await f.write('src/a.ts', 'export const a = 1;\n');
+      await symlink('src/a.ts', join(f.root, 'link.ts'));
+      const commit = f.commit();
+      const stage = createSnapshotStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const { context, recorder } = contextFor({ id: 'orders-api', scope: 'orders-api' });
+      await stage.execute({ id: 'orders-api', scope: 'orders-api' }, context);
+      const [coverage, , snapshot] = factsOf(recorder.writes);
+      // A link's bytes are the path it points at, so the tree holds two files
+      // and the coverage says which kinds they are.
+      expect(snapshot?.value['fileCount']).toBe(2);
+      expect(coverage?.value['read']).toEqual(['file', 'symbolic-link']);
+      expect(coverage?.value['complete']).toBe(true);
+      expect(checkFact(factOf(recorder.writes[0]!))).toEqual([]);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a tree path the fill cannot name is coverage, named with its path, and no fact is written for it', async () => {
+    const f = await fixture();
+    try {
+      await f.write('plain.ts', 'export const a = 1;\n');
+      await f.write('a\\b.txt', 'the backslash file\n');
+      await f.write('C:/inside.txt', 'the drive-shaped file\n');
+      const commit = f.commit();
+      const stage = createSnapshotStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const { context, recorder } = contextFor({ id: 'orders-api', scope: 'orders-api' });
+      await stage.execute({ id: 'orders-api', scope: 'orders-api' }, context);
+      const coverage = factsOf(recorder.writes).find((fact) => fact.kind === 'coverage');
+      expect(coverage?.value['complete']).toBe(false);
+      expect(coverage?.value['unread']).toEqual([
+        { what: 'C:/inside.txt', reason: 'unsupported' },
+        { what: 'a\\b.txt', reason: 'unsupported' },
+      ]);
+      // Only the file the fill can name is read: two files were not read, and
+      // the coverage is what says so rather than a silence.
+      expect(coverage?.value['read']).toEqual(['file']);
+      expect(factsOf(recorder.writes).find((fact) => fact.kind === 'snapshot')?.value['fileCount']).toBe(1);
+      expect(checkFact(factOf(recorder.writes[0]!))).toEqual([]);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a cancelled unit raises after the reader opened too, and writes nothing', async () => {
+    const f = await fixture();
+    try {
+      await f.write('src/a.ts', 'export const a = 1;\n');
+      const commit = f.commit();
+      const real = createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]);
+      const { context, recorder, controller } = contextFor({ id: 'orders-api', scope: 'orders-api' });
+      // A source that cancels in the moment the reader is handed over: the
+      // check after the open is what this proves.
+      const stage = createSnapshotStage({
+        pins: () => real.pins(),
+        open: async (repository) => {
+          const reader = await real.open(repository);
+          controller.abort();
+          return reader;
+        },
+      });
+      await expect(stage.execute({ id: 'orders-api', scope: 'orders-api' }, context)).rejects.toThrow('was cancelled');
+      expect(recorder.writes).toEqual([]);
     } finally {
       await f.dispose();
     }
@@ -478,6 +551,52 @@ describe('the inventory stage', () => {
     }
   });
 
+  test('a folder the commit no longer holds is planned as a unit that publishes nothing', async () => {
+    const f = await fixture();
+    try {
+      await f.write('src/nested/b.go', 'package b\n');
+      await f.write('keep.ts', 'export const k = 1;\n');
+      const first = f.commit();
+      let commit = first;
+      const source = createGitSnapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]);
+      const stage = createInventoryStage(source);
+      const firstPlan = await stage.plan({ query: async () => [] });
+      const published: StageDraftWrite[] = [];
+      for (const unit of firstPlan.units) {
+        const run = contextFor(unit);
+        await stage.execute(unit, run.context);
+        published.push(...run.recorder.writes);
+      }
+      expect(unitIds(firstPlan)).toEqual([
+        'directory:orders-api:src',
+        'directory:orders-api:src/nested',
+        'file:orders-api:keep.ts',
+        'file:orders-api:src/nested/b.go',
+      ]);
+      // The one file standing in `src/nested` goes: the folder goes with it.
+      f.git('rm', '-q', 'src/nested/b.go');
+      commit = f.commit();
+      const plan = await stage.plan({ query: async () => publishedRows(published, 'orders-api') });
+      // The file's unit is a retraction, and so is every folder that held it and
+      // holds nothing now: `src/nested` and `src` both stop standing in the tree.
+      expect(unitIds(plan)).toEqual([
+        'directory:orders-api:src',
+        'directory:orders-api:src/nested',
+        'file:orders-api:src/nested/b.go',
+      ]);
+      for (const id of ['directory:orders-api:src', 'directory:orders-api:src/nested']) {
+        const folder = contextFor({ id, scope: id.slice('directory:'.length) });
+        await stage.execute({ id, scope: id.slice('directory:'.length) }, folder.context);
+        expect(folder.recorder.writes).toEqual([]);
+        expect(folder.recorder.notes[0]).toContain('publishes nothing');
+      }
+      // A folder no file stands in is not planned when it was never published.
+      expect(unitIds(plan)).not.toContain('file:orders-api:keep.ts');
+    } finally {
+      await f.dispose();
+    }
+  });
+
   test('a unit the stage never plans, a row a read misreads and a cancelled unit are all refused', async () => {
     const f = await fixture();
     try {
@@ -486,18 +605,25 @@ describe('the inventory stage', () => {
       const stage = createInventoryStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
       const unplanned = contextFor({ id: 'src/a.ts', scope: 'orders-api:src/a.ts' });
       await expect(stage.execute({ id: 'src/a.ts', scope: 'orders-api:src/a.ts' }, unplanned.context)).rejects.toThrow('is not one this stage plans');
-      // A read that answers a row for another repository, a kind the stage does not hold, or a path that is no path.
-      for (const row of [
-        { kind: 'file', repository: 'catalog-api', path: 'src/a.ts' },
-        { kind: 'package', repository: 'orders-api', path: 'src/a.ts' },
-        { kind: 'file', repository: 'orders-api', path: '/etc/passwd' },
-        { kind: 'file', repository: 'orders-api', path: 'src/a.ts', blob: 'not-a-blob' },
-        { kind: 'file', repository: 'orders-api', path: 'src/a.ts', runId: 'run-7' },
+      // A read that answers a row for another repository, a kind the stage does
+      // not hold, a path that is no path, a blob that is no blob, a key the read
+      // does not name, a folder carrying a blob, or one path twice.
+      const good = { kind: 'file', repository: 'orders-api', path: 'src/a.ts', blob: 'a'.repeat(40) };
+      for (const rows of [
+        [{ kind: 'file', repository: 'catalog-api', path: 'src/a.ts' }],
+        [{ kind: 'package', repository: 'orders-api', path: 'src/a.ts' }],
+        [{ kind: 'file', repository: 'orders-api', path: '/etc/passwd' }],
+        [{ kind: 'file', repository: 'orders-api', path: 'src/a.ts', blob: 'not-a-blob' }],
+        [{ kind: 'file', repository: 'orders-api', path: 'src/a.ts', runId: 'run-7' }],
+        [{ kind: 'directory', repository: 'orders-api', path: 'src', blob: 'a'.repeat(40) }],
+        [good, { ...good, blob: 'b'.repeat(40) }],
       ]) {
-        const message = await refusedBy(() => stage.plan({ query: async () => [row] }));
+        const message = await refusedBy(() => stage.plan({ query: async () => rows }));
         expect(message).not.toBe('answered');
         expect(String(message)).toContain(publishedTreeRead('orders-api'));
-        expect(String(message)).toContain('row 1');
+        expect(String(message)).toContain('row ');
+        if (rows.length > 1) expect(String(message)).toContain('row 2');
+        else expect(String(message)).toContain('row 1');
       }
       const cancelled = contextFor({ id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' });
       cancelled.controller.abort();

@@ -60,6 +60,23 @@ function pinOf(f: Fixture, commit: string, id = 'orders-api'): RepositoryPin {
   return { id, form: 'code', root: f.root, commit };
 }
 
+/** A throwaway repository the test fills with the names it wants, and commits. */
+async function repositoryOf(paths: readonly string[]): Promise<{ root: string; commit: string; dispose(): Promise<void> }> {
+  const root = await mkdtemp(join(tmpdir(), 'madarch-snapshot-names-'));
+  const git = (...args: string[]): string => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
+  git('init', '-q');
+  git('config', 'user.name', 'Fixture');
+  git('config', 'user.email', 'fixture@example.invalid');
+  for (const path of paths) {
+    const at = join(root, path);
+    await mkdir(join(at, '..'), { recursive: true });
+    await writeFile(at, `the bytes of ${path}\n`);
+  }
+  git('add', '-A');
+  git('commit', '-qm', 'fixture');
+  return { root, commit: git('rev-parse', 'HEAD').trim(), dispose: () => rm(root, { recursive: true, force: true }) };
+}
+
 /** The failure a call raised, so a test can read what it names. */
 function raised(call: () => Promise<unknown>): Promise<SnapshotError> {
   return call().then(
@@ -169,6 +186,12 @@ describe('what the reader refuses', () => {
       // requireEntry refuses where entry looks up.
       expect(reader.entry('src/nowhere.ts')).toBeUndefined();
       expect(() => reader.requireEntry('src/nowhere.ts')).toThrow(SnapshotError);
+      // A path that is no repository path is refused by both: a lookup never
+      // answers "the tree does not hold it" for a machine's own path.
+      const machine = await raised(() => reader.read('/etc/passwd'));
+      expect(machine.refusal).toBe('not-a-repository-path');
+      expect(() => reader.entry('/etc/passwd')).toThrow(SnapshotError);
+      expect(() => reader.requireEntry('../outside.ts')).toThrow(SnapshotError);
     } finally {
       await f.dispose();
     }
@@ -211,6 +234,62 @@ describe('what the reader refuses', () => {
       expect(refusal.commit).toBe(missing);
       expect(refusal.message).toContain(JSON.stringify('orders-api'));
       expect(refusal.message).toContain(missing);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a tree path the fill cannot name is listed as unfiled, never renamed and never dropped in silence', async () => {
+    // Git separates with "/" on every machine, so a backslash here is a byte of
+    // the name, and two names must never answer as one path. The drive-shaped
+    // name is a repository path of git's own that the fill's path form refuses;
+    // both are listed as unfiled with why, and the rest of the tree reads.
+    const f = await repositoryOf(['a\\b.txt', 'a/b.txt', 'C:/inside.txt', 'plain.ts']);
+    try {
+      const reader = await SnapshotReader.open({ id: 'orders-api', form: 'code', root: f.root, commit: f.commit });
+      expect(reader.entries().map((entry) => String(entry.path))).toEqual(['a/b.txt', 'plain.ts']);
+      expect(reader.unfiled().map((entry) => entry.path)).toEqual(['C:/inside.txt', 'a\\b.txt']);
+      expect(reader.unfiled().every((entry) => entry.why.length > 0)).toBe(true);
+      expect(reader.unfiled()[0]?.why).toContain('machine');
+      expect(reader.unfiled()[1]?.why).toContain('backslash');
+      // The two files are two, and the one the fill can name answers its own
+      // bytes. A path a *caller* asks for is read in the fill's own form, where
+      // a backslash is a machine separator (facts.ts): asking for the name git
+      // holds with a backslash answers the file the fold names. What the reader
+      // never does is take the tree's own path that way — the tree's entry is
+      // unfiled, above, and nothing writes a fact of the other file's path.
+      expect(reader.files().map((entry) => String(entry.path))).toEqual(['a/b.txt', 'plain.ts']);
+      expect(await reader.readText('a/b.txt')).toBe('the bytes of a/b.txt\n');
+      expect(await reader.readText('a\\b.txt')).toBe('the bytes of a/b.txt\n');
+      // Nothing was renamed: the unfiled entries keep git's own path and id.
+      const listed = execFileSync('git', ['-C', f.root, 'ls-tree', '-r', f.commit], { encoding: 'utf8' });
+      for (const entry of reader.unfiled()) expect(listed).toContain(entry.id);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('the entries stand in the project\'s own order, which is what a fact list is read in', async () => {
+    // The fill orders by `byCodePoint`, UTF-16 code-unit order: the same order
+    // for every name of the basic plane, and the order a supplementary-plane
+    // name sorts by. The reader answers that order, and this fixture holds a
+    // name no ASCII-only fixture can tell apart from the other order.
+    const f = await repositoryOf(['a\uE000.txt', 'a\u{1F600}.txt', 'b.txt']);
+    try {
+      const reader = await SnapshotReader.open({ id: 'orders-api', form: 'code', root: f.root, commit: f.commit });
+      const paths = reader.entries().map((entry) => String(entry.path));
+      expect(paths).toEqual(['a\u{1F600}.txt', 'a\uE000.txt', 'b.txt']);
+      // Git's own listing is its tree's byte order, which differs from the
+      // fill's for a supplementary-plane name (its UTF-8 bytes start above
+      // U+E000's) and agrees with it for every name of the basic plane. Both
+      // orders are deterministic; the fill's is the order its fact lists are
+      // read in, which is why the reader answers that one.
+      // `-z` is git's own answer without its C-style quoting of a name that is
+      // not ASCII, which is the same answer the reader reads.
+      const fromGit = execFileSync('git', ['-C', f.root, 'ls-tree', '-r', '-z', f.commit], { encoding: 'utf8' })
+        .split('\0').filter((row) => row !== '').map((row) => row.slice(row.indexOf('\t') + 1));
+      expect(fromGit).toEqual(['a\uE000.txt', 'a\u{1F600}.txt', 'b.txt']);
+      expect([...paths].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))).toEqual(paths);
     } finally {
       await f.dispose();
     }
@@ -261,6 +340,11 @@ describe('the source of a run\'s pins', () => {
       expect(String(unknown)).toContain('"catalog-api"');
       expect(String(unknown)).toContain('"orders-api"');
 
+      // A pin that is no pin at all is named, whatever stands beside it: the
+      // pins are judged before they are sorted.
+      const beside = createGitSnapshotSource([null as unknown as RepositoryPin, { id: 'orders-api', form: 'code', root: f.root, commit: f.first }]);
+      expect(await beside.pins().then(() => 'answered', (error: Error) => error.message)).toContain('is no pinned repository');
+
       const twice = createGitSnapshotSource([
         { id: 'orders-api', form: 'code', root: f.root, commit: f.first },
         { id: 'orders-api', form: 'code', root: f.root, commit: f.second },
@@ -277,6 +361,24 @@ describe('the source of a run\'s pins', () => {
         const message = await createGitSnapshotSource([broken]).pins().then(() => 'answered', (error: Error) => error.message);
         expect(message).not.toBe('answered');
       }
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('one reader stands per repository, commit and folder, so a unit\'s execute does not list the tree again', async () => {
+    const f = await fixture();
+    try {
+      const source = createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit: f.first }]);
+      const once = await source.open('orders-api');
+      expect(await source.open('orders-api')).toBe(once);
+      // Another commit is another reader: the tree of a commit never changes,
+      // and two commits are two trees.
+      let commit = f.first;
+      const perRun = createGitSnapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]);
+      expect((await perRun.open('orders-api')).commit).toBe(f.first);
+      commit = f.second;
+      expect((await perRun.open('orders-api')).commit).toBe(f.second);
     } finally {
       await f.dispose();
     }

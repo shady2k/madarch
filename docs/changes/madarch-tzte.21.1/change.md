@@ -102,26 +102,56 @@ before this change.
   it. `FileValue` had roles, language and size and no blob. The field is
   optional and not part of the identity: a file whose bytes changed is the same
   file with the same id, and the blob is what tells one reading of it from the
-  next. The kind's `version` moves to 2 alone, as `facts.ts` says a kind whose
-  value changes moves; the schema version stays 1. `test/fill-facts.test.ts`'s
-  "every kind carries the schema version" gains the one kind that has moved, and
-  names why.
+  next. The field's form is git's own object id, which the reader answers from
+  `git ls-tree`; the schema's own check names the kind's keys and, like
+  `commit.commit` before it, does not re-read a 40-hex field's letters. The
+  kind's `version` moves to 2 alone, as `facts.ts` says a kind whose value changes
+  moves; the schema version stays 1. `test/fill-facts.test.ts`'s "every kind
+  carries the schema version" gains the one kind that has moved, and names why.
+- **A tree's path is never folded, and a path the fill cannot name is unfiled.**
+  Git separates with `/` on every machine, so a backslash in a tree name is a
+  byte of that name: putting it through `repositoryPath` — which folds a
+  backslash for a caller that writes a machine path — would rename it into
+  another file's path and answer the other file's bytes under it, and two files
+  would become one fact. So the reader validates a tree path without folding,
+  and a tree path that is not a repository path of a fact (a name with a
+  backslash, a name that looks like a machine's drive) is listed as **unfiled**:
+  it is not in `entries()`, nothing is read for it, and it is never dropped in
+  silence — this stage's coverage names it, with the path, so a reader of the
+  graph sees the hole and not a smaller repository. The rest of the tree reads
+  as usual: one unusual name does not cost the repository.
 - **A draft write's `fact` value is a whole envelope.** `StageDraftWrite` says
   `value: unknown` and the write path checks it with `checkFact`, which reads an
   envelope (kind, schema version, id, provenance, layer, status, value). So a
   stage builds its facts with `makeNodeFact`/`makeEdgeFact` and writes what those
   return: the id is the one the store will hold, and `validate` reads the same
-  envelope back with the same check. An empty draft is a fact of life, not a
-  defect: it is how a stage retracts what an earlier run wrote for a path the
-  pinned commit no longer holds.
+  envelope back with the same check. A unit that writes no fact is how this
+  stage asks for a retraction — and that is a request, not a property of this
+  change: that an empty set replaces the unit's earlier facts with none is
+  madarch-tzte.20.2's publication semantics, which nothing landed defines today
+  (`fsm.ts`'s `retract-draft` covers unpublished generations only). Recorded as
+  an open point in the acceptance evidence below.
+- **A file's place is the whole file.** The schema requires a place of a `file`
+  fact, so stage 1 reads a file's bytes to state it: one `git cat-file` per file
+  the unit writes, and the range a reader counts — from the first line's first
+  character to the last line's end, a trailing newline ending a line rather than
+  starting an empty one, and the columns counted in UTF-16 code units of the
+  bytes decoded as UTF-8 (a byte sequence that is not UTF-8 reads as replacement
+  characters, which is what a reader shows). So stage 1 is not byte-free: a first
+  run of a large repository pulls every file through `cat-file` once, and its
+  steady state reads only the files that changed. A blob past the reader's own
+  buffer fails that file's unit loudly, naming the path and the blob, although
+  the tree already stated its size.
 - **A stage reaches no checkout itself.** `SnapshotSource` is the stage's
   dependency: `pins()` names the run's repositories (a function read per run, so
   a run pins its own commit) and `open(id)` answers one reader, refusing an id it
   does not hold. `createGitSnapshotSource` is the real one; the pins are judged
-  where they are read (a duplicate id, a name that is no repository name, a form
-  that is no repository form, a folder without a name, a commit without one).
-  A stage therefore holds a checkout only as an open reader, and `StageContext`
-  keeps its promise of never being a database or a path.
+  before they are sorted (a pin that is no pin is named, never thrown out of by
+  the sort), a duplicate id, a name that is no repository name, a form that is no
+  repository form, a folder without a name and a commit without one are refused
+  naming the pin, and one reader stands per repository, commit and folder while a
+  run fills — the tree of a commit never changes, and a unit's `execute` must not
+  list a large tree again for every file it writes.
 - **The inventory's plan reads what the previous runs published.** A plan names
   its units from a tracked read per repository — one JSON document,
   `{"read": "stage-1-published-tree", "repository": "…"}`, answered with the
@@ -129,48 +159,92 @@ before this change.
   nothing plans the whole tree, which is a first run; a plan that answered
   nothing because nothing changed plans nothing. The rows are read strictly: a row
   for another repository, a kind stage 1 does not hold, a path that is no
-  repository path or a blob that is no blob id refuses the plan, naming the read,
-  the row and the field — a row read past plans a wrong unit in silence, and a row
-  dropped leaves a stale fact behind.
-- **A unit is one file or one folder.** The id is `<kind>:<repository>:<path>`
-  and the scope `<repository>:<path>`, so the run's wiring can hash a unit's own
-  input: per-file granularity is what makes a second run after a one-file commit
-  write that file's facts and no other's.
-- **A rename leaves no stale fact.** The plan holds, for a published path the
-  pinned commit no longer holds, a unit of that path; its `execute` writes
-  nothing (the path is not in the tree, or it holds a submodule's commit), and an
-  empty draft is a publication that replaces the unit's facts with none. A folder
-  is planned the same way when it vanished from the tree, and it is planned too
-  when it holds a file this run writes, so a changed file's folders are published
-  with it.
+  repository path, a blob that is no blob id, a folder carrying a blob, one path
+  in two rows, or a key the read does not name (a run id among them) refuses the
+  plan, naming the read, the row and the field — a row read past plans a wrong
+  unit in silence, and a row dropped leaves a stale fact behind.
+- **A unit is one file or one folder, and a plan is linear.** The id is
+  `<kind>:<repository>:<path>` and the scope `<repository>:<path>`, so the run's
+  wiring can hash a unit's own input: per-file granularity is what makes a second
+  run after a one-file commit write that file's facts and no other's. The plan
+  walks maps and sets only, so its cost is what the repository holds and not its
+  square — 0026 asks the fill to be complete on any repository size, and a plan
+  that scanned the tree once per published path would be minutes on the sizes
+  that decision names.
+- **A rename leaves no stale fact, as far as this change can prove it.** The plan
+  holds, for a published path the pinned commit no longer holds, a unit of that
+  path; its `execute` writes nothing (the path is not in the tree, or it holds a
+  submodule's commit), and its folder is planned the same way when the folder
+  itself no longer stands in the tree. What a test proves is that the vanished
+  path is planned, that the unit writes nothing, and that no write of the run
+  names the old path; that the old fact then *goes* is the publication's
+  business, not this change's (see the open point on madarch-tzte.20.2).
 - **The `contains` edge is drawn from the container to the node, by the node's own
   unit.** A file's unit writes its `file` node and the edge from the folder (or
   the repository) it stands in; a folder's unit writes its `directory` node and
   the edge from its own container. The repository node's id is stage 0's: its
   identity is the repository's name alone, so a file at the root joins the node
-  the earlier stage published at whatever commit it was pinned at.
-- **The roles and the language come from the path.** Stage 1 reads no bytes: a
-  file's language is the extension stage 3 parses it as (the same four grammars
-  `fill-index.ts` walks), a file's roles come from the folders it stands in and
-  the name it carries (a `test/` leg or a `*.test.ts` name is a test, a
-  `fixtures/` leg is a fixture, `vendor/` is vendored, `migrations/` is a
-  migration, `dist/` and `*.gen.ts` are generated, an extension names source,
-  document, configuration, build, asset, schema), and a file whose path places
-  nothing at all carries the one role `asset`, which claims no more than that the
-  repository ships it. `source` is claimed only for a file whose extension is
-  code: the schema's own rule.
+  the earlier stage published at whatever commit it was pinned at. A stage
+  declares the ownership scope of what it produces, and this stage declares `file`
+  at the file and the folder and the edge at the repository: the scope vocabulary
+  has no scope for one folder.
+- **The roles and the language come from the path.** Stage 1 reads no bytes to
+  place a file (its bytes are read for the place, above): a file's language is the
+  extension stage 3 parses it as (the same four grammars `fill-index.ts` walks), a
+  file's roles come from the folders it stands in and the name it carries (a
+  `test/` leg or a `*.test.ts` name is a test, a `fixtures/` leg is a fixture,
+  `vendor/` is vendored, `migrations/` is a migration, `dist/` and `*.gen.ts` are
+  generated, an extension names source, document, configuration, build, asset,
+  schema), and a file whose path places nothing at all carries the one role
+  `asset`, which claims no more than that the repository ships it. `source` is
+  claimed only for a file whose extension is code: the schema's own rule.
 - **A cancelled unit raises, and publishes nothing.** An aborted signal is
   checked before and after the reader opens; the unit raises rather than return a
-  draft, because an empty draft retracts what the unit wrote before, and a
-  cancellation must never do that in silence. The run's own cancellation is what
+  draft, because a unit that writes nothing asks for a retraction, and a
+  cancellation must never retract in silence. The run's own cancellation is what
   accounts for the attempt.
+- **Order is the project's own.** The reader and the stages order by
+  `byCodePoint` (`src/model/order.ts`), which is UTF-16 code-unit order — the
+  order every list of the schema is read in — and the same order git's own
+  `ls-tree` answers for every name of the basic plane. A test pins it with a
+  supplementary-plane name, so the two orders cannot be confused later.
+- **A symbolic link is a file of the tree.** Its bytes are the path it points at,
+  it counts in the snapshot's file and byte counts, and the coverage names its
+  kind (`symbolic-link`) beside `file`. A submodule's commit is not read here (its
+  tree stands in the repository it names) and is named in the coverage.
 - **Every error names what it is about.** A reader refusal names the repository,
   the commit and — where a path is what the refusal is about — the path, as
-  fields and in the message; a plan's refusal names the read, the row's place and
+  fields and in the message, and its refusal kind says what was refused (a
+  missing repository, a commit the repository does not hold, an unreadable tree,
+  a path that is no repository path, a path not in the tree, a submodule, an
+  object git could not answer, bytes that do not match the tree's size, a mode
+  the reader does not know); a plan's refusal names the read, the row's place and
   the field; a draft's refusal names the write's place in the draft, what it
-  cites, and the fact's own path and place.
-
+  cites, and the fact's own path and place. Two of the reader's refusals cannot
+  be reached with real git — a tree entry's mode and a blob's size are git's own,
+  and modern git refuses to write a tree it did not make — and they stay as what
+  the reader answers an answer it did not expect, rather than as silence or a
+  guess.
 ## Acceptance evidence
+
+Open points for the integrator, in the order they matter:
+
+- The retraction this stage asks for (a unit that publishes nothing) needs
+  madarch-tzte.20.2's publication to replace the unit's facts with none. Nothing
+  landed defines that: `fsm.ts`'s `retract-draft` covers an unpublished
+  generation only, and 0027 says a publication applies a unit's fact set within
+  its scope without saying what an empty set applies. Until 20.2 says so, a
+  rename's old fact stays in the graph, and the test's claim is the one stated
+  above: the vanished path is planned and no write of the run names it.
+- The plan's read (`publishedTreeRead`) is the contract this change hands
+  madarch-tzte.21.8: the wiring of a run must answer it from the graph's `file`
+  and `directory` facts. Its row shape is strict, and a graph that answers
+  nothing plans the whole tree, which is what a first run is.
+- Mutation is not run (the owner's rule runs Stryker once per assembled stage);
+  acceptance escalates per `mutationFallback`.
+- A first inventory run reads every file once (for its place, above), one
+  `git cat-file` at a time; a repository of hundreds of thousands of files would
+  want the reader's batched read, which is not this task's.
 
 Owner approval pending (coordinator).
 

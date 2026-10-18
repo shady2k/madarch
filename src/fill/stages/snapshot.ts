@@ -17,6 +17,7 @@
  * coverages that add up rather than overwrite one another.
  */
 import { Type } from 'typebox';
+import { byCodePoint } from '../../model/order.js';
 import { FACT_KINDS, makeNodeFact, type Fact, type FactProvenance } from '../facts.js';
 import type { SnapshotReader, SnapshotSource } from '../snapshot.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageContext, type StageExecutionResult, type StagePlan, type StageUnit } from '../stage.js';
@@ -89,9 +90,15 @@ export function createSnapshotStage(sources: SnapshotSource): FillStage {
  * kinds: the coverage of the reading, the repository node and the snapshot
  * node. The coverage names the repository node as the scope it read, so a
  * reader of the graph finds the coverage and what it covers without a second
- * lookup; a tree the reader read whole carries no gap, and a submodule's commit
- * (whose tree stands in the repository it names) is named as what could not be
- * read here.
+ * lookup.
+ *
+ * The coverage names the kinds of file the tree held — `file`, and
+ * `symbolic-link` for a link, whose bytes are the path it points at — and every
+ * path the reading could not file: a submodule's commit, whose tree stands in
+ * the repository it names, and a tree path the fill's path form cannot hold
+ * (the reader's `unfiled()` says why for each). A tree the reader read whole
+ * carries no gap, and a gap is never silence: `complete` is false exactly when
+ * something is named here.
  */
 function factsFor(reader: SnapshotReader, provenance: FactProvenance): readonly Fact[] {
   const repository = reader.repository;
@@ -114,10 +121,21 @@ function factsFor(reader: SnapshotReader, provenance: FactProvenance): readonly 
     layer: 'extracted',
   });
   const entries = reader.entries();
-  const read = [...new Set(entries.filter((entry) => entry.form !== 'commit').map((entry) => entry.form))].sort();
-  const unread = entries
-    .filter((entry) => entry.form === 'commit')
-    .map((entry) => ({ what: entry.path, reason: 'unsupported' as const }));
+  const read = [...new Set(entries
+    .filter((entry) => entry.form !== 'commit')
+    .map((entry) => (entry.form === 'link' ? 'symbolic-link' : 'file')))].sort(byCodePoint);
+  // What could not be read: a submodule's tree and a path no fact can name. In
+  // code point order of the path, each once, as the schema reads a coverage.
+  const unread: { what: string; reason: 'unsupported' }[] = [];
+  const seen = new Set<string>();
+  for (const path of [
+    ...entries.filter((entry) => entry.form === 'commit').map((entry) => String(entry.path)),
+    ...reader.unfiled().map((entry) => entry.path),
+  ].sort(byCodePoint)) {
+    if (seen.has(path)) continue;
+    seen.add(path);
+    unread.push({ what: path, reason: 'unsupported' });
+  }
   const coverageFact = makeNodeFact({
     kind: 'coverage',
     value: {

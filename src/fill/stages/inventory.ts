@@ -126,10 +126,14 @@ export function createInventoryStage(sources: SnapshotSource): FillStage {
       ],
       optional: [],
     },
+    // A unit's publication replaces only that unit's facts (0027), so the
+    // ownership scope is the widest the stage may ever replace: a `file` fact
+    // is owned at the file, and the folder and the `contains` edge at the
+    // repository (the scope vocabulary has no scope for one folder).
     produces: [
       { kind: 'contains', schemaVersion: FACT_KINDS['contains'].version, scope: 'repository' },
       { kind: 'directory', schemaVersion: FACT_KINDS['directory'].version, scope: 'repository' },
-      { kind: 'file', schemaVersion: FACT_KINDS['file'].version, scope: 'repository' },
+      { kind: 'file', schemaVersion: FACT_KINDS['file'].version, scope: 'file' },
     ],
     configSchema: Type.Object({}),
     defaults: { ...DEFAULT_STAGE_DEFAULTS, config: {} },
@@ -157,6 +161,10 @@ async function planInventory(sources: SnapshotSource, graph: StageGraphReader): 
     const published = publishedTree(await graph.query(read), pin.id, read);
     const files = reader.files();
     anyFile = anyFile || files.length > 0;
+    // Every walk below is over maps and sets, so a plan costs what the
+    // repository holds and not its square: 0026 asks the fill to be complete on
+    // any repository size.
+    const standing = new Set(files.map((entry) => String(entry.path)));
     const written = new Set<string>();
     for (const entry of files) {
       if (published.files.get(entry.path) === entry.id) continue;
@@ -164,33 +172,42 @@ async function planInventory(sources: SnapshotSource, graph: StageGraphReader): 
       units.push({ id: fileUnitId(pin.id, entry.path), scope: scopeOf(pin.id, entry.path) });
     }
     for (const path of published.files.keys()) {
-      if (files.some((entry) => entry.path === path)) continue;
+      if (standing.has(path)) continue;
       // A path the pinned commit no longer holds: the unit publishes nothing,
-      // and the publication retracts what an earlier commit's run wrote there.
+      // which is how what an earlier commit's run wrote there is retracted.
       units.push({ id: fileUnitId(pin.id, path), scope: scopeOf(pin.id, path) });
     }
-    const folders = directoriesOf(files.map((entry) => entry.path));
-    const standing = new Set(folders);
+    // The folders that hold a file this run writes, at any depth, are published
+    // with it; a folder the commit no longer holds is planned to be cleared.
+    const writtenFolders = new Set(directoriesOf([...written]));
+    const folders = foldersOf(reader);
     for (const path of folders) {
-      if (published.directories.has(path) && !holdsWrittenFile(path, written)) continue;
+      if (published.directories.has(path) && !writtenFolders.has(path)) continue;
       units.push({ id: directoryUnitId(pin.id, path), scope: scopeOf(pin.id, path) });
     }
     for (const path of published.directories) {
-      // A folder the pinned commit no longer holds: the unit publishes nothing,
-      // and its fact goes with the files that stood in it.
-      if (!standing.has(path)) units.push({ id: directoryUnitId(pin.id, path), scope: scopeOf(pin.id, path) });
+      if (!folders.has(path)) units.push({ id: directoryUnitId(pin.id, path), scope: scopeOf(pin.id, path) });
     }
   }
   units.sort((left, right) => byCodePoint(left.id, right.id));
   return { units, coverage: anyFile ? 'planned' : 'nothing-found' };
 }
 
-/** Whether a folder holds, at any depth, a file this run writes: such a folder is published with it. */
-function holdsWrittenFile(directory: string, written: ReadonlySet<string>): boolean {
-  for (const path of written) {
-    if (path.startsWith(`${directory}/`)) return true;
-  }
-  return false;
+/**
+ * The folders one reader's tree holds, worked out once per reader: git holds no
+ * empty folder, so a folder stands exactly while a file of the tree stands in
+ * it. A reader is held by the source across a run's units, so this is one walk
+ * of the tree and not one per unit.
+ */
+const FOLDERS_BY_READER = new WeakMap<SnapshotReader, ReadonlySet<string>>();
+
+/** The folders of a reader's tree: every folder that holds a file, at any depth. */
+function foldersOf(reader: SnapshotReader): ReadonlySet<string> {
+  const held = FOLDERS_BY_READER.get(reader);
+  if (held !== undefined) return held;
+  const folders = new Set(directoriesOf(reader.files().map((entry) => String(entry.path))));
+  FOLDERS_BY_READER.set(reader, folders);
+  return folders;
 }
 
 /**
@@ -250,7 +267,15 @@ function publishedTree(rows: readonly unknown[], repository: string, read: strin
       throw refuse(`its path ${JSON.stringify(rawPath)} is no repository path: a path from the repository's root, "/"-separated, with no "." or ".." leg`);
     }
     const path = repositoryPath(rawPath as string);
+    // Two rows for one path in one answer are refused rather than resolved by
+    // order: the fact log is versioned, and which of two versions of one file a
+    // read meant is not this stage's to guess.
+    const twice = files.has(path) || directories.has(path);
+    if (twice) throw refuse(`its path ${JSON.stringify(path)} stands in an earlier row of this answer: one read answers one row per path`);
     if (kind === 'directory') {
+      if (held['blob'] !== undefined) {
+        throw refuse(`it is a folder and carries a blob: a row's blob is the file's bytes, and a folder holds no bytes of its own`);
+      }
       directories.add(path);
       return;
     }
@@ -268,8 +293,11 @@ function publishedTree(rows: readonly unknown[], repository: string, read: strin
 /**
  * One unit: the file's or the folder's node fact and the `contains` edge from
  * its container. A path the pinned commit no longer holds, or one that holds a
- * submodule's commit (whose tree stands in another repository), writes nothing:
- * the empty draft is how the publication retracts what an earlier run wrote.
+ * submodule's commit (whose tree stands in another repository), writes nothing,
+ * and a unit that writes nothing is how this stage asks for a retraction: the
+ * publication that replaces a unit's facts with an empty set is what removes
+ * what an earlier run wrote for it (madarch-tzte.20.2's publication semantics;
+ * this change states the request, not the mechanism).
  */
 async function executeInventoryUnit(sources: SnapshotSource, unit: StageUnit, context: StageContext): Promise<StageExecutionResult> {
   refuseWhenCancelled(unit, context);
@@ -279,14 +307,14 @@ async function executeInventoryUnit(sources: SnapshotSource, unit: StageUnit, co
   const provenance = provenanceOf(reader);
   // A folder stands in the tree while a file of this repository stands in it:
   // git holds no empty folder, so a path with no file under it is gone.
-  const stands = planned.kind === 'file' || reader.files().some((entry) => entry.path.startsWith(`${planned.path}/`));
+  const stands = planned.kind === 'file' || foldersOf(reader).has(planned.path);
   const facts = !stands
     ? []
     : planned.kind === 'file'
       ? await fileFacts(reader, planned.path, provenance)
       : directoryFacts(reader, planned.path, provenance);
   if (facts.length === 0) {
-    context.progress(`${planned.path} is not in the tree of ${planned.repository} at ${reader.commit}: this unit publishes nothing, and what an earlier run wrote there is retracted`, 1);
+    context.progress(`the ${planned.kind} ${planned.path} does not stand in ${planned.repository} at ${reader.commit}: this unit publishes nothing, and what an earlier run wrote there is retracted`, 1);
     return { outcome: 'draft' };
   }
   for (const fact of facts) {
