@@ -1,0 +1,6 @@
+# Every `bun test` run of this app gets its own scratch home and temporary
+# folder, created before any test file loads and removed when the run ends
+# (madarch-1xq): the mechanism is the engine's own preload, shared rather than
+# copied, so the app and the engine are isolated the same way.
+[test]
+preload = ["./test/run-scratch.ts"]

@@ -44,6 +44,15 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   before the report), or review takes three or four rounds.
 - A single task outside a stage is never labelled `implemented`: it stays in
   progress until it lands, then closes on its acceptance record.
+- Every `bun test` run is isolated in its own scratch home and temporary
+  folder (madarch-1xq): `bunfig.toml`'s `[test] preload` makes
+  `<temp>/madarch-test-run-*` before any test file loads, points `HOME`,
+  `MADARCH_HOME`, `TMPDIR` and `MADARCH_WIKI_CACHE` inside it, and removes it
+  when the run ends, pass or fail — `test/run-scratch.ts` holds the mechanism,
+  the wiki app's `bunfig.toml` shares it, and CI snapshots the home and the
+  temporary folder before and after the suites with
+  `.shady2k/run-scratch-check.mjs`. A leftover run folder in the temp folder
+  therefore means a run was killed; the next run sweeps it.
 - Views are accepted by rendering every page the way a reader sees it, not by
   parse checks: GitHub's own Mermaid renderer in a 1150 px column (open
   `viewscreen.githubusercontent.com/markdown/mermaid?color_mode=dark` and

@@ -329,8 +329,14 @@ describe('the stage index of a product', () => {
     mkdirSync(join(thisFolder(), 'docs', 'hypotheses'), { recursive: true });
     write('docs/hypotheses/H-001-fast.md', '# H-001 — Fast enough\n');
     chmodSync(folder, 0o000);
-    const index = readStagesIndex(thisFolder());
-    chmodSync(folder, 0o755);
+    let index: ReturnType<typeof readStagesIndex>;
+    try {
+      index = readStagesIndex(thisFolder());
+    } finally {
+      // Restored whatever the read did: the run removes its scratch anyway, and
+      // a test leaves no folder it made unwritable (madarch-1xq).
+      chmodSync(folder, 0o755);
+    }
     const idea = index.stages.find((stage) => stage.id === 'idea')!;
     expect(index.problems.some((p) => p.where === folder && p.message.includes('could not be read'))).toBe(true);
     expect(idea.artifacts).toEqual([]);
@@ -411,8 +417,12 @@ describe('the stage index of a product', () => {
     const exportPath = join(folder!, '.beads', 'issues.jsonl');
     writeFileSync(exportPath, JSON.stringify(EPIC) + '\n');
     chmodSync(exportPath, 0o000);
-    let index = readStagesIndex(folder!);
-    chmodSync(exportPath, 0o644);
+    let index: ReturnType<typeof readStagesIndex>;
+    try {
+      index = readStagesIndex(folder!);
+    } finally {
+      chmodSync(exportPath, 0o644);
+    }
     expect(index.problems).toHaveLength(1);
     expect(index.problems[0]!.where).toBe(exportPath);
     expect(index.problems[0]!.message).toContain('could not be read');
@@ -504,8 +514,12 @@ describe('the stage index of a product', () => {
     mkdirSync(join(thisFolder(), 'docs', 'repositories', 'library', 'stories'), { recursive: true });
     write('docs/repositories/library/stories/US-009.md', '# US-009\n');
     chmodSync(join(thisFolder(), 'docs', 'repositories', 'library', 'stories'), 0o000);
-    const index = readStagesIndex(thisFolder());
-    chmodSync(join(thisFolder(), 'docs', 'repositories', 'library', 'stories'), 0o755);
+    let index: ReturnType<typeof readStagesIndex>;
+    try {
+      index = readStagesIndex(thisFolder());
+    } finally {
+      chmodSync(join(thisFolder(), 'docs', 'repositories', 'library', 'stories'), 0o755);
+    }
     expect(index.problems.some((p) => p.where === repo && p.message.includes('could not be read'))).toBe(true);
   });
 

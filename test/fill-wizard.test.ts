@@ -11,3 +11,22 @@ test('the omp test call carries the model it was given',async()=>{const bin=setu
 test('the omp test call without a configured extension says so',async()=>{const bin=setup();fake(bin,'omp','echo unexpected');const hadExtension=process.env.MADARCH_OMP_EXTENSION!==undefined;const extensionBefore=process.env.MADARCH_OMP_EXTENSION;delete process.env.MADARCH_OMP_EXTENSION;try{expect(await testFillAgent('omp',bin,'glm-5.3-flash-auto')).toMatchObject({status:'failed'});}finally{if(hadExtension)process.env.MADARCH_OMP_EXTENSION=extensionBefore;else delete process.env.MADARCH_OMP_EXTENSION;}});
 test('stores choice and per-machine model outside the product tree',async()=>{const home=setup();await saveChosenAgent('codex',{},home);await saveChosenAgent('omp',{model:'glm-5.3-flash-auto'},home);expect(await readChosenAgent(home)).toBe('omp');expect(await readChosenModel(home)).toBe('glm-5.3-flash-auto');await saveChosenAgent('claude',{},home);expect(await readChosenModel(home)).toBe('glm-5.3-flash-auto');await saveChosenAgent('omp',{model:''},home);expect(await readChosenModel(home)).toBe('');expect(await readChosenAgent(home)).toBe('omp');expect(agentSettingsPath(home)).toBe(join(home,'.config','madarch','fill-agent.json'));});
 });
+
+test('the settings file follows the home the environment names, never the account\'s own', async () => {
+  // Bun resolves `os.homedir()` once when a process starts, so a test run's
+  // scratch home reaches this module only through `HOME` (madarch-1xq): the
+  // default must read it, or a run writes into the owner's real
+  // `~/.config/madarch/` (and two runs on one machine fight over the file).
+  const home = setup();
+  const saved = process.env.HOME;
+  try {
+    process.env.HOME = home;
+    expect(agentSettingsPath()).toBe(join(home, '.config', 'madarch', 'fill-agent.json'));
+    await saveChosenAgent('codex', { model: 'glm-5.3-flash-auto' });
+    expect(await readChosenAgent()).toBe('codex');
+    expect(await readChosenModel()).toBe('glm-5.3-flash-auto');
+    expect(readFileSync(join(home, '.config', 'madarch', 'fill-agent.json'), 'utf8')).toContain('glm-5.3-flash-auto');
+  } finally {
+    if (saved === undefined) delete process.env.HOME; else process.env.HOME = saved;
+  }
+});

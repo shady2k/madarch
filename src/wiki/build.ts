@@ -68,6 +68,8 @@ export const NO_REPO_TIME = Date.UTC(2026, 0, 1);
 
 /** The madarch checkout the build runs from: where the pinned toolchains live. */
 const PACKAGE_ROOT = fileURLToPath(new URL('../..', import.meta.url));
+/** How long the pinned likec4 may generate the view bundle: a large workspace takes seconds, a hang never ends. */
+const LIKEC4_GEN_TIMEOUT_MS = 120_000;
 
 export interface WikiBuildOptions {
   /** The `--engine` value; when absent the environment chooses, then zensical. */
@@ -370,9 +372,15 @@ export async function buildWiki(repoPath: string, outPath: string, options: Wiki
   // world-readable folder, whatever umask the build runs under.
   mkdirSync(scratch, { recursive: true, mode: 0o700 });
   writeFileSync(join(scratch, 'model.c4'), rendering.workspace);
-  const gen = spawnSync(likec4Bin, ['gen', 'webcomponent', scratch, '-o', join(scratch, 'likec4-view.js')], { encoding: 'utf8' });
+  // Bounded like every other external tool call here: a likec4 that hangs must
+  // not hold a build, a server's rebuild or a test run open forever, and must
+  // not outlive them by more than the bound (madarch-1xq: likec4 processes
+  // outlived the runs that spawned them).
+  const gen = spawnSync(likec4Bin, ['gen', 'webcomponent', scratch, '-o', join(scratch, 'likec4-view.js')], { encoding: 'utf8', timeout: LIKEC4_GEN_TIMEOUT_MS, killSignal: 'SIGKILL' });
   if (gen.status !== 0 || !existsSync(join(scratch, 'likec4-view.js'))) {
-    return { code: 2, message: `the LikeC4 web component could not be generated:\n${`${gen.stdout ?? ''}${gen.stderr ?? ''}`.trim()}` };
+    const said = `${gen.stdout ?? ''}${gen.stderr ?? ''}`.trim();
+    const why = said !== '' ? said : gen.signal === null ? 'it printed nothing' : `it was killed with ${gen.signal} after ${LIKEC4_GEN_TIMEOUT_MS / 1000} s`;
+    return { code: 2, message: `the LikeC4 web component could not be generated:\n${why}` };
   }
 
   const diagrams = diagramAssets(rendering.pages, rendering.workspace);
