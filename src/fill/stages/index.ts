@@ -11,10 +11,14 @@
  */
 import { StageRegistry } from '../registry.js';
 import type { SnapshotSource } from '../snapshot.js';
+<<<<<<< HEAD
 import { createDocumentIndexStage } from './document-index.js';
+=======
+import { createGitHistoryReader, createHistoryStage, type CheckoutFolderOf } from './history.js';
+>>>>>>> 1c08e03e (Read each source file's declarations with tree-sitter, as facts of the graph)
 import { createInventoryStage } from './inventory.js';
 import { createSnapshotStage } from './snapshot.js';
-import { createGitHistoryReader, createHistoryStage, type CheckoutFolderOf } from './history.js';
+import { createSyntaxStage } from './syntax.js';
 
 /** What a run's stages read from outside the graph: pinned repositories and their Git checkouts. */
 export interface FillStageWiring {
@@ -34,15 +38,16 @@ const noCheckout: CheckoutFolderOf = () => '';
 
 /**
  * Every stage of this madarch, registered over the run's wiring: stage 0 the
- * snapshot, stage 1 the inventory, stage 6 the document index and stage 7 the
- * history. The order of the calls is not the order the stages run in — the graph
- * decides that from what they declare — so a stage added anywhere in the chain
- * lands correctly.
+ * snapshot, stage 1 the inventory, stage 3 the syntax, stage 6 the document
+ * index and stage 7 the history. The order of the calls is not the order the
+ * stages run in — the graph decides that from what they declare — so a stage
+ * added anywhere in the chain lands correctly.
  */
 export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
   return new StageRegistry()
     .register(createSnapshotStage(wiring.snapshots))
     .register(createInventoryStage(wiring.snapshots))
+    .register(createSyntaxStage(wiring.snapshots))
     .register(createDocumentIndexStage(wiring.snapshots))
     .register(createHistoryStage(createGitHistoryReader(wiring.checkoutOf ?? noCheckout)));
 }

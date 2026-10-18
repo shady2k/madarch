@@ -1,0 +1,202 @@
+# The syntax stage reads each source file of a pinned repository with tree-sitter
+
+Change: madarch-tzte.21.3
+Base: 5c712dea9b05a1993ffe6ed8fd0035c985350df8
+Tasks: madarch-tzte.21.3
+Kind: no-behavior
+
+## Intent
+
+Decision 0026 rebuilds the fill as deterministic stages that read a pinned tree
+and write the product graph. Stage 0 (the snapshot) and stage 1 (the inventory)
+land with madarch-tzte.21.1; what the *code* of a file says — which symbols it
+declares, where each definition stands, what its comments, its entry points, its
+tests and its imports are — is stage 3, and nothing in madarch answers it after
+the rebuild began. The landed `src/product/fill-index.ts` walks a checkout with
+its own git calls and its own idea of a tree, and writes JSON files under the
+run's output folder rather than facts with ids.
+
+This change adds the syntax stage, in three modules and one registration line:
+
+- **`src/fill/stages/syntax-extract.ts`**, the pure per-file extraction: one
+  repository path and one file's bytes go in, and the symbols the file declares,
+  the position of each declaration, its comments, its entry points, its tests
+  and the modules it imports come out, each with the byte span and the line span
+  it stands at. The grammars are the four `src/product/fill-index.ts` reads
+  (`tree-sitter-wasms` over `web-tree-sitter`), so the rebuild parses what the
+  landed fill parsed.
+- **`src/fill/stages/syntax-facts.ts`**, what those findings become: the facts
+  of `src/fill/facts.ts` — `symbol`, `occurrence`, `comment`, `entry-point`,
+  `test`, the `defines` and `import` edges, and one `coverage` node per file —
+  each with its place, its layer and the id the schema computes from what the
+  fact is about.
+- **`src/fill/stages/syntax.ts`**, stage 3: a unit per source file, planned from
+  what the previous runs published and read at the pinned commit through
+  `SnapshotSource` (`src/fill/snapshot.ts`, stage 0).
+- **`src/fill/stages/index.ts`** gains one line, which is what registering a
+  stage costs (decision 0027).
+
+A file in a language no grammar of this stage reads is a coverage gap with its
+reason, never a silence: the stage's own tests prove it for a `.py` file, for
+bytes that are not UTF-8 text, for a file the parser could not read whole and
+for a specifier it cannot tie to a node.
+
+## Out of scope
+
+- The stages beside it: semantic resolution (stage 4), modules and PageRank
+  (stage 5), the document index (stage 6), history (stage 7) and the agent
+  stages 8–13 (madarch-tzte.21.4 to 21.7 and madarch-tzte.24).
+- The fact store, the bounded graph reads and the checked write path
+  (madarch-tzte.20.2, 20.3, 20.4): this change writes drafts into the stage
+  context's draft set and leaves publication to them. The write path's check
+  that an edge's both ends exist is what refuses a `defines` edge whose file fact
+  the graph does not hold.
+- The orchestrator (madarch-tzte.19.5) and the wiring of a real run
+  (madarch-tzte.21.8): what a product's pins are, and which reader answers a
+  plan's read. This change uses the read `src/fill/stages/inventory.ts` states
+  and its own tests answer it.
+- The calls and references a resolver names (`call`, `reference`, `inherits`):
+  stage 3 reads declarations, not uses of them.
+- Replacing the landed fill pipeline under `src/product/fill*.ts`: nothing here
+  calls it, and nothing calls this.
+- The fill's capability text: the requirement these stages serve is proposed by
+  `fill-pipeline-monday`, not current, and the rebuild's own requirement text
+  lands with the stage that closes decision 0026.
+
+## Preserved contracts
+
+- product-wiki/pages: unchanged — a page stays the product's Markdown in git (0017); the syntax stage writes graph facts, no page reads them yet, and no command constructs the registry.
+- product-repository/manifest: unchanged — nothing here reads the manifest or names a product's repositories; a run's pins are its wiring's, and this stage asks for them through `SnapshotSource` alone.
+- release-binary/installers: unchanged — no dependency is added: `web-tree-sitter` and `tree-sitter-wasms` are already dependencies and the landed walk already imports the same four grammars, so the compiled binary bundles exactly what it bundled before.
+
+## Coverage
+
+- product-wiki/pages: test
+- product-repository/manifest: test
+- release-binary/installers: test
+
+## Rationale
+
+Every later stage of the deterministic fill reads what this stage wrote: the
+resolver resolves the symbols and imports it named, the modules stage clusters
+the dependency graph its `import` edges draw, the document index links documents
+to the symbols it found, and the agent stages read its symbols, comments and
+entry points. So the extraction is written pure — one function of a path and
+bytes, with its own tests — before anything depends on where the bytes come
+from, and the stage around it stays a thin plan and execute over the reader the
+snapshot stage landed.
+
+The stage reads no working tree and no file path of its own: its bytes come from
+`SnapshotSource`, its unit identity is a repository and a path, and its ids come
+from `src/fill/facts.ts`, so the same source file read on another machine, in
+another run, at another commit is the same set of facts.
+
+Nothing here changes what the product does: no command constructs the registry,
+no stage runs, and `src/product/fill*.ts` is untouched.
+
+## Design and decisions
+
+- **The extraction is pure, and it is a function of the path and the bytes.**
+  `extractFileSyntax(path, bytes)` reads nothing else — no clock, no file
+  system, no network, no database, no run — so the same bytes at the same path
+  answer the same findings on every machine, and a test proves it by extracting
+  twice. The tree-sitter runtime is initialized once per process and the four
+  grammars are loaded lazily, one per language; a parser is made per file and
+  deleted with its tree.
+- **What is a symbol, and what is not.** This stage reads *declarations*: a
+  function, a generator, a class, a method, a class field, an interface, a type
+  alias, an enum and its members, a namespace or module, a constant, a variable;
+  and, in Go, a function, a method, a struct or interface or named type, a struct
+  member, a constant and a variable. A parameter, a local binding, a property
+  access and a call are no declaration of this stage: those are stage 4's
+  symbols, where a resolver names them precisely. A declaration's qualified name
+  is its container's names and its own (`OrderService.create`), the container
+  being the class, interface, enum, module or function it stands in — and, for a
+  Go method, the type its receiver names, which is what makes it a method.
+  A declaration this walk cannot name (a computed class member, an identifier
+  outside the shape a name has) is left out; a *file* it cannot read is a
+  coverage gap.
+- **A definition is one occurrence at the name.** Every symbol carries its
+  declaration's span — where the symbol stands — and the name token's span,
+  where the schema's `occurrence` node stands with the one role `definition`.
+  The finer roles (`read-access`, `write-access`, `import`, `test`) and the
+  mentions of a name elsewhere in a file are stage 4's, as decision 0026 orders
+  the two stages.
+- **`defines`, not `contains`.** The task names `contains`, `defines` and
+  `import` edges. The schema's own edge-end table (`EDGE_END_KINDS`) gives
+  `contains` the sources `directory`, `module` and `repository`, and a file's
+  symbols are joined by `defines`, whose stages are `3-syntax` and `4-resolution`
+  — so a file's symbols are the `defines` edge here, and a `contains` edge from a
+  file would be a fact the schema refuses once a write path checks its ends. The
+  edges name the file's own `file` fact as their `from` end and the symbol or the
+  imported file as their `to` end.
+- **The file fact's id is computed from what a file fact is.** The schema's rule
+  is that an id is the digest of what a fact is about and of nothing else, and a
+  file fact's identity is its repository and its path (`FACT_KINDS.file`): the
+  roles, the language, the size and the blob are not what the file is. So the
+  stage names the id the inventory published for a file from the two parts it
+  knows, and a test proves it by running the inventory stage over the same file
+  and comparing the ids — including for an import's target. A write path that
+  checks the nodes its edges name refuses a drifted id loudly rather than joining
+  a file that is not there.
+- **An import edge only where a specifier names a file of this repository.** A
+  relative specifier resolves against the repository's paths in one documented
+  order — as written, then with each source extension in its place (a TypeScript
+  `./x.js` is the `x.ts` a reader edits), then with each extension appended, then
+  as a folder's `index` file — and the first path that exists wins, so the same
+  tree always answers the same file. A bare specifier (a package outside the file
+  tree) and a relative one that names no file are the scope's coverage gap, which
+  is what the schema asks for where a resolver could not tie an import to a node:
+  a Go import names a package path and never a file, so a Go file's coverage
+  names its imports as gaps. Stage 4 ties them to packages and modules.
+- **Every fact carries its place, and the extraction carries the byte span too.**
+  A fact's place is the schema's `FactPlace`: the repository path and a range of
+  lines and columns (`FactRange` carries no byte offset). The task asks for a
+  byte and a line span, so the *extraction's* findings carry both — the byte span
+  is read from the line index in one pass, the columns are UTF-16 code units as
+  the schema counts them — and a fact carries the range the schema gives it. A
+  test pins both counts apart with an emoji above the declaration.
+- **The plan reads what the previous runs published, and a file whose blob did
+  not move is not planned again.** The plan makes the read the inventory's own
+  plan makes (`publishedTreeRead`, one JSON document per repository) and reads
+  the `file` rows the graph holds; a source file is planned when it is new or its
+  blob moved at the pinned commit, and a *published* source path the commit no
+  longer holds is planned as a retraction whose execute publishes nothing. So a
+  one-file commit reads that file and no other, and a rename leaves no stale
+  fact: what the vanished path's unit published is replaced by an empty set. A
+  graph that answers nothing plans the whole tree of source files, which is what
+  a first run is; a plan whose tree holds no source file says `nothing-found`
+  rather than `planned`.
+- **Which files are this stage's.** The inventory's own rule: a path whose roles
+  include `source` (its extension is code) is read here, and a file that is no
+  code is another stage's business. The extraction keeps its own language table,
+  so the pure module depends on nothing but the schema; the stage asks the
+  inventory for the roles, and a test asserts the two tables agree on every
+  extension either of them names.
+- **A unit's id is the file, and it carries no blob and no run.** The id is
+  `file:<repository>:<path>`, the scope `<repository>:<path>`: a file's unit is
+  the same unit at every commit, so the run's own inputs digest (the blob) is
+  what tells a changed file from an unchanged one. A unit id this stage never
+  plans, a read row for another repository, a kind this stage does not read, a
+  path that is no repository path and a blob that is no blob id are all refused,
+  naming the unit or the read, the row and the field.
+- **A symbolic link and a submodule are coverage, not silence.** A link's bytes
+  are the path it points at and a submodule's tree stands in the repository it
+  names: neither is a source text, so the file's unit publishes a coverage node
+  whose `unread` names it with the reason `unsupported`, and no symbol is
+  invented from bytes that are not code.
+- **An error names what it is about.** A reader refusal names the repository, the
+  commit and the path (the reader's own words); a plan's refusal names the read,
+  the row's place and the field; a unit's refusal names the unit id; a cancelled
+  unit raises rather than publishing an empty draft, which would retract what its
+  earlier generation wrote.
+
+## Acceptance evidence
+
+Owner approval pending (coordinator).
+
+The independent review and the checks are recorded on task madarch-tzte.21.3:
+`bun run check`, the focused suites on the SkyPilot pod (`--avx2`: the
+tree-sitter wasm grammars need it), the feature document gate, green CI on the
+exact SHA and one independent review round. Mutation is not run: the owner's
+rule runs Stryker once per assembled stage.
