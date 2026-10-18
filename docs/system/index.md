@@ -92,3 +92,9 @@ Added 2026-10-18 with the change madarch-tzte-19-2 (`docs/changes/madarch-tzte-1
 - [fill-queue](capabilities/fill-queue.md): the fill's durable queue in the process's one database — enqueue, claim under a lease, heartbeat, settlement, retry and dead letters, as short transactions.
 
 Its run's decisions are in `docs/changes/madarch-tzte-19-2/change.md`, "Design and decisions".
+
+Added 2026-10-18 with the change fill-orchestrator (`docs/changes/fill-orchestrator/`):
+
+- [fill-orchestrator](capabilities/fill-orchestrator.md): running the fill's work — planning from the registry, admission within the run's limits, leases under fencing tokens, splits and joins, staleness, cancellation and one publication per unit generation.
+
+Its run's decisions are in `docs/changes/fill-orchestrator/change.md`, "Design and decisions".
