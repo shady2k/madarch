@@ -594,6 +594,53 @@ describe('a split and its join', () => {
     expect(journal.map((entry) => entry.fence)).toEqual([0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2]);
   });
 
+  test('a parent joins only while every child it sealed is still fresh', async () => {
+    const query = 'SELECT module FROM modules';
+    const attempts: string[] = [];
+    const stage = fakeStage('modules', {
+      produces: [{ kind: 'module-facts', schemaVersion: 1, scope: 'cluster' }],
+      defaults: { ...DEFAULT_STAGE_DEFAULTS, concurrency: 2 },
+      plan: () => ({ units: [{ id: 'root', scope: 'the repository' }], coverage: 'planned' }),
+      execute: async (unit, context): Promise<StageExecutionResult> => {
+        attempts.push(unit.id);
+        // Every unit reads the graph, so a child that published stands on a read the run can recheck.
+        await context.graph.query(query);
+        if (unit.id === 'root' && attempts.filter((id) => id === 'root').length === 1) {
+          return { outcome: 'split', children: [{ id: 'left', scope: 'left' }, { id: 'right', scope: 'right' }] };
+        }
+        context.draft.write({ kind: 'fact', evidence: `${unit.scope}:1`, value: { kind: 'module-facts' } });
+        return { outcome: 'draft' };
+      },
+    });
+    const graph = fakeGraph({ [query]: [{ module: 'core' }] });
+    const registry = new StageRegistry().register(stage);
+    const { world: opened, runId } = await plannedWorld({ registry, graph });
+    await admitUnits(opened.orchestrator, { runId });
+    expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('split');
+    for (const worker of ['worker-2', 'worker-3']) {
+      await admitUnits(opened.orchestrator, { runId });
+      expect((await workOnce(opened.orchestrator, { worker })).result).toBe('published');
+    }
+    const sealedStates: string[] = [];
+    for (const child of await readSealedChildren(opened.owner, 'modules/root', 1)) {
+      sealedStates.push(`${child.unitId}:${(await readUnit(opened.owner, child.unitId))?.state}`);
+    }
+    expect(sealedStates).toEqual(['modules/left:published', 'modules/right:published']);
+
+    // One child's read moved after it published: the parent does not join on work that is no longer fresh.
+    graph.rows.set(query, [{ module: 'core' }, { module: 'wiki' }]);
+    const withheld = await sweepUnits(opened.orchestrator, { runId });
+    expect(withheld.swept).toEqual([]);
+    expect((await readUnit(opened.owner, 'modules/root'))?.state).toBe('waiting_children');
+
+    // The graph answers what the children recorded again: the join happens, and the parent publishes.
+    graph.rows.set(query, [{ module: 'core' }]);
+    const joined = await sweepUnits(opened.orchestrator, { runId });
+    expect(joined.swept.map((unit) => `${unit.unitId}:${unit.outcome}`)).toEqual(['modules/root:join-enqueued']);
+    expect((await workOnce(opened.orchestrator, { worker: 'worker-4' })).result).toBe('published');
+    expect((await readUnit(opened.owner, 'modules/root'))?.state).toBe('published');
+  });
+
   test('a split past the limits blocks the parent with the reason rather than decomposing without a bound', async () => {
     const many = Array.from({ length: 3 }, (_value, index) => ({ id: `child-${index}`, scope: `child-${index}` }));
     const { stage } = splittingStage({ children: many });
