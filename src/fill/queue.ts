@@ -208,11 +208,16 @@ export interface QueueService {
   enqueue<Data>(request: EnqueueRequest<Data>): Promise<EnqueueResult>;
   /**
    * Claims up to `limit` jobs of a declared queue for this worker, ordered the
-   * way the queue selects them: the highest priority first, then the oldest,
-   * and ids in code point order where two jobs were enqueued in the same
-   * instant, so the same set of jobs always comes back in the same order. Every
-   * job carries its attempt and the lease that claim holds it under. An empty
-   * queue answers no jobs.
+   * way the queue selects them: the highest priority first and then the order
+   * the jobs were enqueued in, whatever instant they were enqueued in, so the
+   * same set of jobs always comes back in the same order and a claim of fewer
+   * answers the oldest of them. A job that waits for a retry, or one whose claim
+   * a maintenance pass recovered, keeps the place it was enqueued at. Where two
+   * jobs nevertheless share an instant — one written into the queue beside this
+   * service — ids in code point order decide the order of the batch the claim is
+   * handed, while which of them a claim of fewer than all of them takes is the
+   * store's own choice. Every job carries its attempt and the lease that claim
+   * holds it under. An empty queue answers no jobs.
    */
   claim<Data>(request: ClaimRequest): Promise<ClaimedJob<Data>[]>;
   /**

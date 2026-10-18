@@ -61,16 +61,47 @@ export const QUEUE_SCENARIO_CHECKS: readonly QueueScenarioCheck[] = [
     },
   },
   {
-    name: 'jobs enqueued in one instant come back in code point order of their ids',
+    name: 'five jobs enqueued inside one clock tick come back in the order they were enqueued, and a claim of two takes the two oldest',
     check: (report) => {
-      const ids = report.sameInstantOrder.map((job) => job.id);
-      // What this proves is the promise, not the adapter's comparator: on PGlite
-      // the store's own `UPDATE … RETURNING` already answers ascending ids
-      // (measured, 30 runs of this shape, all 30 ascending), so a comparator
-      // that was dropped would still pass here. The promise is what a caller
-      // reads, and the order is the adapter's where a store does not supply it.
-      expect([...report.sameInstantOrder.map((job) => job.unit)].sort()).toEqual(['tie-one', 'tie-three', 'tie-two']);
+      // `equal-priority` was declared with no retries.
+      expect(report.oneTickFirstClaim).toEqual([
+        { unit: 'tick-one', attempt: 0, retries: 0, leaseSeconds: 60 },
+        { unit: 'tick-two', attempt: 0, retries: 0, leaseSeconds: 60 },
+      ]);
+      expect(report.oneTickSecondClaim).toEqual([
+        { unit: 'tick-three', attempt: 0, retries: 0, leaseSeconds: 60 },
+        { unit: 'tick-four', attempt: 0, retries: 0, leaseSeconds: 60 },
+        { unit: 'tick-five', attempt: 0, retries: 0, leaseSeconds: 60 },
+      ]);
+    },
+  },
+  {
+    name: 'jobs written into the queue at one instant come back in code point order of their ids',
+    check: (report) => {
+      // The rows were written in the reverse of their ids' order, so this is the
+      // adapter's own tie-break answering, not the store's insertion order.
+      expect(report.foreignOrder.map((job) => job.unit)).toEqual(['written-second', 'written-first']);
+      const ids = report.foreignOrder.map((job) => job.id);
       expect(ids).toEqual([...ids].sort());
+    },
+  },
+  {
+    name: 'a retried job, a recovered job and a job whose retry is spent keep the place they were enqueued at',
+    check: (report) => {
+      expect(report.keptRetryOutcome).toBe('retry');
+      expect(report.keptRetryAttempt).toBe(1);
+      expect(report.keptRetryUnit).toBe('kept-retry-first');
+      expect(report.keptRetryNextUnit).toBe('kept-retry-second');
+
+      expect(report.keptRecoverAttempt).toBe(1);
+      expect(report.keptRecoverUnit).toBe('kept-recover-first');
+
+      expect(report.keptDeadOutcome).toBe('failed');
+      // The copy names the job that failed, and the job behind it is still there.
+      expect(report.keptDeadLetters.map((letter) => ({ data: letter.data, jobId: letter.jobId, sourceQueue: letter.sourceQueue }))).toEqual([
+        { data: { unit: 'kept-dead-first' }, jobId: report.keptDeadJobId ?? '', sourceQueue: SCENARIO_QUEUES.keptDead },
+      ]);
+      expect(report.keptDeadNextUnit).toBe('kept-dead-second');
     },
   },
   {
