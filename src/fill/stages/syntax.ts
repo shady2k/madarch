@@ -44,7 +44,7 @@ import {
   type StageGraphReader, type StagePlan, type StageUnit,
 } from '../stage.js';
 import { checkFactDraft, evidenceAt } from './draft.js';
-import { publishedTreeRead, rolesFor, type PublishedTreeRow } from './inventory.js';
+import { publishedTreeRead, publishedTreeRows, rolesFor } from './inventory.js';
 import { extractFileSyntax, unreadFileSyntax } from './syntax-extract.js';
 import { syntaxFacts, type SyntaxFactSet } from './syntax-facts.js';
 
@@ -118,7 +118,9 @@ async function planSyntax(sources: SnapshotSource, graph: StageGraphReader): Pro
   for (const pin of pins) {
     const reader = await sources.open(pin.id);
     const read = publishedTreeRead(pin.id);
-    const published = publishedBlobs(await graph.query(read), pin.id, read);
+    // The same reader the inventory's own plan uses: one rule for the rows of
+    // one read, so the two stages cannot accept different rows.
+    const published = publishedTreeRows(await graph.query(read), pin.id, read).files;
     const mine = reader.files().filter((entry) => isSourcePath(entry.path));
     anySource = anySource || mine.length > 0;
     const present = new Set<string>(mine.map((entry) => entry.path));
@@ -139,59 +141,9 @@ async function planSyntax(sources: SnapshotSource, graph: StageGraphReader): Pro
   return { units, coverage: anySource ? 'planned' : 'nothing-found' };
 }
 
-/**
- * The keys one row of the published tree's read holds: the kind, the repository
- * it was read for, the path, and — for a file — the blob its bytes stood under.
- * The same shape the inventory stage reads the same document with.
- */
-const PUBLISHED_TREE_ROW_FIELDS: readonly string[] = ['blob', 'kind', 'path', 'repository'];
-
 /** Whether a path is a file this stage reads: the inventory's own rule, the role the path names. */
 function isSourcePath(path: string): boolean {
   return rolesFor(path).includes('source');
-}
-
-/**
- * The read's rows, read: each row names the repository it was read for, a kind,
- * a repository path and — for a file — the blob its bytes stood under. A row is
- * read here for the files it names; a row that is not an object, names another
- * repository, names a kind this stage does not hold, or carries a path that is
- * no repository path or a blob that is no blob id is refused, naming the read,
- * the row and what was wrong with it. A row read past would plan a wrong unit or
- * skip a file in silence.
- */
-function publishedBlobs(rows: readonly unknown[], repository: string, read: string): ReadonlyMap<string, string | undefined> {
-  const files = new Map<string, string | undefined>();
-  rows.forEach((row, index) => {
-    const refuse = (detail: string): Error =>
-      new Error(`the read ${read} answered row ${index + 1} for the repository ${JSON.stringify(repository)}, and ${detail}`);
-    if (row === null || typeof row !== 'object' || Array.isArray(row)) {
-      throw refuse(`${JSON.stringify(row)} is no row: a row is an object naming its kind, its repository and its path`);
-    }
-    const held = row as PublishedTreeRow & Record<string, unknown>;
-    // A row holds what the read is for and nothing else: a run, a unit, an
-    // attempt or a session riding on one would be read past in silence.
-    const unknown = Object.keys(held).filter((key) => !PUBLISHED_TREE_ROW_FIELDS.includes(key)).sort(byCodePoint);
-    if (unknown.length > 0) {
-      throw refuse(`it holds ${unknown.map((key) => JSON.stringify(key)).join(', ')}, and a row holds ${PUBLISHED_TREE_ROW_FIELDS.join(', ')}`);
-    }
-    if (held.kind !== 'file' && held.kind !== 'directory') {
-      throw refuse(`its kind is ${JSON.stringify(held.kind)}, and this stage reads "file" and "directory" rows`);
-    }
-    if (held.repository !== repository) {
-      throw refuse(`its repository is ${JSON.stringify(held.repository)}, and the read was for ${JSON.stringify(repository)}: one read is one repository`);
-    }
-    if (typeof held.path !== 'string' || !isRepositoryPath(held.path)) {
-      throw refuse(`its path ${JSON.stringify(held.path)} is no repository path: a path from the repository's root, "/"-separated, with no "." or ".." leg`);
-    }
-    if (held.kind === 'directory') return;
-    const blob = held.blob;
-    if (blob !== undefined && (typeof blob !== 'string' || !/^[0-9a-f]{40}$/u.test(blob))) {
-      throw refuse(`its blob ${JSON.stringify(blob)} is no blob id: 40 lower-case hexadecimal digits, or no blob at all`);
-    }
-    files.set(held.path, typeof blob === 'string' ? blob : undefined);
-  });
-  return files;
 }
 
 /** A unit id read back as this stage planned it; an id this stage never plans is refused. */

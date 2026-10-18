@@ -164,7 +164,7 @@ describe('the pure per-file extraction', () => {
     // rather than leaving it complete over a declaration it dropped.
     const computed = await extractFileSyntax('src/iterable.ts', bytesOf(['export class C {', '  [Symbol.iterator]() {}', '  ok(): void {}', '}', ''].join('\n')));
     expect(computed.symbols.map((symbol) => symbol.qualifiedName).sort()).toEqual(['C', 'C.ok']);
-    expect(computed.unread).toEqual([{ what: 'src/iterable.ts:2', reason: 'unsupported' }]);
+    expect(computed.unread).toEqual([{ what: 'the name of the declaration at src/iterable.ts:2:2', reason: 'unsupported' }]);
   });
 
   test('a Go declaration that binds two names declares both, in the spec or in a struct', async () => {
@@ -193,6 +193,114 @@ describe('the pure per-file extraction', () => {
       ['d', 'constant'],
     ]);
     expect(found.unread).toEqual([]);
+  });
+
+  test('an anonymous default export is the symbol `default`, whichever shape it writes', async () => {
+    // `export default` writes an anonymous declaration in the statement's
+    // `value` field; a named one is the declaration the statement carries. A
+    // module's default export is a symbol by that name either way.
+    for (const [text, kind] of [
+      ['export default function () {}\n', 'function'],
+      ['export default async function () {}\n', 'function'],
+      ['export default () => 1;\n', 'function'],
+      ['export default class {}\n', 'class'],
+    ] as const) {
+      const found = await extractFileSyntax('src/component.ts', bytesOf(text));
+      expect(found.symbols.map((symbol) => [symbol.name, symbol.symbolKind])).toEqual([['default', kind]]);
+      expect(found.unread).toEqual([]);
+    }
+  });
+
+  test('a module\'s own function signature is read wherever it is written', async () => {
+    const text = [
+      'declare function direct(): void;',
+      '',
+      "declare module 'x' {",
+      '  export function inModule(): void;',
+      '}',
+      '',
+      'declare namespace N {',
+      '  function inNamespace(): void;',
+      '}',
+      '',
+    ].join('\n');
+    const found = await extractFileSyntax('src/ambient.d.ts', bytesOf(text));
+    // An ambient module is named by the string it names, and its members by it.
+    expect(found.symbols.map((symbol) => symbol.qualifiedName).sort()).toEqual(['N', 'N.inNamespace', 'direct', 'x', 'x.inModule']);
+    expect(found.unread).toEqual([]);
+  });
+
+  test('an enum member whose name is no identifier is the file\'s gap, not a silence', async () => {
+    const found = await extractFileSyntax('src/enum.ts', bytesOf('export enum E { A = 1, caf\u00e9 }\n'));
+    expect(found.symbols.map((symbol) => symbol.qualifiedName)).toEqual(['E', 'E.A', 'E.caf\u00e9']);
+    expect(found.unread).toEqual([]);
+  });
+
+  test('a member of an anonymous type is no member of the declaration around it', async () => {
+    const text = [
+      'export interface View {',
+      '  props: { id: number; nested: { deep: string } };',
+      '  render(): { out: string };',
+      '}',
+      '',
+      'export class C {',
+      '  field: { a: string } = { a: "x" };',
+      '}',
+      '',
+      'export type Shape = { id: number };',
+      '',
+      'export function f(p: { name: string }): void {}',
+      '',
+    ].join('\n');
+    const found = await extractFileSyntax('src/shapes.ts', bytesOf(text));
+    // The interface's and the type alias's own members are read and qualified by
+    // them; the members of the literals inside them are nobody's declaration.
+    expect(found.symbols.map((symbol) => symbol.qualifiedName)).toEqual([
+      'C', 'C.field', 'Shape', 'Shape.id', 'View', 'View.props', 'View.render', 'f',
+    ]);
+    expect(found.unread).toEqual([]);
+  });
+
+  test('a member of an exported value is no way into the module', async () => {
+    const text = [
+      'export const o = {',
+      '  b(): void {},',
+      '};',
+      '',
+      'export default class {',
+      '  m(): void {},',
+      '}',
+      '',
+    ].join('\n');
+    const found = await extractFileSyntax('src/exported.ts', bytesOf(text));
+    // `o` is the name another module calls; `b` is a member of the object `o`
+    // holds, and `m` a method of a class nobody named.
+    expect(found.entryPoints.map((entry) => [entry.form, entry.name])).toEqual([['library-export', 'o']]);
+  });
+
+  test('a destructuring declaration binds every name its pattern writes', async () => {
+    const found = await extractFileSyntax('src/bind.ts', bytesOf('export const { a, b: c, ...rest } = order;\nexport const [first, second = 2] = list;\n'));
+    expect(found.symbols.map((symbol) => symbol.qualifiedName)).toEqual(['a', 'c', 'first', 'rest', 'second']);
+    expect(found.unread).toEqual([]);
+  });
+
+  test('a class initializer is a constructor, and a Go interface\'s method set is read', async () => {
+    const ts = await extractFileSyntax('src/service.ts', bytesOf(['export class S {', '  constructor(private readonly id: string) {}', '  run(): void {}', '}', ''].join('\n')));
+    expect(ts.symbols.map((symbol) => [symbol.qualifiedName, symbol.symbolKind])).toEqual([
+      ['S', 'class'], ['S.constructor', 'constructor'], ['S.run', 'method'],
+    ]);
+    const go = await extractFileSyntax('cmd/server/types.go', bytesOf(['package main', '', 'type Handler interface {', '\tServe() error', '}', ''].join('\n')));
+    expect(go.symbols.map((symbol) => [symbol.qualifiedName, symbol.symbolKind])).toEqual([
+      ['Handler', 'interface'], ['Handler.Serve', 'method'],
+    ]);
+    expect(go.unread).toEqual([]);
+  });
+
+  test('a test the schema cannot hold is the file\'s gap, never a fact it refuses', async () => {
+    const text = ["import { test } from 'bun:test';", '', "test('', () => {});", ''].join('\n');
+    const found = await extractFileSyntax('test/empty.test.ts', bytesOf(text));
+    expect(found.tests).toEqual([]);
+    expect(found.unread).toEqual([{ what: 'the name of the test at test/empty.test.ts:3:5', reason: 'unsupported' }]);
   });
 
   test('a byte span counts the file\'s bytes and a column counts UTF-16 code units', async () => {
@@ -348,6 +456,7 @@ describe('the pure per-file extraction', () => {
     const text = [
       "import { describe, expect, test, it } from 'bun:test';",
       "import * as runner from 'vitest';",
+      "import { test as check } from 'bun:test';",
       '',
       "describe('orders', () => {",
       "  test('places an order', () => {",
@@ -357,6 +466,7 @@ describe('the pure per-file extraction', () => {
       "  it.only('skips the rest', () => {});",
       "  test.each([1, 2])('adds %i', () => {});",
       "  runner.test('works', () => {});",
+      "  check('a runner under another name', () => {});",
       '});',
       '',
       'function test2(): void {}',
@@ -365,6 +475,7 @@ describe('the pure per-file extraction', () => {
     ].join('\n');
     const found = await extractFileSyntax('test/orders.test.ts', bytesOf(text));
     expect(found.tests.map((entry) => [entry.name, entry.framework])).toEqual([
+      ['a runner under another name', 'bun-test'],
       ['adds %i', 'bun-test'],
       ['cancels an order', 'bun-test'],
       ['places an order', 'bun-test'],
@@ -501,6 +612,18 @@ describe('the facts one file\'s findings make', () => {
     });
   });
 
+  test('a test the schema cannot hold is a coverage gap, and the file\'s other facts are still made', async () => {
+    const set = await factsOf(["import { test } from 'bun:test';", '', "test('', () => {});", '', 'export function first(): void {}', ''].join('\n'));
+    expect(set.facts.filter((fact) => fact.kind === 'test')).toEqual([]);
+    expect(set.facts.filter((fact) => fact.kind === 'symbol')).toHaveLength(1);
+    expect(set.coverage.complete).toBe(false);
+    expect(set.coverage.unread).toEqual([
+      // `bun:test` is a package, not a file of this repository: no edge, a gap.
+      { what: 'bun:test', reason: 'unsupported' },
+      { what: 'the name of the test at src/orders.ts:3:5', reason: 'unsupported' },
+    ]);
+  });
+
   test('a language with no grammar makes the coverage fact and nothing else', async () => {
     const findings = await extractFileSyntax('tools/script.py', bytesOf('def main():\n    pass\n'));
     const set = syntaxFacts({
@@ -547,6 +670,14 @@ describe('tying an import specifier to a file of the repository', () => {
     expect(resolveSpecifier('src/index.ts', './tool', known)).toBe('src/tool/index.ts');
     expect(resolveSpecifier('src/index.ts', './raw.json', known)).toBe('src/raw.json');
     expect(resolveSpecifier('src/index.ts', '../src/helper.ts', known)).toBe('src/helper.ts');
+  });
+
+  test('a replacement tries the importing file\'s own language first', () => {
+    const both = new Set<string>(['src/x.cjs', 'src/x.ts', 'src/use.cjs', 'src/use.ts']);
+    // A TypeScript file's `./x.js` is the `x.ts` a reader edits, even where a
+    // CommonJS `x.cjs` stands beside it; a CommonJS file's is its own `x.cjs`.
+    expect(resolveSpecifier('src/use.ts', './x.js', both)).toBe('src/x.ts');
+    expect(resolveSpecifier('src/use.cjs', './x.js', both)).toBe('src/x.cjs');
   });
 
   test('a specifier that names no file of this repository is not resolved', () => {

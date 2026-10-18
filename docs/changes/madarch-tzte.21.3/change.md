@@ -115,7 +115,17 @@ no stage runs, and `src/product/fill*.ts` is untouched.
   Go method, the type its receiver names, which is what makes it a method.
   A declaration this walk cannot name (a computed class member) is no symbol,
   and the file's coverage names the place with the reason rather than leaving
-  the file complete over a dropped declaration. A member signature is read where
+  the file complete over a dropped declaration. A *declaration* is read wherever
+  it stands in the file, a function's own body included, qualified by the
+  declarations around it (`f.inner` for a function declared inside `f`,
+  `f.y` for a constant declared inside it); what is not read is a parameter, a
+  property access and a call. A destructuring declaration binds the names its
+  pattern writes (`const { a, b: c, ...rest } = order` declares `a`, `c` and
+  `rest`). A module declaration names itself by the string it names (`declare
+  module 'x'`), and its members are qualified by it; a class's initializer is
+  the `constructor` the schema names, not a method; a Go interface's method set
+  is read (`Handler.Serve`); and an anonymous default export — written in the
+  statement's `value` field, not its `declaration` — is the symbol `default`. A member signature is read where
   it stands in one of the declarations that *name* their members — an interface,
   a type alias, a class, an enum, a namespace — and not where it stands in an
   anonymous type (`{ name: string }` in a parameter's annotation): a bare `name`,
@@ -154,6 +164,19 @@ no stage runs, and `src/product/fill*.ts` is untouched.
   and comparing the ids — including for an import's target. A write path that
   checks the nodes its edges name refuses a drifted id loudly rather than joining
   a file that is not there.
+- **An import edge is as fresh as the file that wrote it.** A file whose bytes
+  did not move is not read again, so an importer keeps the target it resolved
+  to: a file that *appears* and can win a resolution (an `x.ts` beside the
+  `x.cjs` an import of `./x.js` resolved to) changes what that import should
+  point at only when the importing file's own bytes move. That is the price of
+  reading per blob, it is the inventory's own rule for the edges it draws, and
+  stage 4's resolution replaces these edges with a resolver's reading of the
+  repository's own packages rather than a path's competition.
+- **One reader of the published tree.** Both stages that plan from the inventory's
+  read (`publishedTreeRead`) read its rows through one function
+  (`publishedTreeRows`): a copy of that rule drifted apart within one rebase —
+  a duplicate path and a folder carrying a blob were refused by one stage and
+  accepted by the other — so the rule lives in one place.
 - **An import edge only where a specifier names a file of this repository.** A
   relative specifier resolves against the repository's paths in one documented
   order — as written, then with each source extension in its place (a TypeScript
@@ -209,6 +232,20 @@ no stage runs, and `src/product/fill*.ts` is untouched.
   names: neither is a source text, so the file's unit publishes a coverage node
   whose `unread` names it with the reason `unsupported`, and no symbol is
   invented from bytes that are not code.
+- **A name that is no name is the file's gap, not a failed unit.** The schema
+  refuses a fact whose identity part is empty (an empty test name, an empty
+  import specifier), and a unit that raises over one file's oddity loses the
+  whole file. So a finding the schema cannot hold is a coverage gap naming the
+  question and the place, and the file's other facts are still made.
+- **A coverage gap says a question, a path or a kind of file.** A dropped
+  declaration's gap is the question the reader could not answer, naming the
+  place (`the name of the declaration at src/x.ts:2:2`), so two drops on one
+  line stand apart and a gap is what the schema says it may be.
+- **Order is the project's own comparator.** `byCodePoint` compares strings with
+  `<`, which orders UTF-16 code units: a name above the BMP sorts after U+E000.
+  The whole project sorts this way (the inventory's tree and the registry
+  included), so this stage is consistent with it; where an astral name must sort
+  as a reader expects, the comparator is the place to change, not this stage.
 - **What one fact can and cannot tell apart.** The schema decides a fact's
   identity, and two declarations the schema gives one identity are one fact: two
   TypeScript overloads of one function are one `symbol` (a `disambiguator` is
@@ -263,3 +300,24 @@ not tell apart, and how a call named `test`/`it` is read. The tests the review
 found missing are there: a `.tsx` and a `.jsx` case, a non-ASCII identifier, a
 Go spec binding two names, the Go runner's own name rules, a namespace import's
 runner, and the provenance version against the installed package.
+
+The second round answered `fix-before-ship` again, with eight findings and seven
+nits: the commit's own claim — "every dropped declaration is named" — was false
+in three measured ways, and one of them was a regression from the first fix
+round. Fixed here: an anonymous default export was dropped in silence (the
+grammar writes it in the statement's `value`, which the code never read); a
+module's own `function_signature` was dropped by the rule that keeps an
+anonymous type literal's members out (the rule now judges the *holder*, and a
+`function_signature` is exempt as the ambient grammar's own declaration form);
+a non-ASCII enum member with no initializer was dropped while the coverage said
+`complete`; a member of an anonymous type literal nested inside a named one was
+published as that named type's member; the two readers of the published tree had
+already drifted apart after one rebase (one reader now); an empty test name
+raised out of the facts instead of becoming a gap; and the local-binding reading
+the record denied. The two research findings are stated rather than changed: an
+import edge is as fresh as the importer's own bytes, and the project's
+`byCodePoint` orders UTF-16 code units. The tests the round asked for are there:
+the four anonymous default shapes, the ambient declarations, an enum member in
+another script, the nested anonymous types, a member of an exported value, a
+destructuring pattern, a constructor and a Go interface's method set, an empty
+test name, an aliased runner import, and the specifier order beside an `x.cjs`.

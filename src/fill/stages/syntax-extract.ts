@@ -274,10 +274,26 @@ const GO_CONTAINERS: readonly string[] = ['function_declaration', 'method_declar
 
 /**
  * The TypeScript member signatures whose name is only a name *inside* something:
- * read where a class, interface or type alias holds them, and left out where an
- * anonymous type literal does.
+ * read where the declaration they belong to names them, and left out where an
+ * anonymous type literal holds them. A `function_signature` is not one of them:
+ * the ambient grammar writes a module's own function that way (`declare
+ * function f(): void;`), and it stands wherever it is written.
  */
-const MEMBER_SIGNATURES: readonly string[] = ['abstract_method_signature', 'function_signature', 'method_signature', 'property_signature'];
+const MEMBER_SIGNATURES: readonly string[] = ['abstract_method_signature', 'method_signature', 'property_signature'];
+
+/**
+ * The signature's own holder, and the declarations that name a holder's
+ * members: an interface's body belongs to the interface, a class's to the
+ * class, and an *anonymous* `object_type` to a type alias — while an
+ * `object_type` inside another signature, an annotation or a field belongs to
+ * no named type, and its members are nobody's declaration of this file.
+ */
+const NAMED_TYPE_HOLDERS: Readonly<Record<string, readonly string[]>> = {
+  class_body: ['abstract_class_declaration', 'class_declaration'],
+  enum_body: ['enum_declaration'],
+  interface_body: ['interface_declaration'],
+  object_type: ['type_alias_declaration'],
+};
 
 /** The kind of symbol a TypeScript, TSX or JavaScript declaration is, by its node type. */
 const TS_DECLARATIONS: Readonly<Record<string, SymbolKind>> = {
@@ -340,18 +356,33 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
   // The names a file exports by clause (`export { later as renamed }`): a
   // declaration the clause names is exported although no `export` stands on it.
   const exportedByClause = go ? new Set<string>() : exportedNamesByClause(root, text);
-  // Which package each local name of `test`/`it` came from, so the test's own
+  // Which package each local name of a test runner came from, so the test's own
   // framework is the runner the file says it is, and nothing else.
-  const testNames = go ? new Map<string, string>() : testIdentifiers(root, text);
+  const runners = go ? emptyRunners() : testRunners(root, text);
+
+  /** Records one import, or the gap of a specifier the schema cannot hold (an empty one names no module). */
+  const recordImport = (specifier: string, at: SyntaxNode): void => {
+    if (specifier === '') {
+      unread.push({ what: droppedAt(path, positionAt(lines, at.startIndex), 'the module an import names'), reason: 'unsupported' });
+      return;
+    }
+    imports.push({ specifier, span: spanOf(at) });
+  };
 
   const record = (node: SyntaxNode, container: readonly string[]): void => {
     const type = node.type;
-    if (!go && type === 'property_identifier' && node.parent?.type === 'enum_body') {
+    if (!go && (type === 'property_identifier' || type === 'enum_assignment') && enumMemberBody(node) !== null) {
       // An enum's members are declared names of the enum's own scope: a member
-      // written without a value is a bare identifier in the enum's body.
-      const member = text.slice(node.startIndex, node.endIndex);
-      if (/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(member)) {
-        symbols.push({ name: member, qualifiedName: qualified(container, member), symbolKind: 'enum-member', span: spanOf(node), definitionSpan: spanOf(node) });
+      // written without a value is a bare identifier in the enum's body, and one
+      // with a value is an `enum_assignment` naming it. A member name that is no
+      // identifier (a string literal, a computed one) is the enum's gap.
+      const memberNode = nameNodeOf(node) ?? node;
+      const member = text.slice(memberNode.startIndex, memberNode.endIndex);
+      if (IDENTIFIER.test(member)) {
+        symbols.push({ name: member, qualifiedName: qualified(container, member), symbolKind: 'enum-member', span: spanOf(node), definitionSpan: spanOf(memberNode) });
+      } else {
+        const at = positionAt(lines, memberNode.startIndex);
+        unread.push({ what: droppedAt(path, at, 'the name of the enum member'), reason: 'unsupported' });
       }
       return;
     }
@@ -362,12 +393,12 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
     }
     if (!go && (type === 'import_statement' || type === 'export_statement')) {
       const specifier = node.childForFieldName('source');
-      if (specifier !== null) imports.push({ specifier: stringValue(text, specifier), span: spanOf(specifier) });
+      if (specifier !== null) recordImport(stringValue(text, specifier), specifier);
       return;
     }
     if (go && type === 'import_spec') {
       const quoted = node.childForFieldName('path');
-      if (quoted !== null) imports.push({ specifier: stringValue(text, quoted), span: spanOf(quoted) });
+      if (quoted !== null) recordImport(stringValue(text, quoted), quoted);
       return;
     }
     if (!go && type === 'call_expression') {
@@ -379,16 +410,23 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
         // A CommonJS `require('x')` and a dynamic `import('x')` name a module
         // the file reads, exactly as an import statement does.
         const literal = firstStringArgument(args);
-        if (literal !== null) imports.push({ specifier: stringValue(text, literal), span: spanOf(literal) });
+        if (literal !== null) recordImport(stringValue(text, literal), literal);
         return;
       }
       const literal = firstStringArgument(args);
-      const call = literal === null ? undefined : testCall(callee, text, testNames);
+      const call = literal === null ? undefined : testCall(callee, text, runners);
       if (literal !== null && call !== undefined) {
         // `test('name', ...)`, `it('name', ...)` and the runner's own modifiers
         // (`it.only('name', ...)`): the call's own name is the test's name, and
-        // the framework is the one the file imported the runner from.
-        tests.push({ name: stringValue(text, literal), ...(call.framework === undefined ? {} : { framework: call.framework }), span: spanOf(node) });
+        // the framework is the one the file imported the runner from. A test the
+        // schema cannot hold — one called with an empty name — is the file's
+        // coverage gap, never a fact the schema refuses.
+        const named = stringValue(text, literal);
+        if (named === '') {
+          unread.push({ what: droppedAt(path, positionAt(lines, literal.startIndex), 'the name of the test'), reason: 'unsupported' });
+          return;
+        }
+        tests.push({ name: named, ...(call.framework === undefined ? {} : { framework: call.framework }), span: spanOf(node) });
         return;
       }
       if (callee.type !== 'member_expression' || literal === null) return;
@@ -402,13 +440,15 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
       }
       return;
     }
-    const kind = symbolKindOf(node, language);
-    if (kind !== undefined && !go && MEMBER_SIGNATURES.includes(type) && !withinNamedType(node)) {
+    const kind = symbolKindOf(node, text, language);
+    if (kind !== undefined && MEMBER_SIGNATURES.includes(type) && namedTypeHolds(node, language) === null) {
       // A member signature is a declaration of the type it is written in: an
-      // interface's member, a type alias's, a class's. One written in an
-      // *anonymous* type — `{ name: string }` in a parameter's annotation — is
-      // no declaration of this file's own, and reading it would put a bare
-      // `name`, or a misleading `View.name`, beside a real symbol's name.
+      // interface's member, a type alias's, a class's, or — in the ambient
+      // grammar — a function a module declares. One written in an *anonymous*
+      // type (`{ name: string }` in a parameter's annotation, or a nested
+      // literal inside a named type) is no declaration of this file's own, and
+      // reading it would put a bare `name`, or a misleading `View.id`, beside a
+      // real symbol's name.
       return;
     }
     if (kind === undefined) {
@@ -425,19 +465,23 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
     // The `name` field repeats where the grammar repeats it and can carry the
     // separators of its own list (a Go `var a, b` names `a`, `,` and `b`), so
     // only the nodes that read as an identifier are names this stage declares.
-    const nameNodes = withEmbeddedField(nameNodesOf(node), node, text, go)
-      .filter((candidate) => IDENTIFIER.test(text.slice(candidate.startIndex, candidate.endIndex)));
+    // A module declaration names itself by a string (`declare module 'x' { … }`),
+    // where every other declaration names itself by an identifier.
+    const moduleName = type === 'module' || type === 'internal_module' ? node.childForFieldName('name') : null;
+    const nameNodes = moduleName !== null && stringNode(moduleName) !== null
+      ? moduleName.type === 'string' || moduleName.type === 'interpreted_string_literal' ? [moduleName] : patternNames(moduleName)
+      : withEmbeddedField(nameNodesOf(node), node, text, go)
+        .filter((candidate) => IDENTIFIER.test(text.slice(candidate.startIndex, candidate.endIndex)));
     if (nameNodes.length === 0) {
       // A declaration of a kind this stage reads, with no name it can read: a
       // computed class member among them. Nothing is invented for it, and the
       // file's coverage says the place was not read — a dropped declaration
       // that left the coverage complete would be a silence.
-      const at = positionAt(lines, node.startIndex);
-      unread.push({ what: `${path}:${at.line}`, reason: 'unsupported' });
+      unread.push({ what: droppedAt(path, positionAt(lines, node.startIndex), 'the name of the declaration'), reason: 'unsupported' });
       return;
     }
     for (const nameNode of nameNodes) {
-      const name = text.slice(nameNode.startIndex, nameNode.endIndex);
+      const name = stringNode(nameNode) === null ? text.slice(nameNode.startIndex, nameNode.endIndex) : stringValue(text, nameNode);
       symbols.push({
         name,
         qualifiedName: qualified(owned, name),
@@ -450,7 +494,7 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
       // module may call, by a name it can reach. A method or a nested
       // declaration is no way in from outside the file.
       const exported = go ? /^\p{Lu}/u.test(name) : exportedByClause.has(name) || withinExport(node);
-      if (exported && owned.length === 0) {
+      if (exported && owned.length === 0 && (go || !withinExportedValue(node))) {
         entryPoints.push({ name, form: 'library-export', span: spanOf(nameNode) });
       }
       if (go && kind === 'function' && name === 'main' && declaresMainPackage(root, text)) {
@@ -470,7 +514,7 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
 
   const visit = (node: SyntaxNode, container: readonly string[]): void => {
     record(node, container);
-    const name = nameOf(node, text);
+    const name = declaredName(node, text);
     const containers = go ? GO_CONTAINERS : TS_CONTAINERS;
     const inner = name !== undefined && name !== '' && containers.includes(node.type) ? [...container, name] : container;
     for (const child of node.namedChildren) {
@@ -490,7 +534,7 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
 }
 
 /** The kind of symbol one declaration is, by language; `undefined` where the node declares no symbol of this stage. */
-function symbolKindOf(node: SyntaxNode, language: SyntaxLanguage): SymbolKind | undefined {
+function symbolKindOf(node: SyntaxNode, text: string, language: SyntaxLanguage): SymbolKind | undefined {
   if (language !== 'go') {
     if (node.type === 'variable_declarator') {
       const declaration = node.parent;
@@ -500,6 +544,12 @@ function symbolKindOf(node: SyntaxNode, language: SyntaxLanguage): SymbolKind | 
       if (keyword === 'const') return 'constant';
       return keyword === 'let' || keyword === 'var' ? 'variable' : undefined;
     }
+    // A class's initializer is no method: the schema names the kind the class
+    // itself writes, and a reader looks for a constructor among constructors.
+    if (node.type === 'method_definition') {
+      const named = node.childForFieldName('name');
+      if (named !== null && text.slice(named.startIndex, named.endIndex) === 'constructor') return 'constructor';
+    }
     return TS_DECLARATIONS[node.type];
   }
   switch (node.type) {
@@ -508,6 +558,9 @@ function symbolKindOf(node: SyntaxNode, language: SyntaxLanguage): SymbolKind | 
     case 'const_spec': return 'constant';
     case 'var_spec': return 'variable';
     case 'field_declaration': return 'field';
+    // An interface's method set: `type I interface { Do() error }` names `Do` as
+    // surely as a struct names its fields.
+    case 'method_spec': return 'method';
     case 'type_alias': return 'type-alias';
     case 'type_spec': {
       const underlying = node.childForFieldName('type');
@@ -526,9 +579,43 @@ function symbolKindOf(node: SyntaxNode, language: SyntaxLanguage): SymbolKind | 
  */
 function nameNodesOf(node: SyntaxNode): readonly SyntaxNode[] {
   const named = node.childrenForFieldName('name').filter((held): held is SyntaxNode => held !== null);
+  // A destructuring declaration binds the names its pattern writes: `const { a,
+  // b: c, ...rest } = order` declares `a`, `c` and `rest`.
+  if (named.length === 1 && (named[0]!.type === 'object_pattern' || named[0]!.type === 'array_pattern')) return patternNames(named[0]!);
   if (named.length > 0) return named;
   const property = node.childForFieldName('property');
   return property !== null && (property.type === 'property_identifier' || property.type === 'private_property_identifier') ? [property] : [];
+}
+
+/**
+ * The names a destructuring pattern binds, in the order it writes them: each
+ * shorthand name (`{ a }`), each pattern's own name (`{ b: c }`, recursing into
+ * a nested pattern), each element of an array pattern, and a rest element's
+ * name. A pattern that binds nothing this walk can name contributes nothing.
+ */
+function patternNames(pattern: SyntaxNode): readonly SyntaxNode[] {
+  const names: SyntaxNode[] = [];
+  const visit = (node: SyntaxNode): void => {
+    if (node.type === 'identifier' || node.type === 'shorthand_property_identifier_pattern') {
+      names.push(node);
+      return;
+    }
+    // `{ b: c }` and `{ a = 1 }` and `[x = 2]`: the binding is on the left, and
+    // a default's own expression names nothing this declaration binds.
+    const binding = node.type === 'pair_pattern' ? node.childForFieldName('value') : node.childForFieldName('left');
+    if (binding !== null) visit(binding);
+    if (node.type === 'pair_pattern' || node.type === 'assignment_pattern' || node.type === 'object_assignment_pattern') return;
+    for (const child of node.namedChildren) if (child !== null) visit(child);
+  };
+  visit(pattern);
+  const once: SyntaxNode[] = [];
+  const seen = new Set<SyntaxNode>();
+  for (const name of names) {
+    if (seen.has(name)) continue;
+    seen.add(name);
+    once.push(name);
+  }
+  return once;
 }
 
 /**
@@ -546,6 +633,27 @@ function withEmbeddedField(names: readonly SyntaxNode[], node: SyntaxNode, text:
   return last === undefined ? names : [last];
 }
 
+/**
+ * The enum body a member node stands in, or `null` where it stands in none: a
+ * bare `property_identifier` is an enum member only inside an `enum_body`, and
+ * an `enum_assignment` (a member written with a value) is one anywhere in the
+ * enum's own body.
+ */
+function enumMemberBody(node: SyntaxNode): SyntaxNode | null {
+  if (node.type === 'enum_assignment') return node.parent;
+  return node.parent?.type === 'enum_body' ? node.parent : null;
+}
+
+/**
+ * What was not read, as the *question* the reader could not answer, naming the
+ * place a coverage's gap may hold beside a *path* and a *kind of file*: the name
+ * of a declaration it could not read, or the module an import names. Two of them
+ * on one line stand apart, since the column is part of what was not read.
+ */
+function droppedAt(path: string, at: { readonly line: number; readonly column: number }, what: string): string {
+  return `${what} at ${path}:${at.line}:${at.column}`;
+}
+
 /** The declaration's own name node, where a caller reads one declaration as one symbol. */
 function nameNodeOf(node: SyntaxNode): SyntaxNode | null {
   return nameNodesOf(node)[0] ?? null;
@@ -560,6 +668,20 @@ function nameNodeOf(node: SyntaxNode): SyntaxNode | null {
  * language writes it with.
  */
 const IDENTIFIER = /^#?[\p{ID_Start}_$][\p{ID_Continue}_$]*$/u;
+
+/**
+ * The name a declaration qualifies its members by, which is the name it binds:
+ * an identifier for every declaration but a module, whose own name is the
+ * string it names (`declare module 'x'`).
+ */
+function declaredName(node: SyntaxNode, text: string): string | undefined {
+  const named = (node.type === 'module' || node.type === 'internal_module') ? node.childForFieldName('name') : null;
+  if (named !== null && stringNode(named) !== null) {
+    const name = stringValue(text, named);
+    return name === '' ? undefined : name;
+  }
+  return nameOf(node, text);
+}
 
 /** The name one declaration binds, or `undefined` where it binds none this stage can name. */
 function nameOf(node: SyntaxNode, text: string): string | undefined {
@@ -596,8 +718,10 @@ function anonymousDefaultKind(node: SyntaxNode, language: SyntaxLanguage): Symbo
   if (node.type !== 'function_expression' && node.type !== 'arrow_function' && node.type !== 'function' && node.type !== 'class') return undefined;
   const parent = node.parent;
   if (parent === null || parent.type !== 'export_statement') return undefined;
-  const declaration = parent.childForFieldName('declaration');
-  if (declaration === null || declaration.startIndex !== node.startIndex) return undefined;
+  // A named export's declaration stands in `declaration`; an anonymous one, which
+  // is what this branch is for, stands in the statement's `value`.
+  const held = parent.childForFieldName('declaration') ?? parent.childForFieldName('value');
+  if (held === null || held.startIndex !== node.startIndex) return undefined;
   return node.type === 'class' ? 'class' : 'function';
 }
 
@@ -606,22 +730,28 @@ function qualified(container: readonly string[], name: string): string {
   return container.length === 0 ? name : `${container.join('.')}.${name}`;
 }
 
-/**
- * The node types that *name* the members inside them: a class, an interface, an
- * enum, a namespace or module, a type alias. A member signature inside one of
- * these is qualified by it; one inside a function's own parameter or return
- * annotation is inside a callable and is no declaration of this file's.
- */
-const TS_NAMED_TYPES: readonly string[] = [
-  'abstract_class_declaration', 'class_declaration', 'enum_declaration', 'interface_declaration',
-  'internal_module', 'module', 'type_alias_declaration',
-];
+/** The named type whose member this signature is, or `null` where no named type holds it. */
+function namedTypeHolds(node: SyntaxNode, language: SyntaxLanguage): SyntaxNode | null {
+  if (language === 'go') return null;
+  const holder = node.parent;
+  if (holder === null) return null;
+  const owners = Object.hasOwn(NAMED_TYPE_HOLDERS, holder.type) ? NAMED_TYPE_HOLDERS[holder.type] : undefined;
+  if (owners === undefined) return null;
+  const owner = holder.parent;
+  return owner !== null && owners.includes(owner.type) ? owner : null;
+}
 
-/** Whether a node stands directly inside one of the type declarations that name their members. */
-function withinNamedType(node: SyntaxNode): boolean {
+/**
+ * Whether a declaration stands inside the *value* an export statement carries
+ * rather than being what the statement exports: `export const o = { b() {} }`
+ * exports `o`, and `b` is a member of the object `o` holds — no name another
+ * module can call, and no way into the file.
+ */
+function withinExportedValue(node: SyntaxNode): boolean {
   for (let parent = node.parent; parent !== null; parent = parent.parent) {
-    if (TS_NAMED_TYPES.includes(parent.type)) return true;
-    if (parent.type === 'program' || parent.type === 'statement_block') return false;
+    if (parent.type === 'object' || parent.type === 'pair' || parent.type === 'array' || parent.type === 'arguments') return true;
+    if (parent.type === 'class_body' || parent.type === 'enum_body') return true;
+    if (parent.type === 'export_statement' || parent.type === 'program' || parent.type === 'statement_block') return false;
   }
   return false;
 }
@@ -647,35 +777,51 @@ function exportedNamesByClause(root: SyntaxNode, text: string): Set<string> {
   return names;
 }
 
-/** Which local name each runner of a file is, by the package the file imports it from. */
-function testIdentifiers(root: SyntaxNode, text: string): Map<string, string> {
-  const found = new Map<string, string>();
+/**
+ * What a file's own imports say about its test runners: the local name each
+ * runner was bound to (`import { test } from 'bun:test'`, `import { test as
+ * check }`), and the local name of each test package a file imported as a
+ * namespace (`import * as runner from 'vitest'`, whose `runner.test(…)` is that
+ * package's runner). A file that calls `test` or `it` with no import at all is
+ * read with no framework named: the file says nothing about which runner knows
+ * it, and a guess would be an invention.
+ */
+interface TestRunners {
+  /** The local name each runner function was bound to, by that name. */
+  readonly named: ReadonlyMap<string, string>;
+  /** The local name each test package was imported as a namespace, by that name. */
+  readonly namespaces: ReadonlyMap<string, string>;
+}
+
+/** A file with no test import at all: no runner is known by name or as a namespace. */
+function emptyRunners(): TestRunners {
+  return { named: new Map(), namespaces: new Map() };
+}
+
+function testRunners(root: SyntaxNode, text: string): TestRunners {
+  const named = new Map<string, string>();
+  const namespaces = new Map<string, string>();
   for (const statement of descendantsOfType(root, 'import_statement')) {
     const source = statement.childForFieldName('source');
     if (source === null) continue;
     const framework = TEST_FRAMEWORKS[stringValue(text, source)];
     if (framework === undefined) continue;
-    // `import { test, it } from 'bun:test'` and `import { test as check } …`:
-    // the local name the file calls the runner by.
     for (const specifier of descendantsOfType(statement, 'import_specifier')) {
-      const named = specifier.childForFieldName('name');
-      if (named === null) continue;
-      const local = specifier.childForFieldName('alias') ?? named;
-      const localName = text.slice(local.startIndex, local.endIndex);
-      if (localName === 'test' || localName === 'it') found.set(localName, framework);
+      const held = specifier.childForFieldName('name');
+      if (held === null) continue;
+      const imported = text.slice(held.startIndex, held.endIndex);
+      if (imported !== 'test' && imported !== 'it') continue;
+      // The name the file calls the runner by: its alias where it renamed it.
+      const local = specifier.childForFieldName('alias') ?? held;
+      named.set(text.slice(local.startIndex, local.endIndex), framework);
     }
-    // `import * as runner from 'bun:test'`: the file calls `runner.test(…)`,
-    // which the namespace's own name has to be read for.
     for (const namespace of descendantsOfType(statement, 'namespace_import')) {
       const local = namespace.namedChildren.find((child) => child !== null && child.type === 'identifier');
       if (local === null || local === undefined) continue;
-      found.set(text.slice(local.startIndex, local.endIndex), framework);
+      namespaces.set(text.slice(local.startIndex, local.endIndex), framework);
     }
   }
-  // A file that calls `test` or `it` with no import at all is read with no
-  // framework named: the file says nothing about which runner knows it, and a
-  // guess would be an invention.
-  return found;
+  return { named, namespaces };
 }
 
 /**
@@ -684,24 +830,26 @@ function testIdentifiers(root: SyntaxNode, text: string): Map<string, string> {
  * (`it.only`, `test.skip`, `test.each`) — the modifier's own call carries the
  * name, and the inner `test.each([…])` call carries a table, not a name.
  */
-function testCall(callee: SyntaxNode, text: string, imported: ReadonlyMap<string, string>): { readonly framework?: string } | undefined {
+function testCall(callee: SyntaxNode, text: string, runners: TestRunners): { readonly framework?: string } | undefined {
   // `test.each([…])('name', …)` calls what `test.each([…])` answered: the
   // runner stands one call deeper, and its own call carries the table.
   if (callee.type === 'call_expression') {
     const inner = callee.childForFieldName('function');
-    return inner === null ? undefined : testCall(inner, text, imported);
+    return inner === null ? undefined : testCall(inner, text, runners);
   }
   const textOf = (node: SyntaxNode): string => text.slice(node.startIndex, node.endIndex);
   /** The framework a name was imported from, where the file says which one it is. */
-  const frameworkOf = (name: string): { readonly framework?: string } => {
-    const framework = imported.get(name);
+  const frameworkOf = (from: ReadonlyMap<string, string>, name: string | undefined): { readonly framework?: string } => {
+    const framework = name === undefined ? undefined : from.get(name);
     return framework === undefined ? {} : { framework };
   };
-  /** A call of `test`/`it` itself: the runner's own name. */
+  /** A call of a runner itself: `test`/`it`, or the name a file bound them to. */
   const runner = (node: SyntaxNode): { readonly framework?: string } | undefined => {
     if (node.type !== 'identifier') return undefined;
     const name = textOf(node);
-    return name === 'test' || name === 'it' ? frameworkOf(name) : undefined;
+    if (name === 'test' || name === 'it') return frameworkOf(runners.named, name);
+    // `import { test as check } from 'bun:test'`: the file calls it `check`.
+    return runners.named.has(name) ? frameworkOf(runners.named, name) : undefined;
   };
   const direct = runner(callee);
   if (direct !== undefined) return direct;
@@ -715,8 +863,8 @@ function testCall(callee: SyntaxNode, text: string, imported: ReadonlyMap<string
   // `runner.test('name', …)`: the runner reached through the namespace a file
   // imported (`import * as runner from 'bun:test'`), whose framework is the
   // namespace's own package and not whatever a local `test` was imported from.
-  if (object.type === 'identifier' && (named === 'test' || named === 'it') && imported.has(textOf(object))) {
-    return frameworkOf(textOf(object));
+  if (object.type === 'identifier' && (named === 'test' || named === 'it') && runners.namespaces.has(textOf(object))) {
+    return frameworkOf(runners.namespaces, textOf(object));
   }
   return undefined;
 }
