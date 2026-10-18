@@ -970,7 +970,7 @@ describe('one unit', () => {
       const refused = await stage.validate({ writes: [foreign] }, { query: async () => [] });
       expect(refused.ok).toBe(false);
       if (refused.ok) return;
-      expect(refused.errors.join('\n')).toContain('the build-configuration stage does not produce a "contains" fact');
+      expect(refused.errors.join('\n')).toContain('the build-configuration stage does not produce a "file" fact');
     } finally {
       await f.dispose();
     }

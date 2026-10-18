@@ -160,7 +160,7 @@ function unitIds(plan: { units: readonly { id: string }[] }): string[] {
 // ---- the registry ----------------------------------------------------------
 
 describe('the stages are registered', () => {
-  test('the stages register and the derived graph runs the snapshot before the history, the inventory, the document index and the syntax stage', async () => {
+  test('the stages register and the derived graph runs the snapshot before the history, the inventory, the build and configuration, the document index and the syntax stage', async () => {
     const f = await fixture();
     try {
       await f.write('src/a.ts', 'export const a = 1;\n');
@@ -169,23 +169,24 @@ describe('the stages are registered', () => {
       const read = deriveStageGraph(registry);
       expect(read.ok).toBe(true);
       if (!read.ok) return;
-      // The history stage (madarch-tzte.21.2) and the document index stage
-      // (madarch-tzte.21.4) are registered beside them, and the syntax stage
-      // (madarch-tzte.21.3): the history reads the snapshot too and is ordered
-      // between the two by code point, the syntax stage and the document index
-      // read the inventory's `file` facts, and the two are ordered by code point
-      // between themselves. The stage graph is the one every registered stage
+      // The build and configuration stage (madarch-tzte.21.5) is registered
+      // beside them too: the history reads the snapshot and is ordered between
+      // the two by code point, the inventory, the build and configuration, the
+      // syntax stage and the document index all read the inventory's `file`
+      // facts (and the build and configuration, the document index and the
+      // history the snapshot), and the graph is the one every registered stage
       // derives.
-      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'document-index', 'syntax']);
-      // The inventory reads the repository node and the snapshot; the history
-      // reads the snapshot alone; the syntax stage reads the inventory's file
-      // facts; the document index reads the snapshot and a link's `file` node,
-      // and its own `document` facts, which draw no edge from itself to itself.
+      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'build-configuration', 'document-index', 'syntax']);
       expect(read.graph.edges).toEqual([
+        { from: 'inventory', to: 'build-configuration', via: 'file' },
         { from: 'inventory', to: 'document-index', via: 'file' },
         { from: 'inventory', to: 'syntax', via: 'file' },
+        { from: 'snapshot', to: 'build-configuration', via: 'snapshot' },
         { from: 'snapshot', to: 'document-index', via: 'snapshot' },
         { from: 'snapshot', to: 'history', via: 'snapshot' },
+        { from: 'snapshot', to: 'inventory', via: 'repository' },
+        { from: 'snapshot', to: 'inventory', via: 'snapshot' },
+      ]);
         { from: 'snapshot', to: 'inventory', via: 'repository' },
         { from: 'snapshot', to: 'inventory', via: 'snapshot' },
       ]);
