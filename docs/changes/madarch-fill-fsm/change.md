@@ -60,9 +60,12 @@ None.
   `fill-unit/guard-refused` or `fill-unit/unknown-state`, the state, the event and
   the guard that refused it; the store returns the same value and writes nothing.
 - **Fencing.** A generation's `fence` column is the authority. Every lease takes a
-  greater token and every worker step names the token it acts under; `fence-current`
-  refuses a step naming an older one, so a worker that lost its lease cannot
-  publish, block or fail the generation that replaced it.
+  greater token than the unit has issued before, and every worker step names the
+  generation in force and the token it acts under; `fence-current` refuses a step
+  naming an older token and `generation-current` one naming an older generation, so
+  a worker that lost its lease cannot start, draft, publish, block or fail the
+  generation that replaced it. A replacement generation opens with a fencing floor
+  at the token its predecessor reached, so no token is reused by the unit.
 - **Persistence.** `src/fill/state-store.ts` owns six tables (`fill_chain`,
   `fill_run`, `fill_unit`, `fill_unit_generation`, `fill_unit_lease`,
   `fill_transition`) and borrows them through `FillStateDatabase`, whose whole

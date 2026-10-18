@@ -20,19 +20,55 @@ import { assign, createMachine, transition as xstateTransition } from 'xstate';
 
 const MODULE_PATH = fileURLToPath(import.meta.url);
 
-/** The one frame above the helper that names where an error was raised: the file, its line and column. */
+/**
+ * The stack frames of this module's own helpers. JavaScript engines elide the frame
+ * of a function that only returns another call, so the helpers are skipped by name
+ * rather than by counting frames.
+ */
+const LOCATING_HELPERS = new Set(['throwSite', 'raise', 'here']);
+
+/** The file, line and column of the first frame above this module's locating helpers. */
 function throwSite(): string {
-  // Frames 0 and 1 are this helper and `raise` itself; the first frame after them is the
-  // line that raised, whether it is in this module or in the store that calls it.
-  const frames = (new Error().stack ?? '').split('\n').slice(3);
-  const frame = frames.find((candidate) => candidate.trim().startsWith('at '));
-  const located = frame === undefined ? null : /\(?([^\s()]+):(\d+):(\d+)\)?\s*$/.exec(frame.trim());
-  return located ? `${located[1]}:${located[2]}:${located[3]}` : MODULE_PATH;
+  const frames = (new Error().stack ?? '').split('\n').slice(1);
+  for (const frame of frames) {
+    const located = /\(?([^\s()]+):(\d+):(\d+)\)?\s*$/.exec(frame.trim());
+    if (located === null) continue;
+    const name = /^\s*at\s+([^\s(]+)/.exec(frame)?.[1] ?? '';
+    if (LOCATING_HELPERS.has(name)) continue;
+    return `${located[1]}:${located[2]}:${located[3]}`;
+  }
+  return MODULE_PATH;
 }
 
 /** Raises an error that names the file, line and column it was raised from, then what is wrong. */
 export function raise(message: string): never {
   throw new Error(`${throwSite()}: ${message}`);
+}
+
+/**
+ * The file, line and column of the statement that calls this helper. A shared
+ * wrapper takes it from its caller, so a failure the wrapper reports names the
+ * operation's own line rather than the wrapper's.
+ */
+export function here(): string {
+  return throwSite();
+}
+
+/**
+ * One table entry, with its id built the same way for every machine:
+ * `<machine>/<from>--<event>-->`, `<machine>/<from>--<event>-<label>-->` when several
+ * transitions leave one state on one event (a unit's retry, its fail and its cancellation
+ * each name their cause or their source).
+ */
+export function transition<State extends string, Event extends FillEventObject>(
+  machine: string,
+  from: State,
+  event: Event['type'],
+  to: State,
+  entry: { readonly guards?: readonly string[]; readonly actions: readonly string[]; readonly label?: string },
+): TransitionSpec<State, Event> {
+  const label = entry.label === undefined ? '' : `-${entry.label}`;
+  return { id: `${machine}/${from}--${event}${label}-->${to}`, from, event, to, guards: entry.guards ?? [], actions: [...entry.actions] };
 }
 
 /** The shape every fill event shares: a `type` the table matches, plus the evidence its guards read. */
@@ -91,8 +127,10 @@ export interface Refusal<State extends string> {
   readonly reason: string;
   readonly state: State;
   readonly event: string;
-  /** The guard that refused the step, or null when the table has no such transition at all. */
+  /** The guard that refused the transition the event was aimed at, or null when the table has no such transition. */
   readonly guard: string | null;
+  /** Every guard that refused a candidate transition for this state and event, in declaration order. */
+  readonly guards: readonly string[];
   /** The transition ids the table declares for this state and event, empty when it declares none. */
   readonly transitions: readonly string[];
 }
@@ -218,6 +256,7 @@ export function createFillMachine<State extends string, Event extends FillEventO
     guard: string | null,
     candidates: readonly TransitionSpec<State, Event>[],
     transitionId: string | null = null,
+    guards: readonly string[] = guard === null ? [] : [guard],
   ): Refusal<State> {
     const ids = candidates.map((candidate) => candidate.id);
     const where = `${spec.id}: state "${state}" and event "${event.type}"`;
@@ -227,7 +266,7 @@ export function createFillMachine<State extends string, Event extends FillEventO
       : kind === 'no-transition'
         ? `${where}: the table allows no transition (allowed from here: ${allowed.join(', ') || 'none; this state is terminal'})`
         : `${where}: guard "${guard}" refused "${transitionId ?? ''}" (${spec.guards[guard ?? '']?.describe ?? 'no such guard'})`;
-    return { code: `${spec.id}/${kind}`, reason: sentence, state, event: event.type, guard, transitions: ids };
+    return { code: `${spec.id}/${kind}`, reason: sentence, state, event: event.type, guard, guards, transitions: ids };
   }
 
   function step(snapshot: MachineSnapshot<State, Context>, event: Event): StepResult<State, Context> {
@@ -242,12 +281,19 @@ export function createFillMachine<State extends string, Event extends FillEventO
     if (typeof target !== 'string') raise(`machine ${spec.id}: state "${state}" is not atomic after event "${event.type}"; the fill's machines keep flat states`);
 
     if (target === state) {
-      // XState found no transition whose guard holds. Name the guard that refused, from the table.
+      // XState found no transition whose guard holds. Name the guard that refused: the candidate
+      // whose guards came furthest before one of them failed is the one the event was aimed at.
+      let closest: { readonly candidate: TransitionSpec<State, Event>; readonly failing: string; readonly passed: number } | null = null;
+      const failingGuards: string[] = [];
       for (const candidate of candidates) {
-        const failed = candidate.guards.find((name) => !spec.guards[name]!.check(context, event));
-        if (failed !== undefined) return { ok: false, refusal: refusal(state, event, 'guard-refused', failed, candidates, candidate.id) };
+        const failing = candidate.guards.find((name) => !spec.guards[name]!.check(context, event));
+        if (failing === undefined) raise(`machine ${spec.id}: XState refused "${event.type}" in "${state}" although "${candidate.id}" holds; the table and the machine disagree`);
+        failingGuards.push(failing);
+        const passed = candidate.guards.filter((name) => spec.guards[name]!.check(context, event)).length;
+        if (closest === null || passed > closest.passed) closest = { candidate, failing, passed };
       }
-      raise(`machine ${spec.id}: XState refused "${event.type}" in "${state}" although every declared guard holds; the table and the machine disagree`);
+      if (closest !== null) return { ok: false, refusal: refusal(state, event, 'guard-refused', closest.failing, candidates, closest.candidate.id, failingGuards) };
+      raise(`machine ${spec.id}: XState refused "${event.type}" in "${state}" where the table declares no transition`);
     }
 
     const taken = candidates.find((candidate) => candidate.to === target

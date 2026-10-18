@@ -6,53 +6,61 @@
  *
  * A unit has a logical identity, immutable generations (a new input set opens a
  * new generation) and attempts (retries inside a generation). A lease carries a
- * monotonically increasing fencing token: every step a worker takes names its
- * token, and a step naming an older one is refused, so a worker that lost its
- * lease cannot publish, block or fail the generation that replaced it. A
- * published generation stays an immutable record: it is never retried or
- * cancelled, only marked stale and linked to its replacement.
+ * fencing token that grows across the whole unit, never only inside one
+ * generation: every step a worker takes names its generation and its token, and a
+ * step naming an older generation or an older token is refused, so a worker that
+ * lost its lease cannot start, draft, publish, block or fail the generation that
+ * replaced it. A published generation stays an immutable record: it is never
+ * retried or cancelled, only marked stale and linked to its replacement.
  *
  * ```mermaid
  * stateDiagram-v2
  *   [*] --> planned
  *   blocked --> cancelled: cancel
+ *   blocked --> failed: fail [generation-current & fail-cause]
  *   blocked --> stale: invalidate [replacement-named]
  *   blocked --> ready: unblock [resolution-named]
- *   draft --> blocked: block [fence-current & block-reason-named]
+ *   draft --> blocked: block [generation-current & fence-current & block-reason-named]
  *   draft --> cancelled: cancel
+ *   draft --> failed: fail [generation-current & fence-current & fail-cause]
  *   draft --> stale: invalidate [replacement-named]
- *   draft --> validating: validate-draft [fence-current & generation-current]
- *   leased --> blocked: block [fence-current & block-reason-named]
+ *   draft --> validating: validate-draft [generation-current & fence-current]
+ *   leased --> blocked: block [generation-current & fence-current & block-reason-named]
  *   leased --> cancelled: cancel
+ *   leased --> failed: fail [generation-current & fence-current & fail-cause]
  *   leased --> stale: invalidate [replacement-named]
- *   leased --> retry_wait: retry [retries-remain & retry-time-named & cause-lease-expired]
- *   leased --> running: start [fence-current]
+ *   leased --> retry_wait: retry [generation-current & retries-remain & retry-time-named & cause-lease-expired]
+ *   leased --> running: start [generation-current & fence-current]
  *   planned --> ready: admit
  *   planned --> cancelled: cancel
+ *   planned --> failed: fail [generation-current & fail-cause]
  *   published --> stale: invalidate [replacement-named]
- *   ready --> blocked: block [block-reason-named]
+ *   ready --> blocked: block [generation-current & block-reason-named]
  *   ready --> cancelled: cancel
+ *   ready --> failed: fail [generation-current & fail-cause]
  *   ready --> stale: invalidate [replacement-named]
  *   ready --> leased: lease [fence-advances]
  *   retry_wait --> cancelled: cancel
- *   retry_wait --> failed: fail [cause-retries-exhausted & retries-exhausted]
+ *   retry_wait --> failed: fail [generation-current & fail-cause]
  *   retry_wait --> stale: invalidate [replacement-named]
- *   retry_wait --> ready: retry [retry-elapsed]
- *   running --> blocked: block [fence-current & block-reason-named]
+ *   retry_wait --> ready: retry [generation-current & retry-elapsed]
+ *   running --> blocked: block [generation-current & fence-current & block-reason-named]
  *   running --> cancelled: cancel
- *   running --> failed: fail [fence-current & cause-budget-exhausted]
+ *   running --> failed: fail [generation-current & fence-current & fail-cause]
  *   running --> stale: invalidate [replacement-named]
- *   running --> retry_wait: retry [retries-remain & retry-time-named & cause-lease-expired]
- *   running --> retry_wait: retry [retries-remain & retry-time-named & cause-transient-failure]
- *   running --> draft: submit-draft [fence-current & generation-current]
- *   running --> waiting_children: wait-for-children [fence-current & generation-current & children-sealed]
- *   validating --> blocked: block [fence-current & block-reason-named]
+ *   running --> retry_wait: retry [generation-current & retries-remain & retry-time-named & cause-lease-expired]
+ *   running --> retry_wait: retry [generation-current & retries-remain & retry-time-named & cause-transient-failure]
+ *   running --> draft: submit-draft [generation-current & fence-current]
+ *   running --> waiting_children: wait-for-children [generation-current & fence-current & children-sealed]
+ *   validating --> blocked: block [generation-current & fence-current & block-reason-named]
  *   validating --> cancelled: cancel
+ *   validating --> failed: fail [generation-current & fence-current & fail-cause]
  *   validating --> stale: invalidate [replacement-named]
- *   validating --> published: publish [fence-current & generation-current & reads-fresh]
- *   validating --> retry_wait: retry [retries-remain & retry-time-named & cause-validation-problem]
- *   waiting_children --> blocked: block [block-reason-named]
+ *   validating --> published: publish [generation-current & fence-current & reads-fresh]
+ *   validating --> retry_wait: retry [generation-current & retries-remain & retry-time-named & cause-validation-problem]
+ *   waiting_children --> blocked: block [generation-current & block-reason-named]
  *   waiting_children --> cancelled: cancel
+ *   waiting_children --> failed: fail [generation-current & fail-cause]
  *   waiting_children --> stale: invalidate [replacement-named]
  *   waiting_children --> ready: join [children-published-and-fresh]
  *   cancelled --> [*]
@@ -68,8 +76,8 @@
  * tables (see `unitMachine.mermaid()`, `runMachine.mermaid()`,
  * `chainMachine.mermaid()`).
  */
-import type { MachineSpec } from './fsm-core.js';
-import { createFillMachine } from './fsm-core.js';
+import type { MachineSpec, TransitionSpec } from './fsm-core.js';
+import { createFillMachine, transition } from './fsm-core.js';
 
 // ---------------------------------------------------------------------------------------------
 // Unit machine
@@ -88,7 +96,7 @@ export interface UnitContext {
   readonly generation: number;
   /** Attempts spent on this generation, the first lease included. */
   readonly attempt: number;
-  /** The fencing token in force: every lease takes a greater one, and a step naming an older one is refused. */
+  /** The fencing token in force: it grows across the unit's generations, and a step naming an older one is refused. */
   readonly fence: number;
   /** Retries left on this generation before it fails. */
   readonly retriesLeft: number;
@@ -114,22 +122,32 @@ export interface UnitChildOutcome {
   readonly fresh: boolean;
 }
 
-/** A step a caller asks of a unit generation. Each carries the evidence its transition's guards read. */
+/**
+ * A step a caller asks of a unit generation. Every step that advances a live
+ * generation names that generation, and every worker step also names the fencing
+ * token it acts under, so a message from a superseded attempt is refused.
+ */
 export type UnitEvent =
   | { readonly type: 'admit'; readonly at: number }
   | { readonly type: 'lease'; readonly at: number; readonly fence: number; readonly attempt: number }
-  | { readonly type: 'start'; readonly at: number; readonly fence: number }
-  | { readonly type: 'submit-draft'; readonly at: number; readonly fence: number; readonly generation: number }
-  | { readonly type: 'validate-draft'; readonly at: number; readonly fence: number; readonly generation: number }
-  | { readonly type: 'publish'; readonly at: number; readonly fence: number; readonly generation: number; readonly readsFresh: boolean }
-  | { readonly type: 'wait-for-children'; readonly at: number; readonly fence: number; readonly generation: number; readonly children: readonly UnitChildOutcome[] }
+  | { readonly type: 'start'; readonly at: number; readonly generation: number; readonly fence: number }
+  | { readonly type: 'submit-draft'; readonly at: number; readonly generation: number; readonly fence: number }
+  | { readonly type: 'validate-draft'; readonly at: number; readonly generation: number; readonly fence: number }
+  | { readonly type: 'publish'; readonly at: number; readonly generation: number; readonly fence: number; readonly readsFresh: boolean }
+  | { readonly type: 'wait-for-children'; readonly at: number; readonly generation: number; readonly fence: number; readonly children: readonly UnitChildOutcome[] }
   | { readonly type: 'join'; readonly at: number; readonly children: readonly UnitChildOutcome[] }
-  | { readonly type: 'retry'; readonly at: number; readonly cause: UnitRetryCause; readonly retryAt: number | null }
-  | { readonly type: 'block'; readonly at: number; readonly fence: number | null; readonly reason: string }
+  | { readonly type: 'retry'; readonly at: number; readonly generation: number; readonly cause: UnitRetryCause; readonly retryAt: number | null }
+  | { readonly type: 'block'; readonly at: number; readonly generation: number; readonly fence: number | null; readonly reason: string }
   | { readonly type: 'unblock'; readonly at: number; readonly resolution: string }
-  | { readonly type: 'fail'; readonly at: number; readonly fence: number | null; readonly cause: UnitFailCause }
+  | { readonly type: 'fail'; readonly at: number; readonly generation: number; readonly fence: number | null; readonly cause: UnitFailCause }
   | { readonly type: 'invalidate'; readonly at: number; readonly replacement: number; readonly cause: string }
   | { readonly type: 'cancel'; readonly at: number; readonly cause: string };
+
+/** The step that takes a lease, which only the store may issue: it writes the lease row with the token. */
+export type UnitLeaseEvent = Extract<UnitEvent, { readonly type: 'lease' }>;
+
+/** Every unit step but the lease, which `leaseUnit` takes; `advanceUnit` refuses it. */
+export type UnitAdvanceEvent = Exclude<UnitEvent, UnitLeaseEvent>;
 
 const named = (value: string): boolean => value.trim() !== '';
 const fenced = (event: { readonly fence: number | null }): boolean => event.fence !== null;
@@ -137,24 +155,20 @@ const fenced = (event: { readonly fence: number | null }): boolean => event.fenc
 /** Every unit guard, named and pure: it reads the persisted generation and the event, nothing else. */
 const unitGuards: MachineSpec<UnitState, UnitEvent, UnitContext>['guards'] = {
   'fence-advances': {
-    describe: 'the new lease takes a greater fencing token than the generation holds',
+    describe: 'the new lease takes a greater fencing token than the unit holds',
     check: (context, event) => event.type === 'lease' && event.fence > context.fence,
   },
   'fence-current': {
-    describe: 'the step names the generation\'s current fencing token, so a late worker holding an older lease is refused',
+    describe: 'the step names the fencing token in force, so a late worker holding an older lease is refused',
     check: (context, event) => 'fence' in event && fenced(event) && event.fence === context.fence,
   },
   'generation-current': {
-    describe: 'the step names the generation in force',
+    describe: 'the step names the generation in force, so a message for a superseded generation is refused',
     check: (context, event) => 'generation' in event && event.generation === context.generation,
   },
   'retries-remain': {
     describe: 'the generation has a retry left before it fails',
     check: (context) => context.retriesLeft > 0,
-  },
-  'retries-exhausted': {
-    describe: 'the generation has spent every retry of its budget',
-    check: (context) => context.retriesLeft === 0,
   },
   'retry-time-named': {
     describe: 'the retry names the moment it may run again',
@@ -176,13 +190,9 @@ const unitGuards: MachineSpec<UnitState, UnitEvent, UnitContext>['guards'] = {
     describe: 'validation found a problem the unit may fix in another attempt',
     check: (_context, event) => event.type === 'retry' && event.cause === 'validation-problem',
   },
-  'cause-budget-exhausted': {
-    describe: 'the run\'s budget for the unit is spent',
-    check: (_context, event) => event.type === 'fail' && event.cause === 'budget-exhausted',
-  },
-  'cause-retries-exhausted': {
-    describe: 'the unit reports that it has no retry left',
-    check: (_context, event) => event.type === 'fail' && event.cause === 'retries-exhausted',
+  'fail-cause': {
+    describe: 'the step fails the unit for the run\'s spent budget, or because the attempt ended with no retry left',
+    check: (context, event) => event.type === 'fail' && (event.cause === 'budget-exhausted' || context.retriesLeft === 0),
   },
   'children-sealed': {
     describe: 'the split sealed at least one child generation',
@@ -211,6 +221,16 @@ const unitGuards: MachineSpec<UnitState, UnitEvent, UnitContext>['guards'] = {
     check: (context, event) => event.type === 'invalidate' && event.replacement === context.generation + 1,
   },
 };
+
+const revokeAndRetract = ['revoke-lease', 'retract-draft', 'emit-progress'] as const;
+const retractAndEmit = ['retract-draft', 'emit-progress'] as const;
+const retryActions = ['spend-retry', 'wait-for-retry', 'retract-draft', 'schedule-retry', 'emit-progress'] as const;
+const retryActionsFenced = ['spend-retry', 'wait-for-retry', 'revoke-lease', 'retract-draft', 'schedule-retry', 'emit-progress'] as const;
+const blockActions = ['emit-progress'] as const;
+const blockActionsFenced = ['revoke-lease', 'emit-progress'] as const;
+const invalidateActions = ['link-replacement', 'retract-draft', 'revoke-lease', 'emit-progress'] as const;
+const invalidatePublishedActions = ['link-replacement', 'revoke-lease', 'emit-progress'] as const;
+const cancelActions = ['revoke-authority', 'revoke-lease', 'retract-draft', 'emit-progress'] as const;
 
 /** Every unit action, named: context updates XState applies, then effects the orchestrator performs. */
 const unitActions: MachineSpec<UnitState, UnitEvent, UnitContext>['actions'] = {
@@ -273,7 +293,7 @@ const unitActions: MachineSpec<UnitState, UnitEvent, UnitContext>['actions'] = {
   },
   'retract-draft': {
     kind: 'effect',
-    describe: 'the orchestrator retracts the generation\'s unpublished draft set',
+    describe: 'the orchestrator retracts the generation\'s unpublished draft set, so a rerun starts clean',
   },
   'revoke-authority': {
     kind: 'effect',
@@ -289,57 +309,57 @@ const unitActions: MachineSpec<UnitState, UnitEvent, UnitContext>['actions'] = {
   },
 };
 
-/** A transition the whole table shares: a control step the orchestrator takes on any live generation. */
-const unitTransition = (from: UnitState, id: string, event: UnitEvent['type'], to: UnitState, guards: readonly string[], actions: readonly string[]): MachineSpec<UnitState, UnitEvent, UnitContext>['transitions'][number] =>
-  ({ id, from, event, to, guards, actions });
+/** The states a unit waits in with a lease in force: their steps name the token as well as the generation. */
+const LEASED_STATES = ['leased', 'running', 'draft', 'validating'] as const;
+
+/** One line of the unit table, with its id built from its machine, states and event. */
+const unitTransition = (
+  from: UnitState,
+  event: UnitEvent['type'],
+  to: UnitState,
+  entry: { readonly guards?: readonly string[]; readonly actions: readonly string[]; readonly label?: string },
+): TransitionSpec<UnitState, UnitEvent> => transition<UnitState, UnitEvent>('unit', from, event, to, entry);
 
 /**
  * Every transition a unit generation allows, and nothing else: the states absent
  * from a line here are the ones refused. `published`, `failed`, `stale` and
  * `cancelled` leave the table never: a published generation only goes stale with
  * a replacement, and stale work continues in its replacement generation.
+ *
+ * A live generation fails for either cause the decision names: when the run's
+ * budget is spent, from every live state, and when an attempt ends with no retry
+ * left, from the states an attempt can end in.
  */
 const unitTransitions: MachineSpec<UnitState, UnitEvent, UnitContext>['transitions'] = [
-  unitTransition('planned', 'unit/planned--admit-->ready', 'admit', 'ready', [], ['enqueue-ready', 'emit-progress']),
-  unitTransition('ready', 'unit/ready--lease-->leased', 'lease', 'leased', ['fence-advances'], ['take-fence', 'emit-progress']),
-  unitTransition('leased', 'unit/leased--start-->running', 'start', 'running', ['fence-current'], ['emit-progress']),
-  unitTransition('running', 'unit/running--submit-draft-->draft', 'submit-draft', 'draft', ['fence-current', 'generation-current'], ['record-draft', 'emit-progress']),
-  unitTransition('draft', 'unit/draft--validate-draft-->validating', 'validate-draft', 'validating', ['fence-current', 'generation-current'], ['record-validation', 'emit-progress']),
-  unitTransition('validating', 'unit/validating--publish-->published', 'publish', 'published', ['fence-current', 'generation-current', 'reads-fresh'], ['record-publication', 'emit-progress']),
-  unitTransition('running', 'unit/running--wait-for-children-->waiting_children', 'wait-for-children', 'waiting_children', ['fence-current', 'generation-current', 'children-sealed'], ['suspend-parent', 'emit-progress']),
-  unitTransition('waiting_children', 'unit/waiting_children--join-->ready', 'join', 'ready', ['children-published-and-fresh'], ['resume-join', 'enqueue-ready', 'emit-progress']),
-  unitTransition('validating', 'unit/validating--retry-validation-problem-->retry_wait', 'retry', 'retry_wait', ['retries-remain', 'retry-time-named', 'cause-validation-problem'], ['spend-retry', 'wait-for-retry', 'retract-draft', 'schedule-retry', 'emit-progress']),
-  unitTransition('leased', 'unit/leased--retry-lease-expired-->retry_wait', 'retry', 'retry_wait', ['retries-remain', 'retry-time-named', 'cause-lease-expired'], ['spend-retry', 'wait-for-retry', 'revoke-lease', 'schedule-retry', 'emit-progress']),
-  unitTransition('running', 'unit/running--retry-lease-expired-->retry_wait', 'retry', 'retry_wait', ['retries-remain', 'retry-time-named', 'cause-lease-expired'], ['spend-retry', 'wait-for-retry', 'revoke-lease', 'schedule-retry', 'emit-progress']),
-  unitTransition('running', 'unit/running--retry-transient-failure-->retry_wait', 'retry', 'retry_wait', ['retries-remain', 'retry-time-named', 'cause-transient-failure'], ['spend-retry', 'wait-for-retry', 'schedule-retry', 'emit-progress']),
-  unitTransition('retry_wait', 'unit/retry_wait--retry-->ready', 'retry', 'ready', ['retry-elapsed'], ['clear-retry', 'enqueue-ready', 'emit-progress']),
-  unitTransition('ready', 'unit/ready--block-->blocked', 'block', 'blocked', ['block-reason-named'], ['emit-progress']),
-  unitTransition('leased', 'unit/leased--block-->blocked', 'block', 'blocked', ['fence-current', 'block-reason-named'], ['revoke-lease', 'emit-progress']),
-  unitTransition('running', 'unit/running--block-->blocked', 'block', 'blocked', ['fence-current', 'block-reason-named'], ['revoke-lease', 'emit-progress']),
-  unitTransition('draft', 'unit/draft--block-->blocked', 'block', 'blocked', ['fence-current', 'block-reason-named'], ['revoke-lease', 'emit-progress']),
-  unitTransition('validating', 'unit/validating--block-->blocked', 'block', 'blocked', ['fence-current', 'block-reason-named'], ['revoke-lease', 'emit-progress']),
-  unitTransition('waiting_children', 'unit/waiting_children--block-->blocked', 'block', 'blocked', ['block-reason-named'], ['emit-progress']),
-  unitTransition('blocked', 'unit/blocked--unblock-->ready', 'unblock', 'ready', ['resolution-named'], ['record-resolution', 'enqueue-ready', 'emit-progress']),
-  unitTransition('running', 'unit/running--fail-budget-exhausted-->failed', 'fail', 'failed', ['fence-current', 'cause-budget-exhausted'], ['retract-draft', 'emit-progress']),
-  unitTransition('retry_wait', 'unit/retry_wait--fail-retries-exhausted-->failed', 'fail', 'failed', ['cause-retries-exhausted', 'retries-exhausted'], ['retract-draft', 'emit-progress']),
-  unitTransition('ready', 'unit/ready--invalidate-->stale', 'invalidate', 'stale', ['replacement-named'], ['link-replacement', 'retract-draft', 'revoke-lease', 'emit-progress']),
-  unitTransition('leased', 'unit/leased--invalidate-->stale', 'invalidate', 'stale', ['replacement-named'], ['link-replacement', 'retract-draft', 'revoke-lease', 'emit-progress']),
-  unitTransition('running', 'unit/running--invalidate-->stale', 'invalidate', 'stale', ['replacement-named'], ['link-replacement', 'retract-draft', 'revoke-lease', 'emit-progress']),
-  unitTransition('draft', 'unit/draft--invalidate-->stale', 'invalidate', 'stale', ['replacement-named'], ['link-replacement', 'retract-draft', 'revoke-lease', 'emit-progress']),
-  unitTransition('validating', 'unit/validating--invalidate-->stale', 'invalidate', 'stale', ['replacement-named'], ['link-replacement', 'retract-draft', 'revoke-lease', 'emit-progress']),
-  unitTransition('waiting_children', 'unit/waiting_children--invalidate-->stale', 'invalidate', 'stale', ['replacement-named'], ['link-replacement', 'retract-draft', 'revoke-lease', 'emit-progress']),
-  unitTransition('retry_wait', 'unit/retry_wait--invalidate-->stale', 'invalidate', 'stale', ['replacement-named'], ['link-replacement', 'retract-draft', 'revoke-lease', 'emit-progress']),
-  unitTransition('blocked', 'unit/blocked--invalidate-->stale', 'invalidate', 'stale', ['replacement-named'], ['link-replacement', 'retract-draft', 'revoke-lease', 'emit-progress']),
-  unitTransition('published', 'unit/published--invalidate-->stale', 'invalidate', 'stale', ['replacement-named'], ['link-replacement', 'revoke-lease', 'emit-progress']),
-  unitTransition('planned', 'unit/planned--cancel-->cancelled', 'cancel', 'cancelled', [], ['revoke-authority', 'retract-draft', 'emit-progress']),
-  unitTransition('ready', 'unit/ready--cancel-->cancelled', 'cancel', 'cancelled', [], ['revoke-authority', 'revoke-lease', 'retract-draft', 'emit-progress']),
-  unitTransition('leased', 'unit/leased--cancel-->cancelled', 'cancel', 'cancelled', [], ['revoke-authority', 'revoke-lease', 'retract-draft', 'emit-progress']),
-  unitTransition('running', 'unit/running--cancel-->cancelled', 'cancel', 'cancelled', [], ['revoke-authority', 'revoke-lease', 'retract-draft', 'emit-progress']),
-  unitTransition('draft', 'unit/draft--cancel-->cancelled', 'cancel', 'cancelled', [], ['revoke-authority', 'revoke-lease', 'retract-draft', 'emit-progress']),
-  unitTransition('validating', 'unit/validating--cancel-->cancelled', 'cancel', 'cancelled', [], ['revoke-authority', 'revoke-lease', 'retract-draft', 'emit-progress']),
-  unitTransition('waiting_children', 'unit/waiting_children--cancel-->cancelled', 'cancel', 'cancelled', [], ['revoke-authority', 'revoke-lease', 'retract-draft', 'emit-progress']),
-  unitTransition('retry_wait', 'unit/retry_wait--cancel-->cancelled', 'cancel', 'cancelled', [], ['revoke-authority', 'revoke-lease', 'retract-draft', 'emit-progress']),
-  unitTransition('blocked', 'unit/blocked--cancel-->cancelled', 'cancel', 'cancelled', [], ['revoke-authority', 'revoke-lease', 'retract-draft', 'emit-progress']),
+  unitTransition('planned', 'admit', 'ready', { actions: ['enqueue-ready', 'emit-progress'] }),
+  unitTransition('ready', 'lease', 'leased', { guards: ['fence-advances'], actions: ['take-fence', 'emit-progress'] }),
+  unitTransition('leased', 'start', 'running', { guards: ['generation-current', 'fence-current'], actions: ['emit-progress'] }),
+  unitTransition('running', 'submit-draft', 'draft', { guards: ['generation-current', 'fence-current'], actions: ['record-draft', 'emit-progress'] }),
+  unitTransition('draft', 'validate-draft', 'validating', { guards: ['generation-current', 'fence-current'], actions: ['record-validation', 'emit-progress'] }),
+  unitTransition('validating', 'publish', 'published', { guards: ['generation-current', 'fence-current', 'reads-fresh'], actions: ['record-publication', 'emit-progress'] }),
+  unitTransition('running', 'wait-for-children', 'waiting_children', { guards: ['generation-current', 'fence-current', 'children-sealed'], actions: ['suspend-parent', 'emit-progress'] }),
+  unitTransition('waiting_children', 'join', 'ready', { guards: ['children-published-and-fresh'], actions: ['resume-join', 'enqueue-ready', 'emit-progress'] }),
+  unitTransition('validating', 'retry', 'retry_wait', { label: 'validation-problem', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-validation-problem'], actions: retryActions }),
+  unitTransition('leased', 'retry', 'retry_wait', { label: 'lease-expired', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-lease-expired'], actions: retryActionsFenced }),
+  unitTransition('running', 'retry', 'retry_wait', { label: 'lease-expired', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-lease-expired'], actions: retryActionsFenced }),
+  unitTransition('running', 'retry', 'retry_wait', { label: 'transient-failure', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-transient-failure'], actions: retryActions }),
+  unitTransition('retry_wait', 'retry', 'ready', { guards: ['generation-current', 'retry-elapsed'], actions: ['clear-retry', 'enqueue-ready', 'emit-progress'] }),
+  unitTransition('ready', 'block', 'blocked', { guards: ['generation-current', 'block-reason-named'], actions: blockActions }),
+  ...LEASED_STATES.map((from) => unitTransition(from, 'block', 'blocked', { guards: ['generation-current', 'fence-current', 'block-reason-named'], actions: blockActionsFenced })),
+  unitTransition('waiting_children', 'block', 'blocked', { guards: ['generation-current', 'block-reason-named'], actions: blockActions }),
+  unitTransition('blocked', 'unblock', 'ready', { guards: ['resolution-named'], actions: ['record-resolution', 'enqueue-ready', 'emit-progress'] }),
+  // "→ failed when budget or retries are exhausted": from every live generation, whichever ended it.
+  unitTransition('planned', 'fail', 'failed', { guards: ['generation-current', 'fail-cause'], actions: retractAndEmit }),
+  unitTransition('ready', 'fail', 'failed', { guards: ['generation-current', 'fail-cause'], actions: retractAndEmit }),
+  unitTransition('waiting_children', 'fail', 'failed', { guards: ['generation-current', 'fail-cause'], actions: retractAndEmit }),
+  unitTransition('retry_wait', 'fail', 'failed', { guards: ['generation-current', 'fail-cause'], actions: retractAndEmit }),
+  unitTransition('blocked', 'fail', 'failed', { guards: ['generation-current', 'fail-cause'], actions: retractAndEmit }),
+  ...LEASED_STATES.map((from) => unitTransition(from, 'fail', 'failed', { guards: ['generation-current', 'fence-current', 'fail-cause'], actions: revokeAndRetract })),
+  // Staleness: every live generation, and the published one, which only goes stale.
+  ...(['ready', ...LEASED_STATES, 'waiting_children', 'retry_wait', 'blocked'] as const).map((from) => unitTransition(from, 'invalidate', 'stale', { guards: ['replacement-named'], actions: invalidateActions })),
+  unitTransition('published', 'invalidate', 'stale', { guards: ['replacement-named'], actions: invalidatePublishedActions }),
+  unitTransition('planned', 'cancel', 'cancelled', { actions: ['revoke-authority', 'retract-draft', 'emit-progress'] }),
+  ...(['ready', ...LEASED_STATES, 'waiting_children', 'retry_wait', 'blocked'] as const).map((from) => unitTransition(from, 'cancel', 'cancelled', { actions: cancelActions })),
 ];
 
 /** The unit machine: generations, attempts and fencing tokens, as decision 0027 declares them. */
@@ -352,9 +372,13 @@ export const unitMachine = createFillMachine<UnitState, UnitEvent, UnitContext>(
   actions: unitActions,
 });
 
-/** A generation's context when the unit is first created. */
-export function newUnitContext(options: { readonly generation: number; readonly retries: number }): UnitContext {
-  return { generation: options.generation, attempt: 0, fence: 0, retriesLeft: options.retries, retryAt: null, replacedBy: null };
+/**
+ * A generation's context when the unit is first created or a replacement opens.
+ * `fence` is the floor the next lease takes its token above, so a token is never
+ * reused by a later generation of the same unit.
+ */
+export function newUnitContext(options: { readonly generation: number; readonly retries: number; readonly fence?: number }): UnitContext {
+  return { generation: options.generation, attempt: 0, fence: options.fence ?? 0, retriesLeft: options.retries, retryAt: null, replacedBy: null };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -518,27 +542,35 @@ const runActions: MachineSpec<RunState, RunEvent, RunContext>['actions'] = {
   },
 };
 
+/** One line of the run table, with its id built from its machine, states and event. */
+const runTransition = (
+  from: RunState,
+  event: RunEvent['type'],
+  to: RunState,
+  entry: { readonly guards?: readonly string[]; readonly actions: readonly string[]; readonly label?: string },
+): TransitionSpec<RunState, RunEvent> => transition<RunState, RunEvent>('run', from, event, to, entry);
+
 /**
  * Every transition a run allows. A run never pauses, resumes or cancels after it
  * ended: `succeeded`, `completed_partial`, `blocked`, `failed` and `cancelled`
- * are terminal, and the next attempt is a new run on the same chain.
+ * are terminal, and the next attempt is a new run on the same chain. Planning
+ * itself can end the run: a plan that resolves no stage for a required producer
+ * records its starvation path as `blocked`, and a spent budget fails it there.
  */
 const runTransitions: MachineSpec<RunState, RunEvent, RunContext>['transitions'] = [
-  { id: 'run/created--plan-->planning', from: 'created', event: 'plan', to: 'planning', guards: ['configuration-resolved'], actions: ['snapshot-configuration', 'emit-progress'] },
-  { id: 'run/planning--start-->running', from: 'planning', event: 'start', to: 'running', guards: ['stage-graph-resolved'], actions: ['close-planning-epoch', 'bump-planning-epoch', 'enqueue-stages', 'emit-progress'] },
-  { id: 'run/running--complete-->succeeded', from: 'running', event: 'complete', to: 'succeeded', guards: ['planning-closed', 'nothing-runnable-in-flight-or-waiting', 'required-coverage-met', 'no-pending-publication'], actions: ['record-completion', 'emit-progress'] },
-  { id: 'run/running--complete-partial-->completed_partial', from: 'running', event: 'complete-partial', to: 'completed_partial', guards: ['planning-closed', 'nothing-runnable-in-flight-or-waiting', 'no-pending-publication', 'required-coverage-unmet'], actions: ['record-partial-completion', 'emit-progress'] },
-  { id: 'run/running--block-->blocked', from: 'running', event: 'block', to: 'blocked', guards: ['starvation-path-named'], actions: ['record-starvation', 'emit-progress'] },
-  { id: 'run/running--fail-budget-exhausted-->failed', from: 'running', event: 'fail', to: 'failed', guards: ['cause-budget-exhausted'], actions: ['record-failure', 'emit-progress'] },
-  { id: 'run/running--pause-->pausing', from: 'running', event: 'pause', to: 'pausing', guards: [], actions: ['record-pause-intent', 'emit-progress'] },
-  { id: 'run/pausing--drain-->paused', from: 'pausing', event: 'drain', to: 'paused', guards: ['nothing-in-flight-or-waiting'], actions: ['record-paused', 'emit-progress'] },
-  { id: 'run/paused--resume-->planning', from: 'paused', event: 'resume', to: 'planning', guards: [], actions: ['reopen-planning-epoch', 'emit-progress'] },
-  { id: 'run/created--cancel-->cancelling', from: 'created', event: 'cancel', to: 'cancelling', guards: [], actions: ['revoke-run-authority', 'record-cancel-intent', 'emit-progress'] },
-  { id: 'run/planning--cancel-->cancelling', from: 'planning', event: 'cancel', to: 'cancelling', guards: [], actions: ['revoke-run-authority', 'record-cancel-intent', 'emit-progress'] },
-  { id: 'run/running--cancel-->cancelling', from: 'running', event: 'cancel', to: 'cancelling', guards: [], actions: ['revoke-run-authority', 'record-cancel-intent', 'emit-progress'] },
-  { id: 'run/pausing--cancel-->cancelling', from: 'pausing', event: 'cancel', to: 'cancelling', guards: [], actions: ['revoke-run-authority', 'record-cancel-intent', 'emit-progress'] },
-  { id: 'run/paused--cancel-->cancelling', from: 'paused', event: 'cancel', to: 'cancelling', guards: [], actions: ['revoke-run-authority', 'record-cancel-intent', 'emit-progress'] },
-  { id: 'run/cancelling--drained-->cancelled', from: 'cancelling', event: 'drained', to: 'cancelled', guards: ['nothing-runnable-in-flight-or-waiting', 'no-pending-publication'], actions: ['record-cancelled', 'emit-progress'] },
+  runTransition('created', 'plan', 'planning', { guards: ['configuration-resolved'], actions: ['snapshot-configuration', 'emit-progress'] }),
+  runTransition('planning', 'start', 'running', { guards: ['stage-graph-resolved'], actions: ['close-planning-epoch', 'bump-planning-epoch', 'enqueue-stages', 'emit-progress'] }),
+  runTransition('planning', 'block', 'blocked', { guards: ['starvation-path-named'], actions: ['record-starvation', 'emit-progress'] }),
+  runTransition('planning', 'fail', 'failed', { label: 'budget-exhausted', guards: ['cause-budget-exhausted'], actions: ['record-failure', 'emit-progress'] }),
+  runTransition('running', 'complete', 'succeeded', { guards: ['planning-closed', 'nothing-runnable-in-flight-or-waiting', 'required-coverage-met', 'no-pending-publication'], actions: ['record-completion', 'emit-progress'] }),
+  runTransition('running', 'complete-partial', 'completed_partial', { guards: ['planning-closed', 'nothing-runnable-in-flight-or-waiting', 'no-pending-publication', 'required-coverage-unmet'], actions: ['record-partial-completion', 'emit-progress'] }),
+  runTransition('running', 'block', 'blocked', { guards: ['starvation-path-named'], actions: ['record-starvation', 'emit-progress'] }),
+  runTransition('running', 'fail', 'failed', { label: 'budget-exhausted', guards: ['cause-budget-exhausted'], actions: ['record-failure', 'emit-progress'] }),
+  runTransition('running', 'pause', 'pausing', { actions: ['record-pause-intent', 'emit-progress'] }),
+  runTransition('pausing', 'drain', 'paused', { guards: ['nothing-in-flight-or-waiting'], actions: ['record-paused', 'emit-progress'] }),
+  runTransition('paused', 'resume', 'planning', { actions: ['reopen-planning-epoch', 'emit-progress'] }),
+  ...(['created', 'planning', 'running', 'pausing', 'paused'] as const).map((from) => runTransition(from, 'cancel', 'cancelling', { actions: ['revoke-run-authority', 'record-cancel-intent', 'emit-progress'] })),
+  runTransition('cancelling', 'drained', 'cancelled', { guards: ['nothing-runnable-in-flight-or-waiting', 'no-pending-publication'], actions: ['record-cancelled', 'emit-progress'] }),
 ];
 
 /** The run machine: one fill run's life, as decision 0027 declares it. */
@@ -615,11 +647,19 @@ const chainActions: MachineSpec<ChainState, ChainEvent, ChainContext>['actions']
   },
 };
 
+/** One line of the chain table, with its id built from its machine, states and event. */
+const chainTransition = (
+  from: ChainState,
+  event: ChainEvent['type'],
+  to: ChainState,
+  entry: { readonly guards?: readonly string[]; readonly actions: readonly string[]; readonly label?: string },
+): TransitionSpec<ChainState, ChainEvent> => transition<ChainState, ChainEvent>('chain', from, event, to, entry);
+
 /** Every transition a product's chain allows: idle → active → quiescent and back to active. */
 const chainTransitions: MachineSpec<ChainState, ChainEvent, ChainContext>['transitions'] = [
-  { id: 'chain/idle--start-->active', from: 'idle', event: 'start', to: 'active', guards: ['run-named'], actions: ['record-active-run', 'emit-progress'] },
-  { id: 'chain/active--settle-->quiescent', from: 'active', event: 'settle', to: 'quiescent', guards: ['nothing-outstanding'], actions: ['clear-active-run', 'emit-progress'] },
-  { id: 'chain/quiescent--wake-->active', from: 'quiescent', event: 'wake', to: 'active', guards: ['run-named'], actions: ['record-active-run', 'emit-progress'] },
+  chainTransition('idle', 'start', 'active', { guards: ['run-named'], actions: ['record-active-run', 'emit-progress'] }),
+  chainTransition('active', 'settle', 'quiescent', { guards: ['nothing-outstanding'], actions: ['clear-active-run', 'emit-progress'] }),
+  chainTransition('quiescent', 'wake', 'active', { guards: ['run-named'], actions: ['record-active-run', 'emit-progress'] }),
 ];
 
 /** The chain machine: a product's chain of runs, idle → active → quiescent. */

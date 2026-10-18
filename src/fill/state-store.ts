@@ -4,12 +4,15 @@
  *
  * Three row sets — `fill_chain`, `fill_run`, `fill_unit` with its
  * `fill_unit_generation` and `fill_unit_lease` — and one journal,
- * `fill_transition`, which records every step taken. A generation's fencing
- * token lives in its `fence` column and is the authority: it is loaded into the
- * machine's context, every step names the token it acts under, and the machine's
- * `fence-current` guard refuses a step that names an older one. The `context`
- * column carries the rest of a generation's context as JSON, and a write sets
- * both in one statement.
+ * `fill_transition`, which records every step taken, including the creation of a
+ * unit and the opening of a replacement generation. A generation's fencing token
+ * lives in its `fence` column and is the authority: it is loaded into the
+ * machine's context, every step names the generation and the token it acts
+ * under, and the machine's `generation-current` and `fence-current` guards refuse
+ * a step naming an older one. The token grows across the unit's generations, so a
+ * replacement generation never reuses the token its predecessor issued. The
+ * `context` column carries the rest of a generation's context as JSON, and a
+ * write sets both in one statement.
  *
  * The database owner is madarch-tzte.19.1's: one owner per process, borrowed
  * here through `FillStateDatabase`. Until that lands, `test/fill-fsm-pglite.ts`
@@ -18,8 +21,8 @@
  * The store never opens a connection, never runs outside a transaction of the
  * owner and never closes the owner.
  */
-import type { SqlExecutor } from '../query/sql-driver.js';
-import { raise } from './fsm-core.js';
+import type { SqlExecutor, SqlQueryDriver, SqlTransactionKind } from '../query/sql-driver.js';
+import { here, raise } from './fsm-core.js';
 import type { Refusal } from './fsm-core.js';
 import {
   CHAIN_STATES,
@@ -39,19 +42,24 @@ import type {
   RunContext,
   RunEvent,
   RunState,
+  UnitAdvanceEvent,
   UnitContext,
   UnitEvent,
+  UnitLeaseEvent,
   UnitState,
 } from './fsm.js';
 
 /** The narrow slice of the process's one database owner that this store borrows (madarch-tzte.19.1). */
-export interface FillStateDatabase {
-  /** Runs work in one transaction of the owner and commits on success, rolls back on a thrown error. */
-  transaction<T>(kind: 'snapshot' | 'write', work: (executor: SqlExecutor) => Promise<T>): Promise<T>;
-}
+export type FillStateDatabase = Pick<SqlQueryDriver, 'transaction'>;
 
-/** The tables this store owns; `createFillStateSchema` creates them and every error names the one it touched. */
+/** The tables this store owns; `createFillStateSchema` creates them and every error names the ones it touched. */
 export const FILL_STATE_TABLES = ['fill_chain', 'fill_run', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'] as const;
+
+/** The store's own step ids: no machine declares them, and their prefix keeps them apart from the tables'. */
+export const FILL_STORE_STEPS = {
+  createUnit: 'fill-store/unit--create-->planned',
+  openGeneration: 'fill-store/generation--open-->planned',
+} as const;
 
 const SCHEMA: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS fill_chain (
@@ -72,7 +80,6 @@ const SCHEMA: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS fill_unit (
     unit_id text PRIMARY KEY,
     product text NOT NULL,
-    run_id text NOT NULL,
     stage_id text NOT NULL,
     scope_key text NOT NULL,
     generation integer NOT NULL,
@@ -82,6 +89,7 @@ const SCHEMA: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS fill_unit_generation (
     unit_id text NOT NULL,
     generation integer NOT NULL,
+    run_id text NOT NULL,
     state text NOT NULL,
     inputs_digest text NOT NULL,
     fence integer NOT NULL,
@@ -119,7 +127,8 @@ const SCHEMA: readonly string[] = [
 
 /** Creates the store's tables and indexes; safe to run on every start of the process's owner. */
 export async function createFillStateSchema(database: FillStateDatabase): Promise<void> {
-  await run(database, 'createFillStateSchema', async (executor) => {
+  const at = here();
+  await run(at, database, 'createFillStateSchema', FILL_STATE_TABLES, async (executor) => {
     for (const statement of SCHEMA) await executor.query(statement);
   }, 'write');
 }
@@ -156,6 +165,7 @@ export interface RunRecord {
 export interface UnitRecord {
   readonly unitId: string;
   readonly product: string;
+  /** The run that planned this generation. */
   readonly runId: string;
   readonly stageId: string;
   readonly scopeKey: string;
@@ -167,6 +177,7 @@ export interface UnitRecord {
   readonly publishedAt: number | null;
   readonly staleAt: number | null;
   readonly updatedAt: number;
+  /** The lease the generation holds — the one carrying its current fencing token — or null when it holds none. */
   readonly lease: UnitLeaseRecord | null;
 }
 
@@ -206,25 +217,31 @@ function parseJson<T>(value: unknown): T {
 const millis = (value: unknown): number => (typeof value === 'number' ? value : Number(value));
 const maybeMillis = (value: unknown): number | null => (value === null || value === undefined ? null : millis(value));
 
-/** Runs one store operation, naming it and the storage when it fails. A refusal is never an error. */
+/**
+ * Runs one store operation, naming it and the tables it touches when it fails.
+ * A refusal is never an error. The raise happens one frame above this wrapper, so
+ * the message names the line of the operation, not of the shared wrapper.
+ */
 async function run<R>(
+  site: string,
   database: FillStateDatabase,
   operation: string,
+  tables: readonly string[],
   work: (executor: SqlExecutor) => Promise<R>,
-  kind: 'snapshot' | 'write' = 'write',
+  kind: SqlTransactionKind,
 ): Promise<R> {
   try {
     return await database.transaction(kind, work);
   } catch (error) {
     if (error instanceof Error && error.message.startsWith('/')) throw error;
-    raise(`${operation} failed on ${FILL_STATE_TABLES.join(', ')}: ${(error as Error).message}`);
+    throw new Error(`${site}: ${operation} failed on ${tables.join(', ')}: ${(error as Error).message}`);
   }
 }
 
 interface ChainRow extends Record<string, unknown> { product: string; state: string; context: unknown; updated_at: unknown }
 interface RunRow extends Record<string, unknown> { run_id: string; product: string; state: string; context: unknown; created_at: unknown; updated_at: unknown }
-interface UnitRow extends Record<string, unknown> { unit_id: string; product: string; run_id: string; stage_id: string; scope_key: string; generation: unknown; created_at: unknown }
-interface GenerationRow extends Record<string, unknown> { unit_id: string; generation: unknown; state: string; inputs_digest: string; fence: unknown; context: unknown; published_at: unknown; stale_at: unknown; updated_at: unknown }
+interface UnitRow extends Record<string, unknown> { unit_id: string; product: string; stage_id: string; scope_key: string; generation: unknown; created_at: unknown }
+interface GenerationRow extends Record<string, unknown> { unit_id: string; generation: unknown; run_id: string; state: string; inputs_digest: string; fence: unknown; context: unknown; published_at: unknown; stale_at: unknown; updated_at: unknown }
 interface LeaseRow extends Record<string, unknown> { attempt: unknown; fence: unknown; holder: string; issued_at: unknown; expires_at: unknown; revoked_at: unknown }
 interface TransitionRow extends Record<string, unknown> { seq: unknown; subject_kind: string; subject_id: string; generation: unknown; transition_id: string; from_state: string; to_state: string; event: string; fence: unknown; at: unknown }
 
@@ -233,11 +250,48 @@ function requireState<State extends string>(states: readonly State[], value: str
   return value as State;
 }
 
+const isInteger = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value);
+
+/** A stored context is plain data the guards read: a row that does not hold it is a corruption, named by its key. */
+function requireChainContext(value: unknown, product: string): ChainContext {
+  const stored = parseJson<Partial<ChainContext>>(value);
+  if (stored === null || typeof stored !== 'object') raise(`table fill_chain, row ${product}: the context is not an object`);
+  if (stored.activeRunId !== null && typeof stored.activeRunId !== 'string') raise(`table fill_chain, row ${product}: activeRunId is neither null nor a string`);
+  return { activeRunId: stored.activeRunId ?? null };
+}
+
+function requireRunContext(value: unknown, runId: string): RunContext {
+  const stored = parseJson<Partial<RunContext>>(value);
+  if (stored === null || typeof stored !== 'object') raise(`table fill_run, row ${runId}: the context is not an object`);
+  if (!isInteger(stored.planningEpoch) || stored.planningEpoch < 0) raise(`table fill_run, row ${runId}: planningEpoch is not a whole number of epochs`);
+  if (typeof stored.planningClosed !== 'boolean') raise(`table fill_run, row ${runId}: planningClosed is not a boolean`);
+  return { planningEpoch: stored.planningEpoch, planningClosed: stored.planningClosed };
+}
+
+function requireUnitContext(value: unknown, key: string, generation: number, fence: number): UnitContext {
+  const stored = parseJson<Partial<UnitContext>>(value);
+  if (stored === null || typeof stored !== 'object') raise(`table fill_unit_generation, row ${key}: the context is not an object`);
+  if (!isInteger(stored.attempt) || stored.attempt < 0) raise(`table fill_unit_generation, row ${key}: attempt is not a whole number of attempts`);
+  if (!isInteger(stored.retriesLeft) || stored.retriesLeft < 0) raise(`table fill_unit_generation, row ${key}: retriesLeft is not a whole number of retries`);
+  if (stored.retryAt !== null && typeof stored.retryAt !== 'number') raise(`table fill_unit_generation, row ${key}: retryAt is neither null nor epoch milliseconds`);
+  if (stored.replacedBy !== null && !isInteger(stored.replacedBy)) raise(`table fill_unit_generation, row ${key}: replacedBy is neither null nor a generation number`);
+  if (!isInteger(fence) || fence < 0) raise(`table fill_unit_generation, row ${key}: fence is not a whole fencing token`);
+  // The columns are the authority for the generation and its fencing token; the JSON carries the rest.
+  return {
+    generation,
+    fence,
+    attempt: stored.attempt,
+    retriesLeft: stored.retriesLeft,
+    retryAt: stored.retryAt ?? null,
+    replacedBy: stored.replacedBy ?? null,
+  };
+}
+
 function chainRecord(row: ChainRow): ChainRecord {
   return {
     product: row.product,
     state: requireState(CHAIN_STATES, row.state, 'fill_chain', row.product),
-    context: parseJson<ChainContext>(row.context),
+    context: requireChainContext(row.context, row.product),
     updatedAt: millis(row.updated_at),
   };
 }
@@ -247,26 +301,25 @@ function runRecord(row: RunRow): RunRecord {
     runId: row.run_id,
     product: row.product,
     state: requireState(RUN_STATES, row.state, 'fill_run', row.run_id),
-    context: parseJson<RunContext>(row.context),
+    context: requireRunContext(row.context, row.run_id),
     createdAt: millis(row.created_at),
     updatedAt: millis(row.updated_at),
   };
 }
 
 function unitRecord(unit: UnitRow, generation: GenerationRow, lease: LeaseRow | undefined): UnitRecord {
-  const stored = parseJson<UnitContext>(generation.context);
-  const key = `${unit.unit_id}/${millis(generation.generation)}`;
+  const generationNumber = millis(generation.generation);
+  const key = `${unit.unit_id}/${generationNumber}`;
   return {
     unitId: unit.unit_id,
     product: unit.product,
-    runId: unit.run_id,
+    runId: generation.run_id,
     stageId: unit.stage_id,
     scopeKey: unit.scope_key,
-    generation: millis(generation.generation),
+    generation: generationNumber,
     state: requireState(UNIT_STATES, generation.state, 'fill_unit_generation', key),
     inputsDigest: generation.inputs_digest,
-    // The columns are the authority for the generation and its fencing token; the JSON carries the rest.
-    context: { ...stored, generation: millis(generation.generation), fence: millis(generation.fence) },
+    context: requireUnitContext(generation.context, key, generationNumber, millis(generation.fence)),
     publishedAt: maybeMillis(generation.published_at),
     staleAt: maybeMillis(generation.stale_at),
     updatedAt: millis(generation.updated_at),
@@ -293,7 +346,8 @@ async function recordTransition(
 
 /** Opens a product's chain at `idle`, or answers the one it already has. */
 export async function openChain(database: FillStateDatabase, options: { readonly product: string; readonly at: number }): Promise<ChainRecord> {
-  return run(database, `openChain(${options.product})`, async (executor) => {
+  const at = here();
+  return run(at, database, `openChain(${options.product})`, ['fill_chain'], async (executor) => {
     await executor.query(
       'INSERT INTO fill_chain (product, state, context, updated_at) VALUES ($1, $2, $3::jsonb, $4) ON CONFLICT (product) DO NOTHING',
       [options.product, 'idle', json(newChainContext()), options.at],
@@ -302,12 +356,13 @@ export async function openChain(database: FillStateDatabase, options: { readonly
     const row = rows[0];
     if (row === undefined) raise(`table fill_chain: no chain for product ${options.product} after opening it`);
     return chainRecord(row);
-  });
+  }, 'write');
 }
 
 /** Answers a product's chain, or null when the product's chain was never opened. */
 export async function readChain(database: FillStateDatabase, product: string): Promise<ChainRecord | null> {
-  return run(database, `readChain(${product})`, async (executor) => {
+  const at = here();
+  return run(at, database, `readChain(${product})`, ['fill_chain'], async (executor) => {
     const { rows } = await executor.query<ChainRow>('SELECT product, state, context, updated_at FROM fill_chain WHERE product = $1', [product]);
     return rows[0] === undefined ? null : chainRecord(rows[0]);
   }, 'snapshot');
@@ -315,7 +370,8 @@ export async function readChain(database: FillStateDatabase, product: string): P
 
 /** Takes one step on a product's chain: a refused step writes nothing. */
 export async function advanceChain(database: FillStateDatabase, options: { readonly product: string; readonly event: ChainEvent }): Promise<StoreStep<ChainRecord, ChainState>> {
-  return run(database, `advanceChain(${options.product}, ${options.event.type})`, async (executor) => {
+  const at = here();
+  return run(at, database, `advanceChain(${options.product}, ${options.event.type})`, ['fill_chain', 'fill_transition'], async (executor) => {
     const { rows } = await executor.query<ChainRow>('SELECT product, state, context, updated_at FROM fill_chain WHERE product = $1 FOR UPDATE', [options.product]);
     const row = rows[0];
     if (row === undefined) raise(`table fill_chain: no chain for product ${options.product}`);
@@ -325,23 +381,25 @@ export async function advanceChain(database: FillStateDatabase, options: { reado
     await executor.query('UPDATE fill_chain SET state = $2, context = $3::jsonb, updated_at = $4 WHERE product = $1', [current.product, step.state, json(step.context), options.event.at]);
     await recordTransition(executor, { subjectKind: 'chain', subjectId: current.product, generation: null, transitionId: step.transition, from: current.state, to: step.state, event: options.event.type, fence: null, at: options.event.at });
     return { ok: true, record: { ...current, state: step.state, context: step.context, updatedAt: options.event.at }, transition: step.transition, effects: step.effects } as const;
-  });
+  }, 'write');
 }
 
 /** Creates one run in `created`. */
 export async function createRun(database: FillStateDatabase, options: { readonly runId: string; readonly product: string; readonly at: number }): Promise<RunRecord> {
-  return run(database, `createRun(${options.runId})`, async (executor) => {
+  const at = here();
+  return run(at, database, `createRun(${options.runId})`, ['fill_run'], async (executor) => {
     await executor.query(
       'INSERT INTO fill_run (run_id, product, state, context, created_at, updated_at) VALUES ($1, $2, $3, $4::jsonb, $5, $5)',
       [options.runId, options.product, 'created', json(newRunContext()), options.at],
     );
     return { runId: options.runId, product: options.product, state: 'created', context: newRunContext(), createdAt: options.at, updatedAt: options.at };
-  });
+  }, 'write');
 }
 
 /** Answers one run, or null when it was never created. */
 export async function readRun(database: FillStateDatabase, runId: string): Promise<RunRecord | null> {
-  return run(database, `readRun(${runId})`, async (executor) => {
+  const at = here();
+  return run(at, database, `readRun(${runId})`, ['fill_run'], async (executor) => {
     const { rows } = await executor.query<RunRow>('SELECT run_id, product, state, context, created_at, updated_at FROM fill_run WHERE run_id = $1', [runId]);
     return rows[0] === undefined ? null : runRecord(rows[0]);
   }, 'snapshot');
@@ -349,7 +407,8 @@ export async function readRun(database: FillStateDatabase, runId: string): Promi
 
 /** Takes one step on a run: a refused step writes nothing. */
 export async function advanceRun(database: FillStateDatabase, options: { readonly runId: string; readonly event: RunEvent }): Promise<StoreStep<RunRecord, RunState>> {
-  return run(database, `advanceRun(${options.runId}, ${options.event.type})`, async (executor) => {
+  const at = here();
+  return run(at, database, `advanceRun(${options.runId}, ${options.event.type})`, ['fill_run', 'fill_transition'], async (executor) => {
     const { rows } = await executor.query<RunRow>('SELECT run_id, product, state, context, created_at, updated_at FROM fill_run WHERE run_id = $1 FOR UPDATE', [options.runId]);
     const row = rows[0];
     if (row === undefined) raise(`table fill_run: no run ${options.runId}`);
@@ -359,10 +418,13 @@ export async function advanceRun(database: FillStateDatabase, options: { readonl
     await executor.query('UPDATE fill_run SET state = $2, context = $3::jsonb, updated_at = $4 WHERE run_id = $1', [current.runId, step.state, json(step.context), options.event.at]);
     await recordTransition(executor, { subjectKind: 'run', subjectId: current.runId, generation: null, transitionId: step.transition, from: current.state, to: step.state, event: options.event.type, fence: null, at: options.event.at });
     return { ok: true, record: { ...current, state: step.state, context: step.context, updatedAt: options.event.at }, transition: step.transition, effects: step.effects } as const;
-  });
+  }, 'write');
 }
 
-/** Creates one unit and its first generation in `planned`, with the retries this generation may spend. */
+/**
+ * Creates one unit and its first generation in `planned`, with the retries this
+ * generation may spend, and journals the creation.
+ */
 export async function createUnit(database: FillStateDatabase, options: {
   readonly unitId: string;
   readonly product: string;
@@ -373,16 +435,18 @@ export async function createUnit(database: FillStateDatabase, options: {
   readonly retries: number;
   readonly at: number;
 }): Promise<UnitRecord> {
-  return run(database, `createUnit(${options.unitId})`, async (executor) => {
+  const at = here();
+  return run(at, database, `createUnit(${options.unitId})`, ['fill_unit', 'fill_unit_generation', 'fill_transition'], async (executor) => {
     const context = newUnitContext({ generation: 1, retries: options.retries });
     await executor.query(
-      'INSERT INTO fill_unit (unit_id, product, run_id, stage_id, scope_key, generation, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-      [options.unitId, options.product, options.runId, options.stageId, options.scopeKey, 1, options.at],
+      'INSERT INTO fill_unit (unit_id, product, stage_id, scope_key, generation, created_at) VALUES ($1, $2, $3, $4, $5, $6)',
+      [options.unitId, options.product, options.stageId, options.scopeKey, 1, options.at],
     );
     await executor.query(
-      'INSERT INTO fill_unit_generation (unit_id, generation, state, inputs_digest, fence, context, updated_at) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)',
-      [options.unitId, 1, 'planned', options.inputsDigest, context.fence, json(context), options.at],
+      'INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, fence, context, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)',
+      [options.unitId, 1, options.runId, 'planned', options.inputsDigest, context.fence, json(context), options.at],
     );
+    await recordTransition(executor, { subjectKind: 'unit', subjectId: options.unitId, generation: 1, transitionId: FILL_STORE_STEPS.createUnit, from: '(none)', to: 'planned', event: 'create', fence: 0, at: options.at });
     return {
       unitId: options.unitId,
       product: options.product,
@@ -398,52 +462,54 @@ export async function createUnit(database: FillStateDatabase, options: {
       updatedAt: options.at,
       lease: null,
     };
-  });
+  }, 'write');
 }
 
-interface UnitSnapshot { readonly unit: UnitRow; readonly generation: GenerationRow; readonly lease: LeaseRow | undefined; readonly record: UnitRecord }
+interface UnitSnapshot { readonly unit: UnitRow; readonly generation: GenerationRow; readonly record: UnitRecord }
 
-async function loadUnit(executor: SqlExecutor, unitId: string, lock: boolean): Promise<UnitSnapshot> {
-  const units = await executor.query<UnitRow>('SELECT unit_id, product, run_id, stage_id, scope_key, generation, created_at FROM fill_unit WHERE unit_id = $1', [unitId]);
+/** Loads a unit, its current generation and that generation's lease; null when the unit does not exist. */
+async function loadUnit(executor: SqlExecutor, unitId: string, lock: boolean): Promise<UnitSnapshot | null> {
+  const units = await executor.query<UnitRow>(
+    `SELECT unit_id, product, stage_id, scope_key, generation, created_at FROM fill_unit WHERE unit_id = $1${lock ? ' FOR UPDATE' : ''}`,
+    [unitId],
+  );
   const unit = units.rows[0];
-  if (unit === undefined) raise(`table fill_unit: no unit ${unitId}`);
+  if (unit === undefined) return null;
   const generations = await executor.query<GenerationRow>(
-    `SELECT unit_id, generation, state, inputs_digest, fence, context, published_at, stale_at, updated_at FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2${lock ? ' FOR UPDATE' : ''}`,
+    `SELECT unit_id, generation, run_id, state, inputs_digest, fence, context, published_at, stale_at, updated_at FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2${lock ? ' FOR UPDATE' : ''}`,
     [unitId, millis(unit.generation)],
   );
   const generation = generations.rows[0];
   if (generation === undefined) raise(`table fill_unit_generation: unit ${unitId} names generation ${String(unit.generation)}, which has no row`);
   const leases = await executor.query<LeaseRow>(
-    'SELECT attempt, fence, holder, issued_at, expires_at, revoked_at FROM fill_unit_lease WHERE unit_id = $1 AND generation = $2 ORDER BY attempt DESC LIMIT 1',
-    [unitId, millis(generation.generation)],
+    'SELECT attempt, fence, holder, issued_at, expires_at, revoked_at FROM fill_unit_lease WHERE unit_id = $1 AND generation = $2 AND fence = $3',
+    [unitId, millis(generation.generation), millis(generation.fence)],
   );
-  return { unit, generation, lease: leases.rows[0], record: unitRecord(unit, generation, leases.rows[0]) };
+  return { unit, generation, record: unitRecord(unit, generation, leases.rows[0]) };
 }
 
-/** Answers one unit's current generation with its lease, or null when the unit does not exist. */
+/** Answers one unit's current generation with the lease it holds, or null when the unit does not exist. */
 export async function readUnit(database: FillStateDatabase, unitId: string): Promise<UnitRecord | null> {
-  return run(database, `readUnit(${unitId})`, async (executor) => {
-    const units = await executor.query<UnitRow>('SELECT unit_id, product, run_id, stage_id, scope_key, generation, created_at FROM fill_unit WHERE unit_id = $1', [unitId]);
-    if (units.rows[0] === undefined) return null;
-    return (await loadUnit(executor, unitId, false)).record;
-  }, 'snapshot');
+  const at = here();
+  return run(at, database, `readUnit(${unitId})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease'], async (executor) => (await loadUnit(executor, unitId, false))?.record ?? null, 'snapshot');
 }
 
-/** Every generation of a unit, oldest first, with the lease of each. */
+/** Every generation of a unit, oldest first, with the lease each holds. */
 export async function readUnitGenerations(database: FillStateDatabase, unitId: string): Promise<readonly UnitRecord[]> {
-  return run(database, `readUnitGenerations(${unitId})`, async (executor) => {
-    const units = await executor.query<UnitRow>('SELECT unit_id, product, run_id, stage_id, scope_key, generation, created_at FROM fill_unit WHERE unit_id = $1', [unitId]);
+  const at = here();
+  return run(at, database, `readUnitGenerations(${unitId})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease'], async (executor) => {
+    const units = await executor.query<UnitRow>('SELECT unit_id, product, stage_id, scope_key, generation, created_at FROM fill_unit WHERE unit_id = $1', [unitId]);
     const unit = units.rows[0];
     if (unit === undefined) return [];
     const generations = await executor.query<GenerationRow>(
-      'SELECT unit_id, generation, state, inputs_digest, fence, context, published_at, stale_at, updated_at FROM fill_unit_generation WHERE unit_id = $1 ORDER BY generation ASC',
+      'SELECT unit_id, generation, run_id, state, inputs_digest, fence, context, published_at, stale_at, updated_at FROM fill_unit_generation WHERE unit_id = $1 ORDER BY generation ASC',
       [unitId],
     );
     const records: UnitRecord[] = [];
     for (const generation of generations.rows) {
       const leases = await executor.query<LeaseRow>(
-        'SELECT attempt, fence, holder, issued_at, expires_at, revoked_at FROM fill_unit_lease WHERE unit_id = $1 AND generation = $2 ORDER BY attempt DESC LIMIT 1',
-        [unitId, millis(generation.generation)],
+        'SELECT attempt, fence, holder, issued_at, expires_at, revoked_at FROM fill_unit_lease WHERE unit_id = $1 AND generation = $2 AND fence = $3',
+        [unitId, millis(generation.generation), millis(generation.fence)],
       );
       records.push(unitRecord(unit, generation, leases.rows[0]));
     }
@@ -451,47 +517,80 @@ export async function readUnitGenerations(database: FillStateDatabase, unitId: s
   }, 'snapshot');
 }
 
+/**
+ * Writes one unit step: the generation's new state, fence and context, the
+ * `published_at` a publication sets, the `stale_at` an invalidation sets, the
+ * `revoked_at` a revocation marks on the lease in force, and the journal entry.
+ */
 async function persistUnitStep(
   executor: SqlExecutor,
   snapshot: UnitSnapshot,
-  step: { state: UnitState; context: UnitContext; transition: string },
+  step: { state: UnitState; context: UnitContext; transition: string; effects: readonly string[] },
   at: number,
   event: string,
 ): Promise<UnitRecord> {
   const { unit, generation } = snapshot;
+  const generationNumber = millis(generation.generation);
+  const previousFence = millis(generation.fence);
   const publishedAt = step.state === 'published' ? at : maybeMillis(generation.published_at);
   const staleAt = step.state === 'stale' ? at : maybeMillis(generation.stale_at);
   await executor.query(
     'UPDATE fill_unit_generation SET state = $3, fence = $4, context = $5::jsonb, published_at = $6, stale_at = $7, updated_at = $8 WHERE unit_id = $1 AND generation = $2',
-    [unit.unit_id, millis(generation.generation), step.state, step.context.fence, json(step.context), publishedAt, staleAt, at],
+    [unit.unit_id, generationNumber, step.state, step.context.fence, json(step.context), publishedAt, staleAt, at],
   );
-  await recordTransition(executor, { subjectKind: 'unit', subjectId: unit.unit_id, generation: millis(generation.generation), transitionId: step.transition, from: generation.state, to: step.state, event, fence: step.context.fence, at });
-  return {
-    ...snapshot.record,
-    state: step.state,
-    context: step.context,
-    publishedAt,
-    staleAt,
-    updatedAt: at,
-  };
+  let revokedAt: number | null = maybeMillis(snapshot.record.lease?.revokedAt ?? null);
+  if (step.effects.includes('revoke-lease')) {
+    revokedAt = revokedAt ?? at;
+    await executor.query(
+      'UPDATE fill_unit_lease SET revoked_at = COALESCE(revoked_at, $4) WHERE unit_id = $1 AND generation = $2 AND fence = $3',
+      [unit.unit_id, generationNumber, previousFence, revokedAt],
+    );
+  }
+  await recordTransition(executor, { subjectKind: 'unit', subjectId: unit.unit_id, generation: generationNumber, transitionId: step.transition, from: generation.state, to: step.state, event, fence: step.context.fence, at });
+  const lease = snapshot.record.lease === null ? null : { ...snapshot.record.lease, revokedAt };
+  return { ...snapshot.record, state: step.state, context: step.context, publishedAt, staleAt, updatedAt: at, lease };
 }
 
-/** Takes one step on a unit's current generation: a refused step writes nothing. */
-export async function advanceUnit(database: FillStateDatabase, options: { readonly unitId: string; readonly event: UnitEvent }): Promise<StoreStep<UnitRecord, UnitState>> {
-  return run(database, `advanceUnit(${options.unitId}, ${options.event.type})`, async (executor) => {
+/**
+ * Takes one step on a unit's current generation: a refused step writes nothing.
+ * The lease is not one of those steps — only `leaseUnit` issues a lease, because
+ * it must write the lease row with the token it takes.
+ */
+export async function advanceUnit(database: FillStateDatabase, options: { readonly unitId: string; readonly event: UnitAdvanceEvent }): Promise<StoreStep<UnitRecord, UnitState>> {
+  const at = here();
+  return run(at, database, `advanceUnit(${options.unitId}, ${options.event.type})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'], async (executor) => {
     const snapshot = await loadUnit(executor, options.unitId, true);
-    const step = unitMachine.step({ state: snapshot.record.state, context: snapshot.record.context }, options.event);
+    if (snapshot === null) raise(`table fill_unit: no unit ${options.unitId}`);
+    const event = options.event as UnitEvent;
+    if (event.type === 'lease') {
+      return {
+        ok: false,
+        record: snapshot.record,
+        refusal: {
+          code: 'fill-state/lease-not-advanced',
+          reason: `fill-unit: unit "${options.unitId}" cannot take a lease from advanceUnit; leaseUnit takes it, so the lease row carries the token, its holder and its expiry`,
+          state: snapshot.record.state,
+          event: event.type,
+          guard: null,
+          guards: [],
+          transitions: [],
+        },
+      } as const;
+    }
+    const step = unitMachine.step({ state: snapshot.record.state, context: snapshot.record.context }, event);
     if (!step.ok) return { ok: false, refusal: step.refusal, record: snapshot.record } as const;
-    const record = await persistUnitStep(executor, snapshot, step, options.event.at, options.event.type);
+    const record = await persistUnitStep(executor, snapshot, step, event.at, event.type);
     return { ok: true, record, transition: step.transition, effects: step.effects } as const;
-  });
+  }, 'write');
 }
 
 /**
  * Leases a ready unit generation: the next fencing token and the next attempt are
  * issued together, the lease row records the holder and its expiry, and the
- * generation enters `leased`. A late worker that still holds an older token is
- * refused by the machine's `fence-current` guard on every later step.
+ * generation enters `leased`. The token grows across the unit's generations, so a
+ * late worker that still holds an older token is refused by the machine's
+ * `fence-current` guard on every later step, and one that holds a token of an
+ * older generation by `generation-current`.
  */
 export async function leaseUnit(database: FillStateDatabase, options: {
   readonly unitId: string;
@@ -499,11 +598,13 @@ export async function leaseUnit(database: FillStateDatabase, options: {
   readonly ttlMs: number;
   readonly at: number;
 }): Promise<StoreStep<UnitRecord, UnitState>> {
-  return run(database, `leaseUnit(${options.unitId})`, async (executor) => {
+  const at = here();
+  return run(at, database, `leaseUnit(${options.unitId})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'], async (executor) => {
     const snapshot = await loadUnit(executor, options.unitId, true);
+    if (snapshot === null) raise(`table fill_unit: no unit ${options.unitId}`);
     const fence = snapshot.record.context.fence + 1;
     const attempt = snapshot.record.context.attempt + 1;
-    const event: UnitEvent = { type: 'lease', at: options.at, fence, attempt };
+    const event: UnitLeaseEvent = { type: 'lease', at: options.at, fence, attempt };
     const step = unitMachine.step({ state: snapshot.record.state, context: snapshot.record.context }, event);
     if (!step.ok) return { ok: false, refusal: step.refusal, record: snapshot.record } as const;
     const lease: UnitLeaseRecord = { attempt, fence, holder: options.holder, issuedAt: options.at, expiresAt: options.at + options.ttlMs, revokedAt: null };
@@ -513,24 +614,28 @@ export async function leaseUnit(database: FillStateDatabase, options: {
     );
     const record = { ...(await persistUnitStep(executor, snapshot, step, options.at, event.type)), lease };
     return { ok: true, record, transition: step.transition, effects: step.effects } as const;
-  });
+  }, 'write');
 }
 
 /**
  * Opens the generation that replaces a stale one: the next generation of the same
- * unit starts `planned` with a fresh retry budget and a fence of zero, and the
- * unit's current generation moves to it. Only a stale generation is replaced:
+ * unit starts `planned` with a fresh retry budget, the run that plans it, and a
+ * fencing floor at the token the stale generation reached, so no token is reused.
+ * Only the generation its invalidation named is opened, and only from `stale`:
  * a cancelled generation is left as its record and its run is cancelled, and a
  * failed one stays as the record of work that spent its budget.
  */
 export async function replaceStaleGeneration(database: FillStateDatabase, options: {
   readonly unitId: string;
+  readonly runId: string;
   readonly inputsDigest: string;
   readonly retries: number;
   readonly at: number;
 }): Promise<StoreStep<UnitRecord, UnitState>> {
-  return run(database, `replaceStaleGeneration(${options.unitId})`, async (executor) => {
+  const at = here();
+  return run(at, database, `replaceStaleGeneration(${options.unitId})`, ['fill_unit', 'fill_unit_generation', 'fill_transition'], async (executor) => {
     const snapshot = await loadUnit(executor, options.unitId, true);
+    if (snapshot === null) raise(`table fill_unit: no unit ${options.unitId}`);
     const current = snapshot.record;
     if (current.state !== 'stale') {
       return {
@@ -542,6 +647,7 @@ export async function replaceStaleGeneration(database: FillStateDatabase, option
           state: current.state,
           event: 'open-generation',
           guard: null,
+          guards: [],
           transitions: [],
         },
       } as const;
@@ -551,24 +657,26 @@ export async function replaceStaleGeneration(database: FillStateDatabase, option
     if (generation !== current.generation + 1) {
       raise(`table fill_unit_generation, row ${current.unitId}/${current.generation}: names replacement ${generation}, which is not the next generation`);
     }
-    const context = newUnitContext({ generation, retries: options.retries });
+    const context = newUnitContext({ generation, retries: options.retries, fence: current.context.fence });
     await executor.query(
-      'INSERT INTO fill_unit_generation (unit_id, generation, state, inputs_digest, fence, context, updated_at) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)',
-      [options.unitId, generation, 'planned', options.inputsDigest, context.fence, json(context), options.at],
+      'INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, fence, context, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)',
+      [options.unitId, generation, options.runId, 'planned', options.inputsDigest, context.fence, json(context), options.at],
     );
     await executor.query('UPDATE fill_unit SET generation = $2 WHERE unit_id = $1', [options.unitId, generation]);
+    await recordTransition(executor, { subjectKind: 'unit', subjectId: options.unitId, generation, transitionId: FILL_STORE_STEPS.openGeneration, from: 'stale', to: 'planned', event: 'open-generation', fence: context.fence, at: options.at });
     return {
       ok: true,
-      transition: 'unit/generation--open-->planned',
+      transition: FILL_STORE_STEPS.openGeneration,
       effects: [],
-      record: { ...current, generation, state: 'planned', inputsDigest: options.inputsDigest, context, publishedAt: null, staleAt: null, updatedAt: options.at, lease: null },
+      record: { ...current, generation, runId: options.runId, state: 'planned', inputsDigest: options.inputsDigest, context, publishedAt: null, staleAt: null, updatedAt: options.at, lease: null },
     } as const;
-  });
+  }, 'write');
 }
 
 /** The journal of one subject (a unit, a run or a product's chain), oldest first. */
 export async function readTransitions(database: FillStateDatabase, subject: { readonly kind: 'chain' | 'run' | 'unit'; readonly id: string }): Promise<readonly TransitionRecord[]> {
-  return run(database, `readTransitions(${subject.kind} ${subject.id})`, async (executor) => {
+  const at = here();
+  return run(at, database, `readTransitions(${subject.kind} ${subject.id})`, ['fill_transition'], async (executor) => {
     const { rows } = await executor.query<TransitionRow>(
       'SELECT seq, subject_kind, subject_id, generation, transition_id, from_state, to_state, event, fence, at FROM fill_transition WHERE subject_kind = $1 AND subject_id = $2 ORDER BY seq ASC',
       [subject.kind, subject.id],
