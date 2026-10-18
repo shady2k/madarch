@@ -98,3 +98,7 @@ Added 2026-10-18 with the change fill-orchestrator (`docs/changes/fill-orchestra
 - [fill-orchestrator](capabilities/fill-orchestrator.md): running the fill's work — planning from the registry, admission within the run's limits, leases under fencing tokens, splits and joins, staleness, cancellation and one publication per unit generation.
 
 Its run's decisions are in `docs/changes/fill-orchestrator/change.md`, "Design and decisions".
+
+Changed 2026-10-18 with the change fill-crash-suite (`docs/changes/fill-crash-suite/`):
+
+- fill-orchestrator: an attempt that never published is worked again by the run's own sweep, whatever step it had reached.

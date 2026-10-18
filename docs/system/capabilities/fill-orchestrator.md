@@ -291,6 +291,45 @@ nothing is outstanding.
 - When: the run settles
 - Then: the run is `completed_partial` and its evidence says the coverage is unmet
 
+## Requirement: recovery — What an attempt that never published left is worked again
+
+A unit an attempt left without publishing shall be made runnable again by the run's
+own sweep: no worker holds it, and nothing else would ever work it. A unit standing
+`ready` whose job the queue no longer holds shall be offered the queue again — the
+worker that claimed it may have died between the claim and the lease, and the
+queue's own maintenance settles such a claim, which frees the unit's singleton key
+and leaves nothing for a worker to claim. That offer shall be made on every sweep,
+without a record of what was lost, and shall be idempotent: while an unfinished job
+carries the unit's key the queue creates nothing, so a job that is still queued or
+still claimed is left exactly as it stands. A generation whose lease lapsed while
+its attempt stood `leased`, `running`, `draft` or `validating` shall be retried
+under the cause the lapse is, whatever step the dead attempt had reached: a worker
+killed between its draft and its publication holds nothing publishable, and its
+draft shall be retracted so the next attempt starts clean. A unit standing
+`leased`, `running`, `draft` or `validating` — the states an attempt holds a lease
+in — shall be left to that lease until it lapses, and the run shall report each unit
+it recovered as its own durable event.
+
+### Scenario: lost-claim
+- Given: a run whose unit stands `ready` because the worker that claimed its job died before it took the lease, and a queue that settled that claim as failed
+- When: the run sweeps
+- Then: the unit's job is in the queue again for a worker to claim, the unit still stands `ready` under no lease, and a sweep made while that job is unfinished changes nothing
+
+### Scenario: killed-before-publication
+- Given: a unit whose attempt stands `validating` when its worker is killed, with the draft set that attempt recorded
+- When: the run sweeps after the attempt's lease lapsed
+- Then: the generation stands `retry_wait` with a retry spent and its draft retracted, nothing is published for it, and the attempt that follows the retry publishes exactly once
+
+### Scenario: leased-left-alone
+- Given: a run whose unit stands `leased` under a lease the store issued
+- When: the run sweeps before that lease lapses
+- Then: nothing is offered or retried for it: the lease is what holds the unit, and no second job of it is enqueued
+
+### Scenario: recovered-once
+- Given: the same unit after the run recovered it
+- When: a worker claims its job and works the unit
+- Then: the generation is published exactly once, with one publication record and one application of its facts
+
 ## Requirement: host — The background server owns the orchestrator
 
 The orchestrator shall be created by the host that owns the process: the
