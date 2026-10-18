@@ -72,6 +72,8 @@ export interface ScenarioFacts {
   readonly publishedDraftFact: Fact;
   readonly entity: Fact;
   readonly question: Fact;
+  /** A fact two units publish whose ids differ only in case: what tells this store's own order from the database's collation. */
+  readonly caseFact: Fact;
   /** A write whose `value` is not a fact the schema reads: its id is not the digest of its identity. */
   readonly malformed: unknown;
 }
@@ -94,18 +96,15 @@ export function scenarioFacts(): ScenarioFacts {
     draftFact: fact('draft-set'),
     retractedFact: fact('retracted-draft'),
     publishedDraftFact: fact('published-draft'),
+    caseFact: fact('case-order'),
     entity: makeNodeFact({ kind: 'entity-proposal', value: { repository: 'acme-shop', proposed: 'concept', name: 'Cart' }, provenance: provenance('src/cart.ts'), layer: 'inferred' }),
     question: makeNodeFact({ kind: 'question', value: { repository: 'acme-shop', type: 'contradiction', prompt: 'Is the total used?' }, provenance: provenance('src/cart.ts'), layer: 'inferred' }),
     malformed: { kind: 'module', schemaVersion: 1, id: `module:${'f'.repeat(64)}`, provenance: provenance('src/cart.ts'), layer: 'extracted', status: 'proposed', value: { repository: 'acme-shop', name: 'invented', seed: 'package' } },
   };
 }
 
-/** One write of a fact, as a stage's draft writer makes it. */
+/** One write of a fact, as a stage's draft writer makes it: the write's kind is the tool that wrote it, and its `value` is the fact. */
 export function writeOf(kind: StageDraftWrite['kind'], fact: unknown, evidence = 'src/cart.ts:1'): StageDraftWrite {
-  if (kind === 'link') {
-    const value = fact as { readonly value?: { readonly from?: string; readonly to?: string } };
-    return { kind, evidence, from: value.value?.from ?? '', to: value.value?.to ?? '', value: fact };
-  }
   return { kind, evidence, value: fact };
 }
 
@@ -149,6 +148,13 @@ export interface FactStoreScenarioReport {
   /** A write whose fact is not the kind that write writes. */
   readonly wrongKindRefusal: string;
   readonly wrongKindUnitHolds: readonly string[];
+  /**
+   * The publishers of one fact whose two unit ids differ only in case, as the two
+   * reads answer them: a database ordering text by its own collation puts one
+   * before the other, and this store's own order is code point order.
+   */
+  readonly casePublishersOfTheUnit: readonly string[];
+  readonly casePublishersOfTheFact: readonly string[];
   /** A publication whose draft set is empty. */
   readonly emptyPublicationHolds: readonly string[];
   readonly emptyPublicationFacts: number;
@@ -295,6 +301,13 @@ export async function runFactStoreScenario(owner: DatabaseOwner): Promise<FactSt
   }
   const wrongKindUnitHolds = await held('unit-wrong-kind');
 
+  // ---- the publishers of one fact, in this store's own order and not the database's ----
+  await publishUnitFacts('unit-case', 'modules', 'case-lower', [writeOf('fact', facts.caseFact)], NOW + 10_500);
+  await publishUnitFacts('Unit-case', 'modules', 'case-upper', [writeOf('fact', facts.caseFact)], NOW + 10_600);
+  const caseHeld = await readUnitFacts(owner, 'unit-case');
+  const casePublishersOfTheUnit = caseHeld.find((entry) => entry.fact.id === facts.caseFact.id)?.publishers.map((held) => held.unitId) ?? [];
+  const casePublishersOfTheFact = (await readFact(owner, facts.caseFact.id))?.publishers.map((held) => held.unitId) ?? [];
+
   // ---- a publication with nothing to publish stores nothing ----
   await publishUnitFacts('unit-empty', 'modules', 'empty', [], NOW + 11_000);
   const emptyPublicationHolds = await held('unit-empty');
@@ -329,6 +342,8 @@ export async function runFactStoreScenario(owner: DatabaseOwner): Promise<FactSt
     storedKinds,
     wrongKindRefusal,
     wrongKindUnitHolds,
+    casePublishersOfTheUnit,
+    casePublishersOfTheFact,
     emptyPublicationHolds,
     emptyPublicationFacts,
   };

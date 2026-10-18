@@ -15,12 +15,18 @@
  *   fields an identity does not read — a call's `count`, a source's `version` —
  *   are two readers' observations of one fact, never a second fact.
  * - `fill_fact_holding`: one row per fact and publishing unit, with the stage,
- *   the generation and the publication digest that put it there. A publication
+ *   the generation and the publication digest that put it there, and a foreign
+ *   key onto the fact it holds, so a holding without its fact is a state the
+ *   database refuses rather than one a reader has to survive. A publication
  *   replaces the facts of its own unit and of no other: the unit's holdings are
  *   compared with the facts it publishes now, a holding the publication does not
  *   repeat is dropped, and a fact whose last holding is dropped is gone — "a
  *   unit's publication replaces only that unit's own facts, never a whole
- *   source's" (0027, "Storage ownership").
+ *   source's" (0027, "Storage ownership"). Two publications may run at once
+ *   (decision 0027 wants several worker processes on a server), so the sweep
+ *   locks each dropped fact before it judges it: a publisher beside this one
+ *   holds a lock on the row until it commits, and the sweep waits there instead
+ *   of removing a fact that publisher is putting back.
  *
  * `applyPublishedFacts` is the orchestrator's sink (`FactApplication`,
  * `orchestrator.ts`): it runs inside the publication's own transaction, on the
@@ -64,7 +70,7 @@ const SCHEMA: readonly string[] = [
     value jsonb NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS fill_fact_holding (
-    id text NOT NULL,
+    id text NOT NULL REFERENCES fill_fact (id),
     unit_id text NOT NULL,
     stage_id text NOT NULL,
     generation integer NOT NULL,
@@ -164,6 +170,16 @@ export function factsOfWrites(writes: readonly StageDraftWrite[]): FactWrites {
   for (const [position, write] of writes.entries()) {
     const index = position + 1;
     const kind = write.kind;
+    // The writes are read back from `fill_unit_draft`, where a row is JSON: a kind the union does not
+    // know is a problem with a name, never a property read of nothing.
+    const writesThis = (WRITE_KINDS as Readonly<Record<string, { readonly describe: string; readonly accepts: (kind: string) => boolean } | undefined>>)[kind];
+    if (writesThis === undefined) {
+      problems.push({
+        index, kind, path: 'kind',
+        message: `${JSON.stringify(kind)} is no write kind: a draft write is a fact, an entity, a link or a question`,
+      });
+      continue;
+    }
     const value = (write as { readonly value?: unknown }).value;
     if (typeof value !== 'object' || value === null) {
       problems.push({
@@ -248,9 +264,12 @@ export interface FactApplicationInput {
  * and answers how many facts it applied. The unit's own holdings are replaced
  * with the facts it publishes now (an empty draft set drops them all), a fact
  * another unit still holds keeps its row and loses only this unit's holding, and
- * a fact no unit holds any more is removed. A write the schema does not read
- * refuses the whole publication, naming the write, the file, the line and the
- * path: the caller's transaction rolls back and nothing is stored.
+ * a fact no unit holds any more is removed — as the database stands after
+ * waiting for any publisher beside this one (see the sweep below), so a fact a
+ * concurrent publication is putting back is never removed from under its
+ * holding. A write the schema does not read refuses the whole publication,
+ * naming the write, the file, the line and the path: the caller's transaction
+ * rolls back and nothing is stored.
  */
 export async function applyPublishedFacts(input: FactApplicationInput): Promise<number> {
   const at = here();
@@ -258,12 +277,20 @@ export async function applyPublishedFacts(input: FactApplicationInput): Promise<
   const generation = input.unit.generation;
   const { facts, problems } = factsOfWrites(input.writes);
   if (problems.length > 0) {
-    const what = problems.length === 1 ? '1 write that is not a fact of the schema' : `${problems.length} writes that are not facts of the schema`;
-    throw new Error(`${at}: the draft set of unit "${unitId}" generation ${generation} holds ${what}: ${problems.map(described).join('; ')}`);
+    const holds = new Set(problems.map((problem) => problem.index)).size;
+    // The count is the writes, and the problems behind them are named: one write the schema refuses in
+    // three places is one write that is not a fact, not three.
+    const what = `${holds} ${holds === 1 ? 'write that is not a fact' : 'writes that are not facts'} of the schema`;
+    throw new Error(`${at}: the draft set of unit "${unitId}" generation ${generation} holds ${what}${problems.length === holds ? '' : ` (${problems.length} problems)`}: ${problems.map(described).join('; ')}`);
   }
   const publishing = publicationOrder(facts);
-  const ids = publishing.map((fact) => fact.id);
+  const ids = new Set(publishing.map((fact) => fact.id));
   await withLocation(at, `applyPublishedFacts(${unitId}/${generation})`, FACT_STORE_TABLES, async () => {
+    // What the unit held before this publication, read before anything is written: the facts it does not
+    // publish now are the only ones whose rows may be swept, so the sweep neither reads the whole table
+    // nor touches a fact another unit published.
+    const { rows: held } = await input.executor.query<{ id: string }>('SELECT id FROM fill_fact_holding WHERE unit_id = $1', [unitId]);
+    const dropped = held.map((row) => row.id).filter((id) => !ids.has(id)).sort(byCodePoint);
     for (const fact of publishing) {
       // The fact's own row: the first publication of an id writes it, and a later one adds its holding
       // and leaves the row as it stands (the id is the fact's identity, so the difference is a reader's
@@ -284,8 +311,19 @@ export async function applyPublishedFacts(input: FactApplicationInput): Promise<
     }
     // What the unit held and does not publish now: only this unit's own facts are replaced, and a fact
     // another unit still holds stays.
-    await input.executor.query('DELETE FROM fill_fact_holding WHERE unit_id = $1 AND id <> ALL($2::text[])', [unitId, ids]);
-    await input.executor.query('DELETE FROM fill_fact WHERE NOT EXISTS (SELECT 1 FROM fill_fact_holding h WHERE h.id = fill_fact.id)');
+    await input.executor.query('DELETE FROM fill_fact_holding WHERE unit_id = $1 AND id = ANY($2::text[])', [unitId, dropped]);
+    // The facts this publication dropped, and that no unit holds any more. The two statements are the
+    // point: the first locks every candidate and waits there for a publisher beside this one, which the
+    // holding's own foreign key makes hold a lock on the fact's row until it commits — so the second, a
+    // statement of its own, judges the candidates as the database stands *after* that wait, and a fact
+    // another unit is publishing right now is kept rather than removed from under its holding. Deleting
+    // in the first statement's snapshot would remove it, and the holding's foreign key would then leave
+    // neither a fact to read nor an error to see.
+    if (dropped.length > 0) {
+      const orphans = 'f.id = ANY($1::text[]) AND NOT EXISTS (SELECT 1 FROM fill_fact_holding h WHERE h.id = f.id)';
+      await input.executor.query(`SELECT f.id FROM fill_fact f WHERE ${orphans} FOR UPDATE`, [dropped]);
+      await input.executor.query(`DELETE FROM fill_fact f WHERE ${orphans}`, [dropped]);
+    }
   });
   return publishing.length;
 }
@@ -382,8 +420,12 @@ export async function readUnitFacts(database: FactStoreDatabase, unitId: string)
       held.publishers.push(publisher(row));
       found.set(row.id, held);
     }
-    // The query orders both keys; the sort keeps the answer this store's own order whatever the database does.
-    return [...found.values()].sort((left, right) => byCodePoint(left.fact.id, right.fact.id));
+    // Both keys are sorted here, and not left to the query: a database orders text by its own collation
+    // (PostgreSQL's is `en_US.UTF-8` in CI, where `unit-a` sorts before `Unit-a`), and this store answers
+    // code point order whatever the engine's locale is.
+    return [...found.values()]
+      .map((held) => ({ ...held, publishers: [...held.publishers].sort((left, right) => byCodePoint(left.unitId, right.unitId)) }))
+      .sort((left, right) => byCodePoint(left.fact.id, right.fact.id));
   }, 'snapshot');
 }
 

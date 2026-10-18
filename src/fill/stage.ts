@@ -138,13 +138,14 @@ export interface StageGraphReader {
  * One write a unit's draft holds; every write cites what it stands on, and every
  * write carries the fact it writes in its `value` — the schema's own fact
  * (`facts.ts`), so the store a published set lands in publishes exactly what the
- * unit wrote and never has to guess a kind. The link's `from` and `to` name the
- * ends it joins, beside the edge fact itself.
+ * unit wrote and never has to guess a kind. An edge's ends are the fact's own
+ * (`CallEdgeValue.from`, `ConsumesEdgeValue.variable`), named once: a link beside
+ * a second pair of ends could state an edge whose ends nothing publishes.
  */
 export type StageDraftWrite =
   | { kind: 'fact'; evidence: string; value: unknown }
   | { kind: 'entity'; evidence: string; value: unknown }
-  | { kind: 'link'; evidence: string; from: string; to: string; value: unknown }
+  | { kind: 'link'; evidence: string; value: unknown }
   | { kind: 'question'; evidence: string; value: unknown };
 
 /** The draft set a unit's writes collect into while it runs. */

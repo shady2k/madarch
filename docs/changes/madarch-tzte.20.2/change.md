@@ -27,11 +27,14 @@ store to every run whose wiring names no store of its own, so a published set
 lands in the process's own tables, and the tables are created with the fill's
 other ones when the service first opens its database.
 
-One interface changes: a `link` write of the stage contract's draft set now
-carries the edge fact it writes in its `value`, as the other three write kinds
-already carry theirs (`src/fill/stage.ts`). Without it a link can never be
-published: the store publishes the fact each write carries, and a write that
-carries none is refused by name rather than dropped.
+One interface changes, in `src/fill/stage.ts`: a `link` write of the stage
+contract's draft set carries the edge fact it writes in its `value`, as the other
+three write kinds already carry theirs, and its own `from`/`to` are gone. Without
+the fact a link can never be published — the store publishes the fact each write
+carries, and a write that carries none is refused by name rather than dropped —
+and with both the fact and a second pair of ends, a write could state an edge
+whose ends nothing publishes. An edge's ends are its value's own
+(`CallEdgeValue.from`, `ConsumesEdgeValue.variable`), named once.
 
 ## Rationale
 Kind `no-behavior`: the change implements an accepted decision (0026, "Writing";
@@ -107,10 +110,29 @@ Taken from decisions 0026 and 0027; nothing here re-decides them.
   link, `question` for a question). A write that is not a fact of the schema
   refuses the whole publication and names the write, the file, the line and the
   path; nothing of it is stored and never a smaller set is.
+- **Two publications may run at once, so the sweep locks before it judges.** A
+  unit's publication replaces its own facts inside its own transaction, and
+  decision 0027 wants several worker processes on a server: two units of one
+  stage over adjacent scopes writing one fact is the ordinary case. The facts a
+  publication drops are therefore locked first (`SELECT … FOR UPDATE`) and judged
+  by a statement of their own, so the sweep waits for a publisher beside it
+  instead of removing a fact that publisher is putting back: the holding's
+  foreign key onto `fill_fact` is what makes that publisher hold a lock on the
+  fact's row until it commits. Deleting in the first statement's snapshot would
+  remove a fact another unit holds — the holding's own foreign key would then
+  leave neither a fact to read nor an error to see — and the foreign key refuses
+  a holding without its fact outright, so the state is not one a reader has to
+  survive.
 - **A publication applies a set of facts.** A stage that saw one fact twice
   writes it once (a call folded from two sites is one edge), so what a publication
   applies is the distinct ids of its draft set's facts, and the count it answers
   is the number of facts the unit then holds from that publication.
+- **This store's order is code point order, whatever the database collates.** A
+  database orders text by its own collation — PostgreSQL's is `en_US.UTF-8` in
+  CI, where `unit-a` sorts before `Unit-a` — so the publishers a unit's facts
+  come with are sorted here (`byCodePoint`), as the unit's own facts are, and the
+  answer does not depend on the engine's locale. The scenario's two case-differing
+  publishers are the check.
 - **A draft set is read as draft, from the machine's own rows.** `readUnitDraft`
   answers a generation's draft set — its writes, the facts they would publish and
   the writes that are not facts — through the orchestrator's own read, and only
@@ -126,14 +148,56 @@ Taken from decisions 0026 and 0027; nothing here re-decides them.
   that names no store gets the fill's own (`FACT_APPLICATION`), so the production
   path publishes into the process's own graph without a caller wiring one, and a
   host that keeps its graph elsewhere still wins by naming it.
+- **What the review changed.** One independent read-only review ran over this
+  change (a fresh `prime-agent --provider shady2k-gateway --model deepseek-v4.1-flash-auto`
+  session over `git diff origin/main...HEAD`), read the code and ran both suites
+  itself. It found one blocking defect and three should-fix items, all answered
+  here with a test where a test can say it.
+
+  - **Blocking.** The orphan sweep decided from its own transaction's snapshot, so
+    a holding another publication had inserted but not committed was invisible and
+    the fact's row was removed under it: the publication reported a fact that no
+    read could answer, and the dangling holding was not refused by anything. It is
+    answered twice over: `fill_fact_holding.id` now references `fill_fact (id)`, so
+    a publisher holds a lock on the fact's row until it commits and a holding
+    without its fact is a state the database refuses; and the sweep locks the facts
+    this publication dropped, then judges them in a statement of its own, so the
+    candidates are read as the database stands after that wait.
+    `test/fill-fact-store-postgres.test.ts` holds one publication open at its fact's
+    row, runs a second unit's publication beside it, waits for the lock it takes,
+    and asserts the shared fact still has both publishers; with the sweep as it was,
+    no publication ever waits and the test fails on its own message.
+  - **Should-fix.** `readUnitFacts` answered the publishers of a fact in the
+    database's collation while `readFact` answered them in code point order, and
+    the comment claimed the opposite; both sort in code point order now and the
+    scenario publishes one fact from `unit-case` and `Unit-case`, which the checks
+    hold to `['Unit-case', 'unit-case']` on both engines.
+  - **Should-fix.** A link write's `from`/`to` were never read, so a stage could
+    declare one edge and name another pair of ends; the ends are the edge fact's own
+    and the pair is gone from the write (above), which is what the review's own
+    alternative asked for.
+  - **Should-fix/nit.** The refusal counted problems as writes ("holds 3 writes"
+    for one write the schema refused in three places): it counts the writes and
+    names the problems behind them. A write whose kind the union does not know — a
+    row read back from `fill_unit_draft`, where a kind can be anything — was read
+    as a property of nothing and threw a `TypeError` naming no file, line or path;
+    it is refused by name now.
+
+  The review's judgement of the two interface decisions, in its own words: a link
+  must carry its edge fact ("the write kind alone can neither name the edge kind nor
+  produce the id"), and `facts` may default to the fill's own store because `apply`
+  receives the publication's own executor, "so the default cannot land outside the
+  publication's transaction".
+
 
 ## Acceptance evidence
 Recorded on the task as `check:` comments against the change's revision: the
 focused suites `test/fill-fact-store.test.ts` (PGlite, and the host's own wiring)
-and `test/fill-fact-store-postgres.test.ts` (the same scenario and the same
-expectations on the server CI starts), `bun run check`, and the independent
-review. The mutation check is not run: the owner's rule runs mutation once per
-assembled stage, and the acceptance escalates per `mutationFallback`.
+and `test/fill-fact-store-postgres.test.ts` (the same scenario, the same
+expectations and the concurrent publication on the server CI starts), `bun run
+check`, and the independent review over each round. The mutation check is not
+run: the owner's rule runs mutation once per assembled stage, and the acceptance
+escalates per `mutationFallback`.
 
 ## DONE WHEN
 - A fact store (tables through `src/adapters/database-owner.ts`) implements the orchestrator's sink for a published fact set: a unit's publication replaces only that unit's own facts in one transaction; a retracted draft leaves nothing; a fact two units publish keeps one row with both publishers, removed only when neither holds it.

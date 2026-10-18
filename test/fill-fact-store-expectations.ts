@@ -121,6 +121,15 @@ export function factStoreChecks(facts: ScenarioFacts): readonly FactStoreCheck[]
       check: (report) => expect([...report.storedKinds]).toEqual(['call', 'entity-proposal', 'question', 'symbol']),
     },
     {
+      name: 'the publishers of one fact come back in code point order, whatever the database collates',
+      check: (report) => {
+        // `Unit-case` sorts before `unit-case` in code point order, and after it under the collation of
+        // CI's PostgreSQL; both reads answer this store's own order.
+        expect(report.casePublishersOfTheUnit).toEqual(['Unit-case', 'unit-case']);
+        expect(report.casePublishersOfTheFact).toEqual(['Unit-case', 'unit-case']);
+      },
+    },
+    {
       name: 'a write whose fact is not the kind that write writes is refused by name',
       check: (report) => {
         expect(report.wrongKindRefusal).toContain('an "entity" write writes an "entity-proposal" fact, and this one is a "module" fact');
