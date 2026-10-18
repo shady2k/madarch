@@ -145,9 +145,13 @@ None.
   once a release carrying the background server is published.
 
 ## Acceptance evidence
-
-Recorded on madarch-zcti.4 as the checks pass; the task's own evidence section
-below holds what was run and what it answered.
+- Checks, each command's own exit status: `bun run check` (tsc --noEmit) exit 0 at 1490659a; the same command's exit 0 on every earlier head of this branch. The scripts this change edits stand outside the project's `tsconfig` include, so they were also type-checked with the project's own options (`tsc --ignoreConfig ... scripts/build-binary.ts scripts/clean-install-walk.ts`) exit 0, and `sh -n scripts/clean-homebrew-walk.sh` exit 0.
+- Focused tests on the SkyPilot pod, where this machine is not allowed to run the suite: `madarch-sky-test <worktree> test/product-daemon.test.ts test/product-cli.test.ts` exit 0, 110 pass 0 fail, on a worktree whose `wiki/app/dist` was absent (the state a CI shard is in — the pod's staging excludes `dist`); earlier runs of the same tree with `test/product-cli-script.test.ts` and `test/product-serve.test.ts` exit 0 with three failures that were fixed in this branch (two `spawnSync(CLI, …)` tests the pod's lost executable bit fails whatever the branch — see the queue entry — and one assertion the change then corrected).
+- The compiled binary itself, on the pod: `bun scripts/build-binary.ts --version 0.0.1 --os linux --arch x64 --out dist` exit 0 ("graph-store smoke ok"), with the smoke running every command from a folder outside the checkout, reading the address `madarch new` printed, asking the product's API for the draft, listing the home, and stopping the daemon it started; the daemon child's command line read from `/proc` was the binary itself.
+- The clean install walks workflow, run 39139319609 on 1490659a: every job green — build-linux-fixture, linux-supported, linux-homebrew, macos-arm64, windows-x64 (the platform the liveness and bundle rules exist for; its walk reads "npx madarch stop ended that server") and published-linux-homebrew.
+- CI on the exact head 1490659a: run 39139313486 success (checks and test shards 1-5 with the aggregate `test` job), Product documents run 39139313672 success.
+- Independent review: a fresh `prime-agent --provider shady2k-gateway --model deepseek-v4.1-flash-auto` session over `git diff origin/main...HEAD`, verdict "fixes needed" with one blocking, one medium and three low findings; every one answered (the record's own bullets say how), its cross-compiled Windows probe supplying the `~BUN` marker spelling, and its note on `src/fill/fsm-core.ts` filed as madarch-ntth.
+- Mutation: not run (owner's rule: Stryker once per assembled stage); acceptance therefore escalates per `mutationFallback: escalate`.
 
 ## DONE WHEN
 `bun scripts/build-binary.ts` proves the compiled binary creates a draft, opens
