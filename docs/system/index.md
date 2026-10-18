@@ -86,3 +86,9 @@ Added 2026-10-18 with the change fill-stage-registry (`docs/changes/fill-stage-r
 - [fill-stages](capabilities/fill-stages.md): declaring the fill's stages and deriving the graph they run in, and the product's manifest deciding which of them run and within which limits.
 
 Its run's decisions are in `docs/changes/fill-stage-registry/change.md`, "Design and decisions".
+
+Added 2026-10-18 with the change madarch-tzte-19-2 (`docs/changes/madarch-tzte-19-2/`):
+
+- [fill-queue](capabilities/fill-queue.md): the fill's durable queue in the process's one database — enqueue, claim under a lease, heartbeat, settlement, retry and dead letters, as short transactions.
+
+Its run's decisions are in `docs/changes/madarch-tzte-19-2/change.md`, "Design and decisions".
