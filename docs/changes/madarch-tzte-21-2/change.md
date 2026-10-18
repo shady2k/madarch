@@ -137,11 +137,13 @@ None.
   `PINNED_SNAPSHOTS_QUERY` asks the graph for the pinned snapshots, and
   `commitsHeldQuery` and `coverageHeldQuery` ask for what this repository's
   history already holds. They are SQL against the fact store's rows in the
-  fill's own vocabulary of fact kinds, and the shape they ask for — the fact's
-  `kind`, `repository`, `scope` and `commit` beside its `value` — is the fact
-  storage's to meet or to change: that storage is madarch-tzte.20's and is not
-  landed, so the three reads are written once, exported, and pinned by a test
-  rather than scattered through the stage. The repository and the scope a read
+  fill's own vocabulary of fact kinds, and each selects only what its caller
+  needs — a pinned snapshot's repository and commit, a commit fact's commit and
+  value, a coverage fact's value — filtering by the kind, the repository and the
+  scope it stands on. That shape is the fact storage's to meet or to change:
+  that storage is madarch-tzte.20's and is not landed, so the three reads are
+  written once, exported, and pinned by a test rather than scattered through the
+  stage. The repository and the scope a read
   interpolates are checked against their own forms first.
 - **A list in its reader's own order names each entry once, wherever the repeat
   stands.** The sorted lists find a repeat beside its twin, because equal names

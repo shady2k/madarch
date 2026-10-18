@@ -2307,7 +2307,7 @@ export function checkFact(fact: unknown): FactProblem[] {
             // equal names have no order between them to stand next to each
             // other by.
             const first = seenNames.get(current);
-            if (first !== undefined) add(`value.${field}[${index}]`, `${shown(current)} is named twice (first at ${field}[${first}]): a list of names names each once`);
+            if (first !== undefined) add(`value.${field}[${index}]`, `${shown(current)} is named twice (first at value.${field}[${first}]): a list of names names each once`);
             else seenNames.set(current, index);
             continue;
           }

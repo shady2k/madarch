@@ -428,6 +428,15 @@ describe('the ancestry one commit fact carries', () => {
     expect(pathsOf(commitOf(apart))).toEqual(['value.parents[2]']);
   });
 
+  test("the check does not read a value field's own type: a time is the writer's business", () => {
+    // The capability's value-types-are-the-writers scenario: the schema reads a
+    // value's keys, its paths, its closed forms, its lists and its identity
+    // parts, and never the type of a field that is none of those, so a time
+    // written as anything at all is left to the write path.
+    expect(pathsOf(commitOf({ ...merge, committedAt: 12345 as never, authoredAt: 'yesterday' }))).toEqual([]);
+    expect(pathsOf(commitOf({ ...merge, subject: 7 as never }))).toEqual([]);
+  });
+
   test('a machine path and a name that is no commit are each refused where they stand in the list', () => {
     // The schema's own rule 3, for a list: a path is a repository path, and a
     // parent is a commit, whoever wrote the fact.

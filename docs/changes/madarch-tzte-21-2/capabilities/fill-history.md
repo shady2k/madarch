@@ -61,9 +61,14 @@ context; its `validate` shall judge a draft before publication.
 - Then: both refusals are returned, the first naming `value.files[0]` and that a changed path is a repository path, the second that an edge names a node that exists
 
 ### Scenario: value-types-are-the-writers
-- Given: a commit fact whose committer time is `yesterday`
+- Given: a commit fact whose committer time is `yesterday` or the number `12345`
 - When: the fact is checked
-- Then: the schema reads the field as text and does not refuse it: a value field's own type, a time included, is the write path's check, not the schema's, and the stage reads a time from git's own seconds and refuses anything else before it writes one
+- Then: the schema does not read the field's own type at all — it reads the value's keys, its paths, its closed forms, its lists and its identity parts, and the digest of the identity — and does not refuse it: a value field's own type is the write path's check, and the stage reads a time from git's own seconds and refuses anything else before it writes one
+
+### Scenario: rows-selected
+- Given: the three reads
+- When: they are read
+- Then: the plan's read selects the repository and the commit a pinned snapshot names, the execute's read selects the commit and the value a commit fact holds, the coverage read selects the value of one scope's coverage fact, and each filters by the kind, the repository and the scope it stands on
 
 ## Requirement: ancestry — A unit writes the pinned commit's ancestry as commit facts
 

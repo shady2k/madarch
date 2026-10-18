@@ -885,6 +885,29 @@ describe('what the wiring, the clock and the graph own rows can do to a read', (
     } finally {
       await withTime.dispose();
     }
+    // A time before 1970 is a time: git counts seconds from the epoch and its
+    // count may be negative there, and the fact carries the instant.
+    const before1970 = await fakeGit({ log: record('First commit', '-1000000000', '-1000000000') });
+    try {
+      const stage = stageOver(new Map([['orders-api', before1970.folder]]), before1970.reader);
+      const run = recorder(unit);
+      await stage.execute(unit, run.context);
+      const written = valuesOf(run.writes, 'commit')[0];
+      expect(written?.['committedAt']).toBe('1938-04-24T22:13:20Z');
+      expect(written?.['authoredAt']).toBe('1938-04-24T22:13:20Z');
+    } finally {
+      await before1970.dispose();
+    }
+    // And a time ISO 8601 cannot hold is refused with the commit and what the
+    // read made of it, never as a bare runtime error.
+    const beyond = await fakeGit({ log: record('First commit', '90000000000000', '90000000000000') });
+    try {
+      const stage = stageOver(new Map([['orders-api', beyond.folder]]), beyond.reader);
+      await expect(stage.execute(unit, recorder(unit).context)).rejects.toThrow(new RegExp(`reads the committer time of ${commit} as "90000000000000"`));
+      await expect(stage.execute(unit, recorder(unit).context)).rejects.toThrow(/ISO 8601/u);
+    } finally {
+      await beyond.dispose();
+    }
     const failed = await fakeGit({ log: '', status: 3, stderr: 'the repository is not here' });
     try {
       const stage = stageOver(new Map([['orders-api', failed.folder]]), failed.reader);
@@ -922,16 +945,12 @@ describe('what the wiring, the clock and the graph own rows can do to a read', (
     await expect(stage.execute(unit, recorder(unit).context)).rejects.toThrow(/orders-api/u);
   });
 
-  test('a shallow file the process cannot open is a gap, never a lost unit', async () => {
-    // Git itself needs the shallow file to know where a checkout's history
-    // stops: with it unreadable git fails over the object the boundary hid, and
-    // the read reports that object as a gap instead of throwing. A process
-    // running as root reads a file whatever its mode, so this is the one case a
-    // root machine cannot make.
-    if (typeof process.getuid === 'function' && process.getuid() === 0) {
-      expect(true).toBe(true);
-      return;
-    }
+  // Git itself needs the shallow file to know where a checkout's history stops:
+  // with it unreadable git fails over the object the boundary hid, and the read
+  // reports that object as a gap instead of throwing. A process running as root
+  // reads a file whatever its mode, so a root machine skips this test and says
+  // so rather than passing it with nothing asserted.
+  test.skipIf(typeof process.getuid === 'function' && process.getuid() === 0)('a shallow file the process cannot open is a gap, never a lost unit', async () => {
     const fixture = await makeRepository('shallow-file', THREE);
     const shallow = await shallowClone(fixture);
     try {
@@ -953,13 +972,23 @@ describe('what the wiring, the clock and the graph own rows can do to a read', (
   });
 
   test('a machine git configuration and git own loader variables change no fact', async () => {
-    const fixture = await makeRepository('environment', THREE);
+    // The fixture renames a path on its third commit: with rename detection on
+    // — git's own default, and what the configuration written below asks for —
+    // git answers the one path the file took, and the read asks for both the
+    // path it left and the path it took. So the assertion below fails if the
+    // reader stops passing --no-renames.
+    const fixture = await makeRepository('environment', [
+      { message: 'First commit', files: { 'a.txt': 'one\n' } },
+      { message: 'Second commit', files: { 'src/b.ts': 'export const b = 1;\n' } },
+    ]);
+    await rm(join(fixture.folder, 'a.txt'));
+    const renamed = await fixture.commit({ message: 'Rename a.txt to b.txt', files: { 'b.txt': 'one\n' } });
     const elsewhere = await makeRepository('elsewhere', [{ message: 'Another repository', files: { 'x.txt': 'x\n' } }]);
     const config = join(fixture.root, 'gitconfig');
     await writeFile(config, '[log]\n\tshowSignature = true\n[diff]\n\trenames = true\n');
     const before = { GIT_DIR: process.env['GIT_DIR'], GIT_CONFIG_GLOBAL: process.env['GIT_CONFIG_GLOBAL'] };
     try {
-      const [, , third] = fixture.commits as [string, string, string];
+      const third = renamed;
       const stage = stageOver(new Map([['orders-api', fixture.folder]]));
       const unit = { id: historyUnitId('orders-api', third), scope: historyScope('orders-api', third) };
       process.env['GIT_CONFIG_GLOBAL'] = config;
@@ -977,6 +1006,8 @@ describe('what the wiring, the clock and the graph own rows can do to a read', (
       expect(valuesOf(withThem.writes, 'commit')).toEqual(valuesOf(without.writes, 'commit'));
       expect(valuesOf(withThem.writes, 'coverage')).toEqual(valuesOf(without.writes, 'coverage'));
       expect(valuesOf(withThem.writes, 'commit').map((value) => value['commit'])).toEqual([...fixture.commits]);
+      // A rename, as --no-renames reads it: the path it left and the path it took.
+      expect(valuesOf(withThem.writes, 'commit').find((value) => value['commit'] === renamed)?.['files']).toEqual(['a.txt', 'b.txt']);
     } finally {
       if (before.GIT_DIR === undefined) delete process.env['GIT_DIR']; else process.env['GIT_DIR'] = before.GIT_DIR;
       if (before.GIT_CONFIG_GLOBAL === undefined) delete process.env['GIT_CONFIG_GLOBAL']; else process.env['GIT_CONFIG_GLOBAL'] = before.GIT_CONFIG_GLOBAL;
@@ -1006,5 +1037,6 @@ describe('what the wiring, the clock and the graph own rows can do to a read', (
     await refused(new Map([[held, [{ commit, value: {} }, { commit, value: {} }]]]), /answered .* twice/u);
     await refused(new Map([[coverage, [{ value: {} }, { value: {} }]]]), /answered 2 coverage facts/u);
     await refused(new Map([[coverage, ['not a record']]]), /row 0 of "SELECT value FROM fact WHERE kind = 'coverage'/u);
+    await refused(new Map([[coverage, [{}]]]), /holds no value/u);
   });
 });

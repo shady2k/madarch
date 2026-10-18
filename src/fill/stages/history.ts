@@ -45,11 +45,13 @@
  * The reads this stage makes of the graph are the three below —
  * `PINNED_SNAPSHOTS_QUERY`, `commitsHeldQuery`, `coverageHeldQuery` — and they
  * are SQL against the fact store's rows, in the fill's own vocabulary of fact
- * kinds: the row shape they ask for (`kind`, `repository`, `scope`, `commit`
- * beside the fact's `value`) is this stage's proposal for the fact storage of
- * madarch-tzte.20 to meet or to change, since that storage is not landed yet,
- * and it is written once, here, so a test can pin it and a storage can answer
- * it. The repository and the scope a read interpolates are checked against
+ * kinds. What they select is what they need and no more: the repository and
+ * the commit a pinned snapshot names, the commit and the value a commit fact
+ * holds, and the value of one scope's coverage fact; the kind, the repository
+ * and the scope they stand on are what each read filters by. That row shape is
+ * this stage's proposal for the fact storage of madarch-tzte.20 to meet or to
+ * change, since that storage is not landed yet, and it is written once, here,
+ * so a test can pin it and a storage can answer it. The repository and the scope a read interpolates are checked against
  * their own forms before they reach a query, so no read is built from a name a
  * product did not write.
  */
@@ -462,10 +464,13 @@ function isoTimestamp(epoch: string, what: string, where: string): string {
 }
 
 /**
- * The gap a failed log left, read from git's own two lines: the object it could
- * not read and the commit whose parents it was traversing. Git writes both
- * (`error: Could not read <sha>` and `fatal: Failed to traverse parents of
- * commit <sha>`), and a failure naming neither is no gap but a failure, which
+ * The gap a failed log left, read from git's own lines: the object it could not
+ * read (`error: Could not read <sha>`) and, where git says so, the commit whose
+ * parents it was traversing (`fatal: Failed to traverse parents of commit
+ * <sha>`). Git 2.55, asked for a topologically ordered walk, prints the object
+ * line and `fatal: revision walk setup failed` — it orders the whole walk before
+ * it prints — so both shapes are read here rather than the wording of one
+ * version, and a failure naming no object at all is no gap but a failure, which
  * the caller throws.
  */
 function missingParent(stderr: string): CoverageGap | undefined {
@@ -498,7 +503,7 @@ async function shallowGaps(folder: string, repository: string, commits: readonly
   try {
     listed = await readFile(file, 'utf8');
   } catch (error) {
-    return [{ what: `the shallow boundary of ${repository}`, reason: 'error' }];
+    return [{ what: `the shallow boundary file of ${repository}`, reason: 'error' }];
   }
   const boundaries = new Set(listed.split('\n').map((line) => line.trim()).filter((line) => line !== ''));
   const gaps: CoverageGap[] = [];
@@ -516,22 +521,42 @@ async function shallowGaps(folder: string, repository: string, commits: readonly
 }
 
 /**
- * The gaps in code point order of what they name, each `what` named once: the
- * schema's own order and uniqueness for a coverage's list, which refuses a
- * `what` standing twice. Two reasons naming one `what` are one gap here — the
- * first in code point order of the reason, `budget` before `inaccessible` —
- * because a list that named it twice would be refused by the schema and the
- * unit would lose the coverage it needs to report the gap at all.
+ * The gaps in code point order of what they name, each pair of a `what` and a
+ * reason once: the schema's order for a coverage's list. Only an exact repeat is
+ * dropped, so a future cause naming a `what` another cause already named is
+ * refused where the coverage is built rather than lost from the list here.
  */
 function sortGaps(gaps: readonly CoverageGap[]): CoverageGap[] {
   const seen = new Set<string>();
   const unique: CoverageGap[] = [];
   for (const gap of [...gaps].sort((left, right) => byCodePoint(left.what, right.what) || byCodePoint(left.reason, right.reason))) {
-    if (seen.has(gap.what)) continue;
-    seen.add(gap.what);
+    const key = `${gap.what}\u0000${gap.reason}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     unique.push(gap);
   }
   return unique;
+}
+
+/**
+ * The gaps one coverage carries: in the schema's order, each of them once, and
+ * each `what` named by exactly one of them. The schema refuses a coverage that
+ * names one `what` twice, and a reader that handed it one would lose the whole
+ * unit — its facts and its gaps — to a refusal about the list; so a second cause
+ * naming a `what` an earlier one named is refused here, at the repository and
+ * the scope it is about, saying both reasons.
+ */
+function coverageGaps(gaps: readonly CoverageGap[], repository: string, scope: string): CoverageGap[] {
+  const ordered = sortGaps(gaps);
+  const named = new Map<string, string>();
+  for (const gap of ordered) {
+    const first = named.get(gap.what);
+    if (first !== undefined) {
+      throw new Error(`history: the coverage of ${repository} at ${scope} would name ${JSON.stringify(gap.what)} twice, as ${first} and as ${gap.reason}: a coverage names each thing it could not read once`);
+    }
+    named.set(gap.what, gap.reason);
+  }
+  return ordered;
 }
 
 // ---- the stage's units ----------------------------------------------------
@@ -667,7 +692,7 @@ const HISTORY_READ: readonly string[] = ['the pinned commit and its ancestry', '
 
 /** The `coverage` fact of one unit: what its read reached, and every gap it could not. */
 function coverageFact(repository: string, scope: string, ancestry: HistoryAncestry) {
-  const unread = sortGaps(ancestry.unread);
+  const unread = coverageGaps(ancestry.unread, repository, scope);
   const value: CoverageValue = { repository, scope, complete: unread.length === 0, read: HISTORY_READ, unread };
   return makeNodeFact({
     kind: 'coverage',
@@ -720,7 +745,11 @@ async function readCoverageHeld(graph: StageGraphReader, repository: string, sco
   if (typeof row !== 'object' || row === null || Array.isArray(row)) {
     throw new Error(`history: row 0 of "${query}" is ${JSON.stringify(row)}, not a record with the value a fact holds`);
   }
-  return (row as { value?: unknown }).value;
+  const value = (row as { value?: unknown }).value;
+  if (value === undefined) {
+    throw new Error(`history: row 0 of "${query}" holds no value: the read compares what the graph holds, so a coverage held with nothing in it is refused`);
+  }
+  return value;
 }
 
 /** The depth one unit reads to, from the stage's resolved configuration, refused by its own field where it is no depth. */
