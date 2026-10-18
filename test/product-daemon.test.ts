@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/server/http.js';
-import { startDaemon, stopDaemon, daemonStatus, isDaemonCommandLine } from '../src/product/daemon.js';
+import { startDaemon, stopDaemon, daemonStatus, isDaemonCommandLine, isCompiledBinary } from '../src/product/daemon.js';
 import { spawnSync } from 'node:child_process';
 import { createServer as netServer } from 'node:net';
 
@@ -248,6 +248,16 @@ test("the daemon's own command line is recognised on every platform's shape", ()
   expect(isDaemonCommandLine('bun /home/u/madarch/scripts/madarch.ts daemon-serve --home /tmp/other --port 43137', state)).toBeFalse();
   expect(isDaemonCommandLine('bun /home/u/madarch/scripts/madarch.ts daemon-serve --home /tmp/products --port 4180', state)).toBeFalse();
   expect(isDaemonCommandLine('/tmp/dist/madarch-linux-x64 status --home /tmp/products', state)).toBeFalse();
+});
+
+test('the daemon child is the binary itself where the program runs from a bundle', () => {
+  // The module URLs a compiled binary answers with (measured 2026-10-18):
+  // none of them names a file on disk, which is what makes the
+  // program a bundle and its own command line the way to start a daemon. A
+  // checkout's module URL is the module's own real path.
+  expect(isCompiledBinary('file:///$bunfs/root/madarch-linux-x64', () => false)).toBeTrue();
+  expect(isCompiledBinary('file:///B:/madarch.exe', () => false)).toBeTrue();
+  expect(isCompiledBinary('file:///home/u/madarch/src/product/daemon.ts', () => true)).toBeFalse();
 });
 
 test('daemon start refuses a port another process holds', async () => {

@@ -116,18 +116,16 @@ function clearState(home: string): void { try { unlinkSync(statePath(home)); } c
 /** Yields to other work without a busy loop; the lifecycle waits below poll with it. */
 function pause(ms: number): void { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
 /**
- * Whether this program is a compiled binary: a bundle's module URL carries
- * `$bunfs` and names no file on disk, while a source run's is the module's real
- * path. Both markers are checked because the platforms report them
- * differently — measured 2026-10-18: `import.meta.url` is
- * `file:///<root>/$bunfs/root/<binary>` on Linux and Windows (Windows spelled
- * with the drive letter: the path derived from it read
- * `B:\scripts\madarch.ts`, run 39135227328), while `Bun.main` carries
- * `$bunfs` on Linux and macOS and, on Windows, answered a path with no marker
- * at all (the same run).
+ * Whether this program is a compiled binary: a bundle carries its own paths, so
+ * the module the program runs from is no file on disk. Measured 2026-10-18 —
+ * `file:///$bunfs/root/<binary>` on Linux and macOS, and on Windows a path on
+ * a drive the system has not: the child a release started there read
+ * `B:\scripts\madarch.ts` (run 39135836826), and neither `import.meta.url`
+ * nor `Bun.main` carried the `$bunfs` marker, which is why the marker is not
+ * what is tested. A source run's module URL is the module's own real path.
  */
-function isCompiledBinary(): boolean {
-  return import.meta.url.includes('$bunfs') || Bun.main.includes('$bunfs');
+export function isCompiledBinary(moduleUrl: string = import.meta.url, fileExists: (path: string) => boolean = existsSync): boolean {
+  try { return !fileExists(fileURLToPath(moduleUrl)); } catch { return true; }
 }
 
 /**
@@ -140,6 +138,7 @@ function isCompiledBinary(): boolean {
 function daemonCommand(home: string, port: number): { command: string; args: string[] } {
   const words = ['daemon-serve', '--home', home, '--port', String(port)];
   if (isCompiledBinary()) return { command: process.execPath, args: words };
+
   return { command: 'bun', args: [fileURLToPath(new URL('../../scripts/madarch.ts', import.meta.url)), ...words] };
 }
 
@@ -306,6 +305,10 @@ async function ensureDaemonUnderLock(home: string, port: number, asked: number |
     // beside the one the server took, the way the reused path does.
     return { ok: true, url: `http://127.0.0.1:${port}`, pid: state.pid, port, reused: false, ...(asked === undefined ? {} : { requestedPort: asked }) };
   }
+  // What the check saw, read before the process is ended: a start whose child
+  // never answered reads differently from one whose process was never the
+  // daemon this record names, and the message says which it was.
+  const seen = processArgs(state.pid);
   await stopProcess(state);
   const current = readState(home);
   const survived = daemonIsAlive(state);
@@ -313,9 +316,12 @@ async function ensureDaemonUnderLock(home: string, port: number, asked: number |
   // could not be stopped stays, so `stop` can still find and end it.
   if (!survived && current !== undefined && current.pid === state.pid && current.token === state.token) clearState(home);
   if (childFault.message !== undefined) return { ok: false, message: `the daemon did not start on port ${port}: ${childFault.message}` };
+  const why = seen === undefined
+    ? `the process it started (pid ${state.pid}) had already ended`
+    : `the process it started (pid ${state.pid}) was not the daemon of this record; its command line read ${JSON.stringify(seen)}`;
   return survived
-    ? { ok: false, message: `the daemon did not start on port ${port} and could not be stopped (pid ${state.pid}); check ${logPath(home)} before retrying` }
-    : { ok: false, message: `the daemon did not start on port ${port}; read ${logPath(home)} for its cause` };
+    ? { ok: false, message: `the daemon did not start on port ${port} and could not be stopped (pid ${state.pid}): ${why}; check ${logPath(home)} before retrying` }
+    : { ok: false, message: `the daemon did not start on port ${port}: ${why}; read ${logPath(home)} for its cause` };
 }
 
 export async function startDaemon(options: { home?: string; port?: number }): Promise<number> {
