@@ -290,7 +290,10 @@ async function executeManifestUnit(sources: SnapshotSource, unit: StageUnit, con
   const lines = text.split('\n');
   const provenance = provenanceOf(reader);
   const drafted = await draftOf(kind, reader, entry.path, text, lines, provenance);
-  for (const fact of drafted.facts) {
+  // Two declarations of one fact are one fact: a compose file naming one
+  // service twice, or a Cargo manifest naming one dependency twice, writes the
+  // node once, and the repeat is named in the unit's coverage.
+  for (const fact of dedupeFacts(drafted.facts)) {
     context.draft.write({ kind: 'fact', evidence: evidenceAt(reader, entry.path), value: fact });
   }
   const coverage = coverageOf(reader, entry.path, provenance, lines, drafted);
@@ -393,7 +396,10 @@ async function draftOf(kind: ManifestKind, reader: SnapshotReader, path: string,
     case 'cargo': {
       const read = readToml(text);
       if (!read.ok) return stopped(read.gap);
-      return cargoDrafting(read.value, reader, path, at, gap, await packageIndexOf(reader));
+      const drafted = cargoDrafting(read.value, reader, path, at, gap, await packageIndexOf(reader));
+      // What the reader noted while it read (a key or a table declared twice)
+      // is this unit's coverage, as it is for a package.json.
+      return { ...drafted, unread: [...drafted.unread, ...read.gaps.map((note) => gap(note.line, note.detail))] };
     }
     case 'dockerfile': {
       const read = readDockerfile(text);
@@ -403,7 +409,8 @@ async function draftOf(kind: ManifestKind, reader: SnapshotReader, path: string,
     case 'compose': {
       const read = readCompose(text);
       if (!read.ok) return stopped(read.gap);
-      return composeDrafting(read.value, reader, path, at, gap);
+      const drafted = composeDrafting(read.value, reader, path, at, gap);
+      return { ...drafted, unread: [...drafted.unread, ...read.gaps.map((note) => gap(note.line, note.detail))] };
     }
   }
 }
@@ -491,7 +498,7 @@ function npmDrafting(
   gap: (line: number, detail: string) => Unread,
   stopped: (read: TextGap) => DraftingResult,
 ): DraftingResult {
-  const read = readJson(text, { lax: false });
+  const read = readJson(text);
   if (!read.ok) return stopped(read.gap);
   const value = read.value.value;
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -550,6 +557,10 @@ function npmDrafting(
         unread.push(gap(line, `the dependency ${JSON.stringify(dependency)} ${resolved.why}`));
         continue;
       }
+      if (resolved.id === held.id) {
+        unread.push(gap(line, `the dependency ${JSON.stringify(dependency)} is the package of this manifest: a package does not depend on itself`));
+        continue;
+      }
       edges.push(makeEdgeFact({ kind: 'dependency', value: { from: held.id, to: resolved.id, basis: 'manifest' }, provenance: at(line), layer: 'extracted' }));
     }
   }
@@ -606,7 +617,7 @@ function goDrafting(
   const edges: Fact[] = [];
   const unread: Unread[] = [];
   for (const requirement of read.requires) {
-    const resolved = resolveByName(index, reader.repository, requirement.path, at(requirement.line));
+    const resolved = resolveByName(index, reader.repository, requirement.path, 'go', at(requirement.line));
     if (!resolved.ok) {
       unread.push(gap(requirement.line, `the requirement ${JSON.stringify(requirement.path)} ${resolved.why}`));
       continue;
@@ -649,7 +660,6 @@ function cargoDrafting(
   const packageTable = tableOf(tables['package']);
   const packageName = typeof packageTable?.['name'] === 'string' ? (packageTable['name'] as string).trim() : undefined;
   const version = typeof packageTable?.['version'] === 'string' ? (packageTable['version'] as string).trim() : undefined;
-  const form: PackageForm = packageName === undefined && tables['workspace'] !== undefined ? 'workspace' : 'package';
   if (tables['package'] !== undefined) readNames.push('package');
   if (tables['workspace'] !== undefined) readNames.push('workspace');
   let held: Fact | undefined;
@@ -658,7 +668,11 @@ function cargoDrafting(
   } else {
     held = makeNodeFact({
       kind: 'package',
-      value: { repository, name: packageName, form, ecosystem: 'cargo', ...(version === undefined || version === '' ? {} : { version }), manifest },
+      // A Cargo manifest that declares a workspace and no package name (a
+      // virtual manifest) writes no package node at all: a package's identity
+      // is its name, and there is none to stand for it. The unit's coverage
+      // says so.
+      value: { repository, name: packageName, form: 'package', ecosystem: 'cargo', ...(version === undefined || version === '' ? {} : { version }), manifest },
       provenance: at(read.lineAt(['package', 'name'])),
       layer: 'extracted',
     });
@@ -694,6 +708,10 @@ function cargoDrafting(
         unread.push(gap(line, `the dependency ${JSON.stringify(dependency)} ${resolved.why}`));
         continue;
       }
+      if (resolved.id === held.id) {
+        unread.push(gap(line, `the dependency ${JSON.stringify(dependency)} is the package of this manifest: a package does not depend on itself`));
+        continue;
+      }
       edges.push(makeEdgeFact({ kind: 'dependency', value: { from: held.id, to: resolved.id, basis: 'manifest' }, provenance: at(line), layer: 'extracted' }));
     }
   }
@@ -706,8 +724,11 @@ function cargoDrafting(
   const bins = Array.isArray(tables['bin']) ? tables['bin'] : [];
   bins.forEach((entry, position) => {
     const table = tableOf(entry);
-    const named = typeof table?.['name'] === 'string' ? (table['name'] as string).trim() : packageName;
-    const line = read.lineAt(['bin', position, 'name']);
+    const declared = typeof table?.['name'] === 'string' ? (table['name'] as string).trim() : undefined;
+    const named = declared === undefined || declared === '' ? packageName : declared;
+    // A target that declares no name takes its package's, and then stands at
+    // its own table header: the name key it does not carry is no place.
+    const line = declared === undefined || declared === '' ? read.lineAt(['bin', position]) : read.lineAt(['bin', position, 'name']);
     if (named === undefined || named === '') {
       unread.push(gap(line, 'a binary declares no name and its package none either'));
       return;
@@ -718,8 +739,9 @@ function cargoDrafting(
   const library = tableOf(tables['lib']);
   if (tables['lib'] !== undefined) {
     readNames.push('lib');
-    const named = typeof library?.['name'] === 'string' ? (library['name'] as string).trim() : packageName;
-    const line = read.lineAt(['lib', 'name']);
+    const declared = typeof library?.['name'] === 'string' ? (library['name'] as string).trim() : undefined;
+    const named = declared === undefined || declared === '' ? packageName : declared;
+    const line = declared === undefined || declared === '' ? read.lineAt(['lib']) : read.lineAt(['lib', 'name']);
     if (named === undefined || named === '') unread.push(gap(line, 'the library declares no name and its package none either'));
     else entryPoints.push(makeNodeFact({ kind: 'entry-point', value: { repository, file: manifest, name: named, form: 'library-export' }, provenance: at(line), layer: 'extracted' }));
   }
@@ -790,7 +812,14 @@ function dockerfileDrafting(
   const entryPoints: Fact[] = [];
   for (const instruction of read.instructions) {
     if (instruction.name === 'ENV' || instruction.name === 'ARG') {
-      for (const name of declaredVariableNames(instruction.argument)) variables.push({ name, line: instruction.line });
+      const declared = declaredVariableNames(instruction.argument);
+      for (const name of declared.names) variables.push({ name, line: instruction.line });
+      if (declared.malformed) {
+        // Docker refuses a line that mixes `KEY=value` pairs with a lone name,
+        // so this reader does not guess which form a token takes: it reads the
+        // pairs it found and names the line it could not read whole.
+        unread.push(gap(instruction.line, `${instruction.name} mixes "KEY=value" pairs with a lone name, and which form a token takes is Docker's own rule`));
+      }
       readNames.add(instruction.name === 'ENV' ? 'env' : 'arg');
       continue;
     }
@@ -821,18 +850,21 @@ function dockerfileDrafting(
  * pairs, `KEY value` (the first token alone names the variable when the
  * instruction's first token carries no `=`), and the name alone.
  */
-function declaredVariableNames(argument: string): readonly string[] {
-  const tokens = argument.trim().split(/\s+/u);
+function declaredVariableNames(argument: string): { readonly names: readonly string[]; readonly malformed: boolean } {
+  const tokens = argument.trim().split(/\s+/u).filter((token) => token !== '');
   const first = tokens[0];
-  if (first === undefined || first === '') return [];
-  if (!first.includes('=')) return [first];
+  if (first === undefined) return { names: [], malformed: false };
+  // `ENV KEY the rest is the value`: a first token with no `=` names the
+  // variable and the whole remainder is its value.
+  if (!first.includes('=')) return { names: [first], malformed: false };
   const names: string[] = [];
+  let malformed = false;
   for (const token of tokens) {
     const at = token.indexOf('=');
     if (at > 0) names.push(token.slice(0, at));
+    else malformed = true;
   }
-  if (names.length === 0 && argument.includes('=')) names.push(argument.slice(0, argument.indexOf('=')));
-  return names;
+  return { names, malformed };
 }
 
 // ---- a compose file ------------------------------------------------------
@@ -855,7 +887,6 @@ function composeDrafting(
   const unread: Unread[] = [];
   const variables: DeclaredVariable[] = [];
   const readNames = new Set<string>(['services']);
-  if (read.name !== undefined) readNames.add('name');
   for (const service of read.services) {
     facts.push(makeNodeFact({
       kind: 'deploy-unit',
@@ -931,7 +962,7 @@ async function buildPackageIndex(reader: SnapshotReader): Promise<PackageIndex> 
 /** The package one manifest declares, read for the index alone: what a dependency's name resolves against. */
 function declaredPackageOf(kind: ManifestKind, text: string): IndexedPackage | undefined {
   if (kind === 'npm') {
-    const read = readJson(text, { lax: false });
+    const read = readJson(text);
     if (!read.ok) return undefined;
     const fields = tableOf(read.value.value);
     const name = fields === undefined ? undefined : fields['name'];
@@ -957,21 +988,37 @@ function packageNodeId(repository: string, held: IndexedPackage, provenance: Fac
   return factId({ kind: 'package', value: { repository, name: held.name, form: held.form }, provenance });
 }
 
-/** The package a manifest path declares, or the reason no package stands there. */
-function resolveAtPath(index: PackageIndex, repository: string, path: string, provenance: FactProvenance): Resolution {
+/**
+ * The package a manifest path declares, or the reason no package stands there.
+ * The path names the manifest's own format, so a package of another ecosystem
+ * standing there is refused rather than joined: a dependency's end is the
+ * package the declaring manifest's own ecosystem resolves.
+ */
+function resolveAtPath(index: PackageIndex, repository: string, ecosystem: string, path: string, provenance: FactProvenance): Resolution {
   const held = index.byPath.get(path);
   if (held === undefined) return { ok: false, why: `names ${JSON.stringify(path)}, which declares no package this repository's manifests do` };
+  if (held.ecosystem !== ecosystem) {
+    return { ok: false, why: `names ${JSON.stringify(path)}, which declares a ${held.ecosystem} package, and this manifest depends on a ${ecosystem} one` };
+  }
   return { ok: true, id: packageNodeId(repository, held, provenance) };
 }
 
-/** The package one name declares in this repository, or the reason no single one stands. */
-function resolveByName(index: PackageIndex, repository: string, name: string, provenance: FactProvenance): Resolution {
-  const paths = index.byName.get(name) ?? [];
-  if (paths.length === 0) return { ok: false, why: `names no package this repository's manifests declare` };
-  if (paths.length > 1) return { ok: false, why: `names ${paths.length} packages this repository's manifests declare (${paths.join(', ')}), and no one of them is the dependency's end` };
+/**
+ * The package one name declares in this repository, in the ecosystem of the
+ * manifest that declares the dependency, or the reason no single one stands: a
+ * `yaml` a `Cargo.toml` depends on is the crate, never a same-named npm
+ * package another manifest of the repository ships.
+ */
+function resolveByName(index: PackageIndex, repository: string, name: string, ecosystem: string, provenance: FactProvenance): Resolution {
+  const named = index.byName.get(name) ?? [];
+  const paths = named.filter((path) => index.byPath.get(path)?.ecosystem === ecosystem);
+  if (paths.length === 0) {
+    return { ok: false, why: named.length === 0 ? 'names no package this repository\'s manifests declare' : `names no ${ecosystem} package this repository's manifests declare` };
+  }
+  if (paths.length > 1) return { ok: false, why: `names ${paths.length} ${ecosystem} packages this repository's manifests declare (${paths.join(', ')}), and no one of them is the dependency's end` };
   const first = paths[0];
   const held = first === undefined ? undefined : index.byPath.get(first);
-  if (held === undefined) return { ok: false, why: 'names no package this repository\'s manifests declare' };
+  if (held === undefined) return { ok: false, why: `names no ${ecosystem} package this repository's manifests declare` };
   return { ok: true, id: packageNodeId(repository, held, provenance) };
 }
 
@@ -982,10 +1029,10 @@ function resolveNpmDependency(index: PackageIndex, repository: string, fromPath:
     if (prefixed !== null) {
       const target = resolveRelative(parentOf(fromPath), prefixed[2] ?? '');
       if (target === undefined) return { ok: false, why: `names the path ${JSON.stringify(spec)}, which leaves the repository` };
-      return resolveAtPath(index, repository, target === '' ? 'package.json' : `${target}/package.json`, provenance);
+      return resolveAtPath(index, repository, 'npm', target === '' ? 'package.json' : `${target}/package.json`, provenance);
     }
   }
-  return resolveByName(index, repository, name, provenance);
+  return resolveByName(index, repository, name, 'npm', provenance);
 }
 
 /** How one Cargo dependency's specifier resolves: a `path` table with a manifest, else the package's own name. */
@@ -995,9 +1042,9 @@ function resolveCargoDependency(index: PackageIndex, repository: string, fromPat
   if (typeof declared === 'string') {
     const target = resolveRelative(parentOf(fromPath), declared);
     if (target === undefined) return { ok: false, why: `names the path ${JSON.stringify(declared)}, which leaves the repository` };
-    return resolveAtPath(index, repository, target === '' ? 'Cargo.toml' : `${target}/Cargo.toml`, provenance);
+    return resolveAtPath(index, repository, 'cargo', target === '' ? 'Cargo.toml' : `${target}/Cargo.toml`, provenance);
   }
-  return resolveByName(index, repository, name, provenance);
+  return resolveByName(index, repository, name, 'cargo', provenance);
 }
 
 /** The folder a path stands in; `undefined` at the repository root. */

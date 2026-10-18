@@ -495,13 +495,17 @@ describe('deploy units and the environment', () => {
       const recorder = await executed(stage, 'manifest:orders-api:services/billing/Dockerfile');
       for (const write of recorder.writes) expect(checkFact(factOf(write))).toEqual([]);
       expect(kindsOf(recorder.writes)).toEqual([
-        'deploy-unit', 'environment-variable', 'consumes', 'environment-variable', 'consumes', 'entry-point', 'coverage',
+        'deploy-unit',
+        'environment-variable', 'consumes', 'environment-variable', 'consumes', 'environment-variable', 'consumes',
+        'entry-point', 'coverage',
       ]);
       expect(oneFact(recorder.writes, 'deploy-unit').value).toEqual({
         repository: 'orders-api', name: 'services/billing', form: 'container', manifest: 'services/billing/Dockerfile',
       });
       const variables = factsOf(recorder.writes).filter((fact) => fact.kind === 'environment-variable').map((fact) => fact.value['name']);
-      expect(variables).toEqual(['ORDERS_DB', 'ORDERS_TOPIC']);
+      // `ENV` declares the container's own environment and `ARG` a variable
+      // the build reads: both are variables the configuration names here.
+      expect(variables).toEqual(['ORDERS_DB', 'ORDERS_TOPIC', 'PORT']);
       expect(factsOf(recorder.writes).filter((fact) => fact.kind === 'entry-point').map((fact) => fact.value)).toEqual([
         { repository: 'orders-api', file: 'services/billing/Dockerfile', name: '["bun", "run", "start"]', form: 'main' },
       ]);
@@ -516,7 +520,7 @@ describe('deploy units and the environment', () => {
       }
       const coverage = coverageOfDraft(recorder.writes);
       expect(coverage.complete).toBe(true);
-      expect(coverage.read).toEqual(['arg', 'entrypoint', 'env', 'from']);
+      expect(coverage.read).toEqual(['arg', 'entrypoint', 'env', 'environment', 'from']);
     } finally {
       await f.dispose();
     }
@@ -647,6 +651,126 @@ describe('what this stage cannot read is coverage', () => {
       expect(coverageOfDraft(recorder.writes).unread).toEqual([
         { what: 'package.json:3 the member "name" is declared twice: the first declaration stands, and the second is not read', reason: 'unsupported' },
       ]);
+    } finally {
+      await f.dispose();
+    }
+  });
+});
+
+// ---- what the readers note -------------------------------------------------
+
+describe('a declaration read twice, and a dependency that is no edge', () => {
+  test('a Cargo key declared twice is named, and the first declaration stands', async () => {
+    const f = await fixture();
+    try {
+      await f.write('Cargo.toml', '[package]\nname = "orders"\nversion = "0.1.0"\n\n[dependencies]\nserde = "1"\nserde = "2"\n');
+      const commit = f.commit();
+      const stage = stageOver(f.root, commit);
+      const recorder = await executed(stage, 'manifest:orders-api:Cargo.toml');
+      expect(coverageOfDraft(recorder.writes).unread).toEqual([
+        { what: 'Cargo.toml:6 the dependency "serde" names no package this repository\'s manifests declare', reason: 'unsupported' },
+        { what: 'Cargo.toml:7 the key "dependencies.serde" is declared twice: the first declaration stands, and the second is not read', reason: 'unsupported' },
+      ]);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a compose service declared twice is one deploy unit, and the repeat is named', async () => {
+    const f = await fixture();
+    try {
+      await f.write('compose.yml', 'services:\n  web:\n    image: nginx\n  web:\n    image: other\n');
+      const commit = f.commit();
+      const stage = stageOver(f.root, commit);
+      const recorder = await executed(stage, 'manifest:orders-api:compose.yml');
+      expect(kindsOf(recorder.writes)).toEqual(['deploy-unit', 'coverage']);
+      expect(coverageOfDraft(recorder.writes).unread).toEqual([
+        { what: 'compose.yml:4 the key "web" is declared twice: the first declaration stands, and the second is not read', reason: 'unsupported' },
+      ]);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a dependency resolves in the ecosystem of the manifest that declares it', async () => {
+    const f = await fixture();
+    try {
+      // One name, two ecosystems: the crate `yaml` is not the npm package.
+      await f.write('package.json', '{\n  "name": "yaml"\n}\n');
+      await f.write('Cargo.toml', '[package]\nname = "orders"\n\n[dependencies]\nyaml = "0.9"\n');
+      const commit = f.commit();
+      const stage = stageOver(f.root, commit);
+      const cargo = await executed(stage, 'manifest:orders-api:Cargo.toml');
+      expect(kindsOf(cargo.writes)).toEqual(['package', 'coverage']);
+      expect(coverageOfDraft(cargo.writes).unread).toEqual([
+        { what: 'Cargo.toml:5 the dependency "yaml" names no cargo package this repository\'s manifests declare', reason: 'unsupported' },
+      ]);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a package that depends on itself is a gap, never a self-loop', async () => {
+    const f = await fixture();
+    try {
+      await f.write('package.json', '{\n  "name": "orders-api",\n  "dependencies": {\n    "orders-api": "workspace:*"\n  }\n}\n');
+      const commit = f.commit();
+      const stage = stageOver(f.root, commit);
+      const recorder = await executed(stage, 'manifest:orders-api:package.json');
+      expect(kindsOf(recorder.writes)).toEqual(['package', 'coverage']);
+      expect(coverageOfDraft(recorder.writes).unread).toEqual([
+        { what: 'package.json:4 the dependency "orders-api" is the package of this manifest: a package does not depend on itself', reason: 'unsupported' },
+      ]);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a Dockerfile that mixes the two ENV forms is named, and the pairs it holds stand', async () => {
+    const f = await fixture();
+    try {
+      await f.write('Dockerfile', 'FROM oven/bun:1\nENV A=1 B\n');
+      const commit = f.commit();
+      const stage = stageOver(f.root, commit);
+      const recorder = await executed(stage, 'manifest:orders-api:Dockerfile');
+      expect(kindsOf(recorder.writes)).toEqual(['deploy-unit', 'environment-variable', 'consumes', 'coverage']);
+      expect(oneFact(recorder.writes, 'environment-variable').value['name']).toBe('A');
+      expect(coverageOfDraft(recorder.writes).unread).toEqual([
+        { what: 'Dockerfile:2 ENV mixes "KEY=value" pairs with a lone name, and which form a token takes is Docker\'s own rule', reason: 'unsupported' },
+      ]);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a target that declares no name takes its package’s, and stands at its own table', async () => {
+    const f = await fixture();
+    try {
+      await f.write('Cargo.toml', '[package]\nname = "orders"\nversion = "0.1.0"\n\n[[bin]]\npath = "src/main.rs"\n\n[lib]\npath = "src/lib.rs"\n');
+      const commit = f.commit();
+      const stage = stageOver(f.root, commit);
+      const recorder = await executed(stage, 'manifest:orders-api:Cargo.toml');
+      expect(factsOf(recorder.writes).filter((fact) => fact.kind === 'entry-point').map((fact) => fact.value)).toEqual([
+        { repository: 'orders-api', file: 'Cargo.toml', name: 'orders', form: 'cli-command' },
+        { repository: 'orders-api', file: 'Cargo.toml', name: 'orders', form: 'library-export' },
+      ]);
+      // The place is the table the target declares, not the name key it does
+      // not carry.
+      expect(factsOf(recorder.writes).filter((fact) => fact.kind === 'entry-point').map((fact) => fact.provenance.place?.range.startLine)).toEqual([5, 8]);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a JSON member stands at the line of its key, not of its value', async () => {
+    const f = await fixture();
+    try {
+      await f.write('package.json', '{\n  "name":\n    "orders-api"\n}\n');
+      const commit = f.commit();
+      const stage = stageOver(f.root, commit);
+      const recorder = await executed(stage, 'manifest:orders-api:package.json');
+      expect(oneFact(recorder.writes, 'package').provenance.place?.range.startLine).toBe(2);
+      expect(coverageOfDraft(recorder.writes).complete).toBe(true);
     } finally {
       await f.dispose();
     }

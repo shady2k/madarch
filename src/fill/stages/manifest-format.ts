@@ -56,14 +56,14 @@ class TextStop extends Error {
 }
 
 /**
- * Reads one JSON document. `lax` reads the JSONC a lock file is written in —
- * `//` and block comments, and a comma before a closing brace or bracket —
- * and is off for a manifest, where JSON is what the ecosystem's own reader
- * takes: a comment in a `package.json` is a gap naming its line, not a
- * declaration read past.
+ * Reads one JSON document, as the ecosystem's own reader reads it: a comment
+ * and a comma before a closing brace are gaps naming their lines, never
+ * declarations read past. The reader is strict because every manifest this
+ * stage reads as JSON is one whose ecosystem refuses anything else — a
+ * `package.json` with a trailing comma does not install.
  */
-export function readJson(text: string, options: { lax: boolean }): TextRead<JsonReading> {
-  const reader = new JsonReader(text, options.lax);
+export function readJson(text: string): TextRead<JsonReading> {
+  const reader = new JsonReader(text);
   try {
     const value = reader.parseDocument();
     return { ok: true, value: { value, lineAt: (path) => reader.lineAt(path) }, gaps: reader.gaps };
@@ -80,7 +80,7 @@ class JsonReader {
   private readonly lines = new Map<string, number>();
   readonly gaps: TextGap[] = [];
 
-  constructor(private readonly text: string, private readonly lax: boolean) {}
+  constructor(private readonly text: string) {}
 
   /** The 1-based line of the member or element at a path, as the reader recorded it. */
   lineAt(path: TextPath): number {
@@ -116,32 +116,15 @@ class JsonReader {
         this.at += 1;
         continue;
       }
-      if (!this.lax) return;
-      if (char === '/' && this.text[this.at + 1] === '/') {
-        while (this.at < this.text.length && this.text[this.at] !== '\n') this.at += 1;
-        continue;
-      }
-      if (char === '/' && this.text[this.at + 1] === '*') {
-        const opened = this.line;
-        this.at += 2;
-        for (;;) {
-          if (this.at >= this.text.length) throw new TextStop(opened, 'a block comment is never closed');
-          if (this.text[this.at] === '\n') this.line += 1;
-          if (this.text[this.at] === '*' && this.text[this.at + 1] === '/') {
-            this.at += 2;
-            break;
-          }
-          this.at += 1;
-        }
-        continue;
-      }
       return;
     }
   }
 
   private readValue(path: TextPath): unknown {
     this.skipSpace();
-    this.lines.set(pathKey(path), this.line);
+    // A member's line is its key's line (recorded by the object reader): a
+    // value that starts on the next line does not move the declaration.
+    if (!this.lines.has(pathKey(path))) this.lines.set(pathKey(path), this.line);
     const char = this.text[this.at];
     if (char === undefined) throw new TextStop(this.line, 'the document ends where a value stands');
     if (char === '{') return this.readObject(path);
@@ -192,12 +175,6 @@ class JsonReader {
       const after = this.text[this.at];
       if (after === ',') {
         this.at += 1;
-        this.skipSpace();
-        if (this.text[this.at] === '}') {
-          if (!this.lax) throw new TextStop(this.line, 'a "," before "}" stands where a member belongs: JSON has no trailing comma');
-          this.at += 1;
-          return value;
-        }
         continue;
       }
       if (after === '}') {
@@ -224,12 +201,6 @@ class JsonReader {
       const after = this.text[this.at];
       if (after === ',') {
         this.at += 1;
-        this.skipSpace();
-        if (this.text[this.at] === ']') {
-          if (!this.lax) throw new TextStop(this.line, 'a "," before "]" stands where an element belongs: JSON has no trailing comma');
-          this.at += 1;
-          return value;
-        }
         continue;
       }
       if (after === ']') {
@@ -331,6 +302,12 @@ export function readToml(text: string): TextRead<TomlReading> {
         const keys = readTomlKey(body.slice(1, -1).trim(), line);
         table = descend(root, keys, line, true);
         at = keys;
+        if (lines.has(pathKey(at))) {
+          // A table declared twice adds its keys to the first, as TOML's own
+          // rule reads it; the repetition is noted, since which of two headers
+          // a reader meant is not this reader's to guess.
+          gaps.push({ line, detail: `the table ${JSON.stringify(keys.join('.'))} is declared twice: its keys stand in the first declaration` });
+        }
         lines.set(pathKey(at), line);
         return;
       }
@@ -736,8 +713,6 @@ export interface ComposeService {
 /** What one compose file declares. */
 export interface ComposeReading {
   readonly services: readonly ComposeService[];
-  /** Whether the file declared a project name, which is a `stack` deploy unit's own name. */
-  readonly name?: string;
 }
 
 /**
@@ -765,8 +740,10 @@ export function readCompose(text: string): TextRead<ComposeReading> {
   if (!isMap(services)) {
     return { ok: false, gap: { line: lineOf(services, lineCounter), detail: 'the "services" key holds no mapping: it maps each service name to what the service is' } };
   }
-  const nameEntry = entryOf(contents, 'name');
-  const name = nameEntry !== undefined && isScalar(nameEntry) && typeof nameEntry.value === 'string' ? nameEntry.value : undefined;
+  // A key declared twice is noted and not resolved: yaml's own duplicate-key
+  // error is off (`uniqueKeys: false`), since a compose file may hold two
+  // `services:` blocks and this reader reads the first, naming the second.
+  const gaps: TextGap[] = [...repeatedKeys(contents, lineCounter), ...repeatedKeys(services, lineCounter)];
   const read: ComposeService[] = [];
   for (const pair of services.items) {
     const key = pair.key;
@@ -782,6 +759,7 @@ export function readCompose(text: string): TextRead<ComposeReading> {
       if (!isMap(body)) {
         return { ok: false, gap: { line: lineOf(body, lineCounter), detail: `the service ${JSON.stringify(serviceName)} is no mapping: a service is a mapping of what it declares` } };
       }
+      gaps.push(...repeatedKeys(body, lineCounter));
       const declared = entryOf(body, 'environment');
       if (declared !== undefined) {
         if (isMap(declared)) {
@@ -824,7 +802,24 @@ export function readCompose(text: string): TextRead<ComposeReading> {
     read.push({ name: serviceName, line: serviceLine, environment, envFiles });
   }
   read.sort((left, right) => byCodePoint(left.name, right.name));
-  return { ok: true, value: { services: read, ...(name === undefined ? {} : { name }) }, gaps: [] };
+  return { ok: true, value: { services: read }, gaps };
+}
+
+/** The keys one YAML mapping declares more than once, in code point order, each with the line it repeats at. */
+function repeatedKeys(map: { readonly items: readonly { readonly key: unknown; readonly value: unknown }[] }, lineCounter: LineCounter): TextGap[] {
+  const seen = new Set<string>();
+  const gaps: TextGap[] = [];
+  for (const pair of map.items) {
+    const key = pair.key;
+    const name = isScalar(key) && typeof key.value === 'string' ? key.value : undefined;
+    if (name === undefined) continue;
+    if (!seen.has(name)) {
+      seen.add(name);
+      continue;
+    }
+    gaps.push({ line: lineOf(key, lineCounter), detail: `the key ${JSON.stringify(name)} is declared twice: the first declaration stands, and the second is not read` });
+  }
+  return gaps.sort((left, right) => byCodePoint(left.detail, right.detail));
 }
 
 /** The path one `env_file` entry names, in either of the two forms compose allows. */

@@ -19,8 +19,9 @@ package, no dependency and no deploy unit at all.
 This change lands that stage:
 
 - **`src/fill/stages/build-configuration.ts`**, stage 2: one unit per manifest
-  file — the id is `manifest:`, the repository and the path), writing a `package` node per package a
-  `package.json`, a `go.mod` or a `Cargo.toml` declares, a `dependency` edge
+  file, whose id is the word `manifest`, the repository and the path, joined by
+  `:`, writing a `package` node per package a `package.json`, a `go.mod` or a
+  `Cargo.toml` declares, a `dependency` edge
   between two of those packages where one manifest's declaration names the
   other, a `deploy-unit` node per Dockerfile and per compose service, an
   `environment-variable` node with the `consumes` edge from the file that
@@ -28,11 +29,13 @@ This change lands that stage:
   command and library, and one `coverage` node per manifest saying what was read
   and what was not.
 - **`src/fill/stages/manifest-format.ts`**, the readers those facts are read
-  with: JSON (strict for a manifest, JSONC for a lock file), the TOML subset a
-  Cargo manifest is written in, the go.mod directives, the Dockerfile
-  instructions, and the compose services. Every reader answers where it stopped
-  — a 1-based line and what stood there — and reports the notes it took while it
-  read.
+  with: JSON as the ecosystem's own reader takes it (a comment or a trailing
+  comma is a gap naming its line), the TOML subset a Cargo manifest is written
+  in, the go.mod directives, the Dockerfile instructions, and the compose
+  services. Every reader answers where it stopped — a 1-based line and what
+  stood there — and reports the notes it took while it read: a JSON member, a
+  TOML key or table or a YAML key a file declares twice is named in the unit's
+  coverage, and the first declaration stands.
 - **`src/fill/stages/index.ts`**, the one place a stage is registered: one
   import and one `.register(...)`.
 - **`src/fill/facts.ts`**: the `entry-point` kind's `stages` list gains
@@ -141,10 +144,18 @@ None.
 - **A package is named by what its manifest calls it.** `package.json` →
   ecosystem `npm`, form `workspace` where it declares workspaces and `package`
   otherwise; `go.mod` → ecosystem `go`, name the module path; `Cargo.toml` →
-  ecosystem `cargo`, form `workspace` where it declares a workspace and no
-  package name. A manifest that declares no name writes no package node and
-  names that in its coverage, since a package's identity is its repository, its
-  form and its name.
+  ecosystem `cargo`, form `package`. A manifest that declares no package name
+  writes no package node and names that in its coverage, since a package's
+  identity is its repository, its form and its name: a Cargo manifest that
+  declares a workspace and no package (a virtual manifest) is one such, and the
+  form `workspace` stands for the npm manifest that declares workspaces.
+- **A Dockerfile's `ENV` and its `ARG` both declare a variable.** The
+  `environment-variable` kind carries a name and no scope, so a variable the
+  image's environment holds and one the build reads stand as the same kind of
+  declaration, each with the file as the place that reads it; a later policy or
+  stage can tell a build-time name from a runtime one, and naming an `ARG` as a
+  gap would put a permanent hole in every Dockerfile that takes a build
+  argument.
 - **A deploy unit is named by what declares it.** A Dockerfile's container is
   named by the folder it stands in, or by the repository at its root — a
   Dockerfile carries no name of its own — and a compose file's services are
@@ -156,6 +167,14 @@ None.
   stages, as `dependency`, `consumes` and `provides` already name the two they
   are written by; a manifest declares the way in before the code implementing
   it is parsed. The kind's shape, identity and version are unchanged.
+- **What a key that carries no fact of this stage's kinds does.** The stage's
+  kinds are the limit of what it claims: a `package.json`'s `main`, a compose
+  file's `volumes`, a service's `ports`, a Dockerfile's `RUN`, a go.mod's
+  `replace` are read (the manifest parsed) and carry no fact of the seven kinds
+  this stage writes, so they are named in the coverage's `read` where the stage
+  read them as a declaration and by no gap: the alternative is a permanent gap
+  on every real manifest, which teaches a reader to ignore gaps. What the DONE
+  WHEN does not name stands in the open points below.
 - **Every error names what it is about.** A reader's refusal names the path, the
   1-based line and what stood there; a unit id this stage never plans is refused
   naming the id and the id's own shape; a plan's refusal names the read, the row
@@ -170,17 +189,35 @@ Open points for the integrator, in the order they matter:
   that lands, a deleted manifest's facts stay in the graph, and what the test
   proves is that the vanished path is planned and its unit writes nothing.
 - The unit's own input is the run wiring's (madarch-tzte.21.8): a manifest's
-  blob, and nothing else. A package's `ecosystem` and a dependency's resolution
-  are read from the manifest itself, so nothing outside it can stale its unit;
-  the unit's id and scope are the contract that makes that true.
+  blob. What one unit writes is *not* a function of that blob alone: a
+  dependency's resolution reads the packages the repository's other manifests
+  declare (the index below), so a run that wants a changed package name to move
+  the unit whose edge names it must name those manifests in the unit's inputs
+  too. The unit's id and scope name its own manifest, and the read the plan
+  makes is the published-manifests read; the wiring's inputs seam is where the
+  index's manifests belong, and that is an open point below.
 - A first run of one changed manifest reads every manifest of its repository
   once, for the package index (above). A repository of many thousands of
   manifests would want the index read from published `package` facts instead;
   the read's row shape is what would have to grow.
+- A `package.json`'s `main` and `exports`, and a go.mod's `replace` and
+  `exclude`, declare ways in and resolution rules that no kind of this stage
+  carries: the task names declared binaries and scripts, and the schema's
+  entry-point forms name a command, a route, a job, a library export or a main.
+  Stage 3 and stage 4 read the code's own ways in; a later change that wants a
+  package's `exports` as facts needs a kind for it.
 - A lock file is a declared gap: its resolved versions and its workspace map are
   read by nothing here, because no fact kind of this stage carries a version and
-  an edge's end must be a node the graph holds. Recorded as the coordinator's
-  decision of 2026-10-18 ("lock files: read none for edges in this task").
+  an edge's end must be a node the graph holds. The coordinator decided this for
+  the run ("lock files: read none for edges in this task", 2026-10-18) and the
+  decision is recorded on the task itself, so the DONE WHEN's `bun.lock` is
+  narrowed by an owner-side decision and not by this record's prose.
+- The dependency edge's far end is a `package` node another unit of this stage
+  writes: the plan orders units by id, so a workspace's member may be digested
+  after the manifest that depends on it. 0026's checked write ("referenced nodes
+  exist") and the run's wiring (madarch-tzte.21.8) must accept an edge whose far
+  end is published by the same run, or a first run of a workspace would refuse
+  the very fixture the DONE WHEN names.
 - A dependency that resolves to no node is a coverage gap with reason
   `unsupported`. A reader of a page will see many such gaps on a real product
   (every registry dependency). The alternative — an edge to a node nobody wrote
