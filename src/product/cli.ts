@@ -73,7 +73,13 @@ function commandHelp(command: string): string {
   const flags: string[] = [];
   if (spec.flags.home) flags.push('  --home <folder>       Products home');
   if (spec.flags.product) flags.push('  --product <folder>    Product folder');
-  if (spec.flags.port) flags.push('  --port <n>            Wiki port (default 4180)');
+  if (spec.flags.port) {
+    flags.push('  --port <n>            Wiki port (default 4180)');
+    // The three commands that serve through the products home's one server
+    // say whose port it is: the server was started on it, and a command that
+    // names another is told so rather than served elsewhere.
+    if (['new', 'init', 'start'].includes(command)) flags.push("                        the products home's server names the port it starts on; one it does not keep is reported, not ignored");
+  }
   if (spec.flags.host) flags.push('  --host <address>      Wiki bind address (default 127.0.0.1)');
   if (spec.flags.open) flags.push('  --no-open             Do not open a browser');
   if (spec.flags.source) flags.push('  --source <path>       Local Git checkout to connect');

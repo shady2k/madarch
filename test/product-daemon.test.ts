@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/server/http.js';
-import { startDaemon, stopDaemon, daemonStatus, isDaemonCommandLine, isCompiledBinary } from '../src/product/daemon.js';
+import { startDaemon, stopDaemon, daemonStatus, daemonCommand, isDaemonCommandLine } from '../src/product/daemon.js';
 import { spawnSync } from 'node:child_process';
 import { createServer as netServer } from 'node:net';
 
@@ -250,14 +250,26 @@ test("the daemon's own command line is recognised on every platform's shape", ()
   expect(isDaemonCommandLine('/tmp/dist/madarch-linux-x64 status --home /tmp/products', state)).toBeFalse();
 });
 
-test('the daemon child is the binary itself where the program runs from a bundle', () => {
-  // The module URLs a compiled binary answers with (measured 2026-10-18):
-  // none of them names a file on disk, which is what makes the
-  // program a bundle and its own command line the way to start a daemon. A
-  // checkout's module URL is the module's own real path.
-  expect(isCompiledBinary('file:///$bunfs/root/madarch-linux-x64', () => false)).toBeTrue();
-  expect(isCompiledBinary('file:///B:/madarch.exe', () => false)).toBeTrue();
-  expect(isCompiledBinary('file:///home/u/madarch/src/product/daemon.ts', () => true)).toBeFalse();
+test("the daemon child is the checkout's script, and the binary itself from a bundle", () => {
+  const words = ['daemon-serve', '--home', '/tmp/products', '--port', '43137'];
+  // A compiled binary's module URL carries the bundle's marker — `$bunfs` on
+  // Linux and macOS, `~BUN` on Windows, both measured 2026-10-18 — and the
+  // script path it derives answers no file there: the program is started
+  // again.
+  const fromLinuxBundle = daemonCommand('/tmp/products', 43137, { moduleUrl: 'file:///$bunfs/root/madarch-linux-x64', scriptPath: '/scripts/madarch.ts', scriptExists: () => false });
+  expect(fromLinuxBundle.command).toBe(process.execPath);
+  expect(fromLinuxBundle.args).toEqual(words);
+  const fromWindowsBundle = daemonCommand('/tmp/products', 43137, { moduleUrl: 'file:///B:/~BUN/root/madarch-windows-x64.exe', scriptPath: 'B:\\scripts\\madarch.ts', scriptExists: () => false });
+  expect(fromWindowsBundle.command).toBe(process.execPath);
+  expect(fromWindowsBundle.args).toEqual(words);
+  // A Windows machine that happens to hold that path on its B: drive is still
+  // a bundle: the marker decides it, file or no file.
+  const windowsWithTheFile = daemonCommand('/tmp/products', 43137, { moduleUrl: 'file:///B:/~BUN/root/madarch-windows-x64.exe', scriptPath: 'B:\\scripts\\madarch.ts', scriptExists: () => true });
+  expect(windowsWithTheFile.command).toBe(process.execPath);
+  // Run from a checkout, the script is there and bun is what runs it.
+  const fromCheckout = daemonCommand('/tmp/products', 43137, { moduleUrl: 'file:///home/u/madarch/src/product/daemon.ts', mainModule: '/home/u/madarch/scripts/madarch.ts', scriptPath: '/home/u/madarch/scripts/madarch.ts', scriptExists: () => true });
+  expect(fromCheckout.command).toBe('bun');
+  expect(fromCheckout.args).toEqual(['/home/u/madarch/scripts/madarch.ts', ...words]);
 });
 
 test('daemon start refuses a port another process holds', async () => {

@@ -90,26 +90,41 @@ async function serveCheck(): Promise<void> {
     }
     return false;
   };
+  /** Stops the home's server the way the command says, and proves no server is left. */
+  const stopServer = (): void => {
+    const stopped = runMadarch('stop', ['--home', home]);
+    if (stopped.status !== 0 || !stopped.stdout.includes('stopped')) throw new Error(`npx madarch stop did not stop the server the walk started (exit ${stopped.status})`);
+    const status = runMadarch('status', ['--home', home]);
+    if (status.status !== 0 || status.stdout.trim() !== 'not running') throw new Error(`npx madarch status still reports a server after the walk stopped it: ${status.stdout.trim()}`);
+  };
   // `new` returns at once: the products home's background server serves the
   // draft, so the walk reads the address the command printed instead of
   // waiting on a foreground that no longer exists.
   const port = await freePort();
-  if (port === 0) throw new Error('the walk could not find a free port on 127.0.0.1 to start the server on');
-  console.log(`$ npx madarch new --home ${home} --port ${port} --json --no-open`);
-  const created = runMadarch('new', ['--home', home, '--port', String(port), '--json', '--no-open']);
-  if (created.status !== 0) throw new Error(`npx madarch new did not create a draft and serve it (exit ${created.status})`);
-  const line = created.stdout.trim().split('\n').filter((part) => part !== '').at(-1) ?? '';
-  let facts: { url: string; folder: string; port: number; reused: boolean };
-  try { facts = JSON.parse(line) as typeof facts; } catch { throw new Error(`npx madarch new printed no facts to read the wiki's address from: ${created.stdout}`); }
-  if (facts.reused !== false || facts.port !== port) throw new Error(`npx madarch new served on ${String(facts.port)} though the walk named the free port ${port}: ${line}`);
-  if (!await waitForProduct(facts.url)) throw new Error(`npx madarch new did not serve the graph-backed draft at ${facts.url}`);
-  const product = facts.folder;
-  // The server stays up until it is stopped, so the walk stops it the way the
-  // command says, and proves the process it recorded is gone.
-  const stopped = runMadarch('stop', ['--home', home]);
-  if (stopped.status !== 0 || !stopped.stdout.includes('stopped')) throw new Error(`npx madarch stop did not stop the server the walk started (exit ${stopped.status})`);
-  const status = runMadarch('status', ['--home', home]);
-  if (status.status !== 0 || status.stdout.trim() !== 'not running') throw new Error(`npx madarch status still reports a server after the walk stopped it: ${status.stdout.trim()}`);
+  let failure: Error | undefined;
+  let product = '';
+  try {
+    if (port === 0) throw new Error('the walk could not find a free port on 127.0.0.1 to start the server on');
+    console.log(`$ npx madarch new --home ${home} --port ${port} --json --no-open`);
+    const created = runMadarch('new', ['--home', home, '--port', String(port), '--json', '--no-open']);
+    if (created.status !== 0) throw new Error(`npx madarch new did not create a draft and serve it (exit ${created.status})`);
+    const line = created.stdout.trim().split('\n').filter((part) => part !== '').at(-1) ?? '';
+    let facts: { url: string; folder: string; port: number; reused: boolean };
+    try { facts = JSON.parse(line) as typeof facts; } catch { throw new Error(`npx madarch new printed no facts to read the wiki's address from: ${created.stdout}`); }
+    if (facts.reused !== false || facts.port !== port) throw new Error(`npx madarch new served on ${String(facts.port)} though the walk named the free port ${port}: ${line}`);
+    if (!await waitForProduct(facts.url)) throw new Error(`npx madarch new did not serve the graph-backed draft at ${facts.url}`);
+    product = facts.folder;
+  } catch (error) {
+    failure = error as Error;
+  } finally {
+    // The server the draft's home started is stopped whether the walk went on
+    // or stopped here: nothing of the walk outlives it, pass or fail.
+    try { stopServer(); } catch (error) {
+      failure = failure === undefined ? error as Error : new Error(`${failure.message}; and ${(error as Error).message}`);
+    }
+  }
+  if (failure !== undefined) throw failure;
+  if (product === '') throw new Error('the walk read no product folder from the facts madarch new printed');
   // `serve` is still the foreground command: it serves until it is ended.
   const server = spawn(npx, [...npxArgs, 'serve', '--product', product, '--port', '0', '--no-open'], { cwd: install, env, stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32', detached: process.platform !== 'win32' });
   const finish = (process_: ReturnType<typeof spawn>) => {

@@ -75,10 +75,16 @@ function processArgs(pid: number): string | undefined {
  */
 function windowsProcessArgs(pid: number): string | undefined {
   const query = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}'; if ($p) { [Console]::Out.Write($p.CommandLine) }`;
-  const result = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', query], { encoding: 'utf8', timeout: 15_000 });
-  if (result.status !== 0) return undefined;
-  const said = (result.stdout ?? '').trim();
-  return said === '' ? undefined : said;
+  // Windows PowerShell ships with every Windows the release supports;
+  // PowerShell 7 answers where a machine carries only that, and a program that
+  // cannot be started at all is not this command's answer either.
+  for (const program of ['powershell', 'pwsh']) {
+    const result = spawnSync(program, ['-NoProfile', '-NonInteractive', '-Command', query], { encoding: 'utf8', timeout: 15_000 });
+    if (result.error !== undefined || result.status !== 0) continue;
+    const said = (result.stdout ?? '').trim();
+    return said === '' ? undefined : said;
+  }
+  return undefined;
 }
 
 /**
@@ -116,30 +122,45 @@ function clearState(home: string): void { try { unlinkSync(statePath(home)); } c
 /** Yields to other work without a busy loop; the lifecycle waits below poll with it. */
 function pause(ms: number): void { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
 /**
- * Whether this program is a compiled binary: a bundle carries its own paths, so
- * the module the program runs from is no file on disk. Measured 2026-10-18 —
- * `file:///$bunfs/root/<binary>` on Linux and macOS, and on Windows a path on
- * a drive the system has not: the child a release started there read
- * `B:\scripts\madarch.ts` (run 39135836826), and neither `import.meta.url`
- * nor `Bun.main` carried the `$bunfs` marker, which is why the marker is not
- * what is tested. A source run's module URL is the module's own real path.
+ * The bundle marker in a compiled binary's own paths: `$bunfs` on Linux and
+ * macOS (measured in the release on 2026-10-18: `file:///$bunfs/root/<binary>`)
+ * and `~BUN` on Windows (measured by the same day's review out of a
+ * `--target=bun-windows-x64` build: `B:/~BUN/root/<binary>.exe`). The
+ * separators around it are the bundle's own, whichever the platform spells.
  */
-export function isCompiledBinary(moduleUrl: string = import.meta.url, fileExists: (path: string) => boolean = existsSync): boolean {
-  try { return !fileExists(fileURLToPath(moduleUrl)); } catch { return true; }
-}
+const BUNDLE_MARKER = /[/\\](?:\$bunfs|~BUN)[/\\]/;
 
 /**
  * The program and arguments the daemon child is started with. Run from a
  * checkout, that is `bun` and this repository's `scripts/madarch.ts`. Run from
- * a compiled binary, it is the binary itself, started again: its bundle holds
- * the command, so a `bun` from PATH would have no file to read (measured
- * 2026-10-18: the release binary's child answered `error: Module not found`).
+ * a compiled binary, it is the binary itself, started again with
+ * `daemon-serve`: the bundle holds the command, and a `bun` has no file to
+ * read — the release's own words were `error: Module not found
+ * "/scripts/madarch.ts"` on Linux and macOS and `error: Module not found
+ * "B:\scripts\madarch.ts"` on Windows (runs 39134773495 and 39135836826),
+ * each derived from a module URL that names no file a checkout would hold.
+ *
+ * Two measured facts say "this is a bundle", and either is enough: the marker
+ * in the module URL or in `Bun.main`, and a derived script path that answers
+ * no file. The marker is the exact one; the missing file is the fact every
+ * platform agrees on (the bundle's fs answers its own paths as existing, so the
+ * file is asked for where it would stand, never through the bundle). A program
+ * that is neither — a checkout whose script is gone — still starts itself,
+ * since that is the only command line left that can answer.
  */
-function daemonCommand(home: string, port: number): { command: string; args: string[] } {
+export function daemonCommand(
+  home: string,
+  port: number,
+  options: { scriptPath?: string; scriptExists?: (path: string) => boolean; moduleUrl?: string; mainModule?: string } = {},
+): { command: string; args: string[] } {
   const words = ['daemon-serve', '--home', home, '--port', String(port)];
-  if (isCompiledBinary()) return { command: process.execPath, args: words };
-
-  return { command: 'bun', args: [fileURLToPath(new URL('../../scripts/madarch.ts', import.meta.url)), ...words] };
+  const scriptPath = options.scriptPath ?? fileURLToPath(new URL('../../scripts/madarch.ts', import.meta.url));
+  const scriptExists = options.scriptExists ?? existsSync;
+  const moduleUrl = options.moduleUrl ?? import.meta.url;
+  const mainModule = options.mainModule ?? Bun.main;
+  const bundled = BUNDLE_MARKER.test(moduleUrl) || BUNDLE_MARKER.test(mainModule);
+  if (bundled || !scriptExists(scriptPath)) return { command: process.execPath, args: words };
+  return { command: 'bun', args: [scriptPath, ...words] };
 }
 
 /** Polls `ok` until it holds or the timeout passes; answers whether it held. */

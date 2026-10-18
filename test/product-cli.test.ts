@@ -293,7 +293,7 @@ describe('madarch new', () => {
       expect(run.status).toBe(0);
       expect(run.stderr).toBe('');
       // One JSON line, no human summary beside it.
-      const facts = JSON.parse(run.stdout) as { folder: string; id: string; name: string; url: string; pid: number; port: number; reused: boolean };
+      const facts = JSON.parse(run.stdout) as { folder: string; id: string; name: string; url: string; pid: number; port: number; reused: boolean; requestedPort?: number; portNote?: string };
       expect(facts.folder).toBe(join(home, 'products', `idea-${todayName()}`));
       expect(typeof facts.id).toBe('string'); expect(facts.id !== '').toBe(true);
       expect(typeof facts.name).toBe('string');
@@ -301,6 +301,11 @@ describe('madarch new', () => {
       // real one, never 0, and the wiki answers on the printed address.
       expect(facts.port).toBeGreaterThan(0);
       expect(facts.reused).toBe(false);
+      // The 0 the caller named is in the facts as what it asked for — a free
+      // port of the server's own choosing — and no note stands beside it,
+      // since no particular port was named that the server could not keep.
+      expect(facts.requestedPort).toBe(0);
+      expect('portNote' in facts).toBe(false);
       expect(facts.url).toBe(`http://127.0.0.1:${facts.port}/products/idea-${todayName()}/`);
       expect(facts.pid).toBeGreaterThan(0);
       const answer = await fetch(`${facts.url}api/product`);
@@ -408,6 +413,16 @@ describe('madarch new', () => {
       expect(again.stdout).toContain(`already running: http://127.0.0.1:${port} (pid `);
       expect(again.stdout).toContain(`the running server keeps port ${port}, so --port ${otherPort} does not apply`);
     } finally { expect(stopDaemon({ home: products })).toBe(0); }
+  });
+
+  test("new's own help names the home's server as the port's owner, and says a port it cannot keep is reported", () => {
+    const help = runCommand(['new', '--help']);
+    expect(help.status).toBe(0);
+    expect(help.stdout).toContain('--port <n>');
+    expect(help.stdout).toContain("the products home's server names the port it starts on; one it does not keep is reported, not ignored");
+    expect(runCommand(['start', '--help']).stdout).toContain('one it does not keep is reported, not ignored');
+    // serve is the single-product foreground command: its port is its own.
+    expect(runCommand(['serve', '--help']).stdout).not.toContain('not ignored');
   });
 
   test('the focused help names only what the parser accepts, start for example', () => {

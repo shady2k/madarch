@@ -89,19 +89,30 @@ None.
   and unserved) for a wish about a port, while reporting keeps the product
   served at once and names the two commands that move the server. The report is
   a line on standard output and, in `--json`, the facts `requestedPort` (the
-  port the caller named, absent when it named none) and `portNote` (the same
-  sentence) — a machine consumer is told exactly what a person is.
-- **A command that names no port is told nothing.** The default (4180) is not
-  a wish: `new` with no `--port`, or `--port 0`, gets no note, and `requestedPort`
-  stays out of its facts.
-- **The daemon child is the running program.** A compiled binary's
-  `import.meta.url` is the bundle's own virtual path (`/$bunfs/root/` and the
-  binary's name, measured), so the path it derived named no file on disk and the child failed
-  wherever the working folder was not the checkout; `Bun.main` tells the two
-  apart (`/$bunfs/root/…` in a binary, a real path in a checkout), and a binary
-  starts its own executable with `daemon-serve` instead. The build smoke now
-  runs every command from outside the checkout, which is what an installed
-  binary sees and what would have caught this.
+  port the caller named; absent when it named none, `0` when it asked for a free
+  one) and `portNote` (the same sentence) — a machine consumer is told exactly
+  what a person is, and a caller that named nothing particular reads
+  `requestedPort: 0` with no note, since no port of its own was passed over.
+  The help's own `--port` lines say the same: a home whose server runs names
+  its port, and the command reports a port that server does not keep.
+- **The daemon child is a script where one stands, and the running program
+  otherwise.** A compiled binary carries the command in its own bundle, and the
+  path its module URL derives answers no file a checkout holds: the release's
+  own words were `error: Module not found "/scripts/madarch.ts"` on Linux and
+  macOS and `error: Module not found "B:\scripts\madarch.ts"` on Windows (runs
+  39134773495 and 39135836826), while a `bun` that happened to stand in the
+  checkout served by accident and an installed binary could not serve at all.
+  Two measured facts say "this is a bundle", and either is enough: the bundle's
+  own marker in the module URL or in `Bun.main` — `$bunfs` on Linux and macOS
+  (`file:///$bunfs/root/<binary>`) and `~BUN` on Windows
+  (`B:/~BUN/root/<binary>.exe`, read out of a `--target=bun-windows-x64` build
+  on 2026-10-18) — and a derived script path answering no file. The module URL
+  itself is never asked whether it names a file: the bundle's own filesystem
+  answers its own paths as existing (measured the same day: `existsSync` on the
+  bundle's path is true inside the binary), which is what made an earlier
+  attempt at this rule start `bun /scripts/madarch.ts` on every platform. The
+  build smoke runs every command from outside the checkout, which is what an
+  installed binary sees and what would have caught this.
 - **Liveness where the platform allows it.** Linux and macOS let a process read
   another's command line and environment, so the daemon of a record is the
   process whose command line is `daemon-serve` for this home and port and whose
@@ -117,11 +128,15 @@ None.
   file recorded is gone. Every step happens with the working folder outside the
   checkout, and the stop runs in a `finally`, so a failure still stops the
   server and still reports a stop that did not take.
-- **The walk scripts follow the same shape** (`scripts/clean-install-walk.ts`,
-  `scripts/clean-homebrew-walk.sh`, the `published-linux-homebrew` job's own
-  walk): the address comes from the printed facts, the server is stopped with
-  `madarch stop` on the same home before the foreground `serve` step, and the
-  port each of them names is checked against the address the command answered.
+- **The walk scripts follow the same shape** (`scripts/clean-install-walk.ts`
+  and `scripts/clean-homebrew-walk.sh`, which walk this repository's own
+  binary): the address comes from the printed facts, the port each of them names
+  is checked against the address the command answered, and the server is
+  stopped with `madarch stop` on the same home — in a `finally` in the one, in
+  the exit trap of the other — so a walk that fails still stops it. The
+  `published-linux-homebrew` job's own walk stays the published release's:
+  that release serves `new` in the foreground, and the walk takes this form
+  once a release carrying the background server is published.
 
 ## Acceptance evidence
 

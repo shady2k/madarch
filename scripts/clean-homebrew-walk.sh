@@ -6,7 +6,7 @@ BINARY=$(cd "$(dirname "$BINARY")" && pwd)/$(basename "$BINARY")
 TMP=$(mktemp -d)
 TAP_NAME="madarch-walk/local-$$"
 TAP_CREATED=0
-trap 'if [ -n "${PID:-}" ]; then kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; fi; if [ "$TAP_CREATED" -eq 1 ]; then brew uninstall --formula madarch >/dev/null 2>&1 || true; brew untap "$TAP_NAME" >/dev/null 2>&1 || true; fi; if [ -n "${ORIGINAL_PATH:-}" ]; then PATH=$ORIGINAL_PATH; export PATH; fi; rm -rf "$TMP"' EXIT
+trap 'if [ -n "${PID:-}" ]; then kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; fi; if [ -n "${MADARCH:-}" ] && [ -n "${HOME:-}" ]; then "$MADARCH" stop --home "$HOME/products" >/dev/null 2>&1 || true; fi; if [ "$TAP_CREATED" -eq 1 ]; then brew uninstall --formula madarch >/dev/null 2>&1 || true; brew untap "$TAP_NAME" >/dev/null 2>&1 || true; fi; if [ -n "${ORIGINAL_PATH:-}" ]; then PATH=$ORIGINAL_PATH; export PATH; fi; rm -rf "$TMP"' EXIT
 ORIGINAL_PATH=$PATH
 case "$(uname -s)" in
   Linux) SUM=$(sha256sum "$BINARY" | awk '{print $1}') ;;
