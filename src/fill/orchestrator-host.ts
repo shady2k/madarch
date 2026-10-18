@@ -23,6 +23,7 @@ import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/datab
 import { createPgBossQueue } from '../adapters/pg-boss-queue.js';
 import { consumeFillControl } from '../product/fill-runtime.js';
 import type { FillStageConfigurationRead } from './config.js';
+import { FACT_APPLICATION, createFactStoreSchema } from './fact-store.js';
 import {
   DEFAULT_ORCHESTRATOR_LIMITS,
   createOrchestrator,
@@ -64,8 +65,12 @@ export interface ProductFillWiring {
   graph(ref: UnitRef): Promise<UnitGraphReader> | UnitGraphReader;
   /** The named inputs a unit's facts stand on, hashed with fill-runtime's own hashing. */
   inputs(ref: UnitRef): Promise<Readonly<Record<string, string | Uint8Array>>> | Readonly<Record<string, string | Uint8Array>>;
-  /** Where a published fact set lands. */
-  facts: FactApplication;
+  /**
+   * Where a published fact set lands; the fill's own fact store in the process's
+   * database (`FACT_APPLICATION`, `fact-store.ts`, madarch-tzte.20.2) when it is left out, which is
+   * where a fill's facts belong unless a host keeps its graph elsewhere.
+   */
+  facts?: FactApplication;
   /** The human-edit guard, where the host has one. */
   guard?: HumanEditGuard;
 }
@@ -179,6 +184,9 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       const database = lent ?? createPGliteDatabaseOwner({ path: databasePath });
       await createFillStateSchema(database);
       await createOrchestratorSchema(database);
+      // The store a published fact set lands in is the fill's own (`fact-store.ts`): its tables are
+      // created with the rest of the fill's, so a wiring that lands facts there finds them.
+      await createFactStoreSchema(database);
       const queue = options.queueFactory !== undefined
         ? await options.queueFactory(database)
         : await createPgBossQueue({ owner: database });
@@ -203,7 +211,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       return {
         ok: false,
         code: 'fill-orchestrator/no-wiring',
-        reason: `fill-orchestrator: nothing wires the fill of "${product.name}": give the service a wiring that reads the product's pinned snapshot, its configuration, the graph its units read, the inputs their facts stand on and the store a published fact set lands in`,
+        reason: `fill-orchestrator: nothing wires the fill of "${product.name}": give the service a wiring that reads the product's pinned snapshot, its configuration, the graph its units read, and the inputs their facts stand on`,
       };
     }
     const wiring = await options.wiring(product);
@@ -218,7 +226,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       snapshot: () => wiring.snapshot(),
       graph: (ref) => wiring.graph(ref),
       inputs: (ref) => wiring.inputs(ref),
-      facts: wiring.facts,
+      facts: wiring.facts ?? FACT_APPLICATION,
       ...(options.clock === undefined ? {} : { clock: options.clock }),
       control: options.control !== undefined ? options.control(product) : async (runId: string) => await consumeFillControl(product.folder, runId),
       ...(wiring.guard === undefined ? {} : { guard: wiring.guard }),
