@@ -99,9 +99,45 @@ classDiagram
   NodeFact <|-- State
   NodeFact <|-- Coverage
   NodeFact <|-- Question
+  class Snapshot {
+    repository
+    commit
+  }
+  class Repository {
+    repository
+  }
+  class Directory {
+    repository
+    path
+  }
   class File {
     repository
     path
+  }
+  class Package {
+    repository
+    form
+    name
+  }
+  class DeployUnit {
+    repository
+    form
+    name
+  }
+  class ApiEndpoint {
+    contract
+  }
+  class Table {
+    repository
+    name
+  }
+  class Column {
+    repository
+    table
+    name
+  }
+  class EnvironmentVariable {
+    name
   }
   class Symbol {
     repository
@@ -112,29 +148,79 @@ classDiagram
   }
   class Occurrence {
     symbol
-    repository, file, range
+    repository
+    file
+    range
   }
-  class ApiEndpoint {
-    contract
-  }
-  class EnvironmentVariable {
+  class EntryPoint {
+    repository
+    file
+    form
     name
   }
-  class Claim {
-    subject
-    predicate
-    object
-    repository, file, range
+  class Comment {
+    repository
+    file
+    range
+  }
+  class Test {
+    repository
+    file
+    name
   }
   class Module {
     repository
     parent
     name
   }
+  class Document {
+    repository
+    path
+  }
+  class Section {
+    repository
+    document
+    anchor
+  }
+  class Commit {
+    repository
+    commit
+  }
+  class Claim {
+    subject
+    predicate
+    object
+    repository
+    file
+    range
+  }
+  class EntityProposal {
+    repository
+    proposed
+    name
+  }
+  class Rule {
+    subject
+    statement
+    repository
+    file
+    range
+  }
+  class State {
+    repository
+    machine
+    name
+  }
   class Coverage {
     repository
     scope
     reader
+  }
+  class Question {
+    repository
+    type
+    about
+    prompt
   }
 ```
 
@@ -184,6 +270,14 @@ classDiagram
   EdgeFact <|-- TaskKey
   EdgeFact <|-- Transition
   EdgeFact <|-- Interaction
+  class Contains {
+    from
+    to
+  }
+  class Defines {
+    from
+    to
+  }
   class Import {
     from
     to
@@ -193,7 +287,11 @@ classDiagram
     to
     basis
   }
-  class Calls {
+  class Call {
+    from
+    to
+  }
+  class Reference {
     from
     to
   }
@@ -206,16 +304,39 @@ classDiagram
     from
     contract
   }
+  class Consumes {
+    from
+    variable
+  }
   class Binds {
     variable
     environment
+  }
+  class Resolves {
+    from
+    to
+  }
+  class DocumentLink {
+    from
+    to
+  }
+  class TaskKey {
+    from
+    key
+  }
+  class Transition {
+    from
+    to
+    event
   }
   class Interaction {
     caller
     callee
     form
     via
-    repository, file, range
+    repository
+    file
+    range
   }
 ```
 
@@ -227,7 +348,9 @@ node. `call`, `reference` and `inherits` are per pair of symbols rather than one
 edge per mention, and the aggregated ones carry the code-point-smallest site as
 their provenance, so an edge's evidence is deterministic. An import whose specifier resolves to no
 node is a coverage gap, never an edge with an invented end (0026: referenced
-nodes exist).
+nodes exist). Which kinds each edge's ends may be is `EDGE_END_KINDS`, the one
+table a write's "referenced nodes exist" check and the stages' own order are
+read from.
 
 ## Identity
 
@@ -247,7 +370,14 @@ writing `<kind>:<64 hex>`. Three rules follow and are tested:
   disagree about an id.
 - **No run reaches an id.** A fact carries no clock reading and no run, unit,
   attempt, generation or session: the run's own records are the orchestrator's
-  (0027), and the id's parts are the graph's.
+  (0027), and the id's parts are the graph's. The check refuses an envelope key
+  or a value key the schema does not name, so a run's field cannot ride along
+  unnoticed either.
+- **A name is one name.** A name part (a package's, a symbol's qualified name,
+  a state's machine) is trimmed and its inner whitespace collapsed before it is
+  digested, so stage 3's tree-sitter and stage 4's SCIP spelling one symbol the
+  same way give one fact. Case and characters are kept: a name's bytes are the
+  code's.
 
 Rows that change without changing the identity — a file's byte count, a call's
 count, a claim's confidence — update the node in place. Rows that change the
@@ -266,14 +396,42 @@ version admits `observed`: the fill watches no running system.
 ## The check
 
 `checkFact` takes anything and names every reason it is not a fact of this
-schema, each at its path and, where the fact cites a place, with that place's
-file and line. It reads the envelope, the provenance, the place, the layer
-over the status, every identity part the kind declares, every path, every list
-of names (code point order, each once), the two closed forms a value carries
-(an assertion's ends and a binding's value), and finally the id. The rest of a
-write's checks need the pinned snapshot — that the cited bytes exist and were
-read, that the referenced nodes exist, that the write is inside its unit's
-scope — and belong to the write path of 0026, not here.
+schema: not the first one, and not one per area. Each problem stands at its own
+path from the fact's top and, where the fact cites a place, carries that
+place's file and line. It reads, in this order:
+
+- the envelope's own keys — `kind`, `schemaVersion`, `id`, `provenance`,
+  `layer`, `status`, `value` — and refuses a key outside them, so a run, a
+  unit, an attempt or a session cannot ride on a fact (0026: no run reaches an
+  id);
+- the kind, the schema version and the id's own shape;
+- the layer over the status (0005);
+- the provenance: the source and its version, the repository's product name,
+  the commit, and the place — every reason at its own field, and a range whose
+  fields do not read takes no part in a comparison that would compare it;
+- the value's own fields, and no others: a field the kind's value does not hold
+  is refused at its key, so a stray `runId` inside a value is refused too;
+- every path as a repository path, every token, every closed form (one form or
+  a list of them), every list of names in code point order with each name
+  once, and every list of records in the order and uniqueness of its
+  documented key (`coverage.unread` is in code point order of `what`, each
+  `what` once, and each gap's reason is one the schema names);
+- the two places a fact carries a closed form inside its value (an assertion's
+  ends and a binding's value);
+- every identity part the kind declares, read as the form its kind gives it —
+  a product's name for a repository and never a machine path, a commit, a fact
+  id, one of the fill's own tokens, one of the kind's closed forms, text with
+  something in it — so a part the graph cannot join is refused before any id
+  is computed from it;
+- and finally the id, against the digest its identity gives. Only this last
+  comparison waits for the parts to read: an id computed from a part the check
+  already refused would say nothing.
+
+The rest of a write's checks need the pinned snapshot — that the cited bytes
+exist and were read, that the referenced nodes exist, that the write is inside
+its unit's scope — and belong to the write path of 0026, not here. `EDGE_END_KINDS`
+is the part of that check the schema can carry: it names the kinds each edge's
+ends may be, so the write path knows what to look up.
 
 ## The bridge to the registry
 
@@ -361,13 +519,34 @@ and a coverage shall be written by every stage.
 - When: the table is read for stages no kind names
 - Then: there is none
 
+#### Scenario: an edge and the stages its ends exist at
+- Given: an edge kind and the kinds `EDGE_END_KINDS` lets its ends name
+- When: the stages that write the edge are compared with the first stage that
+  writes each end kind
+- Then: the last stage that writes the edge is at or after it, because a stage
+  produces only the kinds it declares and a write whose referenced nodes do not
+  exist is refused (0026, 0027). `provides` names stage 5 because its
+  providing end may be the module stage 5 clusters, and `consumes` names stage 4
+  because its consuming end may be the symbol stage 4 resolves.
+
 ### provenance — Every fact cites what it was read from and where
 Every fact shall carry its provenance (0004): the source system and its
 version, the repository by the product's own name for it and the commit it was
 read at, and the place — the file as a repository path and a half-open range of
-one-based lines — required of every kind that stands at one. The times a fact
-is valid and recorded at shall not be part of the fact: they are the fact log's
-(decision 0009).
+one-based lines. The times a fact is valid and recorded at shall not be part of
+the fact: they are the fact log's (decision 0009).
+
+The place is required of every kind whose fact is read from a position in the
+repository's bytes, which is 30 of the 40 kinds — every node the extractors and
+the agent stages read out of a file or a manifest, and every edge they read
+there. It is optional for the ten kinds a fact can be true of without standing
+anywhere: `snapshot`, `repository` and `commit` (the pin, the repository and
+the history node are the tree itself), `directory` and `contains` (a folder's
+path is its own value and its children's sites are theirs), `module` (a cluster
+spans many files), `coverage`, `entity-proposal` and `question` (a scope the
+fill assembled, or a question about it), and `task-key` (its site is the commit
+message stage 7 read, not a file). A test names that list, so a kind that stops
+standing at a place, or starts to, is a decision made in one place.
 
 #### Scenario: a fact without its source version
 - Given: a `file` fact whose provenance names its system and no version

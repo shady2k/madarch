@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, test } from 'bun:test';
 import { parseContractText } from '../src/product/contract.js';
+import { byCodePoint } from '../src/model/order.js';
 import { StorageForm } from '../src/product/schema.js';
 import {
   AGENT_STAGES,
@@ -12,6 +13,7 @@ import {
   FACT_KIND_NAME_PATTERN,
   FACT_NODE_KINDS,
   FACT_STAGES,
+  EDGE_END_KINDS,
   FACTS_SCHEMA_VERSION,
   FactSchemaError,
   REGISTRY_KIND_MAPPINGS,
@@ -27,7 +29,7 @@ import {
   repositoryPathIn,
   statusesOfLayer,
 } from '../src/fill/facts.js';
-import type { Fact, FactKind, FactLayer, FactProvenance, FactValueOf, RepositoryPath } from '../src/fill/facts.js';
+import type { Fact, FactKind, FactLayer, FactProvenance, FactStatus, FactValueOf, RepositoryPath } from '../src/fill/facts.js';
 
 /**
  * The code-fact schema's own conformance tests. Every expected value here is
@@ -126,9 +128,77 @@ const SAMPLES: { readonly [K in FactKind]: FactValueOf<K> } = {
   'interaction': { caller: anyId('symbol'), callee: anyId('deploy-unit'), form: 'http', via: 'POST /api/orders' },
 };
 
+/**
+ * The layers each kind is written in, taken from decisions 0026 and 0005: a
+ * deterministic stage (0 to 7) writes what a tool extracted, an agent stage
+ * (8 to 13) what an agent inferred, a person's own words are `declared`, and
+ * `module` and `coverage` are the two kinds both halves write. Read off the
+ * decisions, never from the schema's own table.
+ */
+const EXPECTED_LAYERS: Readonly<Record<FactKind, readonly FactLayer[]>> = {
+
+  // stages 0 to 7 write these, and only those stages
+  'snapshot': ['extracted'],
+  'repository': ['extracted'],
+  'directory': ['extracted'],
+  'file': ['extracted'],
+  'package': ['extracted'],
+  'deploy-unit': ['extracted'],
+  'api-endpoint': ['extracted'],
+  'table': ['extracted'],
+  'column': ['extracted'],
+  'environment-variable': ['extracted'],
+  'symbol': ['extracted'],
+  'occurrence': ['extracted'],
+  'entry-point': ['extracted'],
+  'comment': ['extracted'],
+  'test': ['extracted'],
+  'document': ['extracted'],
+  'section': ['extracted'],
+  'commit': ['extracted'],
+  // stage 5 clusters them deterministically, stage 9 refines the boundaries
+  'module': ['extracted', 'inferred'],
+  // agent stages read these, and only agent stages
+  'entity-proposal': ['inferred'],
+  'rule': ['inferred'],
+  'state': ['inferred'],
+  'question': ['inferred'],
+  'transition': ['inferred'],
+  'interaction': ['inferred'],
+  // a claim is an agent's reading, or the product's own words when a
+  // person declares it (the "person's declaration" scenario of this change)
+  'claim': ['declared', 'inferred'],
+  // every stage reports what it read
+  'coverage': ['extracted', 'inferred'],
+  // the edges of stages 0 to 7
+  'contains': ['extracted'],
+  'defines': ['extracted'],
+  'import': ['extracted'],
+  'dependency': ['extracted'],
+  'call': ['extracted'],
+  'reference': ['extracted'],
+  'inherits': ['extracted'],
+  'provides': ['extracted'],
+  'consumes': ['extracted'],
+  'binds': ['extracted'],
+  'resolves': ['extracted'],
+  'document-link': ['extracted'],
+  'task-key': ['extracted'],
+};
+
+/** A sample value with the counts a rerun may count another way: the same fact, counted differently. */
+function withOtherCounts(kind: FactKind, value: FactValueOf<FactKind>): FactValueOf<FactKind> {
+  const varied: Record<string, unknown> = { ...(value as unknown as Record<string, unknown>) };
+  for (const field of ['bytes', 'count', 'fileCount', 'members'] as const) {
+    if (typeof varied[field] === 'number') varied[field] = (varied[field] as number) + 1;
+  }
+  expect(Object.keys(varied).length).toBe(Object.keys(value as unknown as Record<string, unknown>).length);
+  return varied as unknown as FactValueOf<FactKind>;
+}
+
 /** The layer each sample is written in: extracted for the deterministic stages, inferred for the agent ones. */
 function layerOf(kind: FactKind): FactLayer {
-  const layers = FACT_KINDS[kind].layers;
+  const layers = EXPECTED_LAYERS[kind];
   return layers.includes('extracted') ? 'extracted' : (layers[0] as FactLayer);
 }
 
@@ -167,9 +237,12 @@ describe('the kinds the fill writes', () => {
     expect(missing).toEqual([]);
   });
 
-  test('the two kind lists are disjoint, sorted by code point, and every name is one kebab token', () => {
+  test('the two kind lists are disjoint, the ordered list is each list sorted, and every name is one kebab token', () => {
     expect(FACT_NODE_KINDS.filter((kind) => (FACT_EDGE_KINDS as readonly string[]).includes(kind))).toEqual([]);
-    expect([...FACT_NODE_KINDS].sort()).toEqual([...FACT_NODE_KINDS].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)));
+    // The schema's one ordered list: the node kinds in code point order, then
+    // the edge kinds in code point order (each declared list is grouped by the
+    // stages that write it, which is the stages' order and not the alphabet's).
+    expect(FACT_KINDS_IN_ORDER).toEqual([...[...FACT_NODE_KINDS].sort(byCodePoint), ...[...FACT_EDGE_KINDS].sort(byCodePoint)]);
     for (const kind of FACT_KINDS_IN_ORDER) {
       expect(FACT_KIND_NAME_PATTERN.test(kind)).toBe(true);
       expect(kind).not.toContain(' ');
@@ -246,60 +319,11 @@ describe('the kinds the fill writes', () => {
     // own words. So a kind's layers are read off the stages that write it; the
     // expected list below is taken from the two decisions and never from the
     // schema's own table.
-    const expected: Record<FactKind, FactLayer[]> = {
-      // stages 0 to 7 write these, and only those stages
-      'snapshot': ['extracted'],
-      'repository': ['extracted'],
-      'directory': ['extracted'],
-      'file': ['extracted'],
-      'package': ['extracted'],
-      'deploy-unit': ['extracted'],
-      'api-endpoint': ['extracted'],
-      'table': ['extracted'],
-      'column': ['extracted'],
-      'environment-variable': ['extracted'],
-      'symbol': ['extracted'],
-      'occurrence': ['extracted'],
-      'entry-point': ['extracted'],
-      'comment': ['extracted'],
-      'test': ['extracted'],
-      'document': ['extracted'],
-      'section': ['extracted'],
-      'commit': ['extracted'],
-      // stage 5 clusters them deterministically, stage 9 refines the boundaries
-      'module': ['extracted', 'inferred'],
-      // agent stages read these, and only agent stages
-      'entity-proposal': ['inferred'],
-      'rule': ['inferred'],
-      'state': ['inferred'],
-      'question': ['inferred'],
-      'transition': ['inferred'],
-      'interaction': ['inferred'],
-      // a claim is an agent's reading, or the product's own words when a
-      // person declares it (the "person's declaration" scenario of this change)
-      'claim': ['declared', 'inferred'],
-      // every stage reports what it read
-      'coverage': ['extracted', 'inferred'],
-      // the edges of stages 0 to 7
-      'contains': ['extracted'],
-      'defines': ['extracted'],
-      'import': ['extracted'],
-      'dependency': ['extracted'],
-      'call': ['extracted'],
-      'reference': ['extracted'],
-      'inherits': ['extracted'],
-      'provides': ['extracted'],
-      'consumes': ['extracted'],
-      'binds': ['extracted'],
-      'resolves': ['extracted'],
-      'document-link': ['extracted'],
-      'task-key': ['extracted'],
-    };
-    expect(Object.keys(expected).sort()).toEqual([...FACT_KINDS_IN_ORDER].sort());
+    expect(Object.keys(EXPECTED_LAYERS).sort()).toEqual([...FACT_KINDS_IN_ORDER].sort());
     for (const kind of FACT_KINDS_IN_ORDER) {
       const definition: { readonly stages: readonly string[]; readonly layers: readonly FactLayer[] } = FACT_KINDS[kind];
       const layers: FactLayer[] = [...definition.layers];
-      expect(layers.sort()).toEqual(expected[kind]);
+      expect(layers.sort()).toEqual([...EXPECTED_LAYERS[kind]]);
       // And the same rule read the other way: a kind that no deterministic
       // stage writes never claims the extracted layer, and a kind that no
       // agent stage writes never claims the inferred one.
@@ -315,13 +339,21 @@ describe('the kinds the fill writes', () => {
     // module is the one kind the two decisions place in both halves of the fill.
     expect(FACT_KINDS['module'].stages).toEqual(['5-modules', '9-boundaries']);
     expect(FACT_KINDS['coverage'].stages).toEqual(FACT_STAGES);
+    // The one layer no stage of this registry writes: a declared claim is a
+    // person's own words (0005), recorded by the acceptance path beside the
+    // stages, and it is the sole exception to "a kind's layers are what its
+    // stages obtain it in".
+    expect(EXPECTED_LAYERS['claim']).toEqual(['declared', 'inferred']);
+    expect(FACT_KINDS['claim'].stages.every((stage) => AGENT_STAGES.includes(stage))).toBe(true);
   });
 
-  test('every kind carries its value shape version, an integer of the schema version today', () => {
+  test('every kind carries its value shape version, the schema version today', () => {
     expect(Number.isInteger(FACTS_SCHEMA_VERSION)).toBe(true);
     for (const kind of FACT_KINDS_IN_ORDER) {
       expect(Number.isInteger(FACT_KINDS[kind].version)).toBe(true);
-      expect(FACT_KINDS[kind].version).toBeGreaterThanOrEqual(1);
+      // 0027: a stage declares the fact kind's version for what it produces,
+      // and every kind starts at the schema's own version.
+      expect(FACT_KINDS[kind].version).toBe(FACTS_SCHEMA_VERSION);
     }
   });
 });
@@ -392,11 +424,23 @@ describe('ids: content-addressed, stable, and never a run', () => {
         place: provenanceFor(kind).place,
       };
       expect(factId({ kind, value: SAMPLES[kind], provenance: moved } as never)).toBe(sampleFact(kind).id);
+      // A rerun may also count a different number of the same things — a call's
+      // sites, a file's bytes, a module's members, a snapshot's files — and the
+      // fact is the same fact.
+      const recounted = withOtherCounts(kind, SAMPLES[kind]);
+      expect(factId({ kind, value: recounted, provenance: provenanceFor(kind) } as never)).toBe(sampleFact(kind).id);
       // The layer and the status are not identity either: how a fact was
-      // obtained and whether anyone accepted it never changes what it is.
-      for (const layer of FACT_KINDS[kind].layers) {
-        expect(factId({ kind, value: SAMPLES[kind], provenance: provenanceFor(kind) } as never)).toBe(sampleFact(kind).id);
-        expect(layer.length).toBeGreaterThan(0);
+      // obtained and whether anyone accepted it never changes what it is. Each
+      // layer the kind admits is built through the constructor, with the last
+      // status that layer allows, and the id does not move.
+      for (const layer of EXPECTED_LAYERS[kind]) {
+        const status = statusesOfLayer(layer).at(-1) as FactStatus;
+        const again = FACT_KINDS[kind].shape === 'node'
+          ? makeNodeFact({ kind: kind as never, value: SAMPLES[kind] as never, provenance: provenanceFor(kind), layer, status })
+          : makeEdgeFact({ kind: kind as never, value: SAMPLES[kind] as never, provenance: provenanceFor(kind), layer, status });
+        expect(again.id).toBe(sampleFact(kind).id);
+        expect(again.layer).toBe(layer);
+        expect(again.status).toBe(status);
       }
     }
   });
@@ -593,7 +637,13 @@ describe('the check that names every reason a fact is not one the schema reads',
 
   test('a record listed twice in one list is refused, and a value missing an identity field names the field', () => {
     const coverage = sampleFact('coverage');
-    expect(problemsOf({ ...coverage, value: { ...coverage.value, unread: [{ what: 'src/a.js', reason: 'error' }, { what: 'src/a.js', reason: 'error' }] } }).paths).toEqual(['value.unread[1]']);
+    // 0004's coverage: a scope's gaps are in code point order of what was not
+    // read, each once, so the refusal names the field the repeat and the order
+    // stand in.
+    expect(problemsOf({ ...coverage, value: { ...coverage.value, unread: [{ what: 'src/a.js', reason: 'error' }, { what: 'src/a.js', reason: 'error' }] } }).paths).toEqual(['value.unread[1].what']);
+    expect(problemsOf({ ...coverage, value: { ...coverage.value, unread: [{ what: 'src/b.js', reason: 'error' }, { what: 'src/a.js', reason: 'error' }] } }).paths).toEqual(['value.unread[1].what']);
+    // A gap's reason is one the schema names (0005: a coverage says why).
+    expect(problemsOf({ ...coverage, value: { ...coverage.value, unread: [{ what: 'src/a.js', reason: 'guessed' }] } }).paths).toEqual(['value.unread[0].reason']);
     const { repository: _dropped, ...withoutRepository } = SAMPLES['table'];
     expect(problemsOf({ ...sampleFact('table'), value: withoutRepository }).paths).toEqual(['value.repository']);
   });
@@ -668,14 +718,117 @@ describe('the check that names every reason a fact is not one the schema reads',
     }
   });
 
-  test('an id that is not the identity own digest is refused, and a fact with another problem is not digested', () => {
+  test('every reason at once: an absolute place, a range that ends before it starts, and roles out of order', () => {
+    // The design's own `check` scenario: one fact, three defects, three
+    // problems, each at its own path and each carrying the place's file and
+    // line.
+    const problems = checkFact({
+      ...file,
+      provenance: { ...provenanceFor('file'), place: { file: '/opt/madarch-checkout/src/order.ts', range: { startLine: 9, startColumn: 0, endLine: 3, endColumn: 0 } } },
+      value: { ...file.value, roles: ['test', 'source'] },
+    });
+    expect(problems.map((problem) => problem.path)).toEqual(['provenance.place.file', 'provenance.place.range.endLine', 'value.roles[1]']);
+    for (const problem of problems) {
+      expect(problem.file).toBe('/opt/madarch-checkout/src/order.ts');
+      expect(problem.line).toBe(9);
+    }
+  });
+
+  test('an identity part the kind closes to a list of forms is refused outside it', () => {
+    // 0026's "referenced nodes exist" and the design's `check` requirement: a
+    // part the graph cannot join is refused before any id is computed from it,
+    // and the constructor refuses the same write.
+    const cases: readonly (readonly [FactKind, string, unknown])[] = [
+      ['package', 'form', 'library'],
+      ['deploy-unit', 'form', 'pod'],
+      ['symbol', 'symbolKind', 'getter'],
+      ['entry-point', 'form', 'cron'],
+      ['entity-proposal', 'proposed', 'module'],
+      ['dependency', 'basis', 'guess'],
+      ['inherits', 'form', 'mixes-in'],
+      ['interaction', 'form', 'telepathy'],
+    ];
+    for (const [kind, field, wrong] of cases) {
+      const fact = sampleFact(kind);
+      const value = { ...(fact.value as unknown as Record<string, unknown>), [field]: wrong };
+      expect(problemsOf({ ...fact, value }).paths).toEqual([`value.${field}`]);
+      expect(() => factId({ kind, value, provenance: provenanceFor(kind) } as never)).toThrow(/this reads as one of/);
+    }
+  });
+
+  test('a closed form inside the value is refused outside the list the schema names', () => {
+    const fileFact = sampleFact('file');
+    expect(problemsOf({ ...fileFact, value: { ...fileFact.value, roles: ['zebra'] } }).paths).toEqual(['value.roles[0]']);
+    const occurrence = sampleFact('occurrence');
+    expect(problemsOf({ ...occurrence, value: { ...occurrence.value, roles: ['definition', 'nope'] } }).paths).toEqual(['value.roles[1]']);
+    const comment = sampleFact('comment');
+    expect(problemsOf({ ...comment, value: { ...comment.value, form: 'poem' } }).paths).toEqual(['value.form']);
+    const module = sampleFact('module');
+    expect(problemsOf({ ...module, value: { ...module.value, seed: 'guess' } }).paths).toEqual(['value.seed']);
+    const rule = sampleFact('rule');
+    expect(problemsOf({ ...rule, value: { ...rule.value, form: 'slogan' } }).paths).toEqual(['value.form']);
+    const repository = sampleFact('repository');
+    expect(problemsOf({ ...repository, value: { ...repository.value, form: 'mirror' } }).paths).toEqual(['value.form']);
+  });
+
+  test('a key the schema does not name is refused: a run, a unit or a time never rides on a fact', () => {
+    // 0026: "ids are stable and never contain a run id". A row that carries one
+    // is refused at the key rather than published whole.
+    expect(problemsOf({ ...file, runId: 'run-7' }).paths).toEqual(['runId']);
+    expect(problemsOf({ ...file, value: { ...file.value, runId: 'run-7' } }).paths).toEqual(['value.runId']);
+    expect(problemsOf({ ...file, unitId: 'u1', attempt: 2 }).paths).toEqual(['attempt', 'unitId']);
+  });
+
+  test('a place is required of the kinds read from bytes, and optional only where the fact has no site', () => {
+    // 0004 ("every fact carries its source, repository@ref, file and line") and
+    // the item's DONE WHEN. A fact about the tree itself — the repository, its
+    // snapshot, a commit, a directory, a `contains` edge — a scope the fill
+    // assembles (a module, a coverage, an entity proposal, a question) or a
+    // task key read from a commit message has no single file and line.
+    const placesNone: readonly FactKind[] = ['contains', 'commit', 'coverage', 'directory', 'entity-proposal', 'module', 'question', 'repository', 'snapshot', 'task-key'];
+    for (const kind of FACT_KINDS_IN_ORDER) {
+      const fact = sampleFact(kind);
+      const bare = { ...fact, provenance: { source: fact.provenance.source, repository: fact.provenance.repository } };
+      if (placesNone.includes(kind)) {
+        expect(checkFact(bare)).toEqual([]);
+        continue;
+      }
+      expect(problemsOf(bare).paths).toContain('provenance.place');
+    }
+  });
+
+  test('an edge is written at a stage at which both its ends exist', () => {
+    // 0027: a stage produces only the kinds it declares, and 0026 refuses a
+    // write whose referenced nodes do not exist yet. So the last stage that
+    // writes an edge kind is at or after the first stage that writes each kind
+    // its ends name.
+    const stagesOf = (kind: FactKind): number[] => FACT_KINDS[kind].stages.map((stage) => Number(stage.split('-')[0]));
+    for (const kind of FACT_EDGE_KINDS) {
+      const ends = EDGE_END_KINDS[kind];
+      const endKinds: readonly FactKind[] = ends.to === 'term' ? ends.from : [...ends.from, ...ends.to];
+      for (const end of endKinds) {
+        expect(Math.max(...stagesOf(kind))).toBeGreaterThanOrEqual(Math.min(...stagesOf(end)));
+      }
+    }
+    // The two ends the independent review caught: a module end needs stage 5,
+    // a symbol end needs stage 3 or later.
+    expect(FACT_KINDS['provides'].stages).toContain('5-modules');
+    expect(FACT_KINDS['consumes'].stages).toContain('4-resolution');
+    expect(FACT_KINDS['import'].stages).toContain('5-modules');
+    expect(FACT_KINDS['dependency'].stages).toContain('5-modules');
+  });
+
+  test('an id that is not the identity own digest is refused, and a fact with another problem is digested too', () => {
     const tampered = { ...file, id: `file:${'a'.repeat(64)}` };
     const problems = checkFact(tampered);
     expect(problems.map((problem) => problem.path)).toEqual(['id']);
     expect(problems[0]?.message).toContain(file.id);
-    // A fact that already fails its own provenance gets no second complaint
-    // about an id it could not have had.
-    expect(problemsOf({ ...tampered, schemaVersion: 9 }).paths).toEqual(['schemaVersion']);
+    // The design's `check` requirement: every reason is named, so a fact that
+    // fails its version and its id names both.
+    expect(problemsOf({ ...tampered, schemaVersion: 9 }).paths).toEqual(['schemaVersion', 'id']);
+    // Only a part the check already refused stops the digest: a fact whose
+    // identity names a machine path is not digested at all.
+    expect(problemsOf({ ...file, value: { ...file.value, path: '/opt/madarch-checkout/src/order.ts' } }).paths).toEqual(['value.path']);
   });
 });
 

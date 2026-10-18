@@ -17,11 +17,13 @@ This change adds `src/fill/facts.ts`: that vocabulary as pure types and pure
 functions. Twenty-five node kinds and fifteen edge kinds cover stages 0 to 7
 and the agent stages' claims, entity proposals, rules, states, transitions,
 interactions, coverage and questions; every fact carries its provenance, its
-layer and its status; an id is the digest of a fact's identity and of nothing
-else; every path is a repository path, so a machine's checkout reaches no id;
-each kind carries its own version; and one explicit table maps each fact kind
-onto the product registry's kinds. `test/fill-facts.test.ts` proves it, and
-`design.md` draws the kinds as a Mermaid class diagram.
+layer and its status, and the place it stands at where it stands at one; an id
+is the digest of a fact's identity and of nothing else; every path is a
+repository path, so a machine's checkout reaches no id; each kind carries its
+own version; one explicit table maps each fact kind onto the product
+registry's kinds; and one check names every reason a row is not a fact the
+schema reads. `test/fill-facts.test.ts` proves it, and `design.md` draws the
+kinds as a Mermaid class diagram.
 
 ## Rationale
 The requirement this code serves is not a current one to change: the fill's
@@ -41,6 +43,17 @@ variable, so one repository's provider and another's consumer are one node.
 The field's schemas the decision cites ground the shapes: SCIP's symbols,
 occurrences and their roles, and RepoDoc's code, concept and document entities
 with their structural and semantic relations.
+
+The tracker item asks for provenance "file, range" on every kind. Ten of the
+forty cannot stand at one without inventing it, and the change narrows the
+requirement where it does not hold rather than making a fact cite a file it
+was not read from: `snapshot`, `repository` and `commit` are the tree and its
+history, `directory` and `contains` are the folder whose path is their own
+value, `module` and `coverage` are scopes the fill assembles over many files,
+`entity-proposal` and `question` are about such a scope, and `task-key` stands
+in a commit message rather than a file. The other thirty kinds — every fact
+read out of a file or a manifest — require a place, and a test names both
+lists, so the line is a decision in one place and not an accident.
 
 ## Out of scope
 - Storage: the fact log's tables, the database owner and a unit's draft set
@@ -79,6 +92,35 @@ Recorded on the task as `check:` comments against the change's revision: the
 focused suite `test/fill-facts.test.ts`, `bun run check`, and the independent
 review. The mutation check is not run: the owner's rule runs Stryker once per
 assembled stage.
+
+The independent review of 2026-10-18 (a fresh `deepseek-v4.1-flash-auto`
+session over the diff) found fifteen defects, all fixed in the same branch:
+
+- the check stopped at the first reason in two places (the place and the
+  identity) where the design asks for every reason — it now reports all of
+  them, and the digest waits only for the identity's parts;
+- eight identity parts closed to a list of forms were digested unchecked — a
+  dependency's basis, a package's, deploy unit's, entry point's, interaction's
+  and inherits' form, a symbol's kind, an entity proposal's form — and each is
+  now read, in `factId` and in the check through one table;
+- the place was optional on kinds read from bytes — 29 of 40 now require it,
+  and the ten exceptions are named above and tested;
+- `provides` and `consumes` named a stage at which their documented ends cannot
+  exist — a module end needs stage 5 and a symbol end stage 4, and the new
+  `EDGE_END_KINDS` table makes that a checked rule for every edge;
+- a range refusal named `startLine` for a bad `endLine`, a place whose path did
+  not read got a second meaningless complaint, a record that is not JSON threw
+  out of the check instead of being named, `coverage.unread`'s order and
+  uniqueness were unchecked, and unknown envelope and value keys were accepted
+  — so a run id could ride on a fact the schema called clean;
+- `symbol.qualifiedName` was the one name part digested without the
+  normalization every other name goes through;
+- the agent-stage constants clashed, and `claim`'s `declared` layer — a
+  person's own words, which no stage writes — is now stated as the one
+  exception to "a kind's layers are what its stages obtain it in";
+- five tests took an expected value from the module or asserted a property
+  without varying what it is about; each now reads its expectation from the
+  decisions.
 
 ## DONE WHEN
 `src/fill/facts.ts` declares every kind madarch-tzte.20.1 names, each with its
