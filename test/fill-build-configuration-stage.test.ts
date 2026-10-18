@@ -426,7 +426,7 @@ describe('a Go module and a Cargo manifest', () => {
   test('a go.mod names its module and depends on another module of the repository only', async () => {
     const f = await fixture();
     try {
-      await f.write('go.mod', 'module example.com/orders\n\ngo 1.22\n\nrequire (\n\texample.com/shared v1.0.0\n\tgithub.com/tqbf/gift v1.0.0 // indirect\n)\n');
+      await f.write('go.mod', 'module example.com/orders\n\ngo 1.22\n\nrequire (\n\texample.com/shared v1.0.0\n\texample.com/acme/gift v1.0.0 // indirect\n)\n');
       await f.write('shared/go.mod', 'module example.com/shared\n\ngo 1.22\n');
       const commit = f.commit();
       const stage = stageOver(f.root, commit);
@@ -443,7 +443,7 @@ describe('a Go module and a Cargo manifest', () => {
       const coverage = coverageOfDraft(orders.writes);
       expect(coverage.read).toEqual(['go', 'module', 'require']);
       expect(coverage.unread).toEqual([
-        { what: 'go.mod:7 the requirement "github.com/tqbf/gift" names no package this repository\'s manifests declare', reason: 'unsupported' },
+        { what: 'go.mod:7 the requirement "example.com/acme/gift" names no package this repository\'s manifests declare', reason: 'unsupported' },
       ]);
     } finally {
       await f.dispose();
