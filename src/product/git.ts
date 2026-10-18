@@ -21,7 +21,7 @@ import { resolve } from 'node:path';
  * checkout's run script, with GIT_COMMON_DIR or its companions set, would
  * otherwise make every git call here answer that checkout instead.
  */
-const GIT_LEAKS = [
+export const GIT_LEAKS = [
   'GIT_DIR',
   'GIT_INDEX_FILE',
   'GIT_WORK_TREE',
