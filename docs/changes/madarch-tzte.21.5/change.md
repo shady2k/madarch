@@ -183,7 +183,9 @@ None.
   file), a `<<` merge key in a compose file (this reader resolves no merge), a
   `KEY=value` line mixing its forms, a key or table declared twice: each is
   named with its line, and where a repeat is named the second declaration is not
-  read — no fact of the unit stands at a line its own coverage calls unread.
+  read — no fact stands at the repeated line, which the unit's own coverage calls
+  unread (a line named unread for another reason keeps the facts it declares:
+  a mixed `ENV A=1 B` names its pair `A` and the mixing at the same line).
   Docker's own quoted values (`ENV MY_NAME="John Doe"`) are one word, since
   Docker's parser is the rule for what a Dockerfile declares.
 - **Every error names what it is about.** A reader's refusal names the path, the

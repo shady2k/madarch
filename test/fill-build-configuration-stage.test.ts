@@ -792,6 +792,22 @@ describe('a manifest read strictly, and one name per declarer', () => {
     }
   });
 
+  test('a trailing comma in an array is refused too', async () => {
+    const f = await fixture();
+    try {
+      await f.write('package.json', '{\n  "name": "orders-api",\n  "workspaces": ["packages/*",]\n}\n');
+      const commit = f.commit();
+      const stage = stageOver(f.root, commit);
+      const recorder = await executed(stage, 'manifest:orders-api:package.json');
+      expect(kindsOf(recorder.writes)).toEqual(['coverage']);
+      expect(coverageOfDraft(recorder.writes).unread).toEqual([
+        { what: 'package.json:3 a "," before "]" stands where an element belongs: JSON has no trailing comma', reason: 'unsupported' },
+      ]);
+    } finally {
+      await f.dispose();
+    }
+  });
+
   test('a quoted Dockerfile value is one word, and a line that really mixes forms is a gap', async () => {
     const f = await fixture();
     try {
