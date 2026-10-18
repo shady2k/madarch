@@ -7,11 +7,12 @@
  * A unit has a logical identity, immutable generations (a new input set opens a
  * new generation) and attempts (retries inside a generation). A lease carries a
  * fencing token that grows across the whole unit, never only inside one
- * generation: every step a worker takes names its generation and its token, and a
- * step naming an older generation or an older token is refused, so a worker that
- * lost its lease cannot start, draft, publish, block or fail the generation that
- * replaced it. A published generation stays an immutable record: it is never
- * retried or cancelled, only marked stale and linked to its replacement.
+ * generation: every step a worker takes names its generation and the token in
+ * force, and a step naming an older generation or an older token is refused, so a
+ * worker that lost its lease cannot start, draft, publish, block or fail the
+ * generation that replaced it even while that generation holds no lease. A
+ * published generation stays an immutable record: it is never retried or
+ * cancelled, only marked stale and linked to its replacement.
  *
  * ```mermaid
  * stateDiagram-v2
@@ -139,11 +140,13 @@ export type UnitFailedChildPolicy = 'propagate' | 'block' | 'accept-partial';
 
 /**
  * A step a caller asks of a unit generation. Every step that advances a live
- * generation names that generation, and every step that ends one, blocks it or
- * moves it on names the fencing token in force as well, so a message from a
- * superseded attempt or a superseded generation is refused. Only the steps that
- * speak for the unit as a whole — `invalidate` and `cancel` — name neither: they
- * are the run control's authority over whatever generation stands.
+ * generation names that generation, and every step that blocks or ends it names
+ * the fencing token in force as well, so a message from an attempt the unit
+ * already left is refused wherever the unit stands. Three exceptions, each
+ * deliberate: `lease` names the token it takes rather than one in force, because
+ * only the store issues it and does so for the generation it just loaded;
+ * `invalidate` and `cancel` name neither, because they are the run control's
+ * authority over whatever generation stands.
  */
 export type UnitEvent =
   | { readonly type: 'admit'; readonly at: number; readonly generation: number }
