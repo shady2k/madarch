@@ -758,6 +758,8 @@ export interface SweptUnit {
 /** What one sweep did. */
 export interface SweepOutcome {
   readonly swept: readonly SweptUnit[];
+  /** Every named step the sweep asked the machine for and the machine refused, so nothing here is dropped in silence. */
+  readonly refused: readonly UnitRefusal[];
 }
 
 /** The cause a waking retry names: the transition that wakes a wait does not read it, and the journal keeps what it says. */
@@ -776,9 +778,10 @@ export async function sweepUnits(orchestrator: FillOrchestrator, options: { read
   const database = orchestrator.database;
   const at = orchestrator.clock();
   const swept: SweptUnit[] = [];
+  const refused: UnitRefusal[] = [];
   const run = await readRun(database, options.runId);
   if (run === null) raise(`no run ${options.runId} is recorded`);
-  if (run.state !== 'running' && run.state !== 'pausing') return { swept };
+  if (run.state !== 'running' && run.state !== 'pausing') return { swept, refused };
   const units = await readRunUnits(database, run.runId);
 
   for (const unit of units) {
@@ -798,23 +801,26 @@ export async function sweepUnits(orchestrator: FillOrchestrator, options: { read
       swept.push({ unitId: unit.unitId, outcome: 'woken', reason: `its wait ended at ${unit.context.retryAt}` });
       continue;
     }
-    if (unit.state === 'ready' && unit.lease === null) {
-      // A unit standing `ready` with no lease at all is one whose job the queue no
-      // longer holds: the worker that claimed it died before it took the lease, and
-      // the queue's own maintenance settles such a claim as failed — which frees
-      // the unit's singleton key and leaves nothing for a worker to claim, so the
-      // unit would wait for ever while the run's evidence still counted it
-      // runnable. The run offers the job again, and the offer is idempotent: while
-      // an unfinished job carries the unit's key the queue creates nothing, so a
-      // job that is still queued or still claimed is left exactly as it stands.
+    if (unit.state === 'ready') {
+      // A unit standing `ready` is one a worker is waiting to be handed, and every
+      // way its job can be lost leaves it there: a worker killed between the claim
+      // and the lease, whose abandoned claim the queue's own maintenance settles —
+      // which frees the unit's singleton key and leaves nothing for a worker to
+      // claim — and an enqueue that never happened because the step that asked for
+      // it was taken and the effect was not (a retry wake, a join, an unblock). The
+      // run offers the job again, and the offer is idempotent: while an unfinished
+      // job carries the unit's key the queue creates nothing, so a job that is
+      // still queued or still claimed is left exactly as it stands. That is what
+      // makes the offer safe to make on every pass, without a record of what was
+      // lost.
       const offered = await orchestrator.queue.enqueue({
         queue: orchestrator.queueName,
         data: { unitId: unit.unitId, generation: unit.generation },
         singletonKey: unit.unitId,
       });
       if (offered.created) {
-        await emit(orchestrator, { runId: run.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-requeued', summary: `${unit.unitId} stands ready with no job and nothing stands leased for it; the run offers it to the queue again` });
-        swept.push({ unitId: unit.unitId, outcome: 'requeued', reason: 'the unit stands ready, holds no lease and the queue held no unfinished job for it' });
+        await emit(orchestrator, { runId: run.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-requeued', summary: `${unit.unitId} stands ready and the queue held no unfinished job for it; the run offers it again` });
+        swept.push({ unitId: unit.unitId, outcome: 'requeued', reason: 'the unit stands ready and the queue held no unfinished job for it' });
       }
       continue;
     }
@@ -843,6 +849,12 @@ export async function sweepUnits(orchestrator: FillOrchestrator, options: { read
         await retractUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, at });
         await emit(orchestrator, { runId: run.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-failed', summary: `${unit.unitId} failed: its lease lapsed with no retry left` });
         swept.push({ unitId: unit.unitId, outcome: 'failed', reason: `lease expired at ${unit.lease.expiresAt} with no retry left` });
+      } else {
+        // Neither a retry nor a failure: the machine refuses both, so this attempt's lapse moved nothing.
+        // Saying so keeps a host from spending its passes on a unit it cannot move, and keeps the
+        // machine's own words about why — a sweep that stayed silent here is what made a unit lost
+        // between its draft and its publication invisible.
+        refused.push({ unitId: unit.unitId, code: failed.refusal.code, reason: `the lease of ${unit.unitId} generation ${unit.generation} lapsed at ${unit.lease.expiresAt} and neither the retry nor the failure was allowed: ${failed.refusal.reason}` });
       }
       continue;
     }
@@ -852,7 +864,7 @@ export async function sweepUnits(orchestrator: FillOrchestrator, options: { read
       if (joined !== null) swept.push(joined);
     }
   }
-  return { swept };
+  return { swept, refused };
 }
 
 /**
@@ -1796,7 +1808,7 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
 
   const swept = await sweepUnits(orchestrator, { runId: run.runId });
   const admission = await admitUnits(orchestrator, { runId: run.runId });
-  const refused: UnitRefusal[] = [...admission.refused];
+  const refused: UnitRefusal[] = [...swept.refused, ...admission.refused];
   run = admission.run;
 
   // A stage whose units are all published passes through the human-edit guard once per process.

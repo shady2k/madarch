@@ -25,15 +25,22 @@ process, dying or pausing at a named point of a unit's life.
 `test/fill-crash-postgres.test.ts` runs three of its processes at once against the
 PostgreSQL server `MADARCH_TEST_POSTGRES_URL` names, which CI's checks job starts.
 
-Driving it found one gap and closed it. A unit is enqueued by the transaction that
-admits it, and a worker takes its lease after it claims the job: a process killed
-in that window leaves the unit `ready` with no lease, and the queue's own
-maintenance settles the abandoned claim — with a queue declared with no retries of
-its own that frees the unit's singleton key and leaves the unit with nothing for a
-worker to claim, for ever, while the run's evidence still counted it runnable and
-its chain stayed `active`. The run's own sweep now offers such a unit the queue
-again; the offer is idempotent, because while an unfinished job carries the unit's
-key the queue creates nothing.
+Driving it found two ways an attempt's death could hold a run for ever, and closed
+them. A unit is enqueued by the transaction that admits it, and a worker takes its
+lease after it claims the job: a process killed in that window leaves the unit
+`ready` with no lease, and the queue's own maintenance settles the abandoned claim
+— with a queue declared with no retries of its own that frees the unit's singleton
+key and leaves the unit with nothing for a worker to claim. The run's own sweep now
+offers such a unit the queue again; the offer is idempotent, because while an
+unfinished job carries the unit's key the queue creates nothing. And a worker
+killed between its draft and its publication leaves the unit `draft` or
+`validating`: the unit machine retried a lapsed lease only from `leased` and
+`running`, so nothing could move that unit either, and the sweep's own fallback —
+failing a generation with retries left — is refused, rightly, by the machine's own
+`fail-cause` guard. The lapse is now retried from `draft` and `validating` too,
+with the dead attempt's draft retracted. In both cases the run's evidence had gone
+on counting the unit runnable while its chain stayed `active`, so nothing else
+could ever fill that product.
 
 ## Out of scope
 
@@ -44,23 +51,41 @@ key the queue creates nothing.
   held by hand, which is what the queue's maintenance would do, and it moves the
   run's own clock by hand to expire the lease and bring a retry due.
 - Any change to the publish, split, join, staleness or cancellation steps: the
-  suite drives them as they landed.
+  suite drives them as they landed. The one step that changed is the sweep's
+  recovery of an attempt that never published, above.
+- A kill between every machine step and its effect: the suite's interruption points
+  are the queue's claim and settlement and the fixture's stages, which reach the
+  windows around a claim, a split's seal and acknowledgement, a stage's read, a
+  validation and a publication's own transaction. The windows no seam of this
+  change reaches are the sweep's wake of a retry and its enqueue, a join and its
+  enqueue, and an unblock and its enqueue; the recovery requirement covers them —
+  a unit they leave `ready` is offered again by the next sweep — but no kill of
+  this suite stands inside one, and that is named here rather than implied.
+- A second publication request submitted by a live worker of the same generation:
+  the duplicate and late results are submitted at the store's own publication
+  interface, which is where the exactly-once rule lives (madarch-tzte.19.4's tests
+  hold that interface), and the live-worker race is the PostgreSQL leg's "a worker
+  that lost its fence publishes nothing", where a real executor's publication is
+  refused by the token it lost.
 
 ## Rationale
 
 Kind `behavior`: the change adds the recovery requirement to the fill orchestrator
-and changes what the run does with a unit whose job the queue lost. Everything
+and changes what the run does with a unit an attempt left without publishing —
+the sweep offers a lost job again, and the unit machine retries a lapsed lease from
+`draft` and `validating` as it already did from `leased` and `running`. Everything
 else it holds to is the landed behavior, tested from outside.
 
 ## Changes to requirements
 
 Added capability `fill-orchestrator` against an absent baseline. The proposal is
 madarch-tzte.19.5's own, which landed as code but has not closed into the
-specifications yet, plus one requirement this task's findings added:
-`recovery` — a unit left `ready` by an attempt that never took its lease is
-offered the queue again by the run's own sweep, idempotently. The integrator must
-close madarch-tzte.19.5 before this change, so the specification ends as the
-proposal here rather than without the requirement.
+specifications yet, plus one requirement this task's findings added: `recovery` —
+what an attempt that never published left is worked again by the run's own sweep,
+whether its job was lost before its lease or its lease lapsed while it stood
+`draft` or `validating`. The integrator must close madarch-tzte.19.5 before this
+change, so the specification ends as the proposal here rather than without the
+requirement.
 
 ## Preserved contracts
 
@@ -114,13 +139,29 @@ None.
   settlement the queue's timed sweep would make — and reports the state a claim
   that was already settled stands in, which is how the suite shows that a
   publication's own transaction settled its job.
+- **What the suite's time is.** Nothing in it sleeps: every moment is the clock
+  file the test writes, and every kill and pause is a seam. The one timer is the
+  deadline on the pipe the driver's lines arrive through, which ends a hung phase
+  with its own message instead of the runner's.
+- **What the offer costs.** The sweep offers a job for every unit standing
+  `ready` on every pass, which is one enqueue the queue answers with "nothing
+  created" while the unit's own job is unfinished, and one created job when it is
+  gone. A re-offered job names no priority: the unit lost the place its admission
+  gave it when its job was lost, and being claimed after the work already queued
+  is what keeps the offer cheap and its order explainable.
 - **The daemon's own service is driven too.** One phase builds
   `createFillOrchestratorService` — the service the background server owns — over
   the same fixture and drives a run to its end through it, so the packaged binary
   covers the host path and not only the orchestrator's steps.
-- **What the suite found.** `src/fill/orchestrator.ts`'s sweep offers a unit
+- **What the suite found.** Two ways for a killed attempt to hold a run for ever,
+  both closed where they stand. `src/fill/orchestrator.ts`'s sweep offers a unit
   standing `ready` with no lease its job again, under the unit's singleton key, and
-  reports `unit-requeued` as its own durable event. `test/fill-orchestrator.test.ts`
-  holds the two cases of it — a lost job is found by the next pass, a unit under a
-  lease of its own is left alone — and the crash suite holds the end of it: the unit
-  publishes exactly once after the worker that claimed it died before its lease.
+  reports `unit-requeued` as its own durable event. `src/fill/fsm.ts`'s unit machine
+  retries a lapsed lease from `draft` and `validating` as well as from `leased` and
+  `running`, which is what lets the sweep retry a worker killed between its draft
+  and its publication. `test/fill-orchestrator.test.ts` holds every case:
+  a lost job is found by the next pass, a unit under a lease of its own is left
+  alone, and a lease that lapsed while the unit stood `validating` is retried with
+  its draft retracted and nothing published. The crash suite holds the end of each:
+  the unit publishes exactly once after the worker that claimed it died before its
+  lease, and again after the worker that died with its publication's transaction.

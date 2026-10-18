@@ -23,6 +23,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from 'pg';
+import { byCodePoint } from '../src/model/order.js';
 import { fileURLToPath } from 'node:url';
 import { PLANNED_UNITS, expectNoLostChildren, expectSettled, resumeRun } from './fill-crash-expectations.js';
 import {
@@ -132,8 +133,11 @@ describe('one run, three executor processes', () => {
       const executors = [0, 1, 2].map(() => starting(world, { kind: 'run', workers: 1 }, options));
       const finished = await Promise.all(executors.map((driver) => driver.wait()));
       for (const run of finished) expect(run.code).toBe(0);
-      // The three of them claimed between them at least one job per unit of the
-      // run: no executor was handed a run nobody worked.
+      // The three of them claimed between them at least one job per unit of the run,
+      // so no unit was lost between executors. How the claims fell out among them is
+      // the queue's own affair — an executor that arrives after the work is done
+      // claims nothing — and the test that places two executors inside two units at
+      // once is the next one.
       const claims = finished.map((run) => lineOf(run, 'run').work as number);
       expect(claims.reduce((total, one) => total + one, 0)).toBeGreaterThanOrEqual(8);
 
@@ -142,6 +146,9 @@ describe('one run, three executor processes', () => {
       const report = reportOf(await world.phase({ kind: 'report' }, options));
       expectNoLostChildren(report);
       expectSettled(report, [...units, 'modules/left', 'modules/right']);
+      // The run's own progress was numbered under a lock across three processes:
+      // one sequence with no gap and no repeat, whatever order the executors wrote.
+      expect(report.progress.map((event) => event.seq)).toEqual(report.progress.map((_event, index) => index + 1));
     } finally {
       await dropSchemas(options);
     }
@@ -156,20 +163,27 @@ describe('one run, three executor processes', () => {
       await planFixture(world, options);
       // Two executors of two different processes stand inside a unit of their own:
       // both units are `running` at the same time, which is the run's own
-      // maxInFlight of two — and no third unit may join them.
-      const first = starting(world, { kind: 'run', workers: 1 }, { ...options, interrupt: { point: 'execute', mode: 'pause', unitId: 'extract/src' } });
-      const second = starting(world, { kind: 'run', workers: 1 }, { ...options, interrupt: { point: 'execute', mode: 'pause', unitId: 'extract/docs' } });
+      // maxInFlight of two — and no third unit may join them. Which unit an executor
+      // claims is the queue's own choice, so each pauses wherever it lands.
+      const first = starting(world, { kind: 'run', workers: 1 }, { ...options, interrupt: { point: 'execute', mode: 'pause' } });
+      const second = starting(world, { kind: 'run', workers: 1 }, { ...options, interrupt: { point: 'execute', mode: 'pause' } });
       drivers.push(first, second);
-      expect(await first.nextLine()).toMatchObject({ event: 'pause', point: 'execute', unitId: 'extract/src' });
-      expect(await second.nextLine()).toMatchObject({ event: 'pause', point: 'execute', unitId: 'extract/docs' });
+      const pausedFirst = await first.nextLine();
+      const pausedSecond = await second.nextLine();
+      expect(pausedFirst).toMatchObject({ event: 'pause', point: 'execute' });
+      expect(pausedSecond).toMatchObject({ event: 'pause', point: 'execute' });
+      const working = [pausedFirst.unitId, pausedSecond.unitId] as string[];
+      expect(new Set(working).size).toBe(2);
 
       // A third process admits as it likes: the slots are counted in a transaction
       // of the run's own row, so it takes none.
       const pass = lineOf(await world.phase({ kind: 'sweep' }, options), 'sweep');
       expect(pass).toMatchObject({ run: 'running', admitted: 0, moved: false });
       const held = reportOf(await world.phase({ kind: 'report' }, options));
-      expect(held.units.filter((unit) => ['running', 'leased', 'draft', 'validating'].includes(unit.state)).map((unit) => unit.unitId).sort()).toEqual(['extract/docs', 'extract/src']);
-      expect(held.units.filter((unit) => ['planned', 'ready'].includes(unit.state)).map((unit) => unit.unitId).sort()).toEqual(['modules/root', 'overview/product']);
+      // The two units the two processes hold, and no third: the run's slot count is
+      // what the third admission pass cannot take.
+      expect(held.units.filter((unit) => ['running', 'leased', 'draft', 'validating'].includes(unit.state)).map((unit) => unit.unitId).sort(byCodePoint)).toEqual([...working].sort(byCodePoint));
+      expect(held.units.filter((unit) => ['planned', 'ready'].includes(unit.state))).toHaveLength(PLANNED_UNITS.length - 2);
 
       first.send();
       second.send();

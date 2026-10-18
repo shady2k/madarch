@@ -54,6 +54,7 @@ import {
   readPublications,
   readRunConfiguration,
   readSealedChildren,
+  readUnitDraft,
   readUnitReads,
   recordUnitDraft,
   type RunSnapshot,
@@ -1449,50 +1450,71 @@ describe('what the second review found, kept as tests', () => {
   });
 });
 
+/** The schema pg-boss's own tables live in, as this project's test worlds declare it. */
+const QUEUE_SCHEMA = 'pgboss';
+
 describe('a job the queue no longer holds', () => {
   /** One stage with one unit, so the queue holds exactly one job of the run. */
   const oneUnit = (): StageRegistry => new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'], concurrency: 1 }));
 
-  test('a unit standing ready with no lease is offered the queue again, and an offer it still holds changes nothing', async () => {
+  /** The queue's own row count for the run's unfinished jobs, by the unit each carries. */
+  async function unfinishedJobs(opened: World): Promise<string[]> {
+    const rows = await opened.owner.run(async (transaction) => (await transaction.query<{ singleton_key: string }>(
+      `SELECT singleton_key FROM ${QUEUE_SCHEMA}.job WHERE name = $1 AND state IN ('created', 'retry', 'active') ORDER BY singleton_key`,
+      [QUEUE],
+    )).rows);
+    return rows.map((row) => row.singleton_key);
+  }
+
+  test('a unit standing ready with no job is offered the queue again, and the offer is idempotent', async () => {
     const { world: opened, runId } = await plannedWorld({ registry: oneUnit() });
     await admitUnits(opened.orchestrator, { runId });
+    expect(await unfinishedJobs(opened)).toEqual(['snapshot/src']);
+
     // The worker that claimed the unit's job died before it took the lease: the
     // queue's own maintenance settles that claim, and with the queue declared with
-    // no retries of its own the job is gone while the unit stands `ready` under no
-    // lease at all.
+    // no retries of its own the job is gone while the unit stands `ready`.
     const claimed = (await opened.queue.claim<{ unitId: string }>({ queue: QUEUE }))[0]!;
     expect(claimed.data.unitId).toBe('snapshot/src');
     expect(await opened.queue.fail(QUEUE, claimed, 'the worker died before it leased the unit')).toBe('failed');
-    expect(await opened.queue.claim({ queue: QUEUE })).toEqual([]);
+    expect(await unfinishedJobs(opened)).toEqual([]);
 
     const swept = await sweepUnits(opened.orchestrator, { runId });
-    expect(swept.swept.map((unit) => [unit.unitId, unit.outcome])).toEqual([['snapshot/src', 'requeued']]);
+    expect(swept).toMatchObject({ swept: [{ unitId: 'snapshot/src', outcome: 'requeued' }], refused: [] });
     expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('ready');
-    const again = await opened.queue.claim<{ unitId: string }>({ queue: QUEUE });
-    expect(again.map((job) => job.data.unitId)).toEqual(['snapshot/src']);
+    expect(await unfinishedJobs(opened)).toEqual(['snapshot/src']);
 
     // The work the dead worker claimed is not lost: the unit runs and publishes.
     const worked = await workOnce(opened.orchestrator, { worker: 'worker-2' });
     expect(worked).toMatchObject({ unitId: 'snapshot/src', result: 'published' });
 
-    // The offer is idempotent: while an unfinished job carries the unit's key the
-    // queue creates nothing, so a pass over a unit whose job is still there
-    // changes nothing at all — and a generation that is already published is not
-    // offered again either.
+    // A generation that is already published is not offered again, and neither is a
+    // unit whose unfinished job the queue still holds — which the next sweep of a
+    // fresh unit shows: the queue creates nothing and the pass changes nothing.
     const quiet = await sweepUnits(opened.orchestrator, { runId });
-    expect(quiet.swept).toEqual([]);
+    expect(quiet).toMatchObject({ swept: [], refused: [] });
   });
 
-  test('a unit under a lease of its own is left to that lease, never offered again', async () => {
+  test('a unit whose unfinished job the queue still holds is not offered a second one', async () => {
     const { world: opened, runId } = await plannedWorld({ registry: oneUnit() });
     await admitUnits(opened.orchestrator, { runId });
-    const claimed = (await opened.queue.claim<{ unitId: string }>({ queue: QUEUE }))[0]!;
-    const leased = await leaseUnit(opened.owner, { unitId: claimed.data.unitId, holder: 'worker-1', ttlMs: 60_000, at: NOW });
+    // The admission's own job is still the queue's: the offer the sweep makes is
+    // answered with "nothing created", so exactly one unfinished job stands.
+    const swept = await sweepUnits(opened.orchestrator, { runId });
+    expect(swept).toMatchObject({ swept: [], refused: [] });
+    expect(await unfinishedJobs(opened)).toEqual(['snapshot/src']);
+    expect((await opened.queue.claim<{ unitId: string }>({ queue: QUEUE })).map((job) => job.data.unitId)).toEqual(['snapshot/src']);
+  });
+
+  test('a unit under a lease of its own is left to that lease', async () => {
+    const { world: opened, runId } = await plannedWorld({ registry: oneUnit() });
+    await admitUnits(opened.orchestrator, { runId });
+    const leased = await leaseUnit(opened.owner, { unitId: 'snapshot/src', holder: 'worker-1', ttlMs: 60_000, at: NOW });
     expect(leased.ok).toBe(true);
     const swept = await sweepUnits(opened.orchestrator, { runId });
-    // The unit is `leased` and its job is the attempt's own: nothing is offered,
-    // because nothing was lost — the lease is what holds it.
-    expect(swept.swept).toEqual([]);
+    // The unit is `leased` and its job is the attempt's own: nothing is offered and
+    // nothing is retried before the lease lapses.
+    expect(swept).toMatchObject({ swept: [], refused: [] });
     expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('leased');
   });
 });

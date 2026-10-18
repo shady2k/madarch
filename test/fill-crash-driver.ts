@@ -146,12 +146,29 @@ export interface DriverSpec {
   readonly phase: DriverPhase;
 }
 
-/** This driver's own path as a person reads it, bundled or not; every failure names it. */
+/**
+ * This driver's own source path: run from source that is the file's own absolute
+ * path; bundled — the suite's `bun build --compile` binary, where `import.meta.url`
+ * is `/$bunfs/root/<binary>` — it is this source path, and the line and column are
+ * the bundle's, because a bundle carries no source map.
+ */
 const SOURCE_PATH = 'test/fill-crash-driver.ts';
 
-/** Raises a failure that names this driver and what went wrong; nothing here fails quietly. */
+/** The file, line and column of the statement that calls this helper, as the project's own errors carry them. */
+function site(): string {
+  const frames = (new Error().stack ?? '').split('\n').slice(1);
+  for (const frame of frames) {
+    const located = /\(?([^\s()]+):(\d+):(\d+)\)?\s*$/.exec(frame.trim());
+    if (located === null) continue;
+    if (/at\s+(site|fail)\b/.test(frame)) continue;
+    return `${located[1]}:${located[2]}:${located[3]}`;
+  }
+  return SOURCE_PATH;
+}
+
+/** Raises a failure that names this driver, its line and what went wrong; nothing here fails quietly. */
 function fail(what: string, detail: string): never {
-  console.error(`${SOURCE_PATH}: ${what}: ${detail}`);
+  console.error(`${site()}: ${what}: ${detail}`);
   process.exit(2);
 }
 
@@ -519,7 +536,13 @@ async function runFacts(world: World, runId: string): Promise<Record<string, unk
     for (const generation of await readUnitGenerations(world.owner, unit.unitId)) {
       generations.push({
         unitId: generation.unitId, generation: generation.generation, state: generation.state,
-        attempt: generation.context.attempt, fence: generation.context.fence, leaseRevoked: generation.lease?.revokedAt !== null && generation.lease !== null,
+        attempt: generation.context.attempt, fence: generation.context.fence,
+        // The lease the generation holds, as it stands: what the run's own sweep
+        // judges an abandoned attempt by.
+        lease: generation.lease === null ? null : {
+          attempt: generation.lease.attempt, fence: generation.lease.fence,
+          issuedAt: generation.lease.issuedAt, expiresAt: generation.lease.expiresAt, revokedAt: generation.lease.revokedAt,
+        },
       });
     }
   }
@@ -780,7 +803,7 @@ const world = await openWorld(spec, interruption);
 try {
   await runPhase(world, spec);
 } catch (error) {
-  console.error(`${SOURCE_PATH}: the phase "${spec.phase.kind}" failed: ${error instanceof Error ? `${error.message}\n${error.stack ?? ''}` : String(error)}`);
+  console.error(`${site()}: the phase "${spec.phase.kind}" failed: ${error instanceof Error ? `${error.message}\n${error.stack ?? ''}` : String(error)}`);
   process.exitCode = 1;
 }
 await world.close();

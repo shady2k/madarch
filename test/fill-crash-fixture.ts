@@ -11,7 +11,7 @@
  * byte on its standard input. Nothing here asserts: the test files hold what they
  * expect and take it from the task and the decisions.
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pgliteAssetFiles } from '../scripts/pglite-assets.js';
@@ -233,9 +233,21 @@ export class CrashDriver {
     void this.process.stdin.flush();
   }
 
-  /** Waits for the process to end and answers what it printed and how it ended. */
-  async wait(): Promise<PhaseRun> {
+  /**
+   * Waits for the process to end and answers what it printed and how it ended.
+   * A phase that hangs — one waiting for a byte nobody sends, or one waiting on a
+   * lock — is killed at the deadline and named, so a test fails with what happened
+   * rather than with the runner's own timeout.
+   */
+  async wait(deadlineMs = 120_000): Promise<PhaseRun> {
+    let expired = false;
+    const deadline = setTimeout(() => { expired = true; }, deadlineMs);
     const [code] = await Promise.all([this.process.exited, this.finished]);
+    clearTimeout(deadline);
+    if (expired) {
+      this.kill();
+      throw new Error(`the phase did not end within ${String(deadlineMs)} ms and was killed; it printed ${JSON.stringify(this.lines)} and said on stderr: ${this.errors}`);
+    }
     this.done = true;
     await this.stderrText();
     for (const text of this.pending) this.lines.push(JSON.parse(text) as PhaseLine);
@@ -247,16 +259,6 @@ export class CrashDriver {
   kill(): void {
     this.process.kill('SIGKILL');
   }
-}
-
-/** The PID of a process, for a message that names what was killed when it was not. */
-export function pidOf(driver: CrashDriver): number {
-  return (driver as unknown as { process: { pid: number } }).process.pid;
-}
-
-/** Reads the whole of a file the fixture wrote, for a test that judges what it holds. */
-export function readFixtureFile(folder: string, name: string): string {
-  return readFileSync(join(folder, name), 'utf8');
 }
 
 

@@ -8,6 +8,7 @@
  * with its chain quiescent, and nothing left unfinished in the queue.
  */
 import { expect } from 'bun:test';
+import { byCodePoint } from '../src/model/order.js';
 import { lineOf, unitOf, type CrashFixture, type CrashReport, type PhaseLine, type PhaseOptions, type PhaseRun } from './fill-crash-fixture.js';
 
 /** The units the fixture's plan names, in the derived stage order. */
@@ -23,10 +24,11 @@ export const SEALED_UNITS = ['modules/left', 'modules/right'];
  */
 export function expectOnePublicationPerGeneration(report: CrashReport): void {
   const published = report.publications.map((record) => `${record.unitId}/${String(record.generation)}`);
-  expect(published).toEqual([...published].sort());
+  // Code point order is this project's order, and the report's own list is that order.
+  expect(published).toEqual([...published].sort(byCodePoint));
   expect(new Set(published).size).toBe(published.length);
   const asRecord = (rows: readonly { unitId: string; generation: number; digest: string; facts: number }[]): string[] =>
-    rows.map((row) => `${row.unitId}/${String(row.generation)}/${row.digest}/${String(row.facts)}`).sort();
+    rows.map((row) => `${row.unitId}/${String(row.generation)}/${row.digest}/${String(row.facts)}`).sort(byCodePoint);
   expect(asRecord(report.facts)).toEqual(asRecord(report.publications));
 }
 
@@ -76,5 +78,8 @@ export async function resumeRun(fixture: CrashFixture, options: PhaseOptions, cr
     }
     if (lineOf(driven, 'run').settled === true) return driven;
   }
-  throw new Error(`the run never settled after the clock moved ${String(rounds)} times`);
+  // A run that does not settle is reported where it stands, so a reader sees the
+  // unit the recovery left rather than only that it ran out of rounds.
+  const report = await fixture.phase({ kind: 'report' }, options);
+  throw new Error(`the run never settled after the clock moved ${String(rounds)} times: ${report.lines.map((line) => JSON.stringify(line)).join(' ')}`);
 }
