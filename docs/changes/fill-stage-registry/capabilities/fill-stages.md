@@ -114,7 +114,13 @@ writes shall ride over the stage's defaults, the rest kept. A stage shall
 declare its own default configuration, `{}` where it has nothing to configure,
 and the stage's own `config` shall be judged against the stage's `configSchema`
 whether the product wrote one or that default stands: a stage planned with a
-value its own schema refuses fails far from the manifest its author edited.
+value its own schema refuses fails far from the manifest its author edited. A
+stage that declares no default configuration at all shall be refused, naming the
+stage and `defaults.config`: a schema accepting `undefined` would otherwise hide
+a configuration its declaration never stated. A stage id or a limit name shall
+be read as the file's own name and never as a member every object inherits, so a
+stage the product leaves unmentioned runs on its defaults whatever its id is
+called.
 Every fault shall be reported in one answer: a fault of an entry shall name the
 manifest's full path, the 1-based line of the field the fault is about and the
 field's path, the `config` field's own line included where the fault is about
@@ -169,6 +175,16 @@ planned — so a product's configuration written for a later madarch still opens
 - Given: the stage `tuned` declares the configuration schema requiring `maxDepth` of 1 or more and its defaults carry `config: {}`, and the product's entry for it says only `concurrency: 2`
 - When: the graph is derived
 - Then: the graph is refused with the stage `tuned`, the path `defaults.config` and `must have required properties maxDepth; the product's fill.stages.tuned.config replaces the stage's default`, and the same refusal stands where the product writes no entry for `tuned` at all
+
+### Scenario: config-default-absent
+- Given: the stage `loose` declares no default configuration and its schema accepts anything
+- When: the graph is derived
+- Then: the graph is refused with the stage `loose`, the path `defaults.config` and `the stage "loose" declares no default configuration: a stage declares its own, {} where it has nothing to configure`
+
+### Scenario: prototype-named
+- Given: the stages `constructor` and `toString` are registered, and the manifest configures only `summary` and writes the unknown limits `toString` and `constructor`
+- When: the graph is derived
+- Then: the graph is clean: both stages run on their declared defaults, both limit names are read past, and every stage keeps the decision's limits
 
 ### Scenario: config-written-null
 - Given: the stage `summary` declares a default configuration its schema accepts, and the product writes `config:` with nothing after it on line 7
@@ -243,12 +259,21 @@ compared later. The digest shall be canonical in what was resolved: the same
 configurations held in another order shall give the same digest, and one
 configuration written in another key order shall give the same digest too. Two
 derivations from the same configuration shall give the same digest, and a
-configuration the product changed shall give another.
+configuration the product changed shall give another. The digest shall hold each
+configuration as it was resolved, never a value substituted for one: a written
+`config:` and the stage's declared default are two resolved configurations and
+give two digests, and a value the canonical serialization cannot hold is refused
+naming its path rather than written as `null`.
 
 ### Scenario: snapshot-order
 - Given: a derived graph's resolved configurations
 - When: the same configurations are digested in the reverse order
 - Then: the digest is the same one
+
+### Scenario: snapshot-null
+- Given: a stage whose schema accepts `null` and whose default configuration is `{ maxDepth: 2 }`, once with the product writing `config:` and once with nothing written
+- When: both resolved configurations are digested
+- Then: the resolved values are `null` and `{ maxDepth: 2 }`, and the digests differ
 
 ### Scenario: snapshot-key-order
 - Given: two manifests writing one stage's configuration with `maxDepth` and `mode` in the two different orders

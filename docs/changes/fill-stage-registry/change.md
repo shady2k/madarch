@@ -113,7 +113,17 @@ None.
   is about — the `config` field's own line where its whole value is the fault —
   and the field's path; a fault of the declared default names the stage and
   `defaults.config`, and says that `fill.stages.<id>.config` replaces it, since
-  no manifest is to blame for what the module brought itself.
+  no manifest is to blame for what the module brought itself. A stage that
+  declares no default at all is refused: a schema accepting `undefined` would
+  otherwise hide a configuration its declaration never stated.
+- **The product's file is read by its own names.** A stage id is a word a file
+  may spell, and `constructor` or `toString` are ids the stage-id pattern
+  allows: every lookup into the product's entries and into the limit rules is an
+  own-property read, and the maps the configuration reader builds have a null
+  prototype. The alternative reads an inherited member as an entry or as a limit
+  rule — a stage the product left out refused with a line that is a function, or
+  a `TypeError` thrown out of the derivation where the capability asks for an
+  unknown name to be read past.
 - **A stage is not its own producer.** A stage consuming the capability it
   produces reads what its own earlier run published, so no edge runs from it to
   itself and another producer of it being disabled starves nothing; otherwise
@@ -127,7 +137,11 @@ None.
   their ids whatever order the caller holds them in — which is what decision
   0027 asks a run to keep beside its resolved configuration and stage versions:
   two ways of resolving the same configuration cannot differ in their digest,
-  and a caller resolving a subset in another order cannot fake a difference.
+  and a caller resolving a subset in another order cannot fake a difference. It
+  holds each stage's configuration as it was resolved and writes no substitute:
+  a written `config:` and the stage's declared default are two resolved
+  configurations with two digests, and a value the canonical serialization
+  cannot hold is refused naming its path rather than written as `null`.
 
 ## Rationale
 

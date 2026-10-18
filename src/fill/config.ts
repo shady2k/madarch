@@ -108,8 +108,11 @@ export function readFillStageConfiguration(productFolder: string): FillStageConf
 
   const stagesMap = stages as Record<string, unknown>;
   const errors: FillConfigError[] = [];
-  const read: Record<string, unknown> = {};
-  const lines: Record<string, number> = {};
+  // Null-prototype maps: a stage id may be a word the language gives every
+  // object (`constructor`, `toString`), and a reader indexing these must find
+  // what the file wrote and nothing it inherited.
+  const read: Record<string, unknown> = Object.create(null);
+  const lines: Record<string, number> = Object.create(null);
   for (const id of Object.keys(stagesMap)) {
     if (!STAGE_ID_PATTERN.test(id)) {
       errors.push({

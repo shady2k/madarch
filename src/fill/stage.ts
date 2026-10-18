@@ -87,10 +87,12 @@ export interface StageDefaults {
   /**
    * The stage's own default configuration, which the product's
    * `fill.stages.<id>.config` replaces whole rather than field by field. It is
-   * judged against the stage's `configSchema` like a written one, and `{}`
-   * where the stage has nothing to configure: a stage whose schema requires a
-   * setting declares it here, since a run that found no configuration would
-   * otherwise hand the stage a value its own schema refuses.
+   * a JSON value, judged against the stage's `configSchema` like a written one,
+   * and `{}` where the stage has nothing to configure: a stage whose schema
+   * requires a setting declares it here, since a run that found no
+   * configuration would otherwise hand the stage a value its own schema
+   * refuses. `undefined` is refused rather than read: a stage that declared
+   * nothing would run with a configuration its own declaration never stated.
    */
   config: unknown;
 }

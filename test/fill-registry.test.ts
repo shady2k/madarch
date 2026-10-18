@@ -415,6 +415,35 @@ describe('the product configuration enables, disables and limits a stage', () =>
     }
   });
 
+  test('a stage id or a limit name that is a member of Object.prototype is read by what the file wrote', async () => {
+    // `constructor` and `toString` are stage ids STAGE_ID_PATTERN allows, so a
+    // lookup that read the prototype chain would judge an entry the product
+    // never wrote (a stage it left out falsely refused, with a line that is a
+    // function) and would call an inherited function in place of a limit rule.
+    const registry = new StageRegistry()
+      .register(fakeStage('constructor'))
+      .register(fakeStage('toString'))
+      .register(fakeStage('summary', {
+        consumes: { required: [{ capability: 'module-facts', scope: 'repository' }], optional: [] },
+      }))
+      .register(fakeStage('modules', { produces: [{ kind: 'module-facts', schemaVersion: 1, scope: 'repository' }] }));
+    const product = await productWith(manifest(
+      '    summary:',
+      '      limits:',
+      '        toString: 3',
+      '        constructor: 4',
+    ));
+    try {
+      const read = deriveStageGraph(registry, readFillStageConfiguration(product.folder));
+      if (!read.ok) throw new Error(`expected a clean graph, refused: ${JSON.stringify(read)}`);
+      expect(read.graph.order).toEqual(['constructor', 'modules', 'summary', 'toString']);
+      expect(read.graph.stages.map((stage) => [stage.id, stage.config, stage.limits.maxTurns]))
+        .toEqual([['constructor', {}, 30], ['modules', {}, 30], ['summary', {}, 30], ['toString', {}, 30]]);
+    } finally {
+      await product.dispose();
+    }
+  });
+
   test('the run\'s snapshot digest follows the configuration it resolved, not the order it holds it in', async () => {
     const plain = deriveStageGraph(chainRegistry());
     const limited = await productWith(manifest(
@@ -684,7 +713,7 @@ describe('a stage\'s own configuration is judged against its configSchema', () =
       '      concurrency: 2',
       '      limits:',
       '        maxTurns: 30',
-      '      after: nothing-here',
+      '      retention: 7',                       // an unknown field, read past
       '      config:',                              // line 12, the field the fault is about
       '        depth: 2',                             // line 13, the only field written
     ));
@@ -814,6 +843,52 @@ describe('a stage\'s own configuration is judged wherever its value came from', 
     } finally {
       await product.dispose();
     }
+  });
+});
+
+describe('a stage declares its own default configuration, and the digest holds it as resolved', () => {
+  test('a stage that declares no default is refused, even where its schema accepts anything', () => {
+    const loose = fakeStage('loose', {
+      configSchema: Type.Any(),
+      defaults: { ...DEFAULT_STAGE_DEFAULTS, config: undefined },
+    });
+    const read = deriveStageGraph(new StageRegistry().register(loose));
+    if (read.ok) throw new Error('expected a refusal');
+    expect(read.problems).toEqual([{
+      stage: 'loose',
+      path: 'defaults.config',
+      message: 'the stage "loose" declares no default configuration: a stage declares its own, {} where it has nothing to configure',
+    }]);
+  });
+
+  test('a written null and the stage\'s declared default are two resolved configurations, and two digests', async () => {
+    const registry = (): StageRegistry => new StageRegistry().register(fakeStage('tuned', {
+      configSchema: Type.Union([Type.Object({ maxDepth: Type.Integer({ minimum: 1 }) }), Type.Null()]),
+      defaults: { ...DEFAULT_STAGE_DEFAULTS, config: { maxDepth: 2 } },
+    }));
+    const nulled = await productWith(manifest('    tuned:', '      config:'));
+    try {
+      const written = deriveGraph(registry(), readFillStageConfiguration(nulled.folder));
+      const declared = deriveGraph(registry());
+      expect(written.stages[0]?.config).toBeNull();
+      expect(declared.stages[0]?.config).toEqual({ maxDepth: 2 });
+      expect(snapshotStageConfigurations(written.stages)).not.toBe(snapshotStageConfigurations(declared.stages));
+    } finally {
+      await nulled.dispose();
+    }
+  });
+
+  test('a configuration the canonical serialization cannot hold is refused, never written as null', () => {
+    // A caller that hand-builds a resolved configuration is answered with the
+    // refusal naming the path, not with a digest that hides the value.
+    expect(() => snapshotStageConfigurations([{
+      id: 'tuned',
+      version: 1,
+      enabled: true,
+      concurrency: 1,
+      limits: DEFAULT_STAGE_LIMITS,
+      config: undefined,
+    }])).toThrow(/a canonical JSON serialization holds only null, booleans, numbers, strings, arrays and objects, but the value at "\/0\/config" is undefined/);
   });
 });
 

@@ -169,10 +169,15 @@ export function deriveStageGraph(registry: StageRegistry, configuration?: FillSt
   // fail inside `execute`, far from the manifest its author edited.
   const resolved = new Map<string, ResolvedStageConfiguration>();
   for (const stage of stages) {
-    const raw = configRead.stages[stage.id];
+    // The product's file is read by its own keys only: a stage id is a word a
+    // file may spell, and `constructor` or `toString` are stage ids
+    // `STAGE_ID_PATTERN` allows, so an inherited member of the lookup object
+    // must never stand for an entry the product did not write.
+    const raw = Object.hasOwn(configRead.stages, stage.id) ? configRead.stages[stage.id] : undefined;
+    const line = Object.hasOwn(configRead.lines, stage.id) ? configRead.lines[stage.id] : undefined;
     const at: EntryPlace | undefined = raw === undefined
       ? undefined
-      : { file: configRead.file, line: configRead.lines[stage.id] ?? 1, path: `fill.stages.${stage.id}` };
+      : { file: configRead.file, line: line ?? 1, path: `fill.stages.${stage.id}` };
     // An entry that did not read was named in `readStageConfiguration` and
     // says nothing here: the stage then stands on its own defaults, and the
     // configuration it will run with is that default, judged in its turn.
@@ -311,7 +316,10 @@ export function snapshotStageConfigurations(stages: readonly ResolvedStageConfig
     enabled: stage.enabled,
     concurrency: stage.concurrency,
     limits: stage.limits,
-    config: stage.config ?? null,
+    // As resolved: a stage's configuration is a JSON value, since a declared
+    // default is one and a written one comes from the manifest. Writing `null`
+    // for an absent value would digest two different resolved inputs the same.
+    config: stage.config,
   })));
 }
 
@@ -437,6 +445,17 @@ function judgeOwnConfiguration(
   const written = read === undefined || read.entry.config === undefined || at === undefined
     ? undefined
     : { value: read.entry.config, at, line: read.configLine ?? at.line };
+  if (written === undefined && stage.defaults.config === undefined) {
+    // Nothing was written and the stage declared nothing: the stage would run
+    // with a configuration its own declaration never stated, and a schema
+    // accepting it (or `Type.Any`) would hide that. Refused, not guessed.
+    problems.push({
+      stage: stage.id,
+      path: 'defaults.config',
+      message: `the stage "${stage.id}" declares no default configuration: a stage declares its own, {} where it has nothing to configure`,
+    });
+    return;
+  }
   const value = written === undefined ? stage.defaults.config : written.value;
   for (const error of Value.Errors(stage.configSchema, value)) {
     const segments = jsonPointerToSegments(error.instancePath);
@@ -468,10 +487,12 @@ function readLimitOverrides(
 ): StageLimitOverrides {
   const read: StageLimitOverrides = {};
   for (const name of Object.keys(limits).sort(byCodePoint)) {
-    const rule = (LIMIT_RULES as Readonly<Record<string, LimitRule | undefined>>)[name];
     // A limit name this madarch does not know is the manifest's own unknown
     // field: kept out, never a refusal, so a product's configuration written
-    // for a later madarch still reads.
+    // for a later madarch still reads. The lookup is by own property, so a name
+    // such as `toString` or `constructor` is unknown too, rather than an
+    // inherited function the reader would call.
+    const rule = Object.hasOwn(LIMIT_RULES, name) ? LIMIT_RULES[name as keyof StageLimits] : undefined;
     if (rule === undefined) continue;
     const path = `${at.path}.limits.${name}`;
     const line = lineOf(limits, name);
