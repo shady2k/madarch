@@ -6,7 +6,7 @@
  * anchor, its heading, its depth, the lines it covers and the bytes it spans),
  * one `document-link` edge per link end a section names (to another document, to
  * a code path, to an address outside the repositories, or unresolved with the
- * place the link stands at), one `task-key` edge per task key a document names,
+ * place the link stands at), one `task-key` edge per task key a section names,
  * and one `coverage` node saying what the read could not read.
  *
  * **The bytes come through the snapshot reader** (stage 0, madarch-tzte.21.1):
@@ -583,7 +583,7 @@ function placeAt(path: RepositoryPath, range: FactRange): FactPlace {
  * (its media type, its title where it has one, the bytes it spans and the blob
  * its bytes stand under), one section node per heading a reader sees, one
  * `document-link` edge per end a section names, and one `task-key` edge per key
- * it names. The order is the order above: the document, its sections as a reader
+ * a section names. The order is the order above: the document, its sections as a reader
  * meets them, then the links and the keys in the order they stand. An edge is
  * folded by its identity (the section it stands in and the end), so one end named
  * twice under one section is one edge, at the first place.

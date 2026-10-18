@@ -33,7 +33,8 @@ then the repository and the path, and a unit writes what its own document holds:
   absolute target or a scheme-relative one — the target exactly as the document
   wrote it, with the place the link stands at. An unresolved link is written, and
   never dropped;
-- one `task-key` edge per task key the document names, by the tracker's own rule;
+- one `task-key` edge per task key a section of the document names, by the
+  tracker's own marker;
 - one `coverage` node saying what the read answered and what it could not read
   (a heading whose words name no anchor a link could name).
 
@@ -202,11 +203,11 @@ two stages. The one change to landed modules is the two kinds' value shapes
   stage may read. The plan and the unit treat every pinned repository the same
   way, so the product's own documents are indexed like any other repository's.
 - **A link's end is a node of the graph, an address, or the target as written.**
-  A fragment names a section of the linking document, compared as the document
-  writes it — an `id` a browser looks up is exact, so `#B` reaches no section
-  written as `b`, and the link keeps its place as an unresolved one — (a `section`
-  node the same
-  unit writes); a target with a scheme is an address outside the repositories; a
+  A fragment names a section of the linking document — the `section` node the
+  same unit writes — and it is compared as the document writes it: an `id` a
+  browser looks up is exact, so `#B` reaches no section written as `b`, and the
+  link keeps its place as an unresolved one. A target with a scheme is an address
+  outside the repositories; a
   target the wiki's resolver ties to a path the pinned commit holds names that
   path's node — the `document` node where the path is a Markdown document named
   by this stage, the `file` node the inventory published for it otherwise. Both
@@ -310,8 +311,9 @@ Open points for the integrator, in the order they matter:
   text: a commit message's `Task:` line holds keys and nothing else, so stage 7
   splits the line on commas and whitespace and takes every token; a document's
   line holds prose after the keys, so this stage reads the marker anywhere on the
-  line, both spellings, and takes the tokens whose text, once the punctuation
-  around them is off, is shaped as a tracker's id. On a line that is a key list
+  line, both spellings, and takes the leading run of tokens whose text, once the
+  punctuation around them is off, is shaped as a tracker's id — a run that ends
+  at the first token that is not one, or that opens a bracket. On a key list
   the two agree; on a line that is a sentence they cannot, and this stage's rule
   is the one a document needs (stage 7's would read the sentence's words as
   keys). A later task may give the rule one home, with stage 7's tests read again
