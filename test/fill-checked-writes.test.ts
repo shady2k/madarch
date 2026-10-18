@@ -28,7 +28,7 @@ import { byCodePoint } from '../src/model/order.js';
 import { FACT_APPLICATION, createFactStoreSchema, readFact, readUnitDraft, readUnitFacts } from '../src/fill/fact-store.js';
 import { factId, makeNodeFact, repositoryPath, type Fact, type FactKind, type FactProvenance } from '../src/fill/facts.js';
 import {
-  assertFact, factGraph, link, proposeEntity, raiseQuestion, recordedDraftSet, scopeText, writeScope,
+  assertFact, draftSetOf, factGraph, link, proposeEntity, raiseQuestion, recordedDraftSet, scopeText, writeScope,
   type CheckedWriteDraft, type CheckedWriteGraph, type CheckedWriteSession, type SimilarEntity,
 } from '../src/fill/checked-writes.js';
 import {
@@ -39,7 +39,7 @@ import {
   type StoreStep,
 } from '../src/fill/state-store.js';
 import { createGitSnapshotSource } from '../src/fill/snapshot.js';
-import type { StageDraftWrite } from '../src/fill/stage.js';
+import type { StageDraftWrite, StageDraftWriter } from '../src/fill/stage.js';
 
 const NOW = 1_700_000_000_000;
 const PRODUCT = 'fixture-product';
@@ -84,6 +84,7 @@ async function fixture(): Promise<Fixture> {
   await mkdir(join(root, 'lib'), { recursive: true });
   await writeFile(join(root, 'src', 'cart.ts'), CART);
   await writeFile(join(root, 'src', 'other.ts'), 'export const other = 1;\n');
+  await writeFile(join(root, 'src', 'empty.ts'), '');
   await writeFile(join(root, 'lib', 'total.ts'), 'export const total = 0;\n');
   git('add', '-A');
   git('commit', '-qm', 'one');
@@ -296,7 +297,7 @@ describe('the write the task describes', () => {
     expect(await readUnitFacts(owner!, unit.unitId)).toEqual([]);
 
     // And the unit's own publication publishes exactly what it wrote (0026, one publication per generation).
-    expect(await publishRunning(unit, unit.draft.writes())).toBe(1);
+    expect(await publishRunning(unit, await unit.draft.writes())).toBe(1);
     expect((await readUnitFacts(owner!, unit.unitId)).map((entry) => entry.fact.id)).toEqual([answer.fact.id]);
     expect((await readFact(owner!, answer.fact.id))?.fact.kind).toBe('claim');
     expect(await readUnitDraft(owner!, unit.unitId, unit.generation)).toBeNull();
@@ -313,10 +314,11 @@ describe('the write the task describes', () => {
     expect(refusal.reason).toContain('line 900');
     expect(refusal.reason).toContain('holds 10 lines');
     expect(refusal.file).toBe('src/cart.ts');
+    expect(refusal.line).toBe(900);
     // The id a refused write would have had is the id of a fact that stands on bytes no reader can hold.
     expect(expectedClaimId({ startLine: 900, startColumn: 0, endLine: 900, endColumn: 0 })).toMatch(/^claim:[0-9a-f]{64}$/);
     // Nothing of a refused write is stored, not even in part.
-    expect(unit.draft.writes()).toEqual([]);
+    expect(await unit.draft.writes()).toEqual([]);
     expect(await readUnitDraft(owner!, unit.unitId, unit.generation)).toBeNull();
   }, 60_000);
 
@@ -353,7 +355,10 @@ describe('the checks a write passes before it lands', () => {
     expect(answer.ok).toBe(false);
     if (answer.ok) return;
     expect(answer.refusals[0]?.field).toBe('place.file');
+    // The refusal names the repository, the commit and the path it refused (the snapshot reader's own words).
     expect(answer.refusals[0]?.reason).toContain('"src/gone.ts" is not in the tree');
+    expect(answer.refusals[0]?.reason).toContain(REPOSITORY);
+    expect(answer.refusals[0]?.reason).toContain(repo.commit);
   }, 60_000);
 
   test('a write outside the unit\'s scope is refused, naming the scope it stands outside', async () => {
@@ -401,7 +406,7 @@ describe('the checks a write passes before it lands', () => {
     if (nodeLink.ok) return;
     expect(nodeLink.refusals[0]?.field).toBe('kind');
     expect(nodeLink.refusals[0]?.reason).toContain('a link draws an edge');
-    expect(unit.draft.writes()).toEqual([]);
+    expect(await unit.draft.writes()).toEqual([]);
   }, 60_000);
 
   test('a node the graph does not hold is refused, and one it holds is joined', async () => {
@@ -461,7 +466,7 @@ describe('the checks a write passes before it lands', () => {
     expect(settlement(claim)).toBe('accepted');
     if (!claim.ok) return;
     expect(claim.fact.value).toMatchObject({ subject: { form: 'node', id: module.fact.id } });
-    expect(unit.draft.writes().map((write) => write.kind)).toEqual(['fact', 'fact']);
+    expect((await unit.draft.writes()).map((write) => write.kind)).toEqual(['fact', 'fact']);
   }, 60_000);
 });
 
@@ -526,7 +531,7 @@ describe('the entity a unit proposes', () => {
     expect(unnamed.refusals[0]?.field).toBe('value.name');
     expect(unnamed.refusals[0]?.reason).toContain('is no text');
     expect(unnamed.similar.total).toBe(0);
-    expect(unit.draft.writes()).toEqual([]);
+    expect(await unit.draft.writes()).toEqual([]);
   }, 60_000);
 });
 
@@ -571,19 +576,86 @@ describe('the graph the write path reads', () => {
     expect(settlement(answer)).toBe('accepted');
     if (!answer.ok) return;
     expect(await factGraph(owner!).node(answer.fact.id)).toBeNull();
-    expect(await publishRunning(unit, unit.draft.writes())).toBe(1);
+    expect(await publishRunning(unit, await unit.draft.writes())).toBe(1);
     expect((await factGraph(owner!).node(answer.fact.id))?.kind).toBe('claim');
   }, 60_000);
 
-  test('a write after the generation\'s draft set was retracted is refused rather than recorded', async () => {
+  test('a write after the generation\'s draft set was retracted lands: the retraction was the attempt before it', async () => {
     const unit = await runningUnit('understanding:acme-shop:src:retracted');
-    const answer = await assertFact(unit.session, { kind: 'claim', value: CLAIM, place: LINES_3_TO_5 });
+    const first = await assertFact(unit.session, { kind: 'claim', value: CLAIM, place: LINES_3_TO_5 });
+    expect(settlement(first)).toBe('accepted');
+    if (!first.ok) return;
+    // `retryAttempt` retracts the generation's draft set and runs the same generation again (0027: the
+    // next attempt starts clean), and the landed store clears the retraction when a draft is recorded.
+    await retractUnitDraft(owner!, { unitId: unit.unitId, generation: unit.generation, at: NOW + 1 });
+    expect(await readUnitDraft(owner!, unit.unitId, unit.generation)).toBeNull();
+    const second = await assertFact(unit.session, { kind: 'claim', value: CLAIM, place: { repository: REPOSITORY, file: 'src/cart.ts', startLine: 1, endLine: 2 } });
+    expect(settlement(second)).toBe('accepted');
+    if (!second.ok) return;
+    expect(second.position).toBe(1);
+    const draft = await readUnitDraft(owner!, unit.unitId, unit.generation);
+    expect(draft?.draft).toBe(true);
+    expect(draft?.facts.map((fact) => fact.id)).toEqual([second.fact.id]);
+    expect(await readUnitFacts(owner!, unit.unitId)).toEqual([]);
+  }, 60_000);
+
+  test('a port built for a generation reads the writes the machine already holds', async () => {
+    const unit = await runningUnit('understanding:acme-shop:src:second-port');
+    const written = await assertFact(unit.session, { kind: 'module', value: { repository: REPOSITORY, name: 'cart', seed: 'package' }, place: LINES_3_TO_5 });
+    expect(settlement(written)).toBe('accepted');
+    if (!written.ok) return;
+    // A session that starts again over the same generation: a fresh port over the same rows.
+    const restarted: CheckedWriteSession = { ...unit.session, draft: recordedDraftSet(owner!, { unitId: unit.unitId, generation: unit.generation, at: () => NOW }) };
+    const claim = await assertFact(restarted, {
+      kind: 'claim',
+      value: { subject: { form: 'node', id: written.fact.id }, predicate: 'is-implemented-by', object: { form: 'literal', text: 'Cart.total' } },
+      place: LINES_3_TO_5,
+    });
+    expect(settlement(claim)).toBe('accepted');
+    if (!claim.ok) return;
+    expect(claim.position).toBe(2);
+    expect((await unit.draft.writes()).map((write) => write.kind)).toEqual(['fact', 'fact']);
+  }, 60_000);
+
+  test('a stage\'s own writer is a draft set the attempt records, and the row stays empty until it does', async () => {
+    const unit = await runningUnit('understanding:acme-shop:src:stage-writer');
+    const held: StageDraftWrite[] = [];
+    const writer: StageDraftWriter = { write: (entry) => { held.push(entry); }, writes: () => ({ writes: held }) };
+    const answer = await assertFact({ ...unit.session, draft: draftSetOf(writer) }, { kind: 'claim', value: CLAIM, place: LINES_3_TO_5 });
     expect(settlement(answer)).toBe('accepted');
     if (!answer.ok) return;
-    await retractUnitDraft(owner!, { unitId: unit.unitId, generation: unit.generation, at: NOW + 1 });
-    await expect(assertFact(unit.session, { kind: 'claim', value: CLAIM, place: { repository: REPOSITORY, file: 'src/cart.ts', startLine: 1 } })).rejects.toThrow(/was retracted/);
-    // The retraction stands: the store reads no draft and the unit holds no published fact.
+    expect(answer.position).toBe(1);
+    expect(held.map((write) => write.kind)).toEqual(['fact']);
+    // What the orchestrator hands a stage's `execute` records nothing by itself: the attempt records the set.
     expect(await readUnitDraft(owner!, unit.unitId, unit.generation)).toBeNull();
-    expect(await readUnitFacts(owner!, unit.unitId)).toEqual([]);
+    expect(await publishRunning(unit, held)).toBe(1);
+    expect((await readUnitFacts(owner!, unit.unitId)).map((entry) => entry.fact.id)).toEqual([answer.fact.id]);
+  }, 60_000);
+
+  test('a place the path cannot read is refused at its own field, before any byte of the snapshot is read', async () => {
+    const unit = await runningUnit('understanding:acme-shop:src:place-shape');
+    const cases: readonly { readonly what: string; readonly place: unknown; readonly field: string; readonly reason: string }[] = [
+      { what: 'no place at all', place: undefined, field: 'place', reason: 'cites where its bytes stand' },
+      { what: 'a key a cited place does not hold', place: { ...LINES_3_TO_5, line: 3 }, field: 'place.line', reason: 'is no part of a cited place' },
+      { what: 'a path that is no repository path', place: { ...LINES_3_TO_5, file: '../outside.ts' }, field: 'place.file', reason: 'climbs out of the repository' },
+      { what: 'a line counted from zero', place: { ...LINES_3_TO_5, startLine: 0 }, field: 'place.startLine', reason: 'lines are counted from 1' },
+      { what: 'a file whose bytes are empty', place: { repository: REPOSITORY, file: 'src/empty.ts', startLine: 1 }, field: 'place.range', reason: 'holds no line' },
+      { what: 'a span whose columns read backwards', place: { ...LINES_3_TO_5, endLine: 3, startColumn: 5, endColumn: 2 }, field: 'place.range', reason: 'ends at or after the column it starts at' },
+    ];
+    for (const testCase of cases) {
+      const answer = await assertFact(unit.session, { kind: 'claim', value: CLAIM, place: testCase.place as never });
+      const seen = answer.ok ? 'accepted' : `${answer.refusals[0]?.field}: ${answer.refusals[0]?.reason}`;
+      expect(`${testCase.what} -> ${seen}`).toContain(`${testCase.what} -> ${testCase.field}: `);
+      if (answer.ok) continue;
+      expect(answer.refusals[0]?.reason).toContain(testCase.reason);
+    }
+    expect(await unit.draft.writes()).toEqual([]);
+    // A unit whose scope names a repository the run pinned nothing for: the place reads, and no reader stands.
+    const unpinned = await runningUnit('understanding:acme-gone:src:unpinned', { scope: 'acme-gone:src' });
+    const unpinnedAnswer = await assertFact(unpinned.session, { kind: 'claim', value: CLAIM, place: { repository: 'acme-gone', file: 'src/cart.ts', startLine: 1 } });
+    expect(unpinnedAnswer.ok).toBe(false);
+    if (unpinnedAnswer.ok) return;
+    expect(unpinnedAnswer.refusals[0]?.field).toBe('place.repository');
+    expect(unpinnedAnswer.refusals[0]?.reason).toContain('is not a repository this run pins');
   }, 60_000);
 });

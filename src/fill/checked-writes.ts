@@ -308,15 +308,30 @@ export interface CheckedWriteSession {
 export interface CheckedWriteDraft {
   /** Appends one accepted write, in the order the unit made it. */
   append(write: StageDraftWrite): Promise<void>;
-  /** The writes the draft set holds, in the order they were made. */
-  writes(): readonly StageDraftWrite[];
+  /**
+   * The writes the draft set holds for the attempt that is running, in the order
+   * they were made. A retracted set holds none: 0027 retracts a generation's draft
+   * so the next attempt starts clean, so the writes of the attempt before this one
+   * are not this attempt's, and a port built after a retraction answers the same
+   * set as a port that made the writes. Reading is asynchronous because one of the
+   * two wirings reads the machine's own row.
+   */
+  writes(): Promise<readonly StageDraftWrite[]>;
 }
 
-/** The stage's own draft writer (`StageContext.draft`), read as this path's port: nothing is recorded until the unit's stage hands its set over. */
+/**
+ * The stage's own draft writer (`StageContext.draft`), read as this path's port:
+ * every accepted write goes into the set the attempt records at its end, and
+ * nothing is recorded until the stage hands that set over. This is the wiring for
+ * a unit whose stage runs inside the orchestrator: the attempt's own
+ * `recordUnitDraft` replaces the generation's row with exactly this set.
+ */
 export function draftSetOf(writer: StageDraftWriter): CheckedWriteDraft {
   return {
     append: async (write: StageDraftWrite) => { writer.write(write); },
-    writes: () => writer.writes().writes,
+    // A copy, not the writer's own list: a stage's writer hands the live array out, and a caller that
+    // reads the set before a write and again after it must see two sets, not one array that moved.
+    writes: async () => [...writer.writes().writes],
   };
 }
 
@@ -335,24 +350,27 @@ export function recordedDraftSet(
   database: OrchestratorDatabase,
   unit: { readonly unitId: string; readonly generation: number; readonly at: () => number },
 ): CheckedWriteDraft {
-  const held: StageDraftWrite[] = [];
+  /** The writes the machine holds for the attempt that is running: a retracted set is the attempt before it. */
+  const heldNow = async (executor: SqlExecutor): Promise<readonly StageDraftWrite[]> => {
+    const recorded = await readUnitDraftIn(executor, unit.unitId, unit.generation);
+    return recorded === null || recorded.retractedAt !== null ? [] : recorded.writes;
+  };
   return {
     async append(write: StageDraftWrite): Promise<void> {
       const at = here();
       await withLocation(at, `checkedWrite(${unit.unitId}/${unit.generation})`, ['fill_unit_draft'], async () => {
         await database.transaction('write', async (executor) => {
-          const recorded = await readUnitDraftIn(executor, unit.unitId, unit.generation);
-          if (recorded !== null && recorded.retractedAt !== null) {
-            throw new Error(`the draft set of unit "${unit.unitId}" generation ${unit.generation} was retracted at ${recorded.retractedAt}, so a write is not recorded into it: a retracted generation publishes nothing`);
-          }
-          const writes = [...(recorded?.writes ?? []), write];
+          // A set the machine holds is the attempt's own; a retracted one belonged to the attempt before
+          // it (0027: `retry-wait` retracts the generation's draft so the next attempt starts clean), and
+          // recording clears the retraction, which is the landed store's own answer for a rerun.
+          const writes = [...(await heldNow(executor)), write];
           await recordUnitDraftIn(executor, { unitId: unit.unitId, generation: unit.generation, writes, at: unit.at() });
-          held.length = 0;
-          held.push(...writes);
         });
       });
     },
-    writes: () => held,
+    async writes(): Promise<readonly StageDraftWrite[]> {
+      return await withLocation(here(), `checkedWrites(${unit.unitId}/${unit.generation})`, ['fill_unit_draft'], async () => await database.transaction('snapshot', async (executor) => await heldNow(executor)));
+    },
   };
 }
 
@@ -441,7 +459,10 @@ function spanRefusal(file: string, range: FactRange, lines: readonly string[]): 
     return { field: 'place.range', reason: `the write cites ${span} of ${JSON.stringify(file)}, and the file holds no line at this commit: its bytes are empty`, file };
   }
   if (range.endLine > lines.length) {
-    return { field: 'place.range', reason: `the write cites ${span} of ${JSON.stringify(file)}, and the file holds ${holds} at this commit: the span stands past the end of the bytes madarch read`, file, line: lines.length };
+    return { field: 'place.range', reason: `the write cites ${span} of ${JSON.stringify(file)}, and the file holds ${holds} at this commit: the span stands past the end of the bytes madarch read`, file, line: range.startLine };
+  }
+  if (range.endLine === range.startLine && range.endColumn < range.startColumn) {
+    return { field: 'place.range', reason: `the write cites columns ${range.startColumn}-${range.endColumn} of line ${range.startLine} of ${JSON.stringify(file)}: a span ends at or after the column it starts at`, file, line: range.startLine };
   }
   if (range.startColumn > (lines[range.startLine - 1] ?? '').length) {
     return { field: 'place.range', reason: `the write cites column ${range.startColumn} of line ${range.startLine} of ${JSON.stringify(file)}, and that line holds ${(lines[range.startLine - 1] ?? '').length} characters`, file, line: range.startLine };
@@ -499,7 +520,8 @@ async function readPlace(session: CheckedWriteSession, request: CitedPlaceReques
     bytes = await reader.read(file);
   } catch (error) {
     if (!(error instanceof SnapshotError)) throw error;
-    return { refusals: [{ field: 'place.file', reason: error.detail, file }] };
+    // `message`, not `detail`: only the reader's message names the repository, the commit and the path.
+    return { refusals: [{ field: 'place.file', reason: error.message, file }] };
   }
   const lines = linesOf(Buffer.from(bytes).toString('utf8'));
   const startLine = request.startLine;
@@ -547,9 +569,9 @@ function referencedIds(value: unknown, field = 'value'): readonly { readonly fie
  * The nodes the unit's own draft set already holds, by id: a write may join what
  * this unit wrote before it, and the kind of such a node is the fact it wrote.
  */
-function draftedNodes(session: CheckedWriteSession): ReadonlyMap<string, FactKind> {
+function draftedNodes(writes: readonly StageDraftWrite[]): ReadonlyMap<string, FactKind> {
   const nodes = new Map<string, FactKind>();
-  for (const write of session.draft.writes()) {
+  for (const write of writes) {
     const value = (write as { readonly value?: unknown }).value;
     if (typeof value !== 'object' || value === null) continue;
     const { id, kind } = value as { readonly id?: unknown; readonly kind?: unknown };
@@ -648,7 +670,8 @@ async function write(session: CheckedWriteSession, request: ToolWrite): Promise<
   }
   if (refusals.length > 0) return { refusals };
 
-  const own = draftedNodes(session);
+  const held = await session.draft.writes();
+  const own = draftedNodes(held);
   for (const reference of referencedIds(request.value)) {
     const drafted = own.get(reference.id);
     const node = drafted === undefined ? await session.graph.node(reference.id) : { id: reference.id, kind: drafted };
@@ -668,8 +691,9 @@ async function write(session: CheckedWriteSession, request: ToolWrite): Promise<
 
   const entry: StageDraftWrite = { kind: request.tool, evidence: evidenceOf(session, cited), value: fact as unknown };
   await session.draft.append(entry);
-  const writes = session.draft.writes();
-  return { drafted: { ok: true, fact: fact as unknown as Fact, write: entry, position: writes.length, writes: writes.length, evidence: entry.evidence }, refusals };
+  // The position is the one the write took in the set it read; the count is the set's own size after it,
+  // read again, so a set another writer added to is never answered as a smaller one.
+  return { drafted: { ok: true, fact: fact as unknown as Fact, write: entry, position: held.length + 1, writes: (await session.draft.writes()).length, evidence: entry.evidence }, refusals };
 }
 
 /** What one write ended in, inside the path: the fact that landed, or the refusals. */

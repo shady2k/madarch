@@ -53,10 +53,6 @@ the status `proposed` (0005).
   task's reads (madarch-tzte.20.3) and is not a node of this path: 0027 makes a
   node stand when its unit publishes, and a draft its holder may still retract is
   not a fact an edge may join.
-- **An edge's ends being of the kinds the edge joins** (`EDGE_END_KINDS`): the
-  task's bar is that the referenced nodes exist, and this change holds the write
-  to that. A stricter check would refuse writes the task expects to land and
-  belongs beside the schema's own kind rules.
 - The fill's capability text: the requirement the write path serves is proposed by
   `fill-pipeline-monday`, not current, and the rebuild's requirement text lands
   with the stage that closes decision 0026.
@@ -112,18 +108,29 @@ Taken from decisions 0026, 0027 and 0005; nothing here re-decides them.
   and then judges the whole envelope with `checkFact`. So an agent can neither
   invent an id nor name a commit, and the id it writes is the one the store holds
   (0026: "an id is never written but computed").
-- **The four checks, and the order they stand in.** The schema first (its refusals
-  are at the field's own path, with the file and the line the fact cites); then the
-  scope, because it needs no bytes; then the cited bytes; then the referenced
-  nodes; then the write lands. Every check runs before the answer, so a write that
-  got two things wrong names both at once.
+- **The checks, and the order they stand in.** The request's own shape first (a
+  kind the schema names, a value that is an object, a place whose fields read);
+  then the place — the scope, the pinned repository, the file in the commit's
+  tree, and the span inside the bytes; then the fact is built and judged by
+  `checkFact`; then the referenced nodes; then the write lands. Each stage answers
+  its own refusals and the answer carries all of them, so a refused write is never
+  refused twice for one reason. The place is read before the value is judged, and
+  that is not an accident of the order: the fact's place — and with it its id — is
+  fixed by the bytes (a request that names no columns cites whole lines, whose end
+  is the line's own length), so a write with a bad field *and* a span past the file
+  is refused by the span first and by the field on the next try. What never happens
+  is a write that lands while any refusal stands.
 - **The scope is the plan's own text.** A unit covers a repository, a folder in it
   or one file, and the orchestrator's plan carries that as one string; the
   inventory's units are named `<repository>:<path>` (madarch-tzte.21.1), and this
   path reads exactly that form rather than inventing a second vocabulary: a
   repository name that is no name, an empty path and a path that is no repository
   path are refused by name. A scope that names a path covers that file or folder
-  and everything below it; a bare repository name covers the whole repository.
+  and everything below it; a bare repository name covers the whole repository. The
+  check reads the place a write cites and nothing else: a `coverage` fact's own
+  `scope` field says what the unit reports it read, in the graph's own terms
+  (`product`, a module's fact id, a place's path), and holding that to the unit's
+  scope text would decide a question this path cannot answer.
 - **A cited file is read, and its bytes are what the span is held to.** The path
   opens the pinned commit's reader for the write's repository, requires the file
   in that commit's tree (a path outside the tree is refused with the reader's own
@@ -150,7 +157,13 @@ Taken from decisions 0026, 0027 and 0005; nothing here re-decides them.
   and names for this check: `EDGE_END_KINDS`' own comment reads "a write's
   'referenced nodes exist' check reads this table (0026)", so a `call`-like
   interaction whose callee is a module is refused at `value.callee` naming both
-  kinds, and an end the table gives as `term` is not held to one. What the port
+  kinds, and an end the table gives as `term` is not held to one — a node that
+  stands behind such an end is joined, and no kind is asked of it. The walk reads
+  every string a value holds, so a kind whose ids this path has not been told about
+  is still held to the nodes it names; the price is that a literal spelled like a
+  fact id (a kind, a colon and 64 hexadecimal digits) is read as a reference and
+  refused where nothing stands there — a text a reader sees is never a reference,
+  and the refusal names the field it stands at. What the port
   reads for the rest is the wiring's: `factGraph` answers from the fill's own fact
   store (`fill_fact`), so a node another unit published stands from the moment its
   generation was published.
@@ -165,15 +178,40 @@ Taken from decisions 0026, 0027 and 0005; nothing here re-decides them.
   refused: what an agent does next turns on both. The order is a rank by closeness
   and then code point order of the ids — never the database's own collation, which
   orders text by its locale.
-- **A draft set is the machine's row, and one write appends one write.** The
-  session's port is asynchronous, and the module ships both wirings: `draftSetOf`
-  over a stage's own `StageDraftWriter` (what the orchestrator hands `execute`
-  today, which it records at the end of the attempt), and `recordedDraftSet` over
-  `fill_unit_draft`, which appends each accepted write in a transaction of the
-  process's one owner — that is "visible to other units as draft" while the unit
-  runs, and `readUnitDraft` (`fact-store.ts`) answers such a set as draft. A
-  writer of the same unit and generation must be the only one in flight: two ports
-  over one generation would each record the set they hold.
+- **A draft set has one writer, and the two wirings are alternatives.** The
+  session's port is asynchronous, and the module ships both: `draftSetOf` over the
+  writer a stage's context hands `execute` (each accepted write goes into the set
+  the attempt records at its end, and nothing is recorded before that), and
+  `recordedDraftSet` over `fill_unit_draft`, which appends each accepted write in a
+  transaction of the process's one owner — that is "visible to other units as
+  draft" while the unit runs, and `readUnitDraft` (`fact-store.ts`) answers such a
+  set as draft.
+
+  The two are not two halves of one draft set. The orchestrator's attempt records
+  its own context's set when the unit drafts (`recordUnitDraft` replaces the row
+  with that set, `orchestrator.ts`), so a unit whose accepted writes went through a
+  port of their own, and whose stage pushes nothing into its context, loses them at
+  that moment and in silence. A unit that runs inside the orchestrator therefore
+  wires `draftSetOf(context.draft)` — which is what the per-unit MCP server
+  (madarch-tzte.22.2) is handed — while `recordedDraftSet` is for a caller that
+  owns a generation's draft set itself, which is exactly what "visible to other
+  units as draft" is about. `recordedDraftSet` reads the machine's row before every
+  append, so a session that starts again over the same generation joins the writes
+  that are already there, and a retraction is the attempt before this one (0027
+  retracts a generation's draft so the next attempt starts clean): the writes it
+  covered are not this attempt's, and recording clears the retraction, as the
+  landed store's own `recordUnitDraftIn` does for a rerun. The port also answers
+  the set it holds, so a later call of one writer is held to what the earlier one
+  wrote.
+
+  A late writer is not refused here: this path carries no lease or fence, and the
+  one that decides whether a generation may publish is the orchestrator's
+  (`publishUnit` checks the fence and the run's control inside the publication's
+  own transaction, 0027). A write that arrives after the run moved past its
+  generation reaches a draft set its retraction or its replacement covers, so it
+  is written and never published; where a session is bound to one generation
+  (madarch-tzte.22.2) the authority that stops it early is that session's to pass
+  in.
 - **The unit's publication publishes exactly what it wrote.** The write each tool
   appends is the store's own `StageDraftWrite` — its kind is the tool that wrote
   it (`fact`, `entity`, `link`, `question`), its evidence is `repository@commit:file`
@@ -185,8 +223,79 @@ Taken from decisions 0026, 0027 and 0005; nothing here re-decides them.
 ### What the review changed
 
 An independent read-only review (`prime-agent --provider shady2k-gateway --model
-deepseek-v4.1-flash-auto`) read `git diff origin/main...HEAD` and the change
-record, and its findings are answered here with a test where a test can say it.
+deepseek-v4.1-flash-auto`) read `git diff origin/main...HEAD` and this record and
+answered `fix`: both DONE WHEN bullets hold on a unit's first attempt, and it found
+one blocking defect and sixteen smaller items. Every one is answered here, with a
+test where a test can say it.
+
+- **Blocking — a retried attempt could not write at all.** `retryAttempt`
+  (`orchestrator.ts`) retracts a generation's draft set and re-enqueues *the same
+  generation* (a stage that raised, a draft the validation refused, a lapsed
+  lease), and the landed store clears the retraction when a set is recorded
+  (`recordUnitDraftIn`). `recordedDraftSet` refused an append to a retracted set,
+  so the first accepted write of every retry raised and a unit whose first attempt
+  failed could never write again. The guard is gone: a retraction covers the
+  attempt before this one, the attempt that starts next begins with an empty set
+  (0027: "a rerun starts clean" — the retracted writes are not this attempt's), and
+  recording clears the retraction as the store's own write does. The case is held
+  by a test that retracts a unit's draft the way `retryAttempt` does and then
+  writes through the same unit and generation.
+- **Should-fix — the port answered its own cache, not the machine's row.** A port
+  built after the unit had already recorded writes (a session that starts again
+  over the same generation) started empty, so a write joining what the unit had
+  already written was refused as "stands nowhere in the graph" while the same
+  answer's position counted the row. `CheckedWriteDraft.writes()` is asynchronous
+  and reads the machine's own row; the case is held by a test with a second port
+  over one generation.
+- **Should-fix — two bullets of this record contradicted each other** about
+  `EDGE_END_KINDS`: the "Out of scope" bullet still said an edge's ends are not
+  held to the kinds the edge joins, while the code and the design bullet hold them,
+  which is what the schema's own comment asks for. The stale bullet is gone.
+- **Should-fix — the record claimed every check runs before the answer.** It does
+  not: each stage answers its own refusals, and the place is read before the value
+  is judged. The bullet now says what the code does, and why the bytes must be read
+  before the fact's own id is fixed.
+- **Should-fix — a refusal about the pinned tree named no repository and no
+  commit.** It carried `SnapshotError.detail`, which is the reader's words *without*
+  them. It carries the reader's whole message now, and the test holds the refusal
+  to the repository and the commit.
+- **Should-fix — the record did not say which writer owns the row.** The
+  orchestrator's attempt records its own context's set when the unit drafts, so a
+  unit whose tool writes went through a port of their own loses them there, in
+  silence. The bullet now names that consequence and says who wires what.
+- **Should-fix — `draftSetOf` had no test.** It has one now: an accepted write
+  reaches the stage's own writer, `fill_unit_draft` stays empty until the attempt
+  records the set, and the attempt's own record publishes it.
+- **Should-fix — this section named no findings.** It is this list.
+- **Nit — the scope check reads the place alone**, so a `coverage` fact's own
+  `scope` field is not held to the unit's scope; recorded above with the reason.
+- **Nit — every id-shaped string in a value is a reference**, so a literal spelled
+  like a fact id is refused where nothing stands there; recorded above.
+- **Nit — a same-line span whose columns read backwards** reached `checkFact` and
+  was refused at a provenance path; it is refused at `place.range`, naming both
+  columns, and the case is in the test that walks the place's refusals.
+- **Nit — a span past the end of the file answered `line: 10`** (the file's last
+  line) while the write cites 900; a refusal's line is the line the write cites.
+- **Nit — `consumes.variable` was said to be an end the table gives as `term`.**
+  It is not: `EDGE_END_KINDS.consumes.to` is `['environment-variable']`, so the end
+  is held to its kind and the module's mapping is right.
+- **Nit — an unreadable proposal name answered `total: 0`.** It stands beside the
+  refusal at `value.name`: the write never lands, nothing is compared, and the
+  field says why — kept, with the reason.
+- **Nit — another stage's scope form is read as a repository name and a path.**
+  `<repository>[:<path>]` is the form this path reads; a history scope
+  (`repository:<name>@<commit>`) becomes the repository `repository`, which is not
+  one the run pins, so it is refused loudly and never widened in silence.
+- **Nit — several refusals had no test** (a place that is not an object, a key a
+  place does not hold, a repository the run does not pin, a file whose bytes are
+  empty, a line counted from zero, columns that read backwards). One test walks
+  them, and they are the refusals an agent meets first.
+- **Nit — the acceptance evidence read as recorded.** It says what is recorded
+  where, and the records are posted with the handover.
+- **The review found nothing wrong with the `interaction.via` fix**: the diagnosis
+  is right, the form is the smallest right one, it is covered twice, and no other
+  kind carries the same latent defect — every identity part that may be `null` has
+  a form of its own in `IDENTITY_PART_FORMS`.
 
 ### The defect this change found in the landed schema
 
