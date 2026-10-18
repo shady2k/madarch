@@ -188,9 +188,12 @@ describe('the syntax stage is registered', () => {
       const read = deriveStageGraph(registry);
       expect(read.ok).toBe(true);
       if (!read.ok) return;
-      expect(read.graph.order).toEqual(['snapshot', 'inventory', 'syntax']);
+      // The history stage (madarch-tzte.21.2) is registered beside these and
+      // reads the snapshot too, so it is ordered between the two by code point.
+      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'syntax']);
       expect(read.graph.edges).toEqual([
         { from: 'inventory', to: 'syntax', via: 'file' },
+        { from: 'snapshot', to: 'history', via: 'snapshot' },
         { from: 'snapshot', to: 'inventory', via: 'repository' },
         { from: 'snapshot', to: 'inventory', via: 'snapshot' },
       ]);
