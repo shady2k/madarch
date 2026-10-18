@@ -343,3 +343,31 @@ export function createFillMachine<State extends string, Event extends FillEventO
     mermaid,
   };
 }
+
+/**
+ * Whether a message is one `raise` wrote: it begins with a source file's path
+ * followed by the line and column it was raised from. The stores wrap a database
+ * failure so it names the operation's own site, and they must not wrap a message
+ * that already carries one — nor must they mistake an unrelated message that
+ * happens to begin with a slash for a located one.
+ */
+export function isLocated(message: string): boolean {
+  return /^(?:\/|[A-Za-z]:[\\/])[^:]*:\d+:\d+:/.test(message);
+}
+
+/**
+ * Runs `work`, and answers a failure as the site it happened at: `site` is the
+ * file, line and column the caller took with `here()`, first, then what failed
+ * and the tables it touched, then the database's own words. A failure that is
+ * already located, and anything that is not an Error, is thrown as it stands.
+ * The three stores and the orchestrator share this one wrapper, so a failure
+ * reads the same wherever it happened.
+ */
+export async function withLocation<R>(site: string, what: string, tables: readonly string[], work: () => Promise<R>): Promise<R> {
+  try {
+    return await work();
+  } catch (error) {
+    if (error instanceof Error && isLocated(error.message)) throw error;
+    throw new Error(`${site}: ${what} failed on ${tables.join(', ')}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
