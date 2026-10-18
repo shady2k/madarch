@@ -12,9 +12,12 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { deflateSync } from 'node:zlib';
 import {
   createGitSnapshotSource, isReadableEntry, SnapshotError, SnapshotReader, type RepositoryPin,
 } from '../src/fill/snapshot.js';
@@ -58,6 +61,27 @@ async function fixture(): Promise<Fixture> {
 
 function pinOf(f: Fixture, commit: string, id = 'orders-api'): RepositoryPin {
   return { id, form: 'code', root: f.root, commit };
+}
+
+/**
+ * One loose git object written by hand: `git hash-object --literally` takes a
+ * tree's raw content, which is not what `ls-tree` prints, so a tree no git tool
+ * would write is built here as git stores it (mode, name, NUL, raw object id,
+ * deflated under `.git/objects`, named by its SHA-1). It is the only way to
+ * make a tree holding a name git's own tools refuse to write.
+ */
+function writeLooseTree(root: string, entries: readonly { mode: string; name: string; id: string }[]): string {
+  const body = Buffer.concat(entries.map((entry) => Buffer.concat([
+    Buffer.from(`${entry.mode} ${entry.name}\u0000`, 'utf8'),
+    Buffer.from(entry.id, 'hex'),
+  ])));
+  const header = Buffer.from(`tree ${body.length}\u0000`, 'utf8');
+  const raw = Buffer.concat([header, body]);
+  const id = createHash('sha1').update(raw).digest('hex');
+  const at = join(root, '.git', 'objects', id.slice(0, 2), id.slice(2));
+  mkdirSync(dirname(at), { recursive: true });
+  writeFileSync(at, deflateSync(raw));
+  return id;
 }
 
 /** A throwaway repository the test fills with the names it wants, and commits. */
@@ -264,6 +288,39 @@ describe('what the reader refuses', () => {
       // Nothing was renamed: the unfiled entries keep git's own path and id.
       const listed = execFileSync('git', ['-C', f.root, 'ls-tree', '-r', f.commit], { encoding: 'utf8' });
       for (const entry of reader.unfiled()) expect(listed).toContain(entry.id);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a name the fill\'s own path form would change is unfiled, whatever the fold would change in it', async () => {
+    // A tree only `hash-object --literally` can write, holding a plain name and
+    // a name `repositoryPath` folds: folding files two files under one path and
+    // answers one file's bytes for the other, so the fold is refused. The two
+    // files stand apart and neither is lost.
+    const f = await fixture();
+    try {
+      const plain = execFileSync('git', ['-C', f.root, 'hash-object', '-w', '--stdin'], { input: 'the plain file\n', encoding: 'utf8' }).trim();
+      const dotted = execFileSync('git', ['-C', f.root, 'hash-object', '-w', '--stdin'], { input: 'the dotted file\n', encoding: 'utf8' }).trim();
+      const tree = writeLooseTree(f.root, [
+        { mode: '100644', name: 'a.ts', id: plain },
+        { mode: '100644', name: './a.ts', id: dotted },
+      ]);
+      const commit = execFileSync('git', ['-C', f.root, 'commit-tree', tree, '-m', 'dotted'], { encoding: 'utf8' }).trim();
+      // Git lists the name as the tree holds it; ordinary git tools refuse to
+      // write one, which is why the object above is written by hand.
+      const listed = execFileSync('git', ['-C', f.root, 'ls-tree', '-r', '-z', commit], { encoding: 'utf8' })
+        .split('\u0000').filter((row) => row !== '').map((row) => row.slice(row.indexOf('\t') + 1));
+      expect(listed).toEqual(['a.ts', './a.ts']);
+      const reader = await SnapshotReader.open({ id: 'orders-api', form: 'code', root: f.root, commit });
+      expect(reader.entries().map((entry) => String(entry.path))).toEqual(['a.ts']);
+      expect(reader.unfiled().map((entry) => entry.path)).toEqual(['./a.ts']);
+      expect(reader.unfiled()[0]?.why).toContain('never folded');
+      // The file the fill can name answers its own bytes, and the other file is
+      // not the one behind that path.
+      expect(await reader.readText('a.ts')).toBe('the plain file\n');
+      expect(reader.entry('a.ts')?.id).toBe(plain);
+      expect(reader.unfiled()[0]?.id).toBe(dotted);
     } finally {
       await f.dispose();
     }

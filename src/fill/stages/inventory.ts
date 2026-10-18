@@ -160,7 +160,9 @@ async function planInventory(sources: SnapshotSource, graph: StageGraphReader): 
     const read = publishedTreeRead(pin.id);
     const published = publishedTree(await graph.query(read), pin.id, read);
     const files = reader.files();
-    anyFile = anyFile || files.length > 0;
+    // A tree whose entries are all unfiled held entries too: it is not a
+    // repository that found nothing, and stage 0's coverage names the gap.
+    anyFile = anyFile || files.length > 0 || reader.unfiled().length > 0;
     // Every walk below is over maps and sets, so a plan costs what the
     // repository holds and not its square: 0026 asks the fill to be complete on
     // any repository size.
@@ -336,7 +338,9 @@ async function fileFacts(reader: SnapshotReader, path: string, provenance: FactP
   // A path the commit does not hold, and one that holds a submodule's commit,
   // are no file of this repository: the unit publishes nothing.
   if (entry === undefined || entry.form === 'commit') return [];
-  const text = new TextDecoder().decode(await reader.read(entry.path));
+  // The same decoding `readText` answers with, the byte order mark included:
+  // two readings of one file's bytes must not disagree by a code unit.
+  const text = new TextDecoder('utf-8', { ignoreBOM: true }).decode(await reader.read(entry.path));
   const language = languageFor(entry.path);
   const placed: FileValue = {
     repository: reader.repository,

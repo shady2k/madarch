@@ -109,17 +109,20 @@ before this change.
   moves; the schema version stays 1. `test/fill-facts.test.ts`'s "every kind
   carries the schema version" gains the one kind that has moved, and names why.
 - **A tree's path is never folded, and a path the fill cannot name is unfiled.**
-  Git separates with `/` on every machine, so a backslash in a tree name is a
-  byte of that name: putting it through `repositoryPath` — which folds a
-  backslash for a caller that writes a machine path — would rename it into
-  another file's path and answer the other file's bytes under it, and two files
-  would become one fact. So the reader validates a tree path without folding,
-  and a tree path that is not a repository path of a fact (a name with a
-  backslash, a name that looks like a machine's drive) is listed as **unfiled**:
-  it is not in `entries()`, nothing is read for it, and it is never dropped in
-  silence — this stage's coverage names it, with the path, so a reader of the
-  graph sees the hole and not a smaller repository. The rest of the tree reads
-  as usual: one unusual name does not cost the repository.
+  A tree's name has no machine separator in it — git separates with `/` on every
+  machine, so a backslash in a name is a byte of that name — while
+  `repositoryPath` folds a separator and a leading `./` for a *caller* that
+  writes a machine path. Filing a tree's name through that fold renames it: two
+  files become one path, one file's bytes are answered for the other, and a fact
+  id is shared by two files. So the reader files a tree's name **as it stands or
+  not at all**: a name the fold would change (a backslash, a leading `./`) and a
+  name that is no repository path of a fact (a name that looks like a machine's
+  drive, an empty or dotted leg) are listed as **unfiled** — not in `entries()`,
+  nothing read for them, and never dropped in silence: this stage's coverage
+  names each of them, so a reader of the graph sees the hole and not a smaller
+  repository. The rest of the tree reads as usual: one unusual name does not cost
+  the repository, and a name git's own tools refuse to write is covered by a test
+  that writes the tree object by hand.
 - **A draft write's `fact` value is a whole envelope.** `StageDraftWrite` says
   `value: unknown` and the write path checks it with `checkFact`, which reads an
   envelope (kind, schema version, id, provenance, layer, status, value). So a
@@ -136,8 +139,9 @@ before this change.
   the unit writes, and the range a reader counts — from the first line's first
   character to the last line's end, a trailing newline ending a line rather than
   starting an empty one, and the columns counted in UTF-16 code units of the
-  bytes decoded as UTF-8 (a byte sequence that is not UTF-8 reads as replacement
-  characters, which is what a reader shows). So stage 1 is not byte-free: a first
+  bytes decoded as UTF-8 exactly as `readText` decodes them (the byte order mark
+  is a character of the text, and a byte sequence that is not UTF-8 reads as
+  replacement characters, which is what a reader shows). So stage 1 is not byte-free: a first
   run of a large repository pulls every file through `cat-file` once, and its
   steady state reads only the files that changed. A blob past the reader's own
   buffer fails that file's unit loudly, naming the path and the blob, although
@@ -245,6 +249,13 @@ Open points for the integrator, in the order they matter:
 - A first inventory run reads every file once (for its place, above), one
   `git cat-file` at a time; a repository of hundreds of thousands of files would
   want the reader's batched read, which is not this task's.
+- 0027's rule that a publication replaces *only the unit's* facts must be
+  applied literally by madarch-tzte.20.2 and by the run's wiring
+  (madarch-tzte.21.8): this stage declares the folder and the `contains` edge at
+  the repository's scope, because the scope vocabulary has no scope for one
+  folder, and a publication that read the declared scope as "replace everything
+  the stage owns" would take every other folder of the repository with one
+  unit.
 
 Owner approval pending (coordinator).
 

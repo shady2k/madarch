@@ -144,6 +144,12 @@ export function isReadableEntry(entry: SnapshotEntry): boolean {
  * named here rather than dropped, nothing is read for it, and a stage's
  * coverage names it as what could not be read — a file the fill forgot in
  * silence would be a hole in the graph nobody can see.
+ *
+ * An unfiled path is **not** a path to ask the reader for: `entry`, `requireEntry`
+ * and `read` take the fill's own form of a path (where a backslash is a machine
+ * separator, `repositoryPath`), so asking for an unfiled path may answer another
+ * file's bytes or refuse. A caller that means these bytes has none of this
+ * reader's ways to reach them, which is exactly what unfiled says.
  */
 export interface UnfiledEntry {
   /** The path git lists, byte for byte, exactly as the tree holds it. */
@@ -287,7 +293,7 @@ export class SnapshotReader {
       throw new SnapshotError({
         repository,
         commit: resolvedCommit,
-        refusal: 'no-commit',
+        refusal: 'unreadable-tree',
         detail: `the tree of ${resolvedCommit} could not be listed: ${why(listed)}`,
       });
     }
@@ -296,7 +302,7 @@ export class SnapshotReader {
       throw new SnapshotError({
         repository,
         commit: resolvedCommit,
-        refusal: 'no-commit',
+        refusal: 'unreadable-tree',
         detail: `the tree id of ${resolvedCommit} could not be read: ${why(treeId)}`,
       });
     }
@@ -487,8 +493,9 @@ function parseTree(output: Buffer, repository: string, commit: string): { entrie
     if (tab < 0) {
       throw malformed(`git listed a tree entry without a path: ${JSON.stringify(row)}`);
     }
-    const [mode, type, id, size] = row.slice(0, tab).split(/\s+/u);
-    if (mode === undefined || type === undefined || id === undefined || size === undefined) {
+    const fields = row.slice(0, tab).split(/\s+/u);
+    const [mode, type, id, size] = fields;
+    if (mode === undefined || type === undefined || id === undefined || size === undefined || fields.length > 4) {
       throw malformed(`git listed the tree entry ${JSON.stringify(row)} in a shape this reader does not know: a row is "<mode> <type> <object> <size>\\t<path>"`);
     }
     if (!(SNAPSHOT_MODES as readonly string[]).includes(mode)) {
@@ -511,7 +518,7 @@ function parseTree(output: Buffer, repository: string, commit: string): { entrie
     // The size is `-` for an entry whose object is no blob, and a byte count
     // for every other: a size that is neither is a row this reader misreads.
     const bytes = size === '-' ? undefined : Number(size);
-    if (size !== '-' && !Number.isInteger(bytes)) {
+    if (size !== '-' && !/^\d+$/u.test(size)) {
       throw malformed(`git listed the size ${JSON.stringify(size)} for this path, which is no byte count`);
     }
     const sized = bytes === undefined ? {} : { bytes };
@@ -542,7 +549,17 @@ function fillablePath(path: string): { path: RepositoryPath } | { why: string } 
     };
   }
   try {
-    return { path: repositoryPath(path) };
+    const held = repositoryPath(path);
+    // `repositoryPath` folds a machine path a caller writes; a tree's name is
+    // not a caller's path, so a name the fold would change is filed as it
+    // stands or not at all. A fold that changes a name would otherwise file two
+    // files under one path and answer one file's bytes for the other.
+    if (held !== path) {
+      return {
+        why: `the tree holds the name ${JSON.stringify(path)}, and the fill's repository paths read it as ${JSON.stringify(held)}: a name of the tree is filed as it stands, never folded`,
+      };
+    }
+    return { path: held };
   } catch (error) {
     return { why: (error as Error).message };
   }
