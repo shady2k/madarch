@@ -822,6 +822,37 @@ describe('the check that names every reason a fact is not one the schema reads',
     expect(problems.paths).toEqual(['provenance.repository.id']);
   });
 
+  test('the digest waits for the provenance records the identity reads, and no others', () => {
+    // A fact's commit and source version are what it was read at, not what it
+    // is (0004): a file's identity is its repository and its path, so a tampered
+    // id is a real reason beside a broken commit. A place-identity kind's id
+    // does name the repository and the place, so a broken one there says nothing
+    // about the digest.
+    const tampered = { ...file, id: `file:${'a'.repeat(64)}` };
+    expect(problemsOf({ ...tampered, provenance: { ...provenanceFor('file'), repository: { id: REPOSITORY, commit: 'HEAD' } } }).paths).toEqual(['provenance.repository.commit', 'id']);
+    expect(problemsOf({ ...tampered, provenance: { ...provenanceFor('file'), source: { system: 'tree-sitter', version: ' ' } } }).paths).toEqual(['provenance.source.version', 'id']);
+    const claim = sampleFact('claim');
+    expect(problemsOf({ ...claim, provenance: { ...provenanceFor('claim'), repository: { id: 'orders api', commit: COMMIT } } }).paths).toEqual(['provenance.repository.id']);
+  });
+
+  test('a value that is not JSON is named at the fact, never thrown out of', () => {
+    // An agent's write may carry anything: a BigInt, a circular record, an
+    // `undefined` inside a record the identity digests. The check names it.
+    expect(problemsOf({ ...file, status: 10n as never }).paths).toEqual(['status']);
+    expect(problemsOf({ ...file, kind: 10n as never }).paths).toEqual(['kind']);
+    const circular: Record<string, unknown> = { what: 'src/a.js', reason: 'error' };
+    circular['self'] = circular;
+    const coverage = sampleFact('coverage');
+    expect(problemsOf({ ...coverage, value: { ...coverage.value, unread: [circular] } }).paths).toEqual(['value.unread[0]']);
+    const claim = sampleFact('claim');
+    const notJson = { ...claim.value, subject: { form: 'node', id: anyId('symbol'), url: undefined } };
+    const paths = problemsOf({ ...claim, value: notJson }).paths;
+    expect(paths).toContain('value.subject');
+    expect(paths).toContain('value');
+    // And the constructor refuses the same write rather than throwing a JSON error.
+    expect(() => makeNodeFact({ kind: 'claim', value: notJson as never, provenance: provenanceFor('claim'), layer: 'inferred' })).toThrow(FactSchemaError);
+  });
+
   test('a field the kind holds as a list is refused when it is not one, and an empty list of roles is refused too', () => {
     const coverage = sampleFact('coverage');
     expect(problemsOf({ ...coverage, value: { ...coverage.value, read: 5 } }).paths).toEqual(['value.read']);

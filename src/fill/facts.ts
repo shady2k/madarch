@@ -1333,7 +1333,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'optional',
     layers: ['extracted', 'inferred'],
     version: FACTS_SCHEMA_VERSION,
-    identityValue: (value, provenance) => [['repository', value.repository], ['scope', value.scope], ['reader', provenance.source.system]],
+    identityValue: (value, provenance) => [['repository', value.repository], ['scope', value.scope], ['reader', identityName(provenance.source.system)]],
     provenanceParts: ['reader'],
   },
   'question': {
@@ -1558,7 +1558,16 @@ export function factId<K extends FactKind>(fact: {
     if (formProblem !== undefined) throw new FactSchemaError(`value.${field}`, formProblem);
     identity[field] = part;
   }
-  return `${fact.kind}:${canonicalJsonDigest({ kind: fact.kind, identity })}`;
+  let digest: string;
+  try {
+    digest = canonicalJsonDigest({ kind: fact.kind, identity });
+  } catch (error) {
+    // A part that is not JSON — an `undefined` inside a record, a circular
+    // value — has no digest: it is refused at the fact's value, never thrown
+    // out of.
+    throw new FactSchemaError('value', `the identity of ${withArticle(fact.kind)} fact is not JSON, so it has no digest: ${(error as Error).message}`);
+  }
+  return `${fact.kind}:${digest}`;
 }
 
 // ---- the fact ------------------------------------------------------------
@@ -2244,7 +2253,7 @@ export function checkFact(fact: unknown): FactProblem[] {
       const seenKeys = new Map<string, number>();
       held.forEach((entry, index) => {
         if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
-          add(`value.${field}[${index}]`, `a list of a fact holds objects or names, not ${shown(entry)}`);
+          add(`value.${field}[${index}]`, `a record of this list is an object, not ${shown(entry)}`);
           return;
         }
         const recordFields = entry as Record<string, unknown>;
@@ -2356,9 +2365,21 @@ export function checkFact(fact: unknown): FactProblem[] {
         add(`value.${field}`, message);
       }
     }
-    if (partsRead && provenanceReads && (definition.place !== 'identity' || placeReads) && idReads) {
-      const recomputed = factId({ kind, value: value as FactValueOf<FactKind>, provenance: provenance as FactProvenance });
-      if (recomputed !== id) {
+    // The digest waits only for the provenance records the identity itself
+    // reads: the place's for a kind whose place is identity, the source's for a
+    // kind whose reader is part of it, and nothing else — a commit or a source
+    // version a fact was read at is no part of what the fact is.
+    const identityProvenanceReads = (definition.place === 'identity' ? repositoryIsRead && placeReads : true)
+      && (definition.provenanceParts === undefined ? true : sourceIsRead);
+    if (partsRead && identityProvenanceReads && idReads) {
+      let recomputed: string | undefined;
+      try {
+        recomputed = factId({ kind, value: value as FactValueOf<FactKind>, provenance: provenance as FactProvenance });
+      } catch (error) {
+        if (!(error instanceof FactSchemaError)) throw error;
+        add(error.path, error.detail);
+      }
+      if (recomputed !== undefined && recomputed !== id) {
         add('id', `${shown(id)} is not the id of this fact: its identity digests to ${shown(recomputed)}, and an id is never written but computed`);
       }
     }

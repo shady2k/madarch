@@ -137,6 +137,14 @@ an `id` defect. `environment-variable`'s name, `section`'s anchor and
 `symbol`'s disambiguator are now normalized like every other name part, and a
 `package` or a `deploy-unit` stands at the manifest it was read from.
 
+A focused third pass over that fix confirmed all fifteen and found one defect it
+introduced: the digest waited for a provenance record the identity does not read
+(a file's commit and a source version are not part of what a file is), so a true
+`id` reason was dropped. The wait is now exactly the provenance the identity
+reads — the repository and the place for a place-identity kind, the source for a
+coverage — and a value that is not JSON is named at its path instead of throwing
+out of the check, which that pass also measured as still open in a nested record.
+
 ## DONE WHEN
 `src/fill/facts.ts` declares every kind madarch-tzte.20.1 names, each with its
 stages, provenance, layer, status and version; ids are the digest of each

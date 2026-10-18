@@ -356,7 +356,10 @@ after the first stage that writes each kind its end may name.
 ## Identity
 
 A kind's identity is a list of named parts: the fields of its own value and,
-for the kinds that say `place: identity`, the place. `factId` turns the parts
+for the kinds that say `place: identity`, the place. The two are declared apart
+(`identityValue` and the place's own parts) so the check reads a value's parts
+even when the place or the provenance did not read — a broken provenance costs
+its own reasons and never hides a part of the value. `factId` turns the parts
 into `{kind, identity}` and digests its canonical JSON (keys in code point
 order, no whitespace: `canonicalJsonDigest`, the project's one canonical form),
 writing `<kind>:<64 hex>`. Three rules follow and are tested:
@@ -428,15 +431,21 @@ place's file and line. It reads, in this order:
   documented key (`coverage.unread` is in code point order of `what`, each
   `what` once, and each gap's reason is one the schema names);
 - the two places a fact carries a closed form inside its value (an assertion's
-  ends and a binding's value);
+  ends and a binding's value), and a value that is not JSON at all — a `BigInt`,
+  a circular record, an `undefined` inside a record the identity digests — which
+  is named at its path rather than thrown out of the check;
 - every identity part the kind declares, read as the form its kind gives it —
   a product's name for a repository and never a machine path, a commit, a fact
   id, one of the fill's own tokens, one of the kind's closed forms, text with
   something in it — so a part the graph cannot join is refused before any id
   is computed from it;
 - and finally the id, against the digest its identity gives. Only this last
-  comparison waits for the parts to read: an id computed from a part the check
-  already refused would say nothing.
+  comparison waits for the parts to read — the value's parts, and the place's
+  and the repository's for a kind whose place is identity, and the source's for
+  the coverage whose reader is part of it — because an id computed from a part
+  the check already refused would say nothing. A provenance record the identity
+  does not read — the commit a fact was read at, a source version — is no
+  reason to withhold the id.
 
 The rest of a write's checks need the pinned snapshot — that the cited bytes
 exist and were read, that the referenced nodes exist, that the write is inside
