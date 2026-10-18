@@ -30,7 +30,7 @@
  *   of the agent's standard error.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { accessSync, constants as fsConstants } from 'node:fs';
+import { accessSync, constants as fsConstants, statSync } from 'node:fs';
 import { delimiter, resolve } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import * as acp from '@agentclientprotocol/sdk';
@@ -190,25 +190,26 @@ const STDERR_LIMIT = 4_096;
 /** How long the agent has to end after SIGTERM before SIGKILL, in milliseconds. */
 const KILL_GRACE_MS = 2_000;
 
-/** The full path a program resolves to on this machine, or `undefined` when there is none. */
+/**
+ * The full path a program resolves to on this machine, or `undefined` when
+ * there is none. Something that is executable but is not a file — a folder
+ * that happens to carry the name, say — is no program and is refused here
+ * rather than failing at the spawn.
+ */
 export function resolveExecutable(command: string, pathValue = process.env.PATH ?? ''): string | undefined {
-  if (command.includes('/')) {
+  const runs = (path: string): boolean => {
     try {
-      accessSync(command, fsConstants.X_OK);
-      return resolve(command);
+      accessSync(path, fsConstants.X_OK);
+      return statSync(path).isFile();
     } catch {
-      return undefined;
+      return false;
     }
-  }
+  };
+  if (command.includes('/')) return runs(command) ? resolve(command) : undefined;
   for (const folder of pathValue.split(delimiter)) {
     if (!folder) continue;
     const candidate = resolve(folder, command);
-    try {
-      accessSync(candidate, fsConstants.X_OK);
-      return candidate;
-    } catch {
-      continue;
-    }
+    if (runs(candidate)) return candidate;
   }
   return undefined;
 }
@@ -502,10 +503,10 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
       if (initialized === undefined) {
         throw new AcpError(`src/fill/acp.ts:newSession: the connection to ${spec.id} (${executable}) must be initialized before a session is created`);
       }
+      // The protocol lets a session name its own absolute folder, and this
+      // client does not narrow that: the folder the caller asks for is the one
+      // the agent is sent.
       const sessionCwd = resolve(sessionOptions.cwd);
-      if (sessionCwd !== cwd) {
-        throw new AcpError(`src/fill/acp.ts:newSession: the session folder ${sessionCwd} is not the folder the agent ${spec.id} (${executable}) runs in (${cwd})`);
-      }
       const mcpServers = toMcpServers(sessionOptions.mcpServers ?? [], searchPath);
       const capabilities = (initialized.agentCapabilities.mcpCapabilities ?? {}) as { http?: unknown; sse?: unknown };
       for (const server of mcpServers) {
@@ -578,13 +579,21 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
       closing = true;
       sessions.clear();
       try { client.close(); } catch { /* already closed */ }
-      if (!ended) {
-        signalGroup('SIGTERM');
-        const timer = setTimeout(() => { if (!ended) signalGroup('SIGKILL'); }, KILL_GRACE_MS);
-        timer.unref();
-        await finished;
-        clearTimeout(timer);
-      }
+      // The group is signalled whether or not the agent itself ended: an agent
+      // that crashed or exited on its own can leave the helpers it started
+      // alive, and they hold this connection's pipes. Signalling a group with
+      // no member left throws ESRCH, which the helper swallows.
+      signalGroup('SIGTERM');
+      // The grace timer is left to run: a helper that ignores SIGTERM is
+      // killed two seconds after the close, and the signal finds nothing to
+      // send when the group is empty.
+      setTimeout(() => signalGroup('SIGKILL'), KILL_GRACE_MS).unref();
+      if (!ended) await finished;
+      // This process's own ends of the pipes are dropped as well, so nothing a
+      // helper still holds can keep the event loop alive after close.
+      child.stdin?.destroy();
+      child.stdout?.destroy();
+      child.stderr?.destroy();
       settleClosed();
     },
   };

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -16,6 +17,8 @@ import {
 
 /** The fake agent, started the way a real adapter is: a program on this machine speaking ACP over stdio. */
 const FAKE_AGENT = join(import.meta.dir, 'fixtures', 'acp-fake-agent', 'acp-fake-agent.ts');
+/** A program of its own that connects, closes and returns — the shape a command has. */
+const CLOSE_AND_RETURN = join(import.meta.dir, 'fixtures', 'acp-fake-agent', 'close-and-return.ts');
 
 const scratch: string[] = [];
 const connections: AcpConnection[] = [];
@@ -29,6 +32,32 @@ function scratchFolder(): string {
   const folder = mkdtempSync(join(tmpdir(), 'madarch-acp-'));
   scratch.push(folder);
   return folder;
+}
+
+/** Whether the process is still there to be signalled. */
+function alive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+/** The first whole number a file holds, once it holds one; `undefined` while it does not. */
+function firstNumber(file: string): number | undefined {
+  try {
+    const pid = Number(readFileSync(file, 'utf8').trim().split('\n')[0]);
+    return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Wait for a condition the machine reaches on its own, rather than for a fixed sleep. */
+async function waitFor<T>(check: () => T | undefined, what: string, bound = 10_000): Promise<T> {
+  const deadline = Date.now() + bound;
+  for (;;) {
+    const value = check();
+    if (value !== undefined) return value;
+    if (Date.now() >= deadline) throw new Error(`the test waited ${bound} ms in vain for ${what}`);
+    await new Promise((settle) => setTimeout(settle, 25));
+  }
 }
 
 /** A connection to the fake agent in one of its scenarios, with its recording file. */
@@ -152,11 +181,16 @@ describe('a session is created with the unit\'s MCP servers', () => {
   test('toMcpServers resolves a command to the path this machine runs, defaults an http server to that transport and refuses an empty or absent one', () => {
     // A bare name is looked up on PATH: resolving it against madarch's own
     // folder would name a program the agent cannot start.
-    const resolved = toMcpServers([{ name: 'local', command: 'true', args: ['--flag'] }]);
-    expect(resolved).toHaveLength(1);
-    expect(resolved[0]).toMatchObject({ name: 'local', args: ['--flag'], env: [] });
-    expect((resolved[0] as { command: string }).command.startsWith('/')).toBe(true);
-    expect((resolved[0] as { command: string }).command.endsWith('/true')).toBe(true);
+    const bin = scratchFolder();
+    const program = join(bin, 'unit-mcp');
+    writeFileSync(program, '#!/bin/sh\nexit 0\n');
+    chmodSync(program, 0o755);
+    const resolved = toMcpServers([{ name: 'local', command: 'unit-mcp', args: ['--flag'] }], bin);
+    expect(resolved).toEqual([{ name: 'local', command: program, args: ['--flag'], env: [] }]);
+    // A folder that carries the name is no program: it resolves to nothing.
+    const impostorBin = scratchFolder();
+    mkdirSync(join(impostorBin, 'unit-mcp'));
+    expect(() => toMcpServers([{ name: 'local', command: 'unit-mcp' }], impostorBin)).toThrow(/cannot be started/);
     expect(toMcpServers([{ name: 'remote', url: 'http://127.0.0.1:1/mcp', type: 'sse' }])).toEqual([{ name: 'remote', url: 'http://127.0.0.1:1/mcp', type: 'sse', headers: [] }]);
     expect(() => toMcpServers([{ name: 'bare', command: '  ' }])).toThrow(/src\/fill\/acp\.ts:toMcpServers: the MCP server "bare" has no command to run/);
     expect(() => toMcpServers([{ name: 'bare', url: '' }])).toThrow(/src\/fill\/acp\.ts:toMcpServers: the MCP server "bare" has no url/);
@@ -170,12 +204,15 @@ describe('a session is created with the unit\'s MCP servers', () => {
       .rejects.toThrow(/src\/fill\/acp\.ts:newSession: the agent fake \(.*\) did not advertise the http MCP transport, so the MCP server "graph" cannot be attached over http/);
   });
 
-  test('a session is refused before initialize, and in a folder the agent does not run in', async () => {
-    const { connection } = await connect('default');
+  test('a session is refused before initialize, and a folder other than the connection\'s is the folder the agent is sent', async () => {
+    const { connection, messages } = await connect('default');
     await expect(connection.newSession({ cwd: process.cwd() })).rejects.toThrow(/src\/fill\/acp\.ts:newSession: the connection to fake \(.*\) must be initialized before a session is created/);
     await connection.initialize();
     const other = scratchFolder();
-    await expect(connection.newSession({ cwd: other })).rejects.toThrow(new RegExp(`src/fill/acp\\.ts:newSession: the session folder ${other} is not the folder the agent fake \\(.*\\) runs in \\(${process.cwd()}\\)`));
+    const session = await connection.newSession({ cwd: other });
+    expect(session.sessionId).toBe('fake-session-1');
+    const request = messages().find((message) => message.method === 'session/new');
+    expect(request?.params).toMatchObject({ cwd: other, mcpServers: [] });
   });
 
   test('session/new without an id is a failure naming the agent', async () => {
@@ -273,6 +310,16 @@ describe('the agent keeps no way around the unit\'s MCP server', () => {
     expect(result.stopReason).toBe('end_turn');
     expect(result.text).toContain('the agent called fs/read_text_file, which madarch does not offer');
     expect(result.text).toContain('code is read through the session\'s MCP server');
+  });
+
+  test('a file write the agent asks the client for is refused too, naming the method', async () => {
+    const { connection } = await connect('fs-write-call');
+    await connection.initialize();
+    const session = await connection.newSession({ cwd: process.cwd() });
+    const result = await session.prompt('write a file');
+    expect(result.stopReason).toBe('end_turn');
+    expect(result.text).toContain('the agent called fs/write_text_file, which madarch does not offer');
+    expect(result.text).toContain('writes go through the session\'s MCP server');
   });
 
   test('a permission request is answered cancelled', async () => {
@@ -391,7 +438,7 @@ describe('closing the connection', () => {
     await connection.initialize();
     const session = await connection.newSession({ cwd: process.cwd() });
     const running = session.prompt('a turn madarch ends');
-    await session.cancel();
+    // The close alone ends the turn: nothing cancels it first.
     await connection.close();
     expect((await running).stopReason).toBe('cancelled');
   });
@@ -404,15 +451,50 @@ describe('closing the connection', () => {
     await connection.initialize();
     const session = await connection.newSession({ cwd: process.cwd() });
     const running = session.prompt('start a helper');
-    await new Promise((settle) => setTimeout(settle, 400));
-    const started = Date.now();
+    const helper = await waitFor(() => firstNumber(helperRecord), 'the agent to start its helper');
+    expect(alive(helper)).toBe(true);
     await connection.close();
-    const took = Date.now() - started;
     expect((await running).stopReason).toBe('cancelled');
-    expect(took).toBeLessThan(3_000);
-    const helper = Number(readFileSync(helperRecord, 'utf8').trim());
+    await waitFor(() => (alive(helper) ? undefined : true), `helper ${helper} to end`);
+    expect(alive(helper)).toBe(false);
+  });
+
+  test('closing ends the helper an agent left when the agent itself had already ended', async () => {
+    // The agent starts a helper holding the connection's pipes and then exits
+    // on its own: the close must still end that helper, or the pipes keep
+    // madarch's event loop alive after the agent is gone.
+    const helperRecord = join(scratchFolder(), 'helpers.txt');
+    const { connection, pid: pidFile } = await connect('exit-with-helper', { env: { ACP_FAKE_HELPER_RECORD: helperRecord } });
+    await connection.initialize();
+    await connection.closed;
+    const agent = Number(readFileSync(pidFile, 'utf8').trim());
+    expect(alive(agent)).toBe(false);
+    const helper = await waitFor(() => firstNumber(helperRecord), 'the agent to start its helper');
+    expect(alive(helper)).toBe(true);
+    await connection.close();
+    await waitFor(() => (alive(helper) ? undefined : true), `helper ${helper} to end`);
+    expect(alive(helper)).toBe(false);
+  });
+
+  test('a program that connects, closes and returns exits by itself, even with a helper holding its pipes', async () => {
+    const folder = scratchFolder();
+    const record = join(folder, 'record.jsonl');
+    const pid = join(folder, 'pid');
+    const helperRecord = join(folder, 'helpers.txt');
+    writeFileSync(record, '');
+    const run = spawnSync(process.execPath, [CLOSE_AND_RETURN, FAKE_AGENT, record, pid, helperRecord], {
+      cwd: process.cwd(),
+      timeout: 20_000,
+      encoding: 'utf8',
+      env: { ...process.env, ACP_FAKE_HELPER_RECORD: helperRecord },
+    });
+    // A program held open by an inherited pipe would be killed at the bound
+    // with a signal and no status, so its own exit is what this asks for.
+    expect(run.signal).toBeNull();
+    expect(run.status).toBe(0);
+    const helper = Number(/helper (\d+)/.exec(run.stdout)?.[1] ?? '0');
     expect(helper).toBeGreaterThan(0);
-    await new Promise((settle) => setTimeout(settle, 200));
-    expect(() => process.kill(helper, 0)).toThrow();
+    await waitFor(() => (alive(helper) ? undefined : true), `helper ${helper} to end`);
+    expect(alive(helper)).toBe(false);
   });
 });

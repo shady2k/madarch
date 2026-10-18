@@ -19,8 +19,10 @@
  *   no-http-mcp   advertises no MCP transport at all
  *   slow-turn     takes longer than the client's bound before it answers the prompt
  *   helper        starts a long-lived helper process, then waits for a cancel
+ *   exit-with-helper starts a long-lived helper, answers initialize, then exits
  *   dies-mid-turn sends a message chunk, then exits without answering
  *   fs-call       asks the client for fs/read_text_file and reports the answer
+ *   fs-write-call asks the client for fs/write_text_file and reports the answer
  *   permission    asks the client for permission and reports the outcome
  *   unknown       streams an update kind the protocol's schema does not define
  *   extended      streams a schema-valid update kind madarch does not name
@@ -101,10 +103,12 @@ async function runPrompt(id: number | string, sessionId: string, text: string): 
     chunk(sessionId, 'working');
     return;
   }
-  if (scenario === 'fs-call') {
+  if (scenario === 'fs-call' || scenario === 'fs-write-call') {
     let answer: string;
     try {
-      const reply = await ask('fs/read_text_file', { sessionId, path: '/etc/hostname' });
+      const reply = scenario === 'fs-call'
+        ? await ask('fs/read_text_file', { sessionId, path: '/etc/hostname' })
+        : await ask('fs/write_text_file', { sessionId, path: '/tmp/fake-agent-write', content: 'x' });
       answer = reply.error === undefined ? 'fs answer without error' : JSON.stringify(reply.error);
     } catch (error) {
       answer = `fs refused: ${(error as Error).message}`;
@@ -170,6 +174,21 @@ lines.on('line', (line: string) => {
   switch (message.method) {
     case 'initialize':
       if (scenario === 'hang') return;
+      if (scenario === 'exit-with-helper') {
+        // A helper that inherits this agent's stdout and stderr — that is, the
+        // client's pipes — and an agent that then ends on its own: the client
+        // must still end the helper when it closes.
+        const helper = Bun.spawn(['sleep', '30'], { stdio: ['ignore', 'inherit', 'inherit'] });
+        appendFileSync(process.env.ACP_FAKE_HELPER_RECORD ?? '/dev/null', `${helper.pid}\n`);
+        respond(message.id, {
+          protocolVersion: 1,
+          agentCapabilities: { loadSession: false, promptCapabilities: { image: false }, mcpCapabilities: { http: true, sse: true } },
+          agentInfo: { name: 'fake-agent', title: 'Fake ACP agent', version: '1.0.0' },
+          authMethods: [],
+        });
+        setTimeout(() => process.exit(0), 50);
+        return;
+      }
       if (scenario === 'late-initialize') {
         // Answers well after any sane bound, to prove the client survives a
         // request that settles when nothing is waiting for it any more.

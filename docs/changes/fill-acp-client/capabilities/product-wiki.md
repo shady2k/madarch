@@ -683,10 +683,15 @@ connection's pipes; a turn in flight at that moment shall end as cancelled.
 
 For each session, madarch shall report the input and output tokens the agent
 reported, or say that token usage was not reported: it keeps the agent's latest
-report as the session's figure and never adds reports together, and it keeps
-the context window an agent reports through `usage_update` beside them. An
-update kind madarch does not name shall be kept as it arrived rather than
-dropped, and an update outside the protocol's schema shall not end the turn.
+report as the session's figure and never adds reports together. The token
+figures sit in a field the protocol's published v1 schema does not carry — the
+official library's generated schema has it, marked unstable — so an agent that
+conforms to v1 may never report them, and the session then reads "not
+reported". The context window an agent reports through `usage_update` is a
+stable part of the schema, and the unit's limits are read from it; madarch keeps
+it beside the session's figures. An update kind madarch does not name shall be
+kept as it arrived rather than dropped, and an update outside the protocol's
+schema shall not end the turn.
 
 A probe shall report, for a machine, which of the agents the fill considers
 connect over ACP: for each, whether an adapter is installed, and for one that

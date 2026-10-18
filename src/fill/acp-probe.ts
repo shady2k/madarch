@@ -13,7 +13,6 @@
  * from its own binary (`omp acp`), measured on this machine's omp 18.10.4,
  * and it is not in the registry. Nothing here installs anything.
  */
-import { delimiter } from 'node:path';
 import { connectAcpAgent, resolveExecutable, type AcpConnection } from './acp.js';
 
 /** One agent's way to ACP, and how a machine without it would get it. */
@@ -156,8 +155,9 @@ export async function probeAcpAgents(options: { cwd?: string; path?: string; tim
 
 /** The report as a reader reads it: one block per agent, then what was not sent. */
 export function formatAcpProbe(report: AcpProbeReport): string {
-  const folders = report.path.split(delimiter).filter(Boolean).length;
-  const lines: string[] = [`Agents that connect over ACP on this machine (${folders} folder${folders === 1 ? '' : 's'} on PATH, checked ${report.at}):`];
+  // The PATH itself, not a count of it: a reader whose adapter was not found
+  // needs to see where the probe looked.
+  const lines: string[] = [`Agents that connect over ACP on this machine (PATH ${JSON.stringify(report.path)}, checked ${report.at}):`];
   for (const finding of report.findings) {
     lines.push('');
     lines.push(`${finding.status === 'connected' ? '✓' : finding.status === 'failed' ? '✗' : '–'} ${finding.label}${finding.status === 'connected' ? ' — connected' : finding.status === 'failed' ? ' — failed' : ' — not installed'}`);

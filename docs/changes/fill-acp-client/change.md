@@ -50,6 +50,13 @@ signals the whole group on close — SIGTERM, then SIGKILL after two seconds —
 unit's helpers end with it. The test starts a helper that holds the pipes and
 asserts that both are gone.
 
+One limit is the protocol's own: the published v1 schema's `session/prompt`
+response carries a stop reason and nothing else, so the input and output tokens
+madarch reports are the library's generated, explicitly unstable `usage` field —
+a conforming agent may never send it, and the session then says "not reported"
+rather than inventing a figure. The context window, the figure the unit's 70%
+and 80% limits are read from, is the stable `usage_update`.
+
 ## Out of scope
 - The unit's limits and how they are enforced — the 272K window, the wrap at
   70% and the stop at 80%, the turn and time caps, the split of a scope — and

@@ -124,7 +124,7 @@ describe('the ACP probe reports what this machine can connect', () => {
     expect(report.path).toBe(bin);
     expect(report.findings.map((finding) => finding.id)).toEqual(['claude-code', 'codex']);
     const text = formatAcpProbe(report);
-    expect(text).toContain('Agents that connect over ACP on this machine (1 folder on PATH');
+    expect(text).toContain(`Agents that connect over ACP on this machine (PATH ${JSON.stringify(bin)}`);
     expect(text).toContain('– Claude Code — not installed');
     expect(text).toContain('– Codex — not installed');
     // The report names where each claim comes from, not only what it found.
@@ -139,6 +139,18 @@ describe('`madarch fill --probe-acp`', () => {
     const run = Bun.spawnSync([process.execPath, cli, 'fill', '--probe-acp', '--agent', 'omp'], { cwd: join(import.meta.dir, '..') });
     expect(run.exitCode).toBe(2);
     expect(run.stderr.toString()).toContain('--probe-acp reports the agents on this machine and fills nothing: drop --agent');
+  });
+
+  test('--json prints one object whose findings are the catalogue\'s, and holds still on a PATH without adapters', () => {
+    const cli = join(import.meta.dir, '..', 'scripts', 'madarch.ts');
+    const empty = scratchFolder();
+    const run = Bun.spawnSync([process.execPath, cli, 'fill', '--probe-acp', '--json'], { cwd: join(import.meta.dir, '..'), env: { ...process.env, PATH: empty } });
+    expect(run.exitCode).toBe(0);
+    const report = JSON.parse(run.stdout.toString()) as { path: string; findings: { id: string; status: string; evidence: string }[] };
+    expect(report.path).toBe(empty);
+    expect(report.findings.map((finding) => finding.id)).toEqual(ACP_ADAPTERS.map((adapter) => adapter.id));
+    expect(report.findings.every((finding) => finding.status === 'not-installed')).toBe(true);
+    expect(report.findings.every((finding) => finding.evidence.length > 20)).toBe(true);
   });
 
   test('its help names the flag', () => {
