@@ -1,0 +1,1503 @@
+/**
+ * The bounded graph reads (decision 0026, "Agents and tools" and "Units and
+ * limits"; madarch-tzte.20.3): the six tools an agent unit reads the product
+ * graph through — `describe_scope`, `neighbors`, `references`,
+ * `claims_about`, `coverage` and `evidence_span` — each a plain function with a
+ * typed request and a typed answer, answering from the fill's fact store
+ * (`fact-store.ts`, the landed `fill_fact` rows) and, for a span, from the
+ * pinned snapshot (`snapshot.ts`, the commit's own bytes).
+ *
+ * Three things hold for every tool:
+ *
+ * - **Within the caps.** A tool answer holds at most 8K tokens and an evidence
+ *   span about 200 lines (0026). The caps are the unit's own (`limits`, bound
+ *   to the unit's server in madarch-tzte.22.2) and the 0026 numbers are their
+ *   defaults. Tokens are counted by the fill's own estimate — four code points
+ *   a token — because a cap a server enforces must not need a tokeniser of the
+ *   model that will read the answer.
+ * - **Never silently smaller.** An answer the cap cut says so: `truncated` is
+ *   true and `marker` is one sentence naming what was cut and by which cap.
+ *   A single row too large for the cap is a whole answer that says it holds
+ *   nothing, never an answer that quietly drops it.
+ * - **Every read recorded.** A tool answers only through the context it is
+ *   given, and the context records each read of the pinned graph as the reading
+ *   unit's dependency: the query and the membership of the rows it answered, an
+ *   empty answer included (`recordUnitRead`, `orchestrator-store.ts`;
+ *   `readMembership` is the digest). A later publication that changes one of
+ *   those memberships is exactly what the orchestrator's staleness recheck sees
+ *   (`invalidateStaleUnits`), so a unit whose graph moved is replaced instead of
+ *   being published on top of what it read. The answer carries the reads it
+ *   made (`reads`), in the order it made them.
+ *
+ * A read of the pinned graph is one value of `GraphRead`: a small grammar of
+ * named reads over the fact store, or a span read of the pinned commit's bytes.
+ * The recorded query is the canonical JSON of that value, so two reads differ
+ * exactly when their request differs (their ids, kinds and windows included) and
+ * a read replayed at revalidation is the same read. The reader answers a read
+ * request and passes any other text to the store unchanged, so a stage's own SQL
+ * keeps working through the same seam (`UnitGraphReader`, `orchestrator.ts`).
+ *
+ * Nothing here writes the graph: the only row this module ever writes is the
+ * unit's own read record.
+ */
+import type { DatabaseOwner } from '../adapters/database-owner.js';
+import { byCodePoint } from '../model/order.js';
+import { ID_PATTERN } from '../model/schema.js';
+import type { SqlExecutor } from '../query/sql-driver.js';
+import type { FactStoreDatabase } from './fact-store.js';
+import {
+  COVERAGE_GAP_REASONS,
+  FACT_EDGE_KINDS,
+  isFactId,
+  isFactKind,
+  type CoverageGapReason,
+  type Fact,
+  type FactEdgeKind,
+  type FactLayer,
+  type FactKind,
+  type FactStatus,
+} from './facts.js';
+import { here, raise, withLocation } from './fsm-core.js';
+import { recordUnitRead, recordUnitReadIn } from './orchestrator-store.js';
+import type { SnapshotReader } from './snapshot.js';
+
+// ---------------------------------------------------------------------------------------------
+// The caps
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The caps one unit's reads answer within. 0026 fixes the numbers (a tool answer
+ * at most 8K tokens, an evidence span about 200 lines) and the unit's MCP server
+ * binds them to the unit, so a caller names its own where it has them.
+ */
+export interface GraphReadLimits {
+  /** The most tokens one tool answer holds. */
+  readonly answerTokens: number;
+  /** The most lines one evidence span holds. */
+  readonly spanLines: number;
+  /** How many code points the fill's own estimate counts for one token. */
+  readonly charactersPerToken: number;
+}
+
+/** The caps 0026 fixes: what a unit reads under when its server names none. */
+export const DEFAULT_GRAPH_READ_LIMITS: GraphReadLimits = { answerTokens: 8_000, spanLines: 200, charactersPerToken: 4 };
+
+/** The caps a caller left out, filled with 0026's numbers; a cap below one is refused by name. */
+export function graphReadLimits(limits: Partial<GraphReadLimits> | undefined, at = here()): GraphReadLimits {
+  const resolved = { ...DEFAULT_GRAPH_READ_LIMITS, ...limits };
+  if (!Number.isInteger(resolved.answerTokens) || resolved.answerTokens < 1) raise(`${at}: the answer cap is ${resolved.answerTokens}: a tool answer holds at least one token`);
+  if (!Number.isInteger(resolved.spanLines) || resolved.spanLines < 1) raise(`${at}: the evidence span cap is ${resolved.spanLines}: an evidence span holds at least one line`);
+  if (!Number.isInteger(resolved.charactersPerToken) || resolved.charactersPerToken < 1) raise(`${at}: the estimate counts ${resolved.charactersPerToken} code points for a token: it counts at least one`);
+  return resolved;
+}
+
+/** How many tokens a text is, by the fill's own estimate: one token for every `charactersPerToken` code points. */
+export function estimateTokens(text: string, limits: GraphReadLimits): number {
+  return Math.ceil([...text].length / limits.charactersPerToken);
+}
+
+// ---------------------------------------------------------------------------------------------
+// The reads a tool makes
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * One read of the pinned graph: what a tool asks for and what is recorded as
+ * the reading unit's dependency. The four store reads answer published facts
+ * (`fill_fact`); `span` answers the bytes of one file at one pinned commit.
+ *
+ * Every value here is data, never text that reaches SQL: the reader binds each
+ * one as a parameter, and the recorded query is the canonical JSON of this
+ * value, so a read is remembered by what it asked for and not by what it
+ * answered.
+ */
+export type GraphRead =
+  /** One fact by id, whatever kind it is. */
+  | { readonly read: 'fact'; readonly id: string }
+  /** The facts of the given ids, in code point order of the id; an id the graph does not hold is not a row. */
+  | { readonly read: 'facts'; readonly ids: readonly string[] }
+  /** Every edge fact that names the id at one of its ends, in code point order of the edge's id. */
+  | { readonly read: 'adjacent'; readonly id: string; readonly kinds?: readonly FactEdgeKind[] }
+  /** The nodes the given edges of the id point at, counted by their kind: what one scope holds. */
+  | { readonly read: 'held'; readonly id: string; readonly via: readonly FactEdgeKind[] }
+  /** The facts of one kind whose value, at a dotted path, is exactly the given text. */
+  | { readonly read: 'facts-with'; readonly kind: FactKind; readonly field: string; readonly value: string }
+  /** The lines of one file at one pinned commit, from `startLine` to `endLine`, both counted as a reader counts them. */
+  | { readonly read: 'span'; readonly repository: string; readonly commit: string; readonly file: string; readonly startLine: number; readonly endLine: number };
+
+/** Every read kind's own name, for a refusal that must name the read it does not know. */
+export const GRAPH_READ_KINDS = ['fact', 'facts', 'adjacent', 'held', 'facts-with', 'span'] as const;
+
+/** The tables every store read of this module reads; a failure names them. */
+export const GRAPH_READ_TABLES = ['fill_fact'] as const;
+
+/** The columns of one fact row, as the store holds them: the reader's own select list. */
+const FACT_COLUMNS = 'id, kind, schema_version, provenance, layer, status, value';
+
+/**
+ * The text of one read: the canonical JSON of the request, its keys in code
+ * point order so the same read is the same text wherever it is built. This is
+ * the text a dependency is recorded by (`recordUnitRead`) and the text the
+ * reader is given back at revalidation, so a read is replayed exactly.
+ */
+export function readText(request: GraphRead): string {
+  return JSON.stringify(sortKeys(request));
+}
+
+/** One value with the keys of every object in it in code point order, arrays as they stand. */
+function sortKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeys);
+  if (value === null || typeof value !== 'object') return value;
+  const fields = value as Record<string, unknown>;
+  const sorted: Record<string, unknown> = {};
+  for (const key of Object.keys(fields).sort(byCodePoint)) sorted[key] = sortKeys(fields[key]);
+  return sorted;
+}
+
+/**
+ * The read a text names, or null when the text is no read of this module: a
+ * text that does not open a JSON object is another reader's own query (a
+ * stage's SQL) and is answered as it stands. A text that opens one and is not a
+ * read of this grammar is refused by name, never answered as SQL.
+ */
+export function parseGraphRead(text: string): GraphRead | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{')) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(trimmed);
+  } catch (error) {
+    raise(`the text ${shown(text)} opens a JSON object and does not parse as one, so it is no read of the graph: ${(error as Error).message}`);
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) raise(`the read ${shown(text)} is ${Array.isArray(value) ? 'a list' : typeof value}, not a read: a read names its kind ("fact", "facts", "adjacent", "held", "facts-with", "span") and the values it reads`);
+  const fields = value as Record<string, unknown>;
+  const kind = fields['read'];
+  if (GRAPH_READ_KINDS.includes(kind as (typeof GRAPH_READ_KINDS)[number]) === false) {
+    raise(`the read ${shown(text)} names ${shown(kind)}: a read of the graph is one of ${GRAPH_READ_KINDS.join(', ')}`);
+  }
+  switch (kind as (typeof GRAPH_READ_KINDS)[number]) {
+    case 'fact':
+      return { read: 'fact', id: readFactId(fields['id'], text) };
+    case 'facts':
+      return { read: 'facts', ids: readFactIds(fields['ids'], text) };
+    case 'adjacent':
+      return { read: 'adjacent', id: readFactId(fields['id'], text), ...(fields['kinds'] === undefined ? {} : { kinds: readEdgeKinds(fields['kinds'], text) }) };
+    case 'held':
+      return { read: 'held', id: readFactId(fields['id'], text), via: readEdgeKinds(fields['via'], text) };
+    case 'facts-with':
+      return { read: 'facts-with', kind: readFactKind(fields['kind'], text), field: readPath(fields['field'], text), value: readValueText(fields['value'], text) };
+    case 'span':
+      return {
+        read: 'span',
+        repository: readRepository(fields['repository'], text),
+        commit: readCommit(fields['commit'], text),
+        file: readFile(fields['file'], text),
+        startLine: readLine(fields['startLine'], 'startLine', text),
+        endLine: readLine(fields['endLine'], 'endLine', text),
+      };
+    default:
+      raise(`the read ${shown(text)} is named ${shown(kind)}`);
+  }
+}
+
+/** The reader's own templates over the store: the text of one read, for a failure to show. */
+function shown(value: unknown): string {
+  return typeof value === 'string' ? JSON.stringify(value) : JSON.stringify(value) ?? String(value);
+}
+
+/** A read's id: the schema's own form, never a guess. */
+function readFactId(value: unknown, read: string): string {
+  if (typeof value !== 'string' || !isFactId(value)) raise(`the read ${shown(read)} names ${shown(value)}: a fact id is the kind, a colon, and the 64 lower-case hexadecimal digits of the fact's identity (src/fill/facts.ts)`);
+  return value;
+}
+
+/** A read's ids: distinct, in code point order, each one a fact id. */
+function readFactIds(value: unknown, read: string): readonly string[] {
+  if (!Array.isArray(value)) raise(`the read ${shown(read)} names ${shown(value)}: the ids of a read are a list of fact ids`);
+  const ids = new Set<string>();
+  for (const entry of value) ids.add(readFactId(entry, read));
+  return [...ids].sort(byCodePoint);
+}
+
+/** A read's edge kinds: distinct, in code point order, each one an edge kind of the schema. */
+function readEdgeKinds(value: unknown, read: string): readonly FactEdgeKind[] {
+  if (!Array.isArray(value)) raise(`the read ${shown(read)} names ${shown(value)}: the kinds of a read are a list of edge kinds`);
+  const kinds = new Set<FactEdgeKind>();
+  for (const entry of value) {
+    if (typeof entry !== 'string' || (FACT_EDGE_KINDS as readonly string[]).includes(entry) === false) {
+      raise(`the read ${shown(read)} names the kind ${shown(entry)}: an edge kind is one of ${FACT_EDGE_KINDS.join(', ')}`);
+    }
+    kinds.add(entry as FactEdgeKind);
+  }
+  return [...kinds].sort(byCodePoint);
+}
+
+/** A read's fact kind: one kind of the schema. */
+function readFactKind(value: unknown, read: string): FactKind {
+  if (typeof value !== 'string' || !isFactKind(value)) raise(`the read ${shown(read)} names the kind ${shown(value)}: a fact kind is one of the schema's kinds (src/fill/facts.ts)`);
+  return value;
+}
+
+/** A read's field path: dotted names, at most three deep, never empty and never a path that reads nothing. */
+function readPath(value: unknown, read: string): string {
+  const tokens = typeof value === 'string' ? value.split('.') : [];
+  if (tokens.length === 0 || tokens.length > 3 || tokens.some((token) => /^[A-Za-z][A-Za-z0-9_]*$/.test(token) === false)) {
+    raise(`the read ${shown(read)} reads the field ${shown(value)}: a field is one to three dotted names, like "subject.id"`);
+  }
+  return tokens.join('.');
+}
+
+/** A read's repository: the product's own name for it. */
+function readRepository(value: unknown, read: string): string {
+  if (typeof value !== 'string' || !ID_PATTERN.test(value)) raise(`the read ${shown(read)} names the repository ${shown(value)}: the product's own name for a repository, like "orders-api", never a path, a URL or a branch`);
+  return value;
+}
+
+/** A read's commit: 40 lower-case hexadecimal digits, as the schema writes one. */
+function readCommit(value: unknown, read: string): string {
+  if (typeof value !== 'string' || /^[0-9a-f]{40}$/.test(value) === false) raise(`the read ${shown(read)} pins the commit ${shown(value)}: a pinned commit is 40 lower-case hexadecimal digits`);
+  return value;
+}
+
+/** A read's file: a repository path, relative, `/`-separated, with no leg that climbs out. */
+function readFile(value: unknown, read: string): string {
+  if (typeof value !== 'string' || value === '' || value.startsWith('/') || value.endsWith('/') || /(^|\/)\.\.?(\/|$)/.test(value) || /^[A-Za-z]:/.test(value)) {
+    raise(`the read ${shown(read)} names the file ${shown(value)}: a repository path is relative, separated by "/", from the repository's root, like "src/fill/facts.ts"`);
+  }
+  return value;
+}
+
+/** A read's own text value: the exact text a read filters by, never empty. */
+function readValueText(value: unknown, read: string): string {
+  if (typeof value !== 'string' || value === '') raise(`the read ${shown(read)} filters by ${shown(value)}: the value a read filters by is a non-empty text`);
+  return value;
+}
+
+/** A read's line: a whole number, one or more. */
+function readLine(value: unknown, field: string, read: string): number {
+  if (typeof value !== 'number' || Number.isInteger(value) === false || value < 1) raise(`the read ${shown(read)} names ${field} ${shown(value)}: a line is a whole number, one or more, as a reader counts lines`);
+  return value;
+}
+
+/** One read as text, for a refusal that names what was asked. */
+function describedRead(request: GraphRead): string {
+  return readText(request);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Which value field of an edge names which end
+// ---------------------------------------------------------------------------------------------
+
+/** The two ends of an edge, as the edge's own value holds them: the field names, and whether an end is a term. */
+interface EdgeEndFields {
+  /** The value field naming the edge's from end (its subject), or null when that end is no node of the graph. */
+  readonly from: string | null;
+  /** The value field naming the edge's to end (its object), or null when that end is no node of the graph. */
+  readonly to: string | null;
+  /** True where the to end is a term (`{ form: 'node', id }`) rather than the id itself. */
+  readonly toTerm?: boolean;
+}
+
+/**
+ * How each edge kind's own value names its two ends. The store is a table of
+ * facts and an edge's ends stand inside its value, so a reader of the graph
+ * needs this table: it is what `adjacent` asks the store for and what the tools
+ * read the ends out of. `provides` ends at a contract id and `binds` at an
+ * environment name, and `task-key` at the tracker's own key: none of the three
+ * is a fact id, so those ends are no nodes of the graph and are named null here
+ * rather than joined to something that does not exist.
+ */
+export const EDGE_END_FIELDS: { readonly [K in FactEdgeKind]: EdgeEndFields } = {
+  'contains': { from: 'from', to: 'to' },
+  'defines': { from: 'from', to: 'to' },
+  'import': { from: 'from', to: 'to' },
+  'dependency': { from: 'from', to: 'to' },
+  'call': { from: 'from', to: 'to' },
+  'reference': { from: 'from', to: 'to' },
+  'inherits': { from: 'from', to: 'to' },
+  'provides': { from: 'from', to: null },
+  'consumes': { from: 'from', to: 'variable' },
+  'binds': { from: 'variable', to: null },
+  'resolves': { from: 'from', to: 'to' },
+  'document-link': { from: 'from', to: 'to', toTerm: true },
+  'task-key': { from: 'from', to: null },
+  'transition': { from: 'from', to: 'to' },
+  'interaction': { from: 'caller', to: 'callee' },
+};
+
+/** The two ends of one edge fact's value, as the ids the graph holds: an end that is no node is left out. */
+export function endsOf(kind: FactEdgeKind, value: unknown): { readonly from?: string; readonly to?: string } {
+  const fields = EDGE_END_FIELDS[kind];
+  const held = value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const from = fields.from === null ? undefined : idAt(held[fields.from]);
+  const to = fields.to === null ? undefined : (fields.toTerm === true ? idOfTerm(held[fields.to]) : idAt(held[fields.to]));
+  return { ...(from === undefined ? {} : { from }), ...(to === undefined ? {} : { to }) };
+}
+
+/** One value as a fact id, or undefined when it is no id. */
+function idAt(value: unknown): string | undefined {
+  return typeof value === 'string' && isFactId(value) ? value : undefined;
+}
+
+/** One value as a term naming a node, or undefined when it names something else. */
+function idOfTerm(value: unknown): string | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const term = value as { readonly form?: unknown; readonly id?: unknown };
+  return term.form === 'node' ? idAt(term.id) : undefined;
+}
+
+/**
+ * The edge kinds that mean "this node names or uses that node", which is what
+ * `references` answers: `contains` and `defines` place a node rather than citing
+ * it, and `provides`, `binds` and `task-key` end at a contract, a name and a key.
+ */
+export const REFERENCE_EDGE_KINDS: readonly FactEdgeKind[] = ['call', 'consumes', 'dependency', 'document-link', 'import', 'inherits', 'interaction', 'reference', 'resolves', 'transition'];
+
+/** The edge kinds that place a node inside another: what a scope holds, and never a neighbourhood. */
+export const STRUCTURE_EDGE_KINDS: readonly FactEdgeKind[] = ['contains', 'defines'];
+
+/**
+ * The edge kinds `neighbors` answers when the caller names none: every edge kind
+ * but the two that place a node (`contains`, `defines`). A symbol's three callers
+ * are then its three neighbours and nothing else stands between the reader and
+ * them, while what a node sits in is what `describe_scope` answers. A caller that
+ * means the placement too asks for those kinds by name, and the answer's own
+ * `kinds` always says which kinds it answered.
+ */
+export const NEIGHBOR_EDGE_KINDS: readonly FactEdgeKind[] = FACT_EDGE_KINDS
+  .filter((kind) => (STRUCTURE_EDGE_KINDS as readonly string[]).includes(kind) === false)
+  .sort(byCodePoint);
+
+// ---------------------------------------------------------------------------------------------
+// The reader over the fact store
+// ---------------------------------------------------------------------------------------------
+
+/** Where an evidence span's bytes come from: the run's pinned repositories (`SnapshotSource`, `snapshot.ts`). */
+export interface GraphSnapshotSource {
+  /** One repository's reader at the pin this run holds, refused where this source holds no such repository. */
+  open(repository: string): Promise<SnapshotReader>;
+}
+
+/** What a graph read answers from: the process's one database and the run's pinned snapshot. */
+export interface FactGraphReaderOptions {
+  readonly database: FactStoreDatabase;
+  readonly snapshot: GraphSnapshotSource;
+  /**
+   * A transaction the caller already opened: the process's owner refuses a
+   * second transaction on its connection, so a read made inside one (a
+   * publication's recheck) is made on it.
+   */
+  readonly executor?: SqlExecutor;
+}
+
+/**
+ * The reader the orchestrator's own seam takes (`UnitGraphReader.query`): it
+ * answers a read of this module's grammar — the canonical JSON of a `GraphRead`
+ * — and passes any other text to the store unchanged, so a stage's own SQL query
+ * is answered as it stands.
+ */
+export function createFactGraphReader(options: FactGraphReaderOptions): { query(text: string): Promise<readonly unknown[]> } {
+  return {
+    async query(text: string): Promise<readonly unknown[]> {
+      const request = parseGraphRead(text);
+      if (request === null) return await inTransaction(options, async (executor) => (await executor.query(text)).rows);
+      return await answerGraphRead(options, request);
+    },
+  };
+}
+
+/** Runs one read inside the caller's transaction, or inside one of the owner's own. */
+async function inTransaction<R>(options: FactGraphReaderOptions, work: (executor: SqlExecutor) => Promise<R>): Promise<R> {
+  const lent = options.executor;
+  if (lent !== undefined) return await work(lent);
+  return await options.database.transaction('snapshot', async (executor) => await work(executor));
+}
+
+/** The row a span read answers: one file's lines at one pinned commit, with the file's own line count. */
+export interface SpanRow {
+  readonly repository: string;
+  readonly commit: string;
+  readonly file: string;
+  readonly startLine: number;
+  readonly endLine: number;
+  /** How many lines the file has at that commit, counted as a reader counts them. */
+  readonly totalLines: number;
+  readonly lines: readonly { readonly line: number; readonly text: string }[];
+}
+
+/**
+ * One read of the pinned graph, answered: the same request answers the same rows
+ * as long as the graph stands, which is what makes a read a dependency.
+ */
+export async function answerGraphRead(options: FactGraphReaderOptions, request: GraphRead): Promise<readonly unknown[]> {
+  const at = here();
+  return await withLocation(at, `answerGraphRead(${describedRead(request)})`, GRAPH_READ_TABLES, async () => {
+    switch (request.read) {
+      case 'fact': {
+        const rows = await inTransaction(options, async (executor) => (await executor.query(`SELECT ${FACT_COLUMNS} FROM fill_fact WHERE id = $1`, [request.id])).rows);
+        return rows;
+      }
+      case 'facts': {
+        if (request.ids.length === 0) return [];
+        const rows = await inTransaction(options, async (executor) => (await executor.query(`SELECT ${FACT_COLUMNS} FROM fill_fact WHERE id = ANY($1::text[])`, [request.ids])).rows);
+        return byId(rows);
+      }
+      case 'adjacent': {
+        const kinds = request.kinds ?? FACT_EDGE_KINDS;
+        const groups = adjacencyGroups(kinds);
+        const clause = groups.map((group, index) => `(kind = ANY($${index + 2}::text[]) AND ${group.expression} = $${groups.length + 2})`).join(' OR ');
+        const values: unknown[] = [kinds, ...groups.map((group) => group.kinds), request.id];
+        const rows = await inTransaction(options, async (executor) => (await executor.query(`SELECT ${FACT_COLUMNS} FROM fill_fact WHERE kind = ANY($1::text[]) AND (${clause})`, values)).rows);
+        return byId(rows);
+      }
+      case 'held': {
+        for (const kind of request.via) {
+          if (EDGE_END_FIELDS[kind].to !== 'to') raise(`${at}: the read ${describedRead(request)} counts what the edges of "${kind}" point at, and a "${kind}" edge's to end is ${EDGE_END_FIELDS[kind].to === null ? 'no node of the graph' : `its value's "${EDGE_END_FIELDS[kind].to}" field (a term, not the id itself)`}: the kinds that hold a node are ${FACT_EDGE_KINDS.filter((candidate) => EDGE_END_FIELDS[candidate].to === 'to').join(', ')}`);
+        }
+        const rows = await inTransaction(options, async (executor) => (await executor.query(
+          `SELECT n.kind AS kind, count(*)::int AS count FROM fill_fact e JOIN fill_fact n ON n.id = e.value->>'to' WHERE e.kind = ANY($1::text[]) AND e.value->>'from' = $2 GROUP BY n.kind`,
+          [request.via, request.id],
+        )).rows);
+        // The order is read here and not left to the query: a database orders text by its own collation
+        // (PostgreSQL's is `en_US.UTF-8` in CI, where `Unit-a` sorts before `unit-a`), and a read of this
+        // fill answers code point order whatever the engine's locale is.
+        return [...rows].sort((left, right) => byCodePoint(String((left as Record<string, unknown>)['kind']), String((right as Record<string, unknown>)['kind'])));
+      }
+      case 'facts-with': {
+        const rows = await inTransaction(options, async (executor) => (await executor.query(
+          `SELECT ${FACT_COLUMNS} FROM fill_fact WHERE kind = $1 AND value #>> $2::text[] = $3`,
+          [request.kind, request.field.split('.'), request.value],
+        )).rows);
+        return byId(rows);
+      }
+      case 'span': {
+        return [await spanRow(options, request, at)];
+      }
+    }
+  });
+}
+
+/** The rows of a read of facts, in code point order of the ids they carry. */
+function byId(rows: readonly Record<string, unknown>[]): readonly Record<string, unknown>[] {
+  return [...rows].sort((left, right) => byCodePoint(String(left['id']), String(right['id'])));
+}
+
+/** How the ends of the given edge kinds stand in the store, as one expression per field name. */
+function adjacencyGroups(kinds: readonly FactEdgeKind[]): readonly { readonly kinds: readonly FactEdgeKind[]; readonly expression: string }[] {
+  const byExpression = new Map<string, FactEdgeKind[]>();
+  const add = (expression: string, kind: FactEdgeKind): void => {
+    const held = byExpression.get(expression) ?? [];
+    held.push(kind);
+    byExpression.set(expression, held);
+  };
+  for (const kind of kinds) {
+    const fields = EDGE_END_FIELDS[kind];
+    if (fields.from !== null) add(`value->>'${fields.from}'`, kind);
+    if (fields.to !== null) add(fields.toTerm === true ? `value->'${fields.to}'->>'id'` : `value->>'${fields.to}'`, kind);
+  }
+  return [...byExpression.entries()]
+    .map(([expression, group]) => ({ expression, kinds: [...new Set(group)].sort(byCodePoint) }))
+    .sort((left, right) => byCodePoint(left.expression, right.expression));
+}
+
+/** One file's lines at one pinned commit: the commit's own bytes, split as a reader counts lines. */
+async function spanRow(options: FactGraphReaderOptions, request: Extract<GraphRead, { read: 'span' }>, at: string): Promise<SpanRow> {
+  if (request.endLine < request.startLine) raise(`${at}: the read ${describedRead(request)} asks for the lines ${request.startLine} to ${request.endLine} of ${request.file}: a span starts at a line and ends at that line or a later one`);
+  const reader = await options.snapshot.open(request.repository);
+  if (reader.commit !== request.commit) {
+    raise(`${at}: the read ${describedRead(request)} pins ${request.file} at ${request.commit}, and the repository "${request.repository}" is pinned at ${reader.commit}: an evidence span is read at the commit of the run's pin`);
+  }
+  const lines = linesOf(await reader.readText(request.file));
+  if (request.startLine > lines.length) {
+    raise(`${at}: the read ${describedRead(request)} asks for line ${request.startLine} of ${request.file} at ${request.commit} in the repository "${request.repository}", and that file has ${lines.length} ${lines.length === 1 ? 'line' : 'lines'}: a span cites lines the file holds (the path read here is ${request.file})`);
+  }
+  const end = Math.min(request.endLine, lines.length);
+  const held: { line: number; text: string }[] = [];
+  for (let line = request.startLine; line <= end; line += 1) held.push({ line, text: lines[line - 1] ?? '' });
+  return { repository: request.repository, commit: reader.commit, file: request.file, startLine: request.startLine, endLine: end, totalLines: lines.length, lines: held };
+}
+
+/**
+ * The lines of a text, counted as a reader counts them: one per newline, and a
+ * file that ends with a newline has no empty line after it. The bytes are kept
+ * as they stand (a `\r` of a CRLF file stands in the line), because a span is
+ * evidence of the commit's own bytes.
+ */
+export function linesOf(text: string): string[] {
+  if (text === '') return [];
+  const lines = text.split('\n');
+  if (lines[lines.length - 1] === '') lines.pop();
+  return lines;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Recording a read as the reading unit's dependency
+// ---------------------------------------------------------------------------------------------
+
+/** The reading unit a read is recorded for: the dependency belongs to this generation. */
+export interface ReadingUnit {
+  readonly unitId: string;
+  readonly generation: number;
+}
+
+/**
+ * What a tool reads through: the pinned graph, with every read recorded as the
+ * reading unit's dependency. A tool answers only through this, so "every read is
+ * recorded" holds by construction rather than by each tool remembering it.
+ */
+export interface GraphReadContext {
+  /** Answers one read of the pinned graph and records it as the reading unit's dependency: its query and its membership, an empty answer included. */
+  read(request: GraphRead): Promise<readonly unknown[]>;
+  /** The caps this unit reads under. */
+  readonly limits: GraphReadLimits;
+}
+
+/** What the context a unit reads through is built from. */
+export interface FactGraphReadsOptions extends FactGraphReaderOptions {
+  readonly unit: ReadingUnit;
+  readonly limits?: Partial<GraphReadLimits>;
+  /** Supplies the recorded time; the real clock unless a test passes its own. */
+  readonly clock?: () => number;
+}
+
+/**
+ * The context one unit reads through: the run's pinned graph and snapshot, with
+ * every read written as that generation's tracked read (`recordUnitRead`,
+ * `orchestrator-store.ts`). The read record is the query and the membership of
+ * the rows it answered — an empty answer is a membership of its own, so a read
+ * that answered nothing and answers a row later moves, which is what decision
+ * 0027's staleness recheck is for.
+ */
+export function createGraphReadContext(options: FactGraphReadsOptions): GraphReadContext {
+  const at = here();
+  const limits = graphReadLimits(options.limits, at);
+  const unit = options.unit;
+  if (typeof unit.unitId !== 'string' || unit.unitId === '') raise(`${at}: the reading unit is named ${shown(unit.unitId)}: a read belongs to a unit of a stage, and every tracked read names it`);
+  if (Number.isInteger(unit.generation) === false || unit.generation < 1) raise(`${at}: the reading unit "${unit.unitId}" is at generation ${shown(unit.generation)}: a generation is a whole number, one or more`);
+  return {
+    limits,
+    async read(request: GraphRead): Promise<readonly unknown[]> {
+      const rows = await answerGraphRead(options, request);
+      const record = { unitId: unit.unitId, generation: unit.generation, query: readText(request), rows, at: (options.clock ?? Date.now)() };
+      if (options.executor !== undefined) await recordUnitReadIn(options.executor, record);
+      else await recordUnitRead(options.database, record);
+      return rows;
+    },
+  };
+}
+
+/**
+ * The context a reader that takes text answers through — a stage's own graph
+ * reader (`StageGraphReader.query`, the orchestrator's `context.graph`), which
+ * records every read it is asked for and replays it at publication. The tools
+ * then read through the reader the orchestrator already tracks, so a unit that
+ * calls them needs no second way of recording what it read.
+ */
+export function graphReadsOver(reader: { query(text: string): Promise<readonly unknown[]> }, limits?: Partial<GraphReadLimits>): GraphReadContext {
+  return {
+    limits: graphReadLimits(limits, here()),
+    async read(request: GraphRead): Promise<readonly unknown[]> {
+      return await reader.query(readText(request));
+    },
+  };
+}
+
+/** The reads one tool makes, in the order it makes them: each one is recorded as the unit's dependency. */
+function traced(context: GraphReadContext): { readonly read: (request: GraphRead) => Promise<readonly unknown[]>; readonly made: GraphRead[] } {
+  const made: GraphRead[] = [];
+  return {
+    made,
+    read: async (request: GraphRead): Promise<readonly unknown[]> => {
+      made.push(request);
+      return await context.read(request);
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// The facts a read answered
+// ---------------------------------------------------------------------------------------------
+
+/** Every layer a fact may be read at (0005). */
+const FACT_LAYERS = ['declared', 'extracted', 'inferred', 'observed'] as const;
+/** Every status a fact may stand in (0005). */
+const FACT_STATUSES = ['proposed', 'accepted', 'rejected'] as const;
+
+/**
+ * One row of the store as a fact, refused by name where it is not one: a row is
+ * a fact of the schema or the store is damaged, and a reader that silently
+ * skipped it would answer a smaller graph than the one that stands.
+ */
+export function factOfRow(row: unknown, read: GraphRead): Fact {
+  const where = `the row ${shown(row)} of the read ${describedRead(read)}`;
+  if (row === null || typeof row !== 'object' || Array.isArray(row)) raise(`${where} is no fact row: a fact row is a record of id, kind, schema_version, provenance, layer, status and value`);
+  const fields = row as Record<string, unknown>;
+  const id = fields['id'];
+  if (typeof id !== 'string' || !isFactId(id)) raise(`${where} names the id ${shown(id)}: a fact id is the kind, a colon, and the 64 lower-case hexadecimal digits of the fact's identity`);
+  const kind = fields['kind'];
+  if (typeof kind !== 'string' || !isFactKind(kind)) raise(`${where} names the kind ${shown(kind)}: a fact kind is one of the schema's kinds (src/fill/facts.ts)`);
+  const schemaVersion = fields['schema_version'];
+  if (typeof schemaVersion !== 'number' && typeof schemaVersion !== 'string') raise(`${where} carries the schema version ${shown(schemaVersion)}: a kind's version is a whole number`);
+  const layer = fields['layer'];
+  if (typeof layer !== 'string' || (FACT_LAYERS as readonly string[]).includes(layer) === false) raise(`${where} is read at the layer ${shown(layer)}: a fact's layer is one of ${FACT_LAYERS.join(', ')}`);
+  const status = fields['status'];
+  if (typeof status !== 'string' || (FACT_STATUSES as readonly string[]).includes(status) === false) raise(`${where} stands at the status ${shown(status)}: a fact's status is one of ${FACT_STATUSES.join(', ')}`);
+  const provenance = column(fields['provenance']);
+  if (provenance === null || typeof provenance !== 'object' || Array.isArray(provenance)) raise(`${where} carries the provenance ${shown(provenance)}: every fact names the source, the repository and the commit it was read from`);
+  const value = column(fields['value']);
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) raise(`${where} carries the value ${shown(value)}: a fact's value is the kind's own record`);
+  return {
+    kind,
+    schemaVersion: Number(schemaVersion),
+    id,
+    provenance: provenance as Fact['provenance'],
+    layer: layer as FactLayer,
+    status: status as FactStatus,
+    value,
+  } as Fact;
+}
+
+/** A `jsonb` column as a value: a driver answers an object, and a text-encoded one is parsed. */
+function column(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    raise(`the column ${shown(value)} is text and not JSON: ${(error as Error).message}`);
+  }
+}
+
+/** The facts of the rows one read answered, in code point order of their ids, each id once. */
+export function factsOfRows(rows: readonly unknown[], read: GraphRead): readonly Fact[] {
+  const byId = new Map<string, Fact>();
+  for (const row of rows) {
+    const fact = factOfRow(row, read);
+    byId.set(fact.id, fact);
+  }
+  return [...byId.values()].sort((left, right) => byCodePoint(left.id, right.id));
+}
+
+// ---------------------------------------------------------------------------------------------
+// How a reader sees a node
+// ---------------------------------------------------------------------------------------------
+
+/** One node of the graph as a reader sees it. */
+export interface GraphNodeRef {
+  readonly id: string;
+  /** The kind of the fact this names, or null when the graph holds no fact of that id (an end a write named and no unit holds any more). */
+  readonly kind: FactKind | null;
+  /** The name a reader knows it by: the node's own label, or the id itself where the graph holds no such fact. */
+  readonly label: string;
+  /** The file the fact stands at, when its provenance names a place. */
+  readonly file?: string;
+  /** The first line of that place. */
+  readonly line?: number;
+}
+
+/** One node as a reader sees it; a fact the graph answers is always a node of its own kind. */
+export function nodeRefOf(fact: Fact): GraphNodeRef {
+  const place = fact.provenance.place;
+  return {
+    id: fact.id,
+    kind: fact.kind,
+    label: labelOf(fact),
+    ...(place === undefined ? {} : { file: place.file, line: place.range.startLine }),
+  };
+}
+
+/** One node the graph was asked for and does not hold: named by its id, with no kind and no label of its own. */
+export function missingNode(id: string): GraphNodeRef {
+  return { id, kind: null, label: id };
+}
+
+/** The most code points of a text a label keeps before the rest is cut. */
+const LABEL_CODE_POINTS = 80;
+
+/** A text as one label: its first line, at most `LABEL_CODE_POINTS` code points, cut with an ellipsis. */
+function labelled(text: string): string {
+  const line = text.split('\n')[0] ?? '';
+  const points = [...line];
+  return points.length <= LABEL_CODE_POINTS ? line : `${points.slice(0, LABEL_CODE_POINTS - 1).join('')}…`;
+}
+
+/**
+ * The name a reader knows one fact by: a symbol by its qualified name in its
+ * file, a file by its path in its repository, a claim by what it says. A label
+ * is for a reader, never for a join: what a read filters by is always the fact
+ * id. A kind this table does not name is shown by its kind, and a value that
+ * does not carry the fields a label reads falls back to the fact's id.
+ */
+export function labelOf(fact: Fact): string {
+  const value = (fact.value ?? {}) as unknown as Record<string, unknown>;
+  const text = (field: string): string | undefined => {
+    const held = value[field];
+    return typeof held === 'string' && held !== '' ? held : undefined;
+  };
+  const repository = text('repository') ?? fact.provenance.repository.id;
+  const place = fact.provenance.place;
+  const at = place === undefined ? undefined : `${place.file}:${place.range.startLine}`;
+  switch (fact.kind) {
+    case 'snapshot':
+      return `${text('repository') ?? repository}@${text('commit') ?? ''}`;
+    case 'repository':
+      return repository;
+    case 'directory':
+      return `${repository}:${text('path') ?? ''}/`;
+    case 'file':
+    case 'document':
+      return `${repository}:${text('path') ?? at ?? ''}`;
+    case 'package':
+    case 'deploy-unit':
+    case 'table':
+      return `${repository}:${text('name') ?? fact.id}`;
+    case 'column':
+      return `${repository}:${text('table') ?? ''}.${text('name') ?? ''}`;
+    case 'api-endpoint':
+      return text('contract') ?? fact.id;
+    case 'environment-variable':
+      return text('name') ?? fact.id;
+    case 'symbol':
+      return `${repository}:${text('file') ?? ''}#${text('qualifiedName') ?? fact.id}`;
+    case 'occurrence':
+      return at === undefined ? `occurrence ${fact.id}` : `occurrence at ${at}`;
+    case 'entry-point':
+    case 'test':
+    case 'module':
+    case 'entity-proposal':
+      return text('name') ?? fact.id;
+    case 'comment':
+      return labelled(text('text') ?? fact.id);
+    case 'section':
+      return `${repository}:${text('document') ?? ''}#${text('anchor') ?? ''}`;
+    case 'commit': {
+      const commit = text('commit') ?? '';
+      return `${repository}@${[...commit].slice(0, 12).join('')}`;
+    }
+    case 'claim':
+      return labelled(text('text') ?? text('predicate') ?? fact.id);
+    case 'rule':
+      return labelled(text('statement') ?? fact.id);
+    case 'state':
+      return `${text('machine') ?? ''}.${text('name') ?? ''}`;
+    case 'coverage':
+      return `coverage of ${text('scope') ?? ''}`;
+    case 'question':
+      return labelled(text('prompt') ?? fact.id);
+    default:
+      return fact.kind;
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The shape every answer has
+// ---------------------------------------------------------------------------------------------
+
+/** What every tool's answer holds, whatever it answers. */
+export interface GraphReadEnvelope {
+  /** The reads this answer stands on, in the order they were made: each was recorded as the reading unit's dependency. */
+  readonly reads: readonly GraphRead[];
+  /** Whether a cap cut this answer: true only when something an answer should hold is not in it. */
+  readonly truncated: boolean;
+  /** What was cut and by which cap, in one sentence, or null when nothing was cut. */
+  readonly marker: string | null;
+  /** The answer's own size, by the fill's estimate (four code points a token by default). */
+  readonly tokens: number;
+}
+
+/** One list of rows as the cap holds it, with the sentence that says what it cut. */
+interface Bounded<T> {
+  readonly rows: readonly T[];
+  readonly cut: number;
+  readonly marker: string | null;
+  readonly tokens: number;
+}
+
+/**
+ * The rows one answer holds under the cap: rows are added while the cap has room
+ * for them, and the ones past it are counted and named. A row too large for the
+ * cap on its own leaves the answer with none of them and a marker that says so —
+ * a whole answer is smaller than a silent one.
+ */
+function bounded<T>(rows: readonly T[], limits: GraphReadLimits, what: string): Bounded<T> {
+  const held: T[] = [];
+  let tokens = 0;
+  for (const row of rows) {
+    const cost = estimateTokens(JSON.stringify(row) ?? 'null', limits);
+    if (tokens + cost > limits.answerTokens) break;
+    held.push(row);
+    tokens += cost;
+  }
+  const cut = rows.length - held.length;
+  if (cut === 0) return { rows: held, cut: 0, marker: null, tokens };
+  const marker = `truncated: ${what} holds ${rows.length} ${rows.length === 1 ? 'row' : 'rows'} and the answer's ${limits.answerTokens}-token cap holds ${held.length}: ${cut} ${cut === 1 ? 'row was' : 'rows were'} cut`;
+  return { rows: held, cut, marker, tokens };
+}
+
+/** One answer, with the size its own text comes to. */
+function answered<A extends GraphReadEnvelope>(body: Omit<A, 'tokens'> & { readonly tokens?: number }, limits: GraphReadLimits): A {
+  const tokens = estimateTokens(JSON.stringify({ ...body, tokens: 0 }), limits);
+  return { ...body, tokens } as A;
+}
+
+/** The one marker of an answer whose parts were cut, or null when none was. */
+function markerOf(...markers: readonly (string | null)[]): string | null {
+  const cut = markers.filter((marker): marker is string => marker !== null);
+  return cut.length === 0 ? null : cut.join('; ');
+}
+
+// ---------------------------------------------------------------------------------------------
+// The tools
+// ---------------------------------------------------------------------------------------------
+
+/** The six tools a unit reads the graph through (decision 0026). */
+export const GRAPH_READ_TOOLS = ['describe_scope', 'neighbors', 'references', 'claims_about', 'coverage', 'evidence_span'] as const;
+export type GraphReadTool = (typeof GRAPH_READ_TOOLS)[number];
+
+/** Which way an edge stands toward the node a read is about. */
+export type EdgeDirection = 'in' | 'out' | 'both';
+
+/** The direction an edge stands in toward one node: `out` when the node is its from end, `in` when it is its to end. */
+function directionOf(fact: Fact, id: string): EdgeDirection | null {
+  const kind = fact.kind;
+  if ((FACT_EDGE_KINDS as readonly string[]).includes(kind) === false) raise(`${here()}: the row ${fact.id} is ${shown(kind)}, which is no edge kind of the schema: a read of edges filters by edge kinds`);
+  const ends = endsOf(kind as FactEdgeKind, fact.value);
+  const out = ends.from === id;
+  const into = ends.to === id;
+  if (out && into) return 'both';
+  if (out) return 'out';
+  if (into) return 'in';
+  return null;
+}
+
+/** One edge as a reader sees it: the id and kind a join uses, and the place a reader opens. */
+export interface GraphEdgeRef {
+  readonly id: string;
+  readonly kind: FactEdgeKind;
+  readonly file?: string;
+  readonly line?: number;
+  /** How many sites the edge's producer folded into it (a call, a mention), when it says. */
+  readonly count?: number;
+}
+
+function edgeRefOf(fact: Fact): GraphEdgeRef {
+  const place = fact.provenance.place;
+  const value = (fact.value ?? {}) as unknown as Record<string, unknown>;
+  const count = value['count'];
+  return {
+    id: fact.id,
+    kind: fact.kind as FactEdgeKind,
+    ...(place === undefined ? {} : { file: place.file, line: place.range.startLine }),
+    ...(typeof count === 'number' ? { count } : {}),
+  };
+}
+
+/** The nodes the given ids name, as the graph holds them: a read of them, and the id itself where it holds none. */
+async function refsOf(read: (request: GraphRead) => Promise<readonly unknown[]>, ids: readonly string[]): Promise<ReadonlyMap<string, GraphNodeRef>> {
+  const wanted = [...new Set(ids)].sort(byCodePoint);
+  const refs = new Map<string, GraphNodeRef>();
+  if (wanted.length > 0) {
+    const request: GraphRead = { read: 'facts', ids: wanted };
+    for (const fact of factsOfRows(await read(request), request)) refs.set(fact.id, nodeRefOf(fact));
+  }
+  for (const id of wanted) if (!refs.has(id)) refs.set(id, missingNode(id));
+  return refs;
+}
+
+// ---- describe_scope --------------------------------------------------------
+
+export interface DescribeScopeRequest {
+  readonly tool: 'describe_scope';
+  /** The fact id of the scope: a repository, directory, file, package or module of the graph. */
+  readonly scope: string;
+}
+
+/** One kind of node a scope holds, and how many of them. */
+export interface ScopeHeld {
+  readonly kind: FactKind;
+  readonly count: number;
+}
+
+/** One kind of edge that touches a scope, which way it stands, and how many of them. */
+export interface ScopeEdgeCount extends ScopeHeld {
+  readonly kind: FactEdgeKind;
+  readonly direction: EdgeDirection;
+}
+
+export interface DescribeScopeAnswer extends GraphReadEnvelope {
+  readonly tool: 'describe_scope';
+  readonly scope: string;
+  readonly node: GraphNodeRef;
+  readonly holds: readonly ScopeHeld[];
+  readonly edges: readonly ScopeEdgeCount[];
+  readonly coverage: readonly CoverageRow[];
+}
+
+/**
+ * What one scope is, what it holds and how it stands in the graph: the scope
+ * node, the kinds of the nodes it holds (`contains`, `defines`) by count, the
+ * edges touching it by kind and direction, and the coverage facts that name it.
+ * A scope the graph does not hold is refused by name — an answer about a node
+ * that is not there would read as "nothing here", which is a statement about the
+ * graph nobody made.
+ */
+export async function describeScope(context: GraphReadContext, request: DescribeScopeRequest): Promise<DescribeScopeAnswer> {
+  const at = here();
+  if (typeof request.scope !== 'string' || !isFactId(request.scope)) raise(`${at}: describe_scope names the scope ${shown(request.scope)}: a scope is the fact id of a repository, directory, file, package or module (src/fill/facts.ts)`);
+  const trace = traced(context);
+  const scopeRead: GraphRead = { read: 'fact', id: request.scope };
+  const scopeFacts = factsOfRows(await trace.read(scopeRead), scopeRead);
+  const node = scopeFacts[0];
+  if (node === undefined) raise(`${at}: describe_scope names the scope ${request.scope} and the graph holds no fact of that id: a scope is read after its stage published it (the id is the fact's own, src/fill/facts.ts)`);
+  const heldRead: GraphRead = { read: 'held', id: request.scope, via: STRUCTURE_EDGE_KINDS };
+  const adjacencyRead: GraphRead = { read: 'adjacent', id: request.scope };
+  const coverageRead: GraphRead = { read: 'facts-with', kind: 'coverage', field: 'scope', value: request.scope };
+  const holds = (await trace.read(heldRead)).map((row) => heldCount(row, heldRead)).sort((left, right) => byCodePoint(left.kind, right.kind));
+  const edges = countEdges(factsOfRows(await trace.read(adjacencyRead), adjacencyRead), request.scope);
+  const coverage = await coverageRows(factsOfRows(await trace.read(coverageRead), coverageRead));
+  const held = bounded(coverage.rows, context.limits, `the coverage of the scope ${request.scope}`);
+  return answered<DescribeScopeAnswer>({
+    tool: 'describe_scope',
+    scope: request.scope,
+    node: nodeRefOf(node),
+    holds,
+    edges,
+    coverage: held.rows,
+    reads: trace.made,
+    truncated: markerOf(held.marker, coverage.marker) !== null,
+    marker: markerOf(held.marker, coverage.marker),
+  }, context.limits);
+}
+
+/** One `held` read's row as a count of one kind. */
+function heldCount(row: unknown, read: GraphRead): ScopeHeld {
+  const where = `the row ${shown(row)} of the read ${describedRead(read)}`;
+  if (row === null || typeof row !== 'object' || Array.isArray(row)) raise(`${where} is no count: a count of the read is the kind of a node and how many of them`);
+  const fields = row as Record<string, unknown>;
+  const kind = fields['kind'];
+  if (typeof kind !== 'string' || !isFactKind(kind)) raise(`${where} names the kind ${shown(kind)}: a fact kind is one of the schema's kinds (src/fill/facts.ts)`);
+  const count = fields['count'];
+  if (typeof count !== 'number' && typeof count !== 'string') raise(`${where} counts ${shown(count)}: a count is a whole number`);
+  return { kind, count: Number(count) };
+}
+
+/** The edges touching one node, counted by kind and direction, in code point order of the kind then the direction. */
+function countEdges(facts: readonly Fact[], id: string): readonly ScopeEdgeCount[] {
+  const counts = new Map<string, ScopeEdgeCount>();
+  for (const fact of facts) {
+    const direction = directionOf(fact, id);
+    if (direction === null) continue;
+    const key = `${fact.kind}\u0000${direction}`;
+    const held = counts.get(key);
+    counts.set(key, { kind: fact.kind as FactEdgeKind, direction, count: (held?.count ?? 0) + 1 });
+  }
+  return [...counts.values()].sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(left.direction, right.direction));
+}
+
+// ---- neighbors -------------------------------------------------------------
+
+export interface NeighborsRequest {
+  readonly tool: 'neighbors';
+  /** The fact id of the node whose neighbourhood is asked for. */
+  readonly id: string;
+  /** Which way the neighbours stand; both directions when it is left out. */
+  readonly direction?: EdgeDirection;
+  /** The edge kinds to answer; the relation kinds (`NEIGHBOR_EDGE_KINDS`) when it is left out. */
+  readonly kinds?: readonly FactEdgeKind[];
+}
+
+/** One neighbour of a node: the edge that joins them and the node at its other end. */
+export interface NeighborRow {
+  readonly direction: EdgeDirection;
+  readonly edge: GraphEdgeRef;
+  readonly neighbor: GraphNodeRef;
+}
+
+export interface NeighborsAnswer extends GraphReadEnvelope {
+  readonly tool: 'neighbors';
+  readonly id: string;
+  readonly direction: EdgeDirection;
+  /** The edge kinds this answer walked, in code point order: what the answer holds and what it left out. */
+  readonly kinds: readonly FactEdgeKind[];
+  readonly rows: readonly NeighborRow[];
+}
+
+/**
+ * The nodes one node stands next to: every edge fact of the kinds asked for (the
+ * relation kinds by default, so `contains` and `defines` are not neighbours
+ * unless they are asked for) that names it at an end, with the node at the other
+ * end of that edge. A symbol three callers call is three rows here, in code point
+ * order of the caller's label and id, and nothing else stands between the reader
+ * and that answer.
+ */
+export async function neighbors(context: GraphReadContext, request: NeighborsRequest): Promise<NeighborsAnswer> {
+  const at = here();
+  const id = readFactId(request.id, `neighbors of ${shown(request.id)}`);
+  const direction = request.direction ?? 'both';
+  if (direction !== 'in' && direction !== 'out' && direction !== 'both') raise(`${at}: neighbors of ${id} asks for the direction ${shown(direction)}: a direction is "in", "out" or "both"`);
+  const kinds = request.kinds === undefined ? NEIGHBOR_EDGE_KINDS : readEdgeKinds(request.kinds, `neighbors of ${id}`);
+  if (kinds.length === 0) raise(`${at}: neighbors of ${id} names no edge kind: a read of neighbours answers the edges of the kinds it is given (the relation kinds unless it names its own)`);
+  const trace = traced(context);
+  const read: GraphRead = { read: 'adjacent', id, kinds };
+  const edges = factsOfRows(await trace.read(read), read);
+  const rows: NeighborRow[] = [];
+  const wanted: string[] = [];
+  for (const edge of edges) {
+    const ends = endsOf(edge.kind as FactEdgeKind, edge.value);
+    const out = ends.from === id;
+    const into = ends.to === id;
+    const standing: EdgeDirection | null = out && into ? 'both' : out ? 'out' : into ? 'in' : null;
+    if (standing === null) continue;
+    if (direction !== 'both' && standing !== direction) continue;
+    const other = standing === 'in' ? ends.from : ends.to;
+    if (other === undefined) continue;
+    wanted.push(other);
+    rows.push({ direction: standing, edge: edgeRefOf(edge), neighbor: missingNode(other) });
+  }
+  const refs = await refsOf(trace.read, wanted);
+  const resolved = rows.map((row) => ({ ...row, neighbor: refs.get(row.neighbor.id) ?? row.neighbor }));
+  resolved.sort((left, right) => byCodePoint(left.neighbor.label, right.neighbor.label)
+    || byCodePoint(left.neighbor.id, right.neighbor.id)
+    || byCodePoint(left.edge.id, right.edge.id));
+  const held = bounded(resolved, context.limits, `the neighbours of ${id}`);
+  return answered<NeighborsAnswer>({
+    tool: 'neighbors',
+    id,
+    direction,
+    kinds,
+    rows: held.rows,
+    reads: trace.made,
+    truncated: held.marker !== null,
+    marker: held.marker,
+  }, context.limits);
+}
+
+// ---- references ------------------------------------------------------------
+
+export interface ReferencesRequest {
+  readonly tool: 'references';
+  /** The fact id of the node that is referenced. */
+  readonly id: string;
+  /** The edge kinds to answer; the kinds that name or use a node when it is left out. */
+  readonly kinds?: readonly FactEdgeKind[];
+}
+
+/** One place that references a node: the referencing node and the edge that cites it. */
+export interface ReferenceRow {
+  readonly from: GraphNodeRef;
+  readonly edge: GraphEdgeRef;
+}
+
+export interface ReferencesAnswer extends GraphReadEnvelope {
+  readonly tool: 'references';
+  readonly id: string;
+  readonly kinds: readonly FactEdgeKind[];
+  readonly rows: readonly ReferenceRow[];
+}
+
+/**
+ * Who names or uses one node, and where: every edge of a citing kind that points
+ * at the node, each with the node it comes from and the place the edge stands at
+ * (a call's place is the code-point-smallest call site its producer folded, with
+ * the count it folded). The rows are in code point order of the file, then by
+ * line, then by the referencing node's label and id, then the edge's id.
+ */
+export async function references(context: GraphReadContext, request: ReferencesRequest): Promise<ReferencesAnswer> {
+  const at = here();
+  const id = readFactId(request.id, `references to ${shown(request.id)}`);
+  const kinds = request.kinds === undefined ? REFERENCE_EDGE_KINDS : readEdgeKinds(request.kinds, `references to ${id}`);
+  if (kinds.length === 0) raise(`${at}: references to ${id} names no edge kind: a read of references answers the edges of the kinds it is given`);
+  const trace = traced(context);
+  const read: GraphRead = { read: 'adjacent', id, kinds };
+  const edges = factsOfRows(await trace.read(read), read);
+  const citing = edges.filter((edge) => directionOf(edge, id) !== 'out');
+  const refs = await refsOf(trace.read, citing.map((edge) => endsOf(edge.kind as FactEdgeKind, edge.value).from ?? '').filter((from) => from !== ''));
+  const rows: ReferenceRow[] = citing.map((edge) => {
+    const from = endsOf(edge.kind as FactEdgeKind, edge.value).from ?? '';
+    return { from: refs.get(from) ?? missingNode(from), edge: edgeRefOf(edge) };
+  });
+  rows.sort((left, right) => byCodePoint(left.edge.file ?? '', right.edge.file ?? '')
+    || (left.edge.line ?? 0) - (right.edge.line ?? 0)
+    || byCodePoint(left.from.label, right.from.label)
+    || byCodePoint(left.from.id, right.from.id)
+    || byCodePoint(left.edge.id, right.edge.id));
+  const held = bounded(rows, context.limits, `the references to ${id}`);
+  return answered<ReferencesAnswer>({
+    tool: 'references',
+    id,
+    kinds,
+    rows: held.rows,
+    reads: trace.made,
+    truncated: held.marker !== null,
+    marker: held.marker,
+  }, context.limits);
+}
+
+// ---- claims_about ----------------------------------------------------------
+
+/** Which way a claim names the node a read is about. */
+export type ClaimDirection = 'about' | 'names' | 'both';
+
+export interface ClaimsAboutRequest {
+  readonly tool: 'claims_about';
+  /** The fact id of the node the claims are about. */
+  readonly id: string;
+  /** `about` for the claims whose subject is the node, `names` for those whose object is; both when it is left out. */
+  readonly direction?: ClaimDirection;
+}
+
+/** One end of a claim as a reader sees it: a node of the graph (with its label), an address, or a literal. */
+export interface GraphTermRef {
+  readonly form: 'node' | 'external' | 'literal';
+  readonly id?: string;
+  readonly url?: string;
+  readonly text?: string;
+  /** The label of the node this names, where the graph holds it. */
+  readonly label?: string;
+}
+
+/** One claim about a node, as the graph holds it. */
+export interface ClaimRow {
+  readonly id: string;
+  readonly predicate: string;
+  readonly subject: GraphTermRef;
+  readonly object: GraphTermRef;
+  readonly text?: string;
+  readonly confidence?: number;
+  readonly layer: FactLayer;
+  readonly status: FactStatus;
+  readonly file?: string;
+  readonly line?: number;
+}
+
+export interface ClaimsAboutAnswer extends GraphReadEnvelope {
+  readonly tool: 'claims_about';
+  readonly id: string;
+  readonly direction: ClaimDirection;
+  readonly rows: readonly ClaimRow[];
+}
+
+/**
+ * What the graph says about one node: the claims whose subject is the node, and
+ * — asked for — the claims whose object names it. A claim is a person's or an
+ * agent's assertion (0004's atom), so every row carries the layer and status it
+ * stands at, and the ends that are nodes carry the label of the node they name.
+ */
+export async function claimsAbout(context: GraphReadContext, request: ClaimsAboutRequest): Promise<ClaimsAboutAnswer> {
+  const at = here();
+  const id = readFactId(request.id, `claims_about ${shown(request.id)}`);
+  const direction = request.direction ?? 'both';
+  if (direction !== 'about' && direction !== 'names' && direction !== 'both') raise(`${at}: claims_about ${id} asks for the direction ${shown(direction)}: a direction is "about", "names" or "both"`);
+  const trace = traced(context);
+  const found = new Map<string, Fact>();
+  const reads: GraphRead[] = [];
+  if (direction !== 'names') reads.push({ read: 'facts-with', kind: 'claim', field: 'subject.id', value: id });
+  if (direction !== 'about') reads.push({ read: 'facts-with', kind: 'claim', field: 'object.id', value: id });
+  for (const read of reads) for (const fact of factsOfRows(await trace.read(read), read)) found.set(fact.id, fact);
+  const claims = [...found.values()].sort((left, right) => byCodePoint(left.id, right.id));
+  const refs = await refsOf(trace.read, claims.flatMap((claim) => [term(claim.value, 'subject'), term(claim.value, 'object')])
+    .filter((held): held is { form: 'node'; id: string } => held !== undefined && held.form === 'node')
+    .map((held) => held.id));
+  const rows: ClaimRow[] = claims.map((claim) => {
+    const value = claim.value as unknown as Record<string, unknown>;
+    const place = claim.provenance.place;
+    const confidence = value['confidence'];
+    const text = value['text'];
+    return {
+      id: claim.id,
+      predicate: typeof value['predicate'] === 'string' ? value['predicate'] : '',
+      subject: termRef(term(claim.value, 'subject'), refs),
+      object: termRef(term(claim.value, 'object'), refs),
+      ...(typeof text === 'string' ? { text } : {}),
+      ...(typeof confidence === 'number' ? { confidence } : {}),
+      layer: claim.layer,
+      status: claim.status,
+      ...(place === undefined ? {} : { file: place.file, line: place.range.startLine }),
+    };
+  });
+  const held = bounded(rows, context.limits, `the claims about ${id}`);
+  return answered<ClaimsAboutAnswer>({
+    tool: 'claims_about',
+    id,
+    direction,
+    rows: held.rows,
+    reads: trace.made,
+    truncated: held.marker !== null,
+    marker: held.marker,
+  }, context.limits);
+}
+
+/** One term of a claim's value, as the schema writes it. */
+function term(value: unknown, field: 'subject' | 'object'): { readonly form: 'node' | 'external' | 'literal'; readonly id?: string; readonly url?: string; readonly text?: string } | undefined {
+  const held = (value ?? {}) as Record<string, unknown>;
+  const entry = held[field];
+  if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) return undefined;
+  const fields = entry as Record<string, unknown>;
+  const form = fields['form'];
+  if (form !== 'node' && form !== 'external' && form !== 'literal') return undefined;
+  return {
+    form,
+    ...(typeof fields['id'] === 'string' ? { id: fields['id'] } : {}),
+    ...(typeof fields['url'] === 'string' ? { url: fields['url'] } : {}),
+    ...(typeof fields['text'] === 'string' ? { text: fields['text'] } : {}),
+  };
+}
+
+/** One term as a reader sees it, with the label of the node it names where the graph holds it. */
+function termRef(held: ReturnType<typeof term>, refs: ReadonlyMap<string, GraphNodeRef>): GraphTermRef {
+  if (held === undefined) return { form: 'literal', text: '' };
+  if (held.form !== 'node' || held.id === undefined) {
+    return { form: held.form, ...(held.url === undefined ? {} : { url: held.url }), ...(held.text === undefined ? {} : { text: held.text }) };
+  }
+  const ref = refs.get(held.id);
+  return { form: 'node', id: held.id, ...(ref === undefined ? {} : { label: ref.label }) };
+}
+
+// ---- coverage --------------------------------------------------------------
+
+/** The most entries of one coverage fact's `read` list an answer shows. */
+export const COVERAGE_READ_SAMPLE = 50;
+/** The most gaps of one coverage fact an answer shows. */
+export const COVERAGE_GAP_LIMIT = 200;
+
+export interface CoverageRequest {
+  readonly tool: 'coverage';
+  /** The scope as the coverage facts name it (`CoverageValue.scope`): a scope token, a node fact id or a path. */
+  readonly scope: string;
+}
+
+/** One thing a coverage could not read, and why. */
+export interface CoverageGapRow {
+  readonly what: string;
+  readonly reason: CoverageGapReason;
+}
+
+/** What one stage's reader read of one scope, and what it could not read. */
+export interface CoverageRow {
+  readonly id: string;
+  readonly repository: string;
+  readonly scope: string;
+  /** Whether the reader read the whole scope; false is a scope with a gap, never an absence (0005). */
+  readonly complete: boolean;
+  /** How many things the coverage read. */
+  readonly readCount: number;
+  /** A sample of what it read, bounded; `readCut` says how many entries the sample left out. */
+  readonly read: readonly string[];
+  readonly readCut: number;
+  /** What could not be read; `unreadCut` says how many gaps this answer left out. */
+  readonly unread: readonly CoverageGapRow[];
+  readonly unreadCut: number;
+  readonly file?: string;
+  readonly line?: number;
+}
+
+export interface CoverageAnswer extends GraphReadEnvelope {
+  readonly tool: 'coverage';
+  readonly scope: string;
+  /** Whether the scope was read whole: true when every coverage fact of it is complete, false when one names a gap, null when no stage recorded coverage for it. */
+  readonly complete: boolean | null;
+  readonly rows: readonly CoverageRow[];
+}
+
+/**
+ * What is known about one scope and what could not be read: the coverage facts
+ * that name the scope, each with the count of what it read, a bounded sample of
+ * it and the gaps it names — a gap is never dropped in silence, and the sample
+ * and the gaps each say how many entries they left out.
+ */
+export async function coverage(context: GraphReadContext, request: CoverageRequest): Promise<CoverageAnswer> {
+  const at = here();
+  if (typeof request.scope !== 'string' || request.scope === '') raise(`${at}: coverage names the scope ${shown(request.scope)}: a scope is the one the coverage facts carry (a repository, a module's fact id or a path)`);
+  const trace = traced(context);
+  const read: GraphRead = { read: 'facts-with', kind: 'coverage', field: 'scope', value: request.scope };
+  const coverage = await coverageRows(factsOfRows(await trace.read(read), read));
+  const held = bounded(coverage.rows, context.limits, `the coverage of the scope ${request.scope}`);
+  const complete = coverage.rows.length === 0 ? null : coverage.rows.every((row) => row.complete);
+  const marker = markerOf(held.marker, coverage.marker);
+  return answered<CoverageAnswer>({
+    tool: 'coverage',
+    scope: request.scope,
+    complete,
+    rows: held.rows,
+    reads: trace.made,
+    truncated: marker !== null,
+    marker,
+  }, context.limits);
+}
+
+/** The coverage rows of the coverage facts one read answered, each bounded in its own lists. */
+async function coverageRows(facts: readonly Fact[]): Promise<{ readonly rows: readonly CoverageRow[]; readonly marker: string | null }> {
+  const rows: CoverageRow[] = [];
+  const cut: string[] = [];
+  for (const fact of facts) {
+    const value = (fact.value ?? {}) as unknown as Record<string, unknown>;
+    const place = fact.provenance.place;
+    const readList = Array.isArray(value['read']) ? value['read'].filter((entry): entry is string => typeof entry === 'string') : [];
+    const gaps = Array.isArray(value['unread']) ? value['unread'] : [];
+    const unread = gaps.slice(0, COVERAGE_GAP_LIMIT).map((gap) => coverageGapOf(gap, fact.id));
+    const unreadCut = gaps.length - unread.length;
+    const read = readList.slice(0, COVERAGE_READ_SAMPLE);
+    const readCut = readList.length - read.length;
+    if (readCut > 0) cut.push(`${readCut} ${readCut === 1 ? 'entry' : 'entries'} of what ${fact.id} read were cut by the ${COVERAGE_READ_SAMPLE}-entry sample`);
+    if (unreadCut > 0) cut.push(`${unreadCut} ${unreadCut === 1 ? 'gap' : 'gaps'} of ${fact.id} were cut by the ${COVERAGE_GAP_LIMIT}-gap cap`);
+    rows.push({
+      id: fact.id,
+      repository: typeof value['repository'] === 'string' ? value['repository'] : fact.provenance.repository.id,
+      scope: typeof value['scope'] === 'string' ? value['scope'] : '',
+      complete: value['complete'] === true,
+      readCount: readList.length,
+      read,
+      readCut,
+      unread,
+      unreadCut,
+      ...(place === undefined ? {} : { file: place.file, line: place.range.startLine }),
+    });
+  }
+  rows.sort((left, right) => byCodePoint(left.scope, right.scope) || byCodePoint(left.id, right.id));
+  return { rows, marker: cut.length === 0 ? null : `truncated: ${cut.join('; ')}` };
+}
+
+/** One gap as the coverage value holds it, refused by name where it is not one. */
+function coverageGapOf(gap: unknown, coverageId: string): CoverageGapRow {
+  if (gap === null || typeof gap !== 'object' || Array.isArray(gap)) raise(`${here()}: the coverage fact ${coverageId} names the gap ${shown(gap)}: a gap names what was not read and why`);
+  const fields = gap as Record<string, unknown>;
+  const what = fields['what'];
+  const reason = fields['reason'];
+  if (typeof what !== 'string') raise(`${here()}: the coverage fact ${coverageId} names the gap ${shown(gap)} whose "what" is ${shown(what)}: a gap names what was not read, as text`);
+  if (typeof reason !== 'string' || (COVERAGE_GAP_REASONS as readonly string[]).includes(reason) === false) {
+    raise(`${here()}: the coverage fact ${coverageId} names the gap ${shown(what)} with the reason ${shown(reason)}: a reason is one of ${COVERAGE_GAP_REASONS.join(', ')}`);
+  }
+  return { what, reason: reason as CoverageGapReason };
+}
+
+// ---- evidence_span ---------------------------------------------------------
+
+export interface EvidenceSpanRequest {
+  readonly tool: 'evidence_span';
+  /** The repository the bytes are read from, as the product names it. */
+  readonly repository: string;
+  /** The commit the bytes are read at: the run's own pin, 40 lower-case hexadecimal digits. */
+  readonly commit: string;
+  /** The file, as a repository path. */
+  readonly file: string;
+  /** The first line to show; the file's first line when it is left out. */
+  readonly startLine?: number;
+  /** The last line to show; the file's last line when it is left out (and the span's cap always applies). */
+  readonly endLine?: number;
+}
+
+/** One line of a file at the pinned commit. */
+export interface EvidenceLine {
+  readonly line: number;
+  readonly text: string;
+}
+
+export interface EvidenceSpanAnswer extends GraphReadEnvelope {
+  readonly tool: 'evidence_span';
+  readonly repository: string;
+  readonly commit: string;
+  readonly file: string;
+  /** The lines this answer holds. */
+  readonly startLine: number;
+  readonly endLine: number;
+  /** What was asked for, before the caps cut it. */
+  readonly asked: { readonly startLine: number; readonly endLine: number };
+  /** How many lines the file has at that commit. */
+  readonly totalLines: number;
+  readonly lines: readonly EvidenceLine[];
+  /** How many lines of what was asked are not in this answer. */
+  readonly cut: number;
+}
+
+/**
+ * The bytes of one file at the pinned commit, as the lines a reader counts, at
+ * most 0026's ~200 lines and the answer's own token cap. A line past the file's
+ * last one is refused naming the file, the line and the file's own line count;
+ * a span longer than the caps is answered with the lines that fit and a marker
+ * naming what was cut. The read this answer stands on is exactly the window it
+ * shows, so the unit's dependency is what it read and no more.
+ */
+export async function evidenceSpan(context: GraphReadContext, request: EvidenceSpanRequest): Promise<EvidenceSpanAnswer> {
+  const at = here();
+  const repository = readRepository(request.repository, `evidence_span of ${shown(request.file)}`);
+  const commit = readCommit(request.commit, `evidence_span of ${shown(request.file)}`);
+  const file = readFile(request.file, 'evidence_span');
+  const from = request.startLine === undefined ? 1 : readLine(request.startLine, 'startLine', 'evidence_span');
+  const wants = request.endLine === undefined ? null : readLine(request.endLine, 'endLine', 'evidence_span');
+  if (wants !== null && wants < from) raise(`${at}: evidence_span asks for the lines ${from} to ${wants} of ${file}: a span starts at a line and ends at that line or a later one`);
+  const trace = traced(context);
+  const readTo = wants === null ? from + context.limits.spanLines - 1 : Math.min(wants, from + context.limits.spanLines - 1);
+  const read: GraphRead = { read: 'span', repository, commit, file, startLine: from, endLine: readTo };
+  const row = (await trace.read(read))[0];
+  const span = spanOfRow(row, read);
+  // What was asked, and what the read held of it: the file's own last line is the end of a span
+  // that names none, and lines past the file's end are lines the file does not have.
+  const askedEnd = Math.min(wants ?? span.totalLines, span.totalLines);
+  // The lines the span could hold: a request past the file's own last line asks for lines the file does
+  // not have, which is not a cut of anything.
+  const window = Math.max(0, Math.min(readTo, span.totalLines) - from + 1);
+  const pastSpanCap = Math.max(0, askedEnd - from + 1 - window);
+  const held = bounded(span.lines, context.limits, `the lines ${from}–${askedEnd} of ${file}`);
+  const pastTokenCap = Math.max(0, window - held.rows.length);
+  const last = held.rows.length === 0 ? from - 1 : held.rows[held.rows.length - 1]!.line;
+  const cut = pastSpanCap + pastTokenCap;
+  const holds = held.rows.length === 0 ? 'this answer holds none of them' : `this answer holds lines ${from}–${last} (${held.rows.length} ${held.rows.length === 1 ? 'line' : 'lines'})`;
+  const marker = cut === 0 ? null : `truncated: asked lines ${from}–${askedEnd} of ${file} (${askedEnd - from + 1} lines); ${holds}: ${cut} ${cut === 1 ? 'line was' : 'lines were'} cut (${pastSpanCap} past the ${context.limits.spanLines}-line cap of an evidence span, ${pastTokenCap} past the answer's ${context.limits.answerTokens}-token cap)`;
+  return answered<EvidenceSpanAnswer>({
+    tool: 'evidence_span',
+    repository,
+    commit: span.commit,
+    file,
+    startLine: from,
+    endLine: last,
+    asked: { startLine: from, endLine: askedEnd },
+    totalLines: span.totalLines,
+    lines: held.rows,
+    cut,
+    reads: trace.made,
+    truncated: marker !== null,
+    marker,
+  }, context.limits);
+}
+
+/** The span row one read answered, refused by name where it is not one. */
+function spanOfRow(row: unknown, read: GraphRead): SpanRow {
+  const where = `the row ${shown(row)} of the read ${describedRead(read)}`;
+  if (row === null || typeof row !== 'object' || Array.isArray(row)) raise(`${where} is no span: a span names the file, the commit and the lines it holds`);
+  const fields = row as Record<string, unknown>;
+  const lines = Array.isArray(fields['lines']) ? fields['lines'] : null;
+  if (lines === null) raise(`${where} carries ${shown(fields['lines'])} as its lines: a span's lines are a list of {line, text}`);
+  return {
+    repository: String(fields['repository'] ?? ''),
+    commit: String(fields['commit'] ?? ''),
+    file: String(fields['file'] ?? ''),
+    startLine: Number(fields['startLine'] ?? 0),
+    endLine: Number(fields['endLine'] ?? 0),
+    totalLines: Number(fields['totalLines'] ?? 0),
+    lines: lines.map((line) => {
+      const held = (line ?? {}) as Record<string, unknown>;
+      return { line: Number(held['line'] ?? 0), text: typeof held['text'] === 'string' ? held['text'] : '' };
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// One call, whatever tool it is
+// ---------------------------------------------------------------------------------------------
+
+/** One call of one tool: the tool's name and its own request. */
+export type GraphReadCall = DescribeScopeRequest | NeighborsRequest | ReferencesRequest | ClaimsAboutRequest | CoverageRequest | EvidenceSpanRequest;
+
+/** What one call answered. */
+export type GraphReadResult = DescribeScopeAnswer | NeighborsAnswer | ReferencesAnswer | ClaimsAboutAnswer | CoverageAnswer | EvidenceSpanAnswer;
+
+/** Runs one call of whichever tool it names, so a server exposing them has one entrance. */
+export async function callGraphRead(context: GraphReadContext, call: GraphReadCall): Promise<GraphReadResult> {
+  switch (call.tool) {
+    case 'describe_scope': return await describeScope(context, call);
+    case 'neighbors': return await neighbors(context, call);
+    case 'references': return await references(context, call);
+    case 'claims_about': return await claimsAbout(context, call);
+    case 'coverage': return await coverage(context, call);
+    case 'evidence_span': return await evidenceSpan(context, call);
+    default: return raise(`${here()}: ${shown((call as { readonly tool?: unknown }).tool)} is no tool of the fill: a unit reads through ${GRAPH_READ_TOOLS.join(', ')}`);
+  }
+}
