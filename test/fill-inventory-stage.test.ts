@@ -187,9 +187,6 @@ describe('the stages are registered', () => {
         { from: 'snapshot', to: 'inventory', via: 'repository' },
         { from: 'snapshot', to: 'inventory', via: 'snapshot' },
       ]);
-        { from: 'snapshot', to: 'inventory', via: 'repository' },
-        { from: 'snapshot', to: 'inventory', via: 'snapshot' },
-      ]);
       expect(registry.get('history')?.produces.map((produced) => produced.kind)).toEqual(['commit', 'coverage', 'task-key']);
       expect(registry.get('snapshot')?.produces.map((produced) => produced.kind)).toEqual(['coverage', 'repository', 'snapshot']);
       expect(registry.get('inventory')?.produces.map((produced) => produced.kind)).toEqual(['contains', 'directory', 'file']);
