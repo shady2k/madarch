@@ -58,6 +58,7 @@ function readState(home: string): DaemonState | undefined {
 
 /** The command line of one process id, or undefined when it does not exist. */
 function processArgs(pid: number): string | undefined {
+  if (process.platform === 'win32') return windowsProcessArgs(pid);
   try { return readFileSync(`/proc/${pid}/cmdline`, 'utf8').replaceAll('\0', ' '); }
   catch {
     const result = spawnSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' });
@@ -66,13 +67,47 @@ function processArgs(pid: number): string | undefined {
 }
 
 /**
- * Whether the recorded state names a live Madarch daemon: the command line
- * must be the daemon child's, and the recorded token must be in that
- * process's environment. Both checks pass only for a process this command
- * spawned with this record, never for a recycled id running another program.
+ * One Windows process's command line, through the system's own process list:
+ * Windows keeps no `/proc`, this is the interface a plain program may read
+ * there, and another process's environment — which carries the token — is not
+ * readable at all. A process that has ended, or one this account may not look
+ * at, answers nothing.
+ */
+function windowsProcessArgs(pid: number): string | undefined {
+  const query = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}'; if ($p) { [Console]::Out.Write($p.CommandLine) }`;
+  // Windows PowerShell ships with every Windows the release supports;
+  // PowerShell 7 answers where a machine carries only that, and a program that
+  // cannot be started at all is not this command's answer either.
+  for (const program of ['powershell', 'pwsh']) {
+    const result = spawnSync(program, ['-NoProfile', '-NonInteractive', '-Command', query], { encoding: 'utf8', timeout: 15_000 });
+    if (result.error !== undefined || result.status !== 0) continue;
+    const said = (result.stdout ?? '').trim();
+    return said === '' ? undefined : said;
+  }
+  return undefined;
+}
+
+/**
+ * Whether one process's command line is the daemon child of this record: the
+ * daemon's own subcommand, this record's home and the port it was started on.
+ * A program that merely holds the recorded process id answers none of them.
+ */
+export function isDaemonCommandLine(args: string, state: { home: string; port: number }): boolean {
+  return args.includes('daemon-serve') && args.includes(state.home) && args.includes(`--port ${state.port}`);
+}
+
+/**
+ * Whether the recorded state names a live Madarch daemon: the recorded
+ * process runs the daemon's own subcommand for this home and port, and — where
+ * the platform lets one process read another's environment — carries the
+ * recorded token. The token makes it certain the process is the child this
+ * record started, never a recycled id; Windows exposes no other process's
+ * environment, so there the daemon's own command line is the whole check.
  */
 function daemonIsAlive(state: DaemonState): boolean {
-  if (!processArgs(state.pid)?.includes('daemon-serve')) return false;
+  const args = processArgs(state.pid);
+  if (args === undefined || !isDaemonCommandLine(args, state)) return false;
+  if (process.platform === 'win32') return true;
   try {
     return readFileSync(`/proc/${state.pid}/environ`, 'utf8').split('\0').includes(`MADARCH_DAEMON_TOKEN=${state.token}`);
   } catch {
@@ -86,6 +121,51 @@ function clearState(home: string): void { try { unlinkSync(statePath(home)); } c
 
 /** Yields to other work without a busy loop; the lifecycle waits below poll with it. */
 function pause(ms: number): void { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
+/**
+ * The bundle marker in a compiled binary's own paths: `$bunfs` on Linux and
+ * macOS (measured in the release on 2026-10-18: `file:///$bunfs/root/<binary>`)
+ * and `~BUN` on Windows (measured by the same day's review out of a
+ * `--target=bun-windows-x64` build: `B:/~BUN/root/<binary>.exe`). The
+ * separators around it are the bundle's own, whichever the platform spells.
+ */
+const BUNDLE_MARKER = /[/\\](?:\$bunfs|~BUN)[/\\]/;
+
+/**
+ * The program and arguments the daemon child is started with. Run from a
+ * checkout, that is `bun` and this repository's `scripts/madarch.ts`. Run from
+ * a compiled binary, it is the binary itself, started again with
+ * `daemon-serve`: the bundle holds the command, and a `bun` has no file to
+ * read — the release's own words were `error: Module not found
+ * "/scripts/madarch.ts"` on Linux and macOS and `error: Module not found
+ * "B:\scripts\madarch.ts"` on Windows (runs 39134773495 and 39135836826).
+ *
+ * Three measured facts say "this is a bundle", and any one is enough: the
+ * embedded files the release carries (an empty list in every source and test
+ * run, measured 2026-10-18), the bundle marker in this module's own URL, and a
+ * derived script path answering no file. `Bun.main` is deliberately *not* one
+ * of them: in `bun test` it is not this program's module — measured on the pod
+ * as the test file, and in CI run 39137149685, where trusting it started
+ * `bun daemon-serve …` inside a shard and the daemon never came up. A program
+ * that is none of the three — a checkout whose script is gone — still starts
+ * itself, since that is the only command line left that can answer.
+ */
+export function daemonCommand(
+  home: string,
+  port: number,
+  options: { scriptPath?: string; scriptExists?: (path: string) => boolean; moduleUrl?: string; embeddedFiles?: readonly unknown[] } = {},
+): { command: string; args: string[] } {
+  const words = ['daemon-serve', '--home', home, '--port', String(port)];
+  const scriptPath = options.scriptPath ?? fileURLToPath(new URL('../../scripts/madarch.ts', import.meta.url));
+  const scriptExists = options.scriptExists ?? existsSync;
+  const moduleUrl = options.moduleUrl ?? import.meta.url;
+  // What this program carries inside itself: the release binary embeds the
+  // wiki app and the version, and no source or test run embeds anything.
+  const embedded = options.embeddedFiles ?? (Bun as unknown as { embeddedFiles?: readonly unknown[] }).embeddedFiles ?? [];
+  const bundled = embedded.length > 0 || BUNDLE_MARKER.test(moduleUrl) || !scriptExists(scriptPath);
+  if (bundled) return { command: process.execPath, args: words };
+  return { command: 'bun', args: [scriptPath, ...words] };
+}
+
 /** Polls `ok` until it holds or the timeout passes; answers whether it held. */
 async function waitUntil(ok: () => boolean | Promise<boolean>, timeoutMs: number): Promise<boolean> {
   const started = Date.now();
@@ -150,21 +230,28 @@ function processExists(pid: number): boolean {
 }
 
 export type DaemonStart =
-  | { ok: true; url: string; pid: number; port: number; reused: boolean; note?: string }
+  | { ok: true; url: string; pid: number; port: number; reused: boolean; requestedPort?: number; note?: string }
   | { ok: false; message: string };
 
 /**
  * Starts the home's shared server, or answers the running one: the one
  * operation both `madarch start` and the non-blocking `new`/`init` call.
  * The app the wikis read is built first, as the foreground serve builds it.
+ *
+ * `port` is the port the caller asked for: undefined when it asked for none
+ * (the default, 4180), 0 for a free one. The port belongs to the home's
+ * server, not to one command: it is fixed when the server starts, and a
+ * caller that names another while the server runs is told so (see
+ * `ensureDaemonUnderLock`), never served on a port it did not ask for
+ * silently.
  */
 export async function ensureDaemon(options: { home?: string; port?: number; appFolder?: string; buildCommand?: string; env?: ServeEnv; print?: (line: string) => void }): Promise<DaemonStart> {
   const print = options.print ?? ((line: string) => console.log(line));
   // Port 0 names a free port the way the foreground serve reads it: the
   // daemon's state and readiness probe need the real port, so it is found
   // before the child is spawned.
-  const requested = options.port ?? 4180;
-  let port = requested;
+  const asked = options.port;
+  let port = asked ?? 4180;
   if (port === 0) {
     const found = await freePort();
     if (found === undefined) return { ok: false, message: 'the daemon could not find a free port on 127.0.0.1; name another --port' };
@@ -179,14 +266,33 @@ export async function ensureDaemon(options: { home?: string; port?: number; appF
   try { lock = acquireLock(home); }
   catch (error) { return { ok: false, message: `the daemon state under ${home} cannot be locked: ${(error as Error).message}` }; }
   if (lock === undefined) return { ok: false, message: `another madarch lifecycle operation is active or left a lock at ${join(home, LOCK_FILE)}; inspect and remove a stale lock before retrying` };
-  try { return await ensureDaemonUnderLock(home, port, requested, built.dist); }
+  try { return await ensureDaemonUnderLock(home, port, asked, built.dist); }
   finally { releaseLock(home, lock); }
 }
 
-async function ensureDaemonUnderLock(home: string, port: number, requested: number, appDist: string): Promise<DaemonStart> {
+/**
+ * Starts the server under the lifecycle lock, or reuses the running one. The
+ * home has one server, so the port it was started on is the home's port: a
+ * caller that named another gets the running address and a line saying
+ * plainly that its port does not apply and how to move the server there. A
+ * caller that named no port (or 0, a free one) is told nothing, since it asked
+ * for no particular port.
+ */
+async function ensureDaemonUnderLock(home: string, port: number, asked: number | undefined, appDist: string): Promise<DaemonStart> {
   const existing = readState(home);
   if (existing !== undefined && daemonIsAlive(existing)) {
-    return { ok: true, url: `http://127.0.0.1:${existing.port}`, pid: existing.pid, port: existing.port, reused: true, note: existing.port !== port ? `the running daemon keeps port ${existing.port}; --port ${requested} was ignored` : undefined };
+    const elsewhere = asked !== undefined && asked !== 0 && existing.port !== asked;
+    return {
+      ok: true,
+      url: `http://127.0.0.1:${existing.port}`,
+      pid: existing.pid,
+      port: existing.port,
+      reused: true,
+      ...(asked === undefined ? {} : { requestedPort: asked }),
+      ...(elsewhere
+        ? { note: `the running server keeps port ${existing.port}, so --port ${asked} does not apply: stop it (madarch stop --home ${home}) and start it again (madarch start --home ${home} --port ${asked})` }
+        : {}),
+    };
   }
   if (existsSync(statePath(home))) clearState(home);
   if (await portOccupied(port)) {
@@ -196,8 +302,8 @@ async function ensureDaemonUnderLock(home: string, port: number, requested: numb
   try { log = openSync(logPath(home), 'a'); }
   catch (error) { return { ok: false, message: `the daemon log at ${logPath(home)} cannot be written: ${(error as Error).message}` }; }
   const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const script = fileURLToPath(new URL('../../scripts/madarch.ts', import.meta.url));
-  const proc = spawn('bun', [script, 'daemon-serve', '--home', home, '--port', String(port)], { detached: true, stdio: ['ignore', log, log], env: { ...process.env, MADARCH_DAEMON_TOKEN: token, MADARCH_APP_DIST: appDist } });
+  const child = daemonCommand(home, port);
+  const proc = spawn(child.command, child.args, { detached: true, stdio: ['ignore', log, log], env: { ...process.env, MADARCH_DAEMON_TOKEN: token, MADARCH_APP_DIST: appDist } });
   proc.unref();
   // A spawn that cannot even happen (a PATH without bun) is a failed start,
   // not an uncaught error on a process the state file already names.
@@ -218,7 +324,15 @@ async function ensureDaemonUnderLock(home: string, port: number, requested: numb
     try { const response = await fetch(`http://127.0.0.1:${port}/`); if (response.ok) return true; } catch { /* the listener is still binding */ }
     return false;
   }, 8000);
-  if (ready && !died && daemonIsAlive(state)) return { ok: true, url: `http://127.0.0.1:${port}`, pid: state.pid, port, reused: false };
+  if (ready && !died && daemonIsAlive(state)) {
+    // The facts name the port the caller asked for (0 meaning a free one)
+    // beside the one the server took, the way the reused path does.
+    return { ok: true, url: `http://127.0.0.1:${port}`, pid: state.pid, port, reused: false, ...(asked === undefined ? {} : { requestedPort: asked }) };
+  }
+  // What the check saw, read before the process is ended: a start whose child
+  // never answered reads differently from one whose process was never the
+  // daemon this record names, and the message says which it was.
+  const seen = processArgs(state.pid);
   await stopProcess(state);
   const current = readState(home);
   const survived = daemonIsAlive(state);
@@ -226,12 +340,15 @@ async function ensureDaemonUnderLock(home: string, port: number, requested: numb
   // could not be stopped stays, so `stop` can still find and end it.
   if (!survived && current !== undefined && current.pid === state.pid && current.token === state.token) clearState(home);
   if (childFault.message !== undefined) return { ok: false, message: `the daemon did not start on port ${port}: ${childFault.message}` };
+  const why = seen === undefined
+    ? `the process it started (pid ${state.pid}) had already ended`
+    : `the process it started (pid ${state.pid}) was not the daemon of this record; its command line read ${JSON.stringify(seen)}`;
   return survived
-    ? { ok: false, message: `the daemon did not start on port ${port} and could not be stopped (pid ${state.pid}); check ${logPath(home)} before retrying` }
-    : { ok: false, message: `the daemon did not start on port ${port}; read ${logPath(home)} for its cause` };
+    ? { ok: false, message: `the daemon did not start on port ${port} and could not be stopped (pid ${state.pid}): ${why}; check ${logPath(home)} before retrying` }
+    : { ok: false, message: `the daemon did not start on port ${port}: ${why}; read ${logPath(home)} for its cause` };
 }
 
-export async function startDaemon(options: { home?: string; port: number }): Promise<number> {
+export async function startDaemon(options: { home?: string; port?: number }): Promise<number> {
   const started = await ensureDaemon({ home: options.home, port: options.port });
   if (!started.ok) { console.error(started.message); return 1; }
   console.log(started.reused ? `already running: ${started.url} (pid ${started.pid})` : `started: ${started.url} (pid ${started.pid})`);

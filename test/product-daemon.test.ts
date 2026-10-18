@@ -1,9 +1,9 @@
 import { afterEach, expect, test } from 'bun:test';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { cpSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/server/http.js';
-import { startDaemon, stopDaemon, daemonStatus } from '../src/product/daemon.js';
+import { startDaemon, stopDaemon, daemonStatus, daemonCommand, isDaemonCommandLine } from '../src/product/daemon.js';
 import { spawnSync } from 'node:child_process';
 import { createServer as netServer } from 'node:net';
 
@@ -12,6 +12,7 @@ let server: StartedServer | undefined;
 let daemonHome: string | undefined;
 let daemonPid: number | undefined;
 let previousAppDist: string | undefined;
+let previousApp: string | undefined;
 let previousMadarchHome: string | undefined;
 function product(home: string, folder: string, id: string): void {
   const path = join(home, folder); mkdirSync(join(path, 'docs'), { recursive: true });
@@ -25,6 +26,20 @@ function appDist(rootFolder: string): string {
   writeFileSync(join(app, 'assets', 'app.js'), 'ok');
   writeFileSync(join(app, 'assets', 'style.css'), 'body { font-family: var(--font-sans); }');
   return app;
+}
+/**
+ * The app folder the daemon's own start reads (`MADARCH_APP`), holding the
+ * built dist: with it a test's `madarch start` serves what is there and builds
+ * nothing. Without it the start looks for the checkout's own `wiki/app`, where
+ * a run that never built the app would build it — slow enough to cross a
+ * test's own deadline on a machine that has no dist yet, which is how this
+ * seam was found (CI run 39137149685, shard 2).
+ */
+function appFolderAround(dist: string, rootFolder: string): string {
+  const folder = join(rootFolder, 'app-folder'); mkdirSync(folder, { recursive: true });
+  cpSync(dist, join(folder, 'dist'), { recursive: true });
+  writeFileSync(join(folder, 'package.json'), JSON.stringify({ name: 'app', private: true, scripts: { build: 'true' } }, null, 2));
+  return folder;
 }
 /** The product declares the problem its home card names: a registry whose overview reads one vision section. */
 function productWithDescription(home: string, folder: string, id: string, problem: string): void {
@@ -52,7 +67,8 @@ afterEach(async () => {
   daemonHome = undefined; daemonPid = undefined;
   if (previousMadarchHome === undefined) delete process.env.MADARCH_HOME; else process.env.MADARCH_HOME = previousMadarchHome;
   if (previousAppDist === undefined) delete process.env.MADARCH_APP_DIST; else process.env.MADARCH_APP_DIST = previousAppDist;
-  previousMadarchHome = undefined; previousAppDist = undefined;
+  if (previousApp === undefined) delete process.env.MADARCH_APP; else process.env.MADARCH_APP = previousApp;
+  previousMadarchHome = undefined; previousAppDist = undefined; previousApp = undefined;
   if (root) rmSync(root, { recursive: true, force: true }); root = undefined;
 });
 
@@ -152,7 +168,9 @@ test('daemon start reuses a live daemon, replaces a stale record, and stop clear
   const home = join(root, 'products'); mkdirSync(home);
   product(home, 'alpha', 'alpha-id');
   previousAppDist = process.env.MADARCH_APP_DIST;
+  previousApp = process.env.MADARCH_APP;
   process.env.MADARCH_APP_DIST = appDist(root);
+  process.env.MADARCH_APP = appFolderAround(process.env.MADARCH_APP_DIST, root);
   const allocated = await freePort();
   previousMadarchHome = process.env.MADARCH_HOME;
   process.env.MADARCH_HOME = root;
@@ -184,7 +202,9 @@ test('daemon start treats --port 0 as a free port, records the real one, and sta
   const home = join(root, 'products'); mkdirSync(home);
   product(home, 'alpha', 'alpha-id');
   previousAppDist = process.env.MADARCH_APP_DIST;
+  previousApp = process.env.MADARCH_APP;
   process.env.MADARCH_APP_DIST = appDist(root);
+  process.env.MADARCH_APP = appFolderAround(process.env.MADARCH_APP_DIST, root);
   previousMadarchHome = process.env.MADARCH_HOME;
   process.env.MADARCH_HOME = root;
   daemonHome = home;
@@ -214,12 +234,78 @@ test('daemon stop on a home with nothing to stop reports not running and never c
   expect(stopDaemon({ home: join(root, 'plain') })).toBe(0);
 });
 
+test('a record whose pid is a live process that is not this daemon is never stopped', async () => {
+  root = mkdtempSync(join(tmpdir(), 'madarch-daemon-foreign-'));
+  const home = join(root, 'products'); mkdirSync(home);
+  product(home, 'alpha', 'alpha-id');
+  // A live process whose command line merely holds the daemon's own word: it
+  // is not the child this home started, so the record is stale and the
+  // process is never signalled.
+  const script = join(root, 'foreign.ts');
+  writeFileSync(script, 'await Bun.sleep(60_000);\n');
+  const foreign = Bun.spawn([process.execPath, script, 'daemon-serve'], { stdio: ['ignore', 'ignore', 'ignore'] });
+  try {
+    writeFileSync(join(home, '.madarch-daemon.json'), JSON.stringify({ pid: foreign.pid, port: 1, startedAt: 0, home, token: 'not-ours' }));
+    expect(daemonStatus({ home })).toBe(0);
+    expect(stopDaemon({ home })).toBe(0);
+    expect(existsSync(join(home, '.madarch-daemon.json'))).toBe(false);
+    let alive = true;
+    try { process.kill(foreign.pid, 0); } catch { alive = false; }
+    expect(alive).toBeTrue();
+  } finally { foreign.kill(); }
+});
+
+test("the daemon's own command line is recognised on every platform's shape", () => {
+  const state = { home: '/tmp/products', port: 43137 };
+  // What the command starts: bun with the checkout's entry, and the compiled
+  // binary started again, on Windows and on Unix alike.
+  expect(isDaemonCommandLine('bun /opt/madarch/scripts/madarch.ts daemon-serve --home /tmp/products --port 43137', state)).toBeTrue();
+  expect(isDaemonCommandLine('/tmp/dist/madarch-linux-x64 daemon-serve --home /tmp/products --port 43137', state)).toBeTrue();
+  expect(isDaemonCommandLine('"C:\\Program Files\\madarch\\madarch.exe" daemon-serve --home /tmp/products --port 43137', state)).toBeTrue();
+  // Everything else is another program: no daemon word, another home, another
+  // port, or a plain command of the same binary.
+  expect(isDaemonCommandLine('sleep daemon-serve 60', state)).toBeFalse();
+  expect(isDaemonCommandLine('bun /opt/madarch/scripts/madarch.ts daemon-serve --home /tmp/other --port 43137', state)).toBeFalse();
+  expect(isDaemonCommandLine('bun /opt/madarch/scripts/madarch.ts daemon-serve --home /tmp/products --port 4180', state)).toBeFalse();
+  expect(isDaemonCommandLine('/tmp/dist/madarch-linux-x64 status --home /tmp/products', state)).toBeFalse();
+});
+
+test("the daemon child is the checkout's script, and the binary itself from a bundle", () => {
+  const words = ['daemon-serve', '--home', '/tmp/products', '--port', '43137'];
+  // A released binary's own facts: it carries embedded files (the wiki app and
+  // the version), its module URL names the bundle, and the script path it
+  // derives answers no file. Any one of the three starts the program itself.
+  const fromLinuxBundle = daemonCommand('/tmp/products', 43137, { moduleUrl: 'file:///$bunfs/root/madarch-linux-x64', scriptPath: '/scripts/madarch.ts', scriptExists: () => false });
+  expect(fromLinuxBundle.command).toBe(process.execPath);
+  expect(fromLinuxBundle.args).toEqual(words);
+  const fromWindowsBundle = daemonCommand('/tmp/products', 43137, { moduleUrl: 'file:///B:/~BUN/root/madarch-windows-x64.exe', scriptPath: 'B:\\scripts\\madarch.ts', scriptExists: () => false });
+  expect(fromWindowsBundle.command).toBe(process.execPath);
+  expect(fromWindowsBundle.args).toEqual(words);
+  // A Windows machine that happens to hold that path on its B: drive is still
+  // a bundle: the embedded files and the marker decide it, file or no file.
+  const windowsWithTheFile = daemonCommand('/tmp/products', 43137, { moduleUrl: 'file:///B:/~BUN/root/madarch-windows-x64.exe', scriptPath: 'B:\\scripts\\madarch.ts', scriptExists: () => true, embeddedFiles: [] });
+  expect(windowsWithTheFile.command).toBe(process.execPath);
+  // And the run CI failed on: a test process under a shard, whose module URL is
+  // its own real file, which embeds nothing, and whose script is there. Bun.main
+  // is not consulted: in a test run it names the test file, and in the shard it
+  // named something else again.
+  const fromTestRun = daemonCommand('/tmp/products', 43137, { moduleUrl: 'file:///opt/madarch/test/thing.test.ts', scriptPath: '/opt/madarch/scripts/madarch.ts', scriptExists: () => true, embeddedFiles: [] });
+  expect(fromTestRun.command).toBe('bun');
+  expect(fromTestRun.args).toEqual(['/opt/madarch/scripts/madarch.ts', ...words]);
+  // Run from a checkout, the script is there and bun is what runs it.
+  const fromCheckout = daemonCommand('/tmp/products', 43137, { moduleUrl: 'file:///opt/madarch/src/product/daemon.ts', scriptPath: '/opt/madarch/scripts/madarch.ts', scriptExists: () => true, embeddedFiles: [] });
+  expect(fromCheckout.command).toBe('bun');
+  expect(fromCheckout.args).toEqual(['/opt/madarch/scripts/madarch.ts', ...words]);
+});
+
 test('daemon start refuses a port another process holds', async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-daemon-port-'));
   const home = join(root, 'products'); mkdirSync(home);
   product(home, 'alpha', 'alpha-id');
   previousAppDist = process.env.MADARCH_APP_DIST;
+  previousApp = process.env.MADARCH_APP;
   process.env.MADARCH_APP_DIST = appDist(root);
+  process.env.MADARCH_APP = appFolderAround(process.env.MADARCH_APP_DIST, root);
   previousMadarchHome = process.env.MADARCH_HOME;
   process.env.MADARCH_HOME = root;
   daemonHome = home;
