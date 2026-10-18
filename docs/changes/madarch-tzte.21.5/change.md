@@ -156,11 +156,14 @@ None.
   stage can tell a build-time name from a runtime one, and naming an `ARG` as a
   gap would put a permanent hole in every Dockerfile that takes a build
   argument.
-- **A deploy unit is named by what declares it.** A Dockerfile's container is
-  named by the folder it stands in, or by the repository at its root — a
-  Dockerfile carries no name of its own — and a compose file's services are
-  named by their service names. The forms `chart`, `function`, `job` and
-  `stack` stand unused: no manifest in this stage's set declares one.
+- **A deploy unit is named by the manifest that declares it.** A Dockerfile
+  carries no name of its own and a folder may hold several (`Dockerfile`,
+  `Dockerfile.prod`), so a container is named by the manifest's repository path;
+  a service is named by the compose file's path and its service name
+  (`docker-compose.yml:web`), since two compose files of one repository may
+  declare one service name and one name would be one node whose `manifest` the
+  last unit to run overwrites. The forms `chart`, `function`, `job` and `stack`
+  stand unused: no manifest in this stage's set declares one.
 - **The `entry-point` kind names stage 2 as well.** The task requires declared
   binaries and scripts as `entry-point` facts, and the schema's list named only
   `3-syntax`, where the code's own ways in are found. The kind now names both
@@ -168,13 +171,21 @@ None.
   are written by; a manifest declares the way in before the code implementing
   it is parsed. The kind's shape, identity and version are unchanged.
 - **What a key that carries no fact of this stage's kinds does.** The stage's
-  kinds are the limit of what it claims: a `package.json`'s `main`, a compose
-  file's `volumes`, a service's `ports`, a Dockerfile's `RUN`, a go.mod's
-  `replace` are read (the manifest parsed) and carry no fact of the seven kinds
-  this stage writes, so they are named in the coverage's `read` where the stage
-  read them as a declaration and by no gap: the alternative is a permanent gap
-  on every real manifest, which teaches a reader to ignore gaps. What the DONE
-  WHEN does not name stands in the open points below.
+  kinds are the limit of what it claims: a compose file's `volumes`, a service's
+  `ports`, a Dockerfile's `RUN`, a go.mod's `replace` are read (the manifest
+  parsed) and carry no fact of the seven kinds this stage writes, so they are
+  named in the coverage's `read` where the stage read them as a declaration and
+  by no gap: the alternative is a permanent gap on every real manifest, which
+  teaches a reader to ignore gaps. A `package.json`'s `main` and `exports` are
+  not read at all, and stand in the open points below.
+- **A declaration the stage cannot read whole is a gap, and a repeat is read
+  once.** A trailing comma in JSON (the ecosystem's own reader refuses the
+  file), a `<<` merge key in a compose file (this reader resolves no merge), a
+  `KEY=value` line mixing its forms, a key or table declared twice: each is
+  named with its line, and where a repeat is named the second declaration is not
+  read — no fact of the unit stands at a line its own coverage calls unread.
+  Docker's own quoted values (`ENV MY_NAME="John Doe"`) are one word, since
+  Docker's parser is the rule for what a Dockerfile declares.
 - **Every error names what it is about.** A reader's refusal names the path, the
   1-based line and what stood there; a unit id this stage never plans is refused
   naming the id and the id's own shape; a plan's refusal names the read, the row
@@ -195,7 +206,7 @@ Open points for the integrator, in the order they matter:
   the unit whose edge names it must name those manifests in the unit's inputs
   too. The unit's id and scope name its own manifest, and the read the plan
   makes is the published-manifests read; the wiring's inputs seam is where the
-  index's manifests belong, and that is an open point below.
+  index's manifests belong, which madarch-tzte.21.8's wiring must decide.
 - A first run of one changed manifest reads every manifest of its repository
   once, for the package index (above). A repository of many thousands of
   manifests would want the index read from published `package` facts instead;

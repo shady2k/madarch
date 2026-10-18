@@ -175,6 +175,10 @@ class JsonReader {
       const after = this.text[this.at];
       if (after === ',') {
         this.at += 1;
+        this.skipSpace();
+        if (this.text[this.at] === '}') {
+          throw new TextStop(this.line, 'a "," before "}" stands where a member belongs: JSON has no trailing comma');
+        }
         continue;
       }
       if (after === '}') {
@@ -201,6 +205,10 @@ class JsonReader {
       const after = this.text[this.at];
       if (after === ',') {
         this.at += 1;
+        this.skipSpace();
+        if (this.text[this.at] === ']') {
+          throw new TextStop(this.line, 'a "," before "]" stands where an element belongs: JSON has no trailing comma');
+        }
         continue;
       }
       if (after === ']') {
@@ -285,7 +293,7 @@ export function readToml(text: string): TextRead<TomlReading> {
       if (body.startsWith('[[')) {
         if (!body.endsWith(']]')) throw new TextStop(line, `${JSON.stringify(body)} is no table header: an array of tables is written [[name]]`);
         const keys = readTomlKey(body.slice(2, -2).trim(), line);
-        const held = descend(root, keys.slice(0, -1), line, true);
+        const held = descend(root, keys.slice(0, -1), line);
         const name = keys[keys.length - 1] ?? '';
         const list = Object.hasOwn(held, name) ? held[name] : [];
         if (!Array.isArray(list)) throw new TextStop(line, `the key ${JSON.stringify(name)} stands as a table and as an array of tables: one key holds one shape`);
@@ -300,7 +308,7 @@ export function readToml(text: string): TextRead<TomlReading> {
       if (body.startsWith('[')) {
         if (!body.endsWith(']')) throw new TextStop(line, `${JSON.stringify(body)} is no table header: a table is written [name]`);
         const keys = readTomlKey(body.slice(1, -1).trim(), line);
-        table = descend(root, keys, line, true);
+        table = descend(root, keys, line);
         at = keys;
         if (lines.has(pathKey(at))) {
           // A table declared twice adds its keys to the first, as TOML's own
@@ -315,7 +323,7 @@ export function readToml(text: string): TextRead<TomlReading> {
       if (equals < 0) throw new TextStop(line, `${JSON.stringify(body)} is no declaration: a line declares a table ([name]) or a key's value (key = value)`);
       const keys = readTomlKey(body.slice(0, equals).trim(), line);
       const parsed = readTomlValue(body.slice(equals + 1).trim(), line);
-      const holder = descend(table, keys.slice(0, -1), line, true);
+      const holder = descend(table, keys.slice(0, -1), line);
       const name = keys[keys.length - 1] ?? '';
       const where: TextPath = [...at, ...keys];
       if (Object.hasOwn(holder, name)) {
@@ -333,17 +341,12 @@ export function readToml(text: string): TextRead<TomlReading> {
 }
 
 /** The table at a dotted path, made where it does not stand yet. */
-function descend(root: Record<string, unknown>, keys: TextPath, line: number, make: boolean): Record<string, unknown> {
+function descend(root: Record<string, unknown>, keys: TextPath, line: number): Record<string, unknown> {
   let held = root;
   for (const key of keys) {
     const name = String(key);
     const next = held[name];
     if (next === undefined) {
-      if (!make) {
-        // A dotted key writing into a table the file never declared: what that
-        // means is TOML's own rule, and this reader does not guess it.
-        throw new TextStop(line, `the table ${JSON.stringify(name)} is not declared: a dotted key stands in a table the file declares`);
-      }
       const fresh: Record<string, unknown> = {};
       held[name] = fresh;
       held = fresh;
@@ -484,7 +487,7 @@ function readTomlValue(text: string, line: number): unknown {
       const equals = indexOfEquals(item);
       if (equals < 0) throw new TextStop(line, `${JSON.stringify(item.trim())} is no member: an inline table holds key = value`);
       const keys = readTomlKey(item.slice(0, equals).trim(), line);
-      const holder = descend(table, keys.slice(0, -1), line, true);
+      const holder = descend(table, keys.slice(0, -1), line);
       holder[keys[keys.length - 1] ?? ''] = readTomlValue(item.slice(equals + 1), line);
     }
     return table;
@@ -743,14 +746,25 @@ export function readCompose(text: string): TextRead<ComposeReading> {
   // A key declared twice is noted and not resolved: yaml's own duplicate-key
   // error is off (`uniqueKeys: false`), since a compose file may hold two
   // `services:` blocks and this reader reads the first, naming the second.
-  const gaps: TextGap[] = [...repeatedKeys(contents, lineCounter), ...repeatedKeys(services, lineCounter)];
+  const gaps: TextGap[] = [
+    ...repeatedKeys(contents, lineCounter),
+    ...repeatedKeys(services, lineCounter),
+    ...mergeKeys(contents, lineCounter),
+    ...mergeKeys(services, lineCounter),
+  ];
   const read: ComposeService[] = [];
+  const named = new Set<string>();
   for (const pair of services.items) {
     const key = pair.key;
     if (!isScalar(key) || typeof key.value !== 'string') {
       return { ok: false, gap: { line: lineOf(key, lineCounter), detail: 'a service name is no name: a compose service is named by a string' } };
     }
     const serviceName = key.value;
+    // A service declared twice is read once: `repeatedKeys` names the second
+    // declaration, and what it says is not read (its variables would stand at
+    // lines the unit's own coverage calls unread, and Compose refuses the file).
+    if (named.has(serviceName)) continue;
+    named.add(serviceName);
     const serviceLine = lineOf(key, lineCounter);
     const environment: ComposeVariable[] = [];
     const envFiles: ComposeEnvFile[] = [];
@@ -759,7 +773,7 @@ export function readCompose(text: string): TextRead<ComposeReading> {
       if (!isMap(body)) {
         return { ok: false, gap: { line: lineOf(body, lineCounter), detail: `the service ${JSON.stringify(serviceName)} is no mapping: a service is a mapping of what it declares` } };
       }
-      gaps.push(...repeatedKeys(body, lineCounter));
+      gaps.push(...repeatedKeys(body, lineCounter), ...mergeKeys(body, lineCounter));
       const declared = entryOf(body, 'environment');
       if (declared !== undefined) {
         if (isMap(declared)) {
@@ -803,6 +817,20 @@ export function readCompose(text: string): TextRead<ComposeReading> {
   }
   read.sort((left, right) => byCodePoint(left.name, right.name));
   return { ok: true, value: { services: read }, gaps };
+}
+
+/** The merge keys one YAML mapping carries, each named: this reader resolves no merge. */
+function mergeKeys(map: { readonly items: readonly { readonly key: unknown; readonly value: unknown }[] }, lineCounter: LineCounter): TextGap[] {
+  const gaps: TextGap[] = [];
+  for (const pair of map.items) {
+    const key = pair.key;
+    if (!isScalar(key) || key.value !== '<<') continue;
+    gaps.push({
+      line: lineOf(key, lineCounter),
+      detail: 'the key "<<" merges another mapping, and this reader resolves no merge: what the merged mapping declares is not read here',
+    });
+  }
+  return gaps;
 }
 
 /** The keys one YAML mapping declares more than once, in code point order, each with the line it repeats at. */

@@ -28,7 +28,7 @@ import { deriveStageGraph } from '../src/fill/registry.js';
 import { createGitSnapshotSource } from '../src/fill/snapshot.js';
 import { DEFAULT_STAGE_LIMITS, type StageContext, type StageDraftWrite, type StageUnit } from '../src/fill/stage.js';
 import {
-  BUILD_CONFIGURATION_STAGE_ID, createBuildConfigurationStage, manifestKindOf, manifestUnitId, publishedManifestsRead,
+  BUILD_CONFIGURATION_STAGE_ID, createBuildConfigurationStage, manifestKindOf, publishedManifestsRead,
   type PublishedManifestRow,
 } from '../src/fill/stages/build-configuration.js';
 import { createStageRegistry } from '../src/fill/stages/index.js';
@@ -158,11 +158,6 @@ function unitIds(plan: { units: readonly { id: string }[] }): string[] {
   return plan.units.map((unit) => unit.id);
 }
 
-/** The units a plan named under one repository prefix, by id. */
-function plannedUnits(plan: { units: readonly { id: string; scope: string }[] }): readonly { id: string; scope: string }[] {
-  return plan.units;
-}
-
 /** The stage over one fixture's pin. */
 function stageOver(root: string, commit: string, id = 'orders-api'): FillStage {
   return createBuildConfigurationStage(createGitSnapshotSource([{ id, form: 'code', root, commit }]));
@@ -260,7 +255,7 @@ describe('the plan', () => {
         'manifest:orders-api:package.json',
         'manifest:orders-api:packages/a/package.json',
       ]);
-      expect(plannedUnits(plan).map((unit) => unit.scope)).toEqual([
+      expect(plan.units.map((unit) => unit.scope)).toEqual([
         'orders-api:Dockerfile', 'orders-api:package.json', 'orders-api:packages/a/package.json',
       ]);
       expect(plan.coverage).toBe('planned');
@@ -500,7 +495,7 @@ describe('deploy units and the environment', () => {
         'entry-point', 'coverage',
       ]);
       expect(oneFact(recorder.writes, 'deploy-unit').value).toEqual({
-        repository: 'orders-api', name: 'services/billing', form: 'container', manifest: 'services/billing/Dockerfile',
+        repository: 'orders-api', name: 'services/billing/Dockerfile', form: 'container', manifest: 'services/billing/Dockerfile',
       });
       const variables = factsOf(recorder.writes).filter((fact) => fact.kind === 'environment-variable').map((fact) => fact.value['name']);
       // `ENV` declares the container's own environment and `ARG` a variable
@@ -534,9 +529,10 @@ describe('deploy units and the environment', () => {
       const stage = stageOver(f.root, commit);
       const recorder = await executed(stage, 'manifest:orders-api:docker-compose.yml');
       for (const write of recorder.writes) expect(checkFact(factOf(write))).toEqual([]);
+      // A service's name is qualified by the compose file that declares it.
       expect(factsOf(recorder.writes).filter((fact) => fact.kind === 'deploy-unit').map((fact) => fact.value)).toEqual([
-        { repository: 'orders-api', name: 'web', form: 'service', manifest: 'docker-compose.yml' },
-        { repository: 'orders-api', name: 'worker', form: 'service', manifest: 'docker-compose.yml' },
+        { repository: 'orders-api', name: 'docker-compose.yml:web', form: 'service', manifest: 'docker-compose.yml' },
+        { repository: 'orders-api', name: 'docker-compose.yml:worker', form: 'service', manifest: 'docker-compose.yml' },
       ]);
       expect(factsOf(recorder.writes).filter((fact) => fact.kind === 'environment-variable').map((fact) => fact.value['name'])).toEqual(['DEBUG', 'ORDERS_DB', 'ORDERS_TOPIC']);
       expect(factsOf(recorder.writes).filter((fact) => fact.kind === 'consumes')).toHaveLength(3);
@@ -771,6 +767,108 @@ describe('a declaration read twice, and a dependency that is no edge', () => {
       const recorder = await executed(stage, 'manifest:orders-api:package.json');
       expect(oneFact(recorder.writes, 'package').provenance.place?.range.startLine).toBe(2);
       expect(coverageOfDraft(recorder.writes).complete).toBe(true);
+    } finally {
+      await f.dispose();
+    }
+  });
+});
+
+// ---- what the second review round found ------------------------------------
+
+describe('a manifest read strictly, and one name per declarer', () => {
+  test('a trailing comma is refused, as the ecosystem’s own reader refuses it', async () => {
+    const f = await fixture();
+    try {
+      await f.write('package.json', '{\n  "name": "orders-api",\n}\n');
+      const commit = f.commit();
+      const stage = stageOver(f.root, commit);
+      const recorder = await executed(stage, 'manifest:orders-api:package.json');
+      expect(kindsOf(recorder.writes)).toEqual(['coverage']);
+      expect(coverageOfDraft(recorder.writes).unread).toEqual([
+        { what: 'package.json:3 a "," before "}" stands where a member belongs: JSON has no trailing comma', reason: 'unsupported' },
+      ]);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a quoted Dockerfile value is one word, and a line that really mixes forms is a gap', async () => {
+    const f = await fixture();
+    try {
+      // Both examples are the Dockerfile reference's own.
+      await f.write('Dockerfile', 'FROM oven/bun:1\nENV MY_NAME="John Doe" MY_DOG=Rex\\ The\\ Dog\n');
+      const commit = f.commit();
+      const stage = stageOver(f.root, commit);
+      const recorder = await executed(stage, 'manifest:orders-api:Dockerfile');
+      expect(factsOf(recorder.writes).filter((fact) => fact.kind === 'environment-variable').map((fact) => fact.value['name'])).toEqual(['MY_DOG', 'MY_NAME']);
+      expect(coverageOfDraft(recorder.writes).complete).toBe(true);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a repeated compose service is read once, and its body is not read at all', async () => {
+    const f = await fixture();
+    try {
+      await f.write('compose.yml', 'services:\n  web:\n    environment:\n      - A=1\n  web:\n    environment:\n      - B=2\n');
+      const commit = f.commit();
+      const stage = stageOver(f.root, commit);
+      const recorder = await executed(stage, 'manifest:orders-api:compose.yml');
+      // A fact standing at a line the unit's own coverage calls unread is what
+      // this refuses: the second declaration's variables are not read.
+      expect(factsOf(recorder.writes).filter((fact) => fact.kind === 'environment-variable').map((fact) => fact.value['name'])).toEqual(['A']);
+      expect(coverageOfDraft(recorder.writes).unread).toEqual([
+        { what: 'compose.yml:5 the key "web" is declared twice: the first declaration stands, and the second is not read', reason: 'unsupported' },
+      ]);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('two Dockerfiles in one folder are two deploy units, each named by its own manifest', async () => {
+    const f = await fixture();
+    try {
+      await f.write('services/billing/Dockerfile', 'FROM oven/bun:1\n');
+      await f.write('services/billing/Dockerfile.prod', 'FROM oven/bun:1\n');
+      const commit = f.commit();
+      const stage = stageOver(f.root, commit);
+      const plain = await executed(stage, 'manifest:orders-api:services/billing/Dockerfile');
+      const production = await executed(stage, 'manifest:orders-api:services/billing/Dockerfile.prod');
+      const one = oneFact(plain.writes, 'deploy-unit');
+      const other = oneFact(production.writes, 'deploy-unit');
+      expect(one.value).toEqual({ repository: 'orders-api', name: 'services/billing/Dockerfile', form: 'container', manifest: 'services/billing/Dockerfile' });
+      expect(other.value).toEqual({ repository: 'orders-api', name: 'services/billing/Dockerfile.prod', form: 'container', manifest: 'services/billing/Dockerfile.prod' });
+      expect(one.id).not.toBe(other.id);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a YAML merge key is named, since this reader resolves no merge', async () => {
+    const f = await fixture();
+    try {
+      await f.write('compose.yml', 'x-base: &base\n  image: nginx\nservices:\n  web:\n    <<: *base\n');
+      const commit = f.commit();
+      const stage = stageOver(f.root, commit);
+      const recorder = await executed(stage, 'manifest:orders-api:compose.yml');
+      expect(coverageOfDraft(recorder.writes).unread).toEqual([
+        { what: 'compose.yml:5 the key "<<" merges another mapping, and this reader resolves no merge: what the merged mapping declares is not read here', reason: 'unsupported' },
+      ]);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a workspace’s shared dependencies are read, not dropped', async () => {
+    const f = await fixture();
+    try {
+      await f.write('Cargo.toml', '[package]\nname = "orders"\n\n[workspace.dependencies]\nserde = "1"\n');
+      const commit = f.commit();
+      const stage = stageOver(f.root, commit);
+      const recorder = await executed(stage, 'manifest:orders-api:Cargo.toml');
+      expect(coverageOfDraft(recorder.writes).unread).toEqual([
+        { what: 'Cargo.toml:5 the dependency "serde" names no package this repository\'s manifests declare', reason: 'unsupported' },
+      ]);
     } finally {
       await f.dispose();
     }

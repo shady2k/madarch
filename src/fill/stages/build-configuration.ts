@@ -374,9 +374,9 @@ const NOTHING: ManifestDrafting = { facts: [], read: [], unread: [] };
 async function draftOf(kind: ManifestKind, reader: SnapshotReader, path: string, text: string, lines: readonly string[], provenance: FactProvenance): Promise<DraftingResult> {
   const at = (line: number): FactProvenance => ({ ...provenance, place: { file: repositoryPath(path), range: lineRange(lines, line) } });
   const gap = (line: number, detail: string): Unread => ({ what: `${path}:${line} ${detail}`, reason: 'unsupported' });
-  const stopped = (read: TextGap, readSoFar: readonly string[] = []): DraftingResult => ({
+  const stopped = (read: TextGap): DraftingResult => ({
     facts: [],
-    read: readSoFar,
+    read: [],
     unread: [gap(read.line, read.detail)],
     stoppedAt: read.line,
   });
@@ -681,6 +681,11 @@ function cargoDrafting(
   const edges: Fact[] = [];
   const dependencyTables: { readonly where: readonly string[]; readonly name: string }[] = [];
   for (const name of CARGO_DEPENDENCY_TABLES) if (tables[name] !== undefined) dependencyTables.push({ where: [name], name });
+  // A workspace root declares its members' shared dependencies here, and a
+  // virtual manifest has no package of its own: both are read, and a dependency
+  // that finds no package names its gap rather than disappearing.
+  const workspace = tableOf(tables['workspace']);
+  if (workspace?.['dependencies'] !== undefined) dependencyTables.push({ where: ['workspace', 'dependencies'], name: 'dependencies' });
   const targets = tableOf(tables['target']);
   if (targets !== undefined) {
     readNames.push('target');
@@ -777,14 +782,55 @@ function dedupeFacts(facts: readonly Fact[]): readonly Fact[] {
   return kept;
 }
 
+/**
+ * The words of one Dockerfile argument, as Docker's own parser splits them: a
+ * quoted run is one word (the quotes are Docker's, and the value inside them
+ * may hold spaces), a backslash escapes the character after it, and whitespace
+ * outside them separates words.
+ */
+function splitDockerWords(argument: string): readonly string[] {
+  const words: string[] = [];
+  let current = '';
+  let quote = '';
+  let escaped = false;
+  for (const char of argument) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === '\\' && quote !== "'") {
+      escaped = true;
+      continue;
+    }
+    if (quote !== '') {
+      if (char === quote) quote = '';
+      else current += char;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === ' ' || char === '\t') {
+      if (current !== '') words.push(current);
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  if (current !== '') words.push(current);
+  return words;
+}
+
 // ---- a Dockerfile ---------------------------------------------------------
 
 /**
- * What one Dockerfile declares: the container it builds (named by the folder it
- * stands in, or by the repository at the root, since a Dockerfile's own name is
- * its file name), the environment variables its `ENV` and `ARG` instructions
- * declare with the file as the place that reads them, and the command its
- * `ENTRYPOINT` and `CMD` name.
+ * What one Dockerfile declares: the container it builds (named by the manifest
+ * that builds it, since a Dockerfile carries no name of its own and a folder
+ * may hold several), the environment variables its `ENV` and `ARG`
+ * instructions declare with the file as the place that reads them, and the
+ * command its `ENTRYPOINT` and `CMD` name.
  */
 function dockerfileDrafting(
   read: DockerfileReading,
@@ -794,14 +840,17 @@ function dockerfileDrafting(
   gap: (line: number, detail: string) => Unread,
 ): DraftingResult {
   const repository = reader.repository;
-  const folder = parentOf(path);
   const facts: Fact[] = [];
   const unread: Unread[] = [];
   const readNames = new Set<string>();
   for (const instruction of read.instructions) readNames.add(instruction.name.toLowerCase());
+  // A container's name is the manifest that builds it: a Dockerfile carries no
+  // name of its own, and a folder may hold several (`Dockerfile`,
+  // `Dockerfile.prod`), which would otherwise be one deploy unit whose
+  // `manifest` the last unit to run overwrites.
   facts.push(makeNodeFact({
     kind: 'deploy-unit',
-    value: { repository, name: folder === undefined ? repository : folder, form: 'container', manifest: repositoryPath(path) },
+    value: { repository, name: path, form: 'container', manifest: repositoryPath(path) },
     provenance: at(1),
     layer: 'extracted',
   }));
@@ -851,7 +900,7 @@ function dockerfileDrafting(
  * instruction's first token carries no `=`), and the name alone.
  */
 function declaredVariableNames(argument: string): { readonly names: readonly string[]; readonly malformed: boolean } {
-  const tokens = argument.trim().split(/\s+/u).filter((token) => token !== '');
+  const tokens = splitDockerWords(argument);
   const first = tokens[0];
   if (first === undefined) return { names: [], malformed: false };
   // `ENV KEY the rest is the value`: a first token with no `=` names the
@@ -888,9 +937,13 @@ function composeDrafting(
   const variables: DeclaredVariable[] = [];
   const readNames = new Set<string>(['services']);
   for (const service of read.services) {
+    // A service's name is qualified by the compose file that declares it: two
+    // compose files of one repository (`docker-compose.yml` and its
+    // `.override`) may declare one service name, and one name would be one
+    // node whose `manifest` the last unit to run overwrites.
     facts.push(makeNodeFact({
       kind: 'deploy-unit',
-      value: { repository, name: service.name, form: 'service', manifest: repositoryPath(path) },
+      value: { repository, name: `${path}:${service.name}`, form: 'service', manifest: repositoryPath(path) },
       provenance: at(service.line),
       layer: 'extracted',
     }));
