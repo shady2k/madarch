@@ -632,7 +632,7 @@ describe('the graph the write path reads', () => {
     expect((await readUnitFacts(owner!, unit.unitId)).map((entry) => entry.fact.id)).toEqual([answer.fact.id]);
   }, 60_000);
 
-  test('a place the path cannot read is refused at its own field, before any byte of the snapshot is read', async () => {
+  test('a place the path cannot read is refused at its own field', async () => {
     const unit = await runningUnit('understanding:acme-shop:src:place-shape');
     const cases: readonly { readonly what: string; readonly place: unknown; readonly field: string; readonly reason: string }[] = [
       { what: 'no place at all', place: undefined, field: 'place', reason: 'cites where its bytes stand' },

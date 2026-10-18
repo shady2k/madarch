@@ -95,10 +95,9 @@ Taken from decisions 0026, 0027 and 0005; nothing here re-decides them.
   its position — or every reason it did not. A refusal is a value and never an
   exception: an agent that wrote a bad field learns which field and why and
   writes again, and a refusal that was an exception would be the session's
-  transport deciding the agent's next turn. The one failure that does raise is a
-  draft set that was retracted: the generation's authority is gone (0027) and its
-  attempt is over, so a write is refused loudly rather than recorded into a set
-  nothing publishes.
+  transport deciding the agent's next turn. Nothing of a write raises, a retracted
+  draft set included (below); what raises is the port's own failure — a database
+  that refused the append — and that failure is the caller's, not the agent's.
 - **The fact's envelope is the write path's, and the agent's part is the value.**
   A request carries a kind, the kind's own value and the place it cites — never an
   id, a commit, a layer or a status. The path builds the provenance (git's version
@@ -204,14 +203,27 @@ Taken from decisions 0026, 0027 and 0005; nothing here re-decides them.
   the set it holds, so a later call of one writer is held to what the earlier one
   wrote.
 
-  A late writer is not refused here: this path carries no lease or fence, and the
-  one that decides whether a generation may publish is the orchestrator's
-  (`publishUnit` checks the fence and the run's control inside the publication's
-  own transaction, 0027). A write that arrives after the run moved past its
-  generation reaches a draft set its retraction or its replacement covers, so it
-  is written and never published; where a session is bound to one generation
-  (madarch-tzte.22.2) the authority that stops it early is that session's to pass
-  in.
+  A late writer is not refused here: this path carries no lease and no fence, and
+  the one that decides whether a generation may publish is the orchestrator's
+  (`publishUnit` checks the fence, the generation and the run's control inside the
+  publication's own transaction, 0027). A write that arrives after the run moved
+  past its generation — cancelled, replaced or failed — reaches a set its
+  retraction or its replacement covers, and is written and never published. The
+  retry path is the one case where such a write can still be published: a
+  superseded attempt's write may arrive after `retryAttempt` retracted the set and
+  before the next attempt records its own, and the next attempt then reads it as
+  its own set and publishes it. Nothing here separates the two attempts — the
+  authority that does is the session's own, which is what the per-unit MCP server
+  (madarch-tzte.22.2) is bound to pass in — and the price of refusing instead was
+  a unit whose first attempt failed and could never write again.
+
+  One writer per generation is the contract, and the port keeps the part of it a
+  database can keep: it locks the generation's row before every append, so two
+  appends of a generation whose row stands serialize. The first append of a
+  generation whose row does not stand yet is the exception — two callers that both
+  take it can lose one write — and the answer's `position` is the position the
+  write took in the set the call read, so one writer in flight is what makes it
+  exact.
 - **The unit's publication publishes exactly what it wrote.** The write each tool
   appends is the store's own `StageDraftWrite` — its kind is the tool that wrote
   it (`fact`, `entity`, `link`, `question`), its evidence is `repository@commit:file`

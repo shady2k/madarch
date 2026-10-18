@@ -342,9 +342,21 @@ export function draftSetOf(writer: StageDraftWriter): CheckedWriteDraft {
  * draft at once — that is what `readUnitDraft` (`fact-store.ts`) answers, and
  * what makes a write visible while its unit still runs.
  *
- * A write after the generation's draft set was retracted is refused rather than
- * recorded: a retracted draft is a generation nothing publishes (0027), and
- * recording into it would resurrect the set the retraction retracted.
+ * A retracted set is the attempt before this one. 0027 retracts a generation's
+ * draft set so the next attempt starts clean, and `retryAttempt` runs *that same
+ * generation* again (`orchestrator.ts`), so an append that meets a retraction is
+ * the next attempt's first write: the set it starts from is empty (the retracted
+ * writes are not this attempt's) and recording clears the retraction, exactly as
+ * the landed `recordUnitDraftIn` does. A late write of the superseded attempt
+ * arrives the same way — this port carries no lease and no fence, and what keeps
+ * such a write out of a publication is the publication's own fence check
+ * (`publishUnitIn`), never this port.
+ *
+ * One writer per generation is the contract. The generation's row is locked
+ * before every append, so two appends of a generation whose row stands serialize
+ * in the database rather than in a caller's promise; the first append of a
+ * generation whose row does not stand yet is the exception, and two callers that
+ * both take it can lose one write.
  */
 export function recordedDraftSet(
   database: OrchestratorDatabase,
@@ -360,6 +372,9 @@ export function recordedDraftSet(
       const at = here();
       await withLocation(at, `checkedWrite(${unit.unitId}/${unit.generation})`, ['fill_unit_draft'], async () => {
         await database.transaction('write', async (executor) => {
+          // The row is held for the rest of this transaction, so a second append of the same generation
+          // waits here instead of reading the same set and overwriting this one.
+          await executor.query('SELECT unit_id FROM fill_unit_draft WHERE unit_id = $1 AND generation = $2 FOR UPDATE', [unit.unitId, unit.generation]);
           // A set the machine holds is the attempt's own; a retracted one belonged to the attempt before
           // it (0027: `retry-wait` retracts the generation's draft so the next attempt starts clean), and
           // recording clears the retraction, which is the landed store's own answer for a rerun.
