@@ -103,6 +103,12 @@ jobs:
       - run: bun test test/fill-fact-store-postgres.test.ts
         env:
           MADARCH_TEST_POSTGRES_URL: postgres://madarch_test:madarch_test@127.0.0.1:5432/madarch_test
+      # The fill's crash-injection suite with several executor processes
+      # (madarch-tzte.19.6): the sharded test job sets no server, so this is the
+      # only place three executors work one run against PostgreSQL at all.
+      - run: bun test test/fill-crash-postgres.test.ts
+        env:
+          MADARCH_TEST_POSTGRES_URL: postgres://madarch_test:madarch_test@127.0.0.1:5432/madarch_test
       - run: bun run views:check
       # The product repository's contract cases (decision 0021): every example and every refusal.
       - run: bun run contract:check

@@ -25,6 +25,7 @@
  *   draft --> cancelled: cancel
  *   draft --> failed: fail [generation-current & fence-current & fail-cause]
  *   draft --> stale: invalidate [replacement-named]
+ *   draft --> retry_wait: retry [generation-current & retries-remain & retry-time-named & cause-lease-expired]
  *   draft --> validating: validate-draft [generation-current & fence-current]
  *   leased --> blocked: block [generation-current & fence-current & block-reason-named]
  *   leased --> cancelled: cancel
@@ -60,6 +61,7 @@
  *   validating --> failed: fail [generation-current & fence-current & fail-cause]
  *   validating --> stale: invalidate [replacement-named]
  *   validating --> published: publish [generation-current & fence-current & reads-fresh]
+ *   validating --> retry_wait: retry [generation-current & retries-remain & retry-time-named & cause-lease-expired]
  *   validating --> retry_wait: retry [generation-current & retries-remain & retry-time-named & cause-validation-problem]
  *   waiting_children --> blocked: block [generation-current & fence-current & block-reason-named]
  *   waiting_children --> cancelled: cancel
@@ -379,6 +381,12 @@ const unitTransitions: MachineSpec<UnitState, UnitEvent, UnitContext>['transitio
   unitTransition('waiting_children', 'join', 'ready', { label: 'all-published', guards: ['generation-current', 'children-published-and-fresh'], actions: ['resume-join', 'enqueue-ready', 'emit-progress'] }),
   unitTransition('waiting_children', 'join', 'ready', { label: 'accepted-partial', guards: ['generation-current', 'children-accepted-partial'], actions: ['resume-join', 'enqueue-ready', 'emit-progress'] }),
   unitTransition('validating', 'retry', 'retry_wait', { label: 'validation-problem', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-validation-problem'], actions: retryActions }),
+  // An attempt may die at any step, and its lease is what says so: the same lapse is retried from the
+  // states a draft has already been recorded in, since a worker killed between `validate-draft` and
+  // `publish` — or between `submit-draft` and `validate-draft` — holds nothing publishable and would
+  // otherwise hold the run for ever.
+  unitTransition('draft', 'retry', 'retry_wait', { label: 'lease-expired', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-lease-expired'], actions: retryActionsFenced }),
+  unitTransition('validating', 'retry', 'retry_wait', { label: 'lease-expired', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-lease-expired'], actions: retryActionsFenced }),
   unitTransition('leased', 'retry', 'retry_wait', { label: 'lease-expired', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-lease-expired'], actions: retryActionsFenced }),
   unitTransition('leased', 'retry', 'retry_wait', { label: 'transient-failure', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-transient-failure'], actions: retryActionsFenced }),
   unitTransition('running', 'retry', 'retry_wait', { label: 'lease-expired', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-lease-expired'], actions: retryActionsFenced }),
