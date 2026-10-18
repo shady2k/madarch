@@ -93,12 +93,14 @@ None.
   fill may carry one. The registration (`src/fill/stages/index.ts`) hands that
   reader in, so the module itself names no path; this is the smallest edit
   another stage can sit beside, one line in one function.
-- **The ancestry is read with three git calls and no file's bytes.** The pinned
+- **The ancestry is read with four git calls and no file's bytes.** The pinned
   commit is resolved (`rev-parse --verify <commit>^{commit}`), the ancestry is
   listed with its changed paths (`git log --topo-order --no-renames
   --diff-merges=first-parent --format=… --name-only -z --max-count=<depth+1>`,
-  one call whatever the size of the history), and the repository's shallow state
-  is read. The commit's parents, times and paths are read from the commit object
+  one call whatever the size of the history), the repository's shallow state is
+  asked about (a fifth call asks where the shallow file is, only where the
+  repository is shallow), and the version that answered is read for the facts'
+  source. The commit's parents, times and paths are read from the commit object
   — never from the working tree — so a dirty checkout and a different branch
   change no fact; and every flag is explicit, so a machine's git configuration
   changes none either.
@@ -131,6 +133,34 @@ None.
   by the part's own checker — a changed path is a repository path, a parent is a
   commit — so `PART_LIST_FIELDS` is the one place that says so and a fact's list
   can carry neither a machine's path nor a name the graph cannot join.
+- **The graph reads are three, and their row shape is this change's proposal.**
+  `PINNED_SNAPSHOTS_QUERY` asks the graph for the pinned snapshots, and
+  `commitsHeldQuery` and `coverageHeldQuery` ask for what this repository's
+  history already holds. They are SQL against the fact store's rows in the
+  fill's own vocabulary of fact kinds, and the shape they ask for — the fact's
+  `kind`, `repository`, `scope` and `commit` beside its `value` — is the fact
+  storage's to meet or to change: that storage is madarch-tzte.20's and is not
+  landed, so the three reads are written once, exported, and pinned by a test
+  rather than scattered through the stage. The repository and the scope a read
+  interpolates are checked against their own forms first.
+- **A list in its reader's own order names each entry once, wherever the repeat
+  stands.** The sorted lists find a repeat beside its twin, because equal names
+  stand next to each other in code point order; an own-order list has no such
+  order to lean on, so a commit's parents are matched by name (a map from the
+  name to where it was read) rather than by their neighbour. A commit naming the
+  same parent twice is refused at the second of them, which is the rule the
+  schema states for every list of names.
+- **Git's own seconds are read as they are, and a time this machine cannot hold
+  is named.** Git counts whole seconds from the epoch and its own count may be
+  negative, so a commit dated before 1970 is read rather than refused; an instant
+  an ISO 8601 time cannot hold is refused naming the commit and what the read
+  made of it, never a bare runtime error. No fixture can make a pre-1970 commit
+  with the git of today (it refuses to create or to write such an object), so
+  this is read-and-stated, not test-proved: what the tests do prove is the
+  refusals around it, through a program standing in for git (a record a message
+  broke in two, a time that is no time, a walk that failed, a `PATH` with no git
+  in it), which is also how the parse's own no-silent-smaller-result rules are
+  exercised.
 - **Incrementality is a read of the graph, and the fact's value is what decides.**
   A unit reads back the commit facts of its repository (with the value each
   holds) and its own coverage fact, and writes a commit's facts only where the
@@ -143,14 +173,24 @@ None.
   at all: the task's "a second run after one new commit writes only that commit's
   facts" holds without a rerun rewriting the history around it.
 - **The coverage names every gap, and its `read` list is what was read.**
-  `complete` is false exactly when a gap was left; a gap's `what` names the
-  ancestry that was not followed (the bound's cut as `budget`, a shallow
-  boundary and an unreadable parent as `inaccessible`, an unreadable shallow
-  boundary file as `error`); and the list is in code point order, each gap once,
-  which is the schema's own rule. A shallow clone is found through git's own
-  shallow file rather than by reading an empty parent list as a root, and a
-  missing parent is found in the call that failed, where git names both the
-  object it could not read and the commit whose parents it was traversing.
+  `complete` is false exactly when a gap was left; a gap's `what` names what was
+  not read — the ancestry a bound cut, the shallow boundary a clone stops at,
+  the object git could not read — and its reason is `budget` for the bound,
+  `inaccessible` for a boundary or an unreadable object and `error` for a
+  shallow file the read cannot open. The list is in code point order, each `what`
+  once, which is the schema's own rule, and two causes that would name one `what`
+  are two gaps saying two things — the bound's cut names the ancestry, the
+  shallow gap names the boundary commit — because a coverage the schema refuses
+  for a repeated `what` would report no gap at all and take the unit down with
+  it. A shallow clone is found through git's own shallow file rather than by
+  reading an empty parent list as a root, and a missing parent is found in the
+  call that failed, where git names the object it could not read and, where it
+  says so, the commit whose parents it was traversing.
+  One thing a gap does not name is a boundary commit's own file list: git has no
+  parent in the checkout to diff it against, so it answers the whole tree as the
+  paths that commit added, and the next read that can reach the parents writes
+  that commit's paths again — the last published read of a commit is what the
+  graph holds.
 - **The stage consumes its own `commit` capability.** A unit reads what its
   earlier run published, and decision 0027's registry lets a stage that produces
   a capability satisfy itself, so no other producer of `commit` starves it and

@@ -2286,6 +2286,9 @@ export function checkFact(fact: unknown): FactProblem[] {
         if (closed?.atLeastOne === true && held.length === 0) {
           add(`value.${field}`, `a list of ${closed.what}s holds at least one: a fact that names none leaves the field out`);
         }
+        // The names this list has already read, so a repeat is found wherever it
+        // stands in an own-order list, not only beside its twin.
+        const seenNames = new Map<string, number>();
         for (let index = 0; index < held.length; index += 1) {
           const current = held[index];
           if (typeof current !== 'string') {
@@ -2298,11 +2301,21 @@ export function checkFact(fact: unknown): FactProblem[] {
             const message = partIn(closed.values, closed.what)(current);
             if (message !== undefined) add(`value.${field}[${index}]`, message);
           }
+          if (ownOrder) {
+            // A list in its reader's own order may repeat nowhere, and a repeat
+            // there is found by name rather than by neighbouring entries: two
+            // equal names have no order between them to stand next to each
+            // other by.
+            const first = seenNames.get(current);
+            if (first !== undefined) add(`value.${field}[${index}]`, `${shown(current)} is named twice (first at ${field}[${first}]): a list of names names each once`);
+            else seenNames.set(current, index);
+            continue;
+          }
           const previous = index === 0 ? undefined : held[index - 1];
           if (typeof previous !== 'string') continue;
           const order = byCodePoint(previous, current);
-          if (order === 0) add(`value.${field}[${index}]`, `${shown(current)} is named twice: a list of names names each once`);
-          else if (order > 0 && !ownOrder) add(`value.${field}[${index}]`, `${shown(current)} stands after ${shown(previous)}: a list of names is in code point order`);
+          if (order > 0) add(`value.${field}[${index}]`, `${shown(current)} stands after ${shown(previous)}: a list of names is in code point order`);
+          else if (order === 0) add(`value.${field}[${index}]`, `${shown(current)} is named twice: a list of names names each once`);
         }
         continue;
       }

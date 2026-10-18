@@ -422,6 +422,10 @@ describe('the ancestry one commit fact carries', () => {
     expect(pathsOf(commitOf(twice))).toEqual(['value.files[1]']);
     const repeatedParent = { ...merge, parents: [COMMIT, COMMIT] };
     expect(pathsOf(commitOf(repeatedParent))).toEqual(['value.parents[1]']);
+    // And a repeat that does not stand next to its twin is a repeat too: an
+    // own-order list still names each entry once, whatever order it is in.
+    const apart = { ...merge, parents: [OTHER_COMMIT, COMMIT, OTHER_COMMIT] };
+    expect(pathsOf(commitOf(apart))).toEqual(['value.parents[2]']);
   });
 
   test('a machine path and a name that is no commit are each refused where they stand in the list', () => {

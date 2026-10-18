@@ -33,14 +33,25 @@
  * What the read could not reach is always named. The configured depth cutting
  * the ancestry is a `budget` gap, a shallow clone's boundary and a parent Git
  * cannot read are `inaccessible` gaps, and the coverage fact carrying them is
- * written beside the commits, so a shorter history is never silent. A read that
+ * written beside the commits, so a shorter history is never silent. One thing
+ * a gap does not name is a boundary commit's own file list: git has no parent
+ * in the checkout to diff it against, so it answers the whole tree as the paths
+ * that commit added. A later read that can reach the parents writes that
+ * commit's paths again, since what the graph holds is what the last read
+ * found. A read that
  * fails for any other reason is thrown, naming the repository, the checkout
  * folder, the git command, its exit status and git's own words.
  *
- * The reads this stage makes of the graph are written in the fill's own
- * vocabulary — the fact kinds decision 0026 gives the graph — and never in a
- * table's: a storage that answers the graph's kinds answers them. They are
- * `PINNED_SNAPSHOTS_QUERY`, `commitsHeldQuery` and `coverageHeldQuery`.
+ * The reads this stage makes of the graph are the three below —
+ * `PINNED_SNAPSHOTS_QUERY`, `commitsHeldQuery`, `coverageHeldQuery` — and they
+ * are SQL against the fact store's rows, in the fill's own vocabulary of fact
+ * kinds: the row shape they ask for (`kind`, `repository`, `scope`, `commit`
+ * beside the fact's `value`) is this stage's proposal for the fact storage of
+ * madarch-tzte.20 to meet or to change, since that storage is not landed yet,
+ * and it is written once, here, so a test can pin it and a storage can answer
+ * it. The repository and the scope a read interpolates are checked against
+ * their own forms before they reach a query, so no read is built from a name a
+ * product did not write.
  */
 import { execFile as execFileCallback } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
@@ -194,9 +205,15 @@ export interface HistoryReader {
 
 // ---- the Git reader -------------------------------------------------------
 
-/** The separator the log format writes between commit records, and the one it writes between fields. */
-const RECORD = '\x1e';
-const FIELD = '\x1f';
+/**
+ * The separator the log format writes between commit records, and the one it
+ * writes between fields. They are exported because a test that wants to hand
+ * the reader the bytes git would write has to write them: the format below is
+ * the reader's own contract with git, and a test builds its answer from these
+ * two and nothing else.
+ */
+export const HISTORY_LOG_RECORD = '\x1e';
+export const HISTORY_LOG_FIELD = '\x1f';
 
 /**
  * The log format: `%x1e` opens a commit's record, the fields are joined by
@@ -219,6 +236,12 @@ interface GitRun {
   readonly status: number | null;
   readonly stdout: string;
   readonly stderr: string;
+  /**
+   * Why a call that never ran could not be run: the runtime's own error with
+   * its code named (`ENOENT` for a git that is not on PATH, the child-process
+   * error for an answer past the read's buffer). Nothing else reaches it.
+   */
+  readonly failure?: string;
 }
 
 /** One git call in a folder: git's own loader variables never reach it, and an abort kills the call. */
@@ -234,18 +257,21 @@ async function gitIn(folder: string, args: readonly string[], signal?: AbortSign
     const failed = error as { code?: unknown; stdout?: unknown; stderr?: unknown; message?: unknown };
     const status = typeof failed.code === 'number' ? failed.code : null;
     const stdout = typeof failed.stdout === 'string' ? failed.stdout : '';
-    const own = typeof failed.stderr === 'string' ? failed.stderr : '';
-    const message = typeof failed.message === 'string' ? failed.message : '';
-    // A call that never started (no git on PATH) has no status: its own error is
-    // then the whole of what can be said, and it is said rather than dropped.
-    const stderr = status === null && own === '' ? message : own;
-    return { status, stdout, stderr };
+    const stderr = typeof failed.stderr === 'string' ? failed.stderr : '';
+    // A call that never started — no git on PATH, an answer past the read's
+    // buffer — has no status: the runtime's own error is then the whole of what
+    // can be said, with the runtime's own code in front of it, and it is said
+    // rather than read as a git that answered nothing.
+    const code = typeof failed.code === 'string' ? failed.code : undefined;
+    const said = typeof failed.message === 'string' ? failed.message : undefined;
+    const failure = [code, said].filter((one) => one !== undefined && one !== '').join(': ');
+    return { status, stdout, stderr, ...(status === null && failure !== '' ? { failure } : {}) };
   }
 }
 
 /** What one failed git call says: the folder, the command, git's exit status and git's own words. */
 function gitFailure(what: string, folder: string, args: readonly string[], run: GitRun): Error {
-  const status = run.status === null ? 'could not be run' : `exited ${run.status}`;
+  const status = run.status === null ? `could not be run${run.failure === undefined ? '' : `: ${run.failure}`}` : `exited ${run.status}`;
   const words = run.stderr.replace(/\s+/gu, ' ').trim();
   const tail = words.length > 600 ? `…${words.slice(-600)}` : words;
   return new Error(`${what}: git ${['-C', folder, ...args].join(' ')} ${status}${tail === '' ? '' : `: ${tail}`}`);
@@ -257,10 +283,12 @@ function gitFailure(what: string, folder: string, args: readonly string[], run: 
  * knows where the product's repositories stand: a checkout's folder is a
  * machine's path, and no fact of the fill may carry one.
  *
- * The reader runs three git calls at a repository's Git: the pinned commit is
+ * The reader makes four git calls at a repository's Git: the pinned commit is
  * resolved, the ancestry is listed (`git log`, newest first, topologically
  * ordered, no renames detected — a rename is the path it left and the path it
- * took), and the repository's shallow boundary is read where it has one. A
+ * took), the shallow state is asked about (a fifth call asks where the shallow
+ * file is, and only where the repository is shallow), and the version that
+ * answered is read for the facts' source. A
  * parent Git cannot read is found in the call that failed, not guessed from a
  * shorter list: git names the object it could not read and the commit whose
  * parents it was traversing, and both are said in the coverage gap.
@@ -301,9 +329,11 @@ export function createGitHistoryReader(folderOf: CheckoutFolderOf): HistoryReade
         const kept = [...(cut ? commits.slice(0, depth) : commits)].reverse();
         const oldest = kept[0];
         // A call that read nothing of a history it could read is a read that did
-        // not happen; a call that failed over an object it named is the gap it
-        // named, and the coverage of that unit carries it with no commit fact
-        // beside it rather than a shorter history published as the whole one.
+        // not happen. A call that failed over an object git named is the gap it
+        // named: the commits it had already listed are written beside it — a
+        // topologically ordered walk that fails lists none, because git orders
+        // the walk before it prints — and what it did not reach is the gap,
+        // never a shorter history published as the whole one.
         if (oldest === undefined && listed.status === 0) {
           throw new Error(`${what} listed no commit at all: an ancestry holds the pinned commit, so a read that lists nothing is a read that did not happen`);
         }
@@ -336,18 +366,20 @@ async function sourceVersion(folder: string, signal: AbortSignal | undefined, wh
  * changed. Everything a record holds that the format does not promise is
  * refused by name rather than read past: a record whose first field is no
  * commit, a parent that is no commit, a time that is no whole number of
- * seconds, and a path list that does not end with its separator (a message
- * holding the record separator reaches here as such a record, which is why the
- * refusal names the repository and the record rather than dropping it).
+ * seconds, a record whose fields are followed by something that is no path
+ * list, and a path list that does not end with its separator. A message
+ * holding the record separator reaches the reader as a record of its own, which
+ * is why these refusals name the repository, the commit and the bytes rather
+ * than dropping the record.
  */
 function parseLog(text: string, at: { readonly repository: string; readonly commit: string; readonly folder: string }): HistoryCommit[] {
   const where = `history: the log of ${at.repository} at ${at.commit} in ${at.folder}`;
   const commits: HistoryCommit[] = [];
-  for (const record of text.split(RECORD)) {
+  for (const record of text.split(HISTORY_LOG_RECORD)) {
     if (record === '') continue;
-    const last = record.lastIndexOf(FIELD);
+    const last = record.lastIndexOf(HISTORY_LOG_FIELD);
     if (last < 0) throw new Error(`${where} holds a record with no field separator: ${JSON.stringify(record.slice(0, 120))}`);
-    const fields = record.slice(0, last).split(FIELD);
+    const fields = record.slice(0, last).split(HISTORY_LOG_FIELD);
     const [commit, parents, committed, authored, author, subject] = fields;
     if (commit === undefined || parents === undefined || committed === undefined || authored === undefined || author === undefined || subject === undefined) {
       throw new Error(`${where} holds a record with ${fields.length} fields: a record is the commit, its parents, its two times, its author, its subject and its message`);
@@ -355,13 +387,21 @@ function parseLog(text: string, at: { readonly repository: string; readonly comm
     if (!COMMIT_PATTERN.test(commit)) {
       throw new Error(`${where} holds a record whose first field is ${JSON.stringify(commit)}: a commit is 40 lower-case hexadecimal digits, so this record is a message git wrote as one`);
     }
-    const message = fields.slice(6).join(FIELD);
+    const message = fields.slice(6).join(HISTORY_LOG_FIELD);
     const parentsRead = parents === '' ? [] : parents.split(' ').map((parent) => {
       if (!COMMIT_PATTERN.test(parent)) throw new Error(`${where} names the parent ${JSON.stringify(parent)} of ${commit}: a parent is 40 lower-case hexadecimal digits`);
       return parent;
     });
     const committedAt = isoTimestamp(committed, `the committer time of ${commit}`, where);
     const authoredAt = isoTimestamp(authored, `the author time of ${commit}`, where);
+    // Everything after the record's last field separator is git's path list,
+    // and git opens one with a NUL. Anything else there means the record the
+    // reader is holding was cut in two — a message holding the record separator
+    // — and that is refused here, where the commit it pretended to be is known.
+    const section = record.slice(last + 1);
+    if (section !== '' && !section.startsWith('\x00')) {
+      throw new Error(`${where} holds a record for ${commit} whose fields are followed by ${JSON.stringify(section.slice(0, 120))}, which is no path list: a message holding the record separator reaches the reader as a record of its own`);
+    }
     commits.push({
       commit,
       parents: parentsRead,
@@ -369,7 +409,7 @@ function parseLog(text: string, at: { readonly repository: string; readonly comm
       authoredAt,
       subject,
       ...(author === '' ? {} : { author }),
-      files: parseFiles(record.slice(last + 1), commit, where),
+      files: parseFiles(section, commit, where),
       message,
     });
   }
@@ -384,10 +424,7 @@ function parseLog(text: string, at: { readonly repository: string; readonly comm
  * section is read exactly as git writes it: one NUL, one newline, then paths.
  */
 function parseFiles(section: string, commit: string, where: string): RepositoryPath[] {
-  if (section === '') return [];
-  if (!section.startsWith('\x00')) {
-    throw new Error(`${where} lists the paths of ${commit} without a separator: ${JSON.stringify(section.slice(0, 120))}`);
-  }
+  if (section === '' || section === '\x00') return [];
   const rest = section.slice(1);
   if (rest === '') return [];
   if (!rest.startsWith('\n') || !rest.endsWith('\x00')) {
@@ -408,14 +445,20 @@ function parseFiles(section: string, commit: string, where: string): RepositoryP
 
 /** One git time as an ISO 8601 instant with `Z`, from the epoch seconds git prints. */
 function isoTimestamp(epoch: string, what: string, where: string): string {
-  if (!/^\d+$/u.test(epoch)) {
-    throw new Error(`${where} reads ${what} as ${JSON.stringify(epoch)}: git writes a time as whole seconds since the epoch`);
+  // Git counts whole seconds from the epoch and its own count may be negative:
+  // a commit dated before 1970 is a commit, not a defect.
+  if (!/^-?\d+$/u.test(epoch)) {
+    throw new Error(`${where} reads ${what} as ${JSON.stringify(epoch)}: git writes a time as whole seconds since the epoch, negative where it stands before it`);
   }
   const at = Number(epoch);
   if (!Number.isSafeInteger(at)) {
-    throw new Error(`${where} reads ${what} as ${JSON.stringify(epoch)}, which is no instant this machine can hold`);
+    throw new Error(`${where} reads ${what} as ${JSON.stringify(epoch)}, which is no whole number of seconds`);
   }
-  return new Date(at * 1000).toISOString().replace(/\.\d{3}Z$/u, 'Z');
+  try {
+    return new Date(at * 1000).toISOString().replace(/\.\d{3}Z$/u, 'Z');
+  } catch (error) {
+    throw new Error(`${where} reads ${what} as ${JSON.stringify(epoch)}, which is no instant an ISO 8601 time holds: ${(error as Error).message}`);
+  }
 }
 
 /**
@@ -463,20 +506,29 @@ async function shallowGaps(folder: string, repository: string, commits: readonly
     // A boundary commit is one whose own parents are not in this checkout: its
     // recorded parent list is empty, so the ancestry behind it was not read.
     if (boundaries.has(commit.commit) && commit.parents.length === 0) {
-      gaps.push({ what: `the ancestry before ${commit.commit}`, reason: 'inaccessible' });
+      // The gap names the boundary itself, not the ancestry behind it: a bound
+      // cutting the read at the same commit names that ancestry too, and a
+      // coverage names each `what` once, so the two causes say two things.
+      gaps.push({ what: `the shallow boundary ${commit.commit}`, reason: 'inaccessible' });
     }
   }
   return gaps;
 }
 
-/** The gaps in code point order of what they name, each named once: the schema's own order for a coverage's list. */
+/**
+ * The gaps in code point order of what they name, each `what` named once: the
+ * schema's own order and uniqueness for a coverage's list, which refuses a
+ * `what` standing twice. Two reasons naming one `what` are one gap here — the
+ * first in code point order of the reason, `budget` before `inaccessible` —
+ * because a list that named it twice would be refused by the schema and the
+ * unit would lose the coverage it needs to report the gap at all.
+ */
 function sortGaps(gaps: readonly CoverageGap[]): CoverageGap[] {
   const seen = new Set<string>();
   const unique: CoverageGap[] = [];
   for (const gap of [...gaps].sort((left, right) => byCodePoint(left.what, right.what) || byCodePoint(left.reason, right.reason))) {
-    const key = `${gap.what}\u0000${gap.reason}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    if (seen.has(gap.what)) continue;
+    seen.add(gap.what);
     unique.push(gap);
   }
   return unique;

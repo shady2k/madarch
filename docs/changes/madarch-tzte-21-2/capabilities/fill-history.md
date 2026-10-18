@@ -56,9 +56,14 @@ context; its `validate` shall judge a draft before publication.
 - Then: the draft is whole: a rerun that changed nothing writes nothing
 
 ### Scenario: error-names-where
-- Given: a draft holding a commit fact whose author time is `yesterday`, and a task-key edge whose commit no write of the draft names
+- Given: a draft holding a commit fact whose changed path is `/opt/madarch-checkout/a.txt`, and a task-key edge whose commit no write of the draft names
 - When: the stage validates it
-- Then: both refusals are returned, the first naming `value.authoredAt`, the second that an edge names a node that exists
+- Then: both refusals are returned, the first naming `value.files[0]` and that a changed path is a repository path, the second that an edge names a node that exists
+
+### Scenario: value-types-are-the-writers
+- Given: a commit fact whose committer time is `yesterday`
+- When: the fact is checked
+- Then: the schema reads the field as text and does not refuse it: a value field's own type, a time included, is the write path's check, not the schema's, and the stage reads a time from git's own seconds and refuses anything else before it writes one
 
 ## Requirement: ancestry — A unit writes the pinned commit's ancestry as commit facts
 
@@ -69,7 +74,10 @@ recorded them (ISO 8601 with `Z`), the subject, the author's name, the commit's
 parents in git's own order (the first parent first, and not sorted) and the
 paths the commit changed as repository paths, in code point order, each once (a
 merge's against its first parent, a rename's as the path it left and the path it
-took). The facts shall be drafted oldest first, so a parent's fact always stands
+took). A list of names names each entry once wherever the repeat stands: a
+parent that stands twice is refused at the second of them, though the two stand
+apart, and a changed path named twice is refused where the sorted list meets its
+twin. The facts shall be drafted oldest first, so a parent's fact always stands
 before its children's, and each fact shall be built by the schema's own
 constructor, whose id digests the fact's identity and never the commit, the
 reader's version or the run. No machine path shall reach any fact.
@@ -83,6 +91,11 @@ reader's version or the run. No machine path shall reach any fact.
 - Given: a commit authored at 01:00 and committed at 02:00
 - When: its fact is written
 - Then: `authoredAt` is `2026-10-01T01:00:00Z` and `committedAt` is `2026-10-01T02:00:00Z`
+
+### Scenario: a-parent-twice
+- Given: a commit fact whose parents name one commit at its first and its third entry
+- When: the fact is checked
+- Then: it is refused at `value.parents[2]`, since a list of names names each entry once however far apart the repeats stand
 
 ### Scenario: merge
 - Given: a merge commit whose first parent is `main`'s tip and whose second is `side`'s, changing `side.txt` against its first parent
@@ -192,6 +205,11 @@ bound, still in parent order.
 - When: the unit drafts its coverage
 - Then: it reads `complete: false` with the gap `the ancestry before c2` and the reason `budget`, naming the commit the bound stopped at
 
+### Scenario: one-gap-per-what
+- Given: a shallow clone whose boundary commit is also where the configured depth cut the read
+- When: the unit drafts its coverage
+- Then: the two causes stand as two gaps — the bound's cut names the ancestry, the shallow one names the boundary commit — and no `what` stands twice, since a coverage names each once and a coverage the schema refuses would report no gap at all
+
 ### Scenario: refuse-bad-depth
 - Given: a stage configuration whose `depth` is `0`, `1.5` or missing
 - When: the unit reads it
@@ -202,15 +220,23 @@ bound, still in parent order.
 A read that could not follow the ancestry shall report each gap it left, with
 its reason, in the unit's coverage fact: the configured bound's cut as `budget`,
 a shallow clone's boundary and a parent whose object is not in the checkout as
-`inaccessible`, and a shallow boundary file it cannot read as `error`. A git
-call that fails for any other reason shall be thrown, naming the repository, the
-checkout folder, the command, git's exit status and git's own words, so no
-smaller history is ever read as the whole of one.
+`inaccessible`, and a shallow boundary file this read cannot open where git
+could — a file that went away between git's own read and this one's — as
+`error`. A checkout whose shallow file the process cannot read at all is git's
+own failure, and it arrives as the `inaccessible` gap naming the object the
+boundary hid. A git call that fails for any other reason shall be thrown, naming
+the repository, the checkout folder, the command, git's exit status and git's own
+words, so no smaller history is ever read as the whole of one.
+
+### Scenario: shallow-file-unreadable
+- Given: a clone whose shallow file the process cannot open
+- When: the unit runs
+- Then: git fails over the object the boundary hid, the coverage names that object with the reason `inaccessible`, and the unit still drafts its coverage rather than losing the read
 
 ### Scenario: shallow-clone
 - Given: a one-commit-deep clone of a repository of three commits, pinned at its tip
 - When: the unit runs
-- Then: one commit fact is written and the coverage reads `complete: false` with `the ancestry before c3` (the clone's own boundary commit) and the reason `inaccessible`
+- Then: one commit fact is written and the coverage reads `complete: false` with `the shallow boundary c3` (the clone's own boundary commit) and the reason `inaccessible`
 
 ### Scenario: missing-parent
 - Given: a checkout whose root commit's own object was removed, pinned at the tip
@@ -221,6 +247,11 @@ smaller history is ever read as the whole of one.
 - Given: a read whose gaps were named and whose commits were written
 - When: the unit drafts
 - Then: the coverage stands beside the commit facts and names every gap once, in code point order
+
+### Scenario: coverage-read-list
+- Given: any unit's coverage fact
+- When: it is read
+- Then: its `read` list names the two questions the read answered — `the pinned commit and its ancestry` and `the task keys the commit messages name` — so a reader of the graph can tell what the reader read, and the same read of the same scope answers the same list
 
 ### Scenario: failed-read
 - Given: a unit pinned at a commit the checkout does not hold
@@ -236,11 +267,15 @@ smaller history is ever read as the whole of one.
 
 The stage shall name its units from the graph through the read
 `SELECT repository, commit FROM fact WHERE kind = 'snapshot'`, and shall read
-the commits it already wrote through one read per repository, in the fill's own
-vocabulary of fact kinds and never in a table's. The folder a repository's Git
-stands in shall come from the run's wiring, by the product's own name for the
-repository, since a checkout's folder is a machine's path and no fact may carry
-one.
+the commits it already wrote and its own coverage through one read each, in the
+fill's own vocabulary of fact kinds. Those three reads, and the row shape they
+ask for — the fact's kind, repository, scope and commit beside its value — are
+this stage's proposal for the fact storage of madarch-tzte.20, which is not
+landed: they are the stage's contract with that storage, written once and pinned
+by a test, and the storage may meet them or change them knowingly. The folder a
+repository's Git stands in shall come from the run's wiring, by the product's
+own name for the repository, since a checkout's folder is a machine's path and
+no fact may carry one.
 
 ### Scenario: pinned-read
 - Given: a plan
@@ -264,7 +299,7 @@ one.
 
 ## Quality requirements
 
-- **Performance and scale:** one unit reads one repository: three git calls (the pinned commit resolved, the ancestry listed with its paths, the shallow state read) whatever the size of the history, and the ancestry is bounded by the configured depth. No file's bytes are read one by one, and no fact holds a file's content.
+- **Performance and scale:** one unit reads one repository: four git calls whatever the size of the history — the pinned commit resolved, the ancestry listed with its paths, the shallow state asked about, the version read — and a fifth where the repository is shallow, asking where its shallow file is. The ancestry is bounded by the configured depth, no file's bytes are read one by one, and no fact holds a file's content.
 - **Reliability and recovery:** the stage writes nothing outside its draft set, so a unit that fails leaves no fact behind; every fact is built by the schema's own constructor and judged by `checkFact` before publication; a rerun after a crash reads back what the graph holds and writes only what is missing or changed.
 - **Security and data protection:** the stage runs git as a program, never through a shell; git's own loader variables (`GIT_DIR` and its companions) are kept out of every call, so a call in another checkout's worktree cannot write into it; the checkout folder reaches no fact.
 - **Data:** the facts are the graph's own; the commit's parents, times and changed paths are read from the commit object, never from the working tree, so a dirty checkout or a different branch changes nothing.
@@ -291,6 +326,12 @@ whose `coverage` kind carries what a reader could not reach (0004's coverage).
   with a fake context.
 - The stage reads Git, not the snapshot reader of madarch-tzte.21.1: nothing of
   a repository's tree is needed to read its ancestry.
+- A shallow boundary commit's `files` are what git answers for a commit with no
+  parent in the checkout: the whole tree, as the paths that commit added, since
+  there is no parent to diff it against. The coverage names the boundary, the
+  commit's own diff stands as git gave it, and a later read that can reach the
+  parents writes that commit's paths again. A boundary commit whose parents are
+  readable but whose diff is empty is not this case.
 - The stage's own capability names the pinned snapshot as `snapshot`, the fact
   kind stage 0 writes: the snapshot stage (madarch-tzte.21.1) declares that
   capability when its own change lands.

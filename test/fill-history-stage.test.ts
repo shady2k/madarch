@@ -11,7 +11,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { cp, mkdir, mkdtemp, rm, unlink, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, mkdtemp, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Type } from 'typebox';
@@ -32,6 +32,8 @@ import { FACT_KINDS, factId, type CoverageValue, type FactProvenance } from '../
 import {
   DEFAULT_HISTORY_DEPTH,
   HISTORY_FACT_KINDS,
+  HISTORY_LOG_FIELD,
+  HISTORY_LOG_RECORD,
   HISTORY_STAGE_ID,
   HISTORY_STAGE_VERSION,
   PINNED_SNAPSHOTS_QUERY,
@@ -135,20 +137,63 @@ async function makeRepository(name: string, commits: readonly FixtureCommit[]): 
 
 /** The branch a merge test makes beside `main`. */
 async function makeBranch(fixture: Fixture, name: string, commit: FixtureCommit): Promise<void> {
-  const make = (args: readonly string[]): string => execFileSync('git', args, { cwd: fixture.folder, encoding: 'utf8', env: gitEnv() });
+  const make = (args: readonly string[], extra: Record<string, string> = {}): string =>
+    execFileSync('git', args, { cwd: fixture.folder, encoding: 'utf8', env: gitEnv(extra) });
   make(['checkout', '-q', '-b', name, 'HEAD~1']);
   for (const [path, text] of Object.entries(commit.files)) await fixture.write(path, text);
   make(['add', '-A']);
-  make(['commit', '-q', '-m', commit.message]);
+  // A time of the fixture's own, never the clock the test ran on.
+  make(['commit', '-q', '-m', commit.message], {
+    GIT_AUTHOR_DATE: commit.authoredAt ?? at(5), GIT_COMMITTER_DATE: commit.committedAt ?? at(6),
+  });
   make(['checkout', '-q', 'main']);
 }
 
-/** A shallow clone of a fixture, one commit deep: the boundary's parents are not in the checkout. */
-async function shallowClone(fixture: Fixture): Promise<{ readonly folder: string; dispose: () => Promise<void> }> {
+/** A shallow clone of a fixture: the boundary's parents are not in the checkout. One commit deep unless a test says otherwise. */
+async function shallowClone(fixture: Fixture, depth = 1): Promise<{ readonly folder: string; dispose: () => Promise<void> }> {
   const root = await mkdtemp(join(tmpdir(), 'madarch-history-shallow-'));
   const folder = join(root, 'checkout');
-  execFileSync('git', ['clone', '-q', '--depth', '1', `file://${fixture.folder}`, folder], { encoding: 'utf8', env: gitEnv() });
+  execFileSync('git', ['clone', '-q', '--depth', String(depth), `file://${fixture.folder}`, folder], { encoding: 'utf8', env: gitEnv() });
   return { folder, dispose: () => rm(root, { recursive: true, force: true }) };
+}
+
+/**
+ * A program standing in for git, for the answers git will not give: a record
+ * whose message holds the record separator, a time that is no time, a walk that
+ * failed. It answers the four calls a read makes and copies the log and the
+ * standard error the test wrote; `PATH` carries it while the test runs.
+ */
+async function fakeGit(answers: { readonly log?: string; readonly status?: number; readonly stderr?: string; readonly pin?: string }): Promise<{ readonly folder: string; readonly reader: HistoryReader; dispose: () => Promise<void> }> {
+  const root = await mkdtemp(join(tmpdir(), 'madarch-history-fake-git-'));
+  const bin = join(root, 'bin');
+  await mkdir(bin, { recursive: true });
+  const log = join(root, 'log.txt');
+  const errors = join(root, 'stderr.txt');
+  await writeFile(log, answers.log ?? '');
+  await writeFile(errors, answers.stderr ?? '');
+  const script = [
+    '#!/bin/sh',
+    'case "$*" in',
+    '  *--version*) echo "git version 9.9.9"; exit 0 ;;',
+    '  *--is-shallow-repository*) echo false; exit 0 ;;',
+    '  *rev-parse*) echo "' + (answers.pin ?? 'a'.repeat(40)) + '"; exit 0 ;;',
+    'esac',
+    `cat "${log}"`,
+    `cat "${errors}" >&2`,
+    `exit ${answers.status ?? 0}`,
+    '',
+  ].join('\n');
+  await writeFile(join(bin, 'git'), script, { mode: 0o755 });
+  const path = process.env['PATH'];
+  process.env['PATH'] = `${bin}:${path ?? ''}`;
+  return {
+    folder: root,
+    reader: createGitHistoryReader(() => root),
+    dispose: async () => {
+      if (path === undefined) delete process.env['PATH']; else process.env['PATH'] = path;
+      await rm(root, { recursive: true, force: true });
+    },
+  };
 }
 
 /** A copy of a fixture with one commit's own object removed: git cannot traverse that commit's parents any more. */
@@ -326,6 +371,9 @@ describe('the ancestry one unit writes', () => {
       expect(taskKeys('Place an order\n\nTask: madarch-xyz.7, madarch-abc.1\nTask: madarch-abc.1\n')).toEqual(['madarch-abc.1', 'madarch-xyz.7']);
       expect(taskKeys('No task line here')).toEqual([]);
       expect(taskKeys('task: madarch-abc.1 madarch-def.2')).toEqual(['madarch-abc.1', 'madarch-def.2']);
+      // The case of a key is the commit's own: the tracker's rule is read
+      // case-insensitively, and the key is written as the message wrote it.
+      expect(taskKeys('TASK: Madarch-ABC.1')).toEqual(['Madarch-ABC.1']);
     } finally {
       await fixture.dispose();
     }
@@ -504,7 +552,11 @@ describe('the bound and what the read could not reach', () => {
       expect(valuesOf(run.writes, 'commit').map((value) => value['commit'])).toEqual([third]);
       const coverage = valuesOf(run.writes, 'coverage')[0] as unknown as CoverageValue;
       expect(coverage.complete).toBe(false);
-      expect(coverage.unread).toEqual([{ what: `the ancestry before ${third}`, reason: 'inaccessible' }]);
+      // The gap names the boundary the clone stops at, and the commit git
+      // answers for a commit with no parent in the checkout is the whole tree:
+      // both are stated in the capability's coverage limits.
+      expect(coverage.unread).toEqual([{ what: `the shallow boundary ${third}`, reason: 'inaccessible' }]);
+      expect(valuesOf(run.writes, 'commit')[0]?.['files']).toEqual(['a.txt', 'c.md', 'src/b.ts']);
     } finally {
       await shallow.dispose();
       await fixture.dispose();
@@ -528,10 +580,13 @@ describe('the bound and what the read could not reach', () => {
       expect(valuesOf(run.writes, 'commit')).toEqual([]);
       expect(valuesOf(run.writes, 'task-key')).toEqual([]);
       const coverage = valuesOf(run.writes, 'coverage')[0] as unknown as CoverageValue;
-      expect(coverage).toMatchObject({ repository: 'orders-api', scope: unit.scope, complete: false, unread: [{ what: `the commit ${first}`, reason: 'inaccessible' }] });
-      // The pinned commit is still the one the run pinned, never the newest the
-      // broken walk could have reached: a pin is what a fact is read at.
-      expect(coverage.complete).toBe(false);
+      expect(coverage).toMatchObject({ repository: 'orders-api', scope: unit.scope, complete: false });
+      // One gap, of the reason a parent that is not in the checkout leaves, and
+      // it names the object that could not be read (git's own wording differs by
+      // version, so the test asks for the object, not for the sentence).
+      expect(coverage.unread).toHaveLength(1);
+      expect(coverage.unread[0]?.reason).toBe('inaccessible');
+      expect(coverage.unread[0]?.what).toContain(first);
       expect(second.length).toBe(40);
     } finally {
       await corrupt.dispose();
@@ -549,6 +604,9 @@ describe('the bound and what the read could not reach', () => {
       await expect(stage.execute(unit, run.context)).rejects.toThrow(new RegExp(`history: the read of orders-api at ${unknown}`));
       await expect(stage.execute(unit, run.context)).rejects.toThrow(new RegExp(fixture.folder.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')));
       await expect(stage.execute(unit, run.context)).rejects.toThrow(/rev-parse --verify/u);
+      // Git's own exit status stands in the refusal, so a reader can tell a
+      // refusal of git's (`128`) from a call that never ran.
+      await expect(stage.execute(unit, run.context)).rejects.toThrow(/exited 128/u);
       expect(run.writes).toEqual([]);
     } finally {
       await fixture.dispose();
@@ -742,5 +800,211 @@ describe('the stage declaration and the draft it judges', () => {
     } finally {
       await fixture.dispose();
     }
+  });
+});
+
+describe('what the wiring, the clock and the graph own rows can do to a read', () => {
+  test('a bound cutting where the clone is shallow leaves two gaps that each say their own thing', async () => {
+    // The reviewer's case: a merge whose second parent is newer than its first
+    // parent's tip, cloned two commits deep and read with depth 2. The depth
+    // bound and the shallow boundary stop at one commit, so both causes are
+    // there at once, and a coverage that named one `what` twice would be
+    // refused by the schema and the unit would report no gap at all.
+    const fixture = await makeRepository('cut-shallow', [
+      { message: 'First commit', files: { 'a.txt': 'one\n' } },
+      { message: 'Second commit', files: { 'src/b.ts': 'export const b = 1;\n' } },
+    ]);
+    try {
+      await makeBranch(fixture, 'side', { message: 'Side commit', files: { 'side.txt': 's\n' } });
+      const merge = await fixture.merge('Merge side into main', 'side');
+      const shallow = await shallowClone(fixture, 2);
+      try {
+        const stage = stageOver(new Map([['orders-api', shallow.folder]]));
+        const unit = { id: historyUnitId('orders-api', merge), scope: historyScope('orders-api', merge) };
+        const run = recorder(unit, { config: { depth: 2 } });
+        expect(await stage.execute(unit, run.context)).toEqual({ outcome: 'draft' });
+
+        const coverage = valuesOf(run.writes, 'coverage')[0] as unknown as CoverageValue;
+        expect(coverage.complete).toBe(false);
+        const named = coverage.unread.map((gap) => gap.what);
+        // The schema's own rule for the list: code point order, each `what` once.
+        expect(named).toEqual([...named].sort(byCodePoint));
+        expect(new Set(named).size).toBe(named.length);
+        expect([...coverage.unread].map((gap) => gap.reason).sort(byCodePoint)).toEqual(['budget', 'inaccessible']);
+        // And the whole draft is one the schema reads, the coverage included.
+        expect(validateDraft({ writes: run.writes })).toEqual({ ok: true });
+      } finally {
+        await shallow.dispose();
+      }
+    } finally {
+      await fixture.dispose();
+    }
+  });
+
+  test('a unit pinned at an older commit writes that commit own ancestry alone', async () => {
+    const fixture = await makeRepository('older', THREE);
+    try {
+      const [first, second, third] = fixture.commits as [string, string, string];
+      const stage = stageOver(new Map([['orders-api', fixture.folder]]));
+      const unit = { id: historyUnitId('orders-api', second), scope: historyScope('orders-api', second) };
+      const run = recorder(unit);
+      await stage.execute(unit, run.context);
+
+      // The pinned commit is what the ancestry is read at: its descendants are
+      // not the history it stands on, so nothing of the tip is written.
+      expect(valuesOf(run.writes, 'commit').map((value) => value['commit'])).toEqual([first, second]);
+      expect(valuesOf(run.writes, 'commit').some((value) => value['commit'] === third)).toBe(false);
+      expect(valuesOf(run.writes, 'coverage')[0]).toMatchObject({ scope: unit.scope, complete: true, unread: [] });
+    } finally {
+      await fixture.dispose();
+    }
+  });
+
+  test('a log this read can only refuse is refused, naming the record it cannot read', async () => {
+    const commit = 'a'.repeat(40);
+    const unit = { id: historyUnitId('orders-api', commit), scope: historyScope('orders-api', commit) };
+    // The record git would write, with one thing wrong at a time: a message
+    // holding the record separator reaches the reader as a second record, an
+    // author time that is no whole number of seconds is no time, and a call
+    // that failed names its own status and words.
+    const record = (message: string, committed = '1792346906', authored = '1792346806'): string =>
+      `${HISTORY_LOG_RECORD}${commit}${HISTORY_LOG_FIELD}${HISTORY_LOG_FIELD}${committed}${HISTORY_LOG_FIELD}${authored}${HISTORY_LOG_FIELD}Fixture Author${HISTORY_LOG_FIELD}First commit${HISTORY_LOG_FIELD}${message}${HISTORY_LOG_FIELD}\x00\na.txt\x00`;
+    const withMessage = await fakeGit({ log: record(`a message ${HISTORY_LOG_RECORD}and this is not a record`) });
+    try {
+      const stage = stageOver(new Map([['orders-api', withMessage.folder]]), withMessage.reader);
+      const run = recorder(unit);
+      await expect(stage.execute(unit, run.context)).rejects.toThrow(/holds a record for .* which is no path list/u);
+      expect(run.writes).toEqual([]);
+    } finally {
+      await withMessage.dispose();
+    }
+    const withTime = await fakeGit({ log: record('First commit', 'yesterday') });
+    try {
+      const stage = stageOver(new Map([['orders-api', withTime.folder]]), withTime.reader);
+      await expect(stage.execute(unit, recorder(unit).context)).rejects.toThrow(new RegExp(`reads the committer time of ${commit}`));
+    } finally {
+      await withTime.dispose();
+    }
+    const failed = await fakeGit({ log: '', status: 3, stderr: 'the repository is not here' });
+    try {
+      const stage = stageOver(new Map([['orders-api', failed.folder]]), failed.reader);
+      await expect(stage.execute(unit, recorder(unit).context)).rejects.toThrow(/exited 3/u);
+      await expect(stage.execute(unit, recorder(unit).context)).rejects.toThrow(/the repository is not here/u);
+    } finally {
+      await failed.dispose();
+    }
+  });
+
+  test('a git that cannot be run at all is named by the runtime own error', async () => {
+    const commit = 'a'.repeat(40);
+    const unit = { id: historyUnitId('orders-api', commit), scope: historyScope('orders-api', commit) };
+    const empty = await mkdtemp(join(tmpdir(), 'madarch-history-no-git-'));
+    const path = process.env['PATH'];
+    try {
+      // A PATH with no git in it: the call never happens, and the refusal says
+      // so with the runtime's own code rather than reading it as a git that
+      // answered nothing.
+      process.env['PATH'] = empty;
+      const stage = stageOver(new Map([['orders-api', empty]]));
+      await expect(stage.execute(unit, recorder(unit).context)).rejects.toThrow(/could not be run/u);
+      await expect(stage.execute(unit, recorder(unit).context)).rejects.toThrow(/ENOENT/u);
+    } finally {
+      if (path === undefined) delete process.env['PATH']; else process.env['PATH'] = path;
+      await rm(empty, { recursive: true, force: true });
+    }
+  });
+
+  test('a repository the wiring names no folder for is refused, naming the read', async () => {
+    const unknown: HistoryReader = createGitHistoryReader(() => '');
+    const stage = createHistoryStage(unknown);
+    const unit = { id: historyUnitId('orders-api', 'a'.repeat(40)), scope: historyScope('orders-api', 'a'.repeat(40)) };
+    await expect(stage.execute(unit, recorder(unit).context)).rejects.toThrow(/has no checkout folder/u);
+    await expect(stage.execute(unit, recorder(unit).context)).rejects.toThrow(/orders-api/u);
+  });
+
+  test('a shallow file the process cannot open is a gap, never a lost unit', async () => {
+    // Git itself needs the shallow file to know where a checkout's history
+    // stops: with it unreadable git fails over the object the boundary hid, and
+    // the read reports that object as a gap instead of throwing. A process
+    // running as root reads a file whatever its mode, so this is the one case a
+    // root machine cannot make.
+    if (typeof process.getuid === 'function' && process.getuid() === 0) {
+      expect(true).toBe(true);
+      return;
+    }
+    const fixture = await makeRepository('shallow-file', THREE);
+    const shallow = await shallowClone(fixture);
+    try {
+      const [, second, third] = fixture.commits as [string, string, string];
+      await chmod(join(shallow.folder, '.git', 'shallow'), 0o000);
+      const stage = stageOver(new Map([['orders-api', shallow.folder]]));
+      const unit = { id: historyUnitId('orders-api', third), scope: historyScope('orders-api', third) };
+      const run = recorder(unit);
+      expect(await stage.execute(unit, run.context)).toEqual({ outcome: 'draft' });
+      const coverage = valuesOf(run.writes, 'coverage')[0] as unknown as CoverageValue;
+      expect(coverage.complete).toBe(false);
+      expect(coverage.unread).toHaveLength(1);
+      expect(coverage.unread[0]?.reason).toBe('inaccessible');
+      expect(coverage.unread[0]?.what).toContain(second);
+    } finally {
+      await shallow.dispose();
+      await fixture.dispose();
+    }
+  });
+
+  test('a machine git configuration and git own loader variables change no fact', async () => {
+    const fixture = await makeRepository('environment', THREE);
+    const elsewhere = await makeRepository('elsewhere', [{ message: 'Another repository', files: { 'x.txt': 'x\n' } }]);
+    const config = join(fixture.root, 'gitconfig');
+    await writeFile(config, '[log]\n\tshowSignature = true\n[diff]\n\trenames = true\n');
+    const before = { GIT_DIR: process.env['GIT_DIR'], GIT_CONFIG_GLOBAL: process.env['GIT_CONFIG_GLOBAL'] };
+    try {
+      const [, , third] = fixture.commits as [string, string, string];
+      const stage = stageOver(new Map([['orders-api', fixture.folder]]));
+      const unit = { id: historyUnitId('orders-api', third), scope: historyScope('orders-api', third) };
+      process.env['GIT_CONFIG_GLOBAL'] = config;
+      // A loader variable pointing at another repository's git directory is
+      // exactly what a read run inside a worktree inherits: the reader strips it
+      // (the list `src/product/git.ts` exports), so it still reads this one.
+      process.env['GIT_DIR'] = join(elsewhere.folder, '.git');
+      const withThem = recorder(unit);
+      await stage.execute(unit, withThem.context);
+      delete process.env['GIT_DIR'];
+      delete process.env['GIT_CONFIG_GLOBAL'];
+      const without = recorder(unit);
+      await stage.execute(unit, without.context);
+
+      expect(valuesOf(withThem.writes, 'commit')).toEqual(valuesOf(without.writes, 'commit'));
+      expect(valuesOf(withThem.writes, 'coverage')).toEqual(valuesOf(without.writes, 'coverage'));
+      expect(valuesOf(withThem.writes, 'commit').map((value) => value['commit'])).toEqual([...fixture.commits]);
+    } finally {
+      if (before.GIT_DIR === undefined) delete process.env['GIT_DIR']; else process.env['GIT_DIR'] = before.GIT_DIR;
+      if (before.GIT_CONFIG_GLOBAL === undefined) delete process.env['GIT_CONFIG_GLOBAL']; else process.env['GIT_CONFIG_GLOBAL'] = before.GIT_CONFIG_GLOBAL;
+      await elsewhere.dispose();
+      await fixture.dispose();
+    }
+  });
+
+  test('a held row the stage cannot read is refused with the query that answered it', async () => {
+    const repository = 'orders-api';
+    const commit = 'a'.repeat(40);
+    const unit = { id: historyUnitId(repository, commit), scope: historyScope(repository, commit) };
+    const stage = stageOver(new Map([[repository, '/nowhere']]));
+    const held = commitsHeldQuery(repository);
+    const coverage = coverageHeldQuery(repository, unit.scope);
+    const refused = async (rows: ReadonlyMap<string, readonly unknown[]>, pattern: RegExp): Promise<void> => {
+      const run = recorder(unit, { rows });
+      await expect(stage.execute(unit, run.context)).rejects.toThrow(pattern);
+      expect(run.writes).toEqual([]);
+    };
+    // A row that is no record, a commit that is no commit, a row holding no
+    // value, one commit held twice, and two coverage facts for one scope: each
+    // is refused where it stands, naming the read that answered it.
+    await refused(new Map([[held, ['a row, not a record']]]), /row 0 of "SELECT commit, value FROM fact WHERE kind = 'commit'/u);
+    await refused(new Map([[held, [{ commit: 'HEAD', value: {} }]]]), /names the commit "HEAD"/u);
+    await refused(new Map([[held, [{ commit, value: undefined }]]]), /names .* with no value/u);
+    await refused(new Map([[held, [{ commit, value: {} }, { commit, value: {} }]]]), /answered .* twice/u);
+    await refused(new Map([[coverage, [{ value: {} }, { value: {} }]]]), /answered 2 coverage facts/u);
+    await refused(new Map([[coverage, ['not a record']]]), /row 0 of "SELECT value FROM fact WHERE kind = 'coverage'/u);
   });
 });
