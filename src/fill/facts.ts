@@ -40,6 +40,7 @@
 import { canonicalJsonDigest } from '../model/canonical.js';
 import { byCodePoint } from '../model/order.js';
 import { ID_PATTERN } from '../model/schema.js';
+import type { StorageForm } from '../product/schema.js';
 
 // ---- the schema's version ------------------------------------------------
 
@@ -118,6 +119,7 @@ function repositoryPathProblem(value: string): string | undefined {
  * bytes are the repository's own.
  */
 export function repositoryPath(value: string): RepositoryPath {
+  if (typeof value !== 'string') throw new FactSchemaError('', `${shown(value)} is no path: a repository path is text`);
   const folded = value.replace(/\\/g, '/').replace(/^\.\//, '');
   const problem = repositoryPathProblem(folded);
   if (problem !== undefined) throw new FactSchemaError('', problem);
@@ -129,11 +131,11 @@ export function repositoryPath(value: string): RepositoryPath {
  * constructor's words and takes the value's own field as its path, so a fact
  * refused for a machine path says `value.path` and not just "path".
  */
-function identityPath(field: string, value: string): RepositoryPath {
+function identityPath(path: string, value: string): RepositoryPath {
   try {
     return repositoryPath(value);
   } catch (error) {
-    if (error instanceof FactSchemaError) throw new FactSchemaError(`value.${field}`, error.detail);
+    if (error instanceof FactSchemaError) throw new FactSchemaError(path, error.detail);
     throw error;
   }
 }
@@ -321,6 +323,7 @@ export const FACT_EDGE_KINDS = [
   'dependency',
   'call',
   'reference',
+  'inherits',
   // 0004's atoms that code and configuration carry
   'provides',
   'consumes',
@@ -817,6 +820,20 @@ export interface ReferenceEdgeValue {
   readonly count?: number;
 }
 
+/**
+ * Stage 4: one type extends or implements another. SCIP reports both as its
+ * `Relationship.is_implementation` (what "find implementations" follows), and
+ * RepoDoc's RepoKG keeps them as two relations; the schema keeps one edge kind
+ * with the form that tells them apart, so a reader asks for either.
+ */
+export interface InheritsEdgeValue {
+  /** The symbol that extends or implements, by fact id. */
+  readonly from: string;
+  /** The symbol it extends or implements, by fact id. */
+  readonly to: string;
+  readonly form: 'extends' | 'implements';
+}
+
 /** Stage 2: an element provides a contract id (0004's `provides`). */
 export interface ProvidesEdgeValue {
   /** The providing element's fact id: a deploy unit, a package or a module. */
@@ -921,6 +938,7 @@ export interface FactEdgeValues {
   'dependency': DependencyEdgeValue;
   'call': CallEdgeValue;
   'reference': ReferenceEdgeValue;
+  'inherits': InheritsEdgeValue;
   'provides': ProvidesEdgeValue;
   'consumes': ConsumesEdgeValue;
   'binds': BindsEdgeValue;
@@ -958,7 +976,14 @@ export interface FactKindDefinition<K extends FactKind = FactKind> {
   /** The stages whose facts carry the kind, in 0026's stage order; a kind every stage writes names every stage. */
   readonly stages: readonly FactStage[];
   readonly place: FactPlaceRule;
-  /** The layers a fact of the kind may be written in (0005); `statusesOfLayer` decides the statuses over them. */
+  /**
+   * The layers the kind's stages obtain it in (0005): `extracted` where a
+   * deterministic stage of 0026 writes it, `inferred` where an agent stage
+   * does, both where the kind has one of each (`module`, `coverage`). A claim
+   * also stands `declared`, because a person's own words may be a claim
+   * rather than an agent's reading. `statusesOfLayer` decides the statuses
+   * over these.
+   */
   readonly layers: readonly FactLayer[];
   /** The version of the kind's value shape, as decision 0027's `produces` reads it. */
   readonly version: number;
@@ -971,12 +996,28 @@ export interface FactKindDefinition<K extends FactKind = FactKind> {
 }
 
 /** A name as identity sees it: trimmed, inner whitespace collapsed to one space; case and characters kept. */
-function identityName(value: string): string {
+function identityName(path: string, value: string): string {
+  if (typeof value !== 'string') throw new FactSchemaError(path, `${shown(value)} is no name: a name is text`);
   return value.trim().replace(/\s+/gu, ' ');
+}
+
+/**
+ * An optional name as identity sees it: a fact that carries none contributes
+ * `null` — an absent part, never an empty one — and a name it does carry is
+ * read as `identityName` reads it.
+ */
+function identityNameOrNull(path: string, value: string | null | undefined): string | null {
+  return value === null || value === undefined ? null : identityName(path, value);
 }
 
 /** A range as identity sees it, one string, so the four numbers are read as one part. */
 function identityRange(range: FactRange): string {
+  for (const field of ['startLine', 'startColumn', 'endLine', 'endColumn'] as const) {
+    const value = range?.[field];
+    if (typeof value !== 'number' || !Number.isInteger(value)) {
+      throw new FactSchemaError('provenance.place.range', `${shown(value)} is no line or column: a range's ${field} is a whole number`);
+    }
+  }
   return `${range.startLine}:${range.startColumn}-${range.endLine}:${range.endColumn}`;
 }
 
@@ -992,7 +1033,7 @@ function identityPlace(provenance: FactProvenance): readonly IdentityPart[] {
   }
   return [
     ['repository', provenance.repository.id],
-    ['file', identityPath('place.file', place.file)],
+    ['file', identityPath('provenance.place.file', place.file)],
     ['range', identityRange(place.range)],
   ];
 }
@@ -1033,7 +1074,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'optional',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['path', identityPath('path', value.path)]],
+    identity: (value) => [['repository', value.repository], ['path', identityPath('value.path', value.path)]],
   },
   'file': {
     kind: 'file',
@@ -1042,7 +1083,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['path', identityPath('path', value.path)]],
+    identity: (value) => [['repository', value.repository], ['path', identityPath('value.path', value.path)]],
   },
   'package': {
     kind: 'package',
@@ -1051,7 +1092,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'optional',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['form', value.form], ['name', identityName(value.name)]],
+    identity: (value) => [['repository', value.repository], ['form', value.form], ['name', identityName('value.name', value.name)]],
   },
   'deploy-unit': {
     kind: 'deploy-unit',
@@ -1060,7 +1101,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'optional',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['form', value.form], ['name', identityName(value.name)]],
+    identity: (value) => [['repository', value.repository], ['form', value.form], ['name', identityName('value.name', value.name)]],
   },
   'api-endpoint': {
     kind: 'api-endpoint',
@@ -1069,7 +1110,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'optional',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['contract', identityName(value.contract)]],
+    identity: (value) => [['contract', identityName('value.contract', value.contract)]],
   },
   'table': {
     kind: 'table',
@@ -1078,7 +1119,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'optional',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['name', identityName(value.name)]],
+    identity: (value) => [['repository', value.repository], ['name', identityName('value.name', value.name)]],
   },
   'column': {
     kind: 'column',
@@ -1087,7 +1128,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'optional',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['table', identityName(value.table)], ['name', identityName(value.name)]],
+    identity: (value) => [['repository', value.repository], ['table', identityName('value.table', value.table)], ['name', identityName('value.name', value.name)]],
   },
   'environment-variable': {
     kind: 'environment-variable',
@@ -1107,10 +1148,10 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     version: FACTS_SCHEMA_VERSION,
     identity: (value) => [
       ['repository', value.repository],
-      ['file', identityPath('file', value.file)],
+      ['file', identityPath('value.file', value.file)],
       ['qualifiedName', value.qualifiedName],
       ['symbolKind', value.symbolKind],
-      ['disambiguator', value.disambiguator ?? ''],
+      ['disambiguator', value.disambiguator ?? null],
     ],
   },
   'occurrence': {
@@ -1131,9 +1172,9 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     version: FACTS_SCHEMA_VERSION,
     identity: (value) => [
       ['repository', value.repository],
-      ['file', identityPath('file', value.file)],
+      ['file', identityPath('value.file', value.file)],
       ['form', value.form],
-      ['name', identityName(value.name)],
+      ['name', identityName('value.name', value.name)],
     ],
   },
   'comment': {
@@ -1152,16 +1193,16 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['file', identityPath('file', value.file)], ['name', identityName(value.name)]],
+    identity: (value) => [['repository', value.repository], ['file', identityPath('value.file', value.file)], ['name', identityName('value.name', value.name)]],
   },
   'module': {
     kind: 'module',
     shape: 'node',
-    stages: ['5-modules'],
+    stages: ['5-modules', '9-boundaries'],
     place: 'optional',
     layers: ['extracted', 'inferred'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['parent', value.parent ?? ''], ['name', identityName(value.name)]],
+    identity: (value) => [['repository', value.repository], ['parent', value.parent ?? null], ['name', identityName('value.name', value.name)]],
   },
   'document': {
     kind: 'document',
@@ -1170,7 +1211,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['path', identityPath('path', value.path)]],
+    identity: (value) => [['repository', value.repository], ['path', identityPath('value.path', value.path)]],
   },
   'section': {
     kind: 'section',
@@ -1179,7 +1220,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['document', identityPath('document', value.document)], ['anchor', value.anchor]],
+    identity: (value) => [['repository', value.repository], ['document', identityPath('value.document', value.document)], ['anchor', value.anchor]],
   },
   'commit': {
     kind: 'commit',
@@ -1192,12 +1233,15 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
   },
 
   // ---- agent stages: what an agent read and proposed ----------------------
+  // `declared` here is the product's own words written as a claim, which a
+  // person accepts as it stands; an agent's reading of the same kind is
+  // `inferred` and stays proposed until a person accepts it (0005).
   'claim': {
     kind: 'claim',
     shape: 'node',
     stages: ['8-overview', '10-intent-documents', '11-intent-history', '12-understanding', '13-recovery'],
     place: 'identity',
-    layers: ['declared', 'extracted', 'inferred'],
+    layers: ['declared', 'inferred'],
     version: FACTS_SCHEMA_VERSION,
     identity: (value, provenance) => [['subject', value.subject], ['predicate', value.predicate], ['object', value.object], ...identityPlace(provenance)],
   },
@@ -1208,25 +1252,25 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'optional',
     layers: ['inferred'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['proposed', value.proposed], ['name', identityName(value.name)]],
+    identity: (value) => [['repository', value.repository], ['proposed', value.proposed], ['name', identityName('value.name', value.name)]],
   },
   'rule': {
     kind: 'rule',
     shape: 'node',
     stages: ['11-intent-history', '12-understanding'],
     place: 'identity',
-    layers: ['extracted', 'inferred'],
+    layers: ['inferred'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value, provenance) => [['subject', value.subject ?? ''], ['statement', identityName(value.statement)], ...identityPlace(provenance)],
+    identity: (value, provenance) => [['subject', value.subject ?? null], ['statement', identityName('value.statement', value.statement)], ...identityPlace(provenance)],
   },
   'state': {
     kind: 'state',
     shape: 'node',
     stages: ['12-understanding'],
     place: 'optional',
-    layers: ['extracted', 'inferred'],
+    layers: ['inferred'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['machine', identityName(value.machine)], ['name', identityName(value.name)]],
+    identity: (value) => [['repository', value.repository], ['machine', identityName('value.machine', value.machine)], ['name', identityName('value.name', value.name)]],
   },
   'coverage': {
     kind: 'coverage',
@@ -1244,7 +1288,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'optional',
     layers: ['inferred'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['repository', value.repository], ['type', value.type], ['about', value.about ?? ''], ['prompt', identityName(value.prompt)]],
+    identity: (value) => [['repository', value.repository], ['type', value.type], ['about', value.about ?? null], ['prompt', identityName('value.prompt', value.prompt)]],
   },
 
   // ---- edges -------------------------------------------------------------
@@ -1302,6 +1346,15 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     version: FACTS_SCHEMA_VERSION,
     identity: (value) => [['from', value.from], ['to', value.to]],
   },
+  'inherits': {
+    kind: 'inherits',
+    shape: 'edge',
+    stages: ['4-resolution'],
+    place: 'optional',
+    layers: ['extracted'],
+    version: FACTS_SCHEMA_VERSION,
+    identity: (value) => [['from', value.from], ['to', value.to], ['form', value.form]],
+  },
   'provides': {
     kind: 'provides',
     shape: 'edge',
@@ -1309,7 +1362,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'optional',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['from', value.from], ['contract', identityName(value.contract)]],
+    identity: (value) => [['from', value.from], ['contract', identityName('value.contract', value.contract)]],
   },
   'consumes': {
     kind: 'consumes',
@@ -1327,7 +1380,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     place: 'optional',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['variable', value.variable], ['environment', identityName(value.environment)]],
+    identity: (value) => [['variable', value.variable], ['environment', identityName('value.environment', value.environment)]],
   },
   'resolves': {
     kind: 'resolves',
@@ -1361,18 +1414,18 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     shape: 'edge',
     stages: ['12-understanding'],
     place: 'optional',
-    layers: ['extracted', 'inferred'],
+    layers: ['inferred'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value) => [['from', value.from], ['to', value.to], ['event', identityName(value.event)]],
+    identity: (value) => [['from', value.from], ['to', value.to], ['event', identityName('value.event', value.event)]],
   },
   'interaction': {
     kind: 'interaction',
     shape: 'edge',
     stages: ['12-understanding', '13-recovery'],
     place: 'identity',
-    layers: ['extracted', 'inferred'],
+    layers: ['inferred'],
     version: FACTS_SCHEMA_VERSION,
-    identity: (value, provenance) => [['caller', value.caller], ['callee', value.callee], ['form', value.form], ['via', identityName(value.via ?? '')], ...identityPlace(provenance)],
+    identity: (value, provenance) => [['caller', value.caller], ['callee', value.callee], ['form', value.form], ['via', identityNameOrNull('value.via', value.via)], ...identityPlace(provenance)],
   },
 };
 
@@ -1404,6 +1457,9 @@ export function factId<K extends FactKind>(fact: {
     }
     if (part === undefined) {
       throw new FactSchemaError(`value.${field}`, `the ${fact.kind} fact has no value for the identity field "${field}": an id is its identity's digest, so every part is required`);
+    }
+    if (typeof part === 'string' && part.trim() === '') {
+      throw new FactSchemaError(`value.${field}`, `the ${fact.kind} fact has an empty "${field}": an empty part names a node nothing can join or show`);
     }
     if (field === '') throw new FactSchemaError('value', `the identity of ${withArticle(fact.kind)} fact names an unnamed part: each part carries the field it is`);
     identity[field] = part;
@@ -1499,6 +1555,92 @@ const PATH_FIELDS: readonly string[] = ['document', 'file', 'manifest', 'path'];
 
 /** A field holding one of the fill's own tokens (a claim's predicate, a question's type): one lower-case kebab word, never a phrase. */
 const TOKEN_FIELDS: readonly string[] = ['predicate', 'type'];
+
+/** A fact id, as an identity part names one; the refusal's words, or `undefined` when it reads. */
+function factIdPart(part: unknown): string | undefined {
+  return typeof part === 'string' && FACT_ID_PATTERN.test(part)
+    ? undefined
+    : `${shown(part)} is no fact id: this part of an identity names another fact of the graph, by the id its own identity digests to`;
+}
+
+/** A name of the fill's own: one lower-case word of letters, digits and dashes. */
+function tokenPart(part: unknown): string | undefined {
+  return typeof part === 'string' && FACT_KIND_NAME_PATTERN.test(part)
+    ? undefined
+    : `${shown(part)} is no token: the fill writes one lower-case word of letters, digits and dashes, like "is-implemented-by"`;
+}
+
+/** Text an identity joins on: a string with something in it. */
+function textPart(part: unknown): string | undefined {
+  return typeof part === 'string' && part.trim() !== '' ? undefined : `${shown(part)} is no text: this part of an identity is text a reader can see`;
+}
+
+/** An absent part, which is `null` and no defect, or a part that reads by the given form. */
+function orAbsent(form: (part: unknown) => string | undefined): (part: unknown) => string | undefined {
+  return (part) => (part === null || part === undefined ? undefined : form(part));
+}
+
+/** A repository, by the product's own name for it. */
+function repositoryNamePart(part: unknown): string | undefined {
+  return typeof part === 'string' && ID_PATTERN.test(part)
+    ? undefined
+    : `${shown(part)} is no repository name: the product's own name for the repository, like "orders-api", never a path or a URL`;
+}
+
+/** The commit a fact is about, as git writes it. */
+function commitPart(part: unknown): string | undefined {
+  return typeof part === 'string' && COMMIT_PATTERN.test(part)
+    ? undefined
+    : `${shown(part)} is no commit: 40 lower-case hexadecimal digits, the commit the fact is about`;
+}
+
+/** The kinds whose value names the repository it is about, which is identity for each of them. */
+const REPOSITORY_NAMED_KINDS: readonly string[] = [
+  'snapshot', 'repository', 'directory', 'file', 'package', 'deploy-unit', 'table', 'column', 'symbol',
+  'entry-point', 'test', 'module', 'document', 'section', 'commit', 'entity-proposal', 'state', 'coverage', 'question',
+];
+
+/**
+ * The identity parts that name another fact, required: an edge's ends, the
+ * symbol an occurrence names, the caller and callee of an interaction. A
+ * `document-link`'s end and a claim's subject and object are ends of an
+ * assertion instead, read by `termProblem`.
+ */
+const FACT_ID_PARTS: readonly string[] = [
+  'contains.from', 'contains.to', 'defines.from', 'defines.to', 'import.from', 'import.to',
+  'dependency.from', 'dependency.to', 'call.from', 'call.to', 'reference.from', 'reference.to',
+  'inherits.from', 'inherits.to', 'provides.from', 'consumes.from', 'consumes.variable',
+  'binds.variable', 'resolves.from', 'resolves.to', 'task-key.from', 'transition.from',
+  'transition.to', 'interaction.caller', 'interaction.callee', 'occurrence.symbol', 'document-link.from',
+];
+
+/** The identity parts that name another fact when the fact carries one, and are `null` when it carries none. */
+const ABSENT_FACT_ID_PARTS: readonly string[] = ['module.parent', 'rule.subject'];
+
+/**
+ * The form an identity part is read as, by the kind and the field's own name,
+ * so an identity is a digest of parts the graph can join: a repository is a
+ * product's name for it and never a machine path, a commit is a commit, an
+ * end of an edge is a fact id, and a name of the fill's own is one token. A
+ * field this table does not name is read by its kind's own value
+ * (`identityName` for the names it normalizes, `identityPath` for the paths,
+ * `identityPlace` for the place).
+ */
+const IDENTITY_PART_FORMS: Readonly<Record<string, (part: unknown) => string | undefined>> = {
+  ...Object.fromEntries(REPOSITORY_NAMED_KINDS.map((kind) => [`${kind}.repository`, repositoryNamePart])),
+  ...Object.fromEntries(['snapshot', 'commit'].map((kind) => [`${kind}.commit`, commitPart])),
+  ...Object.fromEntries(FACT_ID_PARTS.map((part) => [part, factIdPart])),
+  ...Object.fromEntries(ABSENT_FACT_ID_PARTS.map((part) => [part, orAbsent(factIdPart)])),
+  'claim.predicate': tokenPart,
+  'question.type': tokenPart,
+  'environment-variable.name': textPart,
+  'symbol.qualifiedName': textPart,
+  'symbol.disambiguator': orAbsent(textPart),
+  'section.anchor': textPart,
+  'task-key.key': textPart,
+  'coverage.scope': textPart,
+  'question.about': orAbsent(textPart),
+};
 
 /** The kinds that stand at their own file, with the value's field naming it: a place that names another file is a defect. */
 const SELF_PLACE_FIELDS: Readonly<Record<string, string>> = {
@@ -1606,7 +1748,12 @@ function placeProblem(place: unknown): { path: string; message: string } | undef
  * stands inside the unit's scope. The kind's value is checked as far as this
  * schema can without running the stage: every identity part the kind declares
  * is present, every path is a repository path, every list of names is in code
- * point order without a repeat, and the id is the identity's own digest.
+ * point order without a repeat, the two closed forms a value carries inside it
+ * (an assertion's ends and a binding's value) read, and the id is the
+ * identity's own digest. A value field that is neither identity nor one of
+ * those forms — a comment's text, a symbol's signature — is checked against
+ * the kind's type by the write path, which has the type; this schema has only
+ * the table.
  */
 export function checkFact(fact: unknown): FactProblem[] {
   if (typeof fact !== 'object' || fact === null || Array.isArray(fact)) {
@@ -1767,13 +1914,25 @@ export function checkFact(fact: unknown): FactProblem[] {
     }
   }
 
-  // The id: the identity's own digest. Checked once the rest reads, since an
-  // unreadable fact has no identity to digest.
+  // The identity's parts and the id they give. Checked once the rest reads,
+  // since an unreadable fact has no identity to digest. Each part is read as
+  // its own form, by the kind and the field, so a repository that is a machine
+  // path, a commit that is `HEAD` or an end of an edge that is no fact id is
+  // named before any id is computed from it; the parts the place contributes
+  // were checked above and are named here by their value field.
   if (problems.length === 0) {
     try {
-      const recomputed = factId({ kind, value: value as FactValueOf<FactKind>, provenance: provenance as FactProvenance });
-      if (recomputed !== id) {
-        add('id', `${shown(id)} is not the id of this fact: its identity digests to ${shown(recomputed)}, and an id is never written but computed`);
+      const provenanceOf = provenance as FactProvenance;
+      const parts = (definition.identity as (value: unknown, provenance: FactProvenance) => readonly IdentityPart[])(value, provenanceOf);
+      for (const [field, part] of parts) {
+        const message = IDENTITY_PART_FORMS[`${kind}.${field}`]?.(part);
+        if (message !== undefined) add(`value.${field}`, message);
+      }
+      if (problems.length === 0) {
+        const recomputed = factId({ kind, value: value as FactValueOf<FactKind>, provenance: provenanceOf });
+        if (recomputed !== id) {
+          add('id', `${shown(id)} is not the id of this fact: its identity digests to ${shown(recomputed)}, and an id is never written but computed`);
+        }
       }
     } catch (error) {
       if (error instanceof FactSchemaError) add(error.path, error.detail);
@@ -1786,15 +1945,14 @@ export function checkFact(fact: unknown): FactProblem[] {
 // ---- the bridge to the product registry's kinds --------------------------
 
 /**
- * How a registry kind is kept in the product (the 0021 amendment, as
- * `src/product/schema.ts` declares it): a markdown document, a task of the
- * tracker, an element of the intended model, a component, or a fact read from
- * another system. A registry kind names one of these; the reference product's
- * kinds are all `document` or `task` today.
+ * How a registry kind is kept in the product: the 0021 amendment's storage
+ * forms, and the product schema's own `StorageForm` — the one declaration of
+ * them, imported rather than restated, so a form this engine adds reaches the
+ * mapping instead of leaving it behind.
  */
-export type RegistryStorageForm = 'component' | 'document' | 'fact' | 'model-element' | 'task';
+export type RegistryStorageForm = StorageForm;
 
-/** The storage forms, in code point order. */
+/** The storage forms, in code point order; `test/fill-facts.test.ts` checks the list against the schema's union. */
 export const REGISTRY_STORAGE_FORMS: readonly RegistryStorageForm[] = ['component', 'document', 'fact', 'model-element', 'task'];
 
 /**
@@ -1858,6 +2016,7 @@ export const REGISTRY_KIND_MAPPINGS: { readonly [K in FactKind]: RegistryKindMap
   'dependency': { factKind: 'dependency', registryForms: ['component', 'fact', 'model-element'], relation: 'evidence' },
   'call': { factKind: 'call', registryForms: ['component', 'fact', 'model-element'], relation: 'evidence' },
   'reference': { factKind: 'reference', registryForms: ['component', 'fact', 'model-element'], relation: 'evidence' },
+  'inherits': { factKind: 'inherits', registryForms: ['component', 'fact', 'model-element'], relation: 'evidence' },
   'provides': { factKind: 'provides', registryForms: ['component', 'fact', 'model-element'], relation: 'evidence' },
   'consumes': { factKind: 'consumes', registryForms: ['component', 'fact', 'model-element'], relation: 'evidence' },
   'binds': { factKind: 'binds', registryForms: ['component', 'fact', 'model-element'], relation: 'evidence' },

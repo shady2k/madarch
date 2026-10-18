@@ -147,6 +147,11 @@ agent stages write (8 to 13): `claim`, `entity-proposal`, `rule`, `state`,
 deterministically, stage 9 refines the boundaries — and `coverage` by every
 stage.
 
+A `snapshot` and a `commit` name the same commit and answer different
+questions: the snapshot is the pin the stages 0 to 7 read from — the tree, its
+file count, its byte count — and the commit is the history node stage 7 reads:
+its author, its time, its subject and the task keys it commits.
+
 Two decisions are worth naming. An endpoint's identity is its normalized
 contract id (0003) and an environment variable's is its name (0006), so the
 one repository that provides and the other that consumes it are one node of
@@ -170,6 +175,7 @@ classDiagram
   EdgeFact <|-- Dependency
   EdgeFact <|-- Call
   EdgeFact <|-- Reference
+  EdgeFact <|-- Inherits
   EdgeFact <|-- Provides
   EdgeFact <|-- Consumes
   EdgeFact <|-- Binds
@@ -191,6 +197,11 @@ classDiagram
     from
     to
   }
+  class Inherits {
+    from
+    to
+    form
+  }
   class Provides {
     from
     contract
@@ -208,11 +219,13 @@ classDiagram
   }
 ```
 
-`provides`, `consumes`, `binds` and `resolves` are decision 0004's atoms as
-the code and its configuration carry them; `coverage` is its sixth atom as a
-node. `call` and `reference` are aggregated per pair of symbols rather than
-one edge per mention, and their provenance is the code-point-smallest site, so
-one edge's evidence is deterministic. An import whose specifier resolves to no
+`inherits` is SCIP's `Relationship.is_implementation` with the form that tells
+an `extends` from an `implements`, the two relations RepoDoc's RepoKG keeps
+apart. `provides`, `consumes`, `binds` and `resolves` are decision 0004's atoms
+as the code and its configuration carry them; `coverage` is its sixth atom as a
+node. `call`, `reference` and `inherits` are per pair of symbols rather than one
+edge per mention, and the aggregated ones carry the code-point-smallest site as
+their provenance, so an edge's evidence is deterministic. An import whose specifier resolves to no
 node is a coverage gap, never an edge with an invented end (0026: referenced
 nodes exist).
 
@@ -315,8 +328,8 @@ from the product registry's: node kinds `snapshot`, `repository`, `directory`,
 `test`, `module`, `document`, `section`, `commit`, `claim`,
 `entity-proposal`, `rule`, `state`, `coverage` and `question`; edge kinds
 `contains`, `defines`, `import`, `dependency`, `call`, `reference`,
-`provides`, `consumes`, `binds`, `resolves`, `document-link`, `task-key`,
-`transition` and `interaction`. A kind's name shall be one lower-case word of
+`inherits`, `provides`, `consumes`, `binds`, `resolves`, `document-link`,
+`task-key`, `transition` and `interaction`. A kind's name shall be one lower-case word of
 letters, digits and dashes, never a registry kind's name; each kind shall
 declare whether it is a node or an edge, the stages that write it, the layers
 it may be written in, how its place stands, and its own value version.
@@ -373,8 +386,12 @@ Every fact shall carry decision 0005's layer — `declared`, `extracted`,
 acceptance is a record beside the fact, never a rewrite of it, so an
 extracted, inferred or observed fact is written `proposed` and only a
 declaration of the product's own words may stand `accepted` or `rejected`. A
-kind shall declare the layers its stages obtain it in, and no kind of this
-version shall admit `observed`.
+kind shall declare the layers its stages obtain it in: `extracted` where a
+deterministic stage of 0026 writes it, `inferred` where an agent stage does,
+both where the kind has one of each (`module`, clustered at stage 5 and
+refined at stage 9; `coverage`, reported by every stage), and `declared` too
+for a claim, whose layer is a person's own words when a person declares it. No
+kind of this version shall admit `observed`.
 
 #### Scenario: an agent's acceptance
 - Given: an inferred claim
@@ -385,6 +402,11 @@ version shall admit `observed`.
 - Given: a claim whose layer is `declared`, the product's own words
 - When: it is written with status `accepted`
 - Then: it is accepted by the schema, with no reason reported
+
+#### Scenario: a layer its stages cannot obtain
+- Given: a state, which only the agent stage 12 writes
+- When: it is written with layer `extracted`
+- Then: it is refused, naming `layer` and saying that the stages that write the kind obtain it no other way
 
 ### ids — A fact's id is the digest of its identity and of nothing else
 The id of a fact shall be content-addressed: the kind, a colon, and the
@@ -425,12 +447,12 @@ the only constructors shall derive a path from a repository root and a location
 inside it, or read a path already in that form.
 
 #### Scenario: two checkouts, one fact
-- Given: one repository checked out at `/home/dev/checkout` and at `/srv/ci/workspace/checkout`
+- Given: one repository checked out at `/opt/madarch-checkout` and at `/srv/ci/workspace/checkout`
 - When: the same file is read in both
 - Then: one repository path, `src/order.ts`, and one id, and neither checkout's directory appears in either fact
 
 #### Scenario: a file outside the repository
-- Given: a location `/tmp/other/src/order.ts` and a root `/home/dev/checkout`
+- Given: a location `/tmp/other/src/order.ts` and a root `/opt/madarch-checkout`
 - When: the path is derived
 - Then: it is refused, and the refusal names both paths
 
@@ -470,12 +492,15 @@ anywhere — an agent's write, a stored row, a fixture — naming every reason t
 fact is not one the schema reads, each with its path from the fact's top and,
 where the fact cites a place, that place's file and line: the envelope's
 version and id, the kind, the provenance, the place, the layer over the
-status, every identity part the kind declares, every path, every list of names
-in code point order without a repeat, and the two places a fact carries a
-closed form inside its value (an assertion's ends and a binding's value). The
-checks a write needs beyond these — cited bytes existing and read at the
-pinned commit, referenced nodes existing, the write inside its unit's scope —
-shall belong to the write path (0026) and not to the schema.
+status, every identity part the kind declares and the form it reads as — a
+repository's product name and never a machine path, a commit, a fact id, one
+of the fill's own tokens, text with something in it — an identity part that is
+empty, every path, every list of names in code point order without a repeat,
+and the two places a fact carries a closed form inside its value (an
+assertion's ends and a binding's value). The checks a write needs beyond these
+— cited bytes existing and read at the pinned commit, referenced nodes
+existing, the write inside its unit's scope — shall belong to the write path
+(0026) and not to the schema.
 
 #### Scenario: every reason at once
 - Given: a fact whose place names an absolute path, whose range ends before it starts, and whose roles are out of order
@@ -486,6 +511,11 @@ shall belong to the write path (0026) and not to the schema.
 - Given: a coverage whose unread list holds one record twice
 - When: it is checked
 - Then: it is refused, naming the repeat's index
+
+#### Scenario: a part the graph cannot join
+- Given: a `file` fact whose value names the repository `/opt/madarch-checkout`, and a `dependency` fact whose end is `orders-service`
+- When: they are checked
+- Then: each is refused at its own field (`value.repository`, `value.to`), naming the form the part is, and no id is computed from either
 
 ### registry-mapping — The bridge to the product registry's kinds is a table
 The relation between the fill's fact kinds and the product registry's kinds

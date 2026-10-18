@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, test } from 'bun:test';
 import { parseContractText } from '../src/product/contract.js';
+import { StorageForm } from '../src/product/schema.js';
 import {
   AGENT_STAGES,
   FACT_EDGE_KINDS,
@@ -45,7 +46,7 @@ const COMMIT = '0123456789abcdef0123456789abcdef01234567';
 const OTHER_COMMIT = 'fedcba9876543210fedcba9876543210fedcba98';
 
 /** Two checkouts of one repository, on two machines: only what lies between the paths may reach an id. */
-const CHECKOUT_HERE = '/home/dev/checkout';
+const CHECKOUT_HERE = '/opt/madarch-checkout';
 const CHECKOUT_ELSEWHERE = '/srv/ci/workspace/checkout';
 
 /** The repository every sample is about, by the product's own name for it (0021). */
@@ -114,6 +115,7 @@ const SAMPLES: { readonly [K in FactKind]: FactValueOf<K> } = {
   'dependency': { from: anyId('file'), to: anyId('file'), basis: 'manifest' },
   'call': { from: anyId('symbol'), to: anyId('symbol'), count: 3 },
   'reference': { from: anyId('symbol'), to: anyId('symbol'), count: 2 },
+  'inherits': { from: anyId('symbol'), to: anyId('symbol'), form: 'implements' },
   'provides': { from: anyId('deploy-unit'), contract: 'topic::order-placed' },
   'consumes': { from: anyId('symbol'), variable: 'environment-variable:' + '0'.repeat(64) },
   'binds': { variable: 'environment-variable:' + '0'.repeat(64), environment: 'production', value: { form: 'digest', sha256: 'a'.repeat(64) } },
@@ -235,6 +237,84 @@ describe('the kinds the fill writes', () => {
     // The deterministic stages' facts are extracted, never inferred.
     expect(FACT_KINDS['file'].layers).toEqual(['extracted']);
     expect(FACT_KINDS['symbol'].layers).toEqual(['extracted']);
+  });
+
+  test('a kind declares the layers its stages obtain it in, and no layer its stages cannot obtain', () => {
+    // Decision 0026: stages 0 to 7 are deterministic readers, 8 to 13 are
+    // agent stages. Decision 0005: an extracted fact is what a tool found, an
+    // inferred one is an agent's interpretation, a declared one is a person's
+    // own words. So a kind's layers are read off the stages that write it; the
+    // expected list below is taken from the two decisions and never from the
+    // schema's own table.
+    const expected: Record<FactKind, FactLayer[]> = {
+      // stages 0 to 7 write these, and only those stages
+      'snapshot': ['extracted'],
+      'repository': ['extracted'],
+      'directory': ['extracted'],
+      'file': ['extracted'],
+      'package': ['extracted'],
+      'deploy-unit': ['extracted'],
+      'api-endpoint': ['extracted'],
+      'table': ['extracted'],
+      'column': ['extracted'],
+      'environment-variable': ['extracted'],
+      'symbol': ['extracted'],
+      'occurrence': ['extracted'],
+      'entry-point': ['extracted'],
+      'comment': ['extracted'],
+      'test': ['extracted'],
+      'document': ['extracted'],
+      'section': ['extracted'],
+      'commit': ['extracted'],
+      // stage 5 clusters them deterministically, stage 9 refines the boundaries
+      'module': ['extracted', 'inferred'],
+      // agent stages read these, and only agent stages
+      'entity-proposal': ['inferred'],
+      'rule': ['inferred'],
+      'state': ['inferred'],
+      'question': ['inferred'],
+      'transition': ['inferred'],
+      'interaction': ['inferred'],
+      // a claim is an agent's reading, or the product's own words when a
+      // person declares it (the "person's declaration" scenario of this change)
+      'claim': ['declared', 'inferred'],
+      // every stage reports what it read
+      'coverage': ['extracted', 'inferred'],
+      // the edges of stages 0 to 7
+      'contains': ['extracted'],
+      'defines': ['extracted'],
+      'import': ['extracted'],
+      'dependency': ['extracted'],
+      'call': ['extracted'],
+      'reference': ['extracted'],
+      'inherits': ['extracted'],
+      'provides': ['extracted'],
+      'consumes': ['extracted'],
+      'binds': ['extracted'],
+      'resolves': ['extracted'],
+      'document-link': ['extracted'],
+      'task-key': ['extracted'],
+    };
+    expect(Object.keys(expected).sort()).toEqual([...FACT_KINDS_IN_ORDER].sort());
+    for (const kind of FACT_KINDS_IN_ORDER) {
+      const definition: { readonly stages: readonly string[]; readonly layers: readonly FactLayer[] } = FACT_KINDS[kind];
+      const layers: FactLayer[] = [...definition.layers];
+      expect(layers.sort()).toEqual(expected[kind]);
+      // And the same rule read the other way: a kind that no deterministic
+      // stage writes never claims the extracted layer, and a kind that no
+      // agent stage writes never claims the inferred one.
+      const writtenBy = (stages: readonly string[], agent: boolean): boolean =>
+        stages.some((stage) => AGENT_STAGES.includes(stage as never) === agent);
+      const deterministic = writtenBy(definition.stages, false);
+      const agent = writtenBy(definition.stages, true);
+      if (!deterministic) expect(definition.layers).not.toContain('extracted');
+      if (!agent) expect(definition.layers).not.toContain('inferred');
+      if (deterministic) expect(definition.layers).toContain('extracted');
+      if (agent) expect(definition.layers).toContain('inferred');
+    }
+    // module is the one kind the two decisions place in both halves of the fill.
+    expect(FACT_KINDS['module'].stages).toEqual(['5-modules', '9-boundaries']);
+    expect(FACT_KINDS['coverage'].stages).toEqual(FACT_STAGES);
   });
 
   test('every kind carries its value shape version, an integer of the schema version today', () => {
@@ -412,18 +492,32 @@ describe('repository paths: the machine checkout never reaches a fact', () => {
   });
 
   test('an absolute path, a climbed path, a drive path, a trailing separator, an empty leg and a dotted leg are refused', () => {
-    const refused = ['/home/dev/checkout/src/order.ts', '../secret.ts', 'C:\\checkout\\src\\order.ts', 'src/', 'src//order.ts', 'src/./order.ts', ''];
+    const refused = ['/opt/madarch-checkout/src/order.ts', '../secret.ts', 'C:\\checkout\\src\\order.ts', 'src/', 'src//order.ts', 'src/./order.ts', ''];
     for (const value of refused) {
       expect(isRepositoryPath(value)).toBe(false);
       expect(() => repositoryPath(value)).toThrow(FactSchemaError);
     }
   });
 
+  test("a sibling folder whose name starts with the root name is outside it, and a name's bytes are never folded", () => {
+    // A prefix comparison would read `/srv/checkout2` as inside `/srv/checkout`.
+    expect(() => repositoryPathIn('/srv/checkout', '/srv/checkout2/src/order.ts')).toThrow(/not inside the repository root/);
+    // Unicode is the repository's own: an NFC name and its NFD spelling are
+    // two paths, and neither is folded into the other.
+    const nfc = 'docs/\u00DCber.md';
+    const nfd = 'docs/U\u0308ber.md';
+    expect(nfc).not.toBe(nfd);
+    expect(String(repositoryPath(nfc))).toBe(nfc);
+    expect(String(repositoryPath(nfd))).toBe(nfd);
+    expect(repositoryPath(nfd)).not.toBe(repositoryPath(nfc));
+    expect(String(repositoryPath('Docs/Readme.md'))).toBe('Docs/Readme.md');
+  });
+
   test('a path inside the root reads relative to it, and a path outside names both paths', () => {
-    expect(String(repositoryPathIn('/home/dev/checkout', '/home/dev/checkout/src/order.ts'))).toBe('src/order.ts');
-    expect(String(repositoryPathIn('/home/dev/checkout/', '/home/dev/checkout/src/order.ts'))).toBe('src/order.ts');
-    expect(() => repositoryPathIn('/home/dev/checkout', '/tmp/other/src/order.ts')).toThrow(/\/tmp\/other\/src\/order\.ts.*\/home\/dev\/checkout/);
-    expect(() => repositoryPathIn('/home/dev/checkout', '/home/dev/checkout')).toThrow(/the repository root itself/);
+    expect(String(repositoryPathIn('/opt/madarch-checkout', '/opt/madarch-checkout/src/order.ts'))).toBe('src/order.ts');
+    expect(String(repositoryPathIn('/opt/madarch-checkout/', '/opt/madarch-checkout/src/order.ts'))).toBe('src/order.ts');
+    expect(() => repositoryPathIn('/opt/madarch-checkout', '/tmp/other/src/order.ts')).toThrow(/\/tmp\/other\/src\/order\.ts.*\/opt\/madarch-checkout/);
+    expect(() => repositoryPathIn('/opt/madarch-checkout', '/opt/madarch-checkout')).toThrow(/the repository root itself/);
   });
 });
 
@@ -461,7 +555,7 @@ describe('the check that names every reason a fact is not one the schema reads',
   test('the provenance: a source and its version, a repository and its commit', () => {
     expect(problemsOf({ ...file, provenance: undefined }).paths).toEqual(['provenance']);
     expect(problemsOf({ ...file, provenance: { ...provenanceFor('file'), source: { system: 'tree-sitter', version: ' ' } } }).paths).toEqual(['provenance.source.version']);
-    expect(problemsOf({ ...file, provenance: { ...provenanceFor('file'), repository: { id: '/home/dev/checkout', commit: COMMIT } } }).paths).toEqual(['provenance.repository.id']);
+    expect(problemsOf({ ...file, provenance: { ...provenanceFor('file'), repository: { id: '/opt/madarch-checkout', commit: COMMIT } } }).paths).toEqual(['provenance.repository.id']);
     expect(problemsOf({ ...file, provenance: { ...provenanceFor('file'), repository: { id: REPOSITORY, commit: 'HEAD' } } }).paths).toEqual(['provenance.repository.commit']);
   });
 
@@ -478,7 +572,7 @@ describe('the check that names every reason a fact is not one the schema reads',
   test('a place the kind stands at is required, and a place read as a repository path with an ascending range', () => {
     const occurrence = sampleFact('occurrence');
     expect(problemsOf({ ...occurrence, provenance: { ...provenanceFor('occurrence'), place: undefined } }).messages[0]).toContain('an occurrence fact stands at a place');
-    expect(problemsOf({ ...occurrence, provenance: { ...provenanceFor('occurrence'), place: { file: '/home/dev/checkout/src/order.ts', range: provenanceFor('occurrence').place?.range } } }).paths).toEqual(['provenance.place.file']);
+    expect(problemsOf({ ...occurrence, provenance: { ...provenanceFor('occurrence'), place: { file: '/opt/madarch-checkout/src/order.ts', range: provenanceFor('occurrence').place?.range } } }).paths).toEqual(['provenance.place.file']);
     expect(problemsOf({ ...occurrence, provenance: { ...provenanceFor('occurrence'), place: { file: repositoryPath('src/order.ts'), range: { startLine: 0, startColumn: 0, endLine: 1, endColumn: 0 } } } }).paths).toEqual(['provenance.place.range.startLine']);
     expect(problemsOf({ ...occurrence, provenance: { ...provenanceFor('occurrence'), place: { file: repositoryPath('src/order.ts'), range: { startLine: 9, startColumn: 0, endLine: 3, endColumn: 0 } } } }).paths).toEqual(['provenance.place.range.endLine']);
     expect(problemsOf({ ...occurrence, provenance: { ...provenanceFor('occurrence'), place: { file: repositoryPath('src/order.ts'), range: { startLine: 3, startColumn: 5, endLine: 3, endColumn: 2 } } } }).paths).toEqual(['provenance.place.range.endColumn']);
@@ -489,7 +583,7 @@ describe('the check that names every reason a fact is not one the schema reads',
   });
 
   test('the value: a repository path, a list of names in code point order, a token that is one word', () => {
-    expect(problemsOf({ ...file, value: { ...file.value, path: '/home/dev/checkout/src/order.ts' } }).paths).toEqual(['value.path']);
+    expect(problemsOf({ ...file, value: { ...file.value, path: '/opt/madarch-checkout/src/order.ts' } }).paths).toEqual(['value.path']);
     expect(problemsOf({ ...file, value: { ...file.value, roles: ['test', 'source'] } }).paths).toEqual(['value.roles[1]']);
     expect(problemsOf({ ...file, value: { ...file.value, roles: ['source', 'source'] } }).paths).toEqual(['value.roles[1]']);
     const claim = sampleFact('claim');
@@ -509,7 +603,7 @@ describe('the check that names every reason a fact is not one the schema reads',
     expect(problemsOf({ ...document, provenance: provenanceOf() }).paths).toEqual(['provenance.place.file']);
     expect(problemsOf({ ...document, provenance: provenanceOf() }).messages[0]).toContain('docs/requirements/orders.md');
     // A path the value itself is wrong about is reported there, once.
-    expect(problemsOf({ ...document, value: { ...document.value, path: '/home/dev/out.md' } }).paths).toEqual(['value.path']);
+    expect(problemsOf({ ...document, value: { ...document.value, path: '/tmp/out.md' } }).paths).toEqual(['value.path']);
   });
 
   test('the ends of an assertion and the value of a binding carry a closed form inside the value', () => {
@@ -520,6 +614,58 @@ describe('the check that names every reason a fact is not one the schema reads',
     const binds = sampleFact('binds');
     expect(problemsOf({ ...binds, value: { ...binds.value, value: { form: 'digest', sha256: 'xyz' } } }).paths).toEqual(['value.value']);
     expect(problemsOf({ ...binds, value: { ...binds.value, value: { form: 'secret', text: 'x' } } }).messages[0]).toContain('is no form');
+  });
+
+  test('an identity part reads as its own form: a repository name, a commit, a fact id, a token', () => {
+    // 0004's repository@ref and 0026's "referenced nodes exist": an identity is
+    // the digest of parts the graph can join, so a machine path where a
+    // repository's name belongs, `HEAD` where a commit belongs or a word where
+    // a fact id belongs is named at the field it stands in, before any id is
+    // computed from it.
+    expect(problemsOf({ ...file, value: { ...file.value, repository: CHECKOUT_HERE } }).paths).toEqual(['value.repository']);
+    expect(problemsOf({ ...file, value: { ...file.value, repository: 'orders api' } }).paths).toEqual(['value.repository']);
+    const snapshot = sampleFact('snapshot');
+    expect(problemsOf({ ...snapshot, value: { ...snapshot.value, commit: 'HEAD' } }).paths).toEqual(['value.commit']);
+    const commit = sampleFact('commit');
+    expect(problemsOf({ ...commit, value: { ...commit.value, commit: OTHER_COMMIT.toUpperCase() } }).paths).toEqual(['value.commit']);
+    const dependency = sampleFact('dependency');
+    expect(problemsOf({ ...dependency, value: { ...dependency.value, to: 'orders-service' } }).paths).toEqual(['value.to']);
+    const occurrence = sampleFact('occurrence');
+    expect(problemsOf({ ...occurrence, value: { ...occurrence.value, symbol: 'OrderService.create' } }).paths).toEqual(['value.symbol']);
+    const claim = sampleFact('claim');
+    expect(problemsOf({ ...claim, value: { ...claim.value, predicate: 42 } }).paths).toEqual(['value.predicate']);
+    const coverage = sampleFact('coverage');
+    expect(problemsOf({ ...coverage, value: { ...coverage.value, scope: 7 } }).paths).toEqual(['value.scope']);
+    // A part a fact may leave out is no defect when it is absent, and is read
+    // as its own form when it is there.
+    const moduleWithoutParent = makeNodeFact({ kind: 'module', value: { ...SAMPLES['module'], parent: undefined }, provenance: provenanceFor('module'), layer: 'extracted' });
+    expect(checkFact(moduleWithoutParent)).toEqual([]);
+    const module = sampleFact('module');
+    expect(problemsOf({ ...module, value: { ...module.value, parent: 'checkout' } }).paths).toEqual(['value.parent']);
+    const questionWithoutAbout = makeNodeFact({ kind: 'question', value: { ...SAMPLES['question'], about: undefined }, provenance: provenanceFor('question'), layer: 'inferred' });
+    expect(checkFact(questionWithoutAbout)).toEqual([]);
+  });
+
+  test('a fact handed to the check with no value at all is refused, never thrown out of', () => {
+    // An agent's write or a damaged stored row may carry nothing where a value
+    // belongs: the check names every reason and never throws. The one kind it
+    // cannot name a missing field of is the comment, whose identity is its
+    // place alone (`checkFact`'s own note: a value field that is neither
+    // identity nor a closed form is the stage's and the write path's to check).
+    const placeOnly: readonly FactKind[] = ['comment'];
+    for (const kind of FACT_KINDS_IN_ORDER) {
+      const broken = { ...sampleFact(kind), value: {} };
+      let problems: readonly { path: string }[] = [];
+      expect(() => {
+        problems = checkFact(broken);
+      }).not.toThrow();
+      if (placeOnly.includes(kind)) {
+        expect(problems).toEqual([]);
+        continue;
+      }
+      expect(problems.length).toBeGreaterThan(0);
+      for (const problem of problems) expect(problem.path.startsWith('value')).toBe(true);
+    }
   });
 
   test('an id that is not the identity own digest is refused, and a fact with another problem is not digested', () => {
@@ -547,6 +693,15 @@ describe('the explicit mapping to the registry kinds (0021 storage forms)', () =
       // The forms are listed in code point order, the project's one order.
       expect([...mapping.registryForms]).toEqual([...mapping.registryForms].sort());
     }
+  });
+
+  test('the storage forms are the product schema own five: one declaration, imported and never restated', () => {
+    // 0021's amendment names the forms a registry kind may be kept in; the
+    // product schema is their one declaration, so a form added there reaches
+    // this mapping instead of leaving it behind.
+    const union = (StorageForm as unknown as { anyOf: readonly { const: string }[] }).anyOf.map((member) => member.const);
+    expect([...union].sort()).toEqual(['component', 'document', 'fact', 'model-element', 'task']);
+    expect([...union].sort()).toEqual([...REGISTRY_STORAGE_FORMS].sort());
   });
 
   test('every storage form a registry kind may be kept in is served by some fact kind', () => {

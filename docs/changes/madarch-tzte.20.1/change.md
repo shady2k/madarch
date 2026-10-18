@@ -14,7 +14,7 @@ which kinds exist, what every fact carries as evidence, and how a fact is
 named so that two runs, two machines and two commits agree on it.
 
 This change adds `src/fill/facts.ts`: that vocabulary as pure types and pure
-functions. Twenty-five node kinds and fourteen edge kinds cover stages 0 to 7
+functions. Twenty-five node kinds and fifteen edge kinds cover stages 0 to 7
 and the agent stages' claims, entity proposals, rules, states, transitions,
 interactions, coverage and questions; every fact carries its provenance, its
 layer and its status; an id is the digest of a fact's identity and of nothing
