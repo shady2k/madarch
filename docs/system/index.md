@@ -80,3 +80,9 @@ Its run's decisions are in `docs/changes/draft-product/change.md`, "Design and d
 Added 2026-10-15 with the change clean-install-platforms (`docs/changes/clean-install-platforms/`):
 
 - [release-binary](capabilities/release-binary.md): install, upgrade, and use the self-contained release binary across supported platforms.
+
+Added 2026-10-18 with the change fill-stage-registry (`docs/changes/fill-stage-registry/`):
+
+- [fill-stages](capabilities/fill-stages.md): declaring the fill's stages and deriving the graph they run in, and the product's manifest deciding which of them run and within which limits.
+
+Its run's decisions are in `docs/changes/fill-stage-registry/change.md`, "Design and decisions".
