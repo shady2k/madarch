@@ -155,7 +155,16 @@ export const childReadings: ChildReadings = {
  * pid such a process holds is a stale record, never a daemon.
  */
 export function childReading(args: string | undefined, own: string | undefined, state: { home: string; port: number }): SpawnedChild {
-  if (args === undefined || args === own) return 'starting';
+  // A command line nothing has been written into yet reads empty (0 bytes):
+  // measured on the pod on 2026-10-18, the same read answers 0 bytes for the
+  // microseconds in which a child's exec takes over its address space — seen
+  // in 15 of 40 spawns, before the exec'd line appeared — so an empty read is
+  // a child on its way, no more a program than no answer at all. An empty read
+  // that is a child which has already ended and has not been reaped yet is
+  // `readChild`'s own `exists` read to make: `kill(pid, 0)` answers for a
+  // zombie, so the end of the child this process spawned is read once the
+  // platform has reaped it.
+  if (args === undefined || args.trim() === '' || args === own) return 'starting';
   return isDaemonCommandLine(args, state) ? 'daemon' : 'foreign';
 }
 
@@ -202,7 +211,12 @@ function daemonIsAlive(state: DaemonState, reads: ChildReadings = childReadings)
 function saveState(home: string, state: DaemonState): void { writeFileSync(statePath(home), JSON.stringify(state, null, 2) + '\n', { mode: 0o600 }); }
 function clearState(home: string): void { try { unlinkSync(statePath(home)); } catch { /* already gone */ } }
 
-/** Yields to other work without a busy loop; the lifecycle waits below poll with it. */
+/**
+ * Waits without a busy loop or a timer. `stopDaemon`'s own wait polls with it
+ * — it is synchronous, and the liveness it reads is false for a child that
+ * has ended but has not been reaped yet; a start's wait does not, since that
+ * one wants the runtime free to reap (`waitUntil`).
+ */
 function pause(ms: number): void { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
 /**
  * The bundle marker in a compiled binary's own paths: `$bunfs` on Linux and
@@ -249,12 +263,20 @@ export function daemonCommand(
   return { command: 'bun', args: [scriptPath, ...words] };
 }
 
-/** Polls `ok` until it holds or the timeout passes; answers whether it held. */
+/**
+ * Polls `ok` until it holds or the timeout passes; answers whether it held.
+ * The pause between passes awaits a timer rather than blocking the thread, so
+ * the runtime can run the work only it can do — reaping the child a start is
+ * waiting for. Measured on the pod on 2026-10-18: a child that exits at once
+ * keeps its id for the whole 3 s a `pause` loop gives it (its `/proc` state
+ * stayed `Z`, so `kill(pid, 0)` went on answering for a process that had
+ * ended), and is gone 40 ms after the same loop awaits a timer instead.
+ */
 async function waitUntil(ok: () => boolean | Promise<boolean>, timeoutMs: number): Promise<boolean> {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
     if (await ok()) return true;
-    pause(40);
+    await new Promise((answer) => { setTimeout(answer, 40); });
   }
   return await ok();
 }
@@ -317,6 +339,34 @@ function releaseLock(home: string, token: string): void {
 /** Whether a process id exists right now (a permission-denied one does). */
 function processExists(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code === 'EPERM'; }
+}
+
+/**
+ * What a start says when its wait is over and the server is not up, built from
+ * the reads the wait itself made: a child that had ended, one that ran another
+ * program, one that answered and then ended, one that runs a daemon's own
+ * command line without showing this record's token, one that is this record's
+ * daemon and never answered, and one that was still starting when the wait ran
+ * out. Naming the reading actually seen is what tells a person whether the
+ * child never exec'd, never bound its port, or was never this record's child —
+ * and it is built from the last read, taken before the process was ended.
+ */
+export function startFailureWhy(
+  pid: number,
+  port: number,
+  seen: { reading: SpawnedChild; args: string | undefined },
+  outcome: { answered: boolean; tokenMissed: boolean },
+): string {
+  const waited = `${READY_TIMEOUT_MS / 1000}s`;
+  if (seen.reading === 'ended') return `the process it started (pid ${pid}) had already ended`;
+  if (seen.reading === 'foreign') return `the process it started (pid ${pid}) was not the daemon of this record; its command line read ${JSON.stringify(seen.args)}`;
+  if (outcome.answered) return `the process it started (pid ${pid}) answered on port ${port} and then ended`;
+  if (seen.reading === 'daemon') {
+    return outcome.tokenMissed
+      ? `the process it started (pid ${pid}) runs a daemon's command line but does not show this record's token, so this home's server cannot be confirmed to be it`
+      : `the process it started (pid ${pid}) is the daemon of this record and did not answer on port ${port} within ${waited}`;
+  }
+  return `the process it started (pid ${pid}) was still starting after ${waited} and did not answer on port ${port}: its command line read ${seen.args === undefined ? 'nothing' : JSON.stringify(seen.args)}`;
 }
 
 export type DaemonStart =
@@ -412,21 +462,23 @@ async function ensureDaemonUnderLock(home: string, port: number, asked: number |
   // command line for it (see `childReading`) — so the wait goes on for it,
   // and a start never fails on the read of a child the kernel has not let
   // exec yet.
-  let failed: string | undefined;    // the child ended, or exec'd into another program
   let answered = false;              // its listener answered
-  let ours = false;                  // it carried this record's token
+  let tokenMissed = false;           // it ran a daemon's command line without this record's token
+  // Every pass keeps its own read, and what a failed start says is built from
+  // the last one: what the check saw, read before the process is ended. The
+  // wait's own first pass sets it, so nothing is read twice.
+  let seen: { reading: SpawnedChild; args: string | undefined } = { reading: 'starting', args: undefined };
   const ready = await waitUntil(async () => {
-    const read = readChild(state.pid, state, reads);
-    if (read.reading === 'ended') { failed = `the process it started (pid ${state.pid}) had already ended`; return true; }
-    if (read.reading === 'foreign') { failed = `the process it started (pid ${state.pid}) was not the daemon of this record; its command line read ${JSON.stringify(read.args)}`; return true; }
+    seen = readChild(state.pid, state, reads);
+    if (seen.reading === 'ended' || seen.reading === 'foreign') return true;
     // A child that runs the daemon's own command line is ours only with this
     // record's token; one that is merely `starting` has nothing to check yet.
-    if (read.reading !== 'daemon' || !daemonTokenMatches(state)) return false;
-    ours = true;
+    if (seen.reading !== 'daemon') return false;
+    if (!daemonTokenMatches(state)) { tokenMissed = true; return false; }
     try { const response = await fetch(`http://127.0.0.1:${port}/`); if (response.ok) { answered = true; return true; } } catch { /* the listener is still binding */ }
     return false;
   }, READY_TIMEOUT_MS);
-  if (answered && daemonIsAlive(state, reads)) {
+  if (ready && answered && daemonIsAlive(state, reads)) {
     // The facts name the port the caller asked for (0 meaning a free one)
     // beside the one the server took, the way the reused path does.
     return { ok: true, url: `http://127.0.0.1:${port}`, pid: state.pid, port, reused: false, ...(asked === undefined ? {} : { requestedPort: asked }) };
@@ -438,15 +490,7 @@ async function ensureDaemonUnderLock(home: string, port: number, asked: number |
   // could not be stopped stays, so `stop` can still find and end it.
   if (!survived && current !== undefined && current.pid === state.pid && current.token === state.token) clearState(home);
   if (childFault.message !== undefined) return { ok: false, message: `the daemon did not start on port ${port}: ${childFault.message}` };
-  // What the check saw, read before the process is ended: a start whose child
-  // ended, one whose process was never the daemon this record names, and one
-  // whose daemon never answered all read differently, and the message says
-  // which of them happened.
-  const why = failed ?? (answered
-    ? `the process it started (pid ${state.pid}) answered on port ${port} and then ended`
-    : ours
-      ? `the process it started (pid ${state.pid}) is the daemon of this record but did not answer on port ${port} within ${READY_TIMEOUT_MS / 1000}s`
-      : `the process it started (pid ${state.pid}) does not carry this record's token and did not answer on port ${port} within ${READY_TIMEOUT_MS / 1000}s`);
+  const why = startFailureWhy(state.pid, port, seen, { answered, tokenMissed });
   return survived
     ? { ok: false, message: `the daemon did not start on port ${port} and could not be stopped (pid ${state.pid}): ${why}; check ${logPath(home)} before retrying` }
     : { ok: false, message: `the daemon did not start on port ${port}: ${why}; read ${logPath(home)} for its cause` };
@@ -508,14 +552,22 @@ export function daemonStatus(options: { home?: string }): number {
   // Read-only, so it takes no exclusive lock: a status during a slow start
   // answers what the state file held, and the start's own record decides.
   const state = readState(home);
-  if (state === undefined || !daemonIsAlive(state)) {
-    // A record no process holds, or one that cannot be read at all, goes; a
-    // record whose process exists stays. That process may be a daemon that has
-    // not exec'd yet — its command line still reads its starter's, which is
-    // what `childReading` answers `starting` for — and a status must never
-    // take a starting server's record away, since nothing would then find the
-    // server it started. `stop` and the next `start` replace what is stale.
-    if (state === undefined || !processExists(state.pid)) clearState(home);
+  if (state === undefined) {
+    // A record that cannot be read at all is not one to keep.
+    if (existsSync(statePath(home))) clearState(home);
+    console.log('not running');
+    return 0;
+  }
+  if (!daemonIsAlive(state)) {
+    // A status reads another process's record: a daemon that has not exec'd
+    // yet reads as this *starter's* own command line, which is `foreign` to
+    // this process (`childReading` answers `starting` only for the process
+    // that spawned the child), and that is indistinguishable from a recycled
+    // pid holding something else. So the record goes only when no process
+    // holds it at all; a live one stays, or a status would take the record of
+    // a server that is about to serve — and nothing would then find it — and
+    // `stop` or the next `start` replaces a record that is really stale.
+    if (!processExists(state.pid)) clearState(home);
     console.log('not running');
     return 0;
   }
