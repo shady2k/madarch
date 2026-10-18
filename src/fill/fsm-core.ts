@@ -17,8 +17,20 @@
  */
 import { fileURLToPath } from 'node:url';
 import { assign, createMachine, transition as xstateTransition } from 'xstate';
+import { byCodePoint } from '../model/order.js';
 
-const MODULE_PATH = fileURLToPath(import.meta.url);
+/**
+ * This module's path as a person reads it. Run from source, that is the file's
+ * own absolute path; bundled — the shipped `bun build --compile` binary, where
+ * `import.meta.url` is `/$bunfs/root/<binary>` — it is the source path of the
+ * file whose frames are reported, and the line and column are the bundle's,
+ * because a bundle carries no source map. Either way an error names a full path
+ * and never a bare `Error`.
+ */
+const SOURCE_PATH = 'src/fill/fsm-core.ts';
+const MODULE_PATH = import.meta.url.startsWith('file:') && !fileURLToPath(import.meta.url).startsWith('/$bunfs')
+  ? fileURLToPath(import.meta.url)
+  : SOURCE_PATH;
 
 /**
  * The stack frames of this module's own helpers. JavaScript engines elide the frame
@@ -158,7 +170,6 @@ export interface FillMachine<State extends string, Event extends FillEventObject
   mermaid(): string;
 }
 
-const codePointCompare = (left: string, right: string): number => (left < right ? -1 : left > right ? 1 : 0);
 
 interface XStateConfigState { on: Record<string, unknown[]> }
 
@@ -200,7 +211,7 @@ function validateSpec<State extends string, Event extends FillEventObject, Conte
       }
     }
   }
-  const unreachable = spec.states.filter((state) => !reached.has(state)).sort(codePointCompare);
+  const unreachable = spec.states.filter((state) => !reached.has(state)).sort(byCodePoint);
   if (unreachable.length > 0) raise(`machine ${spec.id} declares states no transition reaches: ${unreachable.join(', ')}`);
   const effects = Object.entries(spec.actions);
   for (const [name, action] of effects) {
@@ -308,15 +319,18 @@ export function createFillMachine<State extends string, Event extends FillEventO
   }
 
   function mermaid(): string {
-    const ordered = [...spec.transitions].sort((left, right) => codePointCompare(left.from, right.from)
-      || codePointCompare(left.event, right.event)
-      || codePointCompare(left.to, right.to));
+    // The id is the last key so the order is total: two transitions leaving one state on one event for
+    // one target differ only in their guards, and the id carries them.
+    const ordered = [...spec.transitions].sort((left, right) => byCodePoint(left.from, right.from)
+      || byCodePoint(left.event, right.event)
+      || byCodePoint(left.to, right.to)
+      || byCodePoint(left.id, right.id));
     const lines = ['stateDiagram-v2', `  [*] --> ${spec.initial}`];
     for (const transition of ordered) {
       const guards = transition.guards.length > 0 ? ` [${transition.guards.join(' & ')}]` : '';
       lines.push(`  ${transition.from} --> ${transition.to}: ${transition.event}${guards}`);
     }
-    const terminals = spec.states.filter((state) => transitionsFor(state).length === 0).sort(codePointCompare);
+    const terminals = spec.states.filter((state) => transitionsFor(state).length === 0).sort(byCodePoint);
     for (const terminal of terminals) lines.push(`  ${terminal} --> [*]`);
     return lines.join('\n');
   }

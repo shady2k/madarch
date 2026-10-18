@@ -20,8 +20,10 @@ import type {
   RunEvent,
   RunEvidence,
   RunState,
+  UnitChildOutcome,
   UnitContext,
   UnitEvent,
+  UnitFailedChildPolicy,
   UnitFailCause,
   UnitRetryCause,
   UnitState,
@@ -34,8 +36,11 @@ import type {
  * ready and leased/running → retry_wait on lease expiry or transient failure; →
  * blocked and back after an explicit resolution; → failed when budget or retries
  * are exhausted; an unpublished generation → stale or cancelled, a published one
- * marked stale and linked to its replacement". Every worker step names the
- * generation in force and its fencing token.
+ * marked stale and linked to its replacement". Every step that advances, blocks or
+ * ends a generation names the generation in force, and every one of them names the
+ * fencing token in force as well; only `invalidate` and `cancel` speak for the unit
+ * as a whole. A failed child is judged by the run's resolved policy: propagate,
+ * block or accept partial.
  */
 interface UnitExpectation {
   readonly from: UnitState;
@@ -45,6 +50,9 @@ interface UnitExpectation {
   readonly actions: readonly string[];
   /** The cause a retry or a fail names, when the transition needs one. */
   readonly cause?: string;
+  /** The policy a join names, and the children it judges, when it is not the all-published one. */
+  readonly failedChildPolicy?: UnitFailedChildPolicy;
+  readonly children?: readonly UnitChildOutcome[];
   /** Context a step from this state carries, beyond `contextIn`. */
   readonly context?: Partial<UnitContext>;
 }
@@ -62,34 +70,46 @@ const retract = ['retract-draft', 'emit-progress'];
 const revokeAndRetract = ['revoke-lease', 'retract-draft', 'emit-progress'];
 const invalidate = ['link-replacement', 'retract-draft', 'revoke-lease', 'emit-progress'];
 const cancel = ['revoke-authority', 'revoke-lease', 'retract-draft', 'emit-progress'];
+const fenced = ['generation-current', 'fence-current'];
 
 const UNIT_EXPECTED: readonly UnitExpectation[] = [
-  { from: 'planned', event: 'admit', to: 'ready', guards: [], actions: ['enqueue-ready', 'emit-progress'] },
+  { from: 'planned', event: 'admit', to: 'ready', guards: ['generation-current'], actions: ['enqueue-ready', 'emit-progress'] },
   { from: 'ready', event: 'lease', to: 'leased', guards: ['fence-advances'], actions: ['take-fence', 'emit-progress'] },
-  { from: 'leased', event: 'start', to: 'running', guards: ['generation-current', 'fence-current'], actions: ['emit-progress'] },
-  { from: 'running', event: 'submit-draft', to: 'draft', guards: ['generation-current', 'fence-current'], actions: ['record-draft', 'emit-progress'] },
-  { from: 'draft', event: 'validate-draft', to: 'validating', guards: ['generation-current', 'fence-current'], actions: ['record-validation', 'emit-progress'] },
-  { from: 'validating', event: 'publish', to: 'published', guards: ['generation-current', 'fence-current', 'reads-fresh'], actions: ['record-publication', 'emit-progress'] },
-  { from: 'running', event: 'wait-for-children', to: 'waiting_children', guards: ['generation-current', 'fence-current', 'children-sealed'], actions: ['suspend-parent', 'emit-progress'] },
-  { from: 'waiting_children', event: 'join', to: 'ready', guards: ['children-published-and-fresh'], actions: ['resume-join', 'enqueue-ready', 'emit-progress'] },
+  { from: 'leased', event: 'start', to: 'running', guards: fenced, actions: ['emit-progress'] },
+  { from: 'running', event: 'submit-draft', to: 'draft', guards: fenced, actions: ['record-draft', 'emit-progress'] },
+  { from: 'draft', event: 'validate-draft', to: 'validating', guards: fenced, actions: ['record-validation', 'emit-progress'] },
+  { from: 'validating', event: 'publish', to: 'published', guards: [...fenced, 'reads-fresh'], actions: ['record-publication', 'emit-progress'] },
+  { from: 'running', event: 'wait-for-children', to: 'waiting_children', guards: [...fenced, 'children-sealed'], actions: ['suspend-parent', 'emit-progress'] },
+  // The join under the run's resolved policy for a failed child: all published, or the failed ones accepted.
+  { from: 'waiting_children', event: 'join', to: 'ready', guards: ['generation-current', 'children-published-and-fresh'], actions: ['resume-join', 'enqueue-ready', 'emit-progress'] },
+  {
+    from: 'waiting_children', event: 'join', to: 'ready', failedChildPolicy: 'accept-partial',
+    guards: ['generation-current', 'children-accepted-partial'], actions: ['resume-join', 'enqueue-ready', 'emit-progress'],
+    children: [{ unitId: 'child-a', generation: 1, published: true, fresh: true, failed: false }, { unitId: 'child-b', generation: 1, published: false, fresh: false, failed: true }],
+  },
   { from: 'validating', event: 'retry', to: 'retry_wait', cause: 'validation-problem', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-validation-problem'], actions: ['spend-retry', 'wait-for-retry', 'retract-draft', 'schedule-retry', 'emit-progress'] },
   { from: 'leased', event: 'retry', to: 'retry_wait', cause: 'lease-expired', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-lease-expired'], actions: ['spend-retry', 'wait-for-retry', 'revoke-lease', 'retract-draft', 'schedule-retry', 'emit-progress'] },
+  { from: 'leased', event: 'retry', to: 'retry_wait', cause: 'transient-failure', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-transient-failure'], actions: ['spend-retry', 'wait-for-retry', 'revoke-lease', 'retract-draft', 'schedule-retry', 'emit-progress'] },
   { from: 'running', event: 'retry', to: 'retry_wait', cause: 'lease-expired', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-lease-expired'], actions: ['spend-retry', 'wait-for-retry', 'revoke-lease', 'retract-draft', 'schedule-retry', 'emit-progress'] },
   { from: 'running', event: 'retry', to: 'retry_wait', cause: 'transient-failure', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-transient-failure'], actions: ['spend-retry', 'wait-for-retry', 'retract-draft', 'schedule-retry', 'emit-progress'] },
   { from: 'retry_wait', event: 'retry', to: 'ready', guards: ['generation-current', 'retry-elapsed'], actions: ['clear-retry', 'enqueue-ready', 'emit-progress'] },
-  { from: 'ready', event: 'block', to: 'blocked', guards: ['generation-current', 'block-reason-named'], actions: ['emit-progress'] },
-  ...LEASED_STATES.map((from): UnitExpectation => ({ from, event: 'block', to: 'blocked', guards: ['generation-current', 'fence-current', 'block-reason-named'], actions: ['revoke-lease', 'emit-progress'] })),
-  { from: 'waiting_children', event: 'block', to: 'blocked', guards: ['generation-current', 'block-reason-named'], actions: ['emit-progress'] },
-  { from: 'blocked', event: 'unblock', to: 'ready', guards: ['resolution-named'], actions: ['record-resolution', 'enqueue-ready', 'emit-progress'] },
+  { from: 'ready', event: 'block', to: 'blocked', guards: [...fenced, 'block-reason-named'], actions: ['emit-progress'] },
+  ...LEASED_STATES.map((from): UnitExpectation => ({ from, event: 'block', to: 'blocked', guards: [...fenced, 'block-reason-named'], actions: ['revoke-lease', 'emit-progress'] })),
+  { from: 'waiting_children', event: 'block', to: 'blocked', guards: [...fenced, 'block-reason-named'], actions: ['emit-progress'] },
+  { from: 'blocked', event: 'unblock', to: 'ready', guards: ['generation-current', 'resolution-named'], actions: ['record-resolution', 'enqueue-ready', 'emit-progress'] },
   // "→ failed when budget or retries are exhausted": one rule, from every live generation.
   ...LIVE_STATES.map((from): UnitExpectation => ({
     from, event: 'fail', to: 'failed', cause: 'budget-exhausted',
-    guards: (LEASED_STATES as readonly string[]).includes(from) ? ['generation-current', 'fence-current', 'fail-cause'] : ['generation-current', 'fail-cause'],
+    guards: [...fenced, 'fail-cause'],
     actions: (LEASED_STATES as readonly string[]).includes(from) ? revokeAndRetract : retract,
   })),
-  // Staleness: every live generation, and the published one, which only goes stale.
-  ...(['ready', ...LEASED_STATES, 'waiting_children', 'retry_wait', 'blocked'] as const).map((from): UnitExpectation => ({ from, event: 'invalidate', to: 'stale', guards: ['replacement-named'], actions: invalidate })),
+  // The third policy for a failed child: the run propagates it, and the waiting parent fails with it.
+  { from: 'waiting_children', event: 'fail', to: 'failed', cause: 'child-failed', guards: [...fenced, 'cause-child-failed'], actions: revokeAndRetract },
+  // Staleness: every live generation — a planned one whose inputs changed before admission included,
+  // since the decision lets any unpublished generation go stale — and the published one, which only goes stale.
+  ...LIVE_STATES.map((from): UnitExpectation => ({ from, event: 'invalidate', to: 'stale', guards: ['replacement-named'], actions: invalidate })),
   { from: 'published', event: 'invalidate', to: 'stale', guards: ['replacement-named'], actions: ['link-replacement', 'revoke-lease', 'emit-progress'] },
+  // Cancellation is the run control's authority over whatever generation stands, so it names none.
   { from: 'planned', event: 'cancel', to: 'cancelled', guards: [], actions: ['revoke-authority', 'retract-draft', 'emit-progress'] },
   ...(['ready', ...LEASED_STATES, 'waiting_children', 'retry_wait', 'blocked'] as const).map((from): UnitExpectation => ({ from, event: 'cancel', to: 'cancelled', guards: [], actions: cancel })),
 ];
@@ -112,29 +132,38 @@ function contextIn(from: UnitState): UnitContext {
 
 const holdsLease = (from: UnitState): boolean => (LEASED_STATES as readonly string[]).includes(from);
 
+/** The token in force for a state's context: the same one every step names, leased or not. */
+const tokenIn = (context: UnitContext): number => context.fence;
+
 function eventFor(expectation: UnitExpectation): UnitEvent {
   const at = 10;
-  const fence = holdsLease(expectation.from) ? 1 : null;
+  const context = { ...contextIn(expectation.from), ...expectation.context };
+  const fence = tokenIn(context);
   switch (expectation.event) {
-    case 'admit': return { type: 'admit', at };
+    case 'admit': return { type: 'admit', at, generation: context.generation };
     case 'lease': return { type: 'lease', at, fence: 2, attempt: 2 };
-    case 'start': return { type: 'start', at, generation: 1, fence: 1 };
-    case 'submit-draft': return { type: 'submit-draft', at, generation: 1, fence: 1 };
-    case 'validate-draft': return { type: 'validate-draft', at, generation: 1, fence: 1 };
-    case 'publish': return { type: 'publish', at, generation: 1, fence: 1, readsFresh: true };
-    case 'wait-for-children': return { type: 'wait-for-children', at, generation: 1, fence: 1, children: [{ unitId: 'child-a', generation: 1, published: false, fresh: true }] };
-    case 'join': return { type: 'join', at, children: [{ unitId: 'child-a', generation: 1, published: true, fresh: true }] };
-    case 'retry': return { type: 'retry', at, generation: 1, cause: expectation.cause as UnitRetryCause, retryAt: 30 };
-    case 'block': return { type: 'block', at, generation: 1, fence, reason: 'waiting for a producer' };
-    case 'unblock': return { type: 'unblock', at, resolution: 'the producer was enabled' };
-    case 'fail': return { type: 'fail', at, generation: 1, fence, cause: expectation.cause as UnitFailCause };
+    case 'start': return { type: 'start', at, generation: context.generation, fence };
+    case 'submit-draft': return { type: 'submit-draft', at, generation: context.generation, fence };
+    case 'validate-draft': return { type: 'validate-draft', at, generation: context.generation, fence };
+    case 'publish': return { type: 'publish', at, generation: context.generation, fence, readsFresh: true };
+    case 'wait-for-children': return { type: 'wait-for-children', at, generation: context.generation, fence, children: [{ unitId: 'child-a', generation: 1, published: false, fresh: true, failed: false }] };
+    case 'join': return {
+      type: 'join', at, generation: context.generation,
+      failedChildPolicy: expectation.failedChildPolicy ?? 'propagate',
+      children: expectation.children ?? [{ unitId: 'child-a', generation: 1, published: true, fresh: true, failed: false }],
+    };
+    case 'retry': return { type: 'retry', at, generation: context.generation, cause: expectation.cause as UnitRetryCause, retryAt: 30 };
+    case 'block': return { type: 'block', at, generation: context.generation, fence, reason: 'waiting for a producer' };
+    case 'unblock': return { type: 'unblock', at, generation: context.generation, resolution: 'the producer was enabled' };
+    case 'fail': return { type: 'fail', at, generation: context.generation, fence, cause: expectation.cause as UnitFailCause };
     case 'invalidate': return { type: 'invalidate', at, replacement: 2, cause: 'inputs changed' };
     case 'cancel': return { type: 'cancel', at, cause: 'the person stopped the run' };
   }
 }
 
 const descriptor = (from: string, event: string, to: string): string => `${from} --${event}--> ${to}`;
-const nameOf = (expectation: UnitExpectation): string => `${descriptor(expectation.from, expectation.event, expectation.to)}${expectation.cause === undefined ? '' : ` on ${expectation.cause}`}`;
+const nameOf = (expectation: UnitExpectation): string => `${descriptor(expectation.from, expectation.event, expectation.to)}${expectation.cause === undefined ? '' : ` on ${expectation.cause}`}${expectation.failedChildPolicy === undefined ? '' : ` under ${expectation.failedChildPolicy}`}`;
+
 
 describe('unit machine: every allowed transition, from decision 0027', () => {
   test('the table holds exactly the transitions the decision allows, no more and no fewer', () => {
@@ -213,7 +242,7 @@ describe('unit machine: every allowed transition, from decision 0027', () => {
 describe('unit machine: the properties decision 0027 states in prose', () => {
   test('every live generation can fail, and every state where an attempt ends can fail on its last retry', () => {
     for (const state of LIVE_STATES) {
-      const budget = unitMachine.step({ state, context: contextIn(state) }, { type: 'fail', at: 10, generation: 1, fence: holdsLease(state) ? 1 : null, cause: 'budget-exhausted' });
+      const budget = unitMachine.step({ state, context: contextIn(state) }, { type: 'fail', at: 10, generation: 1, fence: tokenIn(contextIn(state)), cause: 'budget-exhausted' });
       expect(budget.ok).toBe(true);
       if (!budget.ok) continue;
       expect(budget.state).toBe('failed');
@@ -239,14 +268,36 @@ describe('unit machine: the properties decision 0027 states in prose', () => {
     }
   });
 
+  // The decision's own sentences, checked against the table rather than through the expectation list:
+  // "an unpublished generation → stale or cancelled ... a published generation stays an immutable record
+  // marked stale and linked to its replacement" and "→ failed when budget or retries are exhausted".
+  test('every unpublished generation may go stale, be cancelled and fail, and a published one may only go stale', () => {
+    const live: readonly UnitState[] = ['planned', 'ready', 'leased', 'running', 'draft', 'validating', 'waiting_children', 'retry_wait', 'blocked'];
+    for (const state of live) {
+      const leaving = unitMachine.from(state).map((transition) => `${transition.event}→${transition.to}`);
+      expect(leaving).toContain('invalidate→stale');
+      expect(leaving).toContain('cancel→cancelled');
+      expect(leaving).toContain('fail→failed');
+    }
+    expect(unitMachine.from('published').map((transition) => `${transition.event}→${transition.to}`)).toEqual(['invalidate→stale']);
+    for (const terminal of ['failed', 'stale', 'cancelled'] as const) expect(unitMachine.from(terminal)).toEqual([]);
+  });
+
   test('every worker step names its generation as well as its token, and no lease token is reused', () => {
-    // `retry` is the orchestrator's own report of a lost lease, so it carries no token; every step a
-    // worker takes names both the generation in force and the token it acts under.
+    // `retry` is the orchestrator's own report of a lost lease, so it carries no token; every other step
+    // that advances, blocks or ends a generation names both the generation in force and the token it acts
+    // under, wherever the unit stands — a revoked lease's token cannot block or fail a later attempt.
     for (const transition of unitMachine.spec.transitions) {
-      if (!holdsLease(transition.from)) continue;
-      if (!['start', 'submit-draft', 'validate-draft', 'publish', 'wait-for-children', 'block', 'fail'].includes(transition.event)) continue;
-      expect(transition.guards).toContain('fence-current');
+      if (['invalidate', 'cancel'].includes(transition.event)) {
+        expect(transition.guards).not.toContain('fence-current');
+        continue;
+      }
+      // `lease` is the store's own issue for the generation in force: `fence-advances` is its rule, and
+      // there is no earlier token to name.
+      if (transition.event === 'lease') continue;
       expect(transition.guards).toContain('generation-current');
+      if (transition.event === 'admit' || transition.event === 'join' || transition.event === 'unblock' || transition.event === 'retry') continue;
+      expect(transition.guards).toContain('fence-current');
     }
     for (const transition of unitMachine.spec.transitions) {
       if (transition.event === 'invalidate') {
@@ -254,6 +305,28 @@ describe('unit machine: the properties decision 0027 states in prose', () => {
         expect(unitMachine.spec.guards['replacement-named']!.check({ ...newUnitContext({ generation: 3, retries: 0 }), replacedBy: null }, { type: 'invalidate', at: 1, replacement: 5, cause: 'x' })).toBe(false);
       }
     }
+  });
+
+  test('a failed child follows the run\'s resolved policy: propagate fails the parent, block waits, accept partial joins', () => {
+    const failedChild: UnitChildOutcome = { unitId: 'child-b', generation: 1, published: false, fresh: false, failed: true };
+    const goodChild: UnitChildOutcome = { unitId: 'child-a', generation: 1, published: true, fresh: true, failed: false };
+    const joined = unitMachine.step({ state: 'waiting_children', context: contextIn('waiting_children') },
+      { type: 'join', at: 10, generation: 1, failedChildPolicy: 'accept-partial', children: [goodChild, failedChild] });
+    expect(joined.ok).toBe(true);
+    if (!joined.ok) return;
+    expect(joined.transition).toBe('unit/waiting_children--join-accepted-partial-->ready');
+    const propagated = unitMachine.step({ state: 'waiting_children', context: contextIn('waiting_children') },
+      { type: 'fail', at: 10, generation: 1, fence: 1, cause: 'child-failed' });
+    expect(propagated.ok).toBe(true);
+    if (!propagated.ok) return;
+    expect(propagated.transition).toBe('unit/waiting_children--fail-child-failed-->failed');
+    // The block policy is the parent waiting with the child named: an ordinary block.
+    const blocked = unitMachine.step({ state: 'waiting_children', context: contextIn('waiting_children') },
+      { type: 'block', at: 10, generation: 1, fence: 1, reason: 'child-b failed and the run blocks' });
+    expect(blocked.ok).toBe(true);
+    // A partial join left for the children's own states: a failed child is never published.
+    expect(unitMachine.spec.guards['children-published-and-fresh']!.check(contextIn('waiting_children'),
+      { type: 'join', at: 10, generation: 1, failedChildPolicy: 'accept-partial', children: [goodChild, failedChild] })).toBe(false);
   });
 });
 
@@ -263,27 +336,37 @@ describe('unit machine: a disallowed step is refused with the guard that refused
     { what: 'a late worker names an older fencing token than the unit holds', state: 'running', context: { ...held('running'), fence: 3 }, event: { type: 'submit-draft', at: 10, generation: 1, fence: 2 }, guard: 'fence-current' },
     { what: 'a late worker names an older token when it starts', state: 'leased', context: { ...held('leased'), fence: 4 }, event: { type: 'start', at: 10, generation: 1, fence: 3 }, guard: 'fence-current' },
     { what: 'a lease does not advance the fencing token', state: 'ready', context: { ...held('ready'), fence: 4 }, event: { type: 'lease', at: 10, fence: 4, attempt: 2 }, guard: 'fence-advances' },
+    { what: 'a message from an attempt the unit left cannot block a ready generation', state: 'ready', context: { ...held('ready'), fence: 3 }, event: { type: 'block', at: 10, generation: 1, fence: 2, reason: 'waiting' }, guard: 'fence-current' },
+    { what: 'a message from an attempt the unit left cannot block a waiting parent', state: 'waiting_children', context: { ...held('waiting_children'), fence: 3 }, event: { type: 'block', at: 10, generation: 1, fence: 2, reason: 'waiting' }, guard: 'fence-current' },
+    { what: 'a message from an attempt the unit left cannot fail a ready generation', state: 'ready', context: { ...held('ready'), fence: 3 }, event: { type: 'fail', at: 10, generation: 1, fence: 2, cause: 'budget-exhausted' }, guard: 'fence-current' },
+    { what: 'a message from an attempt the unit left cannot fail a planned generation', state: 'planned', context: { ...held('planned'), fence: 1 }, event: { type: 'fail', at: 10, generation: 1, fence: 0, cause: 'budget-exhausted' }, guard: 'fence-current' },
+    { what: 'a message from an attempt the unit left cannot fail a blocked generation', state: 'blocked', context: { ...held('blocked'), fence: 5 }, event: { type: 'fail', at: 10, generation: 1, fence: 4, cause: 'budget-exhausted' }, guard: 'fence-current' },
     { what: 'a worker names a generation that is no longer in force', state: 'running', context: { ...held('running'), generation: 2 }, event: { type: 'submit-draft', at: 10, generation: 1, fence: 1 }, guard: 'generation-current' },
+    { what: 'an admit names the generation that was replaced', state: 'planned', context: { ...held('planned'), generation: 2 }, event: { type: 'admit', at: 10, generation: 1 }, guard: 'generation-current' },
     { what: 'a fail names the generation that was replaced', state: 'running', context: { ...held('running'), generation: 2 }, event: { type: 'fail', at: 10, generation: 1, fence: 1, cause: 'budget-exhausted' }, guard: 'generation-current' },
     { what: 'a block names the generation that was replaced', state: 'running', context: { ...held('running'), generation: 2 }, event: { type: 'block', at: 10, generation: 1, fence: 1, reason: 'waiting' }, guard: 'generation-current' },
+    { what: 'a join names the generation that was replaced', state: 'waiting_children', context: { ...held('waiting_children'), generation: 2 }, event: { type: 'join', at: 10, generation: 1, failedChildPolicy: 'propagate', children: [{ unitId: 'child-a', generation: 1, published: true, fresh: true, failed: false }] }, guard: 'generation-current' },
+    { what: 'an unblock names the generation that was replaced', state: 'blocked', context: { ...held('blocked'), generation: 2 }, event: { type: 'unblock', at: 10, generation: 1, resolution: 'the producer was enabled' }, guard: 'generation-current' },
     { what: 'a retry names the generation that was replaced', state: 'running', context: { ...held('running'), generation: 2 }, event: { type: 'retry', at: 10, generation: 1, cause: 'transient-failure', retryAt: 30 }, guard: 'generation-current' },
     { what: 'the generation has no retry left', state: 'running', context: { ...held('running'), retriesLeft: 0 }, event: { type: 'retry', at: 10, generation: 1, cause: 'transient-failure', retryAt: 30 }, guard: 'retries-remain' },
     { what: 'the retry comes before its time', state: 'retry_wait', context: { ...held('retry_wait'), retryAt: 50 }, event: { type: 'retry', at: 10, generation: 1, cause: 'transient-failure', retryAt: 50 }, guard: 'retry-elapsed' },
     { what: 'a retry names no time to run again', state: 'running', context: held('running'), event: { type: 'retry', at: 10, generation: 1, cause: 'transient-failure', retryAt: null }, guard: 'retry-time-named' },
     { what: 'a retry names a cause the validating state does not retry on', state: 'validating', context: held('validating'), event: { type: 'retry', at: 10, generation: 1, cause: 'lease-expired', retryAt: 30 }, guard: 'cause-validation-problem' },
     { what: 'a running unit names a cause neither retry transition of its state accepts', state: 'running', context: held('running'), event: { type: 'retry', at: 10, generation: 1, cause: 'validation-problem', retryAt: 30 }, guard: 'cause-lease-expired', guards: ['cause-lease-expired', 'cause-transient-failure'] },
-    { what: 'a leased unit names a transient failure instead of a lease expiry', state: 'leased', context: held('leased'), event: { type: 'retry', at: 10, generation: 1, cause: 'transient-failure', retryAt: 30 }, guard: 'cause-lease-expired' },
+    { what: 'a leased unit names a cause neither retry transition of its state accepts', state: 'leased', context: held('leased'), event: { type: 'retry', at: 10, generation: 1, cause: 'validation-problem', retryAt: 30 }, guard: 'cause-lease-expired', guards: ['cause-lease-expired', 'cause-transient-failure'] },
     { what: 'a split seals no child', state: 'running', context: held('running'), event: { type: 'wait-for-children', at: 10, generation: 1, fence: 1, children: [] }, guard: 'children-sealed' },
-    { what: 'a child of the split is still unpublished', state: 'waiting_children', context: held('waiting_children'), event: { type: 'join', at: 10, children: [{ unitId: 'child-a', generation: 1, published: false, fresh: true }] }, guard: 'children-published-and-fresh' },
-    { what: 'a child of the split went stale', state: 'waiting_children', context: held('waiting_children'), event: { type: 'join', at: 10, children: [{ unitId: 'child-a', generation: 1, published: true, fresh: false }] }, guard: 'children-published-and-fresh' },
+    { what: 'a child of the split is still unpublished', state: 'waiting_children', context: held('waiting_children'), event: { type: 'join', at: 10, generation: 1, failedChildPolicy: 'propagate', children: [{ unitId: 'child-a', generation: 1, published: false, fresh: true, failed: false }] }, guard: 'children-published-and-fresh' },
+    { what: 'a child of the split went stale', state: 'waiting_children', context: held('waiting_children'), event: { type: 'join', at: 10, generation: 1, failedChildPolicy: 'propagate', children: [{ unitId: 'child-a', generation: 1, published: true, fresh: false, failed: false }] }, guard: 'children-published-and-fresh' },
+    { what: 'a partial join names an unpublished child that did not fail', state: 'waiting_children', context: held('waiting_children'), event: { type: 'join', at: 10, generation: 1, failedChildPolicy: 'accept-partial', children: [{ unitId: 'child-a', generation: 1, published: false, fresh: true, failed: false }] }, guard: 'children-published-and-fresh', guards: ['children-published-and-fresh', 'children-accepted-partial'] },
+    { what: 'a propagated failed child is no partial acceptance', state: 'waiting_children', context: held('waiting_children'), event: { type: 'join', at: 10, generation: 1, failedChildPolicy: 'propagate', children: [{ unitId: 'child-a', generation: 1, published: true, fresh: true, failed: false }, { unitId: 'child-b', generation: 1, published: false, fresh: false, failed: true }] }, guard: 'children-published-and-fresh', guards: ['children-published-and-fresh', 'children-accepted-partial'] },
     { what: 'the reads the generation recorded changed before publication', state: 'validating', context: held('validating'), event: { type: 'publish', at: 10, generation: 1, fence: 1, readsFresh: false }, guard: 'reads-fresh' },
     { what: 'a block names nothing it waits on', state: 'running', context: held('running'), event: { type: 'block', at: 10, generation: 1, fence: 1, reason: '  ' }, guard: 'block-reason-named' },
-    { what: 'an unblock names no resolution', state: 'blocked', context: held('blocked'), event: { type: 'unblock', at: 10, resolution: '' }, guard: 'resolution-named' },
+    { what: 'an unblock names no resolution', state: 'blocked', context: held('blocked'), event: { type: 'unblock', at: 10, generation: 1, resolution: '' }, guard: 'resolution-named' },
     { what: 'an invalidation names no later generation', state: 'published', context: held('published'), event: { type: 'invalidate', at: 10, replacement: 1, cause: 'inputs changed' }, guard: 'replacement-named' },
     { what: 'an invalidation skips the generation in between', state: 'published', context: held('published'), event: { type: 'invalidate', at: 10, replacement: 3, cause: 'inputs changed' }, guard: 'replacement-named' },
-    { what: 'a fail reports retries exhausted while retries remain', state: 'retry_wait', context: { ...held('retry_wait'), retriesLeft: 1 }, event: { type: 'fail', at: 10, generation: 1, fence: null, cause: 'retries-exhausted' }, guard: 'fail-cause' },
+    { what: 'a fail reports retries exhausted while retries remain', state: 'retry_wait', context: { ...held('retry_wait'), retriesLeft: 1 }, event: { type: 'fail', at: 10, generation: 1, fence: 1, cause: 'retries-exhausted' }, guard: 'fail-cause' },
     { what: 'a leased unit reports retries exhausted while retries remain', state: 'leased', context: { ...held('leased'), retriesLeft: 3 }, event: { type: 'fail', at: 10, generation: 1, fence: 1, cause: 'retries-exhausted' }, guard: 'fail-cause' },
-    { what: 'a waiting parent reports retries exhausted while retries remain', state: 'waiting_children', context: { ...held('waiting_children'), retriesLeft: 2 }, event: { type: 'fail', at: 10, generation: 1, fence: null, cause: 'retries-exhausted' }, guard: 'fail-cause' },
+    { what: 'a waiting parent reports retries exhausted while retries remain', state: 'waiting_children', context: { ...held('waiting_children'), retriesLeft: 2 }, event: { type: 'fail', at: 10, generation: 1, fence: 1, cause: 'retries-exhausted' }, guard: 'fail-cause', guards: ['fail-cause', 'cause-child-failed'] },
   ];
 
   test.each(refusals.map((refusal) => [refusal.what, refusal] as const))('refused: %s', (_what, refusal) => {
@@ -305,7 +388,7 @@ describe('unit machine: a disallowed step is refused with the guard that refused
   });
 
   test('a state the machine does not declare is refused by name', () => {
-    const result = unitMachine.step({ state: 'zombie' as UnitState, context: newUnitContext({ generation: 1, retries: 1 }) }, { type: 'admit', at: 1 });
+    const result = unitMachine.step({ state: 'zombie' as UnitState, context: newUnitContext({ generation: 1, retries: 1 }) }, { type: 'admit', at: 1, generation: 1 });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.refusal.code).toBe('fill-unit/unknown-state');

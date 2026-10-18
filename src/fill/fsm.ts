@@ -17,9 +17,9 @@
  * stateDiagram-v2
  *   [*] --> planned
  *   blocked --> cancelled: cancel
- *   blocked --> failed: fail [generation-current & fail-cause]
+ *   blocked --> failed: fail [generation-current & fence-current & fail-cause]
  *   blocked --> stale: invalidate [replacement-named]
- *   blocked --> ready: unblock [resolution-named]
+ *   blocked --> ready: unblock [generation-current & resolution-named]
  *   draft --> blocked: block [generation-current & fence-current & block-reason-named]
  *   draft --> cancelled: cancel
  *   draft --> failed: fail [generation-current & fence-current & fail-cause]
@@ -30,18 +30,20 @@
  *   leased --> failed: fail [generation-current & fence-current & fail-cause]
  *   leased --> stale: invalidate [replacement-named]
  *   leased --> retry_wait: retry [generation-current & retries-remain & retry-time-named & cause-lease-expired]
+ *   leased --> retry_wait: retry [generation-current & retries-remain & retry-time-named & cause-transient-failure]
  *   leased --> running: start [generation-current & fence-current]
- *   planned --> ready: admit
+ *   planned --> ready: admit [generation-current]
  *   planned --> cancelled: cancel
- *   planned --> failed: fail [generation-current & fail-cause]
+ *   planned --> failed: fail [generation-current & fence-current & fail-cause]
+ *   planned --> stale: invalidate [replacement-named]
  *   published --> stale: invalidate [replacement-named]
- *   ready --> blocked: block [generation-current & block-reason-named]
+ *   ready --> blocked: block [generation-current & fence-current & block-reason-named]
  *   ready --> cancelled: cancel
- *   ready --> failed: fail [generation-current & fail-cause]
+ *   ready --> failed: fail [generation-current & fence-current & fail-cause]
  *   ready --> stale: invalidate [replacement-named]
  *   ready --> leased: lease [fence-advances]
  *   retry_wait --> cancelled: cancel
- *   retry_wait --> failed: fail [generation-current & fail-cause]
+ *   retry_wait --> failed: fail [generation-current & fence-current & fail-cause]
  *   retry_wait --> stale: invalidate [replacement-named]
  *   retry_wait --> ready: retry [generation-current & retry-elapsed]
  *   running --> blocked: block [generation-current & fence-current & block-reason-named]
@@ -58,11 +60,13 @@
  *   validating --> stale: invalidate [replacement-named]
  *   validating --> published: publish [generation-current & fence-current & reads-fresh]
  *   validating --> retry_wait: retry [generation-current & retries-remain & retry-time-named & cause-validation-problem]
- *   waiting_children --> blocked: block [generation-current & block-reason-named]
+ *   waiting_children --> blocked: block [generation-current & fence-current & block-reason-named]
  *   waiting_children --> cancelled: cancel
- *   waiting_children --> failed: fail [generation-current & fail-cause]
+ *   waiting_children --> failed: fail [generation-current & fence-current & fail-cause]
+ *   waiting_children --> failed: fail [generation-current & fence-current & cause-child-failed]
  *   waiting_children --> stale: invalidate [replacement-named]
- *   waiting_children --> ready: join [children-published-and-fresh]
+ *   waiting_children --> ready: join [generation-current & children-accepted-partial]
+ *   waiting_children --> ready: join [generation-current & children-published-and-fresh]
  *   cancelled --> [*]
  *   failed --> [*]
  *   stale --> [*]
@@ -71,7 +75,9 @@
  * The run machine walks created → planning → running → succeeded,
  * completed_partial, blocked or failed, pauses through pausing → paused →
  * planning, and cancels through cancelling → cancelled from any non-terminal
- * state. The chain of runs per product walks idle → active → quiescent and back.
+ * state. The chain of runs per product walks idle → active → quiescent, and a
+ * quiescent chain wakes to active for the next run; nothing returns it to idle,
+ * which is a chain that never ran.
  * `state-store.ts` persists all three; their diagrams render from the same
  * tables (see `unitMachine.mermaid()`, `runMachine.mermaid()`,
  * `chainMachine.mermaid()`).
@@ -106,8 +112,8 @@ export interface UnitContext {
   readonly replacedBy: number | null;
 }
 
-/** What a unit failed on, when its retries or its budget ran out. */
-export type UnitFailCause = 'budget-exhausted' | 'retries-exhausted';
+/** What a unit failed on: its budget, its retries, or a child whose failure the policy propagates. */
+export type UnitFailCause = 'budget-exhausted' | 'retries-exhausted' | 'child-failed';
 
 /** What sent a unit back to a retry wait. */
 export type UnitRetryCause = 'lease-expired' | 'transient-failure' | 'validation-problem';
@@ -120,26 +126,38 @@ export interface UnitChildOutcome {
   readonly published: boolean;
   /** True when nothing the child read has changed since it published. */
   readonly fresh: boolean;
+  /** True when the child ended failed or cancelled, so it will never publish. */
+  readonly failed: boolean;
 }
 
 /**
+ * What a waiting parent does with a child that ended failed, from the run's
+ * resolved configuration (decision 0027: "an explicit policy for a failed child
+ * (propagate, block, accept partial)").
+ */
+export type UnitFailedChildPolicy = 'propagate' | 'block' | 'accept-partial';
+
+/**
  * A step a caller asks of a unit generation. Every step that advances a live
- * generation names that generation, and every worker step also names the fencing
- * token it acts under, so a message from a superseded attempt is refused.
+ * generation names that generation, and every step that ends one, blocks it or
+ * moves it on names the fencing token in force as well, so a message from a
+ * superseded attempt or a superseded generation is refused. Only the steps that
+ * speak for the unit as a whole — `invalidate` and `cancel` — name neither: they
+ * are the run control's authority over whatever generation stands.
  */
 export type UnitEvent =
-  | { readonly type: 'admit'; readonly at: number }
+  | { readonly type: 'admit'; readonly at: number; readonly generation: number }
   | { readonly type: 'lease'; readonly at: number; readonly fence: number; readonly attempt: number }
   | { readonly type: 'start'; readonly at: number; readonly generation: number; readonly fence: number }
   | { readonly type: 'submit-draft'; readonly at: number; readonly generation: number; readonly fence: number }
   | { readonly type: 'validate-draft'; readonly at: number; readonly generation: number; readonly fence: number }
   | { readonly type: 'publish'; readonly at: number; readonly generation: number; readonly fence: number; readonly readsFresh: boolean }
   | { readonly type: 'wait-for-children'; readonly at: number; readonly generation: number; readonly fence: number; readonly children: readonly UnitChildOutcome[] }
-  | { readonly type: 'join'; readonly at: number; readonly children: readonly UnitChildOutcome[] }
+  | { readonly type: 'join'; readonly at: number; readonly generation: number; readonly children: readonly UnitChildOutcome[]; readonly failedChildPolicy: UnitFailedChildPolicy }
   | { readonly type: 'retry'; readonly at: number; readonly generation: number; readonly cause: UnitRetryCause; readonly retryAt: number | null }
-  | { readonly type: 'block'; readonly at: number; readonly generation: number; readonly fence: number | null; readonly reason: string }
-  | { readonly type: 'unblock'; readonly at: number; readonly resolution: string }
-  | { readonly type: 'fail'; readonly at: number; readonly generation: number; readonly fence: number | null; readonly cause: UnitFailCause }
+  | { readonly type: 'block'; readonly at: number; readonly generation: number; readonly fence: number; readonly reason: string }
+  | { readonly type: 'unblock'; readonly at: number; readonly generation: number; readonly resolution: string }
+  | { readonly type: 'fail'; readonly at: number; readonly generation: number; readonly fence: number; readonly cause: UnitFailCause }
   | { readonly type: 'invalidate'; readonly at: number; readonly replacement: number; readonly cause: string }
   | { readonly type: 'cancel'; readonly at: number; readonly cause: string };
 
@@ -194,6 +212,10 @@ const unitGuards: MachineSpec<UnitState, UnitEvent, UnitContext>['guards'] = {
     describe: 'the step fails the unit for the run\'s spent budget, or because the attempt ended with no retry left',
     check: (context, event) => event.type === 'fail' && (event.cause === 'budget-exhausted' || context.retriesLeft === 0),
   },
+  'cause-child-failed': {
+    describe: 'a child the run resolves as propagated ended failed, so the waiting parent fails with it',
+    check: (_context, event) => event.type === 'fail' && event.cause === 'child-failed',
+  },
   'children-sealed': {
     describe: 'the split sealed at least one child generation',
     check: (_context, event) => event.type === 'wait-for-children' && event.children.length > 0
@@ -203,6 +225,13 @@ const unitGuards: MachineSpec<UnitState, UnitEvent, UnitContext>['guards'] = {
     describe: 'every child generation of the split is published and still fresh',
     check: (_context, event) => event.type === 'join' && event.children.length > 0
       && event.children.every((child) => child.published && child.fresh),
+  },
+  'children-accepted-partial': {
+    describe: 'the run resolves a failed child as accepted partial, every other child generation is published and still fresh, and at least one child did fail',
+    check: (_context, event) => event.type === 'join' && event.failedChildPolicy === 'accept-partial'
+      && event.children.length > 0
+      && event.children.some((child) => child.failed)
+      && event.children.every((child) => child.failed || (child.published && child.fresh)),
   },
   'reads-fresh': {
     describe: 'the reads the generation recorded are unchanged at publication',
@@ -312,6 +341,9 @@ const unitActions: MachineSpec<UnitState, UnitEvent, UnitContext>['actions'] = {
 /** The states a unit waits in with a lease in force: their steps name the token as well as the generation. */
 const LEASED_STATES = ['leased', 'running', 'draft', 'validating'] as const;
 
+/** Every state a generation is live in: each may go stale, each may fail, and each may be cancelled. */
+const LIVE_UNIT_STATES = ['planned', 'ready', ...LEASED_STATES, 'waiting_children', 'retry_wait', 'blocked'] as const;
+
 /** One line of the unit table, with its id built from its machine, states and event. */
 const unitTransition = (
   from: UnitState,
@@ -326,38 +358,50 @@ const unitTransition = (
  * `cancelled` leave the table never: a published generation only goes stale with
  * a replacement, and stale work continues in its replacement generation.
  *
- * A live generation fails for either cause the decision names: when the run's
- * budget is spent, from every live state, and when an attempt ends with no retry
- * left, from the states an attempt can end in.
+ * A live generation fails for each cause the decision names: when the run's
+ * budget is spent, from every live state; when an attempt ends with no retry
+ * left, from the states an attempt can end in; and when a child the run resolves
+ * as propagated fails, from the state whose join was waiting for it.
  */
 const unitTransitions: MachineSpec<UnitState, UnitEvent, UnitContext>['transitions'] = [
-  unitTransition('planned', 'admit', 'ready', { actions: ['enqueue-ready', 'emit-progress'] }),
+  unitTransition('planned', 'admit', 'ready', { guards: ['generation-current'], actions: ['enqueue-ready', 'emit-progress'] }),
   unitTransition('ready', 'lease', 'leased', { guards: ['fence-advances'], actions: ['take-fence', 'emit-progress'] }),
   unitTransition('leased', 'start', 'running', { guards: ['generation-current', 'fence-current'], actions: ['emit-progress'] }),
   unitTransition('running', 'submit-draft', 'draft', { guards: ['generation-current', 'fence-current'], actions: ['record-draft', 'emit-progress'] }),
   unitTransition('draft', 'validate-draft', 'validating', { guards: ['generation-current', 'fence-current'], actions: ['record-validation', 'emit-progress'] }),
   unitTransition('validating', 'publish', 'published', { guards: ['generation-current', 'fence-current', 'reads-fresh'], actions: ['record-publication', 'emit-progress'] }),
   unitTransition('running', 'wait-for-children', 'waiting_children', { guards: ['generation-current', 'fence-current', 'children-sealed'], actions: ['suspend-parent', 'emit-progress'] }),
-  unitTransition('waiting_children', 'join', 'ready', { guards: ['children-published-and-fresh'], actions: ['resume-join', 'enqueue-ready', 'emit-progress'] }),
+  // The join under the run's resolved policy for a failed child: every child published and fresh, or
+  // the failed ones accepted as partial. A propagated failure fails the parent itself, below.
+  unitTransition('waiting_children', 'join', 'ready', { label: 'all-published', guards: ['generation-current', 'children-published-and-fresh'], actions: ['resume-join', 'enqueue-ready', 'emit-progress'] }),
+  unitTransition('waiting_children', 'join', 'ready', { label: 'accepted-partial', guards: ['generation-current', 'children-accepted-partial'], actions: ['resume-join', 'enqueue-ready', 'emit-progress'] }),
   unitTransition('validating', 'retry', 'retry_wait', { label: 'validation-problem', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-validation-problem'], actions: retryActions }),
   unitTransition('leased', 'retry', 'retry_wait', { label: 'lease-expired', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-lease-expired'], actions: retryActionsFenced }),
+  unitTransition('leased', 'retry', 'retry_wait', { label: 'transient-failure', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-transient-failure'], actions: retryActionsFenced }),
   unitTransition('running', 'retry', 'retry_wait', { label: 'lease-expired', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-lease-expired'], actions: retryActionsFenced }),
   unitTransition('running', 'retry', 'retry_wait', { label: 'transient-failure', guards: ['generation-current', 'retries-remain', 'retry-time-named', 'cause-transient-failure'], actions: retryActions }),
   unitTransition('retry_wait', 'retry', 'ready', { guards: ['generation-current', 'retry-elapsed'], actions: ['clear-retry', 'enqueue-ready', 'emit-progress'] }),
-  unitTransition('ready', 'block', 'blocked', { guards: ['generation-current', 'block-reason-named'], actions: blockActions }),
+  // A block names the token in force even where no lease is held: the token is the unit's, not the lease's,
+  // so a message from an attempt the unit already left cannot block it.
+  unitTransition('ready', 'block', 'blocked', { guards: ['generation-current', 'fence-current', 'block-reason-named'], actions: blockActions }),
   ...LEASED_STATES.map((from) => unitTransition(from, 'block', 'blocked', { guards: ['generation-current', 'fence-current', 'block-reason-named'], actions: blockActionsFenced })),
-  unitTransition('waiting_children', 'block', 'blocked', { guards: ['generation-current', 'block-reason-named'], actions: blockActions }),
-  unitTransition('blocked', 'unblock', 'ready', { guards: ['resolution-named'], actions: ['record-resolution', 'enqueue-ready', 'emit-progress'] }),
+  unitTransition('waiting_children', 'block', 'blocked', { guards: ['generation-current', 'fence-current', 'block-reason-named'], actions: blockActions }),
+  unitTransition('blocked', 'unblock', 'ready', { guards: ['generation-current', 'resolution-named'], actions: ['record-resolution', 'enqueue-ready', 'emit-progress'] }),
   // "→ failed when budget or retries are exhausted": from every live generation, whichever ended it.
-  unitTransition('planned', 'fail', 'failed', { guards: ['generation-current', 'fail-cause'], actions: retractAndEmit }),
-  unitTransition('ready', 'fail', 'failed', { guards: ['generation-current', 'fail-cause'], actions: retractAndEmit }),
-  unitTransition('waiting_children', 'fail', 'failed', { guards: ['generation-current', 'fail-cause'], actions: retractAndEmit }),
-  unitTransition('retry_wait', 'fail', 'failed', { guards: ['generation-current', 'fail-cause'], actions: retractAndEmit }),
-  unitTransition('blocked', 'fail', 'failed', { guards: ['generation-current', 'fail-cause'], actions: retractAndEmit }),
+  unitTransition('planned', 'fail', 'failed', { guards: ['generation-current', 'fence-current', 'fail-cause'], actions: retractAndEmit }),
+  unitTransition('ready', 'fail', 'failed', { guards: ['generation-current', 'fence-current', 'fail-cause'], actions: retractAndEmit }),
+  unitTransition('waiting_children', 'fail', 'failed', { guards: ['generation-current', 'fence-current', 'fail-cause'], actions: retractAndEmit }),
+  unitTransition('retry_wait', 'fail', 'failed', { guards: ['generation-current', 'fence-current', 'fail-cause'], actions: retractAndEmit }),
+  unitTransition('blocked', 'fail', 'failed', { guards: ['generation-current', 'fence-current', 'fail-cause'], actions: retractAndEmit }),
   ...LEASED_STATES.map((from) => unitTransition(from, 'fail', 'failed', { guards: ['generation-current', 'fence-current', 'fail-cause'], actions: revokeAndRetract })),
-  // Staleness: every live generation, and the published one, which only goes stale.
-  ...(['ready', ...LEASED_STATES, 'waiting_children', 'retry_wait', 'blocked'] as const).map((from) => unitTransition(from, 'invalidate', 'stale', { guards: ['replacement-named'], actions: invalidateActions })),
+  // The third policy for a failed child: the run propagates the child's failure, and the waiting parent
+  // fails with it without spending a retry of its own.
+  unitTransition('waiting_children', 'fail', 'failed', { label: 'child-failed', guards: ['generation-current', 'fence-current', 'cause-child-failed'], actions: revokeAndRetract }),
+  // Staleness: every live generation — a planned one whose inputs changed before admission included —
+  // and the published one, which only goes stale.
+  ...LIVE_UNIT_STATES.map((from) => unitTransition(from, 'invalidate', 'stale', { guards: ['replacement-named'], actions: invalidateActions })),
   unitTransition('published', 'invalidate', 'stale', { guards: ['replacement-named'], actions: invalidatePublishedActions }),
+  // Cancellation is the run control's authority over whatever generation stands, so it names none.
   unitTransition('planned', 'cancel', 'cancelled', { actions: ['revoke-authority', 'retract-draft', 'emit-progress'] }),
   ...(['ready', ...LEASED_STATES, 'waiting_children', 'retry_wait', 'blocked'] as const).map((from) => unitTransition(from, 'cancel', 'cancelled', { actions: cancelActions })),
 ];

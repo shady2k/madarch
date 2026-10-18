@@ -20,6 +20,17 @@
  * madarch-tzte.19.5 is in `docs/changes/madarch-fill-fsm/change.md`.
  * The store never opens a connection, never runs outside a transaction of the
  * owner and never closes the owner.
+ *
+ * Two shapes of operation, both of them the owner's transactions, none of them
+ * their own: the plain form opens one transaction for one step
+ * (`advanceUnit`), and the `…In` form takes the executor of a transaction the
+ * caller already opened (`advanceUnitIn`), so the decision's publication step —
+ * the generation's `published` state, the publication record and the effects that
+ * are storage, in one short transaction — is expressible. A refusal is never an
+ * error: it is a value, and a refused step writes nothing. This store's own
+ * refusal codes are `fill-store/<what>` and its own journal step ids
+ * `fill-store/…-->…`, kept apart from the machines' `fill-unit/…`, `fill-run/…`
+ * and `fill-chain/…` codes.
  */
 import type { SqlExecutor, SqlQueryDriver, SqlTransactionKind } from '../query/sql-driver.js';
 import { here, raise } from './fsm-core.js';
@@ -423,7 +434,12 @@ export async function advanceRun(database: FillStateDatabase, options: { readonl
 
 /**
  * Creates one unit and its first generation in `planned`, with the retries this
- * generation may spend, and journals the creation.
+ * generation may spend, and journals the creation. A unit's identity is
+ * `(product, stage_id, scope_key)`: a second planning epoch of the same scope
+ * answers the unit that identity already has, its current generation as it
+ * stands, instead of raising on the unique key or opening a generation behind the
+ * store's back — a resume continues the unit, and only `replaceStaleGeneration`
+ * and the machine's own steps open generations.
  */
 export async function createUnit(database: FillStateDatabase, options: {
   readonly unitId: string;
@@ -438,10 +454,22 @@ export async function createUnit(database: FillStateDatabase, options: {
   const at = here();
   return run(at, database, `createUnit(${options.unitId})`, ['fill_unit', 'fill_unit_generation', 'fill_transition'], async (executor) => {
     const context = newUnitContext({ generation: 1, retries: options.retries });
-    await executor.query(
-      'INSERT INTO fill_unit (unit_id, product, stage_id, scope_key, generation, created_at) VALUES ($1, $2, $3, $4, $5, $6)',
+    const inserted = await executor.query<UnitRow>(
+      'INSERT INTO fill_unit (unit_id, product, stage_id, scope_key, generation, created_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (product, stage_id, scope_key) DO NOTHING RETURNING unit_id, product, stage_id, scope_key, generation, created_at',
       [options.unitId, options.product, options.stageId, options.scopeKey, 1, options.at],
     );
+    if (inserted.rows.length === 0) {
+      // The identity already has a unit. Answer it as it stands: no generation opened, no journal entry.
+      const existing = await executor.query<UnitRow>(
+        'SELECT unit_id, product, stage_id, scope_key, generation, created_at FROM fill_unit WHERE product = $1 AND stage_id = $2 AND scope_key = $3 FOR UPDATE',
+        [options.product, options.stageId, options.scopeKey],
+      );
+      const row = existing.rows[0];
+      if (row === undefined) raise(`table fill_unit: identity (${options.product}, ${options.stageId}, ${options.scopeKey}) was refused as a duplicate, yet no row holds it`);
+      const snapshot = await loadUnit(executor, row.unit_id, true);
+      if (snapshot === null) raise(`table fill_unit: unit ${row.unit_id} vanished between its insert and its read`);
+      return snapshot.record;
+    }
     await executor.query(
       'INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, fence, context, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)',
       [options.unitId, 1, options.runId, 'planned', options.inputsDigest, context.fence, json(context), options.at],
@@ -553,35 +581,43 @@ async function persistUnitStep(
 
 /**
  * Takes one step on a unit's current generation: a refused step writes nothing.
- * The lease is not one of those steps — only `leaseUnit` issues a lease, because
+ * The lease is not one of those steps — only `leaseUnitIn` issues a lease, because
  * it must write the lease row with the token it takes.
+ *
+ * This is the form to use from inside a transaction the caller already opened —
+ * the publication step above all, where the decision requires the generation's
+ * `published` state and the uniquely constrained publication record to be one
+ * short transaction of the database owner (madarch-tzte.19.1 lends its executor).
  */
+export async function advanceUnitIn(executor: SqlExecutor, options: { readonly unitId: string; readonly event: UnitAdvanceEvent }): Promise<StoreStep<UnitRecord, UnitState>> {
+  const snapshot = await loadUnit(executor, options.unitId, true);
+  if (snapshot === null) raise(`table fill_unit: no unit ${options.unitId}`);
+  const event = options.event as UnitEvent;
+  if (event.type === 'lease') {
+    return {
+      ok: false,
+      record: snapshot.record,
+      refusal: {
+        code: 'fill-store/lease-not-advanced',
+        reason: `fill-unit: unit "${options.unitId}" cannot take a lease from advanceUnit; leaseUnit takes it, so the lease row carries the token, its holder and its expiry`,
+        state: snapshot.record.state,
+        event: event.type,
+        guard: null,
+        guards: [],
+        transitions: [],
+      },
+    } as const;
+  }
+  const step = unitMachine.step({ state: snapshot.record.state, context: snapshot.record.context }, event);
+  if (!step.ok) return { ok: false, refusal: step.refusal, record: snapshot.record } as const;
+  const record = await persistUnitStep(executor, snapshot, step, event.at, event.type);
+  return { ok: true, record, transition: step.transition, effects: step.effects } as const;
+}
+
+/** Takes one step on a unit's current generation in its own transaction of the owner. */
 export async function advanceUnit(database: FillStateDatabase, options: { readonly unitId: string; readonly event: UnitAdvanceEvent }): Promise<StoreStep<UnitRecord, UnitState>> {
   const at = here();
-  return run(at, database, `advanceUnit(${options.unitId}, ${options.event.type})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'], async (executor) => {
-    const snapshot = await loadUnit(executor, options.unitId, true);
-    if (snapshot === null) raise(`table fill_unit: no unit ${options.unitId}`);
-    const event = options.event as UnitEvent;
-    if (event.type === 'lease') {
-      return {
-        ok: false,
-        record: snapshot.record,
-        refusal: {
-          code: 'fill-state/lease-not-advanced',
-          reason: `fill-unit: unit "${options.unitId}" cannot take a lease from advanceUnit; leaseUnit takes it, so the lease row carries the token, its holder and its expiry`,
-          state: snapshot.record.state,
-          event: event.type,
-          guard: null,
-          guards: [],
-          transitions: [],
-        },
-      } as const;
-    }
-    const step = unitMachine.step({ state: snapshot.record.state, context: snapshot.record.context }, event);
-    if (!step.ok) return { ok: false, refusal: step.refusal, record: snapshot.record } as const;
-    const record = await persistUnitStep(executor, snapshot, step, event.at, event.type);
-    return { ok: true, record, transition: step.transition, effects: step.effects } as const;
-  }, 'write');
+  return run(at, database, `advanceUnit(${options.unitId}, ${options.event.type})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'], (executor) => advanceUnitIn(executor, options), 'write');
 }
 
 /**
@@ -592,29 +628,35 @@ export async function advanceUnit(database: FillStateDatabase, options: { readon
  * `fence-current` guard on every later step, and one that holds a token of an
  * older generation by `generation-current`.
  */
-export async function leaseUnit(database: FillStateDatabase, options: {
+export interface UnitLeaseOptions {
   readonly unitId: string;
   readonly holder: string;
   readonly ttlMs: number;
   readonly at: number;
-}): Promise<StoreStep<UnitRecord, UnitState>> {
+}
+
+/** Leases a ready unit generation inside a transaction the caller already opened. */
+export async function leaseUnitIn(executor: SqlExecutor, options: UnitLeaseOptions): Promise<StoreStep<UnitRecord, UnitState>> {
+  const snapshot = await loadUnit(executor, options.unitId, true);
+  if (snapshot === null) raise(`table fill_unit: no unit ${options.unitId}`);
+  const fence = snapshot.record.context.fence + 1;
+  const attempt = snapshot.record.context.attempt + 1;
+  const event: UnitLeaseEvent = { type: 'lease', at: options.at, fence, attempt };
+  const step = unitMachine.step({ state: snapshot.record.state, context: snapshot.record.context }, event);
+  if (!step.ok) return { ok: false, refusal: step.refusal, record: snapshot.record } as const;
+  const lease: UnitLeaseRecord = { attempt, fence, holder: options.holder, issuedAt: options.at, expiresAt: options.at + options.ttlMs, revokedAt: null };
+  await executor.query(
+    'INSERT INTO fill_unit_lease (unit_id, generation, attempt, fence, holder, issued_at, expires_at, revoked_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NULL)',
+    [options.unitId, snapshot.record.generation, attempt, fence, options.holder, options.at, lease.expiresAt],
+  );
+  const record = { ...(await persistUnitStep(executor, snapshot, step, options.at, event.type)), lease };
+  return { ok: true, record, transition: step.transition, effects: step.effects } as const;
+}
+
+/** Leases a ready unit generation in its own transaction of the owner. */
+export async function leaseUnit(database: FillStateDatabase, options: UnitLeaseOptions): Promise<StoreStep<UnitRecord, UnitState>> {
   const at = here();
-  return run(at, database, `leaseUnit(${options.unitId})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'], async (executor) => {
-    const snapshot = await loadUnit(executor, options.unitId, true);
-    if (snapshot === null) raise(`table fill_unit: no unit ${options.unitId}`);
-    const fence = snapshot.record.context.fence + 1;
-    const attempt = snapshot.record.context.attempt + 1;
-    const event: UnitLeaseEvent = { type: 'lease', at: options.at, fence, attempt };
-    const step = unitMachine.step({ state: snapshot.record.state, context: snapshot.record.context }, event);
-    if (!step.ok) return { ok: false, refusal: step.refusal, record: snapshot.record } as const;
-    const lease: UnitLeaseRecord = { attempt, fence, holder: options.holder, issuedAt: options.at, expiresAt: options.at + options.ttlMs, revokedAt: null };
-    await executor.query(
-      'INSERT INTO fill_unit_lease (unit_id, generation, attempt, fence, holder, issued_at, expires_at, revoked_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NULL)',
-      [options.unitId, snapshot.record.generation, attempt, fence, options.holder, options.at, lease.expiresAt],
-    );
-    const record = { ...(await persistUnitStep(executor, snapshot, step, options.at, event.type)), lease };
-    return { ok: true, record, transition: step.transition, effects: step.effects } as const;
-  }, 'write');
+  return run(at, database, `leaseUnit(${options.unitId})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'], (executor) => leaseUnitIn(executor, options), 'write');
 }
 
 /**
@@ -642,7 +684,7 @@ export async function replaceStaleGeneration(database: FillStateDatabase, option
         ok: false,
         record: current,
         refusal: {
-          code: 'fill-state/unit-not-replaceable',
+          code: 'fill-store/unit-not-replaceable',
           reason: `fill-unit: unit "${current.unitId}" is ${current.state}; only a stale generation is replaced, and a ${current.state} one stays as its record`,
           state: current.state,
           event: 'open-generation',
