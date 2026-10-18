@@ -279,4 +279,34 @@ describe('one database owner per process', () => {
       rmSync(folder, { recursive: true, force: true });
     }
   }, 15_000);
+
+  test('an owner names the engine behind it and runs a batch of statements with no parameters as one message', async () => {
+    // The queue's adapter (madarch-tzte.19.2) reads the backend to select
+    // pg-boss's profile, and pg-boss sends its schema creation as one
+    // `BEGIN … COMMIT` text, which the extended protocol `query` refuses.
+    const owner = createPGliteDatabaseOwner();
+    try {
+      expect(owner.backend).toBe('pglite');
+      const created = await owner.exec('BEGIN; CREATE TABLE batched (a int); INSERT INTO batched VALUES (1); COMMIT;');
+      // One result per statement in the batch, which is four here.
+      expect(created).toHaveLength(4);
+      expect((await owner.run(async (transaction) => (await transaction.query<{ a: number }>('SELECT a FROM batched')).rows))).toEqual([{ a: 1 }]);
+    } finally {
+      await owner.close();
+    }
+  }, 15_000);
+
+  test('a batch whose statement fails rolls back on the same connection and leaves the owner usable', async () => {
+    const owner = createPGliteDatabaseOwner();
+    try {
+      await owner.exec('BEGIN; CREATE TABLE batched (a int); COMMIT;');
+      await expect(owner.exec('BEGIN; INSERT INTO batched VALUES (2); SELECT * FROM no_such_table; COMMIT;')).rejects.toThrow();
+      // The failed batch left neither its insert nor an aborted transaction
+      // behind: the next statement runs and the table holds only what the
+      // first batch wrote.
+      expect((await owner.run(async (transaction) => (await transaction.query<{ a: number }>('SELECT a FROM batched')).rows))).toEqual([]);
+    } finally {
+      await owner.close();
+    }
+  }, 15_000);
 });
