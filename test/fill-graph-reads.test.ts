@@ -17,6 +17,7 @@
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,7 +25,7 @@ import { Type } from 'typebox';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { FACT_APPLICATION, applyPublishedFacts, createFactStoreSchema } from '../src/fill/fact-store.js';
-import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact, type FactProvenance } from '../src/fill/facts.js';
+import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact, type FactEdgeKind, type FactProvenance } from '../src/fill/facts.js';
 import {
   COVERAGE_GAP_LIMIT,
   COVERAGE_READ_SAMPLE,
@@ -40,6 +41,7 @@ import {
   graphReadsOver,
   linesOf,
   neighbors,
+  parseGraphRead,
   readText,
   references,
   type GraphRead,
@@ -279,10 +281,40 @@ afterEach(async () => {
   while (worlds.length > 0) await worlds.pop()!.close();
 });
 
+/**
+ * The canonical text of one read, built here from the read's own parts: the module
+ * records a dependency under exactly this text (`readText`), and this test builds
+ * it independently — its keys in code point order — so a text that dropped a key
+ * or sorted nothing would fail here rather than pass by construction.
+ */
+function canonicalRead(parts: Record<string, unknown>): string {
+  const sorted: Record<string, unknown> = {};
+  for (const key of Object.keys(parts).sort()) sorted[key] = parts[key];
+  return JSON.stringify(sorted);
+}
+
 async function world(): Promise<World> {
   const opened = await openWorld();
   worlds.push(opened);
   return opened;
+}
+
+/**
+ * The edge kinds `neighbors` answers when the caller names none: every edge kind
+ * of the schema but the two that place a node (`contains`, `defines`). 0026's own
+ * case asks for the three callers of a symbol and no more, so the list is written
+ * out here rather than read from the module.
+ */
+const NEIGHBOR_KINDS: readonly FactEdgeKind[] = [
+  'binds', 'call', 'consumes', 'dependency', 'document-link', 'import', 'inherits',
+  'interaction', 'provides', 'reference', 'resolves', 'task-key', 'transition',
+];
+/** The edge kinds that mean "this node names or uses that node": what `references` answers when it names none. */
+const REFERENCE_KINDS: readonly FactEdgeKind[] = ['call', 'consumes', 'dependency', 'document-link', 'import', 'inherits', 'interaction', 'reference', 'resolves', 'transition'];
+
+/** The digest a read is remembered by: the SHA-256 of the canonical JSON of its text, which is what the store records. */
+function digestOf(text: string): string {
+  return createHash('sha256').update(JSON.stringify({ query: text })).digest('hex');
 }
 
 /** The order the three callers of the fixture target are answered in: code point order, `Zed` before `alpha`. */
@@ -294,7 +326,7 @@ describe('neighbors', () => {
     const reads = await opened.reads('reads/all', 1);
     const answer = await neighbors(reads, { tool: 'neighbors', id: opened.graph.target.id });
     expect(answer.rows.map((row) => row.neighbor.label)).toEqual(CALLER_ORDER);
-    expect(answer.kinds).toEqual(NEIGHBOR_EDGE_KINDS);
+    expect(answer.kinds).toEqual(NEIGHBOR_KINDS);
     expect(answer.rows.map((row) => row.direction)).toEqual(['in', 'in', 'in']);
     expect(answer.rows.map((row) => row.edge.kind)).toEqual(['call', 'call', 'call']);
     expect(answer.rows.map((row) => row.edge.count)).toEqual([1, 1, 1]);
@@ -302,15 +334,19 @@ describe('neighbors', () => {
     expect(answer.rows.map((row) => row.edge.line)).toEqual([13, 21, 31]);
     expect(answer.truncated).toBe(false);
     expect(answer.marker).toBeNull();
+    // 0026's cap is the whole answer, not only its rows.
+    expect(answer.tokens).toBeLessThanOrEqual(DEFAULT_GRAPH_READ_LIMITS.answerTokens);
 
     // The two reads it made are the unit's own dependencies: the adjacent edges, then the nodes at their
-    // other ends, each recorded with the membership of what it answered.
-    const query = readText({ read: 'adjacent', id: opened.graph.target.id, kinds: NEIGHBOR_EDGE_KINDS });
-    const nodes = readText({ read: 'facts', ids: [...answer.rows.map((row) => row.neighbor.id)].sort() });
-    expect(answer.reads.map(readText)).toEqual([query, nodes]);
+    // other ends, each recorded with the membership of what it answered. The answer names each read by the
+    // digest the orchestrator recorded it under.
+    const query = canonicalRead({ read: 'adjacent', id: opened.graph.target.id, kinds: NEIGHBOR_KINDS });
+    const nodes = canonicalRead({ read: 'facts', ids: [...answer.rows.map((row) => row.neighbor.id)].sort() });
+    expect(answer.reads.map((read) => read.read)).toEqual(['adjacent', 'facts']);
     const recorded = await readUnitReads(opened.owner, 'reads/all', 1);
     expect(recorded.map((read) => [read.query, read.members])).toEqual([[query, 3], [nodes, 3]]);
     expect(recorded[0]!.membership).not.toBe(recorded[1]!.membership);
+    expect(answer.reads.map((read) => read.digest)).toEqual(recorded.map((read) => read.queryDigest));
   });
 
   test('the direction and the kinds it is asked for are what it answers', async () => {
@@ -344,7 +380,7 @@ describe('neighbors', () => {
     expect(answer.truncated).toBe(false);
     expect(answer.marker).toBeNull();
     const recorded = await readUnitReads(opened.owner, 'reads/all', 1);
-    expect(recorded.map((read) => [read.query, read.members])).toEqual([[readText({ read: 'adjacent', id: opened.graph.lonely.id, kinds: NEIGHBOR_EDGE_KINDS }), 0]]);
+    expect(recorded.map((read) => [read.query, read.members])).toEqual([[canonicalRead({ read: 'adjacent', id: opened.graph.lonely.id, kinds: NEIGHBOR_KINDS }), 0]]);
     // An empty answer is a membership of its own, and it is not the membership of a read that answered rows.
     const answered = await neighbors(reads, { tool: 'neighbors', id: opened.graph.target.id });
     expect(answered.rows).toHaveLength(3);
@@ -374,7 +410,7 @@ describe('references', () => {
       [CALLER_ORDER[1], 'call', FILE, 21],
       [CALLER_ORDER[2], 'call', FILE, 31],
     ]);
-    expect(answer.kinds).toEqual(['call', 'consumes', 'dependency', 'document-link', 'import', 'inherits', 'interaction', 'reference', 'resolves', 'transition']);
+    expect(answer.kinds).toEqual(REFERENCE_KINDS);
     expect(answer.truncated).toBe(false);
     // The file's own `defines` edge into the symbol is not a citation of it, so it is not a reference.
     expect(answer.rows.some((row) => row.edge.kind === 'defines')).toBe(false);
@@ -392,11 +428,12 @@ describe('describe_scope', () => {
     expect(answer.coverage.map((row) => [row.scope, row.complete, row.readCount, row.unread])).toEqual([
       [opened.graph.module.id, false, 2, [{ what: 'src/legacy.ts', reason: 'too-large' }]],
     ]);
-    expect(answer.reads.map(readText)).toEqual([
-      readText({ read: 'fact', id: opened.graph.module.id }),
-      readText({ read: 'held', id: opened.graph.module.id, via: ['contains', 'defines'] }),
-      readText({ read: 'adjacent', id: opened.graph.module.id }),
-      readText({ read: 'facts-with', kind: 'coverage', field: 'scope', value: opened.graph.module.id }),
+    expect(answer.reads.map((read) => read.read)).toEqual(['fact', 'held', 'adjacent', 'facts-with']);
+    expect(answer.reads.map((read) => read.digest)).toEqual([
+      digestOf(canonicalRead({ read: 'fact', id: opened.graph.module.id })),
+      digestOf(canonicalRead({ read: 'held', id: opened.graph.module.id, via: ['contains', 'defines'] })),
+      digestOf(canonicalRead({ read: 'adjacent', id: opened.graph.module.id })),
+      digestOf(canonicalRead({ read: 'facts-with', kind: 'coverage', field: 'scope', value: opened.graph.module.id })),
     ]);
   });
 
@@ -434,11 +471,12 @@ describe('claims_about', () => {
 
     const both = await claimsAbout(reads, { tool: 'claims_about', id: opened.graph.target.id });
     expect(both.rows.map((row) => row.id).sort()).toEqual([...about.rows, ...names.rows].map((row) => row.id).sort());
-    expect(both.reads.map(readText)).toEqual([
-      readText({ read: 'facts-with', kind: 'claim', field: 'subject.id', value: opened.graph.target.id }),
-      readText({ read: 'facts-with', kind: 'claim', field: 'object.id', value: opened.graph.target.id }),
-      // The third read is the nodes the claims name, so every end that is a node carries the label a reader sees.
-      readText({ read: 'facts', ids: [opened.graph.target.id, opened.graph.callers[1]!.id].sort() }),
+    // The third read is the nodes the claims name, so every end that is a node carries the label a reader sees.
+    expect(both.reads.map((read) => read.read)).toEqual(['facts-with', 'facts-with', 'facts']);
+    expect(both.reads.map((read) => read.digest)).toEqual([
+      digestOf(canonicalRead({ read: 'facts-with', kind: 'claim', field: 'subject.id', value: opened.graph.target.id })),
+      digestOf(canonicalRead({ read: 'facts-with', kind: 'claim', field: 'object.id', value: opened.graph.target.id })),
+      digestOf(canonicalRead({ read: 'facts', ids: [opened.graph.target.id, opened.graph.callers[1]!.id].sort() })),
     ]);
   });
 
@@ -500,6 +538,8 @@ describe('the caps 0026 fixes', () => {
     expect(answer.rows.length).toBeLessThan(20);
     expect(answer.truncated).toBe(true);
     expect(answer.marker).toBe(`truncated: the neighbours of ${opened.graph.hub.id} holds 20 rows and the answer's 400-token cap holds ${answer.rows.length}: ${20 - answer.rows.length} rows were cut`);
+    // The cap holds the whole answer, the request and the marker included, not only the rows it cut.
+    expect(answer.tokens).toBeLessThanOrEqual(400);
     // What it did hold is the first of the rows in code point order, so a cut answer is a prefix and never a
     // different sample.
     const whole = await neighbors(await opened.reads('reads/all', 1), { tool: 'neighbors', id: opened.graph.hub.id });
@@ -513,6 +553,7 @@ describe('the caps 0026 fixes', () => {
     expect(answer.rows).toEqual([]);
     expect(answer.truncated).toBe(true);
     expect(answer.marker).toBe(`truncated: the neighbours of ${opened.graph.hub.id} holds 20 rows and the answer's 1-token cap holds 0: 20 rows were cut`);
+    expect(answer.tokens).toBeLessThanOrEqual(DEFAULT_GRAPH_READ_LIMITS.answerTokens);
   });
 });
 
@@ -529,7 +570,7 @@ describe('evidence_span', () => {
     expect([answer.startLine, answer.endLine, answer.totalLines, answer.asked]).toEqual([3, 5, 260, { startLine: 3, endLine: 5 }]);
     expect(answer.truncated).toBe(false);
     expect(answer.marker).toBeNull();
-    expect(answer.reads).toEqual([{ read: 'span', repository: 'orders-api', commit: pins[0]!.commit, file: FILE, startLine: 3, endLine: 5 }]);
+    expect(answer.reads).toEqual([{ read: 'span', digest: digestOf(canonicalRead({ read: 'span', repository: 'orders-api', commit: pins[0]!.commit, file: FILE, startLine: 3, endLine: 5 })) }]);
   });
 
   test('a span longer than the cap is answered with the lines that fit and a marker naming the cut', async () => {
@@ -540,7 +581,7 @@ describe('evidence_span', () => {
     expect([answer.startLine, answer.endLine, answer.totalLines]).toEqual([1, 200, 260]);
     expect(answer.cut).toBe(60);
     expect(answer.truncated).toBe(true);
-    expect(answer.marker).toBe(`truncated: asked lines 1\u2013260 of ${FILE} (260 lines); this answer holds lines 1\u2013200 (200 lines): 60 lines were cut (60 past the 200-line cap of an evidence span, 0 past the answer's 8000-token cap)`);
+    expect(answer.marker).toBe(`truncated: asked lines 1\u2013260 of ${FILE} (260 lines); this answer holds lines 1\u2013200 (200 lines): 60 lines were cut (60 past the 200-line cap of an evidence span)`);
   });
 
   test('an end past the file\u2019s last line is the file\u2019s own lines, and a start past it is refused by name', async () => {
@@ -548,7 +589,8 @@ describe('evidence_span', () => {
     const reads = await opened.reads('reads/all', 1);
     const tail = await evidenceSpan(reads, { tool: 'evidence_span', repository: 'orders-api', commit: pins[0]!.commit, file: FILE, startLine: 259, endLine: 900 });
     expect(tail.lines.map((line) => line.line)).toEqual([259, 260]);
-    expect([tail.asked.endLine, tail.cut, tail.truncated]).toEqual([260, 0, false]);
+    // What was asked, as it was asked (900), and what the answer holds (the file's own last line).
+    expect([tail.asked.endLine, tail.endLine, tail.cut, tail.truncated]).toEqual([900, 260, 0, false]);
     await expect(evidenceSpan(reads, { tool: 'evidence_span', repository: 'orders-api', commit: pins[0]!.commit, file: FILE, startLine: 900 }))
       .rejects.toThrow(new RegExp(`asks for line 900 of ${FILE.replace('/', '\\/')} at ${pins[0]!.commit} in the repository "orders-api", and that file has 260 lines`));
     await expect(evidenceSpan(reads, { tool: 'evidence_span', repository: 'orders-api', commit: 'f'.repeat(40), file: FILE }))
@@ -559,6 +601,51 @@ describe('evidence_span', () => {
     expect(linesOf('')).toEqual([]);
     expect(linesOf('a\nb\n')).toEqual(['a', 'b']);
     expect(linesOf('a\nb')).toEqual(['a', 'b']);
+  });
+});
+
+describe('the text one read is recorded by', () => {
+  test('is the canonical JSON of the read, its keys and its sets in order', () => {
+    // The exact texts, written here: a text that sorted nothing or dropped a key would fail these.
+    expect(readText({ read: 'fact', id: `module:${'a'.repeat(64)}` })).toBe(`{"id":"module:${'a'.repeat(64)}","read":"fact"}`);
+    expect(readText({ read: 'facts', ids: ['b', 'a', 'a'] })).toBe('{"ids":["a","b"],"read":"facts"}');
+    expect(readText({ read: 'held', id: 'module:x', via: ['defines', 'contains'] })).toBe('{"id":"module:x","read":"held","via":["contains","defines"]}');
+    expect(readText({ read: 'span', repository: 'orders-api', commit: 'c'.repeat(40), file: FILE, startLine: 1, endLine: 2 }))
+      .toBe(`{"commit":"${'c'.repeat(40)}","endLine":2,"file":"${FILE}","read":"span","repository":"orders-api","startLine":1}`);
+    // Two requests that differ only in how a set was written are one read: one dependency, rechecked once.
+    expect(readText({ read: 'facts', ids: ['b', 'a'] })).toBe(readText({ read: 'facts', ids: ['a', 'b', 'a'] }));
+    expect(readText({ read: 'adjacent', id: 'module:x', kinds: ['reference', 'call'] })).toBe(readText({ read: 'adjacent', id: 'module:x', kinds: ['call', 'reference'] }));
+  });
+
+  test('is a read again when it is parsed back, and a text that is no read is refused by name', () => {
+    const symbol = `symbol:${'a'.repeat(64)}`;
+    const request: GraphRead = { read: 'adjacent', id: symbol, kinds: ['reference', 'call'] };
+    expect(parseGraphRead(readText(request))).toEqual({ read: 'adjacent', id: symbol, kinds: ['call', 'reference'] });
+    // A stage's own SQL is not this module's read, and is left for the store to answer.
+    expect(parseGraphRead('SELECT kind FROM fill_fact')).toBeNull();
+    expect(() => parseGraphRead('{"read":"nope"}')).toThrow(/names "nope": a read of the graph is one of fact, facts, adjacent, held, facts-with, span/);
+    expect(() => parseGraphRead('{"read":"fact"}')).toThrow(/names undefined: a fact id is the kind, a colon/);
+    expect(() => parseGraphRead('{"read":')).toThrow(/opens a JSON object and does not parse as one/);
+  });
+});
+
+describe('the reader over the store', () => {
+  test('answers the fill’s own reads, an empty list of kinds by name, and a stage’s own SQL as it stands', async () => {
+    const opened = await world();
+    const reader = createFactGraphReader({ database: opened.owner, snapshot: await snapshotSource() });
+    const rows = await reader.query(`SELECT id, kind FROM fill_fact WHERE kind = 'call'`);
+    expect(rows).toHaveLength(opened.graph.calls.length + opened.graph.hubCalls.length);
+    expect(rows.every((row) => (row as { kind: string }).kind === 'call')).toBe(true);
+    // A read asking for no kind at all is refused by name rather than sent to the database as SQL that cannot run.
+    await expect(reader.query(JSON.stringify({ read: 'adjacent', id: opened.graph.target.id, kinds: [] }))).rejects.toThrow(/names no edge kind/);
+    await expect(reader.query(JSON.stringify({ read: 'held', id: opened.graph.module.id, via: ['document-link'] }))).rejects.toThrow(/a "document-link" edge's end is its value's "to" field, not the id itself/);
+    await expect(reader.query('SELECT no_such_column FROM fill_fact')).rejects.toThrow(/no_such_column/);
+  });
+
+  test('a describe_scope of a fact that is no scope is refused by name', async () => {
+    const opened = await world();
+    const reads = await opened.reads('reads/all', 1);
+    await expect(describeScope(reads, { tool: 'describe_scope', scope: opened.graph.target.id })).rejects.toThrow(/which is "symbol" fact: a scope is one of directory, file, module, package, repository, and what another kind of fact holds would read as a scope that holds nothing/);
   });
 });
 

@@ -111,6 +111,17 @@ from one of them, it is named.
   limits"). Tokens are counted as one per four code points and the estimate is
   said in the answer (`tokens`) and in the marker that names a cut: a cap a server
   enforces must not need the tokeniser of the model that will read the answer.
+- **The cap is the whole answer.** Before its rows are bounded, an answer reserves
+  what its own envelope costs — the request it echoes, the reads it stands on and
+  the words of the marker (`rowsCap`, `MARKER_RESERVE`) — so 0026's "at most 8K
+  tokens" holds of the answer a unit receives and not only of its rows, while the
+  marker still names the cap the *reader* set and not the smaller one its rows were
+  bounded by. The tests hold every cut answer to `tokens <= the cap`.
+- **An answer names each read by its digest, not by its text.** `reads` is the
+  read's kind and the digest of its canonical text — the very digest the
+  orchestrator records the dependency row under (`queryDigest`,
+  `fill_unit_read.query_digest`), so an answer names the records it made without
+  carrying a second copy of their queries (which was the envelope's largest part).
 - **Never silently smaller.** Rows are added while the cap has room for them and
   the rest are counted: `truncated` is true and `marker` is one sentence naming
   how many rows the cap cut. A row too large for the cap on its own leaves the
@@ -138,8 +149,17 @@ from one of them, it is named.
 - **`describe_scope` answers one scope whole.** The scope node, the kinds of the
   nodes it holds (`contains`, `defines`) with their counts, the edges that touch it
   counted by kind and direction, and the coverage facts that name it. A scope the
-  graph does not hold is refused by name: an answer about a node that is not there
-  would read as "nothing here", which is a statement about the graph nobody made.
+  graph does not hold, and an id that is a fact of a kind no scope is
+  (`SCOPE_KINDS`: directory, file, module, package, repository), are each refused
+  by name: an answer about either would read as "nothing here", which is a
+  statement about the graph nobody made.
+- **What a scope holds joins only the kinds whose ends the store can join.**
+  `held` counts the nodes the edges of the kinds it is given point at, and the
+  store's own rows carry those ends in the edge value's `from` and `to` fields, so
+  a kind whose end stands elsewhere — `provides` names a contract, `binds` an
+  environment, `task-key` a key, and `document-link` its target as a term — is
+  refused by name (`HOLDING_EDGE_KINDS`). A read that asked for one would answer
+  nothing rather than be counted, and that silence is what the refusal prevents.
 - **`references` says where, not only who.** The edges of the citing kinds that
   point at the node, each with the node it comes from and the place the edge stands
   at — a call's place is the code-point-smallest call site its producer folded, with
@@ -162,7 +182,10 @@ from one of them, it is named.
   a person reads and the place the fact stands at, and `labelOf` is that label by
   kind (a symbol by its qualified name in its file, a file by its path in its
   repository, a claim by what it says). A label is for a reader and never for a
-  join: every filter a read makes is by fact id.
+  join: every filter a read makes is by fact id. A label longer than 80 code points
+  is cut with an ellipsis and is not a cut answer: it is a display name inside a row
+  whose fact and id are both in the answer, and `truncated` is about what the caps
+  left out of an answer.
 - **Every refusal names the file, the line and the path.** `src/fill/graph-reads.ts`
   raises through the fill's own `raise`/`withLocation`, so a refusal names the file,
   line and column it was raised from, and — where the refusal is about a fact or a
@@ -171,7 +194,75 @@ from one of them, it is named.
   a gap that names no reason and a span row without its lines are refused by name
   rather than skipped: a reader that skipped them would answer a smaller graph than
   the one that stands.
-- **What the review changed.** A fresh read-only review
+- **What the review changed.** One fresh read-only review
   (`prime-agent --provider shady2k-gateway --model deepseek-v4.1-flash-auto` over
-  `git diff origin/main...HEAD`) read this change and ran the suite itself.
-  <REVIEW>
+  `git diff origin/main...HEAD`, log `/tmp/graph-reads-review.log`) read this change
+  and computed its way through it; it ran nothing on this machine. Verdict
+  **fix-before-ship**: two defects and seven should-fix items, each answered here,
+  every one of them with a test where a test can say it.
+
+  - **Defect.** The cap counted the rows of an answer and not the answer: at 8K it
+    overshot by the envelope's own size — the request it echoes, the reads it names
+    and the marker — and the marker named the cap the rows were bounded by rather
+    than the reader's. Answered: an answer reserves what its envelope costs, its
+    marker's words included (`rowsCap`, `MARKER_RESERVE`), `bounded` names the
+    reader's own cap in every marker it writes, and every cut answer in the test
+    holds `tokens <= the cap`. The echo that was the envelope's largest part is
+    compact now (`reads` names each read by its kind and its recorded digest).
+  - **Should-fix.** `describe_scope` accepted any fact id, so a `symbol:` id
+    answered a scope that holds nothing; it refuses a kind no scope is now
+    (`SCOPE_KINDS`, tested).
+  - **Should-fix.** `held`'s guard checked a field's name and its SQL hardcoded
+    `from`/`to`, so a `document-link` (whose target is a term) passed the guard and
+    answered `[]` in silence; the kinds it accepts are read from the same table the
+    adjacency query is built from (`HOLDING_EDGE_KINDS`) and the rest are refused by
+    name, tested through the reader.
+  - **Should-fix.** An `adjacent` read with an empty kind list built `... AND ()`,
+    a database syntax error instead of a refusal; the reader refuses it by name,
+    tested.
+  - **Should-fix.** Expectations taken from the module: `answer.kinds` was compared
+    with the imported constant, and the recorded query with the module's own
+    `readText` on both sides, so a `readText` that sorted nothing would have passed.
+    The two kind lists are written out in the test, one test pins the exact
+    canonical texts literal by literal (and that two requests differing only in the
+    order of a set are one read), and the recorded queries are compared with a
+    canonical text built in the test. The answers' read digests are cross-checked
+    against the orchestrator's own recorded rows (`fill_unit_read.query_digest`).
+  - **Should-fix.** The reader's SQL pass-through and its refusal of a malformed
+    read were claimed and untested; both are tested now (a stage's own `SELECT`
+    answers its rows, a `{"read":…}` that is no read is refused by name and never
+    sent to the database).
+  - **Should-fix.** The review found the placeholder this section replaces; the
+    change record's `## Acceptance evidence` carries the checks.
+  - **Nits answered.** `evidence_span`'s `asked` echoes the request as it was made
+    (an end past the file's last line is not rewritten; what the answer holds is
+    `endLine`), its marker names only the caps that actually cut, and its read
+    window is described exactly; `GraphSnapshotSource` is the landed
+    `Pick<SnapshotSource, 'open'>` rather than a re-declaration; a claim without a
+    predicate and a coverage value that is not the schema's are refused by name
+    rather than answered with empty fields; the executor a context is lent is
+    documented as one a write is allowed in (`recordUnitReadIn` writes the read
+    record); the unused import is gone.
+  - **Nit declined, with its reason.** The review asked for one row mapper for
+    `fill_fact` instead of this module's own: the store's reads open a transaction
+    of the owner, and a read made inside a publication's recheck must run on the
+    transaction the caller holds (`orchestrator.ts`'s `revalidate`), so this module
+    reads the table through its own select on a borrowed executor, and the shape it
+    refuses by name is checked where it is read. Sharing the mapper means editing
+    `fact-store.ts`, which the parallel checked-writes task (madarch-tzte.20.4) is
+    building on.
+
+- **Open points and known limitations**, named here rather than left to be found:
+  - A `provides` edge's to end is an api-endpoint named by its contract id (0003's
+    rendezvous point), which is the endpoint's identity but not its fact id, so the
+    store cannot join it: an endpoint's providers are counted by `describe_scope` of
+    the providing element and are not answered by `neighbors` of the endpoint. A task
+    that needs them reads the contract through a read of its own; this change says so
+    in `EDGE_END_FIELDS` rather than guessing a join.
+  - `held` counts the nodes the graph holds: an end whose fact no unit holds any more
+    (a retracted publication, since the checked writes of madarch-tzte.20.4 refuse a
+    write naming a node that does not exist) is not counted, while `neighbors` names
+    such a node by its id with `kind: null`.
+  - `COVERAGE_READ_SAMPLE` (50) and `COVERAGE_GAP_LIMIT` (200) are this module's
+    numbers, not 0026's: they bound one coverage row's own lists inside the answer's
+    token cap, and every cut they make is counted in the answer's marker.
