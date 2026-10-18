@@ -179,7 +179,7 @@ function unitIds(plan: { units: readonly { id: string }[] }): string[] {
 // ---- the registry ----------------------------------------------------------
 
 describe('the syntax stage is registered', () => {
-  test('the derived graph runs the syntax stage after the inventory, on the file facts it consumes', async () => {
+  test('the derived graph runs the syntax stage after the inventory, on the file facts it consumes, with every stage this madarch holds', async () => {
     const f = await fixture();
     try {
       await f.write('src/orders.ts', 'export const orders = 1;\n');
@@ -188,11 +188,16 @@ describe('the syntax stage is registered', () => {
       const read = deriveStageGraph(registry);
       expect(read.ok).toBe(true);
       if (!read.ok) return;
-      // The history stage (madarch-tzte.21.2) is registered beside these and
-      // reads the snapshot too, so it is ordered between the two by code point.
-      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'syntax']);
+      // The history stage (madarch-tzte.21.2) and the document index stage
+      // (madarch-tzte.21.4) are registered beside these: the history reads the
+      // snapshot too and is ordered among the first by code point, and the
+      // document index reads the inventory's file facts like this stage does, so
+      // the two are ordered by code point between themselves.
+      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'document-index', 'syntax']);
       expect(read.graph.edges).toEqual([
+        { from: 'inventory', to: 'document-index', via: 'file' },
         { from: 'inventory', to: 'syntax', via: 'file' },
+        { from: 'snapshot', to: 'document-index', via: 'snapshot' },
         { from: 'snapshot', to: 'history', via: 'snapshot' },
         { from: 'snapshot', to: 'inventory', via: 'repository' },
         { from: 'snapshot', to: 'inventory', via: 'snapshot' },
