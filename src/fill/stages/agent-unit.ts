@@ -43,7 +43,6 @@
  * guard reads the resolved limits.
  */
 import { Type } from 'typebox';
-import { canonicalJsonDigest } from '../../model/canonical.js';
 import { byCodePoint } from '../../model/order.js';
 import { runningVersion } from '../../product/version.js';
 import {
@@ -63,7 +62,7 @@ import {
   plannedTokens,
   type UnitMember,
 } from '../agent-packet.js';
-import { scopeText, writeScope, type WriteScope } from '../checked-writes.js';
+import { writeScope, type WriteScope } from '../checked-writes.js';
 import { checkFact, FACT_KINDS, makeNodeFact, type CoverageGap, type CoverageValue, type Fact, type FactKind, type FactSource } from '../facts.js';
 import {
   DEFAULT_GRAPH_READ_LIMITS,
@@ -91,7 +90,7 @@ import {
   type StageUnitScope,
   type StageValidation,
 } from '../stage.js';
-import { createUnitLimitGuard, type UnitLimitCause, type UnitLimitGuard } from '../unit-limits.js';
+import { createUnitLimitGuard, type UnitLimitCause } from '../unit-limits.js';
 
 /** The stage's id, as it is registered: one agent unit per scope, decision 0026's stages 8 to 13. */
 export const AGENT_UNIT_STAGE_ID = 'agent-unit';
@@ -481,7 +480,10 @@ export function coverageWrite(options: {
     provenance: { source: options.source, repository: { id: options.repository, commit: options.commit } },
     layer: 'inferred',
   });
-  return { kind: 'fact', evidence: placeText(options.repository, options.scope.path) + `@${options.commit}`, value: fact };
+  // The evidence line is the draft's own spelling (`<repository>@<commit>:<path>`, `evidenceAt`): what the write
+  // stands on, as a reader of the draft set finds it.
+  const evidence = `${options.repository}@${options.commit}${options.scope.path === undefined ? '' : `:${options.scope.path}`}`;
+  return { kind: 'fact', evidence, value: fact };
 }
 
 /** What one attempt is wired with, once the stage has resolved it. */
@@ -681,7 +683,11 @@ export function splitChildren(options: { readonly scope: WriteScope; readonly me
   for (const member of options.members) {
     if (member.file === undefined) continue;
     const held = byPath.get(member.file);
-    if (held === undefined || (held.kind !== 'directory' && held.kind !== 'file' && (member.kind === 'directory' || member.kind === 'file'))) byPath.set(member.file, member);
+    const heldIsPlace = held !== undefined && (held.kind === 'directory' || held.kind === 'file');
+    const memberIsPlace = member.kind === 'directory' || member.kind === 'file';
+    // The member that stands at the place is the place itself where the list holds one (a folder or a file), and any
+    // member cited there otherwise (an entry point in a file): a child's id is that member's own fact id.
+    if (held === undefined || (!heldIsPlace && memberIsPlace)) byPath.set(member.file, member);
   }
   for (const path of options.remaining) {
     if (children.length >= SPLIT_CHILDREN) break;

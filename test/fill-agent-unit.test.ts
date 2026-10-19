@@ -41,7 +41,7 @@ import { StageRegistry } from '../src/fill/registry.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage } from '../src/fill/stage.js';
 import { FACT_KINDS } from '../src/fill/facts.js';
 import { Type } from 'typebox';
-import { createGitSnapshotSource, type RepositoryPin, type SnapshotSource } from '../src/fill/snapshot.js';
+import { createGitSnapshotSource, type RepositoryPin } from '../src/fill/snapshot.js';
 import { createFillStateSchema, createUnit, readRunUnits, readUnit } from '../src/fill/state-store.js';
 import { UNIT_TOOL_PATH } from '../src/fill/unit-tools.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
