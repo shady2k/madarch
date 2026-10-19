@@ -96,16 +96,16 @@ describe('the graph the store holds', () => {
 
   test('the tables of a repository carry the columns the store holds, and a column whose table no fact holds is dashed', async () => {
     const model = await buildDiagram({ type: 'er', nodes: [fx.shop.id] }, reads);
-    expect(model.elements.map((element) => element.label)).toEqual(['acme-shop:public.audit', 'acme-shop:public.orders', 'acme-shop:public.payments']);
+    expect(model.elements.map((element) => element.label)).toEqual(['acme-shop:public.audit (unresolved)', 'acme-shop:public.orders', 'acme-shop:public.payments']);
     const orders = model.elements.find((element) => element.id === fx.ordersTable.id);
     expect(orders?.columns?.map((column) => [column.label, column.dataType])).toEqual([['id', 'bigint'], ['total', 'numeric']]);
     expect(orders?.columns?.[1]?.place).toEqual({ repository: 'acme-shop', commit: 'a'.repeat(40), file: 'migrations/001.sql', line: 5, endLine: 5 });
-    expect(model.elements.find((element) => element.label === 'acme-shop:public.audit')?.dashed).toBe(true);
+    expect(model.elements.find((element) => element.label === 'acme-shop:public.audit (unresolved)')?.dashed).toBe(true);
   });
 
   test('the states of a machine and their transitions come back as the agent wrote them', async () => {
     const model = await buildDiagram({ type: 'state', nodes: [fx.newState.id] }, reads);
-    expect(model.elements.map((element) => element.label)).toEqual(['OrderStatus.new', 'OrderStatus.paid', 'OrderStatus.shipped', fx.refundedState.id]);
+    expect(model.elements.map((element) => element.label)).toEqual(['OrderStatus.new', 'OrderStatus.paid', 'OrderStatus.shipped', 'state (unresolved)']);
     expect(model.edges.map((arrow) => `${arrow.label}|${arrow.evidence}`).sort()).toEqual(['pay|assumption', 'refund|unresolved', 'ship|assumption']);
   });
 
@@ -151,8 +151,9 @@ describe('an edge into a node no unit holds', () => {
     expect(published).toBe(2);
     const model = await buildDiagram({ type: 'module-dependency', nodes: [fx.shop.id] }, reads);
     const placeholders = model.elements.filter((element) => element.kind === null);
-    // One placeholder, drawn once, however many arrows name the missing end.
-    expect(placeholders.map((element) => element.label)).toEqual([fx.gone.id]);
+    // One placeholder, drawn once, however many arrows name the missing end, and named by the specifier the import
+    // wrote rather than by the content-addressed id of the file no unit holds.
+    expect(placeholders.map((element) => element.label)).toEqual(['./gone.js (unresolved)']);
     expect(placeholders[0]?.dashed).toBe(true);
     expect(model.edges.map((arrow) => `${arrow.from}>${arrow.to}:${arrow.label}:${arrow.evidence}`).sort()).toEqual([
       `${fx.checkout.id}>${fx.payment.id}:import:fact`,

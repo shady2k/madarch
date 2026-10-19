@@ -763,15 +763,63 @@ function columnOfFact(fact: Fact): DiagramColumn {
   };
 }
 
-/** An element for an end the graph does not hold: dashed, no page, no code, and an id no fact can carry. */
-function unresolvedElement(id: string): DiagramElement {
+/**
+ * The mark every element the graph does not hold carries in its label: not a fact's
+ * own words but madarch's, like every other word the server writes into a document
+ * (the LikeC4 page's own sentence), because the renderers draw the label and a reader
+ * must not mistake it for a node the graph holds. The page's element list keeps the
+ * localized `unresolved` chip beside it (`wiki/app/src/locales`).
+ */
+const UNRESOLVED_MARK = ' (unresolved)';
+
+/**
+ * What a reader calls an end the graph does not hold: the name the graph's own facts
+ * give it — an import's specifier as written (`./gone.js`) — and, where they give
+ * none, the kind its id's own prefix states (`state`). Marked `unresolved`, because a
+ * reader must never mistake it for a node the graph holds.
+ *
+ * Two ends of one kind that no fact names read alike (`state (unresolved)` twice in
+ * one machine's view): that is the decision, not an accident — the graph knows nothing
+ * that tells them apart, and an ordinal made up here would read as a name the graph
+ * holds. Their ids differ, and the page lists each row with its own id as the tooltip.
+ *
+ * The fact id is never the label: it is content-addressed, it reads as nothing a
+ * person can act on, and the id stays reachable anyway — the element's own id carries
+ * it, and the page lists the element with that id as its tooltip (madarch-tzte.23.6).
+ */
+function missingLabel(id: string, names: ReadonlySet<string>): string {
+  const named = [...names].sort(byCodePoint)[0];
+  if (named !== undefined) return `${named}${UNRESOLVED_MARK}`;
+  const colon = id.indexOf(':');
+  return `${colon > 0 ? id.slice(0, colon) : 'node'}${UNRESOLVED_MARK}`;
+}
+
+/** An element for an end the graph does not hold: dashed, no page, no code, an id no fact can carry, and the name its facts give it. */
+function unresolvedElement(id: string, names: ReadonlySet<string> = new Set<string>()): DiagramElement {
   return {
     id: `${UNRESOLVED_PREFIX}${id}`,
     kind: null,
-    label: id,
+    label: missingLabel(id, names),
     evidence: 'unresolved',
     dashed: true,
   };
+}
+
+/** The names the edges of one view give an end no fact holds: an import's specifier as written, by the end it names. */
+function missingEndNames(edges: readonly Fact[]): ReadonlyMap<string, ReadonlySet<string>> {
+  const names = new Map<string, Set<string>>();
+  for (const edge of edges) {
+    // The specifier a file wrote (`../pay.js`) is the name of the file it imports, and the one name the graph keeps of
+    // an end that outlived the file's own fact. An edge of another kind names its ends by their ids only.
+    const specifier = textOf(edge, 'specifier');
+    if (specifier === undefined) continue;
+    const to = endsOf(edge.kind as FactEdgeKind, edge.value).to;
+    if (to === undefined) continue;
+    const held = names.get(to) ?? new Set<string>();
+    held.add(specifier);
+    names.set(to, held);
+  }
+  return names;
 }
 
 /** A spec read against the graph's own terms: the type, the level, the nodes and the scenario, or a refusal naming what is wrong. */
@@ -914,6 +962,7 @@ async function linkEdges(
     }
     return null;
   };
+  const named = missingEndNames(candidates);
   const placeholders = new Map<string, DiagramElement>();
   const folded = new Map<string, { from: string; to: string; facts: Fact[] }>();
   const arrows: DiagramEdge[] = [];
@@ -934,7 +983,7 @@ async function linkEdges(
     for (const stand of [from, to]) {
       if ('missing' in stand === false) continue;
       const id = `${UNRESOLVED_PREFIX}${stand.missing}`;
-      if (placeholders.has(id) === false) placeholders.set(id, unresolvedElement(stand.missing));
+      if (placeholders.has(id) === false) placeholders.set(id, unresolvedElement(stand.missing, named.get(stand.missing) ?? new Set<string>()));
     }
     if (options.fold) {
       const key = `${fromId}\u0000${toId}`;
@@ -1117,7 +1166,7 @@ async function gatherTables(checked: CheckedSpec, scoped: readonly Fact[], reads
     elements.push({
       id: `${UNRESOLVED_PREFIX}table:${repository}/${table}`,
       kind: null,
-      label: `${repository}:${table}`,
+      label: `${repository}:${table}${UNRESOLVED_MARK}`,
       evidence: 'unresolved',
       dashed: true,
       columns,

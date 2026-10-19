@@ -19,7 +19,15 @@ import type { DiagramModel } from '../fill/diagrams.js';
 import { graphPageHref } from '../fill/diagrams.js';
 import { diagramWorkspace, webcomponentElement, webcomponentPrefix } from './graph-workspace.js';
 import { likec4Address } from './graph-diagrams.js';
+import { LIKEC4_DRAWINGS_SOURCE } from './likec4-drawings.js';
 import { likec4Webcomponent, type LikeC4Bundle } from './likec4-webcomponent.js';
+
+/** The page watches in ticks of this many milliseconds: often enough to take a sentence away from a slow first paint. */
+export const LIKEC4_WATCH_TICK_MS = 250;
+/** The ticks a drawing is given before the page says it drew nothing: eight seconds, as madarch-tzte.23.4 measured. */
+export const LIKEC4_WATCH_GRACE_TICKS = 32;
+/** The last tick the page watches: two minutes, so a page left open holds no timer for a drawing that never comes. */
+export const LIKEC4_WATCH_TICKS = 480;
 
 /** The cache folder one diagram's generated documents stand in: named by the workspace's own bytes. */
 function scratchOf(workspace: string, env: Readonly<Record<string, string | undefined>>): { readonly ok: true; readonly root: string } | { readonly ok: false; readonly message: string } {
@@ -105,12 +113,17 @@ export async function graphArchifyPage(model: DiagramModel, options: { readonly 
  * webcomponent bundle and the element it defines, sized to the frame the app shows
  * it in.
  *
- * It is a page and not a bare element inside the app for a reason a reader would not
- * guess: LikeC4's webcomponent renders into a shadow root of its own, and inside the
- * app's own React tree the element drew nothing at all in Chromium — an empty
- * instance and no error — while the same bundle inside a document of its own is what
- * the static wiki already ships. A page is also the smallest thing that cannot be
- * broken by the app's own loading order.
+ * It is a page and not a bare element inside the app for the reason the archify tab
+ * is one too: LikeC4 arrives as its own document with its own script (the bundle
+ * `likec4 gen webcomponent` makes, the one the static wiki already ships), so the app
+ * frames the server's page instead of loading some megabytes into its own tree, and
+ * the element is defined before the view is asked for whatever order the app loads
+ * in.
+ *
+ * LikeC4 draws into a shadow root inside a shadow root (`likec4-drawings.ts`), so the
+ * page's watchdog reads the composed tree: a page that asked the element's own shadow
+ * root would call every drawing empty — that measurement, and not the renderer, is
+ * what madarch-pdkl reported.
  */
 export function graphLikeC4Page(model: DiagramModel, options: { readonly node: string }): { readonly ok: true; readonly html: string; readonly viewId: string } {
   const held = diagramWorkspace(model, { pageAddress: graphPageHref });
@@ -131,26 +144,47 @@ export function graphLikeC4Page(model: DiagramModel, options: { readonly node: s
     '<body>',
     `<${name} view-id="${htmlText(held.viewId)}"></${name}>`,
     `<script src="${script}"></script>`,
-    // LikeC4 draws into the shadow root it owns. A browser where it draws nothing is told so in words, rather
-    // than showing an empty frame that reads as a diagram nobody could draw. The other tabs draw the same model.
+    // LikeC4 draws into the shadow root it owns and, inside it, into a second one of its own: the drawings are
+    // counted through both (`LIKEC4_DRAWINGS_SOURCE`). A browser where LikeC4 really drew nothing is told so in
+    // words, rather than showing an empty frame that reads as a diagram nobody could draw.
+    //
+    // The page watches until it is answered, and not once at a fixed moment: a first paint slower than the bound
+    // would otherwise leave a sentence over a drawing that arrived after it, so a drawing that appears later takes
+    // the sentence away, and the watching stops when it is drawn or when the watching's own bound runs out
+    // (`LIKEC4_WATCH`).
     '<script>',
-    'window.setTimeout(function () {',
+    `var likec4Drawings = ${LIKEC4_DRAWINGS_SOURCE};`,
+    'window.addEventListener("load", function () {',
     `  var name = ${JSON.stringify(name)};`,
-    '  var element = document.querySelector(name);',
-    "  var drawn = element && element.shadowRoot && element.shadowRoot.querySelector('svg');",
-    '  if (drawn) return;',
-    '  // The sentence names what this page can really see: whether the element was ever defined, and whether it',
-    '  // holds a drawing. A bundle that never arrived is another failure than a view that stands empty.',
-    "  var defined = !!(window.customElements && window.customElements.get(name));",
-    "  var said = document.createElement('p');",
-    "  said.setAttribute('data-likec4-undrawn', defined ? 'empty' : 'not-loaded');",
-    "  said.style.cssText = 'margin: 1em; font: 14px/1.5 system-ui, sans-serif; color: #333;';",
-    `  said.textContent = (defined`,
-    `    ? ${JSON.stringify(`LikeC4's element is defined and its view of ${model.title} stands empty in this browser.`)}`,
-    `    : ${JSON.stringify(`LikeC4's bundle did not load, so ${model.title} has no drawing to show.`)}`,
-    "  ) + ' The Mermaid and archify tabs draw the same model.';",
-    '  document.body.appendChild(said);',
-    '}, 8000);',
+    `  var tried = 0;`,
+    '  var timer = window.setInterval(function () {',
+    '    tried += 1;',
+    '    var element = document.querySelector(name);',
+    '    var drawings = element === null ? [] : likec4Drawings(element);',
+    "    var said = document.querySelector('[data-likec4-undrawn]');",
+    '    if (drawings.length > 0) {',
+    '      if (said) said.remove();',
+    '      window.clearInterval(timer);',
+    '      return;',
+    '    }',
+    `    if (tried >= ${String(LIKEC4_WATCH_TICKS)}) {`,
+    '      window.clearInterval(timer);',
+    '      return;',
+    '    }',
+    `    if (tried < ${String(LIKEC4_WATCH_GRACE_TICKS)} || said) return;`,
+    '    // The sentence names what this page can really see: whether the element was ever defined, and whether it',
+    '    // holds a drawing. A bundle that never arrived is another failure than a view that stands empty.',
+    "    var defined = !!(window.customElements && window.customElements.get(name));",
+    "    said = document.createElement('p');",
+    "    said.setAttribute('data-likec4-undrawn', defined ? 'empty' : 'not-loaded');",
+    "    said.style.cssText = 'margin: 1em; font: 14px/1.5 system-ui, sans-serif; color: #333;';",
+    `    said.textContent = (defined`,
+    `      ? ${JSON.stringify(`LikeC4's element is defined and its view of ${model.title} stands empty in this browser.`)}`,
+    `      : ${JSON.stringify(`LikeC4's bundle did not load, so ${model.title} has no drawing to show.`)}`,
+    "    ) + ' The Mermaid and archify tabs draw the same model.';",
+    '    document.body.appendChild(said);',
+    `  }, ${String(LIKEC4_WATCH_TICK_MS)});`,
+    '});',
     '</script>',
     '</body>',
     '</html>',

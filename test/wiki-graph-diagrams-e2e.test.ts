@@ -9,6 +9,7 @@ import { startServer, type StartedServer } from '../src/index.js';
 import { pageAddress } from '../src/fill/graph-pages.js';
 import { openGraphFixture, PRODUCT, writeOf, type GraphFixtureWorld } from './graph-pages-fixture.js';
 import { DIAGRAM_FIXTURE } from './fill-diagram-fixture.js';
+import { LIKEC4_DRAWINGS_SOURCE } from '../src/product-wiki/likec4-drawings.js';
 
 /**
  * Every diagram of a graph page, drawn in every renderer that supports its type
@@ -227,19 +228,18 @@ async function archifyFrame(node: string, type: string, renderer: 'archify' | 'l
     });
     if (frame !== undefined) {
       try {
-        const held = await frame.evaluate(() => {
-          // LikeC4 draws into the shadow root of its own element: the drawing is read there, and a browser it
-          // could not draw in says so in the document's own words.
-          const element = [...document.querySelectorAll('*')].find((child) => child.tagName.toLowerCase().endsWith('-view')) as HTMLElement | undefined;
-          const shadowSvgs = element?.shadowRoot?.querySelectorAll('svg').length ?? 0;
+        const held = await frame.evaluate((source: string) => {
+          // The drawing is read in the whole composed tree (`LIKEC4_DRAWINGS_SOURCE`: LikeC4 nests a shadow root
+          // inside its element's own), and a browser it could not draw in says so in the document's own words.
+          const drawings = (new Function(`return (${source});`)() as (root: Node) => readonly Element[])(document);
           return {
             ready: document.readyState,
-            drawn: document.querySelectorAll('svg, [data-node-id], g[id^="node-"]').length + shadowSvgs,
+            drawn: document.querySelectorAll('[data-node-id], g[id^="node-"]').length + drawings.length,
             undrawn: document.querySelector('[data-likec4-undrawn]')?.getAttribute('data-likec4-undrawn') ?? null,
             title: document.title,
             head: document.body === null ? 'no body' : document.body.innerHTML.slice(0, 200),
           };
-        });
+        }, LIKEC4_DRAWINGS_SOURCE);
         said = JSON.stringify(held);
         if (held.drawn > 0 || held.undrawn !== null) return frame;
       } catch (error) {
@@ -275,14 +275,28 @@ async function shot(name: string): Promise<void> {
   await touchingPage(async () => await page!.screenshot({ path: join(SHOTS, name), fullPage: true }));
 }
 
+/** What the LikeC4 page of one diagram holds: its own view's drawing, or the page's words saying which failure it saw. */
+interface LikeC4State {
+  /** The drawings the element holds, counted through the shadow roots LikeC4 nests (`LIKEC4_DRAWINGS_SOURCE`). */
+  readonly svgs: number;
+  /** What the drawing reads as: every label the composed tree shows, so a walk can read a name off the picture. */
+  readonly texts: readonly string[];
+  /** The failure the page itself states, or null when it drew. */
+  readonly undrawn: string | null;
+}
+
 /**
- * What the LikeC4 page of one diagram holds: its own view's drawing, or the page's
- * words saying which failure it saw. The frame is looked up again on every poll —
- * a panel the app re-renders is a new document, and one address can be two frames
- * over one walk.
+ * The LikeC4 page of one diagram, measured the way the page measures itself: the
+ * drawings are counted in the element's whole composed tree (`LIKEC4_DRAWINGS_SOURCE`),
+ * the labels are the text that tree shows — LikeC4 draws its element boxes as HTML
+ * over an svg of the arrows, so a count of svgs alone would read a diagram of boxes as
+ * empty — and the page's own words are read beside them. The frame is looked up again
+ * on every poll: a panel the app re-renders is a new document, and one address can be
+ * two frames over one walk.
  */
-async function likec4State(node: string, type: string): Promise<{ readonly svgs: number; readonly undrawn: string | null }> {
+async function likec4State(node: string, type: string): Promise<LikeC4State> {
   const wanted = `/api/graph/likec4.html?id=${encodeURIComponent(node)}&type=${encodeURIComponent(type)}`;
+  let last: LikeC4State | null = null;
   for (let attempt = 0; attempt < 300; attempt++) {
     const frame = page!.frames().find((candidate) => {
       try {
@@ -292,19 +306,49 @@ async function likec4State(node: string, type: string): Promise<{ readonly svgs:
       }
     });
     if (frame !== undefined) {
-      const held = await frame.evaluate(() => {
+      const held = await frame.evaluate((source: string) => {
         const element = [...document.querySelectorAll('*')].find((child) => child.tagName.toLowerCase().endsWith('-view')) as HTMLElement | undefined;
+        const drawings = element === undefined ? [] : (new Function(`return (${source});`)() as (root: Element) => readonly Element[])(element);
+        // Every label the drawing shows: the text of each leaf of the composed tree, deduplicated and in document order.
+        const texts: string[] = [];
+        const collect = (root: ParentNode): void => {
+          for (const node of root.querySelectorAll('*')) {
+            const tag = node.tagName.toLowerCase();
+            if (tag === 'style' || tag === 'script') continue;
+            if (node.children.length === 0 && node.shadowRoot === null) {
+              const text = (node.textContent ?? '').trim();
+              if (text !== '') texts.push(text);
+            }
+            if (node.shadowRoot !== null) collect(node.shadowRoot);
+          }
+        };
+        if (element !== undefined && element.shadowRoot !== null) collect(element.shadowRoot);
         return {
-          svgs: element?.shadowRoot?.querySelectorAll('svg').length ?? 0,
+          svgs: drawings.length,
+          texts: [...new Set(texts)],
           undrawn: document.querySelector('[data-likec4-undrawn]')?.getAttribute('data-likec4-undrawn') ?? null,
         };
-      }).catch(() => null);
-      if (held !== null && (held.svgs > 0 || held.undrawn !== null)) return held;
+      }, LIKEC4_DRAWINGS_SOURCE).catch(() => null);
+      if (held !== null) last = held;
+      // A drawing is what is waited for: the page says its sentence eight seconds in and takes it away again if the
+      // drawing arrives later, so a sentence on its own is not the answer yet, and one beside a drawing is the
+      // page's own timer doing its work — one more look settles it.
+      if (held !== null && held.svgs > 0) {
+        if (held.undrawn === null) return held;
+        await new Promise((rest) => setTimeout(rest, 400));
+        const again = await frame.evaluate((source: string) => {
+          const element = [...document.querySelectorAll('*')].find((child) => child.tagName.toLowerCase().endsWith('-view')) as HTMLElement | undefined;
+          const drawings = element === undefined ? [] : (new Function(`return (${source});`)() as (root: Element) => readonly Element[])(element);
+          return { svgs: drawings.length, undrawn: document.querySelector('[data-likec4-undrawn]')?.getAttribute('data-likec4-undrawn') ?? null };
+        }, LIKEC4_DRAWINGS_SOURCE).catch(() => null);
+        if (again !== null && again.svgs > 0 && again.undrawn === null) return { ...held, undrawn: null };
+        return held;
+      }
     }
     await new Promise((rest) => setTimeout(rest, 200));
   }
-  console.error(`the LikeC4 page of ${type} neither drew its view nor said why: ${wanted}`);
-  return { svgs: 0, undrawn: null };
+  console.error(`the LikeC4 page of ${type} drew no view within 60 s: ${wanted} (last seen ${JSON.stringify(last)})`);
+  return last ?? { svgs: 0, texts: [], undrawn: null };
 }
 
 /** Opens one of a diagram's tabs and waits for that renderer to draw. */
@@ -360,6 +404,20 @@ runDescribe('every graph diagram in every renderer that supports it', () => {
       expect(line.overlaps).toBe(0);
       await shot(`diagram-${type}-mermaid.png`);
     }
+    // An end the graph does not hold is drawn by the name the graph gives it, never by its content-addressed id
+    // (madarch-tzte.23.6): the module-dependency view of acme-shop is the one view here that draws one.
+    const moduleLabels = await page.$$eval('[data-diagram-type="module-dependency"] [data-testid="mermaid-diagram"] svg text, [data-diagram-type="module-dependency"] [data-testid="mermaid-diagram"] .nodeLabel', (nodes) => nodes.map((node) => node.textContent ?? ''));
+    expect(moduleLabels).toContain('./gone.js (unresolved)');
+    // The list under the diagram names it the same way, and keeps the id it was cited by as the row's own tooltip.
+    const listed = await page.$$eval('[data-diagram-type="module-dependency"] [data-testid="graph-diagram-elements"] li', (rows) => rows.map((row) => ({
+      label: row.querySelector('.graph-diagram-element-label')?.textContent ?? '',
+      title: row.querySelector('[data-testid="graph-diagram-unpaged"]')?.getAttribute('title') ?? '',
+    })));
+    expect(listed.map((row) => row.label)).toContain('./gone.js (unresolved)');
+    expect(listed.some((row) => row.title.includes('unresolved:file:'))).toBe(true);
+    // No drawer on the page prints the id: the name stands in every diagram, the list and the arrows beside it.
+    const drawingsText = await page.evaluate(() => document.querySelector('[data-testid="graph-diagrams"]')?.textContent ?? '');
+    expect(drawingsText).not.toContain(facts.gone.id);
     // Archify draws every type but the sequence, and LikeC4 the three C4 levels.
     for (const type of types) {
       const frame = await openTab(facts.shop.id, type, 'archify');
@@ -369,16 +427,29 @@ runDescribe('every graph diagram in every renderer that supports it', () => {
       // A dashed connection reaches the page: the model's own dashes are what archify draws.
       const dashed = await touchingPage(async () => await frame!.evaluate(() => document.querySelectorAll('[class*="dashed"]').length));
       console.log(`GRAPH_DIAGRAM_ARCHIFY_DASHED ${JSON.stringify({ type, dashed })}`);
+      if (type === 'module-dependency') {
+        // The name of the end the graph does not hold reaches archify's own page, and its id does not.
+        const drawn = await touchingPage(async () => await frame!.evaluate(() => document.body.textContent ?? ''));
+        expect(drawn).toContain('./gone.js (unresolved)');
+        expect(drawn).not.toContain(facts.gone.id);
+      }
       await shot(`diagram-${type}-archify.png`);
     }
     for (const type of ['c4-context', 'c4-container', 'c4-component']) {
       await openTab(facts.shop.id, type, 'likec4');
-      // LikeC4's own view, or — in a browser where its bundle draws nothing — the page's own words saying so.
+      // LikeC4 draws its own view. The drawings are counted through the shadow roots it nests (madarch-pdkl: the
+      // element's own shadow root holds none of them), and the page's watchdog must stay silent over a drawing.
       const held = await likec4State(facts.shop.id, type);
       console.log(`GRAPH_DIAGRAM_LIKEC4 ${JSON.stringify({ type, ...held })}`);
-      // Either its own drawing, or the page's own words — and the words say which failure it saw.
-      expect(held.svgs > 0 || held.undrawn !== null).toBe(true);
-      if (held.undrawn !== null) expect(held.undrawn).toBe('empty');
+      expect(held.undrawn).toBeNull();
+      expect(held.svgs).toBeGreaterThan(0);
+      // A drawing nobody can read is not a drawing: the view carries its elements' labels.
+      expect(held.texts.length).toBeGreaterThan(0);
+      if (type === 'c4-component') {
+        // LikeC4's own view names the end the graph does not hold, by the specifier its import wrote.
+        expect(held.texts).toContain('./gone.js (unresolved)');
+        expect(held.texts.some((text) => text.includes(facts.gone.id))).toBe(false);
+      }
       await shot(`diagram-${type}-likec4.png`);
     }
     // Every element opens its page and its place in code, under any tab.
