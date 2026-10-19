@@ -764,10 +764,24 @@ function columnOfFact(fact: Fact): DiagramColumn {
 }
 
 /**
+ * The mark every element the graph does not hold carries in its label: not a fact's
+ * own words but madarch's, like every other word the server writes into a document
+ * (the LikeC4 page's own sentence), because the renderers draw the label and a reader
+ * must not mistake it for a node the graph holds. The page's element list keeps the
+ * localized `unresolved` chip beside it (`wiki/app/src/locales`).
+ */
+const UNRESOLVED_MARK = ' (unresolved)';
+
+/**
  * What a reader calls an end the graph does not hold: the name the graph's own facts
  * give it — an import's specifier as written (`./gone.js`) — and, where they give
  * none, the kind its id's own prefix states (`state`). Marked `unresolved`, because a
  * reader must never mistake it for a node the graph holds.
+ *
+ * Two ends of one kind that no fact names read alike (`state (unresolved)` twice in
+ * one machine's view): that is the decision, not an accident — the graph knows nothing
+ * that tells them apart, and an ordinal made up here would read as a name the graph
+ * holds. Their ids differ, and the page lists each row with its own id as the tooltip.
  *
  * The fact id is never the label: it is content-addressed, it reads as nothing a
  * person can act on, and the id stays reachable anyway — the element's own id carries
@@ -775,9 +789,9 @@ function columnOfFact(fact: Fact): DiagramColumn {
  */
 function missingLabel(id: string, names: ReadonlySet<string>): string {
   const named = [...names].sort(byCodePoint)[0];
-  if (named !== undefined) return `${named} (unresolved)`;
+  if (named !== undefined) return `${named}${UNRESOLVED_MARK}`;
   const colon = id.indexOf(':');
-  return `${colon > 0 ? id.slice(0, colon) : 'node'} (unresolved)`;
+  return `${colon > 0 ? id.slice(0, colon) : 'node'}${UNRESOLVED_MARK}`;
 }
 
 /** An element for an end the graph does not hold: dashed, no page, no code, an id no fact can carry, and the name its facts give it. */
@@ -1152,7 +1166,7 @@ async function gatherTables(checked: CheckedSpec, scoped: readonly Fact[], reads
     elements.push({
       id: `${UNRESOLVED_PREFIX}table:${repository}/${table}`,
       kind: null,
-      label: `${repository}:${table} (unresolved)`,
+      label: `${repository}:${table}${UNRESOLVED_MARK}`,
       evidence: 'unresolved',
       dashed: true,
       columns,

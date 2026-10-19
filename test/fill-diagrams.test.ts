@@ -25,7 +25,8 @@ import {
   type DiagramModel,
   type DiagramViewSpec,
 } from '../src/fill/diagrams.js';
-import { DIAGRAM_FIXTURE, readsOf } from './fill-diagram-fixture.js';
+import { makeEdgeFact, makeNodeFact } from '../src/fill/facts.js';
+import { DIAGRAM_FIXTURE, provenance, readsOf } from './fill-diagram-fixture.js';
 
 /** The fixture's graph, and the same graph with the edge into the file no unit holds left out — the normally published one. */
 const fx = DIAGRAM_FIXTURE;
@@ -121,11 +122,49 @@ describe('a node the graph does not hold', () => {
     const placeholder = model.elements.find((element) => element.kind === null);
     expect(placeholder?.label).toBe('./gone.js (unresolved)');
     expect(placeholder?.id).toBe(`${UNRESOLVED_PREFIX}${fx.gone.id}`);
-    // Two imports name that one file, and one name is drawn: the labels a view holds are a function of the graph alone,
-    // so the name does not move between two walks of the same graph.
+    // The one import into that file is the one name the view holds, and the labels a view holds are a function of the
+    // graph alone: the name does not move between two walks of the same graph.
     expect(model.elements.filter((element) => element.kind === null)).toHaveLength(1);
     const again = await buildDiagram({ type: 'module-dependency', nodes: [fx.shop.id] }, full);
     expect(labels(again)).toEqual(labels(model));
+  });
+
+  test('an end two imports name by different specifiers is labelled by the first of them in code point order', async () => {
+    // The rule the model states, and the one case only a second edge makes: `../x/gone.js` sorts before `./gone.js`
+    // (a full stop before a slash), so it is the name drawn — the same name on every machine and on every walk.
+    const second = makeEdgeFact({
+      kind: 'import',
+      value: { from: fx.cart.id, to: fx.gone.id, specifier: '../x/gone.js' },
+      provenance: provenance('acme-shop', 'src/cart.ts', 4),
+      layer: 'extracted',
+    });
+    const two = readsOf([...fx.facts, second]);
+    const model = await buildDiagram({ type: 'module-dependency', nodes: [fx.shop.id] }, two);
+    expect(model.elements.find((element) => element.kind === null)?.label).toBe('../x/gone.js (unresolved)');
+    // And the choice is an order, not a first-read: the same graph drawn again draws the same name.
+    expect(labels(await buildDiagram({ type: 'module-dependency', nodes: [fx.shop.id] }, two))).toEqual(labels(model));
+  });
+
+  test('two ends of one kind that no fact names read alike, and their ids still tell them apart', async () => {
+    // The decision the model records: the graph knows nothing that tells two nameless states apart, so neither label
+    // invents a name; the element ids differ, and the page lists each row with its own id as the tooltip.
+    const elsewhere = makeNodeFact({
+      kind: 'state',
+      value: { repository: 'acme-shop', machine: 'OrderStatus', name: 'OrderStatus.cancelled' },
+      provenance: provenance('acme-shop', 'src/cart.ts', 17),
+      layer: 'inferred',
+    });
+    const toNothing = makeEdgeFact({
+      kind: 'transition',
+      value: { from: fx.paidState.id, to: elsewhere.id, event: 'cancel' },
+      provenance: provenance('acme-shop', 'src/cart.ts', 18),
+      layer: 'inferred',
+    });
+    const model = await buildDiagram({ type: 'state', nodes: [fx.newState.id] }, readsOf([...fx.facts, toNothing]));
+    const nameless = model.elements.filter((element) => element.kind === null);
+    expect(nameless.map((element) => element.label)).toEqual(['state (unresolved)', 'state (unresolved)']);
+    expect(new Set(nameless.map((element) => element.id)).size).toBe(2);
+    expect(nameless.map((element) => element.id)).toContain(`${UNRESOLVED_PREFIX}${elsewhere.id}`);
   });
 });
 

@@ -336,8 +336,10 @@ describe('the LikeC4 page of a diagram', () => {
     // The watchdog reads the whole composed tree: LikeC4 draws into a shadow root inside one, and a page that asked
     // the element's own shadow root would announce a drawing nobody lacks (madarch-pdkl).
     expect(page.html).toContain(`var likec4Drawings = ${LIKEC4_DRAWINGS_SOURCE};`);
-    expect(page.html).toContain('var drawings = element === null ? [] : likec4Drawings(element);');
-    expect(page.html).toContain('if (drawings.length > 0) return;');
+    // The page asks that walk about the element it carries, and takes the sentence away when a drawing appears: what
+    // the page does with the answer, not which line of the script spells it.
+    expect(page.html).toContain('likec4Drawings(element)');
+    expect(page.html).toContain('if (said) said.remove();');
     expect(page.html).toContain('C4 context: the whole product');
   });
 });

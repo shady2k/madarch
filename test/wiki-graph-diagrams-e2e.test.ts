@@ -296,6 +296,7 @@ interface LikeC4State {
  */
 async function likec4State(node: string, type: string): Promise<LikeC4State> {
   const wanted = `/api/graph/likec4.html?id=${encodeURIComponent(node)}&type=${encodeURIComponent(type)}`;
+  let last: LikeC4State | null = null;
   for (let attempt = 0; attempt < 300; attempt++) {
     const frame = page!.frames().find((candidate) => {
       try {
@@ -324,16 +325,30 @@ async function likec4State(node: string, type: string): Promise<LikeC4State> {
         if (element !== undefined && element.shadowRoot !== null) collect(element.shadowRoot);
         return {
           svgs: drawings.length,
-          texts: [...new Set(texts)].slice(0, 40),
+          texts: [...new Set(texts)],
           undrawn: document.querySelector('[data-likec4-undrawn]')?.getAttribute('data-likec4-undrawn') ?? null,
         };
       }, LIKEC4_DRAWINGS_SOURCE).catch(() => null);
-      if (held !== null && (held.svgs > 0 || held.undrawn !== null)) return held;
+      if (held !== null) last = held;
+      // A drawing is what is waited for: the page says its sentence eight seconds in and takes it away again if the
+      // drawing arrives later, so a sentence on its own is not the answer yet, and one beside a drawing is the
+      // page's own timer doing its work — one more look settles it.
+      if (held !== null && held.svgs > 0) {
+        if (held.undrawn === null) return held;
+        await new Promise((rest) => setTimeout(rest, 400));
+        const again = await frame.evaluate((source: string) => {
+          const element = [...document.querySelectorAll('*')].find((child) => child.tagName.toLowerCase().endsWith('-view')) as HTMLElement | undefined;
+          const drawings = element === undefined ? [] : (new Function(`return (${source});`)() as (root: Element) => readonly Element[])(element);
+          return { svgs: drawings.length, undrawn: document.querySelector('[data-likec4-undrawn]')?.getAttribute('data-likec4-undrawn') ?? null };
+        }, LIKEC4_DRAWINGS_SOURCE).catch(() => null);
+        if (again !== null && again.svgs > 0 && again.undrawn === null) return { ...held, undrawn: null };
+        return held;
+      }
     }
     await new Promise((rest) => setTimeout(rest, 200));
   }
-  console.error(`the LikeC4 page of ${type} neither drew its view nor said why: ${wanted}`);
-  return { svgs: 0, texts: [], undrawn: null };
+  console.error(`the LikeC4 page of ${type} drew no view within 60 s: ${wanted} (last seen ${JSON.stringify(last)})`);
+  return last ?? { svgs: 0, texts: [], undrawn: null };
 }
 
 /** Opens one of a diagram's tabs and waits for that renderer to draw. */

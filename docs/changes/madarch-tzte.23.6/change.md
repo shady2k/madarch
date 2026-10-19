@@ -31,7 +31,14 @@ madarch-tzte.23.4 already kept a link target for an element that has no page.
 
 One name is chosen where an end is cited by several: the specifiers in code point
 order, the first — a function of the graph alone, so two walks of one graph draw the
-same label.
+same label (covered by a case that gives one missing file two specifiers:
+`../x/gone.js` sorts before `./gone.js`, so it is the name drawn).
+
+Two ends of one kind that no fact names read alike — `state (unresolved)` twice in one
+machine's view. That is the decision and not an accident: the graph knows nothing that
+tells them apart, and an ordinal invented here would read as a name the graph holds.
+Their element ids differ, and the page lists each row with its own id as the tooltip
+(covered by a case with two states no unit holds).
 
 An ER table no fact holds already read as its repository's path and table name
 (`acme-shop:public.audit`); it gains the same `(unresolved)` mark, so the three
@@ -63,7 +70,7 @@ pages are unchanged.
 
 - product-wiki/architecture: unchanged — a view's page still draws its diagram in the browser, and every element still links its page and its place in code.
 - views/deterministic: unchanged — a model is still the same bytes for the same graph, and the new label is a function of the graph alone (the specifiers in code point order, else the kind), with nothing read from the clock, a store's collation or a renderer.
-- product-wiki/internationalization: unchanged — a diagram's labels are the graph's own data and not app-owned strings; the element list's localized `unresolved` chip stays as it is, and no new app string is added.
+- product-wiki/internationalization: unchanged — the labels a diagram carries are the graph's own data, and the one word this change adds to them, `(unresolved)`, is madarch's own: it is written by the server into a document, in English like every other word the server writes (the LikeC4 page's sentence, the static build's refusals), and the page's element list keeps the localized `graph.diagram.evidence.unresolved` chip beside it in both catalogues. No new app-owned string is added.
 - server/serves-wiki: unchanged — the answers carry the same shapes and routes; only the `label` of an element the graph does not hold gains its name and mark.
 
 ## Coverage
@@ -104,7 +111,14 @@ fill service), and read as the text the browser shows:
 
 - The Mermaid module-dependency diagram draws the label `./gone.js (unresolved)` (and
   never the fact id); archify's page and LikeC4's own view (the C4 component view,
-  which rolls the import up from the module that wrote it) carry the same name.
+  which rolls the import up from the module that wrote it) carry the same name. The
+  walk's own line for that view (run `run-20261019-193823`):
+  `GRAPH_DIAGRAM_LIKEC4 {"type":"c4-component","svgs":3,"texts":["import","import,
+  interaction","interaction","checkout","acme-shop · src/cart.ts:1-1","./gone.js
+  (unresolved)","payment","acme-shop · src/pay.ts:1-1",…],"undrawn":null}`. Before the
+  change the same walk read `"file:150d60b9b0f0dd6036edb50fcafc628dd64ec875f480acf0426c8c6dbf773d7b"`
+  in that position (run `run-20261019-194926`, the branch's first commit alone) — the
+  coordinator's own report of this defect, reproduced.
 - The element list under the diagram names the element `./gone.js (unresolved)`, and
   its row keeps the id as the tooltip; the diagrams section's text carries no
   content-addressed id.

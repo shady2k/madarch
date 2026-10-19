@@ -41,7 +41,11 @@ What changes:
 - **`src/product-wiki/likec4-drawings.ts`** (new) holds the one answer to "what did
   LikeC4 draw": a function expression that walks the element's whole composed tree —
   its own open shadow root and every shadow root inside it, at any depth — and
-  answers with the svgs it finds.
+  answers with the svgs it finds. What that means exactly: any svg in that tree, which
+  includes LikeC4's own chrome (the icons of its controls). It therefore under-claims
+  only in the harmless direction — a page holding an icon and no drawing is not told
+  it drew — and the labels the walk reads, not the count alone, are what say a reader
+  has a diagram.
 - **`src/product-wiki/graph-render.ts`** inlines that source into the LikeC4 page and
   asks it, so the watchdog speaks only for a browser where LikeC4 really drew
   nothing, and keeps naming which failure it saw (`not-loaded` when the bundle never
@@ -107,9 +111,15 @@ None.
   the texts `Shop` and `Web`, one svg holding 3 `g` and 4 `path`). A page that counted
   `svg text` would call a diagram of boxes empty, so the walk's labels are the text of
   the composed tree's leaves.
-- **The watchdog stays.** A browser where the bundle never loads, or where the element
-  stays empty, still says so in words rather than showing an empty frame; only the
-  question it asks changed.
+- **The watchdog stays, and it now watches instead of sampling once.** A browser where
+  the bundle never loads, or where the element stays empty, still says so in words
+  rather than showing an empty frame. It checks every 250 ms from the page's `load`,
+  says its sentence once eight seconds have passed without a drawing (the bound
+  madarch-tzte.23.4 chose), takes the sentence away again if a drawing appears later —
+  a slow first paint must not leave a sentence over a picture — and stops watching at
+  two minutes, so a page left open holds no timer. The walk's requirement
+  (`undrawn: null` together with a drawing) is therefore safe against a slow first
+  paint, which is why it can be a requirement and not a tolerance.
 - **The tab keeps a document of its own.** Why the app frames a page is unchanged and
   is not what madarch-pdkl measured: the bundle is a script that defines the element,
   and the page is the way the static wiki already shows it.
@@ -124,8 +134,20 @@ over a real fill service and its PGlite store), read as numbers the browser comp
   error, drawn within 3 s; screenshot
   `madarch-diagram-shots-2/probe-out/likec4-smallest-reproduction.png` (92 487 C4-blue
   pixels).
-- `GRAPH_DIAGRAM_LIKEC4` for the three C4 levels of the fixture's repository page:
-  a drawing found, `undrawn: null`, and the labels the drawing shows — see the run's
-  log and the report.
+- `GRAPH_DIAGRAM_LIKEC4` for the three C4 levels of the fixture's repository page, the
+  walk's own lines (run `run-20261019-193823` on the branch, which carries both task
+  commits): `{"type":"c4-component","svgs":3,"texts":["import","import, interaction",
+  "interaction","checkout","acme-shop · src/cart.ts:1-1","./gone.js (unresolved)",
+  "payment","acme-shop · src/pay.ts:1-1",…],"undrawn":null}` and the same shape for
+  `c4-context` (`svgs: 2`) and `c4-container` (`svgs: 1`) — a drawing in each, the
+  page's sentence in none. The pre-fix state of the same walk (commit `b2e48543` alone,
+  run `run-20261019-194926`) reads `undrawn: null` too, which is the fix working: the
+  sentence was what the old, wrong question produced.
 - Screenshots of the three LikeC4 tabs (`diagram-{c4-context,c4-container,c4-component}-likec4.png`)
-  fetched from the pod into `/home/dev/.cache/madarch-diagram-shots-2/`.
+  fetched from the pod into `/home/dev/.cache/madarch-diagram-shots-2/` (`shots/` is the
+  walk of the branch, `shots-pdkl/` the same walk of this commit alone).
+- The probe above was a throwaway script in the worktree, run on the pod with
+  `madarch-sky-test --avx2 --cmd <worktree> 'node .probe/likec4-shadow.mjs'`; it is not
+  committed, and what it printed is quoted here in full. Its reproduction is the
+  five-line workspace and the page it builds, both written out above, so the numbers
+  can be derived again by hand.

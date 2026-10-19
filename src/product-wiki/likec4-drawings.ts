@@ -15,6 +15,12 @@
  * level deeper — so the page announced a drawing nobody lacked and the walk recorded
  * `svgs: 0`.
  *
+ * What it answers, exactly: every svg in the element's composed tree. LikeC4's own
+ * chrome (the icons of its controls) lives in the same tree, so a page holding an icon
+ * and no drawing is not told it drew — the walk's labels, not this count alone, are
+ * what say a reader has a diagram, because a drawing that carries no text is no
+ * diagram a person reads.
+ *
  * The source is a plain function expression so both callers run exactly these bytes:
  * the page inlines them into its own classic script, and the walk evaluates them in
  * the frame it measures. It walks the composed tree — the host element, its own open
