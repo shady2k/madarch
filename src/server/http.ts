@@ -37,7 +37,7 @@ import type { Graphs } from './graphs.js';
 import { createGraphs } from './graphs.js';
 import type { SourceStoreResult, SourceStores } from './sources.js';
 import { createSourceStores, sourceNameProblem } from './sources.js';
-import { createWikiPart, serveAppAssets, type WikiPart } from './wiki-app.js';
+import { createWikiPart, fillAuth, serveAppAssets, type WikiPart } from './wiki-app.js';
 import { createGraphPagesPart, emptyGraphPagesSource, type GraphPagesPart, type GraphPagesSource } from './graph-pages.js';
 import { createGraphDiagramsPart, type GraphDiagramsPart } from './graph-diagrams.js';
 import { openProductWiki, type ProductWiki } from '../product-wiki/pages.js';
@@ -46,6 +46,7 @@ import { basename } from 'node:path';
 import type { StartFillOptions, StartFillResult } from '../product/fill.js';
 import { UNIT_TOOL_PATH, type UnitToolAnswer, type UnitToolCall } from '../fill/unit-tools.js';
 import { readChosenModel, saveChosenAgent } from '../product/fill-wizard.js';
+import { homeFromEnv } from '../product/home.js';
 
 /** The largest body the server reads: 50 MB, far past any compiled model sent so far. */
 const MAX_BODY_BYTES = 50 * 1024 * 1024;
@@ -286,11 +287,12 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   const graphDiagramsOf = (productFolder: string, product: string): GraphDiagramsPart =>
     createGraphDiagramsPart({ json: makeJson, refused: wikiRefused, errorLog }, options.graphPages?.(productFolder) ?? emptyGraphPagesSource(product), { env });
   const handle = createHandler({
+    env,
     sources,
     graphs,
     log,
     errorLog,
-    wiki: productWiki === undefined ? undefined : createWikiPart(makeJson, wikiRefused, productWiki, appFolder),
+    wiki: productWiki === undefined ? undefined : createWikiPart(makeJson, wikiRefused, productWiki, appFolder, { env }),
     appFolder,
     startFill: options.startFill,
     productFolder: options.productFolder,
@@ -331,7 +333,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
       }
       next.set(basename(item.folder), {
         wiki: opened.wiki,
-        handler: createHandler({ sources, graphs, log, errorLog, wiki: createWikiPart(makeJson, wikiRefused, opened.wiki, appFolder), appFolder, startFill: options.startFill, productFolder: item.folder, unitTool: options.orchestrator?.unitTool, graphPages: graphPagesOf(item.folder, opened.wiki.product.name), graphDiagrams: graphDiagramsOf(item.folder, opened.wiki.product.name) }),
+        handler: createHandler({ env, sources, graphs, log, errorLog, wiki: createWikiPart(makeJson, wikiRefused, opened.wiki, appFolder, { env }), appFolder, startFill: options.startFill, productFolder: item.folder, unitTool: options.orchestrator?.unitTool, graphPages: graphPagesOf(item.folder, opened.wiki.product.name), graphDiagrams: graphDiagramsOf(item.folder, opened.wiki.product.name) }),
       });
     }
     productEntries.clear();
@@ -481,8 +483,11 @@ export function createHandler(dependencies: {
   graphPages?: GraphPagesPart;
   /** The graph's diagrams and their generated documents (madarch-tzte.23.4). */
   graphDiagrams?: GraphDiagramsPart;
+  /** The environment the handler judges a request against; the process's own when it is left out (the fill's sign-in choice reads it). */
+  env?: ServerOptions['env'];
 }): ServerHandler {
   const { log, errorLog, wiki } = dependencies;
+  const handlerEnv = dependencies.env ?? process.env;
   // The model routes are put in the table only when a data folder was
   // given, so their handlers below can never be entered without the
   // sources and the graphs: the types stay asserted, the guard is the
@@ -566,24 +571,34 @@ export function createHandler(dependencies: {
         // setting, so it must not become the choice yet not defeat the
         // environment the refusal message and both hints advertise.
         const askedModel = typeof asked.model === 'string' && asked.model !== '' ? asked.model : undefined;
+        // How the fill pays is judged before anything is saved, and an
+        // API-key fill of an agent whose variable is unset is refused by the
+        // variable's name (fillAuth): madarch never asks for the key itself.
+        const auth = fillAuth(asked.agent, asked.auth, handlerEnv);
+        if ('refusal' in auth) return refused(400, { message: auth.refusal });
         // The omp adapter needs an explicit model and a gateway extension. The
         // model is the per-machine setting (the wizard's field, or the
         // environment the CLI reads); the extension stays environment-only.
         try {
-          const candidateModel = askedModel ?? ((await readChosenModel()) || process.env.MADARCH_FILL_MODEL);
+          const settingsHome = homeFromEnv(handlerEnv);
+          const candidateModel = askedModel ?? ((await readChosenModel(settingsHome)) || handlerEnv.MADARCH_FILL_MODEL);
           if (asked.agent === 'omp') {
             if (!candidateModel) return refused(400, { message: 'omp needs a model: set it in the wizard or through MADARCH_FILL_MODEL' });
-            if (!process.env.MADARCH_OMP_EXTENSION) return refused(400, { message: 'omp needs the gateway extension path: set MADARCH_OMP_EXTENSION' });
+            if (!handlerEnv.MADARCH_OMP_EXTENSION) return refused(400, { message: 'omp needs the gateway extension path: set MADARCH_OMP_EXTENSION' });
           }
-          await saveChosenAgent(asked.agent, askedModel === undefined ? {} : { model: askedModel });
-          const chosenModel = (await readChosenModel()) || process.env.MADARCH_FILL_MODEL;
-          const ompOptions = { model: chosenModel, ompExecutable: process.env.MADARCH_OMP_EXECUTABLE, ompExtension: process.env.MADARCH_OMP_EXTENSION };
+          await saveChosenAgent(asked.agent, { ...(asked.auth === undefined ? {} : { auth: auth.auth }), ...(askedModel === undefined ? {} : { model: askedModel }) }, settingsHome);
+          const chosenModel = (await readChosenModel(settingsHome)) || handlerEnv.MADARCH_FILL_MODEL;
+          // The fill itself runs in this process's own environment (it is
+          // spawned by src/product/fill-agents.ts), which is what the wizard's
+          // `env` stands for when the server was given one.
+          const ompOptions = { model: chosenModel, ompExecutable: handlerEnv.MADARCH_OMP_EXECUTABLE, ompExtension: handlerEnv.MADARCH_OMP_EXTENSION };
           void startFill(fillProductFolder!, { agent: asked.agent, ...(asked.maxUnits === undefined ? {} : { maxUnits: asked.maxUnits as number }), ...(asked.agent === 'omp' ? ompOptions : {}) }).catch((error) => errorLog(`fill start failed: ${(error as Error).message}`));
           return { response: json(202, { accepted: true, status: 'starting' }) };
         }
         catch (error) { return refused(409, { message: (error as Error).message }); }
       } },
       { method: 'GET', path: '/api/fill/wizard', handle: (request) => wiki.fillWizard(request) },
+      { method: 'POST', path: '/api/fill/agent-install', handle: (request) => wiki.fillAgentInstall(request) },
       { method: 'GET', path: '/api/fill/inventory', handle: () => wiki.fillInventory() },
       { method: 'POST', path: '/api/fill/test', handle: (request) => wiki.fillAgentTest(request) },
       { method: 'POST', path: '/api/fill/control', handle: (request) => { const url = new URL(request.url); const action = url.searchParams.get('action'); if (action !== 'pause' && action !== 'stop') return refused(400, { message: 'fill action must be exactly pause or stop' }); return serializeState(() => wiki.fillControl(request, url.searchParams.get('runId') ?? '', action)); } },

@@ -1,4 +1,4 @@
-import { basename } from 'node:path';
+import { basename, dirname } from 'node:path';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -107,7 +107,7 @@ afterEach(async () => {
   folder = undefined;
 });
 
-async function startProduct(options: { startFill?: ServerOptions['startFill'] } = {}): Promise<string> {
+async function startProduct(options: { startFill?: ServerOptions['startFill']; env?: ServerOptions['env'] } = {}): Promise<string> {
   lines = [];
   errors = [];
   server = await startServer({
@@ -131,12 +131,315 @@ describe('the server\'s product mode', () => {
     const init=spawnSync('git',['init','--quiet','--initial-branch=main'],{cwd:folder!,env:gitEnv(),encoding:'utf8'});expect(init.status).toBe(0);
     writeFileSync(join(folder!,'README.md'),'# Example\n');spawnSync('git',['add','-A'],{cwd:folder!,env:gitEnv()});
     spawnSync('git',['commit','--quiet','-m','fixture'],{cwd:folder!,env:{...gitEnv(),GIT_AUTHOR_NAME:'Fixture',GIT_AUTHOR_EMAIL:'fixture@example.com',GIT_COMMITTER_NAME:'Fixture',GIT_COMMITTER_EMAIL:'fixture@example.com'}});
-    const url=await startProduct({startFill:async (_product,_input)=>({run: {id:'run-fake'}, counts:{run:0,reused:0}, questionReview:'hook-pending-co2d.1'} as never)});
+    // The wizard probes the machine for agents: a PATH of this test's own keeps
+    // the answer the same on every machine (no adapter is installed anywhere).
+    const url=await startProduct({env:{...process.env, PATH: emptyPath()}, startFill:async (_product,_input)=>({run: {id:'run-fake'}, counts:{run:0,reused:0}, questionReview:'hook-pending-co2d.1'} as never)});
     const info=await fetch(`${url}/api/fill/wizard`);expect(info.status).toBe(200);expect(await info.json()).toMatchObject({runExists:false,agents:[{name:'claude'},{name:'codex'},{name:'omp'}]});
     const inventory=await fetch(`${url}/api/fill/inventory`);expect(inventory.status).toBe(200);expect(await inventory.json()).toMatchObject({rough:true,inventory:{files:expect.any(Array),estimates:expect.any(Array)}});
     const started=await fetch(`${url}/api/fill/start`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({agent:'codex',maxUnits:4})});expect(started.status).toBe(202);expect(await started.json()).toMatchObject({accepted:true,status:'starting'});
     const invalid=await fetch(`${url}/api/fill/start`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({agent:'codex',maxUnits:10001})});expect(invalid.status).toBe(400);
     } finally { if (choiceExisted && choiceBefore!==undefined) writeFileSync(choicePath, choiceBefore); else if (!choiceExisted) rmSync(choicePath,{force:true}); }
+  });
+
+
+/** A program that answers ACP's initialize and nothing else, as a machine of the test's own holds it. */
+const FAKE_ACP_ADAPTER = `import { createInterface } from 'node:readline';
+const lines = createInterface({ input: process.stdin });
+lines.on('line', (line) => {
+  if (!line.trim()) return;
+  const message = JSON.parse(line);
+  if (message.method === 'initialize') process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { protocolVersion: 1, agentCapabilities: {}, agentInfo: { name: 'fake-agent', version: '1.0.0' }, authMethods: [] } }) + '\\n');
+});
+`;
+
+/** Writes one executable fake program: a shell wrapper around this test's own runtime, so it needs no PATH. */
+function writeProgram(folder: string, name: string, source: string): string {
+  mkdirSync(folder, { recursive: true });
+  const script = join(folder, `${name}.program.js`);
+  writeFileSync(script, source);
+  const file = join(folder, name);
+  writeFileSync(file, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(script)} "$@"\n`);
+  chmodSync(file, 0o755);
+  return file;
+}
+
+const scratchFolders: string[] = [];
+afterEach(() => { for (const folderPath of scratchFolders.splice(0)) rmSync(folderPath, { recursive: true, force: true }); });
+
+/** A search path of the test's own: a folder holding nothing, so no adapter on the machine is found. */
+function emptyPath(): string {
+  const folderPath = mkdtempSync(join(tmpdir(), 'madarch-empty-path-'));
+  scratchFolders.push(folderPath);
+  return folderPath;
+}
+
+/** What the run's own machine holds, with the search path replaced by the test's. */
+function machineEnv(path: string): NodeJS.ProcessEnv {
+  return { ...process.env, PATH: path };
+}
+
+/** The folder madarch installs its agents into on this run's machine. */
+function agentsFolder(): string {
+  return join(process.env.MADARCH_HOME ?? join(process.env.HOME ?? tmpdir(), 'madarch'), 'agents');
+}
+
+
+  test('the wizard reports the ACP probe\'s agents, their sign-in, and the install an adapter that is missing would need', async () => {
+    draft(); builtApp();
+    const init = spawnSync('git', ['init', '--quiet', '--initial-branch=main'], { cwd: folder!, env: gitEnv(), encoding: 'utf8' });
+    expect(init.status).toBe(0);
+    writeFileSync(join(folder!, 'README.md'), '# Example\n');
+    spawnSync('git', ['add', '-A'], { cwd: folder!, env: gitEnv() });
+    spawnSync('git', ['commit', '--quiet', '-m', 'fixture'], { cwd: folder!, env: { ...gitEnv(), GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.com', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.com' } });
+    // A machine where madarch installed its own adapters: the probe finds them
+    // in madarch's own folder before anything the machine's PATH may hold.
+    const installed: string[] = [];
+    try {
+      for (const [id, binary] of [['claude', 'claude-agent-acp'], ['codex', 'codex-acp'], ['omp', 'omp'], ['pi', 'pi-acp']] as const) {
+        writeProgram(join(agentsFolder(), id, 'node_modules', '.bin'), binary, FAKE_ACP_ADAPTER);
+        installed.push(join(agentsFolder(), id));
+      }
+      const url = await startProduct({ env: machineEnv(emptyPath()) });
+      const answer = await fetch(`${url}/api/fill/wizard`);
+      expect(answer.status).toBe(200);
+      const wizard = await answer.json() as { acp: { agentsFolder: string; findings: Array<{ id: string; status: string; foundIn?: string; fillAgent?: string; login: { state: string; detail: string }; install?: { installedSize?: string; version?: string } }> } };
+      expect(wizard.acp.agentsFolder).toBe(agentsFolder());
+      expect(wizard.acp.findings.map((finding) => finding.id)).toEqual(['claude-code', 'codex', 'omp', 'pi']);
+      expect(wizard.acp.findings.every((finding) => finding.status === 'connected')).toBe(true);
+      expect(wizard.acp.findings.every((finding) => finding.foundIn === 'madarch')).toBe(true);
+      expect(wizard.acp.findings.map((finding) => finding.fillAgent)).toEqual(['claude', 'codex', 'omp', undefined]);
+      // Nobody signed in on this run's home: the probe says so, by the path it looked at.
+      const claude = wizard.acp.findings[0]!;
+      expect(claude.login.state).toBe('not-signed-in');
+      expect(claude.login.detail).toContain(join(process.env.HOME ?? '', '.claude', '.credentials.json'));
+    } finally {
+      for (const folderPath of installed) rmSync(folderPath, { recursive: true, force: true });
+    }
+  });
+
+  test('a machine with no adapter and no npm anywhere is read as four agents with none, each naming its install', async () => {
+    draft(); builtApp();
+    const init = spawnSync('git', ['init', '--quiet', '--initial-branch=main'], { cwd: folder!, env: gitEnv(), encoding: 'utf8' });
+    expect(init.status).toBe(0);
+    writeFileSync(join(folder!, 'README.md'), '# Example\n');
+    spawnSync('git', ['add', '-A'], { cwd: folder!, env: gitEnv() });
+    spawnSync('git', ['commit', '--quiet', '-m', 'fixture'], { cwd: folder!, env: { ...gitEnv(), GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.com', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.com' } });
+    // A machine of this test's own: a home with no sign-in, a madarch home with
+    // no adapter, and a search path that holds nothing at all.
+    const home = mkdtempSync(join(tmpdir(), 'madarch-empty-machine-'));
+    const empty = join(home, 'path');
+    mkdirSync(empty, { recursive: true });
+    const url = await startProduct({ env: { ...process.env, HOME: home, MADARCH_HOME: join(home, 'madarch'), PATH: empty } });
+    const answer = await fetch(`${url}/api/fill/wizard`);
+    expect(answer.status).toBe(200);
+    const wizard = await answer.json() as { acp: { path: string; agentsFolder: string; findings: Array<{ id: string; status: string; detail: string; login: { state: string }; install?: { byMadarch: boolean; installedSize?: string; command: string } }> } };
+    expect(wizard.acp.path).toBe(empty);
+    expect(wizard.acp.agentsFolder).toBe(join(home, 'madarch', 'agents'));
+    expect(wizard.acp.findings.every((finding) => finding.status === 'not-installed')).toBe(true);
+    expect(wizard.acp.findings.every((finding) => finding.login.state !== 'signed-in')).toBe(true);
+    const claude = wizard.acp.findings.find((finding) => finding.id === 'claude-code')!;
+    expect(claude.install?.byMadarch).toBe(true);
+    expect(claude.install?.installedSize).toBe('299 MiB');
+    expect(claude.install?.command).toBe(`npm install --prefix ${join(home, 'madarch', 'agents', 'claude')} @agentclientprotocol/claude-agent-acp@0.93.0`);
+    expect(claude.detail).toContain('nothing named claude-agent-acp or claude-code-acp is executable on PATH');
+    const omp = wizard.acp.findings.find((finding) => finding.id === 'omp')!;
+    expect(omp.install?.byMadarch).toBe(false);
+  });
+
+  test('a yes installs the adapter into madarch\'s own folder with the machine\'s npm, and the probe then finds it there', async () => {
+    draft(); builtApp();
+    const init = spawnSync('git', ['init', '--quiet', '--initial-branch=main'], { cwd: folder!, env: gitEnv(), encoding: 'utf8' });
+    expect(init.status).toBe(0);
+    writeFileSync(join(folder!, 'README.md'), '# Example\n');
+    spawnSync('git', ['add', '-A'], { cwd: folder!, env: gitEnv() });
+    spawnSync('git', ['commit', '--quiet', '-m', 'fixture'], { cwd: folder!, env: { ...gitEnv(), GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.com', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.com' } });
+    // A registry and an npm of the test's own, ahead of the machine's own npm:
+    // the install runs for real, and nothing reaches the network.
+    const machine = mkdtempSync(join(tmpdir(), 'madarch-fake-registry-'));
+    const pathBefore = process.env.PATH ?? '';
+    try {
+      const packageFolder = join(machine, 'registry', '@agentclientprotocol', 'claude-agent-acp');
+      mkdirSync(join(packageFolder, 'dist'), { recursive: true });
+      writeFileSync(join(packageFolder, 'package.json'), JSON.stringify({ name: '@agentclientprotocol/claude-agent-acp', version: '0.93.0', bin: { 'claude-agent-acp': 'dist/index.js' } }));
+      writeFileSync(join(packageFolder, 'dist', 'index.js'), FAKE_ACP_ADAPTER);
+      const npm = writeProgram(join(machine, 'bin'), 'npm', `
+import { chmodSync, cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+const args = process.argv.slice(2);
+if (args.includes('-g') || args.includes('--global')) { process.stderr.write('refused: a global install\\n'); process.exit(1); }
+const value = (flag) => { const at = args.indexOf(flag); return at === -1 ? undefined : args[at + 1]; };
+const prefix = value('--prefix');
+if (!prefix) { process.stderr.write('refused: no --prefix\\n'); process.exit(1); }
+const spec = args[args.length - 1];
+const name = spec.slice(0, spec.lastIndexOf('@'));
+const source = join(${JSON.stringify(join(machine, 'registry'))}, ...name.split('/'));
+const target = join(prefix, 'node_modules', ...name.split('/'));
+mkdirSync(target, { recursive: true });
+cpSync(source, target, { recursive: true });
+const bin = join(prefix, 'node_modules', '.bin');
+mkdirSync(bin, { recursive: true });
+const manifest = JSON.parse(readFileSync(join(target, 'package.json'), 'utf8'));
+for (const [name, file] of Object.entries(manifest.bin ?? {})) {
+  chmodSync(join(target, file), 0o755);
+  writeFileSync(join(bin, name), '#!/bin/sh\\nexec ' + JSON.stringify(process.execPath) + ' ' + JSON.stringify(join(target, file)) + ' "$@"\\n');
+  chmodSync(join(bin, name), 0o755);
+}
+process.stdout.write('added 133 packages in 1m\\n');
+`);
+      // The search path holds the fake npm and nothing else: no adapter of the
+      // machine is ever started by the re-probe, and every row but the installed
+      // one is a machine with no adapter.
+      const url = await startProduct({ env: machineEnv(dirname(npm)) });
+      const installedFolder = join(agentsFolder(), 'claude');
+      try {
+        const answer = await fetch(`${url}/api/fill/agent-install`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent: 'claude-code' }) });
+        const done = await answer.json() as { installed: { folder: string; executable: string }; finding: { status: string; foundIn?: string; executable?: string }; acp: { findings: Array<{ id: string; status: string; foundIn?: string }> } };
+        expect({ status: answer.status, ...(answer.status === 200 ? {} : { message: (done as unknown as { message: string }).message }) }).toEqual({ status: 200 });
+        expect(done.installed.folder).toBe(installedFolder);
+        expect(existsSync(join(installedFolder, 'node_modules', '@agentclientprotocol', 'claude-agent-acp', 'package.json'))).toBe(true);
+        expect(done.finding.status).toBe('connected');
+        expect(done.finding.foundIn).toBe('madarch');
+        expect(done.finding.executable).toBe(done.installed.executable);
+        expect(done.acp.findings.find((finding) => finding.id === 'claude-code')?.foundIn).toBe('madarch');
+        // Every other agent is a machine with no adapter: only the one just
+        // installed connects, and it is madarch's own copy.
+        const connected = done.acp.findings.filter((finding) => finding.status === 'connected');
+        expect(connected.map((finding) => finding.id)).toEqual(['claude-code']);
+        expect(connected[0]?.foundIn).toBe('madarch');
+        expect(done.acp.findings.filter((finding) => finding.status === 'not-installed').map((finding) => finding.id)).toEqual(['codex', 'omp', 'pi']);
+      } finally {
+        rmSync(installedFolder, { recursive: true, force: true });
+      }
+      // An agent madarch knows nothing about, and one that carries ACP itself.
+      const unknown = await fetch(`${url}/api/fill/agent-install`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent: 'not-an-agent' }) });
+      expect(unknown.status).toBe(400);
+      expect((await unknown.json() as { message: string }).message).toContain('madarch has no ACP adapter named "not-an-agent"');
+      const bundled = await fetch(`${url}/api/fill/agent-install`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent: 'omp' }) });
+      expect(bundled.status).toBe(409);
+      expect((await bundled.json() as { message: string }).message).toContain('madarch has no package to install for omp');
+    } finally {
+      rmSync(machine, { recursive: true, force: true });
+    }
+  });
+
+  test('the wizard answers one machine: its command list and stored choice follow the server\'s env, not the process\'s', async () => {
+    draft(); builtApp();
+    const init = spawnSync('git', ['init', '--quiet', '--initial-branch=main'], { cwd: folder!, env: gitEnv(), encoding: 'utf8' });
+    expect(init.status).toBe(0);
+    writeFileSync(join(folder!, 'README.md'), '# Example\n');
+    spawnSync('git', ['add', '-A'], { cwd: folder!, env: gitEnv() });
+    spawnSync('git', ['commit', '--quiet', '-m', 'fixture'], { cwd: folder!, env: { ...gitEnv(), GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.com', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.com' } });
+    const home = mkdtempSync(join(tmpdir(), 'madarch-env-machine-'));
+    scratchFolders.push(home);
+    const path = join(home, 'path');
+    mkdirSync(path, { recursive: true });
+    // A machine of this test's own: one fake claude command on its PATH, no
+    // codex and no omp, and a stored choice under its own home.
+    writeProgram(path, 'claude', `process.stdout.write('claude 9.9.9\\n');\n`);
+    const env = { ...process.env, HOME: home, MADARCH_HOME: join(home, 'madarch'), PATH: path, MADARCH_FILL_MODEL: 'glm-test' };
+    const url = await startProduct({ env, startFill: async () => ({ run: { id: 'run-fake' }, counts: { run: 0, reused: 0 }, questionReview: 'hook-pending-co2d.1' }) as never });
+    const answer = await fetch(`${url}/api/fill/wizard`);
+    expect(answer.status).toBe(200);
+    const first = await answer.json() as { agents: Array<{ name: string; available: boolean }>; chosen: string; auth?: string; model?: string; acp: { at: string } };
+    expect(first.agents.map((agent) => [agent.name, agent.available])).toEqual([['claude', true], ['codex', false], ['omp', false]]);
+    expect(first.chosen ?? '').toBe('');
+    // A start under that env saves the choice and the pay mode in that home.
+    const started = await fetch(`${url}/api/fill/start`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent: 'claude', auth: 'subscription' }) });
+    expect(started.status).toBe(202);
+    {
+      const again = await (await fetch(`${url}/api/fill/wizard`)).json() as { chosen: string; auth?: string };
+      expect(again.chosen).toBe('claude');
+      expect(again.auth).toBe('subscription');
+      // The choice is written under the server's own home, not the process's.
+      expect(readFileSync(join(home, '.config', 'madarch', 'fill-agent.json'), 'utf8')).toContain('claude');
+    }
+  });
+
+  test('two loads of the wizard a moment apart ask the machine once', async () => {
+    draft(); builtApp();
+    const init = spawnSync('git', ['init', '--quiet', '--initial-branch=main'], { cwd: folder!, env: gitEnv(), encoding: 'utf8' });
+    expect(init.status).toBe(0);
+    writeFileSync(join(folder!, 'README.md'), '# Example\n');
+    spawnSync('git', ['add', '-A'], { cwd: folder!, env: gitEnv() });
+    spawnSync('git', ['commit', '--quiet', '-m', 'fixture'], { cwd: folder!, env: { ...gitEnv(), GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.com', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.com' } });
+    const url = await startProduct({ env: machineEnv(emptyPath()) });
+    const first = await (await fetch(`${url}/api/fill/wizard`)).json() as { acp: { at: string } };
+    const second = await (await fetch(`${url}/api/fill/wizard`)).json() as { acp: { at: string } };
+    // The page asks again after a start; one machine, one answer, one probe.
+    expect(second.acp.at).toBe(first.acp.at);
+  });
+
+  test('an install that fails never carries a registry credential into the answer or the log line', async () => {
+    draft(); builtApp();
+    const init = spawnSync('git', ['init', '--quiet', '--initial-branch=main'], { cwd: folder!, env: gitEnv(), encoding: 'utf8' });
+    expect(init.status).toBe(0);
+    writeFileSync(join(folder!, 'README.md'), '# Example\n');
+    spawnSync('git', ['add', '-A'], { cwd: folder!, env: gitEnv() });
+    spawnSync('git', ['commit', '--quiet', '-m', 'fixture'], { cwd: folder!, env: { ...gitEnv(), GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.com', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.com' } });
+    const machine = mkdtempSync(join(tmpdir(), 'madarch-secret-npm-'));
+    try {
+      // npm prints the credentials of a person's .npmrc in its own errors: the
+      // answer and the log must never carry them.
+      writeProgram(join(machine, 'bin'), 'npm', `
+process.stderr.write('401 Unauthorized for //registry.npmjs.org/:_authToken=secret-value and https://user:hunter2@registry.example/npm\\n');
+process.exit(1);
+`);
+      const url = await startProduct({ env: machineEnv(join(machine, 'bin')) });
+      const answer = await fetch(`${url}/api/fill/agent-install`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent: 'claude-code' }) });
+      expect(answer.status).toBe(500);
+      const body = await answer.text();
+      expect(body).not.toContain('secret-value');
+      expect(body).not.toContain('hunter2');
+      expect(body).toContain('401 Unauthorized');
+      const logged = [...lines, ...errors].join('\n');
+      expect(logged).not.toContain('secret-value');
+      expect(logged).not.toContain('hunter2');
+      // The log line names what madarch itself knows: the package, the version,
+      // the agent — and never npm's own words.
+      expect(logged).toContain('the ACP adapter install of @agentclientprotocol/claude-agent-acp@0.93.0 for claude-code failed');
+    } finally {
+      rmSync(machine, { recursive: true, force: true });
+    }
+  });
+
+  test('an API-key fill names the variable its agent reads, and madarch stores the choice and never the key', async () => {
+    // The start route persists the choice under the user's home; the test restores the file after.
+    const choicePath = agentSettingsPath();
+    const choiceExisted = existsSync(choicePath);
+    const choiceBefore = choiceExisted ? readFileSync(choicePath, 'utf8') : undefined;
+    const keyBefore = process.env.ANTHROPIC_API_KEY;
+    try {
+      draft(); builtApp();
+      const init = spawnSync('git', ['init', '--quiet', '--initial-branch=main'], { cwd: folder!, env: gitEnv(), encoding: 'utf8' });
+      expect(init.status).toBe(0);
+      writeFileSync(join(folder!, 'README.md'), '# Example\n');
+      spawnSync('git', ['add', '-A'], { cwd: folder!, env: gitEnv() });
+      spawnSync('git', ['commit', '--quiet', '-m', 'fixture'], { cwd: folder!, env: { ...gitEnv(), GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.com', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.com' } });
+      const url = await startProduct({ startFill: async () => ({ run: { id: 'run-fake' }, counts: { run: 0, reused: 0 }, questionReview: 'hook-pending-co2d.1' }) as never });
+      delete process.env.ANTHROPIC_API_KEY;
+      const missing = await fetch(`${url}/api/fill/start`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent: 'claude', auth: 'api-key' }) });
+      expect(missing.status).toBe(400);
+      expect((await missing.json() as { error: { message: string } }).error.message).toContain('ANTHROPIC_API_KEY, which is not set in the environment madarch runs in');
+      // The same start with the variable set is accepted, and the machine
+      // keeps the choice — never the key itself.
+      process.env.ANTHROPIC_API_KEY = 'test-key-value';
+      const accepted = await fetch(`${url}/api/fill/start`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent: 'claude', auth: 'api-key', maxUnits: 3 }) });
+      expect(accepted.status).toBe(202);
+      const saved = readFileSync(choicePath, 'utf8');
+      expect(saved).toContain('"auth": "api-key"');
+      expect(saved).not.toContain('test-key-value');
+      // An agent whose client reads no key madarch knows cannot be paid by one,
+      // and a word that is neither is refused by name.
+      const omp = await fetch(`${url}/api/fill/start`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent: 'omp', auth: 'api-key' }) });
+      expect(omp.status).toBe(400);
+      expect((await omp.json() as { error: { message: string } }).error.message).toContain('omp has no API key that madarch knows of');
+      const wrong = await fetch(`${url}/api/fill/start`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent: 'claude', auth: 'password' }) });
+      expect(wrong.status).toBe(400);
+      expect((await wrong.json() as { error: { message: string } }).error.message).toContain('auth must be subscription or api-key');
+    } finally {
+      if (keyBefore === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = keyBefore;
+      if (choiceExisted && choiceBefore !== undefined) writeFileSync(choicePath, choiceBefore); else if (!choiceExisted) rmSync(choicePath, { force: true });
+    }
   });
 
   test('the inventory estimate shows the measured time per stage', async () => {
