@@ -199,10 +199,12 @@ re-decides them.
   A caller that named it otherwise would leave the pages answering the empty set, whose
   message names the product it read (so the mismatch is visible, not silent), and tying
   the two names together belongs to that caller's change.
-- **A page's address is a route the app answers.** `pageAddress` is `/graph/<the id,
-  percent-escaped as one segment>`, and the wiki app's own route table takes `/graph/`
-  (`src/server/wiki-app.ts`, `APP_ROUTE_PREFIXES`): the address a page set hands out
-  opens the app, which reads the node's id from it (madarch-tzte.23.3 renders it).
+- **A page's address is the app's own page route, made once.** `pageAddress`
+  (`page-changes.ts`) is `/p/graph/<the node's fact id>`: under the wiki's page route,
+  so the address a page set hands out is a page the app already answers, and madarch-tzte.23.2's
+  `graphPageHref` (which landed while this change was in review) makes the same address
+  through the same function — a diagram element and a page set never point at two
+  places. The id is written whole: a reader copies the address a page names.
 - **An empty graph answers a message.** A page set with no page says which product it
   read and that a fill run writes the pages; a server that holds no fill's graph says
   where they are served (`madarch start`). A home whose fill never ran answers it
@@ -486,13 +488,26 @@ process — exact, and the cost of a product with many live sets.
 
 ### The checks
 
+This change's own commits stood on `c0a297f8`; `origin/main` then moved to `0dd4a907`
+(madarch-tzte.23.2's diagram models and other work landed), and the integrator merged
+`main` into this branch when it opened the pull request. That merge brought one
+integration point, answered in this change's last commit: madarch-tzte.23.2's
+`graphPageHref` and this change's page set must name one address, and they now do —
+`pageAddress` stands in `page-changes.ts`, `graphPageHref` calls it, and the address is
+`/p/graph/<fact id>` (the app's own page route, which needs no route of its own). The
+runs below are after that merge.
+
 - `bun run check` (`tsc --noEmit`) exit **0** after every edit round and at hand-over
-  (head `1339f057`).
+  (the head the queue entry names, where the CI run on it is named too).
 - The feature document gate (`node .shady2k/documents.mjs check --phase feature
   --change madarch-tzte.23.1 --candidate worktree --target origin/main`) exit **0**,
   clean, after every edit round and at hand-over.
 - The focused suites run in SkyPilot, not on this machine (the owner's rule),
   `madarch-sky-test <worktree> <files>`, each with the tests' own exit status:
+  - `test/fill-graph-pages.test.ts` + `test/server-graph-pages.test.ts` +
+    `test/fill-graph-reads.test.ts` + `test/fill-diagrams.test.ts` — **94 pass, 0 fail,
+    exit 0** (`run-20261019-111228`), after the rebase: this change's own files and the
+    diagram models' suite that shares its page address.
   - `test/fill-graph-pages.test.ts` + `test/server-graph-pages.test.ts` +
     `test/fill-graph-reads.test.ts` — **55 pass, 0 fail, exit 0**
     (`run-20261019-103239`), which is this change's own files (after both review

@@ -130,8 +130,9 @@ describe('the page set of a product', () => {
     });
     // A node whose kind carries no rank has no rank field at all, rather than a null one.
     expect(Object.hasOwn(module!, 'importance')).toBe(false);
-    // A page's address is one path segment, so an id with a colon in it reaches the app's route whole.
-    expect(module?.page).toBe(`/graph/${encodeURIComponent(facts.module.id)}`);
+    // The address is the app's own page route and the node's fact id whole: the one address madarch-tzte.23.2's
+    // diagram elements carry too (`graphPageHref`, the same function).
+    expect(module?.page).toBe(`/p/graph/${facts.module.id}`);
   });
 
   test('an empty graph answers an empty set with the what-to-do message, never an error', async () => {

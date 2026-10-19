@@ -56,6 +56,19 @@ export function isPageId(id: string): boolean {
   return isFactKind(kind) && isPageKind(kind);
 }
 
+/**
+ * The prefix a graph node's page stands under, and the one place a page's address is
+ * made: the wiki app's own page route (`/p/`) and, under it, `graph/<the node's fact
+ * id>` — so a graph page is a page of the app like a document's, and madarch-tzte.23.2's
+ * diagram elements and this change's page set hand out one address, never two.
+ */
+export const PAGE_ADDRESS_PREFIX = '/p/graph/';
+
+/** One node's page address, like `/p/graph/module:1f…`: the id a reader copies is the fact id whole. */
+export function pageAddress(id: string): string {
+  return PAGE_ADDRESS_PREFIX + id;
+}
+
 /** The store's table of what each publication touched: one row per changed page and publication. */
 export const PAGE_CHANGE_TABLE = 'fill_page_change';
 

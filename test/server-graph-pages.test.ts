@@ -146,6 +146,7 @@ describe('the page set over HTTP', () => {
 
     // The address a page set hands out is a route the app answers: the page opens, and the app reads its id from it.
     const shell = await fetch(`${url}${pageAddress(facts.placed.id)}`);
+    expect(pageAddress(facts.placed.id)).toBe(`/p/graph/${facts.placed.id}`);
     expect(shell.status).toBe(200);
     expect(shell.headers.get('content-type')).toContain('text/html');
     expect(await shell.text()).toContain('fixture wiki');

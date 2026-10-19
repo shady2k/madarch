@@ -93,16 +93,8 @@ import type { StageDraftWrite } from './stage.js';
  * publication's facts touch. They are re-exported here because a reader of pages
  * names them, and this module is where pages are read.
  */
-export { PAGE_CHANGE_TABLE, PAGE_KINDS, isPageId, isPageKind, pagesTouchedBy } from './page-changes.js';
-import { PAGE_KINDS, isPageId, isPageKind, namesFactId } from './page-changes.js';
-
-/** The address a page is served at, from the node's id: the prefix the wiki app answers and the id, percent-escaped as one segment. */
-export const PAGE_ADDRESS_PREFIX = '/graph/';
-
-/** One node's page address, like `/graph/module%3A1f…`. */
-export function pageAddress(id: string): string {
-  return PAGE_ADDRESS_PREFIX + encodeURIComponent(id);
-}
+export { PAGE_ADDRESS_PREFIX, PAGE_CHANGE_TABLE, PAGE_KINDS, isPageId, isPageKind, pageAddress, pagesTouchedBy } from './page-changes.js';
+import { PAGE_KINDS, isPageId, isPageKind, namesFactId, pageAddress } from './page-changes.js';
 
 /**
  * The most tokens one *list* of a page holds: a page is read by a person, so its lists are read under a far wider
