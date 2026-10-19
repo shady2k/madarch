@@ -398,7 +398,9 @@ describe('the modules stage clusters the graph recursively', () => {
       // repository holds the module.
       const rootId = String(root.id);
       expect(contained(recorder.writes).filter((edge) => edge.from === rootId).map((edge) => edge.to).sort()).toEqual([file.id, symbol.id].sort());
-      expect(contained(recorder.writes).map((edge) => edge.to)).toContain(rootId);
+      // The container of a top-level module is the repository node itself.
+      const repositoryId = factId({ kind: 'repository', value: { repository: REPOSITORY, form: 'code' }, provenance: placeAt('src/a.ts') });
+      expect(contained(recorder.writes)).toContainEqual({ from: repositoryId, to: rootId });
     } finally {
       await f.dispose();
     }
@@ -551,6 +553,29 @@ describe('the modules stage clusters the graph recursively', () => {
       expect(namesUnder('part-2')).toEqual(['f3']);
       for (const module of held.filter((entry) => entry.name.startsWith('part-'))) expect(module.seed).toBe('cluster');
       for (const names of childrenOf.values()) expect(names.length).toBeLessThanOrEqual(2);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a group whose ordinal a folder already carries takes a suffix, so no two clusters of one parent are one fact', async () => {
+    const f = await fixture();
+    try {
+      for (const folder of ['part-1', 'part-1.2', 'z']) await f.write(`${folder}/a.ts`);
+      const commit = f.commit();
+      const files = ['part-1', 'part-1.2', 'z'].map((folder) => fileFact(`${folder}/a.ts`));
+      const recorder = await executed(sourceAt(f.root, commit), answerFor({ files }), { sizeThreshold: 1, maxFanIn: 2 });
+      const held = modules(recorder.writes);
+      const root = held.find((module) => module.name === REPOSITORY)!;
+      const childrenOf = childrenByModule(recorder.writes);
+      const names = (childrenOf.get(root.id) ?? []).map((module) => module.name).sort();
+      // The first group's ordinal is a folder's name and the next free one is a
+      // folder's too, so the group takes the third: the repository's cluster, its
+      // two groups and the three folders are six facts, each named once under its
+      // parent.
+      expect(names).toEqual(['part-1.3', 'part-2']);
+      for (const name of ['part-1', 'part-1.2', 'z']) expect(held.filter((module) => module.name === name)).toHaveLength(1);
+      expect(held).toHaveLength(6);
     } finally {
       await f.dispose();
     }

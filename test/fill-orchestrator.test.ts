@@ -301,6 +301,13 @@ describe('the membership digest a tracked read stands on', () => {
     // Everything the read is about still moves it: another path, another role, another id.
     expect(readMembership([{ id: 'file:a', value: { repository: 'p', path: 'src/b.ts', roles: ['source'] } }])).not.toBe(unranked);
     expect(readMembership([{ id: 'file:b', value: { repository: 'p', path: 'src/a.ts', roles: ['source'] } }])).not.toBe(unranked);
+    // A module's member count is not a rank: it moves when the tree moves, which is what a read of that
+    // module is about, so a module that grew still makes its readers stale.
+    const module3 = readMembership([{ id: 'module:m', value: { repository: 'p', name: 'cart', seed: 'package', members: 3, importance: 0.4 } }]);
+    const module5 = readMembership([{ id: 'module:m', value: { repository: 'p', name: 'cart', seed: 'package', members: 5, importance: 0.4 } }]);
+    const moduleReranked = readMembership([{ id: 'module:m', value: { repository: 'p', name: 'cart', seed: 'package', members: 3, importance: 0.1 } }]);
+    expect(module5).not.toBe(module3);
+    expect(moduleReranked).toBe(module3);
   });
 });
 

@@ -73,6 +73,15 @@ drafts the publication of madarch-tzte.20.2 applies.
   plan names no unit for it and this stage writes nothing about it; stage 0's
   coverage already records what that tree held, so the absence is attributable and
   not a silence of this stage.
+- **A second reading of one commit under one id.** The coverage's identity is the
+  repository, the scope and the reader, and nothing in it carries which producers
+  answered: a run with the build and configuration stage disabled and a later run
+  of the same commit with it enabled write two different readings under one id, and
+  the store keeps the first. The alternative — carrying the run's resolved
+  capabilities in the reader's name — makes every change of configuration a new
+  coverage each run, which is the run's record and not the graph's. The residual
+  is named here rather than hidden; a wiring that must tell the two apart
+  (madarch-tzte.21.8) can name the reading itself.
 - **A rank that outlives the publication that measured it.** A rank is written
   onto a fact the inventory and the syntax stage hold, so a row stays when the
   modules unit that measured it drops its facts, and the graph keeps the last
@@ -124,8 +133,10 @@ read that answered a node was about the node, not about the number a later run
 gave it, so a re-ranking makes no unit that read a file or a symbol stale —
 neither stage 5's own nor stage 4's, whose symbol read would otherwise be
 invalidated by every re-ranking. A module's `members` is not left out: it moves
-when the tree moves, which is what a read of that module is about. The price of
-the merge is that a ranked row is written where it used to be left alone, so
+when the tree moves, which is what a read of that module is about, and a module's
+`seed` is measured too — the same module id survives a commit that changes what
+seeded it, and a seed the row kept otherwise would describe a cluster nobody
+measured. The price of the merge is that a ranked row is written where it used to be left alone, so
 stage 1's republish and stage 5's ranking of one file take a row lock on each
 other; publication order is by fact id, so the two cannot deadlock.
 
@@ -237,8 +248,10 @@ None.
   whole.** One `coverage` fact per repository *and commit*: its scope is the
   snapshot fact of the commit the unit read (a snapshot's identity is the
   repository and the commit), so a second run at a later commit is a second
-  coverage of a later tree rather than a row the store already holds — the same
-  reason stage 0 writes one coverage per commit. Its `read` names the seven scopes
+  coverage of a later tree rather than a row the store already holds, which is how
+  the history stage names its units and its coverage. `SCOPE_KINDS` of the bounded
+  graph reads names the snapshot kind too, so a reader asks for a commit's coverage
+  with that commit's snapshot id. Its `read` names the seven scopes
   its four reads asked for, and its `unread` every gap the clustering named — a
   workspace, a package with no manifest, a seed that holds no file, a cluster whose
   files are too many to split further — each with 0004's reason. A complete
@@ -353,3 +366,28 @@ defect of the same class one level down, and eleven more items:
   stage), the evidence line of a fact about a file, the too-large rule's two cases,
   the turn bound the walk really reaches, the row lock the merge takes and a gap
   sentence that named a package for another seed's file are each answered here.
+
+A narrow third round verified those answers over `02122663` and answered
+`fix-before-ship` with one false precedent, two consumer-visible consequences and
+two untested rules; each is answered:
+
+- **The record cited the wrong precedent.** It said stage 0 writes one coverage per
+  commit; stage 0's scope is the repository fact id, so its coverage is one per
+  repository and per reader. The history stage's commit-named units are the real
+  precedent, and the record names it.
+- **The snapshot scope needed saying out loud.** `CoverageValue.scope`'s own
+  vocabulary did not name a snapshot fact id and `SCOPE_KINDS` refused one, so
+  `describe_scope` could not be asked for a commit's coverage: the schema's field
+  doc and the reads' scope kinds name it now.
+- **A second reading of one commit under one id** is a residual of the store's
+  first-publication rule, named in Out of scope with the wiring that can tell the
+  two readings apart.
+- **Two rules had no test**: the store's provenance `CASE` (the file row keeps the
+  reader that read the bytes, and a stage that measures one module again at a later
+  commit moves the commit the row cites) and the group-name suffix. Both have one
+  now, and the scenario publishes the rank under the stage's own reader, which is
+  what the `CASE` turns on.
+- `EDGE_END_KINDS['contains']` now names `module` as an end: stage 5 writes
+  module-holds-module edges, and the checked write path of madarch-tzte.20.4 reads
+  that table. A module's `seed` is a measured field: the same module id survives a
+  commit that changes what seeded it.

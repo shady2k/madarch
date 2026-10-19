@@ -69,8 +69,15 @@ export function factStoreChecks(facts: ScenarioFacts): readonly FactStoreCheck[]
         expect(report.fileRankBeforeRanked).toBe(-1);
         expect(report.fileRankAfterRanked).toBe(0.75);
         expect(report.fileRankAfterPlain).toBe(0.75);
+        // The modules publication carries the stage's own reader (`fill-stage-5`), so the CASE that moves a
+        // row's provenance for the reader that already cites it does not fire here: the file row keeps the
+        // reader that read the bytes.
         expect(report.fileProvenanceReader).toBe('tree-sitter');
       },
+    },
+    {
+      name: 'a stage that measures a row again at a later commit moves the commit the row cites with it',
+      check: (report) => expect(report.commitAfterReread).toBe('b'.repeat(40)),
     },
     {
       name: 'republishing two of a unit\'s three facts leaves exactly those two for that unit',

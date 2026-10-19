@@ -862,7 +862,13 @@ export interface StateValue {
  */
 export interface CoverageValue {
   readonly repository: string;
-  /** The scope read, in the graph's own terms: `product`, a module or repository fact id, or a place's path. */
+  /**
+   * The scope read, in the graph's own terms: `product`, a repository, snapshot or
+   * module fact id, or a place's path. A stage that reads the graph at one commit
+   * names the snapshot fact of that commit (`fill-stage-5`, madarch-tzte.21.7), so
+   * a later commit's reading is a coverage of its own rather than a row the store
+   * already holds.
+   */
   readonly scope: string;
   /** Whether the reader read the whole scope; a complete coverage is the only ground for a claim of absence. */
   readonly complete: boolean;
@@ -1046,7 +1052,7 @@ export const FACT_MEASURED_FIELDS: { readonly [K in FactKind]?: readonly (keyof 
   // module's member count, which is that same measurement of the cluster (how
   // many files and symbols stand under it), so a re-clustering moves it too.
   'file': ['importance'],
-  'module': ['importance', 'members'],
+  'module': ['importance', 'members', 'seed'],
   'symbol': ['importance'],
 };
 
@@ -1655,7 +1661,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
  * end that is no node of the graph — an address, a literal, a name).
  */
 export const EDGE_END_KINDS: { readonly [K in FactEdgeKind]: { readonly from: readonly FactKind[]; readonly to: readonly FactKind[] | 'term' } } = {
-  'contains': { from: ['directory', 'module', 'repository'], to: ['directory', 'file', 'symbol'] },
+  'contains': { from: ['directory', 'module', 'repository'], to: ['directory', 'file', 'module', 'symbol'] },
   'defines': { from: ['file'], to: ['symbol'] },
   'import': { from: ['file'], to: ['file', 'module', 'package'] },
   'dependency': { from: ['module', 'package'], to: ['module', 'package'] },
