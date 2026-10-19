@@ -4,6 +4,16 @@ import { createInterface } from 'node:readline';
 import type { FillUnit, FillUnitExecutor } from './fill-runtime.js';
 
 export type AgentKind = 'claude' | 'codex' | 'omp';
+/**
+ * The environment variable each agent's own client reads an API key from, for
+ * a person who pays with a key instead of their subscription. madarch keeps
+ * the name and never the key: it is not asked for, not read and not stored,
+ * and the agent's client reads whatever the person put in madarch's
+ * environment (the owner's decision of 2026-10-19 on madarch-tzte.6). omp has
+ * no such variable madarch knows: it takes a model and a gateway extension
+ * from this machine instead.
+ */
+export const AGENT_API_KEY_ENV: Readonly<Record<AgentKind, string | undefined>> = { claude: 'ANTHROPIC_API_KEY', codex: 'OPENAI_API_KEY', omp: undefined };
 export interface AgentSettings { model?: string; executable?: string; extension?: string; tools?: string; }
 export type AgentEvent = { unitId: string; stage: FillUnit['stage']; type: string; timestamp: string; payload: unknown };
 type Child = Pick<ChildProcessWithoutNullStreams, 'stdout' | 'stderr' | 'once' | 'kill'>;

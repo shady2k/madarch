@@ -16,12 +16,11 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { homedir } from 'node:os';
 import { runGit, type GitEnv } from './git.js';
 import { MANIFEST_FILE, yamlWord } from './manifest.js';
+import { productsHome, type DraftEnv } from './home.js';
+export type { DraftEnv };
 
-/** The environment the products home is read from: the process's, or the caller's. */
-export type DraftEnv = Readonly<Record<string, string | undefined>>;
 
 /**
  * The manifest's schema version fixes the folders every product holds, in
@@ -121,19 +120,9 @@ export interface DraftOptions {
   gitEnv?: GitEnv;
 }
 
-/**
- * The products home: the folder `--home` names when this command was given
- * one; otherwise `products` under the madarch home that `MADARCH_HOME`
- * names; otherwise `products` under `~/madarch`. An option or a variable
- * that names only spaces counts as unset, as everywhere in madarch.
- */
-export function productsHome(env: DraftEnv, given?: string): string {
-  const named = given?.trim();
-  if (named !== undefined && named !== '') return named;
-  const madarchHome = env.MADARCH_HOME?.trim();
-  if (madarchHome !== undefined && madarchHome !== '') return join(madarchHome, 'products');
-  return join(homedir(), 'madarch', 'products');
-}
+// The three homes madarch reads are one module's (`home.ts`), so the wizard's
+// agents folder and the products home are read the same way by every caller.
+export { homeFromEnv, madarchHome, productsHome } from './home.js';
 
 /**
  * Whether a day is written `YYYY-MM-DD` and is a day the calendar has. A
