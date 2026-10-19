@@ -85,7 +85,7 @@ runDescribe('the graph’s pages in a browser', () => {
       if (response.status() >= 400) console.error(`browser: ${response.status()} ${response.url()}`);
     });
     page.on('pageerror', (error: unknown) => console.error('browser error:', error));
-    await page.goto(`${url}/graph`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${url}/p/graph`, { waitUntil: 'domcontentloaded' });
     try {
       await page.waitForSelector('[data-testid="graph-index"]', { timeout: 15_000 });
     } catch (error: unknown) {
@@ -147,14 +147,15 @@ runDescribe('the graph’s pages in a browser', () => {
         pageHeight: Math.round(document.querySelector('main#graph-node')?.getBoundingClientRect().height ?? 0),
       };
     });
-    // The measurements the reader's page must hold: a readable title, no row on a row,
-    // no element wider than the column it stands in, and the content inside the window.
-    expect(measured.titleFont).toBeGreaterThanOrEqual(24);
-    expect(measured.bodyFont).toBeGreaterThanOrEqual(14);
-    expect(measured.chipFont).toBeGreaterThanOrEqual(11);
+    // The measurements the reader's page must hold, as the acceptance record states them:
+    // the page's own figures at the owner's 1150×900 window.
+    expect(measured.titleFont).toBe(36);
+    expect(measured.bodyFont).toBe(18);
+    expect(measured.chipFont).toBe(14);
     expect(measured.overlaps).toBe(0);
     expect(measured.overflowing).toBe(0);
-    expect(measured.content?.width ?? 0).toBeGreaterThan(600);
+    expect(measured.content?.width).toBe(794);
+    expect(measured.nav?.width).toBe(260);
     expect(measured.content?.width ?? 0).toBeLessThanOrEqual(measured.viewport.width);
     console.log(`GRAPH_PAGE_MEASURED ${JSON.stringify(measured)}`);
     await page.screenshot({ path: join(SHOTS, 'graph-node.png'), fullPage: true });
@@ -166,7 +167,7 @@ runDescribe('the graph’s pages in a browser', () => {
     page = await browser!.newPage();
     await page.setViewport({ width: 1150, height: 900 });
     const url = server!.url;
-    await page.goto(`${url}/graph`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${url}/p/graph`, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('[data-testid="graph-index"]', { timeout: 15_000 });
     const before = await page.$$eval('[data-testid="graph-nav"] a[data-graph-node]', (links) => links.map((link) => link.getAttribute('data-graph-node')));
     expect(before).not.toContain(facts.module.id);
@@ -213,19 +214,18 @@ runDescribe('the graph’s pages in a browser', () => {
     // The fixture's claim and rule are an agent's reading (`layer: inferred`), so they are
     // assumptions; the module's own fact is the one the graph asserts. A fact never stands
     // in both lists: that is what "assumptions shown apart from facts" means.
-    expect(shown.facts).toBeGreaterThanOrEqual(1);
-    expect(shown.assumptions).toBeGreaterThanOrEqual(1);
+    expect(shown.facts).toBe(1);
+    expect(shown.assumptions).toBe(2);
     expect(shown.inferredInFacts).toBe(0);
     expect(shown.assertedInAssumptions).toBe(0);
     // The module's own edges: a `provides` to the endpoint's node (the contract resolved to
     // it), a `contains` to the symbol it holds, and the symbol's `call` and `consumes`.
-    expect(shown.relations).toBeGreaterThanOrEqual(2);
-    expect(shown.relationKinds).toContain('provides');
-    expect(shown.relationKinds).toContain('contains');
+    expect(shown.relations).toBe(2);
+    expect(shown.relationKinds).toEqual(['contains', 'provides']);
     expect(shown.coverage).toBe(1);
     expect(shown.questions).toBe(1);
-    expect(shown.places).toBeGreaterThan(0);
-    expect(shown.linkedPages).toBeGreaterThan(0);
+    expect(shown.places).toBe(6);
+    expect(shown.linkedPages).toBe(2);
     expect(shown.diagramsSlot).toBe(true);
     console.log(`GRAPH_MODULE_PAGE ${JSON.stringify(shown)}`);
     await page.screenshot({ path: join(SHOTS, 'graph-module-page.png'), fullPage: true });

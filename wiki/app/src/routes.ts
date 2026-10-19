@@ -34,8 +34,13 @@ export const ARCHITECTURE_PREFIX = '/p/madarch/';
  */
 export const GRAPH_PAGE_PREFIX = '/p/graph/';
 
-/** The graph's index page: every page-worthy node, by kind. */
-export const GRAPH_INDEX_ADDRESS = '/graph';
+/**
+ * The graph's index page: every page-worthy node, by kind. It stands under the page
+ * route at `graph` — the address madarch-tzte.23.2's `diagramHref` already hands out
+ * for a view (`/p/graph?diagram=…&node=…`), so a diagram's drill-down opens the graph
+ * and not a document named `graph`, and 23.4's views have their page.
+ */
+export const GRAPH_INDEX_ADDRESS = '/p/graph';
 
 /** One graph node's page address, like `/p/graph/module:1f…`: the id whole, as the server spells it. */
 export function addressOfGraphPage(id: string): string {

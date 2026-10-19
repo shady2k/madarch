@@ -348,7 +348,7 @@ function StagesNav({ current, onNavigate, offer, language }: { current: string |
  * nodes than the navigation lists names the rest through the graph's index page, so a
  * large graph never turns the sidebar into a wall: nothing is dropped in silence.
  */
-function GraphNav({ set, current, onNavigate }: { set: GraphPageSet | null; current: string | undefined; onNavigate?: MouseEventHandler }): ReactElement | null {
+function GraphNav({ set, current, indexOpen, onNavigate }: { set: GraphPageSet | null; current: string | undefined; indexOpen: boolean; onNavigate?: MouseEventHandler }): ReactElement | null {
   const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   // A product whose graph holds no page has no graph section in the navigation: the
@@ -368,7 +368,7 @@ function GraphNav({ set, current, onNavigate }: { set: GraphPageSet | null; curr
     <section data-testid="graph-nav" className="mb-1.5 mt-2" aria-label={t('graph.title')}>
       <div className="flex items-center justify-between px-2 py-1.5">
         <h2 className="text-[12px] uppercase tracking-[0.08em] text-muted">{t('graph.title')}</h2>
-        <a href={appPath(GRAPH_INDEX_ADDRESS)} data-testid="graph-nav-all" className="text-small text-muted no-underline hover:text-ink" onClick={(event) => {
+        <a href={appPath(GRAPH_INDEX_ADDRESS)} data-testid="graph-nav-all" aria-current={indexOpen ? 'page' : undefined} className={'text-small no-underline hover:text-ink ' + (indexOpen ? 'font-[550] text-ink' : 'text-muted')} onClick={(event) => {
           if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
           event.preventDefault();
           onNavigate?.(event);
@@ -442,7 +442,7 @@ function GraphNav({ set, current, onNavigate }: { set: GraphPageSet | null; curr
   );
 }
 
-function NavPanel({ product, groups, current, currentStage, onNavigate, architectureCount, reposCount, offer, language, graph, currentGraph }: {
+function NavPanel({ product, groups, current, currentStage, onNavigate, architectureCount, reposCount, offer, language, graph, currentGraph, graphIndexOpen }: {
   product: Product;
   groups: readonly NavGroup[];
   current: string | undefined;
@@ -460,6 +460,8 @@ function NavPanel({ product, groups, current, currentStage, onNavigate, architec
   graph?: GraphPageSet | null;
   /** The open graph node's id, when the route is a graph page's. */
   currentGraph?: string;
+  /** Whether the graph's index is the page open. */
+  graphIndexOpen?: boolean;
 }): ReactElement {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const { t } = useTranslation();
@@ -524,7 +526,7 @@ function NavPanel({ product, groups, current, currentStage, onNavigate, architec
           {groups.reduce((n, g) => n + g.pages.length, 0)}
         </span>
       </div>
-      <nav aria-label={t('navigation.documents')} className="min-h-0 flex-1 overflow-y-auto pb-4">
+      <nav aria-label={t('navigation.pages')} className="min-h-0 flex-1 overflow-y-auto pb-4">
         {withArchitectureEntry(groups, architectureCount, t, offer).map((entry): ReactNode => {
           if (!isGroupEntry(entry)) return entry.node;
           const group = entry.group;
@@ -582,7 +584,7 @@ function NavPanel({ product, groups, current, currentStage, onNavigate, architec
           );
           return section;
         })}
-        <GraphNav set={graph ?? null} current={currentGraph} onNavigate={onNavigate} />
+        <GraphNav set={graph ?? null} current={currentGraph} indexOpen={graphIndexOpen === true} onNavigate={onNavigate} />
       </nav>
       <div className="mt-2 flex items-center gap-2.5 border-t border-line px-1 py-3">
         <FolderGit2Icon aria-hidden="true" className="size-[18px] shrink-0 text-muted" />
@@ -657,7 +659,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
           aria-label={t('navigation.aria')}
           hidden={focused}
         >
-          <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} offer={registryOffer} language={language} graph={graph ?? null} currentGraph={route.graph} />
+          <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} offer={registryOffer} language={language} graph={graph ?? null} currentGraph={route.graph} graphIndexOpen={route.graphIndex === true} />
         </aside>
         <div className="shell-main flex min-w-0 flex-1 flex-col">
           <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line px-4 wide:px-[35px]">
@@ -724,7 +726,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
                   data-testid="phone-nav"
                   className={'app-nav w-[min(280px,_82vw)] px-[14px] py-3 ' + (focused ? 'bg-chrome' : '')}
                 >
-                  <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} offer={registryOffer} language={language} graph={graph ?? null} currentGraph={route.graph} />
+                  <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} offer={registryOffer} language={language} graph={graph ?? null} currentGraph={route.graph} graphIndexOpen={route.graphIndex === true} />
                 </SheetContent>
               </Sheet>
               <DropdownMenu.Root>

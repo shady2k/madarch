@@ -44,9 +44,11 @@ This change gives the app its graph side:
   both ways as links to the pages of the nodes they join, the coverage of its
   scopes with the gaps it names, its open questions, and the drafts another unit
   holds, each marked as a draft.
-- **`wiki/app/src/routes.ts`** reads a graph page's address (`/p/graph/` plus the node's fact id,
-  the address the server hands out, made once in `addressOfGraphPage`) and the
-  graph's index (`/graph`).
+- **`wiki/app/src/routes.ts`** reads a graph page's address (`/p/graph/` plus the
+  node's fact id, the address the server hands out, made once in
+  `addressOfGraphPage`) and the graph's index (`/p/graph`, the address
+  madarch-tzte.23.2's `diagramHref` already hands out for a view, so a diagram's
+  drill-down opens the graph and not a document that happens to be named `graph`).
 - **`wiki/app/src/shell.tsx`** gives the navigation the graph's section: the
   server's page-worthy nodes by kind with their counts, each a link to its page,
   and a kind past the navigation's own bound pointing at the index so nothing is
@@ -56,12 +58,9 @@ This change gives the app its graph side:
   wiki's change stream: a publication makes a node join the navigation and the
   index, and a page the publication names reads again — with no reload and no
   polling.
-- **`src/server/wiki-app.ts`** takes `/graph` into the app's own routes, so the
-  graph's index opens directly and after a reload as every app address does.
-
-The document pages are untouched: a product whose server answers no page set (an
-older server, a foreground serve) shows no graph section at all, and every document
-page reads exactly as it did.
+    expect(shown.places).toBe(6);
+    expect(shown.linkedPages).toBe(2);
+    expect(shown.diagramsSlot).toBe(true);
 
 ## Rationale
 
@@ -100,7 +99,7 @@ from the product's Markdown are unchanged.
 
 - product-wiki/pages: unchanged — a document page is still the product's Markdown read from the working tree at every ask, and the graph pages are added beside it; the graph pages' own app is this change, and 23.1 recorded the reads behind them.
 - product-wiki/live: unchanged — the wiki's own change stream (`GET /api/events`) and its revision rule are untouched, and the graph's channel is a second stream of its own.
-- server/protocol: unchanged — no route, handler or refusal is added on the server; `/graph` is an app address the file fallback now answers, as `/p/` already was.
+- server/protocol: unchanged — no route, handler, refusal or server file is touched; the graph's index is an app address under the `/p/` route the file fallback already answers.
 - server/serves-wiki: unchanged — a product folder still serves its wiki and a products home still serves each product under its own prefix, and a graph page is asked under that prefix like every other app address.
 - views/deterministic: unchanged — the graph section keeps the server's own order (kind, then label, then id), never a map's insertion or a locale's collation.
 - release-binary/installers: unchanged — no dependency is added; the channel is the platform's own `ReadableStream` and `TextDecoder`.
@@ -132,11 +131,9 @@ None.
   dropped stream reconnects with backoff from the last change it saw (the wiki's own
   rule), and an answer that is no event stream stops the retries: a route this
   server does not offer is not polled.
-- **A page reads again only when a publication names it.** The channel's event
-  carries the pages one publication touched; a node's page depends on the change
-  number of the publication that named it, so a publication that touched other pages
-  asks for nothing here. The test holds both directions: the page is not read for a
-  publication that names another node, and is read once for one that names it.
+    expect(shown.places).toBe(6);
+    expect(shown.linkedPages).toBe(2);
+    expect(shown.diagramsSlot).toBe(true);
 - **A page that stands nowhere is the refusal's own words.** The server answers 404
   with the id and the reason (`graph-pages/no-such-node`, `graph-pages/not-a-page`),
   and the app shows that message with the link back to the graph's index — a node
@@ -156,26 +153,27 @@ None.
 - **A code link is the repository's own page at the pinned commit.** The fact's
   provenance is the repository's name, the commit, the file and the line span; the
   app reads the repository's declared origin from the wiki's own `/api/repos` and
-  makes the host's `blob` address with it — the same hosts and the same spelling the
-  wiki's document links keep (`originHost`, `src/wiki/documents.ts`). A repository
-  with no origin those hosts spell, or none the manifest declares, shows the place
-  as text with the reason in its title, and links nothing.
+  makes the host's address with it — the same hosts, the same encoding of the
+  owner, the repository, the commit and every path segment, and the same spelling
+  the wiki's document links keep (`hostFileUrl`, `src/wiki/documents.ts`): GitHub
+  under `/blob/`, GitLab under `/-/blob/`. A repository with no origin those hosts
+  spell, or none the manifest declares, shows the place as text with the reason in
+  its title, and links nothing.
 - **The navigation is bounded, and says so.** A kind lists at most
   `NAV_NODES_PER_KIND` nodes and its last row names the rest and opens the graph's
   index, so a large graph never turns the sidebar into a wall and nothing is
   dropped in silence. The graph's index page lists every node of every kind.
 - **An empty graph has no sidebar section.** A graph that holds no page has no
   nodes to list; the server's what-to-do message stands on the graph's own index
-  page (where a reader asked for it) and in the home page's graph entry, and never
-  as an empty section in every product's navigation.
+  page (where a reader asked for it, quoted as the server's own words), and the home
+  page's graph entry carries the zero — never an empty section in every product's
+  navigation.
 - **The home page names the graph.** An entry with the number of page-worthy nodes,
   shown only where the server answers a page set, opens the index; a product whose
   server answers none shows no such entry.
-- **`/graph` is an app address.** The server's app-file fallback answers the app's
-  own routes; `/graph` joins them, so the graph's index opens directly, is
-  reloadable and is linkable like `/p/` and `/questions`. A path under `/p/graph/`
-  that is no fact id stays a document path, so a product that keeps a document in a
-  `graph/` folder still opens it.
+    expect(shown.places).toBe(6);
+    expect(shown.linkedPages).toBe(2);
+    expect(shown.diagramsSlot).toBe(true);
 - **The diagrams' slot is named and not drawn.** A node's page carries a
   `graph-diagrams` section saying what will stand in it; madarch-tzte.23.4 fills it
   with the models madarch-tzte.23.2 builds. An empty frame would read as a diagram
@@ -199,10 +197,11 @@ with the sizes and boxes the browser computed read out of the page.
   reload happened) in under 10 s. Its page then held the module's fact, its
   assumption apart (2 rows, `inferred`), 2 relations (`contains`, `provides`) with
   their pages linked, 1 coverage record with its gap, 1 open question, 6 places in
-  code and the diagrams' slot. The product's own Markdown page still opened beside
-  it, with the graph's section in the navigation.
-- The measurements of the page a reader saw (`GRAPH_PAGE_MEASURED`): the window
-  1150×900, the navigation 260×900, the page column 794 px wide and 1358 px tall,
+  code and the diagrams' slot — each count asserted, not read from the code. The
+  product's own Markdown page still opened beside it, with the graph's section in
+  the navigation.
+- The measurements of the page a reader saw (`GRAPH_PAGE_MEASURED`, asserted by the
+  test): the window 1150×900, the navigation 260×900, the page column 794 px wide,
   the title at 36 px, the facts' labels at 18 px and the chips at 14 px, **0
   overlapping rows** and **0 elements wider than the column they stand in**.
 - Screenshots (fetched from the pod with `--fetch`): `graph-index.png`,

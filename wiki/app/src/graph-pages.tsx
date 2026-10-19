@@ -35,10 +35,12 @@ import { codeHref, codePlace, graphKindGroups, originOf } from './graph.js';
 import { addressOfGraphPage } from './routes.js';
 
 /** A graph page's own link, followed on the client side like every page of the app. */
-function GraphLink({ id, children, className }: { id: string; children: React.ReactNode; className?: string }): ReactElement {
-  // The address is a graph page's, not a document's: `PageLink` reads a document
-  // path, so the link is made here and the history is moved the way the app moves it.
-  const address = appPath(addressOfGraphPage(id));
+function GraphLink({ id, address: given, children, className }: { id: string; address?: string; children: React.ReactNode; className?: string }): ReactElement {
+  // The address is the server's own when it named one (`GraphNodeRef.page`, the address
+  // it hands out) and the app's own otherwise — one address either way. `PageLink`
+  // reads a document path, so the link is made here and the history is moved the way
+  // the app moves it.
+  const address = appPath(given ?? addressOfGraphPage(id));
   return (
     <a
       href={address}
@@ -104,13 +106,13 @@ function FactRow({ fact, repos }: { fact: GraphPageFact; repos: readonly RepoEnt
         <p className="graph-fact-ends">
           {fact.ends.subject !== undefined && (
             <span data-testid="graph-claim-subject">
-              {fact.ends.subject.page !== undefined ? <GraphLink id={fact.ends.subject.id}>{fact.ends.subject.label}</GraphLink> : fact.ends.subject.label}
+              {fact.ends.subject.page !== undefined ? <GraphLink id={fact.ends.subject.id} address={fact.ends.subject.page}>{fact.ends.subject.label}</GraphLink> : fact.ends.subject.label}
             </span>
           )}
           {fact.ends.subject !== undefined && fact.ends.object !== undefined && <span aria-hidden="true"> → </span>}
           {fact.ends.object !== undefined && (
             <span data-testid="graph-claim-object">
-              {fact.ends.object.page !== undefined ? <GraphLink id={fact.ends.object.id}>{fact.ends.object.label}</GraphLink> : fact.ends.object.label}
+              {fact.ends.object.page !== undefined ? <GraphLink id={fact.ends.object.id} address={fact.ends.object.page}>{fact.ends.object.label}</GraphLink> : fact.ends.object.label}
             </span>
           )}
         </p>
@@ -125,12 +127,15 @@ function RelationRow({ relation, repos }: { relation: GraphRelation; repos: read
   return (
     <li className="graph-relation" data-edge={relation.edge.id} data-edge-kind={relation.edge.kind} data-direction={relation.direction}>
       <span className="graph-relation-kind">{relation.edge.kind}</span>
-      <span className="graph-relation-arrow" aria-label={t('graph.direction.' + relation.direction)}>
-        {relation.direction === 'in' ? '←' : '→'}
+      {/* The direction is a word for a reader who hears the page, and an arrow for one who
+        * sees it: a `both` relation is not an arrow either way. */}
+      <span className="graph-relation-arrow" title={t('graph.direction.' + relation.direction)} aria-hidden="true">
+        {relation.direction === 'in' ? '←' : relation.direction === 'both' ? '↔' : '→'}
       </span>
+      <span className="sr-only">{t('graph.direction.' + relation.direction)}</span>
       {relation.node !== undefined ? (
         relation.node.page !== undefined ? (
-          <GraphLink id={relation.node.id} className="graph-relation-node">{relation.node.label}</GraphLink>
+          <GraphLink id={relation.node.id} address={relation.node.page} className="graph-relation-node">{relation.node.label}</GraphLink>
         ) : (
           <span className="graph-relation-node" data-testid="graph-relation-unpaged">{relation.node.label}</span>
         )
@@ -163,7 +168,7 @@ function CoverageRow({ row }: { row: GraphCoverageRow }): ReactElement {
         <div className="graph-coverage-gaps" data-testid="graph-coverage-gaps">
           <h3>{t('graph.coverageUnread')}</h3>
           <ul>
-            {row.unread.map((gap) => <li key={gap.what}><code>{gap.what}</code> — {gap.reason}</li>)}
+            {row.unread.map((gap) => <li key={gap.what}><code>{gap.what}</code> — {t('graph.coverageGapReason', { reason: gap.reason })}</li>)}
           </ul>
           {row.unreadCut > 0 && <p className="graph-cut">{t('graph.coverageUnreadCut', { count: row.unreadCut })}</p>}
         </div>
@@ -224,8 +229,10 @@ export function GraphIndexPage({ set, repos }: { set: GraphPageSet; repos: reado
       </div>
       <h1 className="app-title">{t('graph.title')}</h1>
       <p className="home-lead" data-testid="graph-lead">{t('graph.lead', { product: set.product, count: set.total })}</p>
+      {/* The server's message is in its own words and the app does not rewrite it: it is
+        * the what-to-do, quoted with the language of the chrome around it. */}
       {set.total === 0 ? (
-        <p className="graph-empty" data-testid="graph-empty">{set.message ?? t('graph.empty', { product: set.product })}</p>
+        <p className="graph-empty" data-testid="graph-empty">{set.message === null ? t('graph.empty', { product: set.product }) : t('graph.serverSays', { message: set.message })}</p>
       ) : (
         <div className="home-groups">
           {groups.map((group) => (
@@ -237,7 +244,7 @@ export function GraphIndexPage({ set, repos }: { set: GraphPageSet; repos: reado
               <ul className="home-rows">
                 {group.entries.map((entry) => (
                   <li key={entry.id}>
-                    <GraphLink id={entry.id} className="home-row">
+                    <GraphLink id={entry.id} address={entry.page} className="home-row">
                       <span className="home-row-title">{entry.label}</span>
                       <span className="graph-chip">{layerWord(entry.layer, t)}</span>
                     </GraphLink>
@@ -261,10 +268,20 @@ export function GraphNodePage({ page, repos }: { page: GraphPageModel; repos: re
   const assumptions = page.assumptions;
   const out = page.relations.out;
   const into = page.relations.in;
+  const relations = page.counts.out + page.counts.in;
   useEffect(() => {
-    publish([t('graph.nodeCounts', { facts: page.counts.facts, relations: page.counts.out + page.counts.in, questions: page.counts.questions })]);
+    // The counts are three plural phrases in the reader's language, not three numbers in
+    // an English sentence: "1 fact" and "1 факт" both read right.
+    publish([t('graph.nodeCounts', {
+      facts: page.counts.facts,
+      factUnit: t('graph.factUnit', { count: page.counts.facts }),
+      relations,
+      relationUnit: t('graph.relationUnit', { count: relations }),
+      questions: page.counts.questions,
+      questionUnit: t('graph.questionUnit', { count: page.counts.questions }),
+    })]);
     return () => publish(null);
-  }, [publish, page.counts.facts, page.counts.out, page.counts.in, page.counts.questions, t]);
+  }, [publish, page.counts.facts, relations, page.counts.questions, t]);
   const repository = node.code?.repository ?? (typeof (page.value as { repository?: unknown } | null)?.repository === 'string' ? String((page.value as { repository: string }).repository) : undefined);
   const declared = repository === undefined ? undefined : repos.find((entry) => entry.name === repository);
   const origin = originOf(declared?.url);
@@ -279,7 +296,7 @@ export function GraphNodePage({ page, repos }: { page: GraphPageModel; repos: re
       <dl className="doc-fields" data-testid="graph-node-fields">
         <div className="doc-field doc-field-identity">
           <dt className="doc-field-name">{t('graph.fieldKind')}</dt>
-          <dd className="doc-field-value">{node.kind}</dd>
+          <dd className="doc-field-value">{t('graph.kind.' + node.kind, { defaultValue: node.kind })}</dd>
         </div>
         <div className="doc-field doc-field-identity">
           <dt className="doc-field-name">{t('graph.fieldLayer')}</dt>
@@ -312,8 +329,9 @@ export function GraphNodePage({ page, repos }: { page: GraphPageModel; repos: re
           </div>
         )}
       </dl>
+      {/* The marker is the server's own words, and the app says what it is before them. */}
       {page.truncated && page.marker !== null && (
-        <p className="graph-cut" role="status" data-testid="graph-truncated">{page.marker}</p>
+        <p className="graph-cut" role="status" data-testid="graph-truncated">{t('graph.truncatedNote')} {page.marker}</p>
       )}
 
       {/* The diagrams' place (madarch-tzte.23.4): the view specifications a diagram is
@@ -359,12 +377,12 @@ export function GraphNodePage({ page, repos }: { page: GraphPageModel; repos: re
         )}
       </section>
 
-      <section className="graph-coverage" data-testid="graph-coverage" aria-labelledby="graph-coverage-title">
+      <section className="graph-coverage-section" data-testid="graph-coverage" aria-labelledby="graph-coverage-title">
         <h2 id="graph-coverage-title">{t('graph.coverageTitle', { count: page.coverage.length })}</h2>
         {page.coverage.length === 0 ? (
           <p className="graph-none">{page.coverageScopes.length === 0 ? t('graph.noCoverageScopes') : t('graph.noCoverage', { scopes: page.coverageScopes.join(', ') })}</p>
         ) : (
-          <ul className="graph-coverage-list">{page.coverage.map((row) => <CoverageRow key={row.id} row={row} />)}</ul>
+          <ul className="graph-coverage-rows">{page.coverage.map((row) => <CoverageRow key={row.id} row={row} />)}</ul>
         )}
       </section>
 

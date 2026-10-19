@@ -327,8 +327,10 @@ describe('the graph in the navigation', () => {
     const nav = document.querySelector('[data-testid="graph-nav"]');
     const kinds = [...(nav?.querySelectorAll('[data-graph-nav-kind]') ?? [])].map((group) => group.getAttribute('data-graph-nav-kind'));
     expect(kinds).toEqual(['api-endpoint', 'module', 'symbol']);
+    // The addresses the server hands out, written out: `pageAddress` is `/p/graph/` plus
+    // the node's fact id, so a reader who copies a link gets the address the page set named.
     const links = [...(nav?.querySelectorAll('a[data-graph-node]') ?? [])].map((link) => link.getAttribute('href'));
-    expect(links).toEqual([addressOfGraphPage(ENDPOINT), addressOfGraphPage(MODULE), addressOfGraphPage(SYMBOL)]);
+    expect(links).toEqual([`/p/graph/${ENDPOINT}`, `/p/graph/${MODULE}`, `/p/graph/${SYMBOL}`]);
     expect(nav?.textContent).toContain('Modules');
     expect(nav?.textContent).toContain('checkout');
   });
@@ -384,7 +386,7 @@ describe('the graph in the navigation', () => {
     expect(kinds).toEqual(['api-endpoint', 'module', 'symbol']);
     const counts = [...document.querySelectorAll('[data-testid="graph-kind-count"]')].map((entry) => entry.textContent);
     expect(counts).toEqual(['1', '1', '1']);
-    expect(document.querySelector('a[href="' + addressOfGraphPage(MODULE) + '"]')).not.toBeNull();
+    expect(document.querySelector(`a[href="/p/graph/${MODULE}"]`)).not.toBeNull();
   });
 });
 
@@ -400,10 +402,17 @@ describe('one node’s page', () => {
     expect(text()).toContain('Modules');
 
     // A fact's code link opens the repository's own page at the pinned commit and the lines it spans.
-    const places = [...document.querySelectorAll('[data-testid="graph-place"]')];
-    const hrefs = places.map((place) => place.getAttribute('href')).filter((href) => href !== null);
-    expect(hrefs).toContain(`https://github.com/acme/shop/blob/${COMMIT}/src/checkout.ts#L1-L40`);
-    expect(hrefs).toContain(`https://github.com/acme/shop/blob/${COMMIT}/src/checkout.ts#L12`);
+    // Each of the facts' own links opens its repository's page at the pinned commit and
+    // the lines it spans: the address the wiki's document links keep (`hostFileUrl`).
+    const factLinks = [...document.querySelectorAll('[data-testid="graph-facts"] [data-fact] [data-testid="graph-place"]')]
+      .map((place) => place.getAttribute('href'));
+    expect(factLinks).toEqual([
+      `https://github.com/acme/shop/blob/${COMMIT}/src/checkout.ts#L1-L40`,
+      `https://github.com/acme/shop/blob/${COMMIT}/src/checkout.ts#L12`,
+    ]);
+    // A repository the manifest does not declare, or one whose origin the hosts do not
+    // spell, is text and links nothing — never a dead address.
+    expect(document.querySelector('[data-testid="graph-facts"] [data-testid="graph-place"][href]')).not.toBeNull();
 
     // The facts section holds the asserted facts; the assumption stands in its own section.
     const facts = [...document.querySelectorAll('[data-testid="graph-facts"] [data-fact]')];
@@ -416,8 +425,8 @@ describe('one node’s page', () => {
     // A relation to another node is a link to that node's page.
     const out = [...document.querySelectorAll('[data-testid="graph-relations-out"] [data-edge]')];
     expect(out.length).toBe(3);
-    expect(out[0]?.querySelector('a')?.getAttribute('href')).toBe(addressOfGraphPage(SYMBOL));
-    expect(out[1]?.querySelector('a')?.getAttribute('href')).toBe(addressOfGraphPage(ENDPOINT));
+    expect(out[0]?.querySelector('a')?.getAttribute('href')).toBe(`/p/graph/${SYMBOL}`);
+    expect(out[1]?.querySelector('a')?.getAttribute('href')).toBe(`/p/graph/${ENDPOINT}`);
     // An end that is no node is text: it links nothing.
     expect(out[2]?.querySelector('[data-testid="graph-relation-end"]')?.textContent).toBe('MADARCH-12');
     expect(out[2]?.querySelector('a')).toBeNull();
@@ -426,7 +435,7 @@ describe('one node’s page', () => {
     expect(into[0]?.querySelector('[data-testid="graph-relation-unpaged"]')?.textContent).toBe('acme-shop:docs/vision.md');
 
     // The claim's own ends open the pages of the nodes they name.
-    expect(document.querySelector('[data-testid="graph-claim-object"] a')?.getAttribute('href')).toBe(addressOfGraphPage(SYMBOL));
+    expect(document.querySelector('[data-testid="graph-claim-object"] a')?.getAttribute('href')).toBe(`/p/graph/${SYMBOL}`);
 
     // The coverage names the scope, its gap and that it is not whole.
     const coverage = document.querySelector('[data-testid="graph-coverage"] [data-scope]');
@@ -464,8 +473,9 @@ describe('one node’s page', () => {
     try {
       await setWikiLanguage('ru');
       await until(() => document.querySelector('[data-testid="graph-facts"] h2')?.textContent?.includes('факт'), 'the Russian facts heading');
-      expect(document.querySelector('[data-testid="graph-assumptions"] h2')?.textContent).toContain('допущен');
-      expect(text()).toContain('выведено');
+      expect(document.querySelector('[data-testid="graph-assumptions"] h2')?.textContent).toContain('предположен');
+      // The assumption's own layer word, inside the assumptions list.
+      expect(document.querySelector('[data-testid="graph-assumptions"] [data-fact] [data-testid="graph-fact-layer"]')?.textContent).toBe('выведено');
     } finally {
       await setWikiLanguage('en');
     }
@@ -491,7 +501,7 @@ describe('the live channel', () => {
     installed.push(pagesFrame({ seq: 42, nodes: [MODULE, SYMBOL], unit: 'graph-fixture/src', generation: 2 }));
     await until(() => document.querySelectorAll('[data-graph-kind]').length === 3, 'the module’s kind in the index');
     expect(Date.now() - started).toBeLessThanOrEqual(2000);
-    expect(document.querySelector('a[href="' + addressOfGraphPage(MODULE) + '"]')).not.toBeNull();
+    expect(document.querySelector(`a[href="/p/graph/${MODULE}"]`)).not.toBeNull();
     // The navigation holds the new node too.
     expect(document.querySelector(`[data-testid="graph-nav"] a[data-graph-node="${MODULE}"]`)).not.toBeNull();
     // The update was no reload: the same document still holds the page, and one stream served it.
@@ -536,8 +546,30 @@ describe('the live channel', () => {
     expect(Date.now() - started).toBeLessThanOrEqual(2000);
     // The page was read again, and the address in the browser never changed: no reload.
     expect(installed.calls.filter((call) => call.startsWith('/api/graph/page?')).length).toBe(readsBefore + 1);
-    expect(window.location.pathname).toBe(addressOfGraphPage(MODULE));
+    expect(window.location.pathname).toBe(`/p/graph/${MODULE}`);
     expect(installed.calls.filter((call) => call.startsWith(GRAPH_EVENTS_PATH)).length).toBe(1);
+  }, 20_000);
+
+  test('a burst of publications in one read leaves the open page at its own latest one', async () => {
+    // A read of the channel answers every change since the last one in one flush, so two
+    // publications reach the app as two events in one task. A page must see the one that
+    // named it, whichever of them the render kept.
+    const live = world();
+    const installed = install(live);
+    window.history.pushState({}, '', addressOfGraphPage(MODULE));
+    intoApp(createElement(App, { reconnectMs: 5 }));
+    await until(() => document.querySelector('[data-testid="graph-node"]') !== null, 'the node page');
+    const readsBefore = installed.calls.filter((call) => call.startsWith('/api/graph/page?')).length;
+
+    // The first publication of the burst names this page; the second names another.
+    const grown = modulePage();
+    grown.facts = [...grown.facts, { id: `claim:${'8'.repeat(64)}`, kind: 'claim', label: 'a fact the burst brought', layer: 'declared', status: 'accepted' }];
+    grown.counts = { ...grown.counts, facts: 3 };
+    live.pages[MODULE] = grown;
+    live.set = pageSet({ changeSeq: 45 });
+    installed.push(pagesFrame({ seq: 44, nodes: [MODULE], unit: 'graph-fixture/src', generation: 4 }) + pagesFrame({ seq: 45, nodes: [SYMBOL], unit: 'graph-fixture/src', generation: 4 }));
+    await until(() => text().includes('a fact the burst brought'), 'the fact of the burst’s first event');
+    expect(installed.calls.filter((call) => call.startsWith('/api/graph/page?')).length).toBeGreaterThan(readsBefore);
   }, 20_000);
 
   test('a publication that drops a node’s page shows the refusal on the open page', async () => {
@@ -558,7 +590,10 @@ describe('the graph’s rules', () => {
   test('a node’s page is the address the server hands out, and only a fact id is read as one', () => {
     expect(addressOfGraphPage(MODULE)).toBe(`/p/graph/${MODULE}`);
     expect(routeOf(`/p/graph/${MODULE}`)).toEqual({ name: 'graph', id: MODULE });
-    expect(routeOf(GRAPH_INDEX_ADDRESS)).toEqual({ name: 'graphIndex' });
+    // The graph's index is the address madarch-tzte.23.2's diagram links already use
+    // (`/p/graph?diagram=…`): a drill-down opens the graph, not a document named `graph`.
+    expect(GRAPH_INDEX_ADDRESS).toBe('/p/graph');
+    expect(routeOf('/p/graph')).toEqual({ name: 'graphIndex' });
     // A document whose path begins with `graph/` stays a document.
     expect(routeOf('/p/graph/notes.md')).toEqual({ name: 'page', path: 'graph/notes.md' });
   });
@@ -571,12 +606,21 @@ describe('the graph’s rules', () => {
     expect(originOf(undefined)).toBeUndefined();
     const link = { repository: 'acme-shop', commit: COMMIT, file: 'src/a b.ts', startLine: 3, endLine: 9 };
     expect(codeHref(link, repos.repos)).toBe(`https://github.com/acme/shop/blob/${COMMIT}/src/a%20b.ts#L3-L9`);
+    // GitLab keeps its objects under `/-/blob/`, as the wiki's own document links do.
+    const gitlab: RepoEntry[] = [{ name: 'acme-shop', url: 'git@gitlab.com:acme/shop.git', path: 'repos/acme-shop', state: 'cloned' }];
+    expect(codeHref(link, gitlab)).toBe(`https://gitlab.com/acme/shop/-/blob/${COMMIT}/src/a%20b.ts#L3-L9`);
     expect(codeHref(link, [])).toBeUndefined();
   });
 
   test('the page set is grouped by kind in code point order, keeping the server’s order inside a kind', () => {
-    const groups = graphKindGroups(pageSet());
+    const set = pageSet();
+    // Two symbols, in the order the server answered them (code point of the label, then of
+    // the id): the grouping never reorders a kind's own list.
+    const second = `symbol:${'0'.repeat(64)}`;
+    set.pages = [...set.pages, { id: second, kind: 'symbol', label: 'acme-shop:src/checkout.ts#checkout.total', page: addressOfGraphPage(second), layer: 'extracted', status: 'proposed' }];
+    const groups = graphKindGroups(set);
     expect(groups.map((group) => group.kind)).toEqual(['api-endpoint', 'module', 'symbol']);
+    expect(groups[2]?.entries.map((entry) => entry.id)).toEqual([SYMBOL, second]);
     expect(groups[1]?.entries.map((entry) => entry.id)).toEqual([MODULE]);
     expect(graphKindGroups(null)).toEqual([]);
   });

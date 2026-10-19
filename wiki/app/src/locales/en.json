@@ -21,7 +21,8 @@
     "english": "English",
     "russian": "Russian",
     "repositories": "Repositories",
-    "toggleGroup": "Toggle {{group}} group"
+    "toggleGroup": "Toggle {{group}} group",
+    "pages": "Pages"
   },
   "groups": {
     "product": "Product",
@@ -372,8 +373,6 @@
     "emptyShort": "No code node has a page yet",
     "empty": "The fill has published no node for {{product}} yet: pages appear here as its units publish.",
     "nodePage": "code node",
-    "nodeCounts": "{{facts}} facts · {{relations}} relations · {{questions}} questions",
-    "nodesCount": "{{count}} code nodes",
     "fieldKind": "Kind",
     "fieldLayer": "Obtained",
     "fieldStatus": "Status",
@@ -381,7 +380,7 @@
     "fieldCode": "In code",
     "fieldImportance": "Importance",
     "diagramsTitle": "Diagrams",
-    "diagramsSlot": "The diagrams of this node stand here. The graph's diagram models are drawn by the diagrams change (madarch-tzte.23.4); until then this place names what will stand in it.",
+    "diagramsSlot": "The diagrams of this node stand here. The graph's diagram models are drawn by the diagram change; until then this place names what will stand in it.",
     "factsTitle_one": "{{count}} fact",
     "factsTitle_other": "{{count}} facts",
     "factsTitle_few": "{{count}} facts",
@@ -436,7 +435,6 @@
     "draftHeldBy": "held by {{unit}}, generation {{generation}}",
     "gone": "This page stands nowhere.",
     "backToIndex": "All code nodes",
-    "moreOfKind": "{{count}} more {{kind}}",
     "toggleKind": "Toggle {{kind}}",
     "noOrigin": "The manifest declares no origin for {{repository}}, so this place is shown as text and links nothing.",
     "layer": {
@@ -481,6 +479,31 @@
       "rule": "Rules",
       "state": "States",
       "question": "Questions"
-    }
+    },
+    "nodeCounts": "{{facts}} {{factUnit}} · {{relations}} {{relationUnit}} · {{questions}} {{questionUnit}}",
+    "nodesCount_one": "{{count}} code node",
+    "nodesCount_other": "{{count}} code nodes",
+    "moreOfKind_one": "And {{count}} more {{kind}}",
+    "moreOfKind_other": "And {{count}} more {{kind}}",
+    "factUnit_one": "fact",
+    "factUnit_other": "facts",
+    "relationUnit_one": "relation",
+    "relationUnit_other": "relations",
+    "questionUnit_one": "question",
+    "questionUnit_other": "questions",
+    "coverageGapReason": "reason: {{reason}}",
+    "serverSays": "The server says: {{message}}",
+    "truncatedNote": "This page is not the whole page:",
+    "noPageSet": "The server’s answer is no page set: the graph is shown nowhere until it answers one.",
+    "nodesCount_few": "{{count}} code nodes",
+    "nodesCount_many": "{{count}} code nodes",
+    "moreOfKind_few": "And {{count}} more {{kind}}",
+    "moreOfKind_many": "And {{count}} more {{kind}}",
+    "factUnit_few": "facts",
+    "factUnit_many": "facts",
+    "relationUnit_few": "relations",
+    "relationUnit_many": "relations",
+    "questionUnit_few": "questions",
+    "questionUnit_many": "questions"
   }
 }

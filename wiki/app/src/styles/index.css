@@ -1222,17 +1222,10 @@ main section h2 {
   color: var(--text-muted);
 }
 
-.graph-nav-empty {
-  padding: 0 0.5em 0.4em;
-  font-size: var(--fs-small);
-  line-height: 1.4;
-  color: var(--text-muted);
-}
-
 .graph-facts,
 .graph-assumptions,
 .graph-relations,
-.graph-coverage,
+.graph-coverage-section,
 .graph-questions,
 .graph-drafts,
 .graph-diagrams {
@@ -1248,6 +1241,7 @@ main section h2 {
 .graph-relation-list,
 .graph-question-list,
 .graph-draft-list,
+.graph-coverage-rows,
 .graph-coverage-list {
   margin: 0;
   padding: 0;

@@ -19,11 +19,11 @@ import { useTranslation } from 'react-i18next';
 import { FileTextIcon, FolderGit2Icon, GitBranch, NetworkIcon } from 'lucide-react';
 import { relativeTime } from './i18n.js';
 import { FillWizard } from './fill-wizard.js';
-import { getProduct, getPages, getPage, getQuestions, getRepos, getRegistry, type Product, type ProductWithAudience, type PageList, type Page, type QuestionList, type QuestionEntry, type PageDocument, type Architecture, type RepoEntry, type ReposList, type RegistryOffer, getDiscussions, postDiscussion, type DiscussionEntry, type DiscussionRange, type GraphPageChange, type GraphPageSet } from './api.js';
+import { getProduct, getPages, getPage, getQuestions, getRepos, getRegistry, type Product, type ProductWithAudience, type PageList, type Page, type QuestionList, type QuestionEntry, type PageDocument, type Architecture, type RepoEntry, type ReposList, type RegistryOffer, getDiscussions, postDiscussion, type DiscussionEntry, type DiscussionRange, type GraphPageSet } from './api.js';
 import { routeOf, addressOfPage, architectureAddress, REPOS_ADDRESS, type Route } from './routes.js';
 import { Markdown, PageLink } from './view.js';
 import { mapParagraphSelection, renderedMarkdownParagraphs } from './discussion-selection.js';
-import { routeContext, statusContext } from './hold.js';
+import { navigateTo, routeContext, statusContext } from './hold.js';
 import { groupNav, groupOf, kindOf, wordLabel, Shell } from './shell.js';
 import { wordCount } from './text.js';
 import { useArchitecture, ArchitectureIndex, ViewPage, ElementPage, elementLinksFor } from './architecture.js';
@@ -31,7 +31,7 @@ import { StagePage, useStages } from './stages.js';
 import { QuestionsView } from './questions.js';
 import { HomeOverviewFacts, registryDisplayLabel, registryStageDisplayLabel, type HomeOverviewProjection } from './overview.js';
 import { NextStep } from './recommendation.js';
-import { useGraphPages, useGraphPage, graphIndexAddress } from './graph.js';
+import { useGraphPages, useGraphPage, graphIndexAddress, NO_PAGE_SET } from './graph.js';
 import { GraphIndexPage, GraphNodePage } from './graph-pages.js';
 export type RouteSnapshot = Route;
 
@@ -244,7 +244,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
   // page appears in the navigation and in the graph section as facts arrive —
   // with no reload and no polling. A server that answers no page set shows no
   // graph section, and the document pages are exactly what they were.
-  const graph = useGraphPages();
+  const graph = useGraphPages({ reconnectMs });
   if (error !== null) return <ErrorLine message={error} />;
   if (data === null) return <p className="loading">{t('loading.wiki')}</p>;
 
@@ -288,12 +288,12 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
           <QuestionsView key={"questions:" + list.revision} questions={data.questions ?? null} onAnswered={() => setRefresh((value) => value + 1)} />
         ) : route.name === 'graphIndex' ? (
           graph.set === null ? (
-            graph.available ? <p className="loading">{t('loading.graph')}</p> : <ErrorLine message={graph.error ?? t('loading.graph')} />
+            graph.available ? <p className="loading">{t('loading.graph')}</p> : <ErrorLine message={graph.error === NO_PAGE_SET ? t('graph.noPageSet') : (graph.error ?? t('loading.graph'))} />
           ) : (
             <GraphIndexPage set={graph.set} repos={data.repos?.repos ?? []} />
           )
         ) : route.name === 'graph' ? (
-          <GraphNodeRoute id={route.id} change={graph.change} repos={data.repos?.repos ?? []} />
+          <GraphNodeRoute id={route.id} touchedAt={graph.touched.get(route.id) ?? 0} repos={data.repos?.repos ?? []} />
         ) : (
           <PageReader
             key={"page:" + route.path + ":" + list.revision}
@@ -340,9 +340,9 @@ function StageRoute({ stage, revision, offer }: { stage: string; revision: strin
  * A page the graph no longer holds is its refusal's own words — a node whose facts
  * another publication dropped is a page that stands nowhere, never an empty one.
  */
-function GraphNodeRoute({ id, change, repos }: { id: string; change: GraphPageChange | null; repos: readonly RepoEntry[] }): ReactElement {
+function GraphNodeRoute({ id, touchedAt, repos }: { id: string; touchedAt: number; repos: readonly RepoEntry[] }): ReactElement {
   const { t } = useTranslation();
-  const read = useGraphPage(id, change);
+  const read = useGraphPage(id, touchedAt);
   if (read.page !== null) return <GraphNodePage page={read.page} repos={repos} />;
   if (read.error !== null) {
     return (
@@ -354,7 +354,16 @@ function GraphNodeRoute({ id, change, repos }: { id: string; change: GraphPageCh
           <strong>{read.missing ? t('graph.gone') : t('errors.prefix')}</strong>{' '}
           <span>{read.error}</span>
         </p>
-        <p><a href={appPath(graphIndexAddress)}>{t('graph.backToIndex')}</a></p>
+        <p>
+          <a
+            href={appPath(graphIndexAddress)}
+            onClick={(event) => {
+              if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
+              event.preventDefault();
+              navigateTo(appPath(graphIndexAddress));
+            }}
+          >{t('graph.backToIndex')}</a>
+        </p>
       </main>
     );
   }
@@ -501,7 +510,16 @@ export function HomePage({ product, list, architecture, offer, overview, recomme
             </header>
             <ul className="home-rows">
               <li>
-                <a className="home-row" href={appPath(graphIndexAddress)} data-testid="home-graph-link">
+                <a
+                  className="home-row"
+                  href={appPath(graphIndexAddress)}
+                  data-testid="home-graph-link"
+                  onClick={(event) => {
+                    if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
+                    event.preventDefault();
+                    navigateTo(appPath(graphIndexAddress));
+                  }}
+                >
                   <NetworkIcon aria-hidden="true" className="home-row-icon" />
                   <span className="home-row-title">{graph.total === 0 ? t('graph.emptyShort') : t('graph.openIndex', { count: graph.total })}</span>
                 </a>

@@ -44,6 +44,13 @@ import { GRAPH_INDEX_ADDRESS, addressOfGraphPage } from './routes.js';
 /** Where the graph's live channel answers. */
 export const GRAPH_EVENTS_PATH = appPath('/api/graph/events');
 
+/**
+ * Why the graph is shown nowhere: the server answered the page set's address with
+ * something that is no page set. It is a marker the app translates, never a machine
+ * path or an English sentence in a reader's chrome.
+ */
+export const NO_PAGE_SET = 'graph-pages/no-page-set';
+
 /** The first gap before a dropped graph stream is asked for again; each miss doubles it. */
 export const defaultGraphReconnectMs = 1000;
 
@@ -130,20 +137,27 @@ export function originOf(url: string | undefined): { kind: 'github' | 'gitlab'; 
 }
 
 /**
- * The address a fact's code link opens: the repository's own page on its host, at
- * the commit the fact was read at, at the lines it spans — or undefined when the
- * repository declares no origin the hosts spell, and the place is text alone.
+ * The address a fact's code link opens: the repository's own page on its host, at the
+ * commit the fact was read at, at the lines it spans — or undefined when the
+ * repository declares no origin the hosts spell, and the place is text alone. The
+ * spelling is the wiki's own (`hostFileUrl`, `src/wiki/documents.ts`): GitHub puts the
+ * object under `/blob/`, GitLab under `/-/blob/`, so a fact and a document of one file
+ * open one address, and an owner of several segments, a repository name and a commit
+ * are all encoded the way that reader encodes them.
  */
 export function codeHref(link: GraphCodeLink, repos: readonly RepoEntry[]): string | undefined {
   const declared = repos.find((entry) => entry.name === link.repository);
   const origin = originOf(declared?.url);
   if (origin === undefined) return undefined;
-  const path = link.file.split('/').filter((segment) => segment !== '').map((segment) => encodeURIComponent(segment)).join('/');
-  const host = origin.kind === 'github' ? 'https://github.com' : 'https://gitlab.com';
+  const segments = (path: string): string => path.split('/').filter((segment) => segment !== '').map((segment) => encodeURIComponent(segment)).join('/');
+  const owner = segments(origin.owner);
+  const repo = encodeURIComponent(origin.repo);
+  const host = origin.kind === 'github'
+    ? `https://github.com/${owner}/${repo}/blob/${encodeURIComponent(link.commit)}`
+    : `https://gitlab.com/${owner}/${repo}/-/blob/${encodeURIComponent(link.commit)}`;
   const lines = link.endLine > link.startLine ? `#L${link.startLine}-L${link.endLine}` : `#L${link.startLine}`;
-  return `${host}/${origin.owner}/${origin.repo}/blob/${link.commit}/${path}${lines}`;
+  return `${host}/${segments(link.file)}${lines}`;
 }
-
 /** The place a code link names, as a reader reads it: the file and the lines it spans. */
 export function codePlace(link: GraphCodeLink): string {
   return link.endLine > link.startLine ? `${link.file}:${link.startLine}-${link.endLine}` : `${link.file}:${link.startLine}`;
@@ -157,8 +171,17 @@ export type GraphLive = {
   readonly available: boolean;
   /** Why the page set could not be read, when it could not; the reader sees it in place of the graph. */
   readonly error: string | null;
-  /** The latest publication the channel reported: the pages it touched, and the change number it stands at. */
-  readonly change: GraphPageChange | null;
+  /**
+   * One publication's number for every page it touched, over the whole tab's life: a
+   * node's own entry is the change number of the **latest** publication that named it.
+   * A change number is what a page depends on, never "the last event of a burst": a
+   * read of the channel answers every change since the last one in a single flush, so
+   * a burst of publications arrives as several events in one task, and a page must
+   * see its own latest one whichever of them the render kept.
+   */
+  readonly touched: ReadonlyMap<string, number>;
+  /** How many publications the channel has reported, so a reader of the set re-reads it once per burst. */
+  readonly changes: number;
 };
 
 /**
@@ -173,7 +196,8 @@ export function useGraphPages(options: { reconnectMs?: number } = {}): GraphLive
   const [set, setSet] = useState<GraphPageSet | null>(null);
   const [available, setAvailable] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [change, setChange] = useState<GraphPageChange | null>(null);
+  const [touched, setTouched] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const [changes, setChanges] = useState(0);
   useEffect(() => {
     let alive = true;
     let misses = 0;
@@ -202,7 +226,7 @@ export function useGraphPages(options: { reconnectMs?: number } = {}): GraphLive
         const shaped = pageSetOf(next);
         if (shaped === null) {
           setAvailable(false);
-          setError('the server answered /api/graph/pages with no page set');
+          setError(NO_PAGE_SET);
           return;
         }
         setSet(shaped);
@@ -264,7 +288,15 @@ export function useGraphPages(options: { reconnectMs?: number } = {}): GraphLive
             }
             if (!alive) return;
             seq = Math.max(seq ?? 0, event.seq);
-            setChange(event);
+            // Every page the publication named takes its own change number, so a burst of
+            // events — one flush of a channel read — leaves every page with its own latest
+            // one, and no page is left stale because another arrived after it.
+            setTouched((held) => {
+              const next = new Map(held);
+              for (const node of event.nodes) next.set(node, Math.max(next.get(node) ?? 0, event.seq));
+              return next;
+            });
+            setChanges((held) => held + 1);
             void loadSet();
           }
         }
@@ -290,7 +322,7 @@ export function useGraphPages(options: { reconnectMs?: number } = {}): GraphLive
       stream = undefined;
     };
   }, [reconnectMs]);
-  return { set, available, error, change };
+  return { set, available, error, touched, changes };
 }
 
 /** One node's page as the app reads it: the model, or the refusal naming why the graph holds none. */
@@ -309,24 +341,12 @@ export type GraphPageRead = {
  * another publication dropped, or one the graph does not hold yet — and it is shown
  * as the refusal's own words, never as an empty page.
  */
-export function useGraphPage(id: string, change: GraphPageChange | null): GraphPageRead {
+export function useGraphPage(id: string, touchedAt: number): GraphPageRead {
   const [page, setPage] = useState<GraphPageModel | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [missing, setMissing] = useState(false);
-  // The publication that names this page, as one number the read depends on: a
-  // publication that touches other pages asks for nothing here.
-  const touchedAt = change !== null && change.nodes.includes(id) ? change.seq : 0;
-  const heldRef = useRef<string | null>(null);
   useEffect(() => {
     let alive = true;
-    // A page whose id changed starts empty: the previous node's model is never shown
-    // under the new node's name.
-    if (heldRef.current !== id) {
-      heldRef.current = id;
-      setPage(null);
-      setError(null);
-      setMissing(false);
-    }
     const controller = new AbortController();
     getGraphPage(id, controller.signal)
       .then((next) => {
@@ -348,7 +368,12 @@ export function useGraphPage(id: string, change: GraphPageChange | null): GraphP
       controller.abort();
     };
   }, [id, touchedAt]);
-  return { page, error, missing };
+  // A page whose id changed is never shown under the new node's name: the model is
+  // handed out only while it is the model of the node asked for now, so the frame
+  // between the route's change and the new read shows the page's loading line and not
+  // the node that was open a moment ago.
+  const shown = page !== null && page.node.id === id ? page : null;
+  return { page: shown, error: shown === null ? error : null, missing: shown === null && missing };
 }
 
 /** The address of one graph node's page, as every link of the app spells it. */
