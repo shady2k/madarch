@@ -303,9 +303,16 @@ Taken from decisions 0026, 0027 and 0005; nothing here re-decides them.
     consequence of a person's decision, never a silent stall: the run's evidence
     and its progress events name the blocked unit and the children it refused to
     seal again.
-  - **A stop between turns is not seen until the next event.** A time limit that
-    passes while an agent streams nothing and answers nothing is ended by the
-    attempt's own end (0027's lease), not by this guard.
+  - **A turn that never sends an event and never answers is bounded by nothing this
+    guard can see.** ACP's `session/prompt` has no client-side bound (a turn may
+    legitimately run for minutes), so a worker waiting on such a turn is still
+    inside the await when 0027's lease lapses: the lease is a database row and the
+    sweep retries the unit, but this process does not stop the turn. 0026's ten
+    minutes therefore hold for an agent that streams what it does; for one that
+    goes silent and never answers, the attempt's own connection close is the only
+    end, and it needs the process to notice. Giving the prompt a bound is a change
+    to the client (`src/fill/acp.ts`, madarch-tzte.22.1) and is named here rather
+    than pretended.
   - **No `mutation` receipt.** The owner's rule runs Stryker once per assembled
     stage, off the path; acceptance escalates per `mutationFallback: escalate`.
 
@@ -314,55 +321,79 @@ Taken from decisions 0026, 0027 and 0005; nothing here re-decides them.
 The checks, each command's own exit status, at hand-over:
 
 - `bun run check` (`tsc --noEmit`) exit 0 at every commit of the branch, the
-  rebase onto `origin/main` included.
+  rebase onto `origin/main` `fad2419e` included.
 - The feature document gate (`node .shady2k/documents.mjs check --phase feature
   --change madarch-tzte.22.3 --candidate worktree --target origin/main`) exit 0,
   clean, after every edit round (it runs in the pre-commit hook too).
 - The focused suites run in SkyPilot, not on this machine (the owner's rule),
   `madarch-sky-test <worktree> <files>`, each with the tests' own exit status:
+  - `test/fill-unit-limits.test.ts` (11 tests) + `test/fill-agent-packet.test.ts`
+    (9) + `test/fill-agent-unit.test.ts` (15) — 35 pass, 0 fail, exit 0 at the
+    third review's answers. The earlier revisions ran the same files at 25
+    (first), 26 (first review's answers), 28 (second review's answers) and the
+    counts grew as the reviews' cases were added.
   - `test/fill-unit-limits.test.ts` + `test/fill-agent-packet.test.ts` +
-    `test/fill-agent-unit.test.ts` — 28 pass, 0 fail, exit 0 at the second
-    review's answers (25 pass at the first revision, 26 pass at the first
-    review's answers, 28 with the plan's own cases). The three files hold 11,
-    10 and 7 tests.
-  - `test/fill-orchestrator.test.ts` + `test/fill-crash-suite.test.ts` +
-    `test/fill-registry.test.ts` + `test/fill-unit-tools.test.ts` +
-    `test/product-daemon.test.ts` + `test/fill-agent-unit.test.ts` — 175 pass,
-    0 fail, exit 0, after the first review's answers (the split transaction and
-    the tools seam moved).
-  - After the rebase onto `origin/main` `fad2419e` (the modules stage landed):
-    `test/fill-unit-limits.test.ts` + `test/fill-agent-packet.test.ts` +
-    `test/fill-agent-unit.test.ts` + `test/fill-registry.test.ts` +
-    `test/fill-modules-stage.test.ts` + `test/fill-orchestrator.test.ts` —
-    166 pass, 0 fail, exit 0.
+    `test/fill-agent-unit.test.ts` + `test/fill-unit-tools.test.ts` +
+    `test/fill-orchestrator.test.ts` + `test/fill-crash-suite.test.ts` —
+    130 pass, 0 fail, exit 0, at the second review's answers (the split
+    transaction and the tools seam moved, and the crash suite kills workers
+    around exactly that transaction).
   - Every deterministic stage's own suite with `test/product-cli.test.ts`,
     `test/product-daemon.test.ts`, `test/fill-facts.test.ts` and
     `test/fill-state-store.test.ts` (the direct importers of `stage.ts`,
-    `stages/index.ts` and `daemon.ts`) — 396 pass, 0 fail, exit 0, before the
-    review's answers; `test/fill-orchestrator.test.ts`,
-    `test/fill-crash-suite.test.ts`, `test/fill-registry.test.ts`,
-    `test/fill-graph-reads.test.ts`, `test/fill-unit-tools.test.ts`,
-    `test/product-daemon.test.ts` and `test/contract-serve.test.ts` — 221 pass,
-    0 fail, exit 0, at the first revision.
+    `stages/index.ts` and `daemon.ts`) — 396 pass, 0 fail, exit 0.
+  - `test/fill-orchestrator.test.ts` + `test/fill-crash-suite.test.ts` +
+    `test/fill-registry.test.ts` + `test/fill-unit-tools.test.ts` +
+    `test/product-daemon.test.ts` + `test/fill-agent-unit.test.ts` — 175 pass,
+    0 fail, exit 0.
+  - After the rebase: `test/fill-unit-limits.test.ts` +
+    `test/fill-agent-packet.test.ts` + `test/fill-agent-unit.test.ts` +
+    `test/fill-registry.test.ts` + `test/fill-modules-stage.test.ts` +
+    `test/fill-orchestrator.test.ts` — 166 pass, 0 fail, exit 0.
 - The independent review, fresh read-only
   `prime-agent --provider shady2k-gateway --model deepseek-v4.1-flash-auto`
   sessions over `git diff origin/main...HEAD`, each told not to run anything on
-  this machine.
-  - Round 1 (`/tmp/review-223.log`): verdict `fix-before-ship`; four defects and
-    twelve findings. The defects: the plan dropped the scopes past its bound and
-    reported `planned`; a member list cut by a read's cap could still publish
-    `coverage{complete: true}` while the cut never reached the agent; a parent
-    that joined could split into the same, already published children for ever;
-    and a unit's tool session leaked when the stage's configuration refused after
-    the tools were opened. All four are answered in `f1bc846c` **with the test
-    that catches each** (the plan's own cases in `test/fill-agent-unit.test.ts`,
-    an end-to-end unit that covers exactly what its cut packet showed, the second
-    attempt after a join, and the configuration read before the tools are opened),
-    and the twelve findings are answered too (the guard counts every prompt it
-    sends; the answer's own `remaining` is honoured; `link` is no longer a lost
-    unit; a comment member is named by its place; the fixed sections are counted
-    against 0026's cap; dead code, an unused parameter and a self-checked constant
-    are gone; refusals use `raise()`).
+  this machine (no `bun`, no tests, no mutation).
+  - Round 1 (`/tmp/review-223.log`): verdict `fix-before-ship`; four defects —
+    the plan dropped the scopes past its bound and reported `planned`; a member
+    list cut by a read's cap could still publish `coverage{complete: true}` while
+    the cut never reached the agent; a parent that joined could split into the
+    same, already published children for ever; and a unit's tool session leaked
+    when the stage's configuration refused after the tools were opened — plus
+    twelve findings. All four were answered **with the test that catches each**,
+    and the twelve with them (`f1bc846c` before the rebase, `469995cb` after it).
+  - Round 2 (`/tmp/review-223b.log`): verdict `fix-before-ship`; five defects —
+    a file's scope (whose members are its symbols) was named by no unit at all;
+    the re-seal refusal missed the run's `accept-partial` policy; the packet was
+    counted into the guard's own figure twice; the answers the unit's own MCP
+    server returned were never counted, which 0026 requires ("the session and the
+    server"); and `link` still invited the read kinds a tool description names as
+    examples, which cost the unit its whole draft — plus eleven findings. All
+    five are answered in `a54c8acf` with their tests (the file-scope plan case,
+    the `accept-partial` end-to-end case, the packet counted once per prompt, the
+    host's per-session answer count with `test/fill-unit-tools.test.ts` proving
+    it, and the two declared edge kinds named in the fixed part), and the findings
+    with them: the sealing transaction names `fill_unit_draft`; the attempt's
+    authority and tools are opened inside one `try`; the packet's lists are
+    charged in the currency the prompt is sent in; the marker names which cap cut;
+    a comment neighbour is named by its place; `validateDraft` is the landed
+    `checkFactDraft` with its four write kinds; `readUnitAnswer`, `coveredPlaces`,
+    `splitChildren` and `placesOfMembers` have unit tests; the packet test's
+    `relations` and `data` are filled by a graph that holds one of each.
+  - Round 3 (`/tmp/review-223c.log`), a narrow re-check of the answers: it found
+    all nine defects of the two rounds answered; its two blocking findings were
+    this record's own numbers (it re-derived them from `git log` and the test
+    files, and the counts above are the ones it asked for) and an attempt
+    cancelled before its session opened still running one uncancelled turn
+    (fixed: the loop reads the abort before any turn, and the listener is
+    registered whatever the signal says). Its thirteen smaller findings are
+    answered too: the server's answers are counted before the turn is judged; a
+    test proves the host's count; the refused split still records the checkpoint
+    it was meant to hand over; the wrap threshold is floored like the stop; the
+    form list comes from the schema's own `REPOSITORY_FORMS`; the test's worlds
+    are `mkdtemp` folders; the packet test no longer restates a bound the code
+    enforces by refusing; the words of `boundedText`'s own cut and of the
+    never-ending turn's bound are corrected.
 - CI on the exact SHA of the branch: named in the task's `check:` records and in
   the queue entry (`## madarch-tzte.22.3 — READY …`).
 

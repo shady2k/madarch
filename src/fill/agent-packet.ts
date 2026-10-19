@@ -233,7 +233,7 @@ function rankOf(kind: FactKind | null): number {
   return index === -1 ? MEMBER_RANK.length : index;
 }
 
-/** One text as the packet keeps it: first line, at most `MAX_TEXT_CODE_POINTS`, cut with an ellipsis and counted. */
+/** One text as the packet keeps it: its first line, at most `MAX_TEXT_CODE_POINTS` code points, cut with an ellipsis. */
 function boundedText(text: string): string {
   const line = text.split('\n')[0] ?? '';
   const points = [...line];

@@ -28,6 +28,7 @@ import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact, type FactProvena
 import {
   createFactGraphReader,
   DEFAULT_GRAPH_READ_LIMITS,
+  estimateTokens,
   type GraphReadLimits,
 } from '../src/fill/graph-reads.js';
 import { connectAcpAgent, type AcpConnection, type AcpMcpServer } from '../src/fill/acp.js';
@@ -335,6 +336,24 @@ describe('the Model Context Protocol a unit\'s server speaks', () => {
       'assert_fact', 'propose_entity', 'link', 'raise_question',
     ]);
     expect(tools.every((tool) => tool.description.length > 0 && tool.inputSchema.type === 'object')).toBe(true);
+  });
+
+  test('the host counts what a session\'s server answered, in the fill\'s own tokens, and forgets it with the session', async () => {
+    // 0026: the limits count "the session and the server". The host is where a session's answers are in hand, so the
+    // count is per open session, starts at nothing, and grows by each answer's own JSON — the text the agent reads.
+    const openedWorld = opened();
+    const handle = await openedWorld.tools();
+    expect(handle.answered()).toBe(0);
+    const answered = await openedWorld.call(handle, 'coverage', { scope: `${REPOSITORY}:src` });
+    const counted = handle.answered();
+    expect(counted).toBe(estimateTokens(JSON.stringify(answered.answer), DEFAULT_GRAPH_READ_LIMITS));
+    expect(counted).toBeGreaterThan(0);
+    // A second answer adds to the first, and a token this host minted for no open session answers and counts nothing.
+    await openedWorld.call(handle, 'coverage', { scope: `${REPOSITORY}:src` });
+    expect(handle.answered()).toBeGreaterThan(counted);
+    expect(await openedWorld.service.unitTool({ token: 'not-a-token', tool: 'coverage', arguments: {} })).toBeNull();
+    handle.close();
+    expect(handle.answered()).toBe(0);
   });
 
   test('a notification earns no answer, and neither does a response to a request this server never sent', async () => {

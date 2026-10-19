@@ -1364,6 +1364,12 @@ async function splitAttempt(
   const unit = request.unit;
   const at = orchestrator.clock();
   const refuse = async (reason: string): Promise<WorkOutcome> => {
+    // A split that cannot be sealed still records what the stopping attempt wrote — 0026's "a unit at a limit
+    // returns what it has with its coverage" — so the graph keeps what the unit established and the block's reason
+    // is the only thing left to resolve. It is a draft row of its own generation, replaced by the next attempt's.
+    await recordUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, writes: request.writes, at });
+    // A blocked step is taken through `takeAttemptStep`: a step the machine refuses settles this worker's claim
+    // (madarch's 19.7), so a parent the sweep moved under this attempt leaves no unsettled job behind it.
     const blocked = await takeAttemptStep(orchestrator, { unit, step: 'block', job: request.job, event: { type: 'block', at, generation: unit.generation, fence: request.fence, reason } });
     if (!blocked.ok) return blocked.outcome;
     await orchestrator.queue.complete(orchestrator.queueName, request.job, { reason });

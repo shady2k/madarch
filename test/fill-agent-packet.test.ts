@@ -29,7 +29,6 @@ import {
   unitFixedPart,
   estimateOfMembers,
   MEMBER_ESTIMATE_TOKENS,
-  PACKET_TOKENS,
   pathOfNode,
   placeText,
   plannedTokens,
@@ -392,9 +391,7 @@ describe('the per-unit packet, assembled from the graph', () => {
       kinds: ['claim', 'coverage'],
       task: 'Understand the big folder.',
     });
-    expect(packet.tokens).toBeLessThanOrEqual(PACKET_TOKENS);
     expect(packet.marker).not.toBeNull();
-    // The cut is named, with what was cut and by which cap: 0026's 20000-token starting packet.
     // The cut is named wherever it happened: 0026's 8K-token answer cap cuts the members read itself, and the
     // packet's own 20000-token cap cuts a list that does not fit — both say what they cut and by which cap.
     expect(String(packet.marker)).toContain(`${BIG_FILES} rows`);

@@ -160,9 +160,9 @@ interface WorldOptions {
 }
 
 async function openWorld(options: WorldOptions): Promise<World> {
-  const name = `world-${String(Date.now())}-${String(Math.floor(Math.random() * 1e6))}`;
-  const folder = join(root!, name);
-  mkdirSync(folder, { recursive: true });
+  // A scratch folder of its own per world, named by `mkdtemp` so two worlds never collide and the test names no
+  // clock or random value of its own.
+  const folder = mkdtempSync(join(root!, 'world-'));
   const scriptPath = join(folder, 'script.json');
   writeFileSync(scriptPath, JSON.stringify(options.script));
   const record = join(folder, 'agent-record.jsonl');

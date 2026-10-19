@@ -204,7 +204,9 @@ export function createUnitLimitGuard(options: { readonly limits: StageLimits; re
       };
       const cause = crossed();
       if (cause !== undefined) return { kind: 'stop', cause, state: now };
-      const wrapsAt = now.window * (bounds.wrapAtTokens / bounds.contextTokens);
+      // The wrap threshold is the whole number of tokens the fixed part tells the unit (the same floor the stop
+      // takes), so the promise and the behaviour are one number.
+      const wrapsAt = Math.floor(now.window * (bounds.wrapAtTokens / bounds.contextTokens));
       if (warned || now.used < wrapsAt) return { kind: 'within', state: now };
       warned = true;
       return { kind: 'wrap', state: now };

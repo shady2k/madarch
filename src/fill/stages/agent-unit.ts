@@ -63,7 +63,7 @@ import {
   type UnitMember,
 } from '../agent-packet.js';
 import { scopeText, writeScope, type WriteScope } from '../checked-writes.js';
-import { FACT_KINDS, makeNodeFact, type CoverageGap, type CoverageValue, type Fact, type FactKind, type FactSource } from '../facts.js';
+import { FACT_EDGE_KINDS, FACT_KINDS, makeNodeFact, REPOSITORY_FORMS, type CoverageGap, type CoverageValue, type Fact, type FactKind, type FactSource } from '../facts.js';
 import {
   DEFAULT_GRAPH_READ_LIMITS,
   estimateTokens,
@@ -211,14 +211,6 @@ export function createAgentUnitStage(wiring: AgentUnitWiring): FillStage {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * The reads a plan makes for the repositories of a run: the grammar reads facts
- * with one value field exactly, so the code repositories and the product repository
- * are read by the one field that tells them apart (`RepositoryValue.form`). Two
- * reads, and every repository node of the product is in one of them.
- */
-export const REPOSITORY_FORMS: readonly string[] = ['code', 'product'];
-
-/**
  * The text of the read that names one form of repository:
  * `{"read":"facts-with","kind":"repository","field":"form","value":"<form>"}`. The
  * field is a path inside a fact's own `value` column (`readPath`, `graph-reads.ts`),
@@ -248,6 +240,8 @@ export function heldRead(scopeId: string): string {
 export async function planUnits(graph: StageGraphReader): Promise<StagePlan> {
   const reads = graphReadsOver(graph);
   const repositories = new Map<string, Fact>();
+  // The grammar reads facts with one value field exactly, so the code repositories and the product repository are
+  // read by the one field that tells them apart (`RepositoryValue.form`, the schema's own set of forms).
   for (const form of REPOSITORY_FORMS) {
     const read = { read: 'facts-with' as const, kind: 'repository' as const, field: 'form', value: form };
     for (const fact of factsOfRows(await reads.read(read), read)) repositories.set(fact.id, fact);
@@ -591,12 +585,16 @@ async function executeUnit(wiring: AttemptWiring, unit: StageUnit, context: Stag
     // A run's cancellation revokes this attempt's authority (`orchestrator.authority`): the turn in flight is
     // cancelled through the protocol, and the unit ends rather than writing a draft the machine will refuse.
     const onAbort = (): void => { aborted = true; void opened.cancel().catch(() => undefined); };
+    // Registered whatever the signal says: a cancellation that arrives after this line is sent through the protocol.
+    context.signal.addEventListener('abort', onAbort, { once: true });
     if (context.signal.aborted) aborted = true;
-    else context.signal.addEventListener('abort', onAbort, { once: true });
     let prompt = packet.prompt;
     let turns = 0;
     try {
       for (;;) {
+        // A cancellation that came while the packet was built or the session opened is honoured here: an attempt
+        // whose authority was revoked spends no turn at all (0027: the intent revokes authority, then aborts).
+        if (aborted) break;
         turns += 1;
         // What madarch itself puts into the session, counted once: the packet, the wrap-up message and every nudge
         // are each sent as one turn, and the loop counts each at the moment it sends it.
@@ -622,17 +620,17 @@ async function executeUnit(wiring: AttemptWiring, unit: StageUnit, context: Stag
           },
         });
         if (stopCause !== undefined || aborted) break;
-        const judged = guard.observe({
-          turns,
-          ...(result.usage?.outputTokens === undefined ? {} : { outputTokens: result.usage.outputTokens }),
-        });
         // 0026 counts "the session and the server": the answers this unit's own MCP server returned are in the same
-        // context, so what it has answered so far is added to madarch's own count before the turn is judged.
+        // context, so what it has answered is added to madarch's own count before this turn is judged.
         const answered = tools.answered?.() ?? 0;
         if (answered > answeredCounted) {
           guard.sent(answered - answeredCounted);
           answeredCounted = answered;
         }
+        const judged = guard.observe({
+          turns,
+          ...(result.usage?.outputTokens === undefined ? {} : { outputTokens: result.usage.outputTokens }),
+        });
         if (judged.kind === 'stop') { stopCause = judged.cause; break; }
         const read = readUnitAnswer(result.text);
         if (read !== undefined) { answer = read; break; }
