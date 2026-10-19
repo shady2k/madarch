@@ -45,6 +45,41 @@ export function factStoreChecks(facts: ScenarioFacts): readonly FactStoreCheck[]
       check: (report) => expect(report.sharedCountStored).toBe(bCount),
     },
     {
+      name: 'a measured field is what a later publication replaces, and every other field keeps the first publication\'s row',
+      check: (report) => {
+        expect(report.rankAfterFirst).toBe(0.5);
+        // The second publication of one id carries another rank and another member count: both are stage 5's
+        // measurements of the cluster over the whole repository (0026's "importance by PageRank"), so a
+        // re-clustering must move them, and every field that is no measurement keeps the first row's
+        // (madarch-tzte.20.2's rule for what an identity does not read).
+        expect(report.rankAfterSecond).toBe(0.25);
+        expect(report.membersAfterSecond).toBe(5);
+        // A publication that carries no rank changes nothing it did not measure: the rank the row holds
+        // stands, and the size the publication does carry moves.
+        expect(report.rankAfterUnranked).toBe(0.25);
+        expect(report.membersAfterUnranked).toBe(3);
+      },
+    },
+    {
+      name: 'a rank a second stage measures lands on the fact the first stage published, and the row keeps that reader',
+      check: (report) => {
+        // Stage 1's unit published the file fact; a modules unit then wrote stage 5's rank onto the same
+        // id, and a later generation of that unit carried no rank at all. The rank the second stage measured
+        // lands, the rank it did not name stands, and the row still cites the reader that read the bytes.
+        expect(report.fileRankBeforeRanked).toBe(-1);
+        expect(report.fileRankAfterRanked).toBe(0.75);
+        expect(report.fileRankAfterPlain).toBe(0.75);
+        // The modules publication carries the stage's own reader (`fill-stage-5`), so the CASE that moves a
+        // row's provenance for the reader that already cites it does not fire here: the file row keeps the
+        // reader that read the bytes.
+        expect(report.fileProvenanceReader).toBe('tree-sitter');
+      },
+    },
+    {
+      name: 'a stage that measures a row again at a later commit moves the commit the row cites with it',
+      check: (report) => expect(report.commitAfterReread).toBe('b'.repeat(40)),
+    },
+    {
       name: 'republishing two of a unit\'s three facts leaves exactly those two for that unit',
       check: (report) => {
         expect(report.aHoldsAfterFirst).toHaveLength(3);

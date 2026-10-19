@@ -196,17 +196,24 @@ describe('the syntax stage is registered', () => {
       // and configuration stage read the inventory's file facts like this stage
       // does, so the four are ordered by code point between themselves, and the
       // resolution reads this stage's symbols and imports, so it runs after it.
-      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'build-configuration', 'document-index', 'syntax', 'semantic-resolution']);
+      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'build-configuration', 'document-index', 'syntax', 'semantic-resolution', 'modules']);
       expect(read.graph.edges).toEqual([
+        { from: 'build-configuration', to: 'modules', via: 'package' },
         { from: 'inventory', to: 'build-configuration', via: 'file' },
         { from: 'inventory', to: 'document-index', via: 'file' },
+        { from: 'inventory', to: 'modules', via: 'file' },
         { from: 'inventory', to: 'semantic-resolution', via: 'file' },
         { from: 'inventory', to: 'syntax', via: 'file' },
+        { from: 'semantic-resolution', to: 'modules', via: 'call' },
+        { from: 'semantic-resolution', to: 'modules', via: 'inherits' },
+        { from: 'semantic-resolution', to: 'modules', via: 'reference' },
         { from: 'snapshot', to: 'build-configuration', via: 'snapshot' },
         { from: 'snapshot', to: 'document-index', via: 'snapshot' },
         { from: 'snapshot', to: 'history', via: 'snapshot' },
         { from: 'snapshot', to: 'inventory', via: 'repository' },
         { from: 'snapshot', to: 'inventory', via: 'snapshot' },
+        { from: 'syntax', to: 'modules', via: 'import' },
+        { from: 'syntax', to: 'modules', via: 'symbol' },
         { from: 'syntax', to: 'semantic-resolution', via: 'import' },
         { from: 'syntax', to: 'semantic-resolution', via: 'symbol' },
       ]);

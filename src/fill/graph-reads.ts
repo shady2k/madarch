@@ -445,7 +445,10 @@ function idOfTerm(value: unknown): string | undefined {
 /**
  * The kinds a scope of `describe_scope` may be: the node kinds a unit's scope is
  * named by (0026's product to repository to package/build target to cluster to
- * sub-cluster walk). A read named by any other fact id is refused rather than
+ * sub-cluster walk), and the snapshot of one commit, which is the scope a reading
+ * of the graph names itself by — stage 5's coverage of a repository is one per
+ * commit, so a reader asks for it with the commit's snapshot id
+ * (madarch-tzte.21.7). A read named by any other fact id is refused rather than
  * answered with empty lists, which would read as a scope that holds nothing.
  */
 export const SCOPE_KINDS: readonly FactKind[] = ['directory', 'file', 'module', 'package', 'repository'];

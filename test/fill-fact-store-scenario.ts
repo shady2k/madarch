@@ -50,13 +50,19 @@ const RUN = 'run-1';
 const COMMIT = 'a'.repeat(40);
 
 /** One provenance, as a fact read out of `src/cart.ts` at the pinned commit. */
-function provenance(file: string): FactProvenance {
+function provenance(file: string, commit = COMMIT, system = 'tree-sitter'): FactProvenance {
   return {
-    source: { system: 'tree-sitter', version: '1.0.0' },
-    repository: { id: 'acme-shop', commit: COMMIT },
+    source: { system, version: '1.0.0' },
+    repository: { id: 'acme-shop', commit },
     place: { file: repositoryPath(file), range: { startLine: 1, startColumn: 0, endLine: 1, endColumn: 10 } },
   };
 }
+
+/** The reader the modules stage's own facts name (madarch-tzte.21.7): the fill's stage 5. */
+const MODULES_SYSTEM = 'fill-stage-5';
+
+/** A commit later than `COMMIT`, for a fact a later run measured. */
+const LATER_COMMIT = 'b'.repeat(40);
 
 /** The facts the scenario publishes, named so the test that judges it names the same ones. */
 export interface ScenarioFacts {
@@ -76,6 +82,28 @@ export interface ScenarioFacts {
   readonly caseFact: Fact;
   /** A fact a unit publishes and then drops by publishing nothing: a renamed file's inventory fact. */
   readonly emptiedFact: Fact;
+  /**
+   * One module fact at two rankings: stage 5 measures a rank and the size of the
+   * cluster over the whole repository and writes them onto the fact of the
+   * module it is about, so the id — its identity — is the same after a
+   * re-ranking, and only the measured fields move (madarch-tzte.21.7). A third
+   * publication of the same fact carries no rank at all, which is how a
+   * publication that measured nothing leaves the measurement the row holds.
+   */
+  readonly rankedModule: Fact;
+  readonly rankedModuleReranked: Fact;
+  readonly rankedModuleUnranked: Fact;
+  /** The same module measured again at a later commit: the row's own provenance moves with the measurement. */
+  readonly rankedModuleReread: Fact;
+  /**
+   * One file fact as stage 1 publishes it, the same fact with the rank stage 5
+   * measures written onto it, and the same fact again with no rank: the case the
+   * measured-field merge exists for — a second stage writing a measurement onto a
+   * row another stage's unit published first.
+   */
+  readonly rankedFile: Fact;
+  readonly rankedFileRanked: Fact;
+  readonly rankedFilePlain: Fact;
   /** A folder unit's facts (a directory and the edge that holds a file in it), as stages 1 and 5 write them. */
   readonly folderDirectory: Fact;
   readonly folderFile: Fact;
@@ -104,6 +132,10 @@ export function scenarioFacts(): ScenarioFacts {
     const held = makeNodeFact({ kind: 'file', value: { repository: 'acme-shop', path: repositoryPath(file), roles: ['source'] }, provenance: provenance(file), layer: 'extracted' });
     return { directory, file: held, contains: makeEdgeFact({ kind: 'contains', value: { from: directory.id, to: held.id }, provenance: provenance(file), layer: 'extracted' }) };
   };
+  const ranked = (importance: number, members: number): Fact => makeNodeFact({ kind: 'module', value: { repository: 'acme-shop', name: 'ranked', seed: 'package', members, importance }, provenance: provenance('src/ranked.ts', COMMIT, MODULES_SYSTEM), layer: 'extracted' });
+  const unranked = (members: number): Fact => makeNodeFact({ kind: 'module', value: { repository: 'acme-shop', name: 'ranked', seed: 'package', members }, provenance: provenance('src/ranked.ts', COMMIT, MODULES_SYSTEM), layer: 'extracted' });
+  const reread = (importance: number, members: number): Fact => makeNodeFact({ kind: 'module', value: { repository: 'acme-shop', name: 'ranked', seed: 'package', members, importance }, provenance: provenance('src/ranked.ts', LATER_COMMIT, MODULES_SYSTEM), layer: 'extracted' });
+  const rankedFileOf = (importance: number | undefined, system: string): Fact => makeNodeFact({ kind: 'file', value: { repository: 'acme-shop', path: repositoryPath('src/ranked.ts'), roles: ['source'], ...(importance === undefined ? {} : { importance }) }, provenance: provenance('src/ranked.ts', COMMIT, system), layer: 'extracted' });
   const folderA = folder('src', 'src/cart.ts');
   const folderB = folder('lib', 'lib/total.ts');
   const folderDirectory = folderA.directory;
@@ -113,6 +145,14 @@ export function scenarioFacts(): ScenarioFacts {
   const otherFolderFile = folderB.file;
   const otherFolderContains = folderB.contains;
   return {
+    // The inventory's own reader publishes the fact; the modules stage's reader writes the rank onto it.
+    rankedFile: rankedFileOf(undefined, 'tree-sitter'),
+    rankedFileRanked: rankedFileOf(0.75, MODULES_SYSTEM),
+    rankedFilePlain: rankedFileOf(undefined, MODULES_SYSTEM),
+    rankedModule: ranked(0.5, 3),
+    rankedModuleReranked: ranked(0.25, 5),
+    rankedModuleUnranked: unranked(3),
+    rankedModuleReread: reread(0.25, 5),
     symbolOne,
     symbolTwo,
     callEdgeOfA: call(9),
@@ -204,6 +244,28 @@ export interface FactStoreScenarioReport {
   readonly folderAfterItsSecond: readonly string[];
   readonly otherFolderAfterTheFirstsSecond: readonly string[];
   readonly otherFolderFactsStillThere: readonly boolean[];
+  /**
+   * One module fact published twice under one id, at two rankings: the rank the
+   * second publication carries, the rank the row held after the first, and the
+   * field that is not a rank, which the first publication's row keeps.
+   */
+  readonly rankAfterFirst: number;
+  readonly rankAfterSecond: number;
+  readonly membersAfterSecond: number;
+  /** The same row after a publication that carries no rank: the rank it holds stands, and the size it carries moves. */
+  readonly rankAfterUnranked: number;
+  readonly membersAfterUnranked: number;
+  /**
+   * One `file` fact stage 1's unit published, then ranked by a `modules` unit,
+   * then published again by that unit with no rank: the rank it gained stands,
+   * and the row still cites the reader that first published it.
+   */
+  readonly fileRankBeforeRanked: number;
+  readonly fileRankAfterRanked: number;
+  readonly fileRankAfterPlain: number;
+  readonly fileProvenanceReader: string;
+  /** The commit one module row cites after the stage that measured it published again at a later commit. */
+  readonly commitAfterReread: string;
 }
 
 /** Raises the machine's own refusal, so a scenario step that cannot be taken says why. */
@@ -396,7 +458,57 @@ export async function runFactStoreScenario(owner: DatabaseOwner): Promise<FactSt
     (await readFact(owner, facts.otherFolderContains.id)) !== null,
   ];
 
+  /** The commit one fact row cites. */
+  const commitOf = async (id: string): Promise<string> => {
+    const stored = (await readFact(owner, id))?.fact.provenance as { readonly repository?: { readonly commit?: string } } | undefined;
+    return stored?.repository?.commit ?? '';
+  };
+  /** The reader one fact row cites. */
+  const readerOf = async (id: string): Promise<string> => {
+    const stored = (await readFact(owner, id))?.fact.provenance as { readonly source?: { readonly system?: string } } | undefined;
+    return stored?.source?.system ?? '';
+  };
+
+  // ---- a measured field is the one field of a fact row a later publication replaces ----
+  const rankOf = async (id: string): Promise<number> => {
+    const stored = (await readFact(owner, id))?.fact.value as { readonly importance?: number; readonly members?: number } | undefined;
+    return stored?.importance ?? -1;
+  };
+  const membersOf = async (id: string): Promise<number> => {
+    const stored = (await readFact(owner, id))?.fact.value as { readonly members?: number } | undefined;
+    return stored?.members ?? -1;
+  };
+  await publishUnitFacts('unit-ranked', 'modules', 'ranked', [writeOf('fact', facts.rankedModule)], NOW + 13_000);
+  const rankAfterFirst = await rankOf(facts.rankedModule.id);
+  await publishNextGeneration('unit-ranked', 2, [writeOf('fact', facts.rankedModuleReranked)], NOW + 13_100);
+  const rankAfterSecond = await rankOf(facts.rankedModule.id);
+  const membersAfterSecond = await membersOf(facts.rankedModule.id);
+  await publishNextGeneration('unit-ranked', 3, [writeOf('fact', facts.rankedModuleUnranked)], NOW + 13_200);
+  const rankAfterUnranked = await rankOf(facts.rankedModule.id);
+  const membersAfterUnranked = await membersOf(facts.rankedModule.id);
+  await publishNextGeneration('unit-ranked', 4, [writeOf('fact', facts.rankedModuleReread)], NOW + 13_300);
+  const commitAfterReread = await commitOf(facts.rankedModule.id);
+
+  // ---- a rank another stage measures lands on the fact this stage first published ----
+  await publishUnitFacts('unit-file', 'inventory', 'file', [writeOf('fact', facts.rankedFile)], NOW + 14_000);
+  const fileRankBeforeRanked = await rankOf(facts.rankedFile.id);
+  await publishUnitFacts('unit-rank-file', 'modules', 'rank-file', [writeOf('fact', facts.rankedFileRanked)], NOW + 14_100);
+  const fileRankAfterRanked = await rankOf(facts.rankedFile.id);
+  const fileProvenanceReader = await readerOf(facts.rankedFile.id);
+  await publishNextGeneration('unit-rank-file', 2, [writeOf('fact', facts.rankedFilePlain)], NOW + 14_200);
+  const fileRankAfterPlain = await rankOf(facts.rankedFile.id);
+
   return {
+    fileRankBeforeRanked,
+    fileRankAfterRanked,
+    fileRankAfterPlain,
+    fileProvenanceReader,
+    commitAfterReread,
+    rankAfterFirst,
+    rankAfterSecond,
+    membersAfterSecond,
+    rankAfterUnranked,
+    membersAfterUnranked,
     aHoldsAfterFirst,
     bHoldsAfterFirst,
     sharedPublishers,

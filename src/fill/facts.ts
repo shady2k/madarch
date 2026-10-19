@@ -561,6 +561,16 @@ export interface FileValue {
    * change is not re-planned).
    */
   readonly blob?: string;
+  /**
+   * What stage 5's PageRank made of the file (madarch-tzte.21.7), in [0, 1]:
+   * the share of the repository's rank the node holds, over the resolved edges
+   * of the graph — the files that import it, and the symbols of it that its
+   * readers reach. Absent until stage 5 has ranked the repository, and the one
+   * field of a published fact a later publication replaces
+   * (`FACT_MEASURED_FIELDS`): a rank is the graph's own measurement, not one
+   * reader's observation of a fact two readers hold.
+   */
+  readonly importance?: number;
 }
 
 /** Stage 2: a package, a build target or a workspace (0026's clustering seeds). */
@@ -642,6 +652,16 @@ export interface SymbolValue {
   readonly displayName?: string;
   /** The signature as the resolver rendered it (`create(order: Order): Promise<void>`). */
   readonly signature?: string;
+  /**
+   * What stage 5's PageRank made of the symbol (madarch-tzte.21.7), in [0, 1]:
+   * the share of the repository's rank the symbol holds, over the calls,
+   * references and inheritance a resolution edge names and the file that
+   * declares it. The rank a later agent stage reads first when it must choose
+   * which symbols of a module to read. Absent until stage 5 has ranked the
+   * repository, and a ranked field like `FileValue.importance`
+   * (`FACT_MEASURED_FIELDS`).
+   */
+  readonly importance?: number;
 }
 
 /**
@@ -842,7 +862,13 @@ export interface StateValue {
  */
 export interface CoverageValue {
   readonly repository: string;
-  /** The scope read, in the graph's own terms: `product`, a module or repository fact id, or a place's path. */
+  /**
+   * The scope read, in the graph's own terms: `product`, a repository, snapshot or
+   * module fact id, or a place's path. A stage that reads the graph at one commit
+   * names the snapshot fact of that commit (`fill-stage-5`, madarch-tzte.21.7), so
+   * a later commit's reading is a coverage of its own rather than a row the store
+   * already holds.
+   */
   readonly scope: string;
   /** Whether the reader read the whole scope; a complete coverage is the only ground for a claim of absence. */
   readonly complete: boolean;
@@ -1005,6 +1031,44 @@ export interface InteractionEdgeValue {
   /** What carries it, when the agent names one (`orders-topic`, `POST /api/orders`). */
   readonly via?: string;
 }
+
+/**
+ * The fields of a fact's value that a later publication of the same id
+ * replaces, by the kind and the field's own name (madarch-tzte.21.7): what the
+ * publishing stage *measures* of a node over the whole graph — a rank, and the
+ * size of the cluster that ranks it — rather than one reader's observation of a
+ * fact two units may publish. Every other field keeps the rule of
+ * madarch-tzte.20.2 — the row of a fact id keeps what the publication that put
+ * it there first said — so the fact store applies exactly these fields from the
+ * publication that carries them (`applyPublishedFacts`, `fact-store.ts`), and a
+ * read that answered one of them is not made stale by it (a read's membership,
+ * `readMembership` in `orchestrator-store.ts`, leaves them out): a re-ranking
+ * moves a rank without touching what the rank is about, and without making
+ * every unit that read the node out of date.
+ */
+export const FACT_MEASURED_FIELDS: { readonly [K in FactKind]?: readonly (keyof FactValueOf<K> & string)[] } = {
+  // Stage 5's PageRank over the resolved edges: a file's, a symbol's and a
+  // module's importance (decision 0026, "importance by PageRank") — and a
+  // module's member count, which is that same measurement of the cluster (how
+  // many files and symbols stand under it), so a re-clustering moves it too.
+  'file': ['importance'],
+  'module': ['importance', 'members', 'seed'],
+  'symbol': ['importance'],
+};
+
+/**
+ * Of `FACT_MEASURED_FIELDS`, the fields that are one measurement of the whole
+ * graph rather than of the node's own structure: a rank (madarch-tzte.21.7). A
+ * read that answered one of them is not stale when it moves — the read was about
+ * the node, not about the number the last run gave it — so a tracked read's
+ * membership digest leaves exactly these names out (`readMembership`,
+ * `orchestrator-store.ts`). A module's `members` is not one of them: it moves
+ * when the tree moves, which is what a read of that module is about.
+ */
+export const FACT_RANK_FIELDS: { readonly [K in FactKind]?: readonly (keyof FactValueOf<K> & string)[] } = {
+  'file': ['importance'],
+  'symbol': ['importance'],
+};
 
 /** The value type of one node kind, by the kind's own name. */
 export interface FactNodeValues {
@@ -1200,12 +1264,15 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
   'file': {
     kind: 'file',
     shape: 'node',
-    stages: ['1-inventory'],
+    // Stage 5 ranks the file (madarch-tzte.21.7) and writes the rank onto the
+    // fact the inventory published: one node, two stages, one id.
+    stages: ['1-inventory', '5-modules'],
     place: 'required',
     layers: ['extracted'],
     // 1: the file's path, roles and language. 2: the blob its bytes stand
     // under at the commit (its own move, per FACTS_SCHEMA_VERSION above).
-    version: 2,
+    // 3: the importance stage 5's PageRank gives it, in [0, 1].
+    version: 3,
     identityValue: (value) => [['repository', value.repository], ['path', value.path]],
   },
   'package': {
@@ -1265,10 +1332,14 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
   'symbol': {
     kind: 'symbol',
     shape: 'node',
-    stages: ['3-syntax', '4-resolution'],
+    // Stage 5 ranks the symbol (madarch-tzte.21.7) and writes the rank onto the
+    // fact the syntax and resolution stages published: one node, one id.
+    stages: ['3-syntax', '4-resolution', '5-modules'],
     place: 'required',
     layers: ['extracted'],
-    version: FACTS_SCHEMA_VERSION,
+    // 1: the name, kind and disambiguator stage 3 declares. 2: the importance
+    // stage 5's PageRank gives it, in [0, 1] (its own move).
+    version: 2,
     identityValue: (value) => [
       ['repository', value.repository],
       ['file', value.file],
@@ -1590,7 +1661,7 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
  * end that is no node of the graph — an address, a literal, a name).
  */
 export const EDGE_END_KINDS: { readonly [K in FactEdgeKind]: { readonly from: readonly FactKind[]; readonly to: readonly FactKind[] | 'term' } } = {
-  'contains': { from: ['directory', 'module', 'repository'], to: ['directory', 'file', 'symbol'] },
+  'contains': { from: ['directory', 'module', 'repository'], to: ['directory', 'file', 'module', 'symbol'] },
   'defines': { from: ['file'], to: ['symbol'] },
   'import': { from: ['file'], to: ['file', 'module', 'package'] },
   'dependency': { from: ['module', 'package'], to: ['module', 'package'] },
@@ -1906,6 +1977,21 @@ const CLOSED_VALUE_FORMS: Readonly<Record<string, { readonly values: readonly st
   'reference.precision': { values: RESOLUTION_PRECISIONS, what: 'precision a resolution edge was resolved at', many: false },
 };
 
+/**
+ * The fields a kind's value holds as a share of one whole, in [0, 1]: a rank
+ * stage 5's PageRank measures (madarch-tzte.21.7). A rank outside that range,
+ * or one that is no number, is a defect at its own field — a value the graph
+ * could not compare with another node's.
+ */
+const RATIO_FIELDS: readonly string[] = ['file.importance', 'module.importance', 'symbol.importance'];
+
+/**
+ * The fields a kind's value holds as a count of members, a whole number from
+ * zero: a module's `members` is how many files and symbols stand under it
+ * (madarch-tzte.21.7), and a fraction, a negative or a text is no count.
+ */
+const COUNT_FIELDS: readonly string[] = ['module.members'];
+
 const GAP_FIELDS: readonly string[] = ['reason', 'what'];
 
 /**
@@ -1929,14 +2015,14 @@ const VALUE_FIELDS: { readonly [K in FactKind]: readonly (keyof FactValueOf<K> &
   'snapshot': ['repository', 'commit', 'tree', 'fileCount', 'byteCount'],
   'repository': ['repository', 'form', 'defaultBranch'],
   'directory': ['repository', 'path'],
-  'file': ['repository', 'path', 'roles', 'language', 'bytes', 'blob'],
+  'file': ['repository', 'path', 'roles', 'language', 'bytes', 'blob', 'importance'],
   'package': ['repository', 'name', 'form', 'ecosystem', 'version', 'manifest'],
   'deploy-unit': ['repository', 'name', 'form', 'manifest'],
   'api-endpoint': ['contract', 'framework'],
   'table': ['repository', 'name', 'engine'],
   'column': ['repository', 'table', 'name', 'dataType'],
   'environment-variable': ['name'],
-  'symbol': ['repository', 'file', 'qualifiedName', 'symbolKind', 'disambiguator', 'scipKind', 'displayName', 'signature'],
+  'symbol': ['repository', 'file', 'qualifiedName', 'symbolKind', 'disambiguator', 'scipKind', 'displayName', 'signature', 'importance'],
   'occurrence': ['symbol', 'roles'],
   'entry-point': ['repository', 'file', 'name', 'form'],
   'comment': ['text', 'form'],
@@ -2323,6 +2409,12 @@ export function checkFact(fact: unknown): FactProblem[] {
       }
       if (TOKEN_FIELDS.includes(field) && typeof held === 'string' && !FACT_KIND_NAME_PATTERN.test(held)) {
         add(`value.${field}`, `${shown(held)} is no token: the fill writes one lower-case word of letters, digits and dashes, like "is-implemented-by"`);
+      }
+      if (RATIO_FIELDS.includes(`${kind}.${field}`) && (typeof held !== 'number' || !Number.isFinite(held) || held < 0 || held > 1)) {
+        add(`value.${field}`, `${shown(held)} is no share of one whole: this field holds a rank in [0, 1]`);
+      }
+      if (COUNT_FIELDS.includes(`${kind}.${field}`) && (typeof held !== 'number' || !Number.isInteger(held) || held < 0)) {
+        add(`value.${field}`, `${shown(held)} is no count of members: this field holds a whole number from zero`);
       }
       const closed = CLOSED_VALUE_FORMS[`${kind}.${field}`];
       const recordKey = RECORD_LIST_FIELDS[`${kind}.${field}`];
