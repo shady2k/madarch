@@ -114,9 +114,11 @@ export function scopeText(scope: WriteScope): string {
 /**
  * Whether a place lies inside the unit's scope: the repository and the folder
  * the scope names, and nothing else. A scope that names a path covers that file
- * or folder itself and everything below it.
+ * or folder itself and everything below it. Exported because the read tools ask
+ * the same question of a draft another unit holds — a draft's cited place is
+ * inside a scope by this rule and no second one (`src/fill/graph-reads.ts`).
  */
-function scopeHolds(scope: WriteScope, place: { readonly repository: string; readonly file: string }): boolean {
+export function scopeHolds(scope: WriteScope, place: { readonly repository: string; readonly file: string }): boolean {
   if (place.repository !== scope.repository) return false;
   if (scope.path === undefined) return true;
   return place.file === scope.path || place.file.startsWith(`${scope.path}/`);

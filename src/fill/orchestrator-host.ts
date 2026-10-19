@@ -20,10 +20,14 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
+import { runningVersion } from '../product/version.js';
 import { createPgBossQueue } from '../adapters/pg-boss-queue.js';
 import { consumeFillControl } from '../product/fill-runtime.js';
+import { factGraph, writeScope, type CheckedWriteDraft, type CheckedWriteGraph, type WriteSnapshots } from './checked-writes.js';
 import type { FillStageConfigurationRead } from './config.js';
 import { FACT_APPLICATION, createFactStoreSchema } from './fact-store.js';
+import type { FactLayer, FactSource } from './facts.js';
+import { graphReadsOver, type DraftReading, type GraphReadLimits } from './graph-reads.js';
 import {
   DEFAULT_ORCHESTRATOR_LIMITS,
   createOrchestrator,
@@ -42,10 +46,19 @@ import {
   type UnitGraphReader,
   type UnitRef,
 } from './orchestrator.js';
-import { createOrchestratorSchema, type RunSnapshot } from './orchestrator-store.js';
+import { createOrchestratorSchema, readUnitPlan, recordUnitRead, type RunSnapshot } from './orchestrator-store.js';
 import type { QueueService } from './queue.js';
 import { createFillStateSchema } from './state-store.js';
 import type { StageRegistry } from './registry.js';
+import type { SnapshotSource } from './snapshot.js';
+import {
+  callUnitTool,
+  createUnitToolsHost,
+  type UnitToolAnswer,
+  type UnitToolCall,
+  type UnitToolSession,
+  type UnitToolsHandle,
+} from './unit-tools.js';
 
 /** One product a fill runs for. */
 export interface FillProduct {
@@ -63,6 +76,20 @@ export interface ProductFillWiring {
   configuration(): Promise<FillStageConfigurationRead | undefined> | FillStageConfigurationRead | undefined;
   /** The pinned graph one unit's tracked reads answer from. */
   graph(ref: UnitRef): Promise<UnitGraphReader> | UnitGraphReader;
+  /**
+   * The repositories this run pinned, as the reader of one commit each: where a
+   * unit's evidence spans and the bytes its writes cite are read (`snapshot.ts`).
+   * Left out, a unit's tools that read bytes refuse by name.
+   */
+  source?(): Promise<SnapshotSource> | SnapshotSource;
+  /**
+   * The graph a unit's writes stand on: which node stands at an id, and which
+   * entities are like a proposed one. The fill's own fact store when it is left
+   * out, which is where `facts` lands a published set unless a host keeps its
+   * graph elsewhere — a host that does must name it here, and a unit's writes are
+   * refused by name until it does.
+   */
+  writeGraph?(): Promise<CheckedWriteGraph> | CheckedWriteGraph;
   /** The named inputs a unit's facts stand on, hashed with fill-runtime's own hashing. */
   inputs(ref: UnitRef): Promise<Readonly<Record<string, string | Uint8Array>>> | Readonly<Record<string, string | Uint8Array>>;
   /**
@@ -102,6 +129,29 @@ export interface FillRunResult {
   readonly foundNothing: readonly string[];
 }
 
+/** What opening one unit's tools is asked for: the unit, and where its bytes, its drafts and its writes stand. */
+export interface UnitToolsRequest {
+  /** The product whose graph the unit reads and writes. */
+  readonly product: FillProduct;
+  /** The unit's identity in the store: the generation whose tracked reads and draft set its tools belong to (0027). */
+  readonly unit: { readonly unitId: string; readonly generation: number };
+  /** The address this process answers a unit's tool calls at (`POST /api/fill/unit/tool`, `src/server/http.ts`). */
+  readonly url: string;
+  /**
+   * Where an accepted write lands: the attempt's own draft set
+   * (`draftSetOf(context.draft)`, which the attempt then records), or the
+   * machine's own rows (`recordedDraftSet`, which makes a write visible as draft
+   * while the unit still runs).
+   */
+  readonly draft: CheckedWriteDraft;
+  /** The system a fact the unit writes names as its reader (0004: `plugin@version`); `madarch-fill-agent` at this build's version by default. */
+  readonly source?: FactSource;
+  /** The layer the unit's writes stand in (0005); `inferred` for an agent unit by default. */
+  readonly layer?: FactLayer;
+  /** The caps the unit's tool answers are cut by (0026's numbers when they are left out). */
+  readonly limits?: Partial<GraphReadLimits>;
+}
+
 /** A run the service refused before it started, with what is missing. */
 export interface RefusedFillRun {
   readonly ok: false;
@@ -115,6 +165,19 @@ export interface FillOrchestratorService {
   run(request: FillRunRequest): Promise<FillRunResult | RefusedFillRun>;
   /** One run's status, or null when no such run is recorded. */
   status(request: { readonly product: FillProduct; readonly runId: string }): Promise<RunStatus | null>;
+  /**
+   * Opens one unit's tools: the MCP server its ACP session attaches
+   * (`src/fill/acp.ts`, `newSession({ mcpServers })`), bound to the unit's run,
+   * scope, snapshot, draft set and limits, and the token that names it
+   * (`src/fill/unit-tools.ts`).
+   */
+  unitTools(request: UnitToolsRequest): Promise<UnitToolsHandle>;
+  /**
+   * Answers one call a unit's server forwarded (`POST /api/fill/unit/tool`):
+   * `null` when no open session holds the call's token, which the route reports
+   * as a refusal rather than as a tool's answer.
+   */
+  unitTool(request: UnitToolCall): Promise<UnitToolAnswer | null>;
   /**
    * Stops the queue and closes the database this service opened; safe to call
    * twice and safe to call before anything was opened.
@@ -205,7 +268,8 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
     return await opening;
   }
 
-  async function orchestratorFor(product: FillProduct): Promise<FillOrchestrator | RefusedFillRun> {
+  /** One product's wiring, or the refusal the service answers a caller with where the host wired none. */
+  async function wiringOf(product: FillProduct): Promise<ProductFillWiring | RefusedFillRun> {
     if (stopped) return { ok: false, code: 'fill-orchestrator/stopped', reason: 'fill-orchestrator: this service was stopped and opens nothing further' };
     if (options.wiring === undefined) {
       return {
@@ -214,7 +278,13 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
         reason: `fill-orchestrator: nothing wires the fill of "${product.name}": give the service a wiring that reads the product's pinned snapshot, its configuration, the graph its units read, and the inputs their facts stand on`,
       };
     }
-    const wiring = await options.wiring(product);
+    return await options.wiring(product);
+  }
+
+  async function orchestratorFor(product: FillProduct): Promise<FillOrchestrator | RefusedFillRun> {
+    const wired = await wiringOf(product);
+    if ('ok' in wired) return wired;
+    const wiring = wired;
     const { owner, queue } = await open();
     return createOrchestrator({
       database: owner,
@@ -236,7 +306,84 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
     });
   }
 
+  /** The units' servers: the tokens they were minted, and the sessions those tokens answer for. */
+  const units = createUnitToolsHost();
+
+  /**
+   * The pinned source a unit's bytes are read from. A host that wires none gets a
+   * source whose every question is refused by name: a unit's evidence spans and
+   * its writes then answer that the host wired no snapshot, which is what it is,
+   * rather than an empty graph a reader could take for an absence.
+   */
+  async function sourceOf(wiring: ProductFillWiring, product: FillProduct): Promise<WriteSnapshots> {
+    if (wiring.source !== undefined) return await wiring.source();
+    const refuse = async (): Promise<never> => {
+      throw new Error(`fill-orchestrator: the fill of "${product.name}" wires no snapshot source, so the unit's tools cannot read the bytes they cite: give the wiring a source() that opens the run's pinned repositories (src/fill/snapshot.ts)`);
+    };
+    return { pins: refuse, open: refuse };
+  }
+
+  /** The graph a unit's writes stand on: the host's own where it named one, else the fill's fact store when that is where its facts land. */
+  async function writeGraphOf(wiring: ProductFillWiring, product: FillProduct, owner: DatabaseOwner): Promise<CheckedWriteGraph> {
+    if (wiring.writeGraph !== undefined) return await wiring.writeGraph();
+    if (wiring.facts !== undefined && wiring.facts !== FACT_APPLICATION) {
+      throw new Error(`fill-orchestrator: the fill of "${product.name}" lands its published facts elsewhere than this process's fact store, and wires no writeGraph(): a unit's writes would ask a graph its facts are not in (src/fill/orchestrator-host.ts)`);
+    }
+    return factGraph(owner);
+  }
+
+  /**
+   * One unit's sessions, bound to it: the plan row that names the run it belongs
+   * to and the scope it covers (0027), the reader its calls are recorded in, the
+   * pinned bytes its spans and writes cite, the graph its writes stand on, and the
+   * draft set the attempt hands over.
+   */
+  async function unitSessionFor(request: UnitToolsRequest): Promise<UnitToolSession> {
+    const wired = await wiringOf(request.product);
+    if ('ok' in wired) throw new Error(`${wired.code}: ${wired.reason}`);
+    const wiring = wired;
+    const { owner } = await open();
+    const plan = await readUnitPlan(owner, request.unit.unitId, request.unit.generation);
+    if (plan === null) {
+      throw new Error(`fill-orchestrator: the unit ${JSON.stringify(request.unit.unitId)} generation ${request.unit.generation} of "${request.product.name}" holds no plan row, so nothing says which run its drafts belong to or what it covers: a unit's tools are opened after its plan was recorded (src/fill/orchestrator-host.ts)`);
+    }
+    const ref: UnitRef = { stageId: plan.stageId, stageUnitId: plan.stageUnitId, unitId: plan.unitId, scope: plan.scope, generation: plan.generation };
+    // The reader is the wiring's own, which answers this module's reads and passes a stage's SQL through as
+    // it asks (madarch-tzte.20.3), and every read a tool makes through it is recorded as this generation's
+    // dependency — the orchestrator's own rule (`recordUnitRead`, which its `context.graph` applies to the
+    // reads a stage makes itself). The tools then need no second way of recording what they read.
+    const reader = await wiring.graph(ref);
+    const reads = graphReadsOver({
+      query: async (text: string) => {
+        const rows = await reader.query(text);
+        await recordUnitRead(owner, { unitId: plan.unitId, generation: plan.generation, query: text, rows, at: (options.clock ?? Date.now)() });
+        return rows;
+      },
+    }, request.limits, { run: plan.runId } satisfies DraftReading);
+    const snapshot = await sourceOf(wiring, request.product);
+    const scope = writeScope(plan.scope);
+    return {
+      unit: { unitId: plan.unitId, generation: plan.generation },
+      reads,
+      writes: {
+        unit: { unitId: plan.unitId, generation: plan.generation },
+        source: request.source ?? { system: 'madarch-fill-agent', version: runningVersion() },
+        layer: request.layer ?? 'inferred',
+        scope,
+        snapshot,
+        draft: request.draft,
+        graph: await writeGraphOf(wiring, request.product, owner),
+      },
+    };
+  }
+
   return {
+    async unitTools(request: UnitToolsRequest): Promise<UnitToolsHandle> {
+      return units.open({ session: await unitSessionFor(request), url: request.url });
+    },
+    async unitTool(request: UnitToolCall): Promise<UnitToolAnswer | null> {
+      return await units.call(request);
+    },
     async run(request: FillRunRequest): Promise<FillRunResult | RefusedFillRun> {
       const built = await orchestratorFor(request.product);
       if ('ok' in built) return built;
@@ -275,6 +422,8 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
     async stop(): Promise<void> {
       if (stopped) return;
       stopped = true;
+      // A unit's token is a capability: stopping the service ends every session it minted.
+      units.closeAll();
       if (opening === undefined) return;
       const opened = await opening;
       let failure: unknown;

@@ -716,7 +716,7 @@ describe('the text one read is recorded by', () => {
     expect(parseGraphRead(readText(request))).toEqual({ read: 'adjacent', id: symbol, kinds: ['call', 'reference'] });
     // A stage's own SQL is not this module's read, and is left for the store to answer.
     expect(parseGraphRead('SELECT kind FROM fill_fact')).toBeNull();
-    expect(() => parseGraphRead('{"read":"nope"}')).toThrow(/names "nope": a read of the graph is one of fact, facts, adjacent, held, facts-with, span/);
+    expect(() => parseGraphRead('{"read":"nope"}')).toThrow(/names "nope": a read of the graph is one of fact, facts, adjacent, held, facts-with, drafts, span/);
     expect(() => parseGraphRead('{"read":"fact"}')).toThrow(/names undefined: a fact id is the kind, a colon/);
     expect(() => parseGraphRead('{"read":')).toThrow(/opens a JSON object and does not parse as one/);
   });

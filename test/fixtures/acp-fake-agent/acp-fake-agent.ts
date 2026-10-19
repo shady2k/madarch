@@ -31,6 +31,13 @@
  *   hang          never answers initialize
  *   late-initialize answers initialize long after the client's bound
  *   crash         writes to standard error and exits 1 before answering
+ *   mcp-tools     starts the session's stdio MCP servers as an agent does, speaks
+ *                 the Model Context Protocol to the first of them (initialize,
+ *                 notifications/initialized, tools/list), and on each prompt calls
+ *                 one of its tools and streams the answer back as a message chunk:
+ *                 the prompt names the call as JSON (`{"tool":"neighbors",
+ *                 "arguments":{"id":"..."}}`), and `neighbors` of the prompt's own
+ *                 `id` is the default
  */
 import { appendFileSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
@@ -68,7 +75,88 @@ function ask(method: string, params: unknown): Promise<Message> {
   });
 }
 
+/** One stdio MCP server a session was given (`mcpServers` of `session/new`), as this agent starts and speaks to it. */
+interface McpServerSpec { name?: string; command?: string; args?: string[]; env?: { name: string; value: string }[]; url?: string }
+
+/** One answer a tool call came back with, as this agent reads the protocol's result. */
+interface McpToolAnswer { text: string; isError: boolean }
+
+interface McpClient {
+  readonly tools: readonly string[];
+  call(tool: string, argumentsValue: unknown): Promise<McpToolAnswer>;
+  stop(): void;
+}
+
+/**
+ * A stdio MCP server spoken to the way the specification says (newline-delimited
+ * JSON-RPC 2.0): `initialize`, the required `notifications/initialized`, then
+ * `tools/list`. Hand-written, like this whole agent, so the server is proved to
+ * speak the protocol and not merely to agree with a library.
+ */
+async function startMcp(servers: readonly McpServerSpec[]): Promise<McpClient> {
+  const server = servers.find((each) => typeof each.command === 'string');
+  if (server === undefined || server.command === undefined) throw new Error(`the session was given no stdio MCP server: ${JSON.stringify(servers)}`);
+  const env = Object.fromEntries((server.env ?? []).map((each) => [each.name, each.value]));
+  const child = Bun.spawn([server.command, ...(server.args ?? [])], { cwd: process.cwd(), env: { ...process.env, ...env }, stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' });
+  const pending = new Map<number, (message: Message) => void>();
+  let nextId = 1;
+  let buffered = '';
+  const decoder = new TextDecoder();
+  const send = (message: unknown): void => { child.stdin.write(`${JSON.stringify(message)}\n`); child.stdin.flush(); };
+  const deliver = (line: string): void => {
+    if (line.trim() === '') return;
+    const message = JSON.parse(line) as Message;
+    if (message.id === undefined) return;
+    const settle = pending.get(Number(message.id));
+    if (settle !== undefined) { pending.delete(Number(message.id)); settle(message); }
+  };
+  void (async () => {
+    const stream = child.stdout.getReader();
+    for (;;) {
+      const chunk = await stream.read();
+      if (chunk.done) break;
+      buffered += decoder.decode(chunk.value, { stream: true });
+      let cut = buffered.indexOf('\n');
+      while (cut >= 0) { deliver(buffered.slice(0, cut)); buffered = buffered.slice(cut + 1); cut = buffered.indexOf('\n'); }
+    }
+  })();
+  const ask = (method: string, params: unknown): Promise<Message> => {
+    const id = nextId++;
+    return new Promise((settle) => { pending.set(id, settle); send({ jsonrpc: '2.0', id, method, params }); });
+  };
+  const initialized = await ask('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fake-agent', version: '1.0.0' } });
+  if (initialized.error !== undefined) throw new Error(`the MCP server refused initialize: ${JSON.stringify(initialized.error)}`);
+  send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+  const listed = await ask('tools/list', {});
+  if (listed.error !== undefined) throw new Error(`the MCP server refused tools/list: ${JSON.stringify(listed.error)}`);
+  const tools = ((listed.result as { tools?: { name?: string }[] } | undefined)?.tools ?? []).map((tool) => String(tool.name));
+  return {
+    tools,
+    async call(tool: string, argumentsValue: unknown): Promise<McpToolAnswer> {
+      const answered = await ask('tools/call', { name: tool, arguments: argumentsValue });
+      if (answered.error !== undefined) throw new Error(`the MCP server refused tools/call ${tool}: ${JSON.stringify(answered.error)}`);
+      const result = answered.result as { content?: { type?: string; text?: string }[]; isError?: boolean } | undefined;
+      return { text: (result?.content ?? []).map((block) => String(block.text ?? '')).join(''), isError: result?.isError === true };
+    },
+    stop: () => { try { child.kill(); } catch { /* already gone */ } },
+  };
+}
+
+/** The call one prompt asks for: the JSON the prompt carries, or `neighbors` of the id the prompt names. */
+function callAskedBy(text: string): { tool: string; argumentsValue: unknown } {
+  const trimmed = text.trim();
+  if (trimmed.startsWith('{')) {
+    try {
+      const asked = JSON.parse(trimmed) as { tool?: unknown; arguments?: unknown };
+      if (typeof asked.tool === 'string') return { tool: asked.tool, argumentsValue: asked.arguments ?? {} };
+    } catch { /* not a call: read it as the id of the node to look at */ }
+  }
+  return { tool: 'neighbors', argumentsValue: { id: trimmed } };
+}
+
 let sessionNumber = 0;
+/** The one MCP client this agent's `mcp-tools` scenario speaks to. */
+let mcp: McpClient | undefined;
 let pendingPrompt: { id: number | string; sessionId: string; text: string; turn: number } | undefined;
 let turn = 0;
 
@@ -78,6 +166,19 @@ function chunk(sessionId: string, text: string): void {
 
 async function runPrompt(id: number | string, sessionId: string, text: string): Promise<void> {
   turn += 1;
+  if (scenario === 'mcp-tools') {
+    const asked = callAskedBy(text);
+    const started = mcp;
+    if (started === undefined) {
+      chunk(sessionId, 'no mcp server was started');
+      respond(id, { stopReason: 'end_turn' });
+      return;
+    }
+    const answered = await started.call(asked.tool, asked.argumentsValue);
+    chunk(sessionId, JSON.stringify({ tool: asked.tool, isError: answered.isError, text: answered.text, tools: started.tools }));
+    respond(id, { stopReason: 'end_turn' });
+    return;
+  }
   if (scenario === 'dies-mid-turn') {
     chunk(sessionId, 'stopping');
     setTimeout(() => process.exit(1), 20);
@@ -214,6 +315,18 @@ lines.on('line', (line: string) => {
       }
       if (scenario === 'no-session-id') {
         respond(message.id, {});
+        return;
+      }
+      if (scenario === 'mcp-tools') {
+        // An agent starts the session's MCP servers before it answers `session/new`: the server is up by
+        // the time a prompt arrives, which is what the real adapters do.
+        const servers = (message.params?.['mcpServers'] ?? []) as McpServerSpec[];
+        void startMcp(servers).then((client) => {
+          mcp = client;
+          respond(message.id, { sessionId: `fake-session-${sessionNumber}`, modes: { currentModeId: 'ask' } });
+        }).catch((error: Error) => {
+          send({ jsonrpc: '2.0', id: message.id, error: { code: -32603, message: `the MCP server would not start: ${error.message}` } });
+        });
         return;
       }
       respond(message.id, { sessionId: `fake-session-${sessionNumber}`, modes: { currentModeId: 'ask' } });

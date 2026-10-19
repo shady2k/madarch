@@ -24,6 +24,7 @@ import { ensureBuilt } from '../product-wiki/app.js';
 import type { ServeEnv } from '../product-wiki/serve.js';
 import { startServer } from '../server/http.js';
 import { createFillOrchestratorService, type FillOrchestratorService, type FillOrchestratorServiceOptions } from '../fill/orchestrator-host.js';
+import { selfCommand } from './self-command.js';
 import { StageRegistry } from '../fill/registry.js';
 
 interface DaemonState { pid: number; port: number; startedAt: number; home: string; token: string; }
@@ -221,48 +222,19 @@ function clearState(home: string): void { try { unlinkSync(statePath(home)); } c
  */
 function pause(ms: number): void { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
 /**
- * The bundle marker in a compiled binary's own paths: `$bunfs` on Linux and
- * macOS (measured in the release on 2026-10-18: `file:///$bunfs/root/<binary>`)
- * and `~BUN` on Windows (measured by the same day's review out of a
- * `--target=bun-windows-x64` build: `B:/~BUN/root/<binary>.exe`). The
- * separators around it are the bundle's own, whichever the platform spells.
- */
-const BUNDLE_MARKER = /[/\\](?:\$bunfs|~BUN)[/\\]/;
-
-/**
- * The program and arguments the daemon child is started with. Run from a
- * checkout, that is `bun` and this repository's `scripts/madarch.ts`. Run from
- * a compiled binary, it is the binary itself, started again with
- * `daemon-serve`: the bundle holds the command, and a `bun` has no file to
- * read — the release's own words were `error: Module not found
- * "/scripts/madarch.ts"` on Linux and macOS and `error: Module not found
- * "B:\scripts\madarch.ts"` on Windows (runs 39134773495 and 39135836826).
- *
- * Three measured facts say "this is a bundle", and any one is enough: the
- * embedded files the release carries (an empty list in every source and test
- * run, measured 2026-10-18), the bundle marker in this module's own URL, and a
- * derived script path answering no file. `Bun.main` is deliberately *not* one
- * of them: in `bun test` it is not this program's module — measured on the pod
- * as the test file, and in CI run 39137149685, where trusting it started
- * `bun daemon-serve …` inside a shard and the daemon never came up. A program
- * that is none of the three — a checkout whose script is gone — still starts
- * itself, since that is the only command line left that can answer.
+ * The program and arguments the daemon child is started with: this build of
+ * madarch, started again with `daemon-serve` (`selfCommand`, which holds the
+ * measurements behind "a checkout or a compiled binary" — run from a checkout
+ * that is `bun` and this repository's `scripts/madarch.ts`, and run from a
+ * release binary it is the binary itself, since the bundle holds the command and
+ * a `bun` has no file to read).
  */
 export function daemonCommand(
   home: string,
   port: number,
   options: { scriptPath?: string; scriptExists?: (path: string) => boolean; moduleUrl?: string; embeddedFiles?: readonly unknown[] } = {},
 ): { command: string; args: string[] } {
-  const words = ['daemon-serve', '--home', home, '--port', String(port)];
-  const scriptPath = options.scriptPath ?? fileURLToPath(new URL('../../scripts/madarch.ts', import.meta.url));
-  const scriptExists = options.scriptExists ?? existsSync;
-  const moduleUrl = options.moduleUrl ?? import.meta.url;
-  // What this program carries inside itself: the release binary embeds the
-  // wiki app and the version, and no source or test run embeds anything.
-  const embedded = options.embeddedFiles ?? (Bun as unknown as { embeddedFiles?: readonly unknown[] }).embeddedFiles ?? [];
-  const bundled = embedded.length > 0 || BUNDLE_MARKER.test(moduleUrl) || !scriptExists(scriptPath);
-  if (bundled) return { command: process.execPath, args: words };
-  return { command: 'bun', args: [scriptPath, ...words] };
+  return selfCommand(['daemon-serve', '--home', home, '--port', String(port)], options);
 }
 
 /**
