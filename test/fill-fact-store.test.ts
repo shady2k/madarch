@@ -17,8 +17,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
-import { createFactStoreSchema, readFact, readUnitFacts } from '../src/fill/fact-store.js';
-import type { Fact } from '../src/fill/facts.js';
+import { FACT_APPLICATION, createFactStoreSchema, readFact, readUnitFacts } from '../src/fill/fact-store.js';
+import { makeNodeFact, repositoryPath, type Fact, type FactProvenance } from '../src/fill/facts.js';
+import type { UnitPlanRecord } from '../src/fill/orchestrator-store.js';
+import { createUnit, readUnit } from '../src/fill/state-store.js';
 import { createFillOrchestratorService, type FillRunResult, type RefusedFillRun } from '../src/fill/orchestrator-host.js';
 import type { FactApplication } from '../src/fill/orchestrator.js';
 import { StageRegistry } from '../src/fill/registry.js';
@@ -45,6 +47,55 @@ for (const { name, check } of factStoreChecks(scenarioFacts())) {
     check(report!);
   });
 }
+
+/** One fact's provenance, as a reader that read it out of `file` at the pinned commit. */
+function provenanceOf(file: string): FactProvenance {
+  return {
+    source: { system: 'tree-sitter', version: '1.0.0' },
+    repository: { id: 'acme-shop', commit: 'a'.repeat(40) },
+    place: { file: repositoryPath(file), range: { startLine: 1, startColumn: 0, endLine: 1, endColumn: 10 } },
+  };
+}
+
+describe('a publication of a large set of facts', () => {
+  test('writes its facts and their holdings 500 to a statement, one kind at a time', async () => {
+    // madarch-tzte.21.11: a statement per fact and one more per holding — two for every fact — took the
+    // embedded store's memory up by about 700 MB for 60 000 facts. A statement carries 500 facts of one
+    // kind (the requirement's own number, not the constant's), so 1 001 facts of one kind are three
+    // statements, and a publication that wrote a fact a statement takes this test down.
+    const count = 1_001;
+    const facts = Array.from({ length: count }, (_, at) => makeNodeFact({
+      kind: 'symbol',
+      value: { repository: 'acme-shop', file: repositoryPath(`src/f${String(at)}.ts`), qualifiedName: `f${String(at)}`, symbolKind: 'function' },
+      provenance: provenanceOf(`src/f${String(at)}.ts`),
+      layer: 'extracted',
+    }));
+    await createUnit(owner!, { unitId: 'modules:batched', product: 'fixture-product', runId: 'run-1', stageId: 'modules', scopeKey: 'batched', inputsDigest: 'batched-inputs', retries: 0, at: 1_700_000_000_000 });
+    const record = await readUnit(owner!, 'modules:batched');
+    if (record === null) throw new Error('the test could not create its unit "modules:batched"');
+    const plan: UnitPlanRecord = {
+      unitId: 'modules:batched', generation: 1, runId: 'run-1', stageId: 'modules', stageUnitId: 'batched',
+      scope: 'batched', stagePosition: 0, planPosition: 0, plannedAt: 1_700_000_000_000,
+    };
+    const statements: string[] = [];
+    const applied = await owner!.transaction('write', async (transaction) => await FACT_APPLICATION.apply({
+      executor: {
+        query: async (sql: string, values?: readonly unknown[]) => {
+          statements.push(sql);
+          return await transaction.query(sql, values);
+        },
+      },
+      unit: record,
+      plan,
+      digest: 'd'.repeat(64),
+      writes: facts.map((fact) => writeOf('fact', fact)),
+    }));
+    expect(applied).toBe(count);
+    expect(statements.filter((sql) => sql.startsWith('INSERT INTO fill_fact (id'))).toHaveLength(3);
+    expect(statements.filter((sql) => sql.startsWith('INSERT INTO fill_fact_holding'))).toHaveLength(3);
+    expect((await readUnitFacts(owner!, 'modules:batched')).length).toBe(count);
+  }, 60_000);
+});
 
 describe('the store\'s own tables', () => {
   test('creating the schema again leaves the facts and their publishers as they are', async () => {

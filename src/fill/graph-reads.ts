@@ -167,7 +167,7 @@ export const GRAPH_READ_KINDS = ['fact', 'facts', 'adjacent', 'held', 'facts-wit
  * row that names the scope its holder was planned for, and the publication record
  * that says whether that holder has published (a published set is no draft).
  */
-export const GRAPH_READ_TABLES = ['fill_fact', 'fill_fact_holding', 'fill_publication', 'fill_unit', 'fill_unit_draft', 'fill_unit_plan'] as const;
+export const GRAPH_READ_TABLES = ['fill_fact', 'fill_fact_holding', 'fill_publication', 'fill_unit', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit_plan'] as const;
 
 /** The columns of one fact row, as the store holds them: the reader's own select list. */
 const FACT_COLUMNS = 'id, kind, schema_version, provenance, layer, status, value';
