@@ -310,3 +310,46 @@ holds each:
 - **The file-to-file restriction of the imports read** is named in the read's own
   declaration and in this record; the module header's grouping names, the "twelve
   decimals" claim and `rangeIn`'s ascending check on one line are corrected.
+
+The second round verified all fourteen and answered `fix-before-ship` with one
+defect of the same class one level down, and eleven more items:
+
+- **The coverage could never move after its first publication.** Its id carried
+  the repository, the scope and the reader and no commit, so a second run at a
+  later commit wrote the same id and the store kept the first row: a repository
+  that grew a folder of three thousand files kept the first run's gaps and its
+  `complete: true` for ever. The scope is now the snapshot fact of the commit the
+  unit read, which makes a later commit a later coverage — the same thing stage 0
+  does per commit — and the record says so.
+- **The coverage named scopes no producer had answered.** `package`, `call`,
+  `inherits` and `reference` are optional consumes and a unit cannot see which
+  producers ran: `read` now says what the unit *asked* for, in the record and in
+  the code, and which answer was empty is the run's stage order to show.
+- **The membership digest dropped a measurement that is not a rank.**
+  `members` moves when the tree moves, which is what a read of that module is
+  about, so only `FACT_RANK_FIELDS` (the ranks) is left out now; and the digest's
+  own doc says it reads a name from the schema and not a kind, so a future kind
+  that declares a rank is the one place that says so.
+- **A module row's provenance was frozen while its value moved.** A publisher
+  that measures a row it already cites — the same reader as the row's own
+  provenance — moves the row's provenance with the value; a publisher of another
+  reader leaves it alone, so stage 1's file row keeps git's reader.
+- **The top level had no container and no fan-in bound.** A `contains` edge now
+  runs from the repository node to every top-level module, and the repository's
+  own children are grouped by the same bound: two hundred packages are grouped,
+  not two hundred siblings. `module.parent` stays absent at the top, the
+  repository being no module.
+- **A group's name could collide with a folder's.** A group whose ordinal a
+  sibling already carries takes `.2`, `.3` after it, so two clusters of one
+  parent are never one fact.
+- **The merge was tested only from one publisher.** The scenario now publishes a
+  file fact from an inventory unit, ranks it from a modules unit, publishes that
+  unit again with no rank, and holds that the rank lands, stands, and that the row
+  keeps the reader that read the bytes.
+- **The tie-break test did not discriminate**: it answers the two seeds of one
+  folder in the order that is *not* the rule's now.
+- The summation order of a module's share, a `members` shape check (a whole number
+  from zero), the reader's name (`fill-stage-5`, the schema's own convention for a
+  stage), the evidence line of a fact about a file, the too-large rule's two cases,
+  the turn bound the walk really reaches, the row lock the merge takes and a gap
+  sentence that named a package for another seed's file are each answered here.
