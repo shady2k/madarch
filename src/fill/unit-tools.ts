@@ -64,6 +64,7 @@ import {
   type GraphReadContext,
 } from './graph-reads.js';
 import type { EntityProposalForm, FactEdgeKind } from './facts.js';
+import { DEFAULT_GRAPH_READ_LIMITS, estimateTokens } from './graph-reads.js';
 import { here } from './fsm-core.js';
 import { selfCommand, type SelfCommandReadings } from '../product/self-command.js';
 
@@ -447,6 +448,12 @@ export interface UnitToolsHandle {
    * `connection.newSession({ cwd, mcpServers: [handle.mcpServer] })` (`src/fill/acp.ts`).
    */
   readonly mcpServer: AcpMcpServer;
+  /**
+   * What this session's server has answered so far, in tokens, by the fill's own estimate
+   * (`estimateTokens`, `graph-reads.ts`): 0026's limits count "the session and the server",
+   * and an agent that reports no usage of its own leaves this as part of madarch's floor.
+   */
+  answered(): number;
   /** Forgets this session's token: no further call of its server is answered, and its tools answer nothing. */
   close(): void;
 }
@@ -478,6 +485,8 @@ function mintToken(): string {
  */
 export function createUnitToolsHost(): UnitToolsHost {
   const sessions = new Map<string, UnitToolSession>();
+  /** What each open session's server has answered, in tokens: the one figure 0026's limits take from the server. */
+  const answered = new Map<string, number>();
   return {
     open(request: OpenUnitTools): UnitToolsHandle {
       const at = here();
@@ -486,6 +495,7 @@ export function createUnitToolsHost(): UnitToolsHost {
       }
       const token = mintToken();
       sessions.set(token, request.session);
+      answered.set(token, 0);
       const server = selfCommand(['mcp-unit'], request.self ?? {});
       return {
         mcpServer: {
@@ -494,14 +504,19 @@ export function createUnitToolsHost(): UnitToolsHost {
           args: server.args,
           env: { [UNIT_TOOL_URL_VARIABLE]: request.url, [UNIT_TOOL_TOKEN_VARIABLE]: token },
         },
-        close: () => { sessions.delete(token); },
+        answered: () => answered.get(token) ?? 0,
+        close: () => { sessions.delete(token); answered.delete(token); },
       };
     },
     async call(request: UnitToolCall): Promise<UnitToolAnswer | null> {
       const session = typeof request.token === 'string' ? sessions.get(request.token) : undefined;
       if (session === undefined) return null;
-      return await callUnitTool(session, String(request.tool), request.arguments);
+      const answer = await callUnitTool(session, String(request.tool), request.arguments);
+      // The answer's own JSON, as the agent reads it (`src/fill/unit-mcp.ts` sends the compact text): counted in the
+      // same currency as the packet and the prompts, so 0026's window holds "the session and the server".
+      answered.set(request.token, (answered.get(request.token) ?? 0) + estimateTokens(JSON.stringify(answer.answer) ?? 'null', DEFAULT_GRAPH_READ_LIMITS));
+      return answer;
     },
-    closeAll: () => { sessions.clear(); },
+    closeAll: () => { sessions.clear(); answered.clear(); },
   };
 }

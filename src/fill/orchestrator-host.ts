@@ -23,7 +23,7 @@ import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/datab
 import { runningVersion } from '../product/version.js';
 import { createPgBossQueue } from '../adapters/pg-boss-queue.js';
 import { consumeFillControl } from '../product/fill-runtime.js';
-import { factGraph, writeScope, type CheckedWriteDraft, type CheckedWriteGraph, type WriteSnapshots } from './checked-writes.js';
+import { draftSetOf, factGraph, writeScope, type CheckedWriteDraft, type CheckedWriteGraph, type WriteSnapshots } from './checked-writes.js';
 import type { FillStageConfigurationRead } from './config.js';
 import { FACT_APPLICATION, createFactStoreSchema } from './fact-store.js';
 import type { FactLayer, FactSource } from './facts.js';
@@ -45,6 +45,7 @@ import {
   type RunStatus,
   type UnitGraphReader,
   type UnitRef,
+  type UnitToolsOpening,
 } from './orchestrator.js';
 import { createOrchestratorSchema, readUnitPlan, recordUnitRead, type RunSnapshot } from './orchestrator-store.js';
 import type { QueueService } from './queue.js';
@@ -188,6 +189,14 @@ export interface FillOrchestratorService {
 export interface FillOrchestratorServiceOptions {
   /** The products home the process's fill database lives under. */
   readonly home: string;
+  /**
+   * The address this process answers a unit's tool calls at — `${server.url}/api/fill/unit/tool`
+   * (`src/server/http.ts`, `UNIT_TOOL_PATH`) — read when a unit's tools are opened,
+   * because the server knows its own address only once it listens. A service that
+   * names none opens no unit's tools, and a stage whose units run an agent refuses
+   * by name rather than starting an agent that cannot read.
+   */
+  readonly toolUrl?: () => string | undefined;
   /** The declared stages (madarch-tzte.19.3). */
   readonly registry: StageRegistry;
   /** One product's wiring; a service without it refuses every run, naming what is missing. */
@@ -300,6 +309,23 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       ...(options.clock === undefined ? {} : { clock: options.clock }),
       control: options.control !== undefined ? options.control(product) : async (runId: string) => await consumeFillControl(product.folder, runId),
       ...(wiring.guard === undefined ? {} : { guard: wiring.guard }),
+      // A stage that declares `usesTools` reads and writes through the unit's own MCP server (0026, "Agents and
+      // tools"): this process is where that server's calls are answered, so the orchestrator's seam opens one for
+      // the unit generation it is about to run, with the attempt's own draft set behind it.
+      ...(options.toolUrl === undefined ? {} : {
+        unitTools: async (opening: UnitToolsOpening) => {
+          const url = options.toolUrl!();
+          if (url === undefined || url.trim() === '') {
+            throw new Error(`fill-orchestrator: the fill of "${product.name}" runs a unit whose stage reads through its own MCP server, and this process names no address it answers a unit's calls at: give the service toolUrl() (src/fill/orchestrator-host.ts)`);
+          }
+          return await openUnitTools({
+            product,
+            unit: { unitId: opening.unit.unitId, generation: opening.unit.generation },
+            url,
+            draft: draftSetOf(opening.draft),
+          });
+        },
+      }),
       ...(options.sink === undefined ? {} : { sink: options.sink }),
       limits,
       ...(options.log === undefined ? {} : { log: options.log }),
@@ -330,6 +356,15 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       throw new Error(`fill-orchestrator: the fill of "${product.name}" lands its published facts elsewhere than this process's fact store, and wires no writeGraph(): a unit's writes would ask a graph its facts are not in (src/fill/orchestrator-host.ts)`);
     }
     return factGraph(owner);
+  }
+
+  /**
+   * One unit's tools, opened for it: the session the unit's scope, reader, pinned
+   * bytes and draft set are bound to, published at the address this process answers
+   * a unit's calls at.
+   */
+  async function openUnitTools(request: UnitToolsRequest): Promise<UnitToolsHandle> {
+    return units.open({ session: await unitSessionFor(request), url: request.url });
   }
 
   /**
@@ -379,7 +414,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
 
   return {
     async unitTools(request: UnitToolsRequest): Promise<UnitToolsHandle> {
-      return units.open({ session: await unitSessionFor(request), url: request.url });
+      return await openUnitTools(request);
     },
     async unitTool(request: UnitToolCall): Promise<UnitToolAnswer | null> {
       return await units.call(request);

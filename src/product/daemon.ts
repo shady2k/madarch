@@ -23,6 +23,7 @@ import { ensureBuilt } from '../product-wiki/app.js';
 import type { ServeEnv } from '../product-wiki/serve.js';
 import { startServer } from '../server/http.js';
 import { createFillOrchestratorService, type FillOrchestratorService, type FillOrchestratorServiceOptions } from '../fill/orchestrator-host.js';
+import { UNIT_TOOL_PATH } from '../fill/unit-tools.js';
 import { selfCommand } from './self-command.js';
 import { StageRegistry } from '../fill/registry.js';
 
@@ -572,9 +573,14 @@ export function daemonFillOrchestrator(home: string, options: Omit<FillOrchestra
 /** The daemon child's own entry (`madarch daemon-serve`): serves every valid product in the home until stopped. */
 export async function serveDaemon(options: { home?: string; port: number }): Promise<number> {
   const home = homePath(options.home);
-  const orchestrator = daemonFillOrchestrator(home);
+  // The service opens a unit's MCP server for a stage that runs an agent (0026), and the address it hands the
+  // started server is this process's own: read when a unit's tools are opened, because the server knows its
+  // address only once it listens.
+  let address: string | undefined;
+  const orchestrator = daemonFillOrchestrator(home, { toolUrl: () => (address === undefined ? undefined : `${address}${UNIT_TOOL_PATH}`) });
   try {
     const server = await startServer({ productHome: home, appFolder: process.env.MADARCH_APP_DIST, port: options.port, host: '127.0.0.1', startFill, orchestrator });
+    address = server.url;
     await new Promise<void>((resolveDone) => { process.once('SIGTERM', resolveDone); process.once('SIGINT', resolveDone); });
     await server.stop();
     return 0;

@@ -11,6 +11,7 @@
  */
 import { StageRegistry } from '../registry.js';
 import type { SnapshotSource } from '../snapshot.js';
+import { createAgentUnitStage, type AgentUnitWiring } from './agent-unit.js';
 import { createBuildConfigurationStage } from './build-configuration.js';
 import { createDocumentIndexStage } from './document-index.js';
 import { createGitHistoryReader, createHistoryStage, type CheckoutFolderOf } from './history.js';
@@ -31,6 +32,13 @@ export interface FillStageWiring {
    * somewhere it was not pointed at.
    */
   readonly checkoutOf?: CheckoutFolderOf;
+  /**
+   * The agent a run's agent units are driven with (decision 0026, madarch-tzte.22.3).
+   * A run that wires none registers no agent unit stage at all, so a product whose
+   * fill has no agent never plans a unit that could read nothing; a run that wires
+   * one registers it beside the deterministic stages.
+   */
+  readonly agent?: Omit<AgentUnitWiring, 'snapshots'>;
 }
 
 /** The folder a run that wired no Git answers with: no folder, which the history stage refuses by name. */
@@ -45,7 +53,7 @@ const noCheckout: CheckoutFolderOf = () => '';
  * the chain lands correctly.
  */
 export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
-  return new StageRegistry()
+  const registry = new StageRegistry()
     .register(createSnapshotStage(wiring.snapshots))
     .register(createInventoryStage(wiring.snapshots))
     .register(createBuildConfigurationStage(wiring.snapshots))
@@ -54,4 +62,8 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
     .register(createModulesStage(wiring.snapshots))
     .register(createDocumentIndexStage(wiring.snapshots))
     .register(createHistoryStage(createGitHistoryReader(wiring.checkoutOf ?? noCheckout)));
+  // The agent stages stand only where the run names the agent they are driven with: an agent unit's whole work is
+  // a session with that agent (0026), and a stage registered without one would plan units that could not run.
+  if (wiring.agent !== undefined) registry.register(createAgentUnitStage({ snapshots: wiring.snapshots, ...wiring.agent }));
+  return registry;
 }

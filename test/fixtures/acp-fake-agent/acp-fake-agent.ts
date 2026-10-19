@@ -38,8 +38,21 @@
  *                 the prompt names the call as JSON (`{"tool":"neighbors",
  *                 "arguments":{"id":"..."}}`), and `neighbors` of the prompt's own
  *                 `id` is the default
+ *   script        follows the steps of `--script <file>`, so a test scripts a unit's
+ *                 turns without inventing a prompt format. The file is a JSON object
+ *                 `{"byPrompt":[{"matches":"<text in the prompt>","steps":[…]}, …],
+ *                 "steps":[…]}`: a prompt matching a `byPrompt` entry runs that entry's
+ *                 steps, and every other prompt runs `steps`. A step is one of
+ *                 `{"say":"<text>"}` (a message chunk), `{"thought":"<text>"}`,
+ *                 `{"usage":{"used":n,"size":m}}` (a `usage_update`), `{"call":{"tool":…,
+ *                 "arguments":…}}` (a call to the session's first stdio MCP server, its
+ *                 answer streamed as a JSON message chunk, the server started on the
+ *                 first such step), `{"answer":{…}}` (the object, as a message chunk,
+ *                 then `end_turn` with a usage report), `{"end":{"stopReason":…,
+ *                 "usage":…}}` and `{"wait":true}` (nothing further until
+ *                 `session/cancel`, which the agent answers as a cancelled turn)
  */
-import { appendFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 
 const argv = process.argv.slice(2);
@@ -49,6 +62,25 @@ const option = (name: string): string | undefined => {
 };
 const scenario = option('scenario') ?? 'default';
 const record = option('record');
+const scriptPath = option('script');
+
+/** One step of a `script` scenario's steps, as the file spells them (`--script <file>`). */
+interface ScriptStep {
+  say?: string;
+  thought?: string;
+  usage?: { used?: number; size?: number };
+  call?: { tool?: string; arguments?: unknown };
+  answer?: unknown;
+  /** Answers the unit contract as if every place the prompt's packet listed had been read: the test's own way of
+   *  covering exactly what a unit was shown, which is what a cut member list must not read as a whole scope. */
+  answerMembers?: { summary?: string };
+  end?: { stopReason?: string; usage?: unknown };
+  wait?: boolean;
+  /** Ends the agent process with this exit code, without answering: a unit whose session fails mid-turn. */
+  exit?: number;
+}
+interface Script { byPrompt?: { matches?: string; steps?: ScriptStep[] }[]; steps?: ScriptStep[] }
+const script: Script | undefined = scriptPath === undefined ? undefined : JSON.parse(readFileSync(scriptPath, 'utf8')) as Script;
 const pidFile = option('pid-file');
 if (pidFile !== undefined) writeFileSync(pidFile, `${process.pid}\n`);
 
@@ -62,6 +94,29 @@ function respond(id: number | string | undefined, result: unknown): void {
 }
 function notify(method: string, params: unknown): void {
   send({ jsonrpc: '2.0', method, params });
+}
+
+/** The index of the `}` that closes the object opening at `start`, or -1 when it never closes. */
+function balancedEndOf(text: string, start: number): number {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') inString = true;
+    else if (character === '{') depth += 1;
+    else if (character === '}') {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
 }
 
 /** A request the agent sends the client, answered by the message carrying its id. */
@@ -157,6 +212,9 @@ function callAskedBy(text: string): { tool: string; argumentsValue: unknown } {
 let sessionNumber = 0;
 /** The one MCP client this agent's `mcp-tools` scenario speaks to. */
 let mcp: McpClient | undefined;
+/** Each session's stdio MCP servers, as `session/new` handed them over: a `script` scenario starts them on its first call step. */
+const serversBySession = new Map<string, readonly McpServerSpec[]>();
+const mcpBySession = new Map<string, McpClient>();
 let pendingPrompt: { id: number | string; sessionId: string; text: string; turn: number } | undefined;
 let turn = 0;
 
@@ -164,8 +222,97 @@ function chunk(sessionId: string, text: string): void {
   notify('session/update', { sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } } });
 }
 
+/** The steps a `script` scenario runs for one prompt: the entry whose `matches` stands in the prompt, else the default steps. */
+function stepsFor(text: string): readonly ScriptStep[] {
+  for (const entry of script?.byPrompt ?? []) {
+    if (entry.matches !== undefined && text.includes(entry.matches)) return entry.steps ?? [];
+  }
+  return script?.steps ?? [];
+}
+
+/** The MCP client of one session's first stdio server, started on the step that first needs it. */
+async function mcpFor(sessionId: string): Promise<McpClient | undefined> {
+  const held = mcpBySession.get(sessionId);
+  if (held !== undefined) return held;
+  const servers = serversBySession.get(sessionId) ?? [];
+  if (servers.length === 0) return undefined;
+  const client = await startMcp(servers);
+  mcpBySession.set(sessionId, client);
+  return client;
+}
+
+/** Runs one scripted turn: its steps in order, and the end the file names (or a wait for the client's cancel). */
+async function runScript(id: number | string, sessionId: string, text: string): Promise<void> {
+  const steps = stepsFor(text);
+  if (steps.length === 0) {
+    chunk(sessionId, 'the script names no step for this prompt');
+    respond(id, { stopReason: 'end_turn' });
+    return;
+  }
+  for (const step of steps) {
+    if (step.thought !== undefined) {
+      notify('session/update', { sessionId, update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: step.thought } } });
+      continue;
+    }
+    if (step.say !== undefined) { chunk(sessionId, step.say); continue; }
+    if (step.usage !== undefined) {
+      notify('session/update', { sessionId, update: { sessionUpdate: 'usage_update', ...(step.usage.used === undefined ? {} : { used: step.usage.used }), ...(step.usage.size === undefined ? {} : { size: step.usage.size }) } });
+      continue;
+    }
+    if (step.call !== undefined) {
+      const client = await mcpFor(sessionId);
+      if (client === undefined) { chunk(sessionId, JSON.stringify({ error: 'the session was given no stdio MCP server' })); continue; }
+      const answered = await client.call(String(step.call.tool), step.call.arguments ?? {});
+      chunk(sessionId, JSON.stringify({ tool: step.call.tool, isError: answered.isError, text: answered.text }));
+      continue;
+    }
+    if (step.answerMembers !== undefined) {
+      // The packet is the prompt's last balanced JSON object (the fixed part before it carries the answer object's
+      // own example, so the first `{` is not the packet): each candidate is tried from the last one backwards until
+      // one holds a `members` list.
+      let members: { file?: string }[] = [];
+      const starts = [...text.matchAll(/\{/gu)].map((match) => match.index);
+      for (let index = starts.length - 1; index >= 0 && members.length === 0; index -= 1) {
+        const end = balancedEndOf(text, starts[index]!);
+        if (end < 0) continue;
+        try {
+          const parsed = JSON.parse(text.slice(starts[index]!, end + 1)) as { members?: { file?: string }[] };
+          if (Array.isArray(parsed.members)) members = parsed.members;
+        } catch { /* not the packet */ }
+      }
+      chunk(sessionId, JSON.stringify({ status: 'done', covered: members.map((member) => String(member.file ?? '')), remaining: [], ...(step.answerMembers.summary === undefined ? {} : { summary: step.answerMembers.summary }) }));
+      respond(id, { stopReason: 'end_turn', usage: { totalTokens: 1200, inputTokens: 1000, outputTokens: 200 } });
+      return;
+    }
+    if (step.answer !== undefined) {
+      chunk(sessionId, JSON.stringify(step.answer));
+      respond(id, { stopReason: 'end_turn', usage: { totalTokens: 1200, inputTokens: 1000, outputTokens: 200 } });
+      return;
+    }
+    if (step.end !== undefined) {
+      respond(id, { stopReason: step.end.stopReason ?? 'end_turn', ...(step.end.usage === undefined ? {} : { usage: step.end.usage }) });
+      return;
+    }
+    if (step.exit !== undefined) {
+      setTimeout(() => process.exit(step.exit), 10);
+      return;
+    }
+    if (step.wait === true) {
+      pendingPrompt = { id, sessionId, text, turn };
+      return;
+    }
+  }
+  // A script whose steps end without an answer waits for the client, which is what a unit that crosses a limit
+  // sees: the turn is cancelled rather than ended by the agent.
+  pendingPrompt = { id, sessionId, text, turn };
+}
+
 async function runPrompt(id: number | string, sessionId: string, text: string): Promise<void> {
   turn += 1;
+  if (scenario === 'script') {
+    await runScript(id, sessionId, text);
+    return;
+  }
   if (scenario === 'mcp-tools') {
     const asked = callAskedBy(text);
     const started = mcp;
@@ -317,10 +464,11 @@ lines.on('line', (line: string) => {
         respond(message.id, {});
         return;
       }
+      const heldServers = (message.params?.['mcpServers'] ?? []) as McpServerSpec[];
       if (scenario === 'mcp-tools') {
         // An agent starts the session's MCP servers before it answers `session/new`: the server is up by
         // the time a prompt arrives, which is what the real adapters do.
-        const servers = (message.params?.['mcpServers'] ?? []) as McpServerSpec[];
+        const servers = heldServers;
         void startMcp(servers).then((client) => {
           mcp = client;
           respond(message.id, { sessionId: `fake-session-${sessionNumber}`, modes: { currentModeId: 'ask' } });
@@ -329,6 +477,9 @@ lines.on('line', (line: string) => {
         });
         return;
       }
+      // A `script` scenario records the session's servers and starts them at its first call step, so a script that
+      // never calls a tool starts no server at all.
+      serversBySession.set(`fake-session-${sessionNumber}`, heldServers);
       respond(message.id, { sessionId: `fake-session-${sessionNumber}`, modes: { currentModeId: 'ask' } });
       return;
     }

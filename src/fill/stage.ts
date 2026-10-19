@@ -19,6 +19,7 @@
  * snapshot the resolved configuration from these values alone.
  */
 import { type TSchema } from 'typebox';
+import type { AcpMcpServer } from './acp.js';
 
 /** How much of the product one capability or fact kind is about. */
 export type CapabilityScope = 'product' | 'repository' | 'package' | 'cluster' | 'file';
@@ -205,10 +206,35 @@ export interface ResolvedStageConfiguration {
   config: unknown;
 }
 
+/**
+ * The MCP server one unit's attempt runs its tools through, as the host that opened
+ * it hands it over (0026, "Agents and tools"): the server a stage attaches to the
+ * unit's ACP session, and the call that forgets its session when the attempt ends.
+ */
+export interface StageUnitTools {
+  /** The server to attach to the unit's ACP session (`connection.newSession({ mcpServers })`, `src/fill/acp.ts`). */
+  readonly mcpServer: AcpMcpServer;
+  /**
+   * What the unit's server has answered so far, in tokens, where the host counts it: 0026's
+   * limits count "the session and the server", and a host that does not count answers
+   * nothing here (the unit's own agent report is then the only figure above the prompts).
+   */
+  answered?(): number;
+  /** Forgets the session: called when the attempt ends, whatever it ended with. */
+  close(): void;
+}
+
 /** What a stage's `execute` runs in: never a database, never a file path. */
 export interface StageContext {
   /** The unit being run. */
   unit: StageUnit;
+  /**
+   * The unit's own MCP server, where the stage declared `usesTools` and the run has
+   * a host that opens one; absent for a stage whose units run no agent. A stage that
+   * runs an agent refuses to run without it rather than starting an agent that
+   * cannot read.
+   */
+  tools?: StageUnitTools;
   /** The stage's resolved configuration for this run. */
   config: ResolvedStageConfiguration;
   /** Tracked reads of the pinned graph. */
@@ -251,6 +277,13 @@ export interface FillStage {
   configSchema: TSchema;
   /** The stage's defaults, before the product's configuration speaks. */
   defaults: StageDefaults;
+  /**
+   * Whether the stage's units read and write through the unit's own MCP server
+   * (0026, "Agents and tools"). A stage that declares it is handed
+   * `StageContext.tools` by the run; a stage that leaves it out is handed none, and
+   * no server is opened for its units.
+   */
+  usesTools?: boolean;
   /** Names the stage's units from the graph, without running anything. */
   plan(graph: StageGraphReader): Promise<StagePlan> | StagePlan;
   /** Runs one unit and returns its outcome; the draft writes went through the context. */
