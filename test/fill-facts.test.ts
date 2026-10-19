@@ -355,9 +355,11 @@ describe('the kinds the fill writes', () => {
 
   test('every kind carries its value shape version, and only a moved kind stands past the schema version', () => {
     expect(Number.isInteger(FACTS_SCHEMA_VERSION)).toBe(true);
-    // A kind whose value shape changes moves alone; `file` moved to 2 when the
-    // blob its bytes stand under was added to it (madarch-tzte.21.1, stage 1).
-    const moved: Readonly<Record<string, number>> = { 'file': 2 };
+    // A kind whose value shape changes moves alone: `file` moved to 2 when the
+    // blob its bytes stand under was added to it (madarch-tzte.21.1, stage 1),
+    // and `document` and `section` to 2 when their byte spans were added to them
+    // (madarch-tzte.21.4, stage 6).
+    const moved: Readonly<Record<string, number>> = { 'document': 2, 'file': 2, 'section': 2 };
     for (const kind of FACT_KINDS_IN_ORDER) {
       expect(Number.isInteger(FACT_KINDS[kind].version)).toBe(true);
       // 0027: a stage declares the fact kind's version for what it produces,
@@ -598,6 +600,21 @@ describe('ids: content-addressed, stable, and never a run', () => {
     const otherObject = makeNodeFact({ kind: 'claim', value: { ...SAMPLES['claim'], object: { form: 'literal', text: 'the checkout service' } }, provenance: provenanceFor('claim'), layer: 'inferred' });
     expect(otherObject.id).not.toBe(atThree.id);
   });
+
+  test('a part a fact may leave out is null in its identity, and the fact reads without it', () => {
+    // An interaction names the carrier it goes through only when its reader saw one
+    // (`InteractionEdgeValue.via`). A fact that names none is one the schema reads, and the
+    // carrier it names is part of what the fact is: the same two nodes through two carriers are
+    // two interactions.
+    const { via, ...withoutVia } = SAMPLES['interaction'];
+    expect(via).toBe('POST /api/orders');
+    const named = makeEdgeFact({ kind: 'interaction', value: SAMPLES['interaction'], provenance: provenanceFor('interaction'), layer: 'inferred' });
+    const unnamed = makeEdgeFact({ kind: 'interaction', value: withoutVia, provenance: provenanceFor('interaction'), layer: 'inferred' });
+    expect(checkFact(unnamed)).toEqual([]);
+    expect(FACT_KINDS['interaction'].identityValue(withoutVia, provenanceFor('interaction'))).toContainEqual(['via', null]);
+    expect(FACT_KINDS['interaction'].identityValue(SAMPLES['interaction'], provenanceFor('interaction'))).toContainEqual(['via', 'POST /api/orders']);
+    expect(unnamed.id).not.toBe(named.id);
+  });
 });
 
 describe('repository paths: the machine checkout never reaches a fact', () => {
@@ -658,9 +675,9 @@ describe('the check that names every reason a fact is not one the schema reads',
   });
 
   test('a schema version, an id, a layer and a status each at their own path', () => {
-    // `file` is the one kind that has moved past the schema's own version
-    // (madarch-tzte.21.1 added the blob its bytes stand under), so the version
-    // it does not carry is the one after its own.
+    // `file` has moved past the schema's own version (madarch-tzte.21.1 added
+    // the blob its bytes stand under), so the version it does not carry is the
+    // one after its own.
     expect(problemsOf({ ...file, schemaVersion: FACT_KINDS['file'].version + 1 }).paths).toEqual(['schemaVersion']);
     expect(problemsOf({ ...file, id: 'file:not-hex' }).paths).toEqual(['id']);
     expect(problemsOf({ ...file, id: 'f' + file.id }).paths).toEqual(['id']);

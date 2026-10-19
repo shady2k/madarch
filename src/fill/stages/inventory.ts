@@ -158,7 +158,7 @@ async function planInventory(sources: SnapshotSource, graph: StageGraphReader): 
   for (const pin of pins) {
     const reader = await sources.open(pin.id);
     const read = publishedTreeRead(pin.id);
-    const published = publishedTree(await graph.query(read), pin.id, read);
+    const published = publishedTreeRows(await graph.query(read), pin.id, read);
     const files = reader.files();
     // A tree whose entries are all unfiled held entries too: it is not a
     // repository that found nothing, and stage 0's coverage names the gap.
@@ -242,8 +242,14 @@ function parentOf(path: string): string | undefined {
  * repository path or a blob that is no blob id is refused, naming the read, the
  * row and what was wrong with it — a row read past would plan a wrong unit in
  * silence, and a row dropped would leave a stale fact behind.
+ *
+ * Every stage that plans from this read reads its rows here: the syntax stage
+ * (madarch-tzte.21.3) plans from the same document, and one reader is what keeps
+ * the two from accepting different rows — two copies of this rule drifted apart
+ * within one rebase, where a duplicate path and a folder carrying a blob were
+ * refused by one stage and accepted by the other.
  */
-function publishedTree(rows: readonly unknown[], repository: string, read: string): PublishedTree {
+export function publishedTreeRows(rows: readonly unknown[], repository: string, read: string): PublishedTree {
   const files = new Map<string, string | undefined>();
   const directories = new Set<string>();
   rows.forEach((row, index) => {

@@ -690,15 +690,32 @@ export interface ModuleValue {
   readonly importance?: number;
 }
 
-/** Stage 6: a document of the product or of a repository. */
+/**
+ * Stage 6: a document of the product or of a repository, with the spans of the
+ * bytes a reader of the graph shows: the document's whole extent in bytes
+ * (`bytes`, so the byte span is `[0, bytes)`) and, in the fact's own place, the
+ * lines it stands at. `blob` is the git blob the document's bytes stand under,
+ * for the reason `FileValue.blob` gives: stage 6 reads a document again exactly
+ * when it moved, and the graph's own last reading is what the comparison reads.
+ */
 export interface DocumentValue {
   readonly repository: string;
   readonly path: RepositoryPath;
   readonly mediaType: string;
   readonly title?: string;
+  /** The document's size in bytes at the fact's commit: the whole of its byte span, `[0, bytes)`. */
+  readonly bytes?: number;
+  /** The git blob the document's bytes stand under at the fact's commit: 40 lower-case hexadecimal digits. */
+  readonly blob?: string;
 }
 
-/** Stage 6: a section of a document, by the anchor a reader's link names. */
+/**
+ * Stage 6: a section of a document, by the anchor a reader's link names. The
+ * heading tree is these facts: the document they stand in, the heading's depth
+ * and their order say which section holds which. The section's line span is the
+ * fact's own place (the document's path and the range inside it) and its byte
+ * span is `startByte` up to `endByte`.
+ */
 export interface SectionValue {
   readonly repository: string;
   /** The document the section lives in, by its path. */
@@ -709,6 +726,10 @@ export interface SectionValue {
   readonly heading: string;
   /** The heading's depth, 1 for `#`. */
   readonly level: number;
+  /** The offset of the section's first byte in the document's bytes. */
+  readonly startByte?: number;
+  /** The offset just past the section's last byte in the document's bytes; never before `startByte`. */
+  readonly endByte?: number;
 }
 
 /** Stage 7: one commit of a repository, with what a reader sees of it. */
@@ -1251,7 +1272,9 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
   'entry-point': {
     kind: 'entry-point',
     shape: 'node',
-    stages: ['3-syntax'],
+    // A manifest declares the way in before the code that implements it is
+    // parsed (stage 2's binaries and scripts), so the kind names both stages.
+    stages: ['2-build-and-configuration', '3-syntax'],
     place: 'required',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
@@ -1295,7 +1318,9 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     stages: ['6-documents'],
     place: 'required',
     layers: ['extracted'],
-    version: FACTS_SCHEMA_VERSION,
+    // 1: the path, the media type and the title. 2: the byte count and the blob
+    // the bytes stand under (its own move, per FACTS_SCHEMA_VERSION above).
+    version: 2,
     identityValue: (value) => [['repository', value.repository], ['path', value.path]],
   },
   'section': {
@@ -1304,7 +1329,9 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     stages: ['6-documents'],
     place: 'required',
     layers: ['extracted'],
-    version: FACTS_SCHEMA_VERSION,
+    // 1: the document, the anchor, the heading and its depth. 2: the byte span
+    // the section covers (its own move, per FACTS_SCHEMA_VERSION above).
+    version: 2,
     identityValue: (value) => [['repository', value.repository], ['document', value.document], ['anchor', identityName(value.anchor)]],
   },
   'commit': {
@@ -1500,7 +1527,14 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
   'task-key': {
     kind: 'task-key',
     shape: 'edge',
-    stages: ['7-history'],
+    // Stage 7 reads the keys a commit message names and stage 6 the keys a
+    // document names. The kind is one and the key is written as the tracker
+    // writes it; the two readers differ in what they read a marker from — a
+    // commit message's `Task:` line is a key list and nothing else, while a
+    // document's line carries the sentence the marker stands in — so each
+    // stage's own rule says which tokens of its text are keys (see
+    // `src/fill/stages/history.ts` and `src/fill/stages/document-index.ts`).
+    stages: ['6-documents', '7-history'],
     place: 'optional',
     layers: ['extracted'],
     version: FACTS_SCHEMA_VERSION,
@@ -1547,7 +1581,8 @@ export const EDGE_END_KINDS: { readonly [K in FactEdgeKind]: { readonly from: re
   'binds': { from: ['environment-variable'], to: 'term' },
   'resolves': { from: ['api-endpoint'], to: ['deploy-unit'] },
   'document-link': { from: ['document', 'section'], to: 'term' },
-  'task-key': { from: ['commit'], to: 'term' },
+  // A task key stands in a commit message or in a document (stage 7 and stage 6).
+  'task-key': { from: ['commit', 'document', 'section'], to: 'term' },
   'transition': { from: ['state'], to: ['state'] },
   'interaction': { from: ['deploy-unit', 'symbol'], to: ['deploy-unit', 'symbol'] },
 };
@@ -1810,6 +1845,10 @@ const IDENTITY_PART_FORMS: Readonly<Record<string, (part: unknown) => string | u
   'environment-variable.name': textPart,
   'symbol.qualifiedName': textPart,
   'symbol.disambiguator': orAbsent(textPart),
+  // An interaction names the carrier it goes through only when the agent saw one: the part is `null`
+  // when it names none (madarch-tzte.20.4 — the write path could not write an interaction at all while
+  // this form was missing, since the absent part read as text and was refused).
+  'interaction.via': orAbsent(textPart),
   'section.anchor': textPart,
   'task-key.key': textPart,
   'coverage.scope': textPart,
@@ -1877,8 +1916,8 @@ const VALUE_FIELDS: { readonly [K in FactKind]: readonly (keyof FactValueOf<K> &
   'comment': ['text', 'form'],
   'test': ['repository', 'file', 'name', 'framework', 'covers'],
   'module': ['repository', 'name', 'parent', 'seed', 'members', 'importance'],
-  'document': ['repository', 'path', 'mediaType', 'title'],
-  'section': ['repository', 'document', 'anchor', 'heading', 'level'],
+  'document': ['repository', 'path', 'mediaType', 'title', 'bytes', 'blob'],
+  'section': ['repository', 'document', 'anchor', 'heading', 'level', 'startByte', 'endByte'],
   'commit': ['repository', 'commit', 'committedAt', 'authoredAt', 'subject', 'author', 'parents', 'files'],
   'claim': ['subject', 'predicate', 'object', 'text', 'confidence'],
   'entity-proposal': ['repository', 'proposed', 'name', 'summary', 'aliases'],
