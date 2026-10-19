@@ -136,7 +136,10 @@ Taken from decisions 0026, 0027 and 0005; nothing here re-decides them.
 - **A refusal is a value, never an exception.** The reads raise where a request
   is not a read of theirs, and the writes answer their own refusals; both reach
   the agent as the tool's own result with `isError: true` and the refusal's own
-  words — which name the field, the file and the line. The protocol's own rule is
+  words, handed on as they stand: a read's error names the file, the line and
+  the column it was raised at (`src/fill/fsm-core.ts`), a write's refusal names
+  each field it refused, and a tool this server has none of is refused by name.
+  The protocol's own rule is
   what this follows: a tool's failure is content the model reads and acts on, and
   a protocol error would end the call instead. A name that is no tool, and a
   `tools/call` with no name, are protocol errors (`-32602`), because no tool was

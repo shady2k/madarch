@@ -102,3 +102,9 @@ Its run's decisions are in `docs/changes/fill-orchestrator/change.md`, "Design a
 Changed 2026-10-18 with the change fill-crash-suite (`docs/changes/fill-crash-suite/`):
 
 - fill-orchestrator: an attempt that never published is worked again by the run's own sweep, whatever step it had reached.
+
+Changed 2026-10-19 with the change fill-acp-client (`docs/changes/fill-acp-client/`):
+
+- product-wiki: madarch drives a fill's agent unit over the Agent Client Protocol — one process per session with the unit's MCP servers, one prompt per turn, the updates the agent streams, the token figures it reports or the word that it reported none, a turn that can be cancelled, a connection whose close ends the agent and its helpers, and a probe that reports which agents on a machine connect over the protocol without sending a prompt.
+
+Its run's decisions are in `docs/changes/fill-acp-client/change.md`, "Rationale".

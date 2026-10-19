@@ -234,14 +234,29 @@ export function acpAdapterBinFolder(folder: string): string {
 }
 
 /**
+ * One word of a command a person reads and then runs in a shell, quoted for a
+ * POSIX shell when it needs it. A folder is a path, and a home may hold a
+ * space (`/srv/my home`) or a quote: unquoted, npm would take the halves of
+ * such a folder as two arguments and install into the wrong place. A word of
+ * letters, digits and the punctuation a path is made of stays as it is, so the
+ * common command reads as a person would have typed it.
+ */
+export function shellWord(value: string): string {
+  if (value.length > 0 && /^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) return value;
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+/**
  * The command that installs one adapter into `folder`, pinned to the version
  * madarch expects. It is the same command a person reads in the wizard's
  * "install it by hand" line and the one madarch itself runs: a prefix install
- * into madarch's own folder, never a global one and never as root.
+ * into madarch's own folder, never a global one and never as root. Every word
+ * that can come from the environment is quoted for a shell, since that line is
+ * run by hand.
  */
 export function adapterInstallCommand(entry: AcpAdapterCatalogueEntry, folder: string): string {
   if (entry.install.kind === 'bundled') return entry.install.note;
-  return `npm install --prefix ${folder} ${entry.install.package}@${entry.install.version}`;
+  return `npm install --prefix ${shellWord(folder)} ${shellWord(`${entry.install.package}@${entry.install.version}`)}`;
 }
 
 /**
