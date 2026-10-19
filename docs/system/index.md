@@ -80,3 +80,25 @@ Its run's decisions are in `docs/changes/draft-product/change.md`, "Design and d
 Added 2026-10-15 with the change clean-install-platforms (`docs/changes/clean-install-platforms/`):
 
 - [release-binary](capabilities/release-binary.md): install, upgrade, and use the self-contained release binary across supported platforms.
+
+Added 2026-10-18 with the change fill-stage-registry (`docs/changes/fill-stage-registry/`):
+
+- [fill-stages](capabilities/fill-stages.md): declaring the fill's stages and deriving the graph they run in, and the product's manifest deciding which of them run and within which limits.
+
+Its run's decisions are in `docs/changes/fill-stage-registry/change.md`, "Design and decisions".
+
+Added 2026-10-18 with the change madarch-tzte-19-2 (`docs/changes/madarch-tzte-19-2/`):
+
+- [fill-queue](capabilities/fill-queue.md): the fill's durable queue in the process's one database — enqueue, claim under a lease, heartbeat, settlement, retry and dead letters, as short transactions.
+
+Its run's decisions are in `docs/changes/madarch-tzte-19-2/change.md`, "Design and decisions".
+
+Added 2026-10-18 with the change fill-orchestrator (`docs/changes/fill-orchestrator/`):
+
+- [fill-orchestrator](capabilities/fill-orchestrator.md): running the fill's work — planning from the registry, admission within the run's limits, leases under fencing tokens, splits and joins, staleness, cancellation and one publication per unit generation.
+
+Its run's decisions are in `docs/changes/fill-orchestrator/change.md`, "Design and decisions".
+
+Changed 2026-10-18 with the change fill-crash-suite (`docs/changes/fill-crash-suite/`):
+
+- fill-orchestrator: an attempt that never published is worked again by the run's own sweep, whatever step it had reached.

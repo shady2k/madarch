@@ -791,7 +791,7 @@ export async function sweepUnits(orchestrator: FillOrchestrator, options: { read
     if (unit.state === 'retry_wait' && unit.context.retryAt !== null && unit.context.retryAt <= at) {
       const step = await advanceUnit(database, {
         unitId: unit.unitId,
-        event: { type: 'retry', at, generation: unit.generation, cause: wakingCause(unit), retryAt: unit.context.retryAt },
+        event: { type: 'retry', at, generation: unit.generation, cause: wakingCause(unit), retryAt: unit.context.retryAt, fence: null },
       });
       if (!step.ok) {
         // The machine refused to wake it: the pass changed nothing here, and saying so keeps a host from
@@ -834,7 +834,7 @@ export async function sweepUnits(orchestrator: FillOrchestrator, options: { read
       if (unit.context.retriesLeft > 0) {
         const step = await advanceUnit(database, {
           unitId: unit.unitId,
-          event: { type: 'retry', at, generation: unit.generation, cause: 'lease-expired', retryAt },
+          event: { type: 'retry', at, generation: unit.generation, cause: 'lease-expired', retryAt, fence: null },
         });
         if (step.ok) {
           await retractUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, at });
@@ -1001,7 +1001,7 @@ export async function workOnce(orchestrator: FillOrchestrator, options: { readon
   if (unit.state === 'retry_wait') {
     // The job's own start time is the wait's end; the machine's guard judges the moment, so a claim that
     // arrives early waits for the next one rather than running.
-    const step = await advanceUnit(database, { unitId: unit.unitId, event: { type: 'retry', at, generation: unit.generation, cause: wakingCause(unit), retryAt: unit.context.retryAt } });
+    const step = await advanceUnit(database, { unitId: unit.unitId, event: { type: 'retry', at, generation: unit.generation, cause: wakingCause(unit), retryAt: unit.context.retryAt, fence: null } });
     if (!step.ok) {
       // The machine refuses to wake a wait that has not ended, and the job is settled here rather than
       // handed back: the scheduler's own sweep enqueues it again the moment the wait is over, and saying
@@ -1215,7 +1215,10 @@ async function retryAttempt(
   const unit = request.unit;
   const at = orchestrator.clock();
   const retryAt = at + orchestrator.limits.retryDelayMs;
-  const retried = await advanceUnit(database, { unitId: unit.unitId, event: { type: 'retry', at, generation: unit.generation, cause: request.cause, retryAt } });
+  // A worker's retry carries the token of the attempt that sent it: the retry of an attempt whose lease
+  // lapsed is refused here rather than spent on the attempt that replaced it (the run's own sweep, which
+  // is no worker, sends its retries with no token).
+  const retried = await advanceUnit(database, { unitId: unit.unitId, event: { type: 'retry', at, generation: unit.generation, cause: request.cause, retryAt, fence: request.fence } });
   if (!retried.ok) {
     const failed = await advanceUnit(database, { unitId: unit.unitId, event: { type: 'fail', at, generation: unit.generation, fence: request.fence, cause: 'retries-exhausted' } });
     if (!failed.ok) {
