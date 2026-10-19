@@ -15,7 +15,7 @@
  * (`applyPublishedFacts`), the commits are ones the test makes with git, and
  * nothing here reads this checkout.
  */
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -76,6 +76,11 @@ const COMMIT = 'a'.repeat(40);
 const FILE = 'src/order.ts';
 const SNAPSHOT: RunSnapshot = { repository: 'example.com/acme/shop', defaultBranch: 'main', commit: COMMIT, registryHash: 'sha256:registry' };
 
+/** The from end a fixture edge names: what a read answers where the graph holds no such node. */
+function startsOf(edge: Fact): string {
+  return (edge.value as { readonly from: string }).from;
+}
+
 /** One provenance: a fact read out of a file of the fixture repository at the pinned commit. */
 function provenance(file: string, line: number): FactProvenance {
   return {
@@ -122,6 +127,11 @@ interface Fixture {
   readonly coverage: Fact;
   readonly variable: Fact;
   readonly consumes: Fact;
+  /** A symbol one call names whose own fact no unit holds: an end the graph does not answer. */
+  readonly orphan: Fact;
+  readonly orphanCall: Fact;
+  /** A symbol the damaged claim rows are about: no other read of the fixture matches them. */
+  readonly damagedSubject: Fact;
   readonly hub: Fact;
   readonly hubCalls: readonly Fact[];
   readonly wideCoverage: Fact;
@@ -178,6 +188,11 @@ function fixture(): Fixture {
   // environment variable it uses in its `variable`, and the count of what a scope holds joins it there.
   const variable = makeNodeFact({ kind: 'environment-variable', value: { name: 'ORDER_API_BASE' }, provenance: provenance(FILE, 2), layer: 'extracted' });
   const consumes = makeEdgeFact({ kind: 'consumes', value: { from: file.id, variable: variable.id }, provenance: provenance(FILE, 2), layer: 'extracted' });
+  // A call whose from end no unit holds: the edge stands and the node it names does not, which is the state
+  // `neighbors` answers by id with `kind: null` (the checked writes refuse such a write; a retraction leaves it).
+  const orphan = symbol('OrderService.orphan', 95);
+  const orphanCall = makeEdgeFact({ kind: 'call', value: { from: symbol('OrderService.gone', 96).id, to: orphan.id, count: 1 }, provenance: provenance(FILE, 96), layer: 'extracted' });
+  const damagedSubject = symbol('OrderService.damaged', 97);
   const hub = symbol('OrderService.hub', 100);
   const hubCalls = Array.from({ length: 20 }, (_unused, index) => call(symbol(`OrderService.caller${String(index).padStart(2, '0')}`, 101 + index), hub, 101 + index));
   const wideCoverage = makeNodeFact({
@@ -192,13 +207,14 @@ function fixture(): Fixture {
     provenance: provenance(FILE, 1),
     layer: 'extracted',
   });
-  return { repository, file, module, target, isolated, lonely, variable, consumes, callers, calls, defines, contains, claims, coverage: coverageFact, hub, hubCalls, wideCoverage };
+  return { repository, file, module, target, isolated, lonely, variable, consumes, orphan, orphanCall, damagedSubject, callers, calls, defines, contains, claims, coverage: coverageFact, hub, hubCalls, wideCoverage };
 }
 
 /** Everything the fixture publishes, in one unit: the graph the reads answer from. */
 function fixtureFacts(graph: Fixture): readonly Fact[] {
   return [
-    graph.repository, graph.file, graph.module, graph.target, graph.isolated, graph.lonely, graph.variable, graph.consumes, graph.hub,
+    graph.repository, graph.file, graph.module, graph.target, graph.isolated, graph.lonely, graph.variable, graph.consumes,
+    graph.orphan, graph.orphanCall, graph.damagedSubject, graph.hub,
     ...graph.callers, ...graph.calls, ...graph.hubCalls, ...graph.defines, ...graph.contains,
     ...graph.claims, graph.coverage, graph.wideCoverage,
   ];
@@ -210,7 +226,12 @@ interface World {
   readonly graph: Fixture;
   /** Publishes one unit's facts through the store's own sink, replacing what that unit held before. */
   publish(unitId: string, stageId: string, scope: string, digest: string, facts: readonly Fact[]): Promise<number>;
-  /** The context one reading unit reads through, with its reads recorded as that unit's dependencies. */
+  /**
+   * The context one reading unit reads through, with its reads recorded as that
+   * unit's dependencies. The unit is created in this owner the first time it is
+   * asked for (creating one is one insert, no second database), so a test that
+   * reads from a shared owner still gets a generation of its own to read as.
+   */
   reads(unitId: string, generation: number, limits?: Partial<typeof DEFAULT_GRAPH_READ_LIMITS>): Promise<GraphReadContext>;
   close(): Promise<void>;
 }
@@ -241,15 +262,37 @@ async function openWorld(): Promise<World> {
     owner,
     graph,
     publish,
-    reads: async (unitId, generation, limits) => createGraphReadContext({
-      database: owner,
-      snapshot: await snapshotSource(),
-      unit: { unitId, generation },
-      clock: () => NOW,
-      ...(limits === undefined ? {} : { limits }),
-    }),
+    reads: async (unitId, generation, limits) => {
+      // The unit is made once per owner, the first time a test reads as it: `createUnit` inserts by id,
+      // so a second call for the same unit is one row too many rather than the row that already stands.
+      if (await readUnit(owner, unitId) === null) {
+        await createUnit(owner, { unitId, product: 'fixture-product', runId: 'run-reads', stageId: 'reads', scopeKey: unitId, inputsDigest: `${unitId}-inputs`, retries: 0, at: NOW });
+      }
+      return await createGraphReadContext({
+        database: owner,
+        snapshot: await snapshotSource(),
+        unit: { unitId, generation },
+        clock: () => NOW,
+        ...(limits === undefined ? {} : { limits }),
+      });
+    },
     close: async () => { await owner.close(); },
   };
+}
+
+/**
+ * The one owner the read-only tests share: the pod this suite runs on holds 4 GB,
+ * so the suite opens one PGlite for the fixture graph instead of one per test, and
+ * a test that changes the graph (a publication, a damaged row) opens an owner of
+ * its own (`world()`). A shared owner is not a shared reading unit: each test that
+ * asserts what it recorded asks for a unit of its own.
+ */
+let shared: World | undefined;
+
+/** The owner the read-only tests read from, opened once with the fixture graph in it. */
+async function sharedWorld(): Promise<World> {
+  if (shared === undefined) shared = await openWorld();
+  return shared;
 }
 
 /** The pinned repositories the span reads answer from: the commit the test makes, nothing of this checkout. */
@@ -261,7 +304,6 @@ async function snapshotSource(): Promise<{ open(repository: string): Promise<imp
 }
 
 let scratch: string | undefined;
-const worlds: World[] = [];
 
 beforeAll(async () => {
   scratch = await mkdtemp(join(tmpdir(), 'madarch-graph-reads-'));
@@ -276,16 +318,30 @@ beforeAll(async () => {
   git('add', '-A');
   git('commit', '-qm', 'one');
   pins = [{ id: 'orders-api', form: 'code', root, commit: git('rev-parse', 'HEAD').trim() }];
-}, 60_000);
+  shared = await openWorld();
+  // Two claim rows the schema does not read, inserted past the store's own check (which refuses them): the
+  // readers must refuse them by name rather than answer a claim nobody made. Each is about the fixture's
+  // `damaged` symbol, so no other test's read of the fixture answers one.
+  const damaged = shared.graph.damagedSubject.id;
+  const rows: readonly [string, Record<string, unknown>][] = [
+    [`claim:${'d'.repeat(64)}`, { subject: { form: 'node', id: damaged }, object: { form: 'literal', text: 'the cart' } }],
+    [`claim:${'e'.repeat(64)}`, { object: { form: 'node', id: damaged }, predicate: 'is-implemented-by' }],
+  ];
+  await shared.owner.transaction('write', async (executor) => {
+    for (const [id, value] of rows) {
+      await executor.query(
+        `INSERT INTO fill_fact (id, kind, schema_version, provenance, layer, status, value)
+         VALUES ($1, 'claim', 1, $2::jsonb, 'inferred', 'proposed', $3::jsonb)`,
+        [id, JSON.stringify(provenance(FILE, 40)), JSON.stringify(value)],
+      );
+    }
+  });
+}, 120_000);
 
 afterAll(async () => {
+  await shared?.close();
+  shared = undefined;
   if (scratch !== undefined) await rm(scratch, { recursive: true, force: true });
-});
-
-// Each test closes the owner it opened before the next one runs: the pod the suite runs on holds 4 GB,
-// and a PGlite per test standing open at once is what runs it out of memory.
-afterEach(async () => {
-  while (worlds.length > 0) await worlds.pop()!.close();
 });
 
 /**
@@ -300,11 +356,6 @@ function canonicalRead(parts: Record<string, unknown>): string {
   return JSON.stringify(sorted);
 }
 
-async function world(): Promise<World> {
-  const opened = await openWorld();
-  worlds.push(opened);
-  return opened;
-}
 
 /**
  * The edge kinds `neighbors` answers when the caller names none: every edge kind
@@ -329,8 +380,8 @@ const CALLER_ORDER = [`${REPOSITORY}:${FILE}#OrderService.Zed`, `${REPOSITORY}:$
 
 describe('neighbors', () => {
   test('a symbol with three callers answers those three, sorted by code point, untruncated', async () => {
-    const opened = await world();
-    const reads = await opened.reads('reads/all', 1);
+    const opened = await sharedWorld();
+    const reads = await opened.reads('reads/neighbors', 1);
     const answer = await neighbors(reads, { tool: 'neighbors', id: opened.graph.target.id });
     expect(answer.rows.map((row) => row.neighbor.label)).toEqual(CALLER_ORDER);
     expect(answer.kinds).toEqual(NEIGHBOR_KINDS);
@@ -350,14 +401,14 @@ describe('neighbors', () => {
     const query = canonicalRead({ read: 'adjacent', id: opened.graph.target.id, kinds: NEIGHBOR_KINDS });
     const nodes = canonicalRead({ read: 'facts', ids: [...answer.rows.map((row) => row.neighbor.id)].sort() });
     expect(answer.reads.map((read) => read.read)).toEqual(['adjacent', 'facts']);
-    const recorded = await readUnitReads(opened.owner, 'reads/all', 1);
+    const recorded = await readUnitReads(opened.owner, 'reads/neighbors', 1);
     expect(recorded.map((read) => [read.query, read.members])).toEqual([[query, 3], [nodes, 3]]);
     expect(recorded[0]!.membership).not.toBe(recorded[1]!.membership);
     expect(answer.reads.map((read) => read.digest)).toEqual(recorded.map((read) => read.queryDigest));
   });
 
   test('the direction and the kinds it is asked for are what it answers', async () => {
-    const opened = await world();
+    const opened = await sharedWorld();
     const reads = await opened.reads('reads/all', 1);
     const zed = opened.graph.callers[0]!;
     const outgoing = await neighbors(reads, { tool: 'neighbors', id: zed.id, direction: 'out' });
@@ -373,43 +424,41 @@ describe('neighbors', () => {
   });
 
   test('a read that names no kind at all is refused by name', async () => {
-    const opened = await world();
+    const opened = await sharedWorld();
     const reads = await opened.reads('reads/all', 1);
     await expect(neighbors(reads, { tool: 'neighbors', id: opened.graph.target.id, kinds: [] })).rejects.toThrow(/names no edge kind/);
     await expect(neighbors(reads, { tool: 'neighbors', id: opened.graph.target.id, direction: 'sideways' as 'in' })).rejects.toThrow(/a direction is "in", "out" or "both"/);
   });
 
   test('a symbol nothing joins answers nothing, and that empty read is recorded as a dependency of its own', async () => {
-    const opened = await world();
-    const reads = await opened.reads('reads/all', 1);
+    const opened = await sharedWorld();
+    const reads = await opened.reads('reads/lonely', 1);
     const answer = await neighbors(reads, { tool: 'neighbors', id: opened.graph.lonely.id });
     expect(answer.rows).toEqual([]);
     expect(answer.truncated).toBe(false);
     expect(answer.marker).toBeNull();
-    const recorded = await readUnitReads(opened.owner, 'reads/all', 1);
+    const recorded = await readUnitReads(opened.owner, 'reads/lonely', 1);
     expect(recorded.map((read) => [read.query, read.members])).toEqual([[canonicalRead({ read: 'adjacent', id: opened.graph.lonely.id, kinds: NEIGHBOR_KINDS }), 0]]);
     // An empty answer is a membership of its own, and it is not the membership of a read that answered rows.
     const answered = await neighbors(reads, { tool: 'neighbors', id: opened.graph.target.id });
     expect(answered.rows).toHaveLength(3);
-    const after = await readUnitReads(opened.owner, 'reads/all', 1);
+    const after = await readUnitReads(opened.owner, 'reads/lonely', 1);
     expect(after[0]!.membership).not.toBe(after[1]!.membership);
   });
 
   test('the neighbours of a node the graph does not hold at all are still named by their id', async () => {
-    const opened = await world();
-    const reads = await opened.reads('reads/all', 1);
-    // A node a call names and no unit holds: the edge stands, and the read answers the id it joins.
-    const gone = symbol('OrderService.gone', 90);
-    await opened.publish('graph/all', 'graph', 'all', 'graph-publication-gone', [...fixtureFacts(opened.graph), call(gone, opened.graph.target, 91)]);
-    const answer = await neighbors(reads, { tool: 'neighbors', id: opened.graph.target.id });
-    const missing = answer.rows.filter((row) => row.neighbor.kind === null);
-    expect(missing.map((row) => row.neighbor.label)).toEqual([gone.id]);
+    const opened = await sharedWorld();
+    const reads = await opened.reads('reads/orphan', 1);
+    // The fixture's `orphan` is called by a symbol whose own fact no unit holds: the edge stands, and the
+    // read answers the id it joins rather than dropping the row.
+    const answer = await neighbors(reads, { tool: 'neighbors', id: opened.graph.orphan.id });
+    expect(answer.rows.map((row) => [row.neighbor.kind, row.neighbor.label])).toEqual([[null, startsOf(opened.graph.orphanCall)]]);
   });
 });
 
 describe('references', () => {
   test('answers the places that cite the node, in code point order of the file and the line', async () => {
-    const opened = await world();
+    const opened = await sharedWorld();
     const reads = await opened.reads('reads/all', 1);
     const answer = await references(reads, { tool: 'references', id: opened.graph.target.id });
     expect(answer.rows.map((row) => [row.from.label, row.edge.kind, row.edge.file, row.edge.line])).toEqual([
@@ -426,7 +475,7 @@ describe('references', () => {
 
 describe('describe_scope', () => {
   test('answers the scope node, what it holds, how it stands and the coverage that names it', async () => {
-    const opened = await world();
+    const opened = await sharedWorld();
     const reads = await opened.reads('reads/all', 1);
     const answer = await describeScope(reads, { tool: 'describe_scope', scope: opened.graph.module.id });
     expect(answer.node).toEqual({ id: opened.graph.module.id, kind: 'module', label: 'checkout', file: FILE, line: 1 });
@@ -445,7 +494,7 @@ describe('describe_scope', () => {
   });
 
   test('the count joins every kind whose to end is a fact id, wherever the edge keeps it', async () => {
-    const opened = await world();
+    const opened = await sharedWorld();
     const reads = await opened.reads('reads/all', 1);
     // `consumes` names the environment variable it uses in its value's `variable`, not in a `to`.
     const held = await reads.read({ read: 'held', id: opened.graph.file.id, via: ['consumes'] });
@@ -460,7 +509,7 @@ describe('describe_scope', () => {
   });
 
   test('a file holds the symbols it defines, and the repository holds its files', async () => {
-    const opened = await world();
+    const opened = await sharedWorld();
     const reads = await opened.reads('reads/all', 1);
     const file = await describeScope(reads, { tool: 'describe_scope', scope: opened.graph.file.id });
     expect(file.holds).toEqual([{ kind: 'symbol', count: 5 }]);
@@ -470,7 +519,7 @@ describe('describe_scope', () => {
   });
 
   test('a scope the graph does not hold is refused by name, never answered empty', async () => {
-    const opened = await world();
+    const opened = await sharedWorld();
     const reads = await opened.reads('reads/all', 1);
     await expect(describeScope(reads, { tool: 'describe_scope', scope: 'module:notafact' })).rejects.toThrow(/describe_scope names the scope "module:notafact"/);
     await expect(describeScope(reads, { tool: 'describe_scope', scope: `module:${'0'.repeat(64)}` })).rejects.toThrow(/the graph holds no fact of that id/);
@@ -479,7 +528,7 @@ describe('describe_scope', () => {
 
 describe('claims_about', () => {
   test('answers the claims about the node and the claims that name it, with the labels of the nodes they name', async () => {
-    const opened = await world();
+    const opened = await sharedWorld();
     const reads = await opened.reads('reads/all', 1);
     const about = await claimsAbout(reads, { tool: 'claims_about', id: opened.graph.target.id, direction: 'about' });
     expect(about.rows).toHaveLength(1);
@@ -503,37 +552,24 @@ describe('claims_about', () => {
   });
 
   test('a claim row the schema does not read is refused by name, never answered with empty fields', async () => {
-    const opened = await world();
-    // A damaged row reaches the store only from outside it (the store checks a write with `checkFact`), and a
-    // reader that answered it with empty fields would answer a claim nobody made.
+    const opened = await sharedWorld();
+    // The two damaged rows are inserted with the fixture, in `beforeAll`: a row reaches the store only from
+    // outside it (the store checks a write with `checkFact`), and a reader that answered it with empty fields
+    // would answer a claim nobody made. They are about a node of their own, so no other read of the fixture
+    // matches them.
     const damaged = `claim:${'d'.repeat(64)}`;
-    await opened.owner.transaction('write', async (executor) => {
-      await executor.query(
-        `INSERT INTO fill_fact (id, kind, schema_version, provenance, layer, status, value)
-         VALUES ($1, 'claim', 1, $2::jsonb, 'inferred', 'proposed', $3::jsonb)`,
-        [damaged, JSON.stringify(provenance(FILE, 40)), JSON.stringify({ subject: { form: 'node', id: opened.graph.target.id }, object: { form: 'literal', text: 'the cart' } })],
-      );
-    });
-    const reads = await opened.reads('reads/all', 1);
-    await expect(claimsAbout(reads, { tool: 'claims_about', id: opened.graph.target.id })).rejects
-      .toThrow(new RegExp(`${damaged} carries the predicate undefined: a claim says what it asserts about its subject, as one lower-case kebab token`));
-
-    // And a claim whose subject is not a term at all: the same policy, at the field that names it. This row is
-    // read through the object it names, since a claim without a subject cannot be found by the subject it has not.
     const subjectless = `claim:${'e'.repeat(64)}`;
-    await opened.owner.transaction('write', async (executor) => {
-      await executor.query(
-        `INSERT INTO fill_fact (id, kind, schema_version, provenance, layer, status, value)
-         VALUES ($1, 'claim', 1, $2::jsonb, 'inferred', 'proposed', $3::jsonb)`,
-        [subjectless, JSON.stringify(provenance(FILE, 41)), JSON.stringify({ object: { form: 'node', id: opened.graph.target.id }, predicate: 'is-implemented-by' })],
-      );
-    });
-    await expect(claimsAbout(reads, { tool: 'claims_about', id: opened.graph.target.id, direction: 'names' })).rejects
+    const reads = await opened.reads('reads/damaged', 1);
+    await expect(claimsAbout(reads, { tool: 'claims_about', id: opened.graph.damagedSubject.id, direction: 'about' })).rejects
+      .toThrow(new RegExp(`${damaged} carries the predicate undefined: a claim says what it asserts about its subject, as one lower-case kebab token`));
+    // And a claim whose subject is not a term at all: the same policy, at the field that names it. That row is
+    // read through the object it names, since a claim without a subject cannot be found by the subject it has not.
+    await expect(claimsAbout(reads, { tool: 'claims_about', id: opened.graph.damagedSubject.id, direction: 'names' })).rejects
       .toThrow(new RegExp(`${subjectless} carries undefined at value.subject: a claim's subject is a node, an address outside the repositories, or a literal`));
   });
 
   test('a node no claim names answers nothing', async () => {
-    const opened = await world();
+    const opened = await sharedWorld();
     const reads = await opened.reads('reads/all', 1);
     const answer = await claimsAbout(reads, { tool: 'claims_about', id: opened.graph.isolated.id });
     expect(answer.rows).toEqual([]);
@@ -543,7 +579,7 @@ describe('claims_about', () => {
 
 describe('coverage', () => {
   test('answers what was read and every gap, and answers null for a scope no stage covered', async () => {
-    const opened = await world();
+    const opened = await sharedWorld();
     const reads = await opened.reads('reads/all', 1);
     const answer = await coverage(reads, { tool: 'coverage', scope: opened.graph.module.id });
     expect(answer.complete).toBe(false);
@@ -559,7 +595,7 @@ describe('coverage', () => {
   });
 
   test('the sample of what was read and the gaps each name what they left out', async () => {
-    const opened = await world();
+    const opened = await sharedWorld();
     const reads = await opened.reads('reads/all', 1);
     const answer = await coverage(reads, { tool: 'coverage', scope: 'the wide scope' });
     expect(answer.rows).toHaveLength(1);
@@ -577,13 +613,13 @@ describe('coverage', () => {
 describe('the caps 0026 fixes', () => {
   test('the defaults are 8K tokens and 200 lines, and a unit reads under the caps it is given', async () => {
     expect(DEFAULT_GRAPH_READ_LIMITS).toEqual({ answerTokens: 8_000, spanLines: 200, charactersPerToken: 4 });
-    const opened = await world();
+    const opened = await sharedWorld();
     expect((await opened.reads('reads/all', 1)).limits).toEqual(DEFAULT_GRAPH_READ_LIMITS);
     expect((await opened.reads('reads/all', 1, { spanLines: 10 })).limits).toEqual({ ...DEFAULT_GRAPH_READ_LIMITS, spanLines: 10 });
   });
 
   test('an answer the cap cuts says so, and names how many rows were cut', async () => {
-    const opened = await world();
+    const opened = await sharedWorld();
     const reads = await opened.reads('reads/all', 1, { answerTokens: 400 });
     const answer = await neighbors(reads, { tool: 'neighbors', id: opened.graph.hub.id });
     expect(answer.rows.length).toBeGreaterThan(0);
@@ -599,7 +635,7 @@ describe('the caps 0026 fixes', () => {
   });
 
   test('a row too large for the cap leaves the answer with none of them and a marker that says so', async () => {
-    const opened = await world();
+    const opened = await sharedWorld();
     const reads = await opened.reads('reads/all', 1, { answerTokens: 1 });
     const answer = await neighbors(reads, { tool: 'neighbors', id: opened.graph.hub.id });
     expect(answer.rows).toEqual([]);
@@ -613,7 +649,7 @@ describe('the caps 0026 fixes', () => {
 
 describe('evidence_span', () => {
   test('answers the lines of the pinned commit, counted as a reader counts them', async () => {
-    const opened = await world();
+    const opened = await sharedWorld();
     const reads = await opened.reads('reads/all', 1);
     const answer = await evidenceSpan(reads, { tool: 'evidence_span', repository: 'orders-api', commit: pins[0]!.commit, file: FILE, startLine: 3, endLine: 5 });
     expect(answer.lines).toEqual([
@@ -628,7 +664,7 @@ describe('evidence_span', () => {
   });
 
   test('a span longer than the cap is answered with the lines that fit and a marker naming the cut', async () => {
-    const opened = await world();
+    const opened = await sharedWorld();
     const reads = await opened.reads('reads/all', 1);
     const answer = await evidenceSpan(reads, { tool: 'evidence_span', repository: 'orders-api', commit: pins[0]!.commit, file: FILE });
     expect(answer.lines).toHaveLength(200);
@@ -639,7 +675,7 @@ describe('evidence_span', () => {
   });
 
   test('an end past the file\u2019s last line is the file\u2019s own lines, and a start past it is refused by name', async () => {
-    const opened = await world();
+    const opened = await sharedWorld();
     const reads = await opened.reads('reads/all', 1);
     const tail = await evidenceSpan(reads, { tool: 'evidence_span', repository: 'orders-api', commit: pins[0]!.commit, file: FILE, startLine: 259, endLine: 900 });
     expect(tail.lines.map((line) => line.line)).toEqual([259, 260]);
@@ -685,10 +721,11 @@ describe('the text one read is recorded by', () => {
 
 describe('the reader over the store', () => {
   test('answers the fill’s own reads, an empty list of kinds by name, and a stage’s own SQL as it stands', async () => {
-    const opened = await world();
+    const opened = await sharedWorld();
     const reader = createFactGraphReader({ database: opened.owner, snapshot: await snapshotSource() });
     const rows = await reader.query(`SELECT id, kind FROM fill_fact WHERE kind = 'call'`);
-    expect(rows).toHaveLength(opened.graph.calls.length + opened.graph.hubCalls.length);
+    const calls = [...opened.graph.calls, ...opened.graph.hubCalls, opened.graph.orphanCall];
+    expect(rows).toHaveLength(calls.length);
     expect(rows.every((row) => (row as { kind: string }).kind === 'call')).toBe(true);
     // A read asking for no kind at all is refused by name rather than sent to the database as SQL that cannot run.
     await expect(reader.query(JSON.stringify({ read: 'adjacent', id: opened.graph.target.id, kinds: [] }))).rejects.toThrow(/names no edge kind/);
@@ -697,7 +734,7 @@ describe('the reader over the store', () => {
   });
 
   test('a describe_scope of a fact that is no scope is refused by name', async () => {
-    const opened = await world();
+    const opened = await sharedWorld();
     const reads = await opened.reads('reads/all', 1);
     await expect(describeScope(reads, { tool: 'describe_scope', scope: opened.graph.target.id })).rejects.toThrow(/which is "symbol" fact: a scope is one of directory, file, module, package, repository, and what another kind of fact holds would read as a scope that holds nothing/);
   });
@@ -705,7 +742,7 @@ describe('the reader over the store', () => {
 
 describe('one entrance for every tool', () => {
   test('a call is dispatched by the tool it names', async () => {
-    const opened = await world();
+    const opened = await sharedWorld();
     const reads = await opened.reads('reads/all', 1);
     const dispatched = await callGraphRead(reads, { tool: 'neighbors', id: opened.graph.target.id });
     const direct = await neighbors(reads, { tool: 'neighbors', id: opened.graph.target.id });
