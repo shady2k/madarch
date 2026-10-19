@@ -106,7 +106,25 @@ None.
 
 ## Acceptance evidence
 
-ACCEPTANCE
+Recorded with the task `madarch-tzte.36` as `check:` receipts against revision
+`content:2673a10f5f89bd82` (`check:11b4939c8d585913` for `static`), and in the
+integration queue's READY entry beside them:
+
+- `static`: `bun run check` (`tsc --noEmit`) exit 0 at `accbcbf7` on the
+  SkyPilot pod, and at the first commit the same way.
+- `test`: the deadline proof in both suites on the pod — the engine's 7 s test
+  passes at 7 005 ms, its 12 s test fails at 10 004 ms, its 12 s test under its
+  own 20 s passes at 12 004 ms, and the wiki app's suite gives 7 002, 10 004 and
+  12 004 ms; the focused root suites 17, 21 and 29 pass with no failure; the
+  wiki app's own install, check, test (179 pass) and build all exit 0; CI run
+  39215033652 green on `accbcbf7` — five shards, the checks job and the stable
+  test job.
+- `mutation`: a manual sample — with `setDefaultTimeout` commented out, both
+  suites fail the 7 s test at 5 004 ms and the 12 s one at 5 005 ms, while the
+  12 s test with its own bound still passes.
+- `review`: one round by a fresh read-only `gpt-6-luna` session over
+  `git diff origin/main...HEAD`, two minor findings, both fixed in
+  `accbcbf7`, and nothing else found.
 
 ## DONE WHEN
 
