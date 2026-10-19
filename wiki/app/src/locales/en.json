@@ -504,6 +504,23 @@
     "relationUnit_few": "relations",
     "relationUnit_many": "relations",
     "questionUnit_few": "questions",
-    "questionUnit_many": "questions"
+    "questionUnit_many": "questions",
+    "kindOne": {
+      "repository": "Repository",
+      "package": "Package",
+      "deploy-unit": "Deploy unit",
+      "api-endpoint": "API endpoint",
+      "table": "Table",
+      "column": "Column",
+      "environment-variable": "Environment variable",
+      "symbol": "Symbol",
+      "entry-point": "Entry point",
+      "test": "Test",
+      "module": "Module",
+      "entity-proposal": "Entity proposal",
+      "rule": "Rule",
+      "state": "State",
+      "question": "Question"
+    }
   }
 }

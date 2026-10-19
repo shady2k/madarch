@@ -128,7 +128,7 @@ function RelationRow({ relation, repos }: { relation: GraphRelation; repos: read
     <li className="graph-relation" data-edge={relation.edge.id} data-edge-kind={relation.edge.kind} data-direction={relation.direction}>
       <span className="graph-relation-kind">{relation.edge.kind}</span>
       {/* The direction is a word for a reader who hears the page, and an arrow for one who
-        * sees it: a `both` relation is not an arrow either way. */}
+        * sees it: a `both` relation points each way at once. */}
       <span className="graph-relation-arrow" title={t('graph.direction.' + relation.direction)} aria-hidden="true">
         {relation.direction === 'in' ? '←' : relation.direction === 'both' ? '↔' : '→'}
       </span>
@@ -288,7 +288,7 @@ export function GraphNodePage({ page, repos }: { page: GraphPageModel; repos: re
   return (
     <main id="graph-node" data-testid="graph-node" data-node={node.id}>
       <div className="document-meta eyebrow">
-        <strong className="eyebrow-kind">{t('graph.kind.' + node.kind, { defaultValue: node.kind })}</strong>
+        <strong className="eyebrow-kind">{t('graph.kindOne.' + node.kind, { defaultValue: node.kind })}</strong>
         <span className="eyebrow-dot" aria-hidden="true">•</span>
         <span className="eyebrow-secondary">{t('graph.nodePage')}</span>
       </div>
@@ -296,7 +296,7 @@ export function GraphNodePage({ page, repos }: { page: GraphPageModel; repos: re
       <dl className="doc-fields" data-testid="graph-node-fields">
         <div className="doc-field doc-field-identity">
           <dt className="doc-field-name">{t('graph.fieldKind')}</dt>
-          <dd className="doc-field-value">{t('graph.kind.' + node.kind, { defaultValue: node.kind })}</dd>
+          <dd className="doc-field-value">{t('graph.kindOne.' + node.kind, { defaultValue: node.kind })}</dd>
         </div>
         <div className="doc-field doc-field-identity">
           <dt className="doc-field-name">{t('graph.fieldLayer')}</dt>

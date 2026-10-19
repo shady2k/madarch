@@ -25,7 +25,7 @@
  * answers an empty set with its what-to-do message is a different thing: it is
  * live, and the app subscribes, because the pages appear as the fill publishes.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { appPath } from './app-base.js';
 import {
   getGraphPages,
@@ -180,8 +180,6 @@ export type GraphLive = {
    * see its own latest one whichever of them the render kept.
    */
   readonly touched: ReadonlyMap<string, number>;
-  /** How many publications the channel has reported, so a reader of the set re-reads it once per burst. */
-  readonly changes: number;
 };
 
 /**
@@ -197,7 +195,6 @@ export function useGraphPages(options: { reconnectMs?: number } = {}): GraphLive
   const [available, setAvailable] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [touched, setTouched] = useState<ReadonlyMap<string, number>>(() => new Map());
-  const [changes, setChanges] = useState(0);
   useEffect(() => {
     let alive = true;
     let misses = 0;
@@ -207,6 +204,13 @@ export function useGraphPages(options: { reconnectMs?: number } = {}): GraphLive
     let seq: number | undefined;
     let reading = false;
     let again = false;
+    // How many page-set reads failed, and how long the next one waits: a transient failure
+    // is retried, a refusal (404: no graph here) is not.
+    let tries = 0;
+    let missedRead = reconnectMs;
+    // The read's own retry timer, kept apart from the stream's: a failed re-read of the set
+    // must never cancel the stream's reconnection.
+    let readTimer: number | undefined;
     // Whether this server answers a graph at all: a server that answers no page set has
     // no channel either, and asking one every few seconds would be polling a route the
     // server does not offer.
@@ -232,15 +236,28 @@ export function useGraphPages(options: { reconnectMs?: number } = {}): GraphLive
         setSet(shaped);
         setAvailable(true);
         setError(null);
+        tries = 0;
         if (seq === undefined) seq = next.changeSeq;
       } catch (caught: unknown) {
         if (!alive) return;
-        // A server that answers no page set holds no fill's graph (an older server, a
-        // foreground serve): the app shows the document pages and no graph section, and
-        // its failure is not the wiki's.
-        setAvailable(false);
-        offered = false;
+        // A read that failed is not a server without a graph: a 404 is (an older server, a
+        // foreground serve, a product whose fill never ran), and any other answer is
+        // retried — a transient failure at load must not remove the graph for the tab's
+        // life. Three tries, backing off the same way the stream does.
+        const refused = caught instanceof RequestError && caught.status === 404;
+        tries += 1;
         setError(caught instanceof Error ? caught.message : String(caught));
+        if (refused || tries >= 3) {
+          setAvailable(false);
+          offered = false;
+          return;
+        }
+        setAvailable(true);
+        if (readTimer !== undefined) window.clearTimeout(readTimer);
+        readTimer = window.setTimeout(() => {
+          void loadSet();
+        }, missedRead);
+        missedRead = Math.min(maxGraphReconnectMs, reconnectMs * 2 ** (tries - 1));
       } finally {
         reading = false;
         if (again && alive) {
@@ -296,7 +313,6 @@ export function useGraphPages(options: { reconnectMs?: number } = {}): GraphLive
               for (const node of event.nodes) next.set(node, Math.max(next.get(node) ?? 0, event.seq));
               return next;
             });
-            setChanges((held) => held + 1);
             void loadSet();
           }
         }
@@ -318,11 +334,12 @@ export function useGraphPages(options: { reconnectMs?: number } = {}): GraphLive
     return () => {
       alive = false;
       if (timer !== undefined) window.clearTimeout(timer);
+      if (readTimer !== undefined) window.clearTimeout(readTimer);
       stream?.abort();
       stream = undefined;
     };
   }, [reconnectMs]);
-  return { set, available, error, touched, changes };
+  return { set, available, error, touched };
 }
 
 /** One node's page as the app reads it: the model, or the refusal naming why the graph holds none. */

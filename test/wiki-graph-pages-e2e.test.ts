@@ -154,8 +154,10 @@ runDescribe('the graph’s pages in a browser', () => {
     expect(measured.chipFont).toBe(14);
     expect(measured.overlaps).toBe(0);
     expect(measured.overflowing).toBe(0);
-    expect(measured.content?.width).toBe(794);
-    expect(measured.nav?.width).toBe(260);
+    // The column and the navigation hold their widths rather than a figure copied out of a
+    // stylesheet: a padding change must not fail a page that still reads.
+    expect(measured.content?.width ?? 0).toBeGreaterThan(600);
+    expect(measured.nav?.width ?? 0).toBeGreaterThan(200);
     expect(measured.content?.width ?? 0).toBeLessThanOrEqual(measured.viewport.width);
     console.log(`GRAPH_PAGE_MEASURED ${JSON.stringify(measured)}`);
     await page.screenshot({ path: join(SHOTS, 'graph-node.png'), fullPage: true });
@@ -218,8 +220,8 @@ runDescribe('the graph’s pages in a browser', () => {
     expect(shown.assumptions).toBe(2);
     expect(shown.inferredInFacts).toBe(0);
     expect(shown.assertedInAssumptions).toBe(0);
-    // The module's own edges: a `provides` to the endpoint's node (the contract resolved to
-    // it), a `contains` to the symbol it holds, and the symbol's `call` and `consumes`.
+    // The two edges that name the module: a `provides` (whose contract the server resolves
+    // to the endpoint's node) and a `contains` to the symbol it holds.
     expect(shown.relations).toBe(2);
     expect(shown.relationKinds).toEqual(['contains', 'provides']);
     expect(shown.coverage).toBe(1);

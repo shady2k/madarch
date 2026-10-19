@@ -253,6 +253,8 @@ type World = {
   /** Whether the server answers graph pages at all (an older server, or one that holds no fill's graph). */
   graph: boolean;
   documents: Record<string, Page>;
+  /** The repositories the manifest declares, as `/api/repos` answers them. */
+  repos?: ReposList;
 };
 
 function answer(world: World, target: string): Blade | 'stream' {
@@ -260,7 +262,7 @@ function answer(world: World, target: string): Blade | 'stream' {
   if (target === '/api/pages') return { body: documentList };
   if (target === '/api/questions') return { body: { questions: [], openCount: 0 } };
   if (target === '/api/registry') return { body: { present: false } };
-  if (target === '/api/repos') return { body: repos };
+  if (target === '/api/repos') return { body: world.repos ?? repos };
   if (target === '/api/architecture') return { body: { notes: [], errors: [], warnings: [], sources: [] } };
   if (target.startsWith(GRAPH_EVENTS_PATH)) return 'stream';
   if (target === '/api/graph/pages') {
@@ -410,9 +412,8 @@ describe('one node’s page', () => {
       `https://github.com/acme/shop/blob/${COMMIT}/src/checkout.ts#L1-L40`,
       `https://github.com/acme/shop/blob/${COMMIT}/src/checkout.ts#L12`,
     ]);
-    // A repository the manifest does not declare, or one whose origin the hosts do not
-    // spell, is text and links nothing — never a dead address.
-    expect(document.querySelector('[data-testid="graph-facts"] [data-testid="graph-place"][href]')).not.toBeNull();
+    // Every place the facts name is a link here: the manifest declares this repository's
+    // origin. A repository it does not declare links nothing — held by the test below.
 
     // The facts section holds the asserted facts; the assumption stands in its own section.
     const facts = [...document.querySelectorAll('[data-testid="graph-facts"] [data-fact]')];
@@ -454,6 +455,19 @@ describe('one node’s page', () => {
 
     // The diagrams' slot stands on the page, named and not drawn.
     expect(document.querySelector('[data-testid="graph-diagrams"]')).not.toBeNull();
+  });
+
+  test('a place in a repository the manifest does not declare is text and links nothing', async () => {
+    const live = world();
+    live.repos = { repos: [] };
+    install(live);
+    window.history.pushState({}, '', addressOfGraphPage(MODULE));
+    intoApp(createElement(App, { reconnectMs: 5 }));
+    await until(() => document.querySelector('[data-testid="graph-node"]') !== null, 'the node page');
+    const places = [...document.querySelectorAll('[data-testid="graph-place"]')];
+    expect(places.length).toBeGreaterThan(0);
+    for (const place of places) expect(place.getAttribute('href')).toBeNull();
+    expect(places[0]?.textContent).toContain('acme-shop · src/checkout.ts:1-40');
   });
 
   test('a page the graph no longer holds is its refusal’s own words, never an empty page', async () => {

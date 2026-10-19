@@ -58,9 +58,10 @@ This change gives the app its graph side:
   wiki's change stream: a publication makes a node join the navigation and the
   index, and a page the publication names reads again — with no reload and no
   polling.
-    expect(shown.places).toBe(6);
-    expect(shown.linkedPages).toBe(2);
-    expect(shown.diagramsSlot).toBe(true);
+The document pages are untouched: a product whose server answers no page set (an
+older server, a foreground serve) shows no graph section at all, and every document
+page reads exactly as it did. No server file changes: the graph's index stands under
+the app's existing `/p/` route, as a page's address does.
 
 ## Rationale
 
@@ -70,11 +71,12 @@ proposed by `fill-pipeline-monday` and is not closed, so the graph pages' own
 requirement text lands with the stage that closes decision 0026, exactly as
 madarch-tzte.20.1–22.3 and 23.1 recorded theirs.
 
-What a person sees is new: the app's navigation holds a graph section, `/graph` and
-`/p/graph/` plus a node's fact id are pages of the app, and a page a publication touches changes
-under the reader without a reload. None of it moves a requirement: a product whose
-server answers no page set looks exactly as before, and the pages the wiki serves
-from the product's Markdown are unchanged.
+What a person sees is new: the app's navigation holds a graph section, the graph's
+index at `/p/graph` and a node's page at `/p/graph/` plus the node's fact id are pages
+of the app, and a page a publication touches changes under the reader without a
+reload. None of it moves a requirement: a product whose server answers no page set
+looks exactly as before, and the pages the wiki serves from the product's Markdown
+are unchanged.
 
 ## Out of scope
 
@@ -82,7 +84,8 @@ from the product's Markdown are unchanged.
   draws madarch-tzte.23.2's view specifications under the renderer switcher); this
   change draws no diagram and names the slot rather than an empty frame.
 - **The server's answers.** The page set, the page model, the live channel, their
-  caps and their refusals are madarch-tzte.23.1's and are consumed as they are.
+  caps and their refusals are madarch-tzte.23.1's and are consumed as they are; no
+  server file is touched by this change.
 - **A code view of the repository.** A fact's code link opens its repository's own
   page on its host at the pinned commit and the lines it spans, exactly the way a
   document's code link does; a repository whose origin the hosts do not spell has
@@ -131,9 +134,16 @@ None.
   dropped stream reconnects with backoff from the last change it saw (the wiki's own
   rule), and an answer that is no event stream stops the retries: a route this
   server does not offer is not polled.
-    expect(shown.places).toBe(6);
-    expect(shown.linkedPages).toBe(2);
-    expect(shown.diagramsSlot).toBe(true);
+- **A page reads again when a publication names it, and a burst of publications
+  leaves every page its own latest one.** The channel's event carries the pages one
+  publication touched; the app keeps, per node, the change number of the latest
+  publication that named it, and that number is what a page depends on. A burst is
+  real — a read of the channel answers every change since the last one in one
+  flush, and a reconnection replays them the same way — so several events arrive in
+  one task and a single "latest event" would leave a page stale whenever the event
+  naming it was not the last. The tests hold all three: the page is not read for a
+  publication that names another node, is read once for one that names it, and is
+  read for a burst's first event even when a later event names another page.
 - **A page that stands nowhere is the refusal's own words.** The server answers 404
   with the id and the reason (`graph-pages/no-such-node`, `graph-pages/not-a-page`),
   and the app shows that message with the link back to the graph's index — a node
@@ -171,9 +181,13 @@ None.
 - **The home page names the graph.** An entry with the number of page-worthy nodes,
   shown only where the server answers a page set, opens the index; a product whose
   server answers none shows no such entry.
-    expect(shown.places).toBe(6);
-    expect(shown.linkedPages).toBe(2);
-    expect(shown.diagramsSlot).toBe(true);
+- **The graph's index is `/p/graph`, under the page route the server already
+  answers.** It is the address madarch-tzte.23.2's `diagramHref` hands out for a view
+  (`/p/graph?diagram=…&node=…`), so a diagram's drill-down opens the graph and not a
+  document named `graph`; no server file changes, and the index opens directly, is
+  reloadable and is linkable like every `/p/` address. A path under `/p/graph/` that
+  is no fact id stays a document path, so a product that keeps a document in a
+  `graph/` folder still opens it.
 - **The diagrams' slot is named and not drawn.** A node's page carries a
   `graph-diagrams` section saying what will stand in it; madarch-tzte.23.4 fills it
   with the models madarch-tzte.23.2 builds. An empty frame would read as a diagram
