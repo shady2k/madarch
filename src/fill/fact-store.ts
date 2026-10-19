@@ -579,3 +579,21 @@ export async function readUnitDraft(database: FactStoreDatabase, unitId: string,
     };
   }, 'snapshot');
 }
+
+/**
+ * How many published facts the store holds of each kind, by kind, in code point
+ * order of the kinds: what a run published, as a person reads it beside the run
+ * (`madarch fill-stages`). The counts are of the whole store and not of one run:
+ * a fact a later run republishes keeps its row, and a fact no unit holds any
+ * more is gone from it (0027, "Storage ownership").
+ */
+export async function countPublishedFactsByKind(database: FactStoreDatabase): Promise<Readonly<Record<string, number>>> {
+  const at = here();
+  return await run(at, database, 'countPublishedFactsByKind', ['fill_fact'], async (executor) => {
+    const { rows } = await executor.query<{ kind: string; count: unknown }>('SELECT kind, count(*) AS count FROM fill_fact GROUP BY kind');
+    const counts: Record<string, number> = {};
+    // The order the answer promises is the project's own, not the database's collation.
+    for (const row of rows.sort((left, right) => byCodePoint(left.kind, right.kind))) counts[row.kind] = millis(row.count);
+    return counts;
+  }, 'snapshot');
+}

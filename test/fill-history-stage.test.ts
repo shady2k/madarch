@@ -36,7 +36,6 @@ import {
   HISTORY_LOG_RECORD,
   HISTORY_STAGE_ID,
   HISTORY_STAGE_VERSION,
-  PINNED_SNAPSHOTS_QUERY,
   commitsHeldQuery,
   coverageHeldQuery,
   createGitHistoryReader,
@@ -257,30 +256,45 @@ function valuesOf(writes: readonly StageDraftWrite[], kind: string): Record<stri
 
 /** The rows a plan or an execute reads back: the pinned snapshots, the commits held and the coverage held. */
 function rowsFor(entries: {
-  readonly pins?: readonly unknown[];
   readonly held?: readonly (readonly [string, readonly { readonly commit: string; readonly value: unknown }[]])[];
   readonly coverage?: readonly (readonly [string, unknown])[];
 }): Map<string, readonly unknown[]> {
   const rows = new Map<string, readonly unknown[]>();
-  if (entries.pins !== undefined) rows.set(PINNED_SNAPSHOTS_QUERY, entries.pins);
   for (const [repository, held] of entries.held ?? []) rows.set(commitsHeldQuery(repository), held);
   for (const [key, value] of entries.coverage ?? []) rows.set(key, [{ value }]);
   return rows;
 }
 
 /** The snapshot source a history test never reads: the stage under test reads a repository's Git, not its tree. */
+/** The pins a history test's run stands on: one repository at one commit. */
+function pinsAt(repository: string, commit: string): SnapshotSource {
+  return {
+    pins: async () => [{ id: repository, form: 'code', root: '/no-checkout-read-here', commit }],
+    open: () => { throw new Error('the history stage reads no tree'); },
+  };
+}
+
+/** A run that pins nothing: the source a history test never opens a tree through. */
 const NO_TREES: SnapshotSource = {
   pins: async () => [],
   open: () => { throw new Error('the history stage reads no tree'); },
 };
 
-/** The stage over a real Git reader reading the checkouts the test made: git itself is what a stage reads. */
-function stageOver(checkouts: ReadonlyMap<string, string>, reader?: HistoryReader): FillStage {
+/**
+ * The stage over a real Git reader reading the checkouts the test made, and over
+ * the pins the run stands on: git is what a unit reads, and the run's own pins
+ * (`SnapshotSource.pins()`) are what its plan names units from.
+ */
+function stageOver(checkouts: ReadonlyMap<string, string>, reader?: HistoryReader, pins: readonly { readonly repository: string; readonly commit: string }[] = []): FillStage {
+  const sources: SnapshotSource = {
+    pins: async () => pins.map((pin) => ({ id: pin.repository, form: 'code' as const, root: checkouts.get(pin.repository) ?? '/', commit: pin.commit })),
+    open: () => { throw new Error('the history stage reads no tree'); },
+  };
   return createHistoryStage(reader ?? createGitHistoryReader((repository) => {
     const folder = checkouts.get(repository);
     if (folder === undefined) throw new Error(`the test named no checkout for ${repository}`);
     return folder;
-  }));
+  }), sources);
 }
 
 /** The three commits every ancestry test reads: a root, a second, and a tip whose message names two tasks. */
@@ -295,9 +309,9 @@ describe('the ancestry one unit writes', () => {
     const fixture = await makeRepository('three', THREE);
     try {
       const [first, second, third] = fixture.commits as [string, string, string];
-      const stage = stageOver(new Map([['orders-api', fixture.folder]]));
+      const stage = stageOver(new Map([['orders-api', fixture.folder]]), undefined, [{ repository: 'orders-api', commit: third }]);
       const unit = { id: historyUnitId('orders-api', third), scope: historyScope('orders-api', third) };
-      const planned = recorder({ id: 'plan', scope: 'plan' }, { rows: rowsFor({ pins: [{ repository: 'orders-api', commit: third }] }) });
+      const planned = recorder({ id: 'plan', scope: 'plan' });
       expect(await stage.plan(planned.context.graph)).toEqual({ units: [unit], coverage: 'planned' });
 
       const run = recorder(unit, { rows: rowsFor({ held: [['orders-api', []]] }) });
@@ -347,7 +361,7 @@ describe('the ancestry one unit writes', () => {
       expect(run.reads).toEqual([commitsHeldQuery('orders-api'), coverageHeldQuery('orders-api', historyScope('orders-api', third))]);
       expect(run.notes).toEqual([
         `read the ancestry of orders-api at ${third}: 3 commits`,
-        `wrote 3 commits and 3 task keys of orders-api at ${third}`,
+        `wrote 3 commits (0 the graph already held) and 3 task keys of orders-api at ${third}, with the coverage this read wrote`,
       ]);
     } finally {
       await fixture.dispose();
@@ -437,11 +451,11 @@ describe('the ancestry one unit writes', () => {
   });
 });
 
-describe('what one run leaves alone', () => {
-  test('a second run after one new commit writes that commit facts alone', async () => {
+describe('the set one run writes, and what it does with what the graph holds', () => {
+  test('a second run at a later pin writes its whole ancestry, so its own publication keeps what it still stands on', async () => {
     const fixture = await makeRepository('incremental', THREE);
     try {
-      const [, , third] = fixture.commits as [string, string, string];
+      const [first, second, third] = fixture.commits as [string, string, string];
       const stage = stageOver(new Map([['orders-api', fixture.folder]]));
       const firstUnit = { id: historyUnitId('orders-api', third), scope: historyScope('orders-api', third) };
       const firstRun = recorder(firstUnit);
@@ -456,21 +470,26 @@ describe('what one run leaves alone', () => {
       });
       await stage.execute(unit, run.context);
 
+      // 0027's publication replaces the facts of the unit that publishes: the
+      // commits the graph already held are written again, or the publication
+      // would drop the holdings that keep them, and the read that follows would
+      // answer something else — the loop madarch-tzte.21.8's walk found.
       const commits = valuesOf(run.writes, 'commit');
-      expect(commits.map((value) => value['commit'])).toEqual([fourth]);
-      expect(commits[0]?.['parents']).toEqual([third]);
-      expect(valuesOf(run.writes, 'task-key').map((value) => value['key'])).toEqual(['madarch-new.4']);
-      // The new pin's own coverage is new work — its scope names the new
-      // commit — and the commits of the old pin are not.
+      expect(commits.map((value) => value['commit'])).toEqual([first, second, third, fourth]);
+      expect(commits[3]?.['parents']).toEqual([third]);
+      expect(valuesOf(run.writes, 'task-key').map((value) => value['key'])).toEqual(['madarch-abc.1', 'madarch-abc.1', 'madarch-xyz.7', 'madarch-new.4']);
+      // The new pin's own coverage is new work: its scope names the new commit.
       const coverage = valuesOf(run.writes, 'coverage')[0] as unknown as CoverageValue;
       expect(coverage.scope).toBe(historyScope('orders-api', fourth));
       expect(coverage.unread).toEqual([]);
+      // What the graph held is reported, and nothing it held is left out.
+      expect(run.notes.at(-1)).toBe(`wrote 4 commits (3 the graph already held) and 4 task keys of orders-api at ${fourth}, with the coverage this read wrote`);
     } finally {
       await fixture.dispose();
     }
   });
 
-  test('a rerun at the same pin, with the graph holding what the first run wrote, writes nothing at all', async () => {
+  test('a rerun at the same pin writes the same facts again, so the store holds what it published', async () => {
     const fixture = await makeRepository('rerun', THREE);
     try {
       const [, , third] = fixture.commits as [string, string, string];
@@ -486,9 +505,13 @@ describe('what one run leaves alone', () => {
         rows: rowsFor({ held: [['orders-api', held]], coverage: [[coverageHeldQuery('orders-api', scope), coverage]] }),
       });
       await stage.execute(unit, secondRun.context);
-      expect(secondRun.writes).toEqual([]);
+      // The same facts, by id: writing them again keeps the unit's holdings and
+      // changes no row of the store, which is what a rerun of one pin owes.
+      const ids = (writes: readonly StageDraftWrite[]): string[] =>
+        writes.map((write) => String((write.value as { readonly id?: unknown }).id)).sort();
+      expect(ids(secondRun.writes)).toEqual(ids(firstRun.writes));
       expect(validateDraft({ writes: secondRun.writes })).toEqual({ ok: true });
-      expect(secondRun.notes.at(-1)).toBe(`wrote 0 commits and 0 task keys of orders-api at ${third}`);
+      expect(secondRun.notes.at(-1)).toBe(`wrote 3 commits (3 the graph already held) and 3 task keys of orders-api at ${third}, with the coverage the graph already held`);
     } finally {
       await fixture.dispose();
     }
@@ -638,17 +661,19 @@ describe('the bound and what the read could not reach', () => {
 });
 
 describe('the units a plan names', () => {
-  test('one unit per pinned snapshot, in code point order of what it reads, each once', async () => {
-    const stage = stageOver(new Map());
-    const rows = [
+  test('one unit per repository the run pins, in code point order of what it reads, each once', async () => {
+    const pins = [
       { repository: 'wiki', commit: 'b'.repeat(40) },
-      { repository: 'orders-api', commit: 'a'.repeat(40) },
       { repository: 'orders-api', commit: 'a'.repeat(40) },
       { repository: 'orders-api', commit: 'c'.repeat(40) },
     ];
-    const run = recorder({ id: 'plan', scope: 'plan' }, { rows: rowsFor({ pins: rows }) });
+    const stage = stageOver(new Map(), undefined, pins);
+    const run = recorder({ id: 'plan', scope: 'plan' });
     const plan = await stage.plan(run.context.graph);
-    expect(run.reads).toEqual([PINNED_SNAPSHOTS_QUERY]);
+    // The plan reads the run's own pins and no graph at all: the orchestrator
+    // asks every stage to plan before any unit executes, so a plan that read the
+    // graph's snapshot facts would name an earlier run's commit (21.8's walk).
+    expect(run.reads).toEqual([]);
     // The unit names are written out here as the stage's own form states them:
     // the unit id is the repository and the commit, and the scope is
     // `repository:<name>@<commit>`, never a run's own id.
@@ -660,23 +685,12 @@ describe('the units a plan names', () => {
       ],
       coverage: 'planned',
     });
-    // And the plan read no Git: every checkout the wiring could name is absent.
     expect(historyUnitId('orders-api', 'a'.repeat(40))).toBe(`orders-api@${'a'.repeat(40)}`);
   });
 
-  test('a graph holding no pinned snapshot plans nothing, as nothing-found', async () => {
+  test('a run that pins nothing plans nothing, as nothing-found', async () => {
     const stage = stageOver(new Map());
     expect(await stage.plan(recorder({ id: 'plan', scope: 'plan' }).context.graph)).toEqual({ units: [], coverage: 'nothing-found' });
-  });
-
-  test('a row this stage cannot read is refused with the query that answered it', async () => {
-    const stage = stageOver(new Map());
-    const run = recorder({ id: 'plan', scope: 'plan' }, { rows: rowsFor({ pins: [{ repository: 'orders-api', commit: 'HEAD' }] }) });
-    await expect(stage.plan(run.context.graph)).rejects.toThrow(/row 0 of "SELECT repository, commit FROM fact WHERE kind = 'snapshot'"/u);
-    const wrongName = recorder({ id: 'plan', scope: 'plan' }, { rows: rowsFor({ pins: [{ repository: '/opt/checkout', commit: 'a'.repeat(40) }] }) });
-    await expect(stage.plan(wrongName.context.graph)).rejects.toThrow(/names the repository "\/opt\/checkout"/u);
-    const notARecord = recorder({ id: 'plan', scope: 'plan' }, { rows: rowsFor({ pins: ['orders-api'] }) });
-    await expect(stage.plan(notARecord.context.graph)).rejects.toThrow(/row 0 of/u);
   });
 
   test('a scope that names no repository at a commit is refused, saying the form', async () => {
@@ -740,10 +754,10 @@ describe('the stage declaration and the draft it judges', () => {
       const [, , third] = fixture.commits as [string, string, string];
       // The history stage reads Git, never a tree: the wiring's snapshot source
       // is one this test never opens.
-      const registry = createStageRegistry({ snapshots: NO_TREES, checkoutOf: () => fixture.folder });
+      const registry = createStageRegistry({ snapshots: pinsAt('orders-api', third), checkoutOf: () => fixture.folder });
       const stage = registry.get(HISTORY_STAGE_ID);
       expect(stage?.id).toBe(HISTORY_STAGE_ID);
-      const run = recorder({ id: 'plan', scope: 'plan' }, { rows: rowsFor({ pins: [{ repository: 'orders-api', commit: third }] }) });
+      const run = recorder({ id: 'plan', scope: 'plan' });
       expect(await stage?.plan(run.context.graph)).toEqual({ units: [{ id: historyUnitId('orders-api', third), scope: historyScope('orders-api', third) }], coverage: 'planned' });
     } finally {
       await fixture.dispose();
@@ -950,7 +964,7 @@ describe('what the wiring, the clock and the graph own rows can do to a read', (
 
   test('a repository the wiring names no folder for is refused, naming the read', async () => {
     const unknown: HistoryReader = createGitHistoryReader(() => '');
-    const stage = createHistoryStage(unknown);
+    const stage = createHistoryStage(unknown, { pins: async () => [], open: () => { throw new Error('the history stage reads no tree'); } });
     const unit = { id: historyUnitId('orders-api', 'a'.repeat(40)), scope: historyScope('orders-api', 'a'.repeat(40)) };
     await expect(stage.execute(unit, recorder(unit).context)).rejects.toThrow(/has no checkout folder/u);
     await expect(stage.execute(unit, recorder(unit).context)).rejects.toThrow(/orders-api/u);

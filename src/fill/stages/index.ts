@@ -61,7 +61,7 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
     .register(createSemanticResolutionStage(wiring.snapshots))
     .register(createModulesStage(wiring.snapshots))
     .register(createDocumentIndexStage(wiring.snapshots))
-    .register(createHistoryStage(createGitHistoryReader(wiring.checkoutOf ?? noCheckout)));
+    .register(createHistoryStage(createGitHistoryReader(wiring.checkoutOf ?? noCheckout), wiring.snapshots));
   // The agent stages stand only where the run names the agent they are driven with: an agent unit's whole work is
   // a session with that agent (0026), and a stage registered without one would plan units that could not run.
   if (wiring.agent !== undefined) registry.register(createAgentUnitStage({ snapshots: wiring.snapshots, ...wiring.agent }));

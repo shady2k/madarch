@@ -27,6 +27,7 @@ import { createPgBossQueue } from '../adapters/pg-boss-queue.js';
 import { consumeFillControl } from '../product/fill-runtime.js';
 import { draftSetOf, factGraph, writeScope, type CheckedWriteDraft, type CheckedWriteGraph, type WriteSnapshots } from './checked-writes.js';
 import type { FillStageConfigurationRead } from './config.js';
+import type { SqlExecutor } from '../query/sql-driver.js';
 import { FACT_APPLICATION, createFactStoreSchema } from './fact-store.js';
 import { emptyPageSetMessage, readPageChanges, readPageModel, readPageSet, type GraphPagesSource } from './graph-pages.js';
 import type { FactLayer, FactSource } from './facts.js';
@@ -78,8 +79,14 @@ export interface ProductFillWiring {
   snapshot(): Promise<RunSnapshot> | RunSnapshot;
   /** The product's resolved fill configuration, read fresh when a run plans and when it admits. */
   configuration(): Promise<FillStageConfigurationRead | undefined> | FillStageConfigurationRead | undefined;
-  /** The pinned graph one unit's tracked reads answer from. */
-  graph(ref: UnitRef): Promise<UnitGraphReader> | UnitGraphReader;
+  /**
+   * The pinned graph one unit's tracked reads answer from. A caller that hands a
+   * transaction has already opened one on the process's owner, and every
+   * statement the reads make must run inside it: the owner refuses a second
+   * transaction on the same connection, and a publication's recheck reads
+   * through its own (`graph(ref, transaction)`, `src/fill/orchestrator.ts`).
+   */
+  graph(ref: UnitRef, transaction?: SqlExecutor): Promise<UnitGraphReader> | UnitGraphReader;
   /**
    * The repositories this run pinned, as the reader of one commit each: where a
    * unit's evidence spans and the bytes its writes cite are read (`snapshot.ts`).
@@ -321,7 +328,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       product: product.name,
       configuration: () => wiring.configuration(),
       snapshot: () => wiring.snapshot(),
-      graph: (ref) => wiring.graph(ref),
+      graph: (ref, transaction) => wiring.graph(ref, transaction),
       inputs: (ref) => wiring.inputs(ref),
       facts: wiring.facts ?? FACT_APPLICATION,
       ...(options.clock === undefined ? {} : { clock: options.clock }),

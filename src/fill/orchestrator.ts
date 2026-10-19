@@ -726,9 +726,32 @@ export async function admitUnits(orchestrator: FillOrchestrator, options: { read
     code: 'fill-orchestrator/no-plan-row',
     reason: `fill-orchestrator: unit "${unit.unitId}" generation ${unit.generation} stands planned with no plan row, so nothing says where it stands in the plan: replan the run, which records it again`,
   }));
+  // The slots the run already holds, counted once: a pass that opens a transaction per planned unit
+  // costs what the plan holds, however few slots are free, and a run of a few thousand units spends
+  // minutes per pass doing nothing (madarch-tzte.21.8's walk measured 27 s of a 27.6 s unit on the
+  // candidates that found no slot). The count is re-read under the run's own lock inside every
+  // admission, so this is an early answer and never the decision.
+  let held = 0;
+  const heldByStage = new Map<string, number>();
+  for (const unit of units) {
+    if (!(ADMITTED_STATES as readonly string[]).includes(unit.state)) continue;
+    held += 1;
+    heldByStage.set(unit.stageId, (heldByStage.get(unit.stageId) ?? 0) + 1);
+  }
   for (const [index, candidate] of ordered.entries()) {
+    if (held >= orchestrator.limits.maxInFlight) {
+      // Every slot is taken and the candidates stand in the order the run admits by: the rest of the
+      // plan waits for the next pass, and the walk stops here rather than opening their transactions.
+      for (const waiting of ordered.slice(index)) waitingForSlot.push(waiting.unitId);
+      break;
+    }
     const unit = candidates.find((one) => one.unitId === candidate.unitId)!;
     const resolved = stageConfiguration(graph, unit.stageId);
+    if ((heldByStage.get(unit.stageId) ?? 0) >= resolved.concurrency) {
+      // This stage holds what it may: another stage's candidate may still fit, so the walk goes on.
+      waitingForSlot.push(unit.unitId);
+      continue;
+    }
     const priority = ordered.length - index;
     const outcome = await ownTransaction(here(), orchestrator, `admitUnit(${unit.unitId}/${unit.generation})`, ['fill_run', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'], async (executor) => {
       // The run's own row is taken first: two admission passes of one run are serialized here, so the
@@ -762,6 +785,8 @@ export async function admitUnits(orchestrator: FillOrchestrator, options: { read
       else waitingForSlot.push(unit.unitId);
       continue;
     }
+    held += 1;
+    heldByStage.set(unit.stageId, (heldByStage.get(unit.stageId) ?? 0) + 1);
     admitted.push({ unitId: unit.unitId, generation: unit.generation, stageId: unit.stageId, priority, jobId: outcome.jobId });
     await emit(orchestrator, { runId: run.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-admitted', summary: `admitted ${unit.unitId} at priority ${priority}${outcome.jobId === null ? ' (its job was already queued)' : ''}` });
   }

@@ -117,8 +117,11 @@ async function openWorld(options: {
   /** Told whether each graph read was made with a transaction of the owner. */
   onGraph?: (withTransaction: boolean) => void;
   apply?: (input: { unitId: string; generation: number; digest: string; writes: readonly unknown[] }) => Promise<number>;
+  /** An owner the test lends, wrapped to count the transactions a pass opens; the test closes it. */
+  owner?: DatabaseOwner;
 }): Promise<World> {
-  const owner = createPGliteDatabaseOwner();
+  const lent = options.owner !== undefined;
+  const owner = options.owner ?? createPGliteDatabaseOwner();
   await createFillStateSchema(owner);
   await createOrchestratorSchema(owner);
   const queue = await createPgBossQueue({ owner, supervise: false });
@@ -162,7 +165,7 @@ async function openWorld(options: {
   });
   return {
     owner, queue, registry: options.registry, orchestrator, graph, applied, clock, commits,
-    close: async () => { await queue.stop(); await owner.close(); },
+    close: async () => { await queue.stop(); if (!lent) await owner.close(); },
   };
 }
 
@@ -394,6 +397,30 @@ describe('planning from the registry', () => {
 });
 
 describe('admission within the slots, by priority', () => {
+  test('a pass admits up to the run\'s slots and walks no further, whatever the plan holds', async () => {
+    // Sixty units, one slot: the pass admits the first and stops, instead of opening a transaction for
+    // every candidate that finds no slot. A run of a few thousand units measured 27 s of a 27.6 s unit
+    // in exactly those transactions (madarch-tzte.21.8's walk over a madarch checkout).
+    const units = Array.from({ length: 60 }, (_unused, index) => `unit-${String(index).padStart(2, '0')}`);
+    const lent = createPGliteDatabaseOwner();
+    let transactions = 0;
+    const counting = Object.create(lent) as DatabaseOwner;
+    counting.transaction = async (kind, work) => { transactions += 1; return await lent.transaction(kind, work); };
+    try {
+      const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(draftingStage('graph', { units })), limits: { maxInFlight: 1 }, owner: counting });
+      const before = transactions;
+      const admission = await admitUnits(opened.orchestrator, { runId });
+      const spent = transactions - before;
+      expect(admission.admittedNow).toBe(1);
+      expect(admission.admitted[0]?.unitId).toBe(`graph/${units[0]}`);
+      expect(admission.waitingForSlot).toHaveLength(units.length - 1);
+      // One admission, the run's own row read, and the graph it resolves: a few, never one per unit.
+      expect(spent).toBeLessThanOrEqual(12);
+    } finally {
+      await lent.close();
+    }
+  }, 120_000);
+
   test('takes the run\'s slots and each stage\'s concurrency, in the order the plan named the units', async () => {
     const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['a', 'b', 'c'], produces: ['file-facts'], concurrency: 2 }));
     const { world: opened, runId } = await plannedWorld({ registry, limits: { maxInFlight: 2 } });

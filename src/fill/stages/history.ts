@@ -42,18 +42,16 @@
  * fails for any other reason is thrown, naming the repository, the checkout
  * folder, the git command, its exit status and git's own words.
  *
- * The reads this stage makes of the graph are the three below —
- * `PINNED_SNAPSHOTS_QUERY`, `commitsHeldQuery`, `coverageHeldQuery` — and they
- * are SQL against the fact store's rows, in the fill's own vocabulary of fact
- * kinds. What they select is what they need and no more: the repository and
- * the commit a pinned snapshot names, the commit and the value a commit fact
- * holds, and the value of one scope's coverage fact; the kind, the repository
- * and the scope they stand on are what each read filters by. That row shape is
- * this stage's proposal for the fact storage of madarch-tzte.20 to meet or to
- * change, since that storage is not landed yet, and it is written once, here,
- * so a test can pin it and a storage can answer it. The repository and the scope a read interpolates are checked against
- * their own forms before they reach a query, so no read is built from a name a
- * product did not write.
+ * The plan reads the run's own pins and no graph
+ * (`SnapshotSource.pins()`, `planUnits`): a plan that read the graph's `snapshot`
+ * facts would name the commit of a previous run, because the orchestrator asks
+ * every stage to plan before any unit of the run executes. The reads one *unit*
+ * makes are `commitsHeldQuery` and `coverageHeldQuery`, and they are SQL against
+ * the fact store's rows, in the fill's own vocabulary of fact kinds: the commit
+ * and the value a commit fact holds, and the value of one scope's coverage fact.
+ * The repository and the scope a read interpolates are checked against their own
+ * forms before they reach a query, so no read is built from a name a product did
+ * not write.
  */
 import { execFile as execFileCallback } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
@@ -64,6 +62,7 @@ import { canonicalJsonDigest } from '../../model/canonical.js';
 import { byCodePoint } from '../../model/order.js';
 import { ID_PATTERN } from '../../model/schema.js';
 import { GIT_LEAKS } from '../../product/git.js';
+import type { SnapshotSource } from '../snapshot.js';
 import {
   FACT_KINDS,
   checkFact,
@@ -122,13 +121,6 @@ export const HISTORY_FACT_KINDS = ['commit', 'coverage', 'task-key'] as const;
 const HISTORY_CONFIG_SCHEMA = Type.Object({ depth: Type.Integer({ minimum: 1 }) });
 
 // ---- the graph reads ------------------------------------------------------
-
-/**
- * The read a plan names its units from: the pinned snapshot of every repository
- * the product holds (stage 0's facts). A repository pinned twice answers twice,
- * and each pin is a unit of its own, since a pin is what an ancestry is read at.
- */
-export const PINNED_SNAPSHOTS_QUERY = "SELECT repository, commit FROM fact WHERE kind = 'snapshot'";
 
 /** The read an execute makes of the commit facts this repository's history already holds, with the value each holds. */
 export function commitsHeldQuery(repository: string): string {
@@ -601,43 +593,28 @@ export function parseHistoryScope(scope: string): PinnedSnapshot {
 }
 
 /**
- * The units a plan names from the graph: one per pinned snapshot, in code point
- * order of what they read, each occurring once. A plan whose graph holds no
- * pinned snapshot answers `nothing-found` rather than an empty plan of a kind
- * that would read as "no producer": stage 0 writes those facts, and a plan that
- * found none of them is a plan whose input is not there yet.
+ * The units a plan names: one per repository the run pins, at the commit it pins
+ * it at, in code point order of what they read, each occurring once.
+ *
+ * **The run's pins, not the graph's snapshot facts.** Stage 0 writes a `snapshot`
+ * fact for what a run pins, and the orchestrator asks every stage to plan
+ * *before* any unit of the run executes (decision 0027's one planning epoch), so
+ * a plan that read the graph's snapshot facts would name the previous run's
+ * commit — or, on a product's first run, nothing at all, which is `nothing-found`
+ * for a stage whose input the run itself holds. madarch-tzte.21.8's walk found
+ * exactly that: the eighth stage published one commit behind. The pins come from
+ * the run's own source (`SnapshotSource.pins()`, `src/fill/snapshot.ts`), which
+ * is what the run stands on, and the graph's snapshot facts are that same reading
+ * once stage 0 has published them.
  */
-async function planUnits(graph: StageGraphReader): Promise<StagePlan> {
-  const rows = await graph.query(PINNED_SNAPSHOTS_QUERY);
-  const pins = readPinnedSnapshots(rows);
+async function planUnits(sources: SnapshotSource): Promise<StagePlan> {
+  const pins = await sources.pins();
   if (pins.length === 0) return { units: [], coverage: 'nothing-found' };
-  return {
-    units: pins.map((pin) => ({ id: historyUnitId(pin.repository, pin.commit), scope: historyScope(pin.repository, pin.commit) })),
-    coverage: 'planned',
-  };
-}
-
-/** The pinned snapshots a graph answered, every row read: a row this stage cannot read is refused with the query that answered it. */
-function readPinnedSnapshots(rows: readonly unknown[]): PinnedSnapshot[] {
-  const seen = new Set<string>();
-  const pins: PinnedSnapshot[] = [];
-  rows.forEach((row, index) => {
-    if (typeof row !== 'object' || row === null || Array.isArray(row)) {
-      throw new Error(`history: row ${index} of "${PINNED_SNAPSHOTS_QUERY}" is ${JSON.stringify(row)}, not a record with a repository and a commit`);
-    }
-    const { repository, commit } = row as { repository?: unknown; commit?: unknown };
-    if (typeof repository !== 'string' || !ID_PATTERN.test(repository)) {
-      throw new Error(`history: row ${index} of "${PINNED_SNAPSHOTS_QUERY}" names the repository ${JSON.stringify(repository)}: the product's own name for a repository, like "orders-api"`);
-    }
-    if (typeof commit !== 'string' || !COMMIT_PATTERN.test(commit)) {
-      throw new Error(`history: row ${index} of "${PINNED_SNAPSHOTS_QUERY}" pins ${repository} at ${JSON.stringify(commit)}: a pinned commit is 40 lower-case hexadecimal digits`);
-    }
-    const key = `${repository}@${commit}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    pins.push({ repository, commit });
-  });
-  return pins.sort((left, right) => byCodePoint(left.repository, right.repository) || byCodePoint(left.commit, right.commit));
+  const units = pins.map((pin) => ({ id: historyUnitId(pin.id, pin.commit), scope: historyScope(pin.id, pin.commit) }));
+  // In code point order of what each unit reads, whatever order the source pins
+  // them in: two runs of one commit plan the same units in the same order.
+  units.sort((left, right) => byCodePoint(left.id, right.id));
+  return { units, coverage: 'planned' };
 }
 
 // ---- the facts one unit writes --------------------------------------------
@@ -763,10 +740,19 @@ export function historyDepth(config: unknown): number {
 
 /**
  * One unit's work: read what this repository's history already holds, read Git
- * at the pinned commit, and draft the facts of every commit whose facts are not
- * held as they would be written, each commit's task keys after it — oldest
- * first, so a parent's fact always stands before its children's — and then the
- * unit's coverage where it changed.
+ * at the pinned commit, and draft the facts of every commit of that ancestry,
+ * each commit's task keys after it — oldest first, so a parent's fact always
+ * stands before its children's — and then the unit's coverage.
+ *
+ * **A unit writes its whole set every time.** Decision 0027's publication
+ * replaces the facts of the unit that publishes, and of no other: a fact the unit
+ * held and does not write again loses its holding and, with no other holder, its
+ * row. So a unit that wrote only what had changed would retract what it read and
+ * agreed with, and the read that follows it would answer something else — which
+ * the orchestrator's recheck reads as a read that moved, so the unit would go
+ * stale and be worked again for ever (madarch-tzte.21.8's walk found exactly that
+ * loop). What the unit already holds is *read* here, so the unit says how much of
+ * its set the graph already agreed with; every fact of the set is written.
  */
 async function executeUnit(reader: HistoryReader, unit: StageUnit, context: StageContext): Promise<StageExecutionResult> {
   const { repository, commit } = parseHistoryScope(unit.scope);
@@ -781,13 +767,14 @@ async function executeUnit(reader: HistoryReader, unit: StageUnit, context: Stag
   const writes: StageDraftWrite[] = [];
   let commitsWritten = 0;
   let keysWritten = 0;
+  let commitsAgreed = 0;
   for (const one of ancestry.commits) {
     const fact = commitFact(repository, one, ancestry.source);
-    // The value the graph holds is compared as it is held: a commit whose facts
-    // were read under a boundary that has since been fetched is written again,
-    // and one whose value is what this read would write is left alone.
+    // What the graph already holds is reported and not skipped: the unit's own
+    // publication replaces its own facts, so the whole set is written every time
+    // (see this function's own doc).
     const known = held.get(one.commit);
-    if (known !== undefined && canonicalJsonDigest(known) === canonicalJsonDigest(fact.value)) continue;
+    if (known !== undefined && canonicalJsonDigest(known) === canonicalJsonDigest(fact.value)) commitsAgreed += 1;
     const evidence = `${repository}@${one.commit}`;
     writes.push({ kind: 'fact', evidence, value: fact });
     commitsWritten += 1;
@@ -798,12 +785,11 @@ async function executeUnit(reader: HistoryReader, unit: StageUnit, context: Stag
   }
 
   const coverage = coverageFact(repository, unit.scope, ancestry);
-  if (heldCoverage === undefined || canonicalJsonDigest(heldCoverage) !== canonicalJsonDigest(coverage.value)) {
-    writes.push({ kind: 'fact', evidence: `${repository}@${ancestry.commit}`, value: coverage });
-  }
+  const coverageAgreed = heldCoverage !== undefined && canonicalJsonDigest(heldCoverage) === canonicalJsonDigest(coverage.value);
+  writes.push({ kind: 'fact', evidence: `${repository}@${ancestry.commit}`, value: coverage });
 
   for (const write of writes) context.draft.write(write);
-  context.progress(`wrote ${commitsWritten} ${commitsWritten === 1 ? 'commit' : 'commits'} and ${keysWritten} task ${keysWritten === 1 ? 'key' : 'keys'} of ${repository} at ${commit}`, 1);
+  context.progress(`wrote ${commitsWritten} ${commitsWritten === 1 ? 'commit' : 'commits'} (${commitsAgreed} the graph already held) and ${keysWritten} task ${keysWritten === 1 ? 'key' : 'keys'} of ${repository} at ${commit}, with the coverage ${coverageAgreed ? 'the graph already held' : 'this read wrote'}`, 1);
   return { outcome: 'draft' };
 }
 
@@ -862,7 +848,7 @@ export function validateDraft(draft: StageDraftSet): StageValidation {
  * own `commit` capability: a unit reads what its earlier run published, which is
  * what makes it incremental and is why no other producer of `commit` starves it.
  */
-export function createHistoryStage(reader: HistoryReader): FillStage {
+export function createHistoryStage(reader: HistoryReader, sources: SnapshotSource): FillStage {
   return {
     id: HISTORY_STAGE_ID,
     version: HISTORY_STAGE_VERSION,
@@ -876,7 +862,7 @@ export function createHistoryStage(reader: HistoryReader): FillStage {
     produces: HISTORY_FACT_KINDS.map((kind) => ({ kind, schemaVersion: FACT_KINDS[kind].version, scope: 'repository' as const })),
     configSchema: HISTORY_CONFIG_SCHEMA,
     defaults: { enabled: true, concurrency: 1, limits: DEFAULT_STAGE_LIMITS, config: { depth: DEFAULT_HISTORY_DEPTH } },
-    plan: (graph) => planUnits(graph),
+    plan: () => planUnits(sources),
     execute: (unit, context) => executeUnit(reader, unit, context),
     validate: (draft) => validateDraft(draft),
   };
