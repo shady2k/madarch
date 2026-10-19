@@ -102,3 +102,9 @@ Its run's decisions are in `docs/changes/fill-orchestrator/change.md`, "Design a
 Changed 2026-10-18 with the change fill-crash-suite (`docs/changes/fill-crash-suite/`):
 
 - fill-orchestrator: an attempt that never published is worked again by the run's own sweep, whatever step it had reached.
+
+Added 2026-10-19 with the change madarch-tzte-21-2 (`docs/changes/madarch-tzte-21-2/`):
+
+- [fill-history](capabilities/fill-history.md): the history stage reads the pinned commit's ancestry as commit facts, the task keys its messages name and the coverage of what it could not reach, and a run after one new commit writes that commit alone.
+
+Its run's decisions are in `docs/changes/madarch-tzte-21-2/change.md`, "Design and decisions".
