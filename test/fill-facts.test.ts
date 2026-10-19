@@ -115,9 +115,9 @@ const SAMPLES: { readonly [K in FactKind]: FactValueOf<K> } = {
   'defines': { from: anyId('file'), to: anyId('symbol') },
   'import': { from: anyId('file'), to: anyId('file'), specifier: '../model/order.js' },
   'dependency': { from: anyId('file'), to: anyId('file'), basis: 'manifest' },
-  'call': { from: anyId('symbol'), to: anyId('symbol'), count: 3 },
-  'reference': { from: anyId('symbol'), to: anyId('symbol'), count: 2 },
-  'inherits': { from: anyId('symbol'), to: anyId('symbol'), form: 'implements' },
+  'call': { from: anyId('symbol'), to: anyId('symbol'), count: 3, precision: 'syntactic' },
+  'reference': { from: anyId('symbol'), to: anyId('symbol'), count: 2, precision: 'compiler' },
+  'inherits': { from: anyId('symbol'), to: anyId('symbol'), form: 'implements', precision: 'syntactic' },
   'provides': { from: anyId('deploy-unit'), contract: 'topic::order-placed' },
   'consumes': { from: anyId('symbol'), variable: 'environment-variable:' + '0'.repeat(64) },
   'binds': { variable: 'environment-variable:' + '0'.repeat(64), environment: 'production', value: { form: 'digest', sha256: 'a'.repeat(64) } },
@@ -357,9 +357,11 @@ describe('the kinds the fill writes', () => {
     expect(Number.isInteger(FACTS_SCHEMA_VERSION)).toBe(true);
     // A kind whose value shape changes moves alone: `file` moved to 2 when the
     // blob its bytes stand under was added to it (madarch-tzte.21.1, stage 1),
-    // and `document` and `section` to 2 when their byte spans were added to them
-    // (madarch-tzte.21.4, stage 6).
-    const moved: Readonly<Record<string, number>> = { 'document': 2, 'file': 2, 'section': 2 };
+    // `document` and `section` to 2 when their byte spans were added to them
+    // (madarch-tzte.21.4, stage 6), and the resolution edges `call`, `reference`
+    // and `inherits` to 2 when their precision was added to them
+    // (madarch-tzte.21.6, stage 4).
+    const moved: Readonly<Record<string, number>> = { 'call': 2, 'document': 2, 'file': 2, 'inherits': 2, 'reference': 2, 'section': 2 };
     for (const kind of FACT_KINDS_IN_ORDER) {
       expect(Number.isInteger(FACT_KINDS[kind].version)).toBe(true);
       // 0027: a stage declares the fact kind's version for what it produces,

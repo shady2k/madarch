@@ -15,6 +15,7 @@ import { createBuildConfigurationStage } from './build-configuration.js';
 import { createDocumentIndexStage } from './document-index.js';
 import { createGitHistoryReader, createHistoryStage, type CheckoutFolderOf } from './history.js';
 import { createInventoryStage } from './inventory.js';
+import { createSemanticResolutionStage } from './semantic-resolution.js';
 import { createSnapshotStage } from './snapshot.js';
 import { createSyntaxStage } from './syntax.js';
 
@@ -37,9 +38,10 @@ const noCheckout: CheckoutFolderOf = () => '';
 /**
  * Every stage of this madarch, registered over the run's wiring: stage 0 the
  * snapshot, stage 1 the inventory, stage 2 the build and configuration, stage 3
- * the syntax, stage 6 the document index and stage 7 the history. The order of
- * the calls is not the order the stages run in — the graph decides that from
- * what they declare — so a stage added anywhere in the chain lands correctly.
+ * the syntax, stage 4 the semantic resolution, stage 6 the document index and
+ * stage 7 the history. The order of the calls is not the order the stages run in
+ * — the graph decides that from what they declare — so a stage added anywhere in
+ * the chain lands correctly.
  */
 export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
   return new StageRegistry()
@@ -47,6 +49,7 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
     .register(createInventoryStage(wiring.snapshots))
     .register(createBuildConfigurationStage(wiring.snapshots))
     .register(createSyntaxStage(wiring.snapshots))
+    .register(createSemanticResolutionStage(wiring.snapshots))
     .register(createDocumentIndexStage(wiring.snapshots))
     .register(createHistoryStage(createGitHistoryReader(wiring.checkoutOf ?? noCheckout)));
 }

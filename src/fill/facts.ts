@@ -415,6 +415,17 @@ export const INHERITS_FORMS = ['extends', 'implements'] as const;
 export type InheritsForm = (typeof INHERITS_FORMS)[number];
 
 /**
+ * How a resolution edge of stage 4 came to name its two symbols (madarch-tzte.21.6):
+ * `compiler` where a compiler's or SCIP index answered which symbol a name
+ * resolves to, `syntactic` where this fill's own reader resolved it from what
+ * the file binds. The edge carries it, so a reader of the graph weighs a
+ * name-based link below one a compiler made, and a later stage never has to
+ * guess which it holds.
+ */
+export const RESOLUTION_PRECISIONS = ['compiler', 'syntactic'] as const;
+export type ResolutionPrecision = (typeof RESOLUTION_PRECISIONS)[number];
+
+/**
  * What a name in the code does at its position: SCIP's `SymbolRole` bitset as
  * a list (a position may both define and write), so the roles a reader sees
  * are named instead of numbered.
@@ -890,14 +901,16 @@ export interface DependencyEdgeValue {
 /**
  * Stage 4: one symbol calls another. Calls are aggregated per pair of
  * symbols (not one edge per call site, which on a large repository is the
- * same answer many times), and the aggregation's provenance is the
- * code-point-smallest call site, so the edge's evidence is deterministic.
+ * same answer many times), and the aggregation's provenance is the smallest
+ * call site in the file's own order, so the edge's evidence is deterministic.
  */
 export interface CallEdgeValue {
   readonly from: string;
   readonly to: string;
   /** How many call sites were folded into the edge. */
   readonly count?: number;
+  /** How the callee was resolved (madarch-tzte.21.6): a compiler's index or this fill's own reading. */
+  readonly precision: ResolutionPrecision;
 }
 
 /** Stage 3: one symbol mentions another without calling it (a type, a value, a constant). */
@@ -906,6 +919,8 @@ export interface ReferenceEdgeValue {
   readonly to: string;
   /** How many mentions were folded into the edge. */
   readonly count?: number;
+  /** How the mention was resolved (madarch-tzte.21.6): a compiler's index or this fill's own reading. */
+  readonly precision: ResolutionPrecision;
 }
 
 /**
@@ -920,6 +935,8 @@ export interface InheritsEdgeValue {
   /** The symbol it extends or implements, by fact id. */
   readonly to: string;
   readonly form: InheritsForm;
+  /** How the supertype was resolved (madarch-tzte.21.6): a compiler's index or this fill's own reading. */
+  readonly precision: ResolutionPrecision;
 }
 
 /** Stage 2: an element provides a contract id (0004's `provides`). */
@@ -1454,7 +1471,9 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     stages: ['4-resolution'],
     place: 'required',
     layers: ['extracted'],
-    version: FACTS_SCHEMA_VERSION,
+    // Moved alone at version 2: the value gained `precision` (madarch-tzte.21.6),
+    // and a kind's value shape is the kind's own version, never the whole table's.
+    version: 2,
     identityValue: (value) => [['from', value.from], ['to', value.to]],
   },
   'reference': {
@@ -1463,7 +1482,8 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     stages: ['4-resolution'],
     place: 'required',
     layers: ['extracted'],
-    version: FACTS_SCHEMA_VERSION,
+    // Version 2 for the same reason as a call's: `precision` is part of the value.
+    version: 2,
     identityValue: (value) => [['from', value.from], ['to', value.to]],
   },
   'inherits': {
@@ -1472,7 +1492,8 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     stages: ['4-resolution'],
     place: 'required',
     layers: ['extracted'],
-    version: FACTS_SCHEMA_VERSION,
+    // Version 2 for the same reason as a call's: `precision` is part of the value.
+    version: 2,
     identityValue: (value) => [['from', value.from], ['to', value.to], ['form', value.form]],
   },
   'provides': {
@@ -1878,6 +1899,11 @@ const CLOSED_VALUE_FORMS: Readonly<Record<string, { readonly values: readonly st
   'occurrence.roles': { values: OCCURRENCE_ROLES, what: 'role a name plays at its position', many: true, atLeastOne: true },
   'repository.form': { values: REPOSITORY_FORMS, what: 'form a repository is', many: false },
   'rule.form': { values: RULE_FORMS, what: 'form a business rule takes', many: false },
+  // How a stage 4 edge came to name its two symbols (madarch-tzte.21.6): a value
+  // outside the list names a precision no reader of the graph knows.
+  'call.precision': { values: RESOLUTION_PRECISIONS, what: 'precision a resolution edge was resolved at', many: false },
+  'inherits.precision': { values: RESOLUTION_PRECISIONS, what: 'precision a resolution edge was resolved at', many: false },
+  'reference.precision': { values: RESOLUTION_PRECISIONS, what: 'precision a resolution edge was resolved at', many: false },
 };
 
 const GAP_FIELDS: readonly string[] = ['reason', 'what'];
@@ -1929,9 +1955,9 @@ const VALUE_FIELDS: { readonly [K in FactKind]: readonly (keyof FactValueOf<K> &
   'defines': ['from', 'to'],
   'import': ['from', 'to', 'specifier'],
   'dependency': ['from', 'to', 'basis'],
-  'call': ['from', 'to', 'count'],
-  'reference': ['from', 'to', 'count'],
-  'inherits': ['from', 'to', 'form'],
+  'call': ['from', 'to', 'count', 'precision'],
+  'reference': ['from', 'to', 'count', 'precision'],
+  'inherits': ['from', 'to', 'form', 'precision'],
   'provides': ['from', 'contract'],
   'consumes': ['from', 'variable'],
   'binds': ['variable', 'environment', 'value'],

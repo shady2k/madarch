@@ -189,22 +189,26 @@ describe('the syntax stage is registered', () => {
       expect(read.ok).toBe(true);
       if (!read.ok) return;
       // The history stage (madarch-tzte.21.2), the document index stage
-      // (madarch-tzte.21.4) and the build and configuration stage
-      // (madarch-tzte.21.5) are registered beside these: the history reads the
-      // snapshot too and is ordered among the first by code point, and the
-      // document index and the build and configuration stage read the
-      // inventory's file facts like this stage does, so the three are ordered by
-      // code point between themselves.
-      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'build-configuration', 'document-index', 'syntax']);
+      // (madarch-tzte.21.4), the build and configuration stage
+      // (madarch-tzte.21.5) and the semantic resolution stage (madarch-tzte.21.6)
+      // are registered beside these: the history reads the snapshot too and is
+      // ordered among the first by code point, the document index and the build
+      // and configuration stage read the inventory's file facts like this stage
+      // does, so the four are ordered by code point between themselves, and the
+      // resolution reads this stage's symbols and imports, so it runs after it.
+      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'build-configuration', 'document-index', 'syntax', 'semantic-resolution']);
       expect(read.graph.edges).toEqual([
         { from: 'inventory', to: 'build-configuration', via: 'file' },
         { from: 'inventory', to: 'document-index', via: 'file' },
+        { from: 'inventory', to: 'semantic-resolution', via: 'file' },
         { from: 'inventory', to: 'syntax', via: 'file' },
         { from: 'snapshot', to: 'build-configuration', via: 'snapshot' },
         { from: 'snapshot', to: 'document-index', via: 'snapshot' },
         { from: 'snapshot', to: 'history', via: 'snapshot' },
         { from: 'snapshot', to: 'inventory', via: 'repository' },
         { from: 'snapshot', to: 'inventory', via: 'snapshot' },
+        { from: 'syntax', to: 'semantic-resolution', via: 'import' },
+        { from: 'syntax', to: 'semantic-resolution', via: 'symbol' },
       ]);
       expect(registry.get('syntax')?.produces.map((produced) => produced.kind)).toEqual([
         'comment', 'coverage', 'defines', 'entry-point', 'import', 'occurrence', 'symbol', 'test',
