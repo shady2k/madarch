@@ -466,11 +466,24 @@ function endExpression(side: 'from' | 'to', kinds: readonly FactEdgeKind[], firs
  * than left to the database — PostgreSQL orders text by its own collation, and
  * a diagram must come out the same list on every machine.
  */
-export function factStoreDiagramReads(database: FactStoreDatabase): DiagramGraphReads {
+export function factStoreDiagramReads(database: FactStoreDatabase, product?: string): DiagramGraphReads {
   return readsOver(async (operation, work) => {
     const at = here();
     return await withLocation(at, operation, FACT_STORE_TABLES, async () => await database.transaction('snapshot', work));
-  });
+  }, product);
+}
+
+/**
+ * The scope that keeps one product's facts out of another's diagram: a home's
+ * store carries every product's rows, and a fact belongs to the product of the
+ * unit that published it (`fill_fact_holding` joined onto `fill_unit.product`, the
+ * join `readPageSet` reads its pages through).
+ */
+function productScope(alias: string, parameter: number): string {
+  return `EXISTS (
+            SELECT 1 FROM fill_fact_holding h JOIN fill_unit u ON u.unit_id = h.unit_id
+             WHERE h.id = ${alias}.id AND u.product = $${String(parameter)}
+          )`;
 }
 
 /**
@@ -479,44 +492,54 @@ export function factStoreDiagramReads(database: FactStoreDatabase): DiagramGraph
  * never draw an element read before a publication beside an edge read after it.
  * `buildDiagram` over `factStoreDiagramReads` is the same model read by read, each
  * in a transaction of its own; a caller that serves a diagram asks for this one.
+ * `product` reads one product's facts only: a home's store carries every
+ * product's rows, so a diagram of one product drawn from all of them would draw
+ * another product's repositories and call a shared name ambiguous.
  */
 export async function buildFactStoreDiagram(
   spec: DiagramViewSpec,
   database: FactStoreDatabase,
-  options: { readonly limits?: Partial<DiagramLimits> } = {},
+  options: { readonly limits?: Partial<DiagramLimits>; readonly product?: string } = {},
 ): Promise<DiagramModel> {
   const at = here();
   return await withLocation(at, `buildFactStoreDiagram(${String(spec?.type)})`, FACT_STORE_TABLES, async () => await database.transaction(
     'snapshot',
-    async (executor) => await buildDiagram(spec, readsOver(async (_operation, work) => await work(executor)), options),
+    async (executor) => await buildDiagram(spec, readsOver(async (_operation, work) => await work(executor), options.product), options),
   ));
 }
 
 /** The diagram reads over one way of running a statement: the process's owner, or the executor of a model's one transaction. */
 function readsOver(
   run: <R>(operation: string, work: (executor: SqlExecutor) => Promise<R>) => Promise<R>,
+  product?: string,
 ): DiagramGraphReads {
   const read = run;
+  /** The product's own rows only, when the caller named a product: a home's store carries every product's facts. */
+  const scope = (alias: string, parameters: readonly unknown[]): { readonly sql: string; readonly values: readonly unknown[] } =>
+    product === undefined ? { sql: '', values: parameters } : { sql: `AND ${productScope(alias, parameters.length + 1)}`, values: [...parameters, product] };
   return {
     facts: async (ids) => await read(`diagramFacts(${String(ids.length)} ids)`, async (executor) => {
       const wanted = [...new Set(ids)].sort(byCodePoint);
       const found = new Map<string, Fact>();
       if (wanted.length === 0) return found;
+      const held = scope('f', [wanted]);
       const { rows } = await executor.query<FactRow>(
-        `SELECT ${FACT_COLUMNS} FROM fill_fact WHERE id = ANY($1::text[]) ORDER BY id ASC`,
-        [wanted],
+        `SELECT ${FACT_COLUMNS} FROM fill_fact f WHERE f.id = ANY($1::text[]) ${held.sql} ORDER BY id ASC`,
+        [...held.values],
       );
       for (const fact of rows.map(storedFact)) found.set(fact.id, fact);
       return found;
     }),
     kind: async (kind) => await read(`diagramKind(${kind})`, async (executor) => {
-      const { rows } = await executor.query<FactRow>(`SELECT ${FACT_COLUMNS} FROM fill_fact WHERE kind = $1 ORDER BY id ASC`, [kind]);
+      const held = scope('f', [kind]);
+      const { rows } = await executor.query<FactRow>(`SELECT ${FACT_COLUMNS} FROM fill_fact f WHERE f.kind = $1 ${held.sql} ORDER BY id ASC`, [...held.values]);
       return rows.map(storedFact).sort((left, right) => byCodePoint(left.id, right.id));
     }),
     factsWith: async (kind, field, value) => await read(`diagramFactsWith(${kind}.${field})`, async (executor) => {
+      const held = scope('f', [kind, field, value]);
       const { rows } = await executor.query<FactRow>(
-        `SELECT ${FACT_COLUMNS} FROM fill_fact WHERE kind = $1 AND value ->> $2 = $3 ORDER BY id ASC`,
-        [kind, field, value],
+        `SELECT ${FACT_COLUMNS} FROM fill_fact f WHERE f.kind = $1 AND f.value ->> $2 = $3 ${held.sql} ORDER BY id ASC`,
+        [...held.values],
       );
       return rows.map(storedFact).sort((left, right) => byCodePoint(left.id, right.id));
     }),
@@ -528,12 +551,14 @@ function readsOver(
       // no plain field is answered here as readily as one that does.
       const fromEnd = endExpression('from', kinds, 3);
       const toEnd = endExpression('to', kinds, 3 + fromEnd.values.length);
+      const held = scope('e', [wanted, kinds, ...fromEnd.values, ...toEnd.values]);
       const { rows } = await executor.query<FactRow>(
         `SELECT ${FACT_COLUMNS} FROM fill_fact e
           WHERE e.kind = ANY($2::text[])
             AND ((${fromEnd.sql}) = ANY($1::text[]) OR (${toEnd.sql}) = ANY($1::text[]))
+            ${held.sql}
           ORDER BY id ASC`,
-        [wanted, kinds, ...fromEnd.values, ...toEnd.values],
+        [...held.values],
       );
       return rows.map(storedFact).sort((left, right) => byCodePoint(left.id, right.id));
     }),
@@ -545,6 +570,7 @@ function readsOver(
       // an edge one of whose ends no unit holds is still answered — that is the edge a view draws as unresolved.
       const fromEnd = endExpression('from', kinds, 3);
       const toEnd = endExpression('to', kinds, 3 + fromEnd.values.length);
+      const held = scope('e', [kinds, wanted, ...fromEnd.values, ...toEnd.values]);
       const { rows } = await executor.query<FactRow>(
         `SELECT e.id, e.kind, e.schema_version, e.provenance, e.layer, e.status, e.value
            FROM fill_fact e
@@ -552,8 +578,9 @@ function readsOver(
            LEFT JOIN fill_fact t ON t.id = ${toEnd.sql}
           WHERE e.kind = ANY($1::text[])
             AND (f.value ->> 'repository' = ANY($2::text[]) OR t.value ->> 'repository' = ANY($2::text[]))
+            ${held.sql}
           ORDER BY e.id ASC`,
-        [kinds, wanted, ...fromEnd.values, ...toEnd.values],
+        [...held.values],
       );
       return rows.map(storedFact).sort((left, right) => byCodePoint(left.id, right.id));
     }),
@@ -562,6 +589,8 @@ function readsOver(
       const chains = new Map<string, DiagramAncestor[]>();
       for (const id of wanted) chains.set(id, []);
       if (wanted.length === 0) return chains;
+      // The walk starts at the ids the caller named and follows their `contains` chain upward: the ids are the
+      // product's own (a page's ids come from the page model, scoped by product), and the chain never leaves it.
       const { rows } = await executor.query<{ root: unknown; id: unknown; depth: unknown; kind: unknown }>(
         `WITH RECURSIVE walk(root, id, depth) AS (
            SELECT n.id, c.value ->> 'from', 1

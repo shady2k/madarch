@@ -58,6 +58,7 @@ import {
   type FactLayer,
   type FactStatus,
 } from './facts.js';
+import type { GraphDiagramsRead } from './graph-diagrams.js';
 import {
   answerGraphRead,
   bounded,
@@ -847,6 +848,11 @@ export interface GraphPagesSource {
   readonly pageSet: () => Promise<GraphPageSetAnswer>;
   /** One node's page model, or the refusal naming why the graph holds none. */
   readonly page: (id: string) => Promise<GraphPageModelRead>;
+  /**
+   * One node's diagrams (madarch-tzte.23.4): the models the page's own kind is
+   * drawn by, built from the same store the page is, or the page's own refusal.
+   */
+  readonly diagrams: (id: string) => Promise<GraphDiagramsRead>;
   /** The page changes after one sequence number, in publication order. */
   readonly changes: (after: number) => Promise<GraphPageChanges>;
   /**

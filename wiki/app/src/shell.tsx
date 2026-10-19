@@ -34,7 +34,7 @@ import type { PageList, PageMeta, Product } from './api.js';
 import { appPath } from './app-base.js';
 import { FillProgressPanel } from './fill-progress.js';
 import type { GraphPageSet } from './api.js';
-import { graphKindGroups, NAV_NODES_PER_KIND } from './graph.js';
+import { graphKindGroups, NAV_NODES_PER_KIND, shortGraphLabel } from './graph.js';
 import type { Architecture } from './api.js';
 import { architectureAddress, addressOfGraphPage, addressOfGroup, addressOfStageRoute, GRAPH_INDEX_ADDRESS, REPOS_ADDRESS } from './routes.js';
 import { kindEntry, kindOrder, stageList, stagePosition, type RegistryOffer } from './registry.js';
@@ -405,6 +405,7 @@ function GraphNav({ set, current, indexOpen, onNavigate }: { set: GraphPageSet |
                         className={navLinkClasses(isCurrent)}
                         aria-current={isCurrent ? 'page' : undefined}
                         data-graph-node={entry.id}
+                        title={entry.label}
                         onClick={(event) => {
                           if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
                           event.preventDefault();
@@ -412,7 +413,7 @@ function GraphNav({ set, current, indexOpen, onNavigate }: { set: GraphPageSet |
                         }}
                       >
                         <NetworkIcon aria-hidden="true" className="mt-[3px] size-4 shrink-0 text-muted" />
-                        <span className="min-w-0 whitespace-normal leading-snug">{entry.label}</span>
+                        <span className="min-w-0 whitespace-normal leading-snug" data-testid="graph-nav-label">{shortGraphLabel(entry)}</span>
                       </a>
                     </li>
                   );

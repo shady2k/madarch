@@ -205,3 +205,32 @@ describe('the containment walk', () => {
     expect(chain[chain.length - 1]?.id).toBe(fx.shop.id);
   });
 });
+
+describe('one product diagrams', () => {
+  test('a diagram read with a product draws that product own facts only, and the other product repository never joins it', async () => {
+    // The same home carries two products, and both declare a repository of one name: a diagram read without the
+    // product draws the other one too (0026's context view would show a repository this product does not have).
+    const other = 'other-product';
+    await createUnit(owner!, { unitId: 'diagrams/other', product: other, runId: 'run-other', stageId: 'diagrams', scopeKey: 'other', inputsDigest: 'other-inputs', retries: 0, at: NOW });
+    const elsewhere = makeNodeFact({
+      kind: 'repository',
+      value: { repository: 'other-shop', form: 'code' },
+      provenance: { source: { system: 'tree-sitter', version: '1.0.0' }, repository: { id: 'other-shop', commit: 'b'.repeat(40) } },
+      layer: 'extracted',
+    });
+    expect(await publish(owner!, 'diagrams/other', 'publication-other', [elsewhere])).toBeGreaterThan(0);
+
+    const mine = factStoreDiagramReads(owner!, PRODUCT);
+    const scoped = await buildFactStoreDiagram({ type: 'c4-context', nodes: [] }, owner!, { product: PRODUCT });
+    // The product's own repositories are drawn, and the other product's is not — neither as an element nor as the
+    // placeholder an arrow into a missing end would make of it.
+    const drawn = scoped.elements.map((element) => element.id);
+    expect(drawn).toContain(fx.shop.id);
+    expect(drawn).toContain(fx.web.id);
+    expect(drawn).not.toContain(elsewhere.id);
+    // The read without a product answers the other one too, which is what the scope exists for.
+    const unscoped = await buildDiagram({ type: 'c4-context', nodes: [] }, factStoreDiagramReads(owner!));
+    expect(unscoped.elements.map((element) => element.id)).toContain(elsewhere.id);
+    expect(await mine.kind('repository')).toHaveLength(2);
+  });
+});

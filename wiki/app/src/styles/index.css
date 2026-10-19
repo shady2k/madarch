@@ -1366,3 +1366,124 @@ a.graph-place:hover {
   font-size: var(--fs-small);
   color: var(--text-muted);
 }
+
+/* madarch-tzte.23.4: one diagram per view, each under its own renderer
+ * switcher. A diagram draws at the reading measure; its panel scrolls in
+ * its own box, never the page, and the tab strip says which renderer is
+ * open beside the reader's own choice. */
+.graph-diagram {
+  margin-block: 0 2em;
+}
+
+.graph-diagram-title {
+  margin-block: 0 0.2em;
+  font-size: var(--fs-h3, 1.1rem);
+}
+
+.graph-diagram-scope {
+  margin-block: 0 0.6em;
+  font-size: var(--fs-small);
+  color: var(--text-muted);
+}
+
+.graph-diagram-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25em;
+  border-block-end: 1px solid var(--border-subtle);
+  margin-block-end: 0.6em;
+}
+
+button.graph-diagram-tab {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0.35em 0.8em;
+  font: inherit;
+  font-size: var(--fs-small);
+  color: var(--text-muted);
+  border-block-end: 2px solid transparent;
+  cursor: pointer;
+}
+
+button.graph-diagram-tab[aria-selected='true'] {
+  color: var(--text-ink, var(--text));
+  border-block-end-color: var(--text-ink, var(--text));
+  font-weight: 550;
+}
+
+.graph-diagram-panel {
+  overflow-x: auto;
+}
+
+/* The archify page is a document of its own: the frame fills the reading
+ * measure and scrolls its own content, the way the static wiki's frame
+ * does. */
+iframe.graph-diagram-archify,
+iframe.graph-diagram-likec4 {
+  display: block;
+  width: 100%;
+  height: 520px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface-page);
+}
+
+.graph-diagram-element-list,
+.graph-diagram-edge-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.graph-diagram-element,
+.graph-diagram-edge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5em;
+  padding: 0.45em 0;
+  border-block-end: 1px solid var(--border-subtle);
+  font-size: var(--fs-small);
+}
+
+/* An assumption or an end the graph does not hold is drawn dashed wherever the
+ * renderer can, and its row says so in words as well: a reader who cannot tell
+ * the strokes apart reads the word. */
+.graph-diagram-element[data-dashed='true'],
+.graph-diagram-edge[data-dashed='true'] {
+  border-block-end-style: dashed;
+}
+
+.graph-diagram-element-label {
+  font-size: var(--fs-body, 1rem);
+  color: var(--text-ink, var(--text));
+  text-decoration: none;
+}
+
+a.graph-diagram-element-label:hover {
+  text-decoration: underline;
+}
+
+.graph-diagram-columns,
+.graph-diagram-edge-label {
+  color: var(--text-muted);
+}
+
+.graph-diagram-edge-ends {
+  color: var(--text-ink, var(--text));
+}
+
+.graph-diagram-legend {
+  margin-block: 0.6em 0;
+  font-size: var(--fs-small);
+  color: var(--text-muted);
+}
+
+.graph-diagram-error {
+  padding: 1.1em 1.2em;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card, 10px);
+  font-size: var(--fs-small);
+  color: var(--text);
+}

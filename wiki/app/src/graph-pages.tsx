@@ -33,6 +33,7 @@ import type {
 import { navigateTo, statusContext } from './hold.js';
 import { codeHref, codePlace, graphKindGroups, originOf } from './graph.js';
 import { addressOfGraphPage } from './routes.js';
+import { GraphDiagramsSection } from './graph-diagrams.js';
 
 /** A graph page's own link, followed on the client side like every page of the app. */
 function GraphLink({ id, address: given, children, className }: { id: string; address?: string; children: React.ReactNode; className?: string }): ReactElement {
@@ -334,13 +335,11 @@ export function GraphNodePage({ page, repos }: { page: GraphPageModel; repos: re
         <p className="graph-cut" role="status" data-testid="graph-truncated">{t('graph.truncatedNote')} {page.marker}</p>
       )}
 
-      {/* The diagrams' place (madarch-tzte.23.4): the view specifications a diagram is
-       * drawn by belong to the models change, and this page keeps their slot rather
-       * than drawing an empty frame. */}
-      <section className="graph-diagrams" data-testid="graph-diagrams" aria-labelledby="graph-diagrams-title">
-        <h2 id="graph-diagrams-title">{t('graph.diagramsTitle')}</h2>
-        <p className="graph-diagrams-slot">{t('graph.diagramsSlot')}</p>
-      </section>
+      {/* The diagrams (madarch-tzte.23.4): the models madarch-tzte.23.2 builds, each under
+       * the tabs of every renderer that supports its type, the first tab the server's own
+       * setting. A page the graph draws no diagram of shows the server's words, never an
+       * empty frame. */}
+      <GraphDiagramsSection node={node} readAt={page.readAt} repos={repos} />
 
       <section className="graph-facts" data-testid="graph-facts" aria-labelledby="graph-facts-title">
         <h2 id="graph-facts-title">{t('graph.factsTitle', { count: facts.length })}</h2>

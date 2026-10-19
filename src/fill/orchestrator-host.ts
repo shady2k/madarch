@@ -30,6 +30,7 @@ import type { FillStageConfigurationRead } from './config.js';
 import type { SqlExecutor } from '../query/sql-driver.js';
 import { FACT_APPLICATION, createFactStoreSchema } from './fact-store.js';
 import { emptyPageSetMessage, readPageChanges, readPageModel, readPageSet, type GraphPagesSource } from './graph-pages.js';
+import { readNodeDiagrams } from './graph-diagrams.js';
 import type { FactLayer, FactSource } from './facts.js';
 import { graphReadsOver, type DraftReading, type GraphReadLimits } from './graph-reads.js';
 import {
@@ -505,6 +506,13 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
             return { ok: false, code: 'graph-pages/no-graph', message: `this home holds no fill's graph yet: the pages are drawn from the graph a fill run writes — run a fill, and the page ${id} appears as its units publish` };
           }
           return await readPageModel({ database, product: productNameOf(folder), id, at: (options.clock ?? Date.now)() });
+        },
+        async diagrams(id: string) {
+          const database = await pageDatabase();
+          if (database === undefined) {
+            return { ok: false, code: 'graph-pages/no-graph', message: `this home holds no fill's graph yet: the diagrams are drawn from the graph a fill run writes — run a fill, and the diagrams of ${id} appear as its units publish` };
+          }
+          return await readNodeDiagrams({ database, product: productNameOf(folder), id, at: (options.clock ?? Date.now)() });
         },
         async changes(after: number) {
           const database = await pageDatabase();

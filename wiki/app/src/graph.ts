@@ -163,6 +163,29 @@ export function codePlace(link: GraphCodeLink): string {
   return link.endLine > link.startLine ? `${link.file}:${link.startLine}-${link.endLine}` : `${link.file}:${link.startLine}`;
 }
 
+/**
+ * The short name a navigation row shows, and the full label it keeps in its
+ * tooltip (madarch-tzte.23.4, from 23.3's acceptance): the server's label is the
+ * graph's own name for the node — `acme-shop:src/checkout.ts#checkout.place` for a
+ * symbol, `acme-shop:public.orders` for a table — and a sidebar column is too narrow
+ * for it. The short name is the part a reader says out loud; the label stands whole
+ * in the row's `title`, and the node's own page keeps it as its heading.
+ */
+export function shortGraphLabel(entry: { readonly kind: string; readonly label: string }): string {
+  // A symbol is named by its place in a file and its qualified name: the qualified name is the short one.
+  if (entry.kind === 'symbol') {
+    const hash = entry.label.lastIndexOf('#');
+    if (hash >= 0 && hash + 1 < entry.label.length) return entry.label.slice(hash + 1);
+  }
+  // A package, a deploy unit, a table and a column are named `<repository>:<name>`: the name is the short one,
+  // and the repository is the section's own context.
+  if (entry.kind === 'package' || entry.kind === 'deploy-unit' || entry.kind === 'table' || entry.kind === 'column') {
+    const colon = entry.label.indexOf(':');
+    if (colon >= 0 && colon + 1 < entry.label.length) return entry.label.slice(colon + 1);
+  }
+  return entry.label;
+}
+
 /** The page set, the live channel and what the app learned from them. */
 export type GraphLive = {
   /** The product's page-worthy nodes, or null before the first answer. */

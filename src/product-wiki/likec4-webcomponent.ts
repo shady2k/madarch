@@ -41,14 +41,18 @@ export type LikeC4Bundle =
  * text. The same workspace answers from the folder a previous ask left;
  * the generation runs only for a workspace whose folder is not there yet.
  */
-export function likec4Webcomponent(workspace: string, env: Readonly<Record<string, string | undefined>> = process.env): LikeC4Bundle {
+export function likec4Webcomponent(workspace: string, env: Readonly<Record<string, string | undefined>> = process.env, options: { readonly prefix?: string } = {}): LikeC4Bundle {
   const cache = ensureWikiCacheRoot(env);
   if (!cache.ok) return { ok: false, message: cache.message };
   const bin = likec4Bin();
   if (!existsSync(bin)) {
     return { ok: false, message: `likec4 was not found at ${bin}: the wiki serves the LikeC4 webcomponent the pinned likec4 in devDependencies generates; run "bun install" in the madarch checkout` };
   }
-  const scratch = join(cache.root, `likec4-${createHash('sha256').update(workspace).digest('hex').slice(0, 16)}`);
+  // The prefix names the custom element the bundle defines (`<prefix>-view`): two bundles whose documents
+  // stand on one page must not define one element twice, so a caller whose webcomponent is not the wiki's
+  // own archive names its own (`graph-workspace.ts`, from the workspace's bytes).
+  const prefix = options.prefix;
+  const scratch = join(cache.root, `likec4-${createHash('sha256').update(prefix === undefined ? workspace : `${prefix}\u0000${workspace}`).digest('hex').slice(0, 16)}`);
   const bundle = join(scratch, 'likec4-view.js');
   if (!existsSync(bundle)) {
     mkdirSync(scratch, { recursive: true, mode: 0o700 });
@@ -56,7 +60,7 @@ export function likec4Webcomponent(workspace: string, env: Readonly<Record<strin
     // Bounded like the build's generator: a likec4 that hangs must not hold a
     // running server open, and must not outlive it by more than the bound
     // (madarch-1xq).
-    const gen = spawnSync(bin, ['gen', 'webcomponent', scratch, '-o', bundle], { encoding: 'utf8', timeout: LIKEC4_GEN_TIMEOUT_MS, killSignal: 'SIGKILL' });
+    const gen = spawnSync(bin, ['gen', 'webcomponent', scratch, ...(prefix === undefined ? [] : ['--webcomponent-prefix', prefix]), '-o', bundle], { encoding: 'utf8', timeout: LIKEC4_GEN_TIMEOUT_MS, killSignal: 'SIGKILL' });
     if (gen.status !== 0 || !existsSync(bundle)) {
       return {
         ok: false,

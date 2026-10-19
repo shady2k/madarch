@@ -480,7 +480,6 @@ export const getRepos = (signal?: AbortSignal): Promise<ReposList> => readJson<R
 // ---------------------------------------------------------------------------------------------
 // The graph's pages (madarch-tzte.23.1's answers; decision 0026, "Pages")
 // ---------------------------------------------------------------------------------------------
-
 /** Where a fact stands in code: the repository's own name, the commit, the file and the lines. */
 export type GraphCodeLink = {
   repository: string;
@@ -628,8 +627,100 @@ export type GraphPageChange = {
   publication: string;
 };
 
+
 export const getGraphPages = (signal?: AbortSignal): Promise<GraphPageSet> =>
   readJson<GraphPageSet>('read the graph\'s pages', '/api/graph/pages', signal);
 
 export const getGraphPage = (id: string, signal?: AbortSignal): Promise<GraphPageModel> =>
   readJson<GraphPageModel>(`read the graph page ${id}`, `/api/graph/page?id=${encodeURIComponent(id)}`, signal);
+
+// ---------------------------------------------------------------------------------------------
+// The graph's diagrams (madarch-tzte.23.4's answers; decision 0026, "Diagrams")
+// ---------------------------------------------------------------------------------------------
+
+/** The renderers a diagram is drawn by: LikeC4's own view, Mermaid's source, archify's page. */
+export type GraphDiagramRenderer = 'archify' | 'likec4' | 'mermaid';
+
+/** One renderer's tab of one diagram: what the app draws with it. */
+export type GraphDiagramTab = {
+  renderer: GraphDiagramRenderer;
+  /** Mermaid: the source the app renders. */
+  source?: string;
+  /** Archify and LikeC4: the address of the rendered page the tab frames. */
+  src?: string;
+};
+
+/** Where a diagram element stands in code. */
+export type GraphDiagramPlace = {
+  repository: string;
+  commit: string;
+  file: string;
+  line: number;
+  endLine: number;
+};
+
+/** How what a diagram shows stands behind it (decision 0005): a fact, an assumption, or an end the graph does not hold. */
+export type GraphDiagramEvidence = 'assumption' | 'fact' | 'unresolved';
+
+/** One column of an ER table: what it reads as, and the page and the place it opens where the graph holds them. */
+export type GraphDiagramColumn = {
+  label: string;
+  page?: string;
+  place?: GraphDiagramPlace;
+};
+
+/** One element of a diagram: what it is, how it stands, and where it opens. */
+export type GraphDiagramElement = {
+  id: string;
+  kind: string | null;
+  label: string;
+  evidence: GraphDiagramEvidence;
+  dashed: boolean;
+  /** The element's own page, as the server hands it out. */
+  page?: string;
+  place?: GraphDiagramPlace;
+  /** A table's columns, each with the page and the place it opens where it has them. */
+  columns?: GraphDiagramColumn[];
+  /** The view a collapsed element opens. */
+  drillDown?: string;
+  /** What a collapsed element stands for. */
+  standsFor?: string[];
+};
+
+/** One arrow of a diagram. */
+export type GraphDiagramEdge = {
+  from: string;
+  to: string;
+  label: string;
+  evidence: GraphDiagramEvidence;
+  dashed: boolean;
+  /** The kinds of the facts behind the arrow. */
+  kind: string;
+};
+
+/** One diagram of a node's page: its tabs, its elements and its arrows. */
+export type GraphDiagram = {
+  type: string;
+  level: number;
+  title: string;
+  collapsed: boolean;
+  marker: string | null;
+  /** Whether the graph answered the view with nothing. */
+  empty: boolean;
+  tabs: GraphDiagramTab[];
+  elements: GraphDiagramElement[];
+  edges: GraphDiagramEdge[];
+};
+
+/** `GET /api/graph/diagrams?id=…`: one node's diagrams, and the setting their first tab followed. */
+export type GraphDiagramsAnswer = {
+  product: string;
+  node: GraphPageEntry;
+  /** The renderer `MADARCH_WIKI_DIAGRAM` names (or the default), which the first tab of each diagram follows. */
+  firstTab: GraphDiagramRenderer;
+  diagrams: GraphDiagram[];
+  readAt: number;
+};
+
+export const getGraphDiagrams = (id: string, signal?: AbortSignal): Promise<GraphDiagramsAnswer> =>
+  readJson<GraphDiagramsAnswer>(`read the diagrams of the graph page ${id}`, `/api/graph/diagrams?id=${encodeURIComponent(id)}`, signal);
