@@ -132,7 +132,7 @@ describe('an entity-relationship view', () => {
     expect(orders?.columns?.map((column) => column.label)).toEqual(['id', 'total']);
     expect(orders?.columns?.map((column) => column.dataType)).toEqual(['bigint', 'numeric']);
     expect(orders?.columns?.[0]?.page?.href).toBe(`/p/graph/${fx.columns[0]!.id}`);
-    expect(orders?.columns?.[0]?.place).toEqual({ file: 'migrations/001.sql', line: 4, endLine: 4 });
+    expect(orders?.columns?.[0]?.place).toEqual({ repository: 'acme-shop', commit: 'a'.repeat(40), file: 'migrations/001.sql', line: 4, endLine: 4 });
     const audit = model.elements.find((element) => element.label === 'acme-shop:public.audit');
     expect(audit?.kind).toBeNull();
     expect(audit?.evidence).toBe('unresolved');
@@ -182,13 +182,23 @@ describe('a sequence view', () => {
     expect(model.scenario).toEqual([fx.settled.id, fx.placeCalls.id]);
   });
 
+  test('a sequence that names no participant takes them from its scenario, and one that names neither is refused', async () => {
+    const fromScenario = await buildDiagram({ type: 'sequence', nodes: [], scenario: [fx.placeCalls.id] }, clean);
+    expect(labels(fromScenario)).toEqual(['acme-shop:src/cart.ts#CheckoutController.place', 'acme-shop:src/pay.ts#PaymentGateway.charge']);
+    expect(fromScenario.edges.map((arrow) => [arrow.step, arrow.label])).toEqual([[1, 'POST /payments']]);
+    await expect(buildDiagram({ type: 'sequence', nodes: [] }, clean)).rejects.toThrow(/the view names no participant and no scenario/);
+  });
+
   test('a view with no scenario draws every interaction between its participants, by the code point order of their ends', async () => {
     const model = await buildDiagram({ type: 'sequence', nodes: [fx.placeSymbol.id, fx.chargeSymbol.id] }, clean);
     expect(model.edges.map((arrow) => arrow.step)).toEqual([undefined, undefined]);
-    expect(model.edges.map((arrow) => `${arrow.from}>${arrow.to}:${arrow.label}`).sort()).toEqual([
+    // The order is the one the module documents — each arrow's two ends in code point order — so the expectation is
+    // built from that rule and not from what the model answered.
+    const expected = [
       `${fx.chargeSymbol.id}>${fx.placeSymbol.id}:payment-settled`,
       `${fx.placeSymbol.id}>${fx.chargeSymbol.id}:POST /payments`,
-    ].sort());
+    ].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+    expect(model.edges.map((arrow) => `${arrow.from}>${arrow.to}:${arrow.label}`)).toEqual(expected);
   });
 });
 
@@ -212,11 +222,32 @@ describe('the size of a view', () => {
   test('a view no element of which has a level above it says the budget was not met instead of drawing fewer nodes', async () => {
     const model = await buildDiagram({ type: 'state', nodes: [fx.newState.id] }, clean, { limits: { nodes: 1 } });
     expect(model.collapsed).toBe(false);
-    expect(model.marker).toBe('truncated: the view holds 4 elements and the 1-element budget holds none of them back: no element of this view has a level above it in the graph');
+    expect(model.marker).toBe('truncated: the view holds 4 elements and the 1-element budget holds 4: no element of it has a level above it in the graph');
     expect(model.elements).toHaveLength(4);
   });
 
-  test('a view inside its budget says nothing about its size', async () => {
+  test('a view that collapses and still does not fit says the budget was not met, and how many elements it holds', async () => {
+    // Five modules of two repositories collapse twice: to the two repositories, and no further, because a repository has
+    // no level above it. A one-element budget is not met, and the marker says so rather than claiming it.
+    const model = await buildDiagram({ type: 'module-dependency', nodes: [] }, clean, { limits: { nodes: 1 } });
+    expect(model.collapsed).toBe(true);
+    expect(labels(model)).toEqual(['acme-shop', 'acme-web']);
+    expect(model.marker).toBe('truncated: the view holds 5 elements and the 1-element budget holds 2: no element of it has a level above it in the graph');
+  });
+
+  test('a container view collapses to its repositories, and the drill-down it writes is a view this module builds', async () => {
+    const model = await buildDiagram({ type: 'c4-container', nodes: [fx.shop.id] }, clean, { limits: { nodes: 3 } });
+    expect(labels(model)).toEqual(['acme-shop']);
+    expect(model.collapsed).toBe(true);
+    const drill = model.elements[0]!.drillDown!;
+    expect(drill.nodes).toEqual([fx.checkoutPackage.id, fx.paymentsPackage.id, fx.ordersTable.id, fx.paymentsTable.id].sort());
+    // The drill-down is a spec of this module's own: read back, it draws the containers it stands for.
+    const below = await buildDiagram({ type: drill.type, nodes: drill.nodes, level: drill.level }, clean, { limits: { nodes: 40 } });
+    expect(labels(below)).toEqual(['acme-shop:@acme/checkout', 'acme-shop:@acme/payments', 'acme-shop:public.orders', 'acme-shop:public.payments']);
+    expect(below.collapsed).toBe(false);
+  });
+
+  test('a container view inside its budget says nothing about its size', async () => {
     const model = await buildDiagram({ type: 'module-dependency', nodes: [fx.shop.id] }, clean, { limits: { nodes: 2 } });
     expect(model.collapsed).toBe(false);
     expect(model.marker).toBeNull();
@@ -258,15 +289,31 @@ describe('what every element carries', () => {
         }
         expect(element.page?.id).toBe(element.id);
         expect(element.page?.href).toBe(graphPageHref(element.id));
-        expect(element.place?.file).toBeDefined();
+        // A place is the fact's own code position: the repository and the commit a reader opens it at, the file and the
+        // lines. A fact whose provenance names none carries none, which the assertion below covers.
+        if (element.place !== undefined) {
+          expect(element.place.repository).toBe('acme-shop');
+          expect(element.place.file).not.toBe('');
+        }
       }
     }
+  });
+
+  test('an element whose fact stands at no place carries none, and the one beside it carries its own', async () => {
+    const model = await buildDiagram({ type: 'c4-context', nodes: [] }, clean);
+    expect(model.elements.find((element) => element.id === fx.web.id)?.place).toBeUndefined();
+    expect(model.elements.find((element) => element.id === fx.shop.id)?.place).toEqual({ repository: 'acme-shop', commit: 'a'.repeat(40), file: 'README.md', line: 1, endLine: 1 });
+  });
+
+  test('an arrow carries the code place of the first fact behind it, where a reader checks the relation', async () => {
+    const model = await buildDiagram({ type: 'module-dependency', nodes: [fx.shop.id] }, clean);
+    expect(model.edges[0]!.place).toEqual({ repository: 'acme-shop', commit: 'a'.repeat(40), file: 'src/cart.ts', line: 3, endLine: 3 });
   });
 
   test('an element\'s code place is the fact\'s own file and lines', async () => {
     const model = await buildDiagram({ type: 'module-dependency', nodes: [fx.shop.id] }, clean);
     const checkout = model.elements.find((element) => element.id === fx.checkout.id);
-    expect(checkout?.place).toEqual({ file: 'src/cart.ts', line: 1, endLine: 1 });
+    expect(checkout?.place).toEqual({ repository: 'acme-shop', commit: 'a'.repeat(40), file: 'src/cart.ts', line: 1, endLine: 1 });
   });
 
   test('a page\'s address is the node\'s fact id, and a view\'s address names its type, its level and its nodes', async () => {
@@ -310,6 +357,8 @@ describe('a view the graph does not answer', () => {
     await expect(buildDiagram({ type: 'module-dependency', nodes: ['acme-shop'] }, clean)).rejects.toThrow(/a node is a fact id/);
     await expect(buildDiagram({ type: 'module-dependency', nodes: [], level: 0 }, clean)).rejects.toThrow(/a level is a whole number, at least 1/);
     await expect(buildDiagram({ type: 'activity' } as unknown as DiagramViewSpec, clean)).rejects.toThrow(/the view names the diagram type "activity": the types this module draws are/);
+    await expect(buildDiagram(null as unknown as DiagramViewSpec, clean)).rejects.toThrow(/the view is null: a view specification is an object/);
+    await expect(buildDiagram('c4-context' as unknown as DiagramViewSpec, clean)).rejects.toThrow(/the view is "c4-context": a view specification is an object/);
   });
 
   test('the types drawn are the seven the schema answers, in code point order', () => {

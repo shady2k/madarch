@@ -46,7 +46,7 @@ import type { SqlExecutor } from '../query/sql-driver.js';
 import { FACT_EDGE_KINDS, isFactId, type Fact, type FactEdgeKind, type FactNodeKind } from './facts.js';
 import { FACT_STORE_TABLES, type FactStoreDatabase } from './fact-store.js';
 import { here, raise, withLocation } from './fsm-core.js';
-import { endsOf, labelOf } from './graph-reads.js';
+import { EDGE_END_FIELDS, endsOf, labelOf } from './graph-reads.js';
 
 // ---------------------------------------------------------------------------------------------
 // What a diagram is
@@ -97,6 +97,10 @@ export const DEFAULT_DIAGRAM_NODE_BUDGET = 40;
 
 /** Where an element stands in code: the file, at the pinned commit, and the lines it spans. */
 export interface DiagramPlace {
+  /** The product's own name for the repository the place stands in. */
+  readonly repository: string;
+  /** The commit the fact was read at, 40 lower-case hexadecimal digits: a place is opened at one commit. */
+  readonly commit: string;
   readonly file: string;
   readonly line: number;
   readonly endLine: number;
@@ -160,6 +164,8 @@ export interface DiagramEdge {
   readonly facts: readonly string[];
   readonly evidence: DiagramEvidence;
   readonly dashed: boolean;
+  /** Where the first fact behind the arrow stands in code, when its provenance names a place: where a reader checks it. */
+  readonly place?: DiagramPlace;
   /** A sequence's place in the scenario, 1-based; absent on every other type. */
   readonly step?: number;
 }
@@ -217,8 +223,10 @@ export const DIAGRAM_TYPE_DECLARATIONS: { readonly [K in DiagramType]: DiagramTy
     depth: false,
     scopes: ['repository'],
     elements: ['repository'],
-    // The relations between systems: the kinds that mean one node names or uses another, without the two that place a
-    // node, the two that record where a document or a commit points, and a state machine's move inside one node.
+    // The relations between systems: the kinds that mean one node names or uses another. The schema's other seven edge
+    // kinds are left out on purpose — `contains` and `defines` place a node rather than relate two, `document-link` and
+    // `task-key` record where a document or a commit points, `transition` is a state machine's move inside one node,
+    // and `binds` and `provides` name an end that is no node (an environment's value, an endpoint's contract).
     edges: ['call', 'consumes', 'dependency', 'import', 'inherits', 'interaction', 'reference', 'resolves'],
     above: [],
     rollsUp: true,
@@ -227,9 +235,14 @@ export const DIAGRAM_TYPE_DECLARATIONS: { readonly [K in DiagramType]: DiagramTy
   'c4-container': {
     level: 2,
     depth: false,
-    scopes: ['repository'],
+    // A view is scoped by a repository (its containers) or by the containers themselves, which is what a collapsed
+    // view's drill-down names: a link back into a spec this module refuses would be a dead end.
+    scopes: ['deploy-unit', 'package', 'repository', 'table'],
     elements: ['deploy-unit', 'package', 'table'],
-    edges: ['call', 'dependency', 'import', 'interaction', 'reference'],
+    // The relations a container view is made of: the dependencies stage 2 writes between the packages, and the
+    // interactions an agent named between deploy units. A call, a reference or an import joins files or symbols, which
+    // are no containers, so a view of containers can never roll them up and does not declare them.
+    edges: ['dependency', 'interaction'],
     above: ['repository'],
     rollsUp: false,
     heading: 'C4 containers',
@@ -342,14 +355,11 @@ export interface DiagramGraphReads {
   /** The edge facts of the given kinds that name one of the ids at one of their ends, in code point order of the id. */
   edges(ids: readonly string[], kinds: readonly FactEdgeKind[]): Promise<readonly Fact[]>;
   /**
-   * The edge facts of the given kinds that start in a node of one of the given
-   * repositories — the relations a product's scope holds, which is what a view
-   * rolled up to its elements draws. It joins the edge's from end only, so an
-   * edge whose other end no unit holds is answered: an unresolved end is exactly
-   * what a view must draw. An edge whose from end is a node that names no
-   * repository of its own (`consumes` through an environment variable, `provides`
-   * through an endpoint's contract) is not answered; the record names it as a
-   * limitation.
+   * The edge facts of the given kinds one of whose ends is a node of one of the
+   * given repositories — the relations a product's scope holds, which is what a
+   * view rolled up to its elements draws. Both ends are joined with a left join, so
+   * an edge whose other end no unit holds is still answered: an unresolved end is
+   * exactly what a view must draw.
    */
   edgesIn(repositories: readonly string[], kinds: readonly FactEdgeKind[]): Promise<readonly Fact[]>;
   /**
@@ -396,6 +406,37 @@ function storedFact(row: FactRow): Fact {
 }
 
 /**
+ * The SQL expression that reads one end of the edges of the given kinds, wherever
+ * each kind keeps it (`EDGE_END_FIELDS`, graph-reads.ts: a `from` and a `to`, an
+ * interaction's `caller` and `callee`, a consumed variable's `variable`, a document
+ * link's term), and the kind groups it binds: the plain field where the kind names
+ * the end there, and one parameter per other field. The field names come from this
+ * module's own table and never from a reader's text.
+ */
+function endExpression(side: 'from' | 'to', kinds: readonly FactEdgeKind[], firstParameter: number): { readonly sql: string; readonly values: readonly (readonly FactEdgeKind[])[] } {
+  const plain = `value->>'${side}'`;
+  const grouped = new Map<string, FactEdgeKind[]>();
+  for (const kind of kinds) {
+    const fields = EDGE_END_FIELDS[kind];
+    const field = fields[side];
+    if (field === null) continue;
+    const expression = side === 'to' && fields.toTerm === true ? `value->'${field}'->>'id'` : `value->>'${field}'`;
+    if (expression === plain) continue;
+    const held = grouped.get(expression) ?? [];
+    held.push(kind);
+    grouped.set(expression, held);
+  }
+  const groups = [...grouped.entries()]
+    .map(([expression, group]) => ({ expression, kinds: [...new Set(group)].sort(byCodePoint) }))
+    .sort((left, right) => byCodePoint(left.expression, right.expression));
+  const clauses = groups.map((group, index) => `WHEN e.kind = ANY($${firstParameter + index}::text[]) THEN e.${group.expression}`);
+  return {
+    sql: clauses.length === 0 ? `e.${plain}` : `CASE ${clauses.join(' ')} ELSE e.${plain} END`,
+    values: groups.map((group) => group.kinds),
+  };
+}
+
+/**
  * The diagram models' reads over the landed fact store (madarch-tzte.23.2): the
  * `fill_fact` rows, read in the owner's `snapshot` transaction and written
  * never. Every failure names the operation, the table it touched and the
@@ -404,10 +445,36 @@ function storedFact(row: FactRow): Fact {
  * a diagram must come out the same list on every machine.
  */
 export function factStoreDiagramReads(database: FactStoreDatabase): DiagramGraphReads {
-  const read = async <R>(operation: string, work: (executor: SqlExecutor) => Promise<R>): Promise<R> => {
+  return readsOver(async (operation, work) => {
     const at = here();
     return await withLocation(at, operation, FACT_STORE_TABLES, async () => await database.transaction('snapshot', work));
-  };
+  });
+}
+
+/**
+ * One model of the landed fact store, built inside one `snapshot` transaction:
+ * every read a diagram makes answers the same state of the graph, so a model can
+ * never draw an element read before a publication beside an edge read after it.
+ * `buildDiagram` over `factStoreDiagramReads` is the same model read by read, each
+ * in a transaction of its own; a caller that serves a diagram asks for this one.
+ */
+export async function buildFactStoreDiagram(
+  spec: DiagramViewSpec,
+  database: FactStoreDatabase,
+  options: { readonly limits?: Partial<DiagramLimits> } = {},
+): Promise<DiagramModel> {
+  const at = here();
+  return await withLocation(at, `buildFactStoreDiagram(${String(spec?.type)})`, FACT_STORE_TABLES, async () => await database.transaction(
+    'snapshot',
+    async (executor) => await buildDiagram(spec, readsOver(async (_operation, work) => await work(executor)), options),
+  ));
+}
+
+/** The diagram reads over one way of running a statement: the process's owner, or the executor of a model's one transaction. */
+function readsOver(
+  run: <R>(operation: string, work: (executor: SqlExecutor) => Promise<R>) => Promise<R>,
+): DiagramGraphReads {
+  const read = run;
   return {
     facts: async (ids) => await read(`diagramFacts(${String(ids.length)} ids)`, async (executor) => {
       const wanted = [...new Set(ids)].sort(byCodePoint);
@@ -453,17 +520,20 @@ export function factStoreDiagramReads(database: FactStoreDatabase): DiagramGraph
     edgesIn: async (repositories, kinds) => await read(`diagramEdgesIn(${repositories.join(', ')})`, async (executor) => {
       const wanted = [...new Set(repositories)].sort(byCodePoint);
       if (wanted.length === 0 || kinds.length === 0) return [];
-      // The from end is the field the edge's kind names its subject by (`EDGE_END_FIELDS`, graph-reads.ts): `from` for
-      // every kind but `consumes` and `binds`, whose subject is the environment variable. The other end is not joined:
-      // an edge whose end no unit holds is answered here and drawn as unresolved, never dropped as if it were absent.
+      // Each end is read out of the field its kind keeps it in (`EDGE_END_FIELDS`, graph-reads.ts: `from` and `to`, a
+      // `caller` and a `callee` for an interaction, a `variable` for a consumed one), and both ends are left-joined so
+      // an edge one of whose ends no unit holds is still answered — that is the edge a view draws as unresolved.
+      const fromEnd = endExpression('from', kinds, 3);
+      const toEnd = endExpression('to', kinds, 3 + fromEnd.values.length);
       const { rows } = await executor.query<FactRow>(
         `SELECT e.id, e.kind, e.schema_version, e.provenance, e.layer, e.status, e.value
            FROM fill_fact e
-           JOIN fill_fact f ON f.id = COALESCE(e.value ->> 'from', e.value ->> 'variable')
+           LEFT JOIN fill_fact f ON f.id = ${fromEnd.sql}
+           LEFT JOIN fill_fact t ON t.id = ${toEnd.sql}
           WHERE e.kind = ANY($1::text[])
-            AND f.value ->> 'repository' = ANY($2::text[])
+            AND (f.value ->> 'repository' = ANY($2::text[]) OR t.value ->> 'repository' = ANY($2::text[]))
           ORDER BY e.id ASC`,
-        [kinds, wanted],
+        [kinds, wanted, ...fromEnd.values, ...toEnd.values],
       );
       return rows.map(storedFact).sort((left, right) => byCodePoint(left.id, right.id));
     }),
@@ -472,7 +542,7 @@ export function factStoreDiagramReads(database: FactStoreDatabase): DiagramGraph
       const chains = new Map<string, DiagramAncestor[]>();
       for (const id of wanted) chains.set(id, []);
       if (wanted.length === 0) return chains;
-      const { rows } = await executor.query<{ root: unknown; id: unknown; kind: unknown }>(
+      const { rows } = await executor.query<{ root: unknown; id: unknown; depth: unknown; kind: unknown }>(
         `WITH RECURSIVE walk(root, id, depth) AS (
            SELECT n.id, c.value ->> 'from', 1
              FROM fill_fact n JOIN fill_fact c ON c.kind = 'contains' AND c.value ->> 'to' = n.id
@@ -482,25 +552,34 @@ export function factStoreDiagramReads(database: FactStoreDatabase): DiagramGraph
              FROM walk w JOIN fill_fact c ON c.kind = 'contains' AND c.value ->> 'to' = w.id
             WHERE w.depth < $2
          )
-         SELECT w.root, w.id, f.kind
-           FROM walk w JOIN fill_fact f ON f.id = w.id
-          ORDER BY w.root ASC, w.depth ASC, w.id ASC`,
+         SELECT w.root, w.id, w.depth, f.kind
+           FROM walk w JOIN fill_fact f ON f.id = w.id`,
         [wanted, MAX_ANCESTRY_STEPS],
       );
-      const seen = new Map<string, Set<string>>();
-      for (const id of wanted) seen.set(id, new Set());
+      // The nearest step an ancestor stands at, and the whole order built here rather than by the query: a database
+      // orders text by its own collation, and two ancestors at one depth (two modules holding one symbol, a folder and
+      // a module holding one file) must roll a node up to the same one on every machine.
+      const nearest = new Map<string, Map<string, { depth: number; kind: FactNodeKind }>>();
+      for (const id of wanted) nearest.set(id, new Map());
       for (const row of rows) {
         const root = typeof row.root === 'string' ? row.root : undefined;
         const id = typeof row.id === 'string' ? row.id : undefined;
         const kind = typeof row.kind === 'string' ? row.kind : undefined;
-        if (root === undefined || id === undefined || kind === undefined) continue;
+        const depth = typeof row.depth === 'number' ? row.depth : Number(row.depth);
+        if (root === undefined || id === undefined || kind === undefined || Number.isInteger(depth) === false) continue;
         if ((FACT_EDGE_KINDS as readonly string[]).includes(kind)) continue;
-        const held = seen.get(root);
-        const chain = chains.get(root);
-        if (held === undefined || chain === undefined || held.has(id)) continue;
-        // The walk is ordered by depth, so the first time an ancestor is seen is the nearest step it stands at.
-        held.add(id);
-        chain.push({ id, kind: kind as FactNodeKind });
+        const held = nearest.get(root);
+        if (held === undefined) continue;
+        const seen = held.get(id);
+        if (seen === undefined || seen.depth > depth) held.set(id, { depth, kind: kind as FactNodeKind });
+      }
+      for (const id of wanted) {
+        const chain = chains.get(id);
+        const held = nearest.get(id);
+        if (chain === undefined || held === undefined) continue;
+        for (const [ancestor, step] of [...held.entries()].sort(([leftId, left], [rightId, right]) => left.depth - right.depth || byCodePoint(leftId, rightId))) {
+          chain.push({ id: ancestor, kind: step.kind });
+        }
       }
       // The repository a fact's own value names, for the kinds the graph places by value and not by a `contains`
       // edge: a package, a deploy unit and a table, and a node whose own `contains` chain reaches no repository.
@@ -580,10 +659,17 @@ function pageOfFact(fact: Fact): DiagramPage {
   return { id: fact.id, href: graphPageHref(fact.id) };
 }
 
-/** Where a fact stands in code, when its provenance names a place. */
+/** Where a fact stands in code, when its provenance names a place: the repository and the commit a reader opens it at. */
 function placeOfFact(fact: Fact): DiagramPlace | undefined {
   const place = fact.provenance.place;
-  return place === undefined ? undefined : { file: place.file, line: place.range.startLine, endLine: place.range.endLine };
+  if (place === undefined) return undefined;
+  return {
+    repository: fact.provenance.repository.id,
+    commit: fact.provenance.repository.commit,
+    file: place.file,
+    line: place.range.startLine,
+    endLine: place.range.endLine,
+  };
 }
 
 /**
@@ -642,6 +728,9 @@ function unresolvedElement(id: string): DiagramElement {
 /** A spec read against the graph's own terms: the type, the level, the nodes and the scenario, or a refusal naming what is wrong. */
 function checkedSpec(spec: DiagramViewSpec): CheckedSpec {
   const at = here();
+  if (spec === null || typeof spec !== 'object' || Array.isArray(spec)) {
+    raise(`${at}: the view is ${shown(spec)}: a view specification is an object — a type, its nodes, a scenario and a level (decision 0026, "Diagrams"; src/fill/diagrams.ts)`);
+  }
   const type = spec.type;
   if (typeof type !== 'string' || (DIAGRAM_TYPES as readonly string[]).includes(type) === false) {
     raise(`${at}: the view names the diagram type ${shown(type)}: the types this module draws are ${DIAGRAM_TYPES.join(', ')} (decision 0026, "Diagrams"; src/fill/diagrams.ts)`);
@@ -781,8 +870,9 @@ async function linkEdges(
   const arrows: DiagramEdge[] = [];
   for (const edge of candidates) {
     const pair = endsOf(edge.kind as FactEdgeKind, edge.value);
-    // An edge one of whose ends is a term (`binds`, `task-key`, a document link to an address) names no node of the
-    // view: it is drawn between nodes, and a fact with one node end is not.
+    // An edge one of whose ends names no node of the graph — `binds` has no to end at all, `task-key` ends at a
+    // tracker key and a `document-link` may end at an address or a literal — is drawn between nodes, and a fact with
+    // one node end is not.
     if (pair.from === undefined || pair.to === undefined) continue;
     const from = standIn(pair.from);
     const to = standIn(pair.to);
@@ -806,6 +896,7 @@ async function linkEdges(
     }
     const evidence = arrowEvidence([edge], fromId.startsWith(UNRESOLVED_PREFIX) || toId.startsWith(UNRESOLVED_PREFIX));
     const step = options.stepOf?.(edge);
+    const place = placeOfFact(edge);
     arrows.push({
       from: fromId,
       to: toId,
@@ -814,6 +905,7 @@ async function linkEdges(
       facts: [edge.id],
       evidence,
       dashed: evidence !== 'fact',
+      ...(place === undefined ? {} : { place }),
       ...(step === undefined ? {} : { step }),
     });
   }
@@ -821,7 +913,9 @@ async function linkEdges(
     const kinds = [...new Set(group.facts.map((fact) => fact.kind as FactEdgeKind))].sort(byCodePoint);
     const facts = group.facts.map((fact) => fact.id).sort(byCodePoint);
     const evidence = arrowEvidence(group.facts, group.from.startsWith(UNRESOLVED_PREFIX) || group.to.startsWith(UNRESOLVED_PREFIX));
-    arrows.push({ from: group.from, to: group.to, label: kinds.join(', '), kinds, facts, evidence, dashed: evidence !== 'fact' });
+    const first = [...group.facts].sort((left, right) => byCodePoint(left.id, right.id))[0];
+    const place = first === undefined ? undefined : placeOfFact(first);
+    arrows.push({ from: group.from, to: group.to, label: kinds.join(', '), kinds, facts, evidence, dashed: evidence !== 'fact', ...(place === undefined ? {} : { place }) });
   }
   arrows.sort((left, right) => {
     if (left.step !== undefined && right.step !== undefined && left.step !== right.step) return left.step - right.step;
@@ -868,7 +962,10 @@ async function viewRepositories(scoped: readonly Fact[], reads: DiagramGraphRead
 
 /**
  * 0026's C4 context: the product's repositories, and the relations between them,
- * rolled up from the files and symbols that carry them.
+ * rolled up from the files and symbols that carry them. An arrow needs an element
+ * at each end, so a scoped context view draws the relations between the
+ * repositories it names and not the ones that leave the view: the system on the
+ * other side is no element of it.
  */
 async function gatherContext(checked: CheckedSpec, scoped: readonly Fact[], reads: DiagramGraphReads): Promise<Gathered> {
   const repositories = await viewRepositories(scoped, reads);
@@ -881,7 +978,9 @@ async function gatherContext(checked: CheckedSpec, scoped: readonly Fact[], read
 /** 0026's C4 container: the packages, deploy units and tables of the view's repositories, and the relations the graph holds between them. */
 async function gatherContainers(checked: CheckedSpec, scoped: readonly Fact[], reads: DiagramGraphReads): Promise<Gathered> {
   const repositories = await viewRepositories(scoped, reads);
-  const containers: Fact[] = [];
+  // A container the view names is drawn as itself (a collapsed container view's drill-down names the containers it
+  // folded), and a repository the view names contributes its containers.
+  const containers: Fact[] = scoped.filter((fact) => fact.kind !== 'repository');
   for (const repository of repositories) {
     for (const kind of checked.declaration.elements) containers.push(...await reads.factsWith(kind, 'repository', repositoryNameOf(repository)));
   }
@@ -1018,6 +1117,9 @@ async function gatherSequence(checked: CheckedSpec, scoped: readonly Fact[], rea
   const at = here();
   const participants = new Map<string, Fact>();
   for (const fact of scoped) participants.set(fact.id, fact);
+  if (scoped.length === 0 && checked.scenario.length === 0) {
+    raise(`${at}: the view names no participant and no scenario: a sequence diagram is drawn of the participants it names, or of the ends of the scenario's steps, and a view of neither draws nothing`);
+  }
   const steps: Fact[] = [];
   let stepOf: ((fact: Fact) => number | undefined) | undefined;
   if (checked.scenario.length > 0) {
@@ -1033,10 +1135,17 @@ async function gatherSequence(checked: CheckedSpec, scoped: readonly Fact[], rea
       positions.set(id, index + 1);
       steps.push(fact);
     }
-    const missing = [...ends].filter((end) => participants.has(end) === false).sort(byCodePoint);
-    const present = missing.length === 0 ? new Map<string, Fact>() : await reads.facts(missing);
-    for (const end of missing) {
-      if (present.has(end)) raise(`${at}: a step of the scenario is joined to ${shown(end)}, which the view does not name as a participant: a sequence draws the participants its view names, and an end outside them is a scenario the graph does not answer`);
+    const outside = [...ends].filter((end) => participants.has(end) === false).sort(byCodePoint);
+    const present = outside.length === 0 ? new Map<string, Fact>() : await reads.facts(outside);
+    for (const end of outside) {
+      const fact = present.get(end);
+      // A view that names no participant takes them from the scenario itself: 0026 makes the spec's nodes one way of
+      // saying what a view shows, and a scenario's own steps the other. A view that does name them keeps to them.
+      if (fact !== undefined && scoped.length === 0) {
+        participants.set(end, fact);
+        continue;
+      }
+      if (fact !== undefined) raise(`${at}: a step of the scenario is joined to ${shown(end)}, which the view does not name as a participant: a sequence draws the participants its view names, and an end outside them is a scenario the graph does not answer`);
     }
     stepOf = (fact) => positions.get(fact.id);
   } else {
@@ -1059,7 +1168,7 @@ function weakest(left: DiagramEvidence, right: DiagramEvidence): DiagramEvidence
 
 /** The arrows of a collapsed view: each end moved to what stands for it, an arrow inside one element dropped, and the rest folded again. */
 function refoldedArrows(edges: readonly DiagramEdge[], above: ReadonlyMap<string, string>): readonly DiagramEdge[] {
-  const groups = new Map<string, { from: string; to: string; kinds: Set<FactEdgeKind>; facts: Set<string>; evidence: DiagramEvidence }>();
+  const groups = new Map<string, { from: string; to: string; kinds: Set<FactEdgeKind>; facts: Set<string>; evidence: DiagramEvidence; place?: DiagramPlace }>();
   for (const edge of edges) {
     const from = above.get(edge.from) ?? edge.from;
     const to = above.get(edge.to) ?? edge.to;
@@ -1070,6 +1179,7 @@ function refoldedArrows(edges: readonly DiagramEdge[], above: ReadonlyMap<string
     const group = groups.get(key) ?? { from, to, kinds: new Set<FactEdgeKind>(), facts: new Set<string>(), evidence: 'fact' as DiagramEvidence };
     for (const kind of edge.kinds) group.kinds.add(kind);
     for (const fact of edge.facts) group.facts.add(fact);
+    if (group.place === undefined && edge.place !== undefined) group.place = edge.place;
     group.evidence = weakest(group.evidence, edge.evidence);
     groups.set(key, group);
   }
@@ -1077,7 +1187,16 @@ function refoldedArrows(edges: readonly DiagramEdge[], above: ReadonlyMap<string
     .map((group) => {
       const kinds = [...group.kinds].sort(byCodePoint);
       const facts = [...group.facts].sort(byCodePoint);
-      return { from: group.from, to: group.to, label: kinds.join(', '), kinds, facts, evidence: group.evidence, dashed: group.evidence !== 'fact' } satisfies DiagramEdge;
+      return {
+        from: group.from,
+        to: group.to,
+        label: kinds.join(', '),
+        kinds,
+        facts,
+        evidence: group.evidence,
+        dashed: group.evidence !== 'fact',
+        ...(group.place === undefined ? {} : { place: group.place }),
+      } satisfies DiagramEdge;
     })
     .sort((left, right) => byCodePoint(left.from, right.from) || byCodePoint(left.to, right.to) || byCodePoint(left.facts[0] ?? '', right.facts[0] ?? ''));
 }
@@ -1090,6 +1209,20 @@ function byElementOrder(left: DiagramElement, right: DiagramElement): number {
 /** What one element stands for: its own id when it stands for itself, and the elements it already stood for when it does not. */
 function stoodFor(element: DiagramElement): readonly string[] {
   return element.standsFor ?? [element.id];
+}
+
+/** Why a view the budget could not fit still holds too many elements, in the words the marker uses. */
+function whyStillTooLarge(stopped: 'no-level' | 'level-not-held' | 'no-move' | undefined): string {
+  switch (stopped) {
+    case 'no-level':
+      return 'no element of it has a level above it in the graph';
+    case 'level-not-held':
+      return 'the level above its elements is a node the graph does not hold';
+    case 'no-move':
+      return 'nothing of it could stand for a level above';
+    case undefined:
+      return 'it could not be collapsed further';
+  }
 }
 
 /** The view after the node budget had its say: the elements, the arrows, and one sentence naming what happened. */
@@ -1120,6 +1253,8 @@ async function sizeView(
   let edges: readonly DiagramEdge[] = gathered.edges;
   const before = elements.length;
   let collapsed = false;
+  /** Why the collapse stopped with too many elements, once it has: which of the three ways out the loop took. */
+  let stopped: 'no-level' | 'level-not-held' | 'no-move' | undefined;
   while (elements.length > budget) {
     const above = new Map<string, string>();
     const chains = await reads.ancestors(elements.map((element) => element.id));
@@ -1127,7 +1262,10 @@ async function sizeView(
       const level = (chains.get(element.id) ?? []).find((ancestor) => checked.declaration.above.includes(ancestor.kind));
       if (level !== undefined) above.set(element.id, level.id);
     }
-    if (above.size === 0) break;
+    if (above.size === 0) {
+      stopped = 'no-level';
+      break;
+    }
     const levelFacts = await reads.facts([...new Set(above.values())].sort(byCodePoint));
     const groups = new Map<string, string[]>();
     const kept: DiagramElement[] = [];
@@ -1163,18 +1301,19 @@ async function sizeView(
         drillDown: { type: checked.type, level: checked.level, nodes: stands, href: diagramHref({ type: checked.type, level: checked.level, nodes: stands }) },
       });
     }
-    if (moved.size === 0) break;
+    if (moved.size === 0) {
+      stopped = levelFacts.size === 0 ? 'level-not-held' : 'no-move';
+      break;
+    }
     elements = next.sort(byElementOrder);
     edges = refoldedArrows(edges, moved);
     collapsed = true;
   }
-  if (collapsed === false && before > budget) {
-    return {
-      elements,
-      edges,
-      collapsed: false,
-      marker: `truncated: the view holds ${before} elements and the ${budget}-element budget holds none of them back: no element of this view has a level above it in the graph`,
-    };
+  if (elements.length > budget) {
+    // The budget was not met, whatever the collapse did before it stopped: the marker says how many elements the view
+    // still holds and why they could not collapse further. A view is never drawn smaller than the graph and never
+    // claims a budget it does not meet.
+    return { elements, edges, collapsed, marker: `truncated: the view holds ${before} elements and the ${budget}-element budget holds ${elements.length}: ${whyStillTooLarge(stopped)}` };
   }
   if (collapsed === false) return { elements, edges, collapsed: false, marker: null };
   return {

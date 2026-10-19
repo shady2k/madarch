@@ -58,7 +58,9 @@ function edge(kind: FactEdgeKind, value: Record<string, unknown>, place: FactPro
 /** The graph this product holds, each fact named so a test names the same one the fixture wrote. */
 export function diagramFixture() {
   const shop = node('repository', { repository: SHOP, form: 'code' }, at(SHOP, 'README.md'));
-  const web = node('repository', { repository: WEB, form: 'code' }, at(WEB, 'README.md'));
+  // A repository's place is optional (the schema names it so): acme-web's fact cites none, which is the case an
+  // element's "where it has one" code place exists for.
+  const web = node('repository', { repository: WEB, form: 'code' }, { source: { system: 'tree-sitter', version: '1.0.0' }, repository: { id: WEB, commit: COMMIT } });
   const cart = node('file', { repository: SHOP, path: repositoryPath(CART), roles: ['source'], language: 'typescript' }, provenance(SHOP, CART, 10));
   const pay = node('file', { repository: SHOP, path: repositoryPath(PAY), roles: ['source'], language: 'typescript' }, provenance(SHOP, PAY, 20));
   const orphan = node('file', { repository: SHOP, path: repositoryPath(ORPHAN), roles: ['source'], language: 'typescript' }, provenance(SHOP, ORPHAN, 30));
@@ -192,11 +194,12 @@ export function readsOf(facts: readonly Fact[]): DiagramGraphReads {
     },
     edgesIn: async (repositories, kinds) => {
       const names = new Set(repositories);
-      // The read joins the edge's from end only: an edge whose other end no unit holds is answered, which is the end a
-      // view draws as unresolved.
+      // The store left-joins both ends and answers an edge one of whose ends stands in the scope; an end no unit holds
+      // is answered by the other end's side, which is what makes an unresolved end drawable.
       return byIdOrder(facts.filter((fact) => {
         if ((kinds as readonly string[]).includes(fact.kind) === false) return false;
-        return inRepository(endsOfFact(fact).from, names);
+        const ends = endsOfFact(fact);
+        return inRepository(ends.from, names) || inRepository(ends.to, names);
       }));
     },
     ancestors: async (ids) => {

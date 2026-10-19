@@ -35,7 +35,7 @@ This change adds the pure models the diagrams are drawn from, in one module:
   are solid and assumptions or unresolved ends are dashed; a view past its node
   budget collapses to the level above, and every collapsed element carries the
   view it stands for as its drill-down link. The module reads the graph through
-  a five-method interface (`DiagramGraphReads`) and writes nothing: its one
+  a six-method interface (`DiagramGraphReads`) and writes nothing: its one
   implementation, `factStoreDiagramReads`, reads the landed `fill_fact` rows in
   the owner's `snapshot` transaction.
 
@@ -188,18 +188,20 @@ None.
   a model is the same model on every machine, and a list a reader scans is in the
   order a reader reads. The store's own reads sort too, because PostgreSQL orders
   text by its own collation.
-- **A rolled view reads the edges that start in a node of the scope, and not the
-  ones that end in it.** The read joins the edge's from end (`EDGE_END_FIELDS`: the
-  `from` field, or the `variable` field for `consumes` and `binds`) to its fact's
-  repository. Joining both ends would be the prettier query and would answer
-  nothing for an edge whose other end no unit holds — the one case 0026 requires to
-  be drawn dashed. The other end is the view's own question: it rolls up to an
-  element, or it does not stand for the view at all, or it is missing.
+- **A rolled view reads the edges one of whose ends stands in its scope, and each
+  end is read out of the field its kind keeps it in.** `EDGE_END_FIELDS` is that
+  table: `from` and `to`, a `caller` and a `callee` for an interaction, a
+  `variable` for a consumed one, a term for a document link. Both ends are left
+  joined, so an edge one of whose ends no unit holds is still answered — the one
+  case 0026 requires to be drawn dashed — and an edge that ends inside the scope is
+  drawn as readily as one that starts there. What the view then makes of the other
+  end is its own question: it rolls up to an element, or it does not stand for the
+  view at all, or it is missing.
 - **A relation whose two ends stand for one element is not drawn.** In a context
   view an import from one file of a repository to another rolls up to the
   repository itself; drawing it would be a frame to itself and a page of noise.
   The relation is still there in the graph and on the element's page.
-- **Every view is built from five reads, and a test makes each one's answer.**
+- **Every view is built from five reads and one walk upward, and a test makes each one's answer.**
   `facts` (by id, whatever the kind), `kind` (every node of one kind), `factsWith`
   (one kind by one value field), `edges` (the edges that name one of the given ids
   at an end) and `edgesIn` (the edges that start in the nodes of a repository),
@@ -232,6 +234,57 @@ None.
     the machine would need a machine node the schema does not have.
   - **An ER view has no arrows**, for the reason above: the schema holds no edge
     between two tables. A foreign key between them is a fact nobody writes yet.
+
+- **The C4 container view is scoped by its own containers as well as by a
+  repository.** A collapsed container view stands for its containers, and a
+  drill-down that named them would be a spec the module itself refuses if a
+  container could not scope a view; so a view is scoped by a repository (whose
+  containers it draws) or by the containers themselves, and a drill-down reads back
+  into a view. Its edge kinds are the two a view of containers can actually make —
+  the `dependency` stage 2 writes between packages and the `interaction` an agent
+  named between deploy units — because a `call`, a `reference` or an `import` joins
+  files or symbols, which are no containers, and a declared kind that can never
+  produce an arrow would be a promise the model does not keep.
+- **A sequence that names no participant takes them from its scenario.** 0026 gives
+  a spec its nodes and its scenario, and a sequence names the same thing twice if it
+  names both: a spec naming no participant therefore draws the ends of the steps it
+  names, and a spec naming neither is refused naming both ways of saying what the
+  view shows.
+- **One model is one state of the graph.** `buildFactStoreDiagram` reads the whole
+  model inside one `snapshot` transaction, so an element read before a publication
+  cannot be drawn beside an edge read after it. `buildDiagram` over
+  `factStoreDiagramReads` reads each question in a transaction of its own and is the
+  same model whenever nothing publishes in between; the store's own suite proves the
+  two answer alike.
+  - **A scoped context view draws the relations between the systems it names.**
+    An arrow needs an element at each end, so a context view of one repository of a
+    product of five draws nothing that leaves it: the other system is no element of
+    the view. Drawing the neighbours a scope relates to is a choice about what a
+    view shows that this change does not take; the whole-product context draws them.
+  - **Relations through an api-endpoint or a variable are not drawn, and here is
+    why.** `provides` ends at an endpoint's contract, which is no node id, and
+    `consumes` ends at an environment variable whose fact names no repository, so
+    neither end stands for a container or a repository of a view. The edge is
+    answered by the read; it is the mapping of its far end onto an element that does
+    not exist. Folding it through the endpoint onto the containers that own it is a
+    later task's.
+  - **A placeholder's label is the fact id the graph cites.** The arrow that names
+    it says what the relation was (an `import`'s specifier is in the fact, and in no
+    field of the arrow), and an ER placeholder gets the table's own
+    `<repository>:<name>`; a state's or a symbol's missing end is shown by the id it
+    was cited by, which is the only name the graph holds for it.
+  - **An arrow carries a code place and no page.** An edge fact is no node the
+    pages name (madarch-tzte.23.1's page-worthy kinds are nodes), so an arrow points
+    a reader at the file and the line it was read at and not at a page.
+  - **A view is read one kind and one repository at a time.** The reads ask the
+    store what a value field equals, and no index covers a JSON field: a container
+    view reads three questions per repository, an ER view one per repository and one
+    for its columns, a state view one per machine. That is a handful of scans for a
+    graph of one product and would be worth one query per kind with `= ANY(...)`
+    when a product of many repositories asks for many diagrams at once; the store's
+    own read grammar (madarch-tzte.20.3) was not reused because its answers are
+    bounded to 8K tokens and recorded as a unit's dependency, and a diagram is
+    neither a unit nor an answer anyone reads a token at a time.
   - **The page address is a seam 0023.1 must serve.** `/p/graph/<fact id>` is this
     change's own choice, made in `graphPageHref` alone; madarch-tzte.23.1 serves
     the pages and madarch-tzte.23.3 shows them, and a served route that differs
