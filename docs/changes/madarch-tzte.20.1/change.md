@@ -145,6 +145,17 @@ reads — the repository and the place for a place-identity kind, the source for
 coverage — and a value that is not JSON is named at its path instead of throwing
 out of the check, which that pass also measured as still open in a nested record.
 
+
+The stage's acceptance (2026-10-19) re-ran this change's checks on the assembled
+tree `9ebd24b6` (revision `content:9402c020112b1a0f`): `bun run check` exit 0;
+`test/fill-facts.test.ts` on the SkyPilot pod 102 pass, 0 fail, exit 0, inside the
+stage's five-file run of 176 pass, 23 skip (the PostgreSQL leg needs a server the
+pod has none of) and 0 fail; and the stage's mutation run over this module's
+identity, `factId` and place ranges — 229 mutants, 126 killed, 103 survived, 0
+timed out, 55.02 %, whose 35 non-equivalent survivors across the stage are filed
+as madarch-tzte.35. The stage's final review (two read-only rounds, gpt-6-luna)
+answered `ship` over the stage's assembled diff, and its one wording correction to
+a change record is in this branch.
 ## DONE WHEN
 `src/fill/facts.ts` declares every kind madarch-tzte.20.1 names, each with its
 stages, provenance, layer, status and version; ids are the digest of each

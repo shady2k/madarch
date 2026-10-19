@@ -49,10 +49,12 @@ the status `proposed` (0005).
   diagrams drawn from the graph.
 - **Another unit's draft as a node a write may join.** A unit's own draft set is
   read here — a unit that writes a module and then a claim about it is the
-  ordinary case — while a draft another unit holds is read as draft by that
-  task's reads (madarch-tzte.20.3) and is not a node of this path: 0027 makes a
-  node stand when its unit publishes, and a draft its holder may still retract is
-  not a fact an edge may join.
+  ordinary case — while a draft another unit holds is read as draft by the
+  store's own `readUnitDraft` (`fact-store.ts`, madarch-tzte.20.2) and by no read
+  of this path and no tool of madarch-tzte.20.3, whose six reads answer published
+  facts only; a draft is not a node of this path: 0027 makes a node stand when its
+  unit publishes, and a draft its holder may still retract is not a fact an edge
+  may join.
 - The fill's capability text: the requirement the write path serves is proposed by
   `fill-pipeline-monday`, not current, and the rebuild's requirement text lands
   with the stage that closes decision 0026.
@@ -334,6 +336,15 @@ the draft set the machine records and the store's own publication), `bun run
 check`, a bounded manual mutation sample, and the independent review over each
 round.
 
+
+The stage's acceptance (2026-10-19) re-ran this change's checks on the assembled
+tree `9ebd24b6` (revision `content:9402c020112b1a0f`): `bun run check` exit 0;
+`test/fill-checked-writes.test.ts` on the pod 21 pass, 0 fail; the stage's
+mutation run over `write`'s check chain (`src/fill/checked-writes.ts:635-714`) —
+120 mutants, 88 killed, 32 survived, 0 timed out, 73.33 %, whose non-equivalent
+survivors are named in madarch-tzte.35; and the stage's final review, whose one
+finding about this record's words is corrected in the out-of-scope bullet above
+(a draft another unit holds is read by `readUnitDraft`, not by the 20.3 reads).
 ## DONE WHEN
 
 - `assert_fact`, `propose_entity`, `link` and `raise_question` check each write at once: the schema (`checkFact`), the cited bytes exist and are read by madarch at the pinned commit, referenced nodes exist, the write lies in the unit's scope; a refused write names the field and the reason.
