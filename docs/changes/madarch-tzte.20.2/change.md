@@ -222,6 +222,16 @@ Taken from decisions 0026 and 0027; nothing here re-decides them.
   receives the publication's own executor, "so the default cannot land outside the
   publication's transaction".
 
+- **An open point the stage's final review named.** The row keeps the envelope of
+  the publication that stored it first, and that envelope is the whole of it: the
+  layer and the status 0005 gives every fact ride in it too. Two units that publish
+  one fact with another layer or status — an agent unit's `inferred` proposal and a
+  stage's `extracted` extraction of the same module, say — leave the graph holding
+  the one that arrived first, and the second assertion is not visible as a
+  statement of its own. Filed as `madarch-tzte.27`: whether 0005's record of how a
+  fact was obtained belongs in the identity, in a second row, or in the holding is
+  the owner's decision, and this change neither takes it nor hides the point.
+
 
 ## Acceptance evidence
 Recorded on the task as `check:` comments against the change's revision: the
@@ -232,6 +242,15 @@ check`, and the independent review over each round. The mutation check is not
 run: the owner's rule runs mutation once per assembled stage, and the acceptance
 escalates per `mutationFallback`.
 
+
+The stage's acceptance (2026-10-19) re-ran this change's checks on the assembled
+tree `9ebd24b6` (revision `content:9402c020112b1a0f`): `bun run check` exit 0;
+`test/fill-fact-store.test.ts` on the pod 25 pass, 0 fail (the PostgreSQL leg runs
+in CI's checks job, whose service the pod has none of); the stage's mutation run
+over `applyPublishedFacts` — 48 mutants, 38 killed, 10 survived, 0 timed out,
+79.17 %, every survivor a message's words or an order-insensitive list; and the
+stage's final review, which named the layer/status open point recorded above and
+filed it as madarch-tzte.27.
 ## DONE WHEN
 - A fact store (tables through `src/adapters/database-owner.ts`) implements the orchestrator's sink for a published fact set: a unit's publication replaces only that unit's own facts in one transaction; a retracted draft leaves nothing; a fact two units publish keeps one row with both publishers, removed only when neither holds it.
 - Draft sets are readable as draft by other units and never mixed with published facts; publishing a unit's three facts and then republishing two of them leaves exactly those two for that unit.

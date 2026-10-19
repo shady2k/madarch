@@ -270,6 +270,15 @@ from one of them, it is named.
     numbers, not 0026's: they bound one coverage row's own lists inside the answer's
     token cap, and every cut they make is counted in the answer's marker.
 
+
+The stage's acceptance (2026-10-19) re-ran this change's checks on the assembled
+tree `9ebd24b6` (revision `content:9402c020112b1a0f`): `bun run check` exit 0;
+`test/fill-graph-reads.test.ts` on the pod 28 pass, 0 fail; the stage's mutation
+run over the caps and the bounding (`bounded`, `rowsCap`, `answered`, `markerOf`)
+— 49 mutants, 39 killed, 10 survived, 0 timed out, 79.59 %, of which one survivor
+(`graph-reads.ts:948`, the exact-cap boundary) is filed as madarch-tzte.35 and the
+rest are message words or the reserve estimate's own slack; and the stage's final
+review, which answered `ship` over the stage's assembled diff.
 ## Acceptance evidence
 The checks of this change, each command's own exit status, recorded here at
 hand-over and resolved on the task by the integrator's `check:` comments against
