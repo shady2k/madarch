@@ -188,15 +188,19 @@ describe('the syntax stage is registered', () => {
       const read = deriveStageGraph(registry);
       expect(read.ok).toBe(true);
       if (!read.ok) return;
-      // The history stage (madarch-tzte.21.2) and the document index stage
-      // (madarch-tzte.21.4) are registered beside these: the history reads the
+      // The history stage (madarch-tzte.21.2), the document index stage
+      // (madarch-tzte.21.4) and the build and configuration stage
+      // (madarch-tzte.21.5) are registered beside these: the history reads the
       // snapshot too and is ordered among the first by code point, and the
-      // document index reads the inventory's file facts like this stage does, so
-      // the two are ordered by code point between themselves.
-      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'document-index', 'syntax']);
+      // document index and the build and configuration stage read the
+      // inventory's file facts like this stage does, so the three are ordered by
+      // code point between themselves.
+      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'build-configuration', 'document-index', 'syntax']);
       expect(read.graph.edges).toEqual([
+        { from: 'inventory', to: 'build-configuration', via: 'file' },
         { from: 'inventory', to: 'document-index', via: 'file' },
         { from: 'inventory', to: 'syntax', via: 'file' },
+        { from: 'snapshot', to: 'build-configuration', via: 'snapshot' },
         { from: 'snapshot', to: 'document-index', via: 'snapshot' },
         { from: 'snapshot', to: 'history', via: 'snapshot' },
         { from: 'snapshot', to: 'inventory', via: 'repository' },
