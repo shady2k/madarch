@@ -46,10 +46,11 @@
  * once no deeper folder is left is named in the unit's coverage, never dropped.
  *
  * **Fan-in is bounded.** A cluster with more than the fan-in bound of children
- * groups them, in code point order, into intermediate modules named after the
- * range they cover (`a..f`), and repeats while the bound is still exceeded: 0026
- * bounds fan-in at about fifty children "else an intermediate grouping level",
- * so no module's children are ever more than the bound.
+ * groups them, in code point order, into intermediate modules named `part-1`,
+ * `part-2` and so on among their parent's children, and groups the groups again
+ * while the bound is still exceeded: 0026 bounds fan-in at about fifty children
+ * "else an intermediate grouping level", so no module's children are ever more
+ * than the bound.
  *
  * **Importance.** One PageRank walks the repository's own graph: every file and
  * every symbol is a node, an `import` edge joins two files, the `call`,
@@ -59,10 +60,12 @@
  * and a node with no outgoing edge spreads its rank uniformly, as PageRank
  * defines; the walk stops when no node moved by more than 1e-12 or after 100
  * turns, so a graph answers the same vector in every run and on every machine.
- * A file's and a symbol's importance is its own share of that vector, rounded to
+ * A file's and a symbol's importance is its own share of that vector, written with
  * twelve decimals; a module's is the share its members hold — the sum of their
  * ranks over the sum of every node's, which is what makes the modules of one
- * repository sum to one and every rank a number in [0, 1].
+ * repository sum to one and every rank a number in [0, 1]. The same graph answers
+ * the same number: the walk is deterministic, and its last digits are the
+ * residual it stopped at, which is the same residual in every run.
  *
  * **A rank is written onto the fact it ranks.** The file and symbol facts this
  * stage publishes are the facts stages 1, 3 and 4 published — one id, one node —
@@ -74,7 +77,7 @@ import { byCodePoint } from '../../model/order.js';
 import { ID_PATTERN } from '../../model/schema.js';
 import {
   FACT_ID_PATTERN, FACT_KINDS, factId, isRepositoryPath, makeEdgeFact, makeNodeFact, repositoryPath,
-  type CoverageGap, type CoverageGapReason, type Fact, type FactProvenance, type FactRange, type FileValue,
+  type CoverageGap, type CoverageGapReason, type Fact, type FactProvenance, type FactRange, type FactSource, type FileValue,
   type ModuleSeed, type PackageForm, type SymbolKind, type SymbolValue,
 } from '../facts.js';
 import type { SnapshotReader, SnapshotSource } from '../snapshot.js';
@@ -107,6 +110,18 @@ export const MODULES_STAGE_VERSION = 1;
  */
 export const MODULES_STAGE_KINDS: readonly string[] = ['contains', 'coverage', 'file', 'module', 'symbol'];
 
+/**
+ * The reader this stage's own facts name: the fill's modules stage. It reads the
+ * graph and no bytes, so its provenance is neither git's nor a compiler's — and
+ * that is what keeps its `coverage` of a repository apart from stage 0's
+ * coverage of the same repository, whose identity is the repository, the scope
+ * and the reader (`coverage`'s own parts, `facts.ts`): two readers of one
+ * repository are two coverages that add up, and a stage that named git's reader
+ * would have its gaps overwritten by stage 0's row (the store keeps the first
+ * publication of an id). The version moves with the stage's own.
+ */
+const MODULES_SOURCE: FactSource = { system: 'madarch-fill', version: String(MODULES_STAGE_VERSION) };
+
 /** The read the unit makes: the `package` facts stage 2 published for the repository. */
 export const PUBLISHED_PACKAGES_READ = 'stage-5-published-packages';
 
@@ -116,7 +131,13 @@ export const PUBLISHED_FILES_READ = 'stage-5-published-files';
 /** The read the unit makes: the `symbol` facts stages 3 and 4 published, with the value and place each holds. */
 export const PUBLISHED_SYMBOLS_READ = 'stage-5-published-symbols';
 
-/** The read the unit makes: the resolved edges the graph holds for the repository, by fact id. */
+/**
+ * The read the unit makes: the resolved edges the graph holds for one repository,
+ * by fact id — the `import` edges between files (the schema also lets an import
+ * end at a module or a package, and this read asks for the file-to-file ones,
+ * which are the nodes the rank walks) and the `call`, `reference` and `inherits`
+ * edges between symbols, each with the sites stage 4 folded into it.
+ */
 export const RESOLVED_EDGES_READ = 'stage-5-resolved-edges';
 
 /** The size threshold a product that configures nothing gets: 0026's unit fits about this many files. */
@@ -124,6 +145,9 @@ export const DEFAULT_SIZE_THRESHOLD = 50;
 
 /** The fan-in bound a product that configures nothing gets: 0026 bounds a module's children at about fifty. */
 export const DEFAULT_MAX_FAN_IN = 50;
+
+/** The smallest fan-in bound that can group anything: a bound of one groups one child into one group, and never ends. */
+export const MIN_MAX_FAN_IN = 2;
 
 /** PageRank's damping factor, as 0026 and the field's practice fix it. */
 const DAMPING = 0.85;
@@ -280,7 +304,7 @@ export function createModulesStage(sources: SnapshotSource): FillStage {
     // could read off the tree.
     configSchema: Type.Object({
       sizeThreshold: Type.Optional(Type.Integer({ minimum: 1 })),
-      maxFanIn: Type.Optional(Type.Integer({ minimum: 1 })),
+      maxFanIn: Type.Optional(Type.Integer({ minimum: MIN_MAX_FAN_IN })),
     }),
     defaults: { ...DEFAULT_STAGE_DEFAULTS, config: { sizeThreshold: DEFAULT_SIZE_THRESHOLD, maxFanIn: DEFAULT_MAX_FAN_IN } },
     plan: async (graph: StageGraphReader): Promise<StagePlan> => planModules(sources, graph),
@@ -352,7 +376,8 @@ async function executeModulesUnit(sources: SnapshotSource, unit: StageUnit, cont
   const edgesRead = resolvedEdgesRead(repository);
   const edges = edgeRows(await context.graph.query(edgesRead), repository, edgesRead);
   refuseWhenCancelled(unit, context);
-  const provenance = provenanceOf(reader);
+  // The stage's own reader, not the bytes' (see `MODULES_SOURCE`): what it read is the graph.
+  const provenance: FactProvenance = { ...provenanceOf(reader), source: MODULES_SOURCE };
   const clustered = clusterRepository({ repository, packages, files, settings });
   const ranks = rankNodes({ repository, files, symbols, edges });
   const written = writeClustering({ repository, reader, provenance, files, symbols, clustered, ranks });
@@ -388,7 +413,11 @@ function settingsOf(config: unknown): ModuleSettings {
     }
     return value;
   };
-  return { sizeThreshold: read('sizeThreshold', DEFAULT_SIZE_THRESHOLD), maxFanIn: read('maxFanIn', DEFAULT_MAX_FAN_IN) };
+  const maxFanIn = read('maxFanIn', DEFAULT_MAX_FAN_IN);
+  if (maxFanIn < MIN_MAX_FAN_IN) {
+    throw new Error(`the modules stage's configuration holds ${JSON.stringify(maxFanIn)} as its maxFanIn, and a bound of one groups one child into one group and never ends: a module's fan-in bound is ${MIN_MAX_FAN_IN} or more`);
+  }
+  return { sizeThreshold: read('sizeThreshold', DEFAULT_SIZE_THRESHOLD), maxFanIn };
 }
 
 // ---- the reads, read ------------------------------------------------------
@@ -423,6 +452,7 @@ function refuse(read: string, index: number, repository: string, detail: string)
  * cluster files under a package nobody declared.
  */
 export function packageRows(rows: readonly unknown[], repository: string, read: string): readonly PublishedPackageRow[] {
+  const seen = new Map<string, number>();
   return rows.map((row, index) => {
     const held = rowRecord(row, read, index, repository, 'the packages stage 2 published, one row each');
     unknownKeys(held, PACKAGE_ROW_FIELDS, read, index, repository);
@@ -439,6 +469,12 @@ export function packageRows(rows: readonly unknown[], repository: string, read: 
     if (manifest !== undefined && (typeof manifest !== 'string' || !isRepositoryPath(manifest))) {
       throw refuse(read, index, repository, `its manifest ${JSON.stringify(manifest)} is no repository path: a package names the manifest that declares it, from the repository's root`);
     }
+    const key = `${form}\u0000${name.trim()}`;
+    const first = seen.get(key);
+    if (first !== undefined) {
+      throw refuse(read, index, repository, `it repeats row ${first + 1}: a package is one fact of its repository, its form and its name, and an answer holds it once`);
+    }
+    seen.set(key, index);
     return {
       kind: 'package',
       name: name.trim(),
@@ -458,7 +494,8 @@ export function packageRows(rows: readonly unknown[], repository: string, read: 
  * the publication would not hold.
  */
 export function fileRows(rows: readonly unknown[], repository: string, read: string): readonly PublishedFileRow[] {
-  const read0 = rows.map((row, index) => {
+  const seen = new Map<string, number>();
+  return rows.map((row, index) => {
     const held = rowRecord(row, read, index, repository, 'the file facts stage 1 published, one row each');
     unknownKeys(held, FILE_ROW_FIELDS, read, index, repository);
     if (held['kind'] !== 'file') throw refuse(read, index, repository, `its kind is ${JSON.stringify(held['kind'])}, and this read answers "file" facts`);
@@ -483,9 +520,13 @@ export function fileRows(rows: readonly unknown[], repository: string, read: str
     if (held['id'] !== id) {
       throw refuse(read, index, repository, `its id ${JSON.stringify(held['id'])} is not the digest of its value, which is ${JSON.stringify(id)}: an id is never written but computed from what the fact is`);
     }
+    const first = seen.get(path);
+    if (first !== undefined) {
+      throw refuse(read, index, repository, `its path ${JSON.stringify(path)} stands in row ${first + 1}: one file is one fact, and an answer holds it once`);
+    }
+    seen.set(path, index);
     return { kind: 'file' as const, path, id, value: placed, place };
   });
-  return read0;
 }
 
 /**
@@ -498,6 +539,7 @@ export function fileRows(rows: readonly unknown[], repository: string, read: str
  * the row and the field.
  */
 export function symbolRows(rows: readonly unknown[], repository: string, read: string): readonly PublishedSymbolRow[] {
+  const seen = new Map<string, number>();
   return rows.map((row, index) => {
     const held = rowRecord(row, read, index, repository, 'the symbol facts stages 3 and 4 published, one row each');
     unknownKeys(held, SYMBOL_ROW_FIELDS, read, index, repository);
@@ -531,6 +573,11 @@ export function symbolRows(rows: readonly unknown[], repository: string, read: s
     if (held['id'] !== id) {
       throw refuse(read, index, repository, `its id ${JSON.stringify(held['id'])} is not the digest of its value, which is ${JSON.stringify(id)}: an id is never written but computed from what the fact is`);
     }
+    const first = seen.get(id);
+    if (first !== undefined) {
+      throw refuse(read, index, repository, `its id ${JSON.stringify(id)} stands in row ${first + 1}: one symbol is one fact, and an answer holds it once`);
+    }
+    seen.set(id, index);
     return { kind: 'symbol' as const, file, id, value: placed, place };
   });
 }
@@ -618,6 +665,9 @@ function rangeIn(value: unknown, read: string, index: number, repository: string
   }
   if (range.endLine < range.startLine) {
     throw refuse(read, index, repository, `its place ends on line ${range.endLine} and starts on line ${range.startLine}: a range's end is never before its start`);
+  }
+  if (range.endLine === range.startLine && range.endColumn < range.startColumn) {
+    throw refuse(read, index, repository, `its place ends at column ${range.endColumn} of line ${range.endLine} and starts at column ${range.startColumn}: a range's end is never before its start`);
   }
   return range;
 }
@@ -763,6 +813,14 @@ function renameTop(tree: ClusterTree, name: string): ClusterTree {
   return { ...tree, name };
 }
 
+/** The gap one cluster over the size threshold names: the folder, how many files stand directly in it, and the threshold. */
+function tooLarge(folder: string, files: number, threshold: number): CoverageGap {
+  return {
+    what: `${folder === '' ? '.' : folder}:1 ${files} files stand directly in this folder and the size threshold is ${threshold}: the cluster is not split further`,
+    reason: 'too-large',
+  };
+}
+
 /**
  * One folder's files as a cluster: the files standing directly in it stay here,
  * and while the cluster holds more files than the size threshold each folder
@@ -782,16 +840,18 @@ function clusterFolder(name: string, folder: string, files: readonly PublishedFi
     groups.set(segment, held);
   }
   if (groups.size === 0) {
-    gaps.push({
-      what: `${folder === '' ? '.' : folder}:1 ${files.length} files stand directly in this folder and the size threshold is ${settings.sizeThreshold}: the cluster is not split further`,
-      reason: 'too-large',
-    });
+    gaps.push(tooLarge(folder, files.length, settings.sizeThreshold));
     return { name, seed, files: own, children: [] };
   }
   const children: ClusterTree[] = [];
   for (const segment of [...groups.keys()].sort(byCodePoint)) {
     children.push(clusterFolder(segment, below(folder, segment), groups.get(segment) ?? [], 'cluster', settings, gaps));
   }
+  // The files standing directly in the folder stay in the cluster, and there is
+  // no folder left to split them into: a cluster whose own files are still over
+  // the threshold says so, rather than standing as a module larger than the
+  // bound in a coverage that calls it whole.
+  if (own.length > settings.sizeThreshold) gaps.push(tooLarge(folder, own.length, settings.sizeThreshold));
   return { name, seed, files: own, children: groupedChildren(children, settings.maxFanIn) };
 }
 
@@ -805,7 +865,7 @@ function clusterFolder(name: string, folder: string, files: readonly PublishedFi
  * bound of children however wide the folder is.
  */
 function groupedChildren(children: readonly ClusterTree[], maxFanIn: number): readonly ClusterTree[] {
-  if (maxFanIn < 1) throw new Error(`the modules stage's configuration holds ${JSON.stringify(maxFanIn)} as its maxFanIn, and a module holds at least one child: the value the registry judged is the value run with`);
+  if (maxFanIn < MIN_MAX_FAN_IN) throw new Error(`the modules stage's configuration holds ${JSON.stringify(maxFanIn)} as its maxFanIn, and a bound below ${MIN_MAX_FAN_IN} cannot group a module's children: the value the registry judged is the value run with`);
   if (children.length <= maxFanIn) return children;
   const grouped: ClusterTree[] = [];
   for (let at = 0; at < children.length; at += maxFanIn) {
@@ -916,7 +976,7 @@ function pageRank(nodes: readonly RankedNode[]): Ranking {
   return { rankOf, total };
 }
 
-/** A rank as it is written: twelve decimals, so a value is the same number in every run and on every machine. */
+/** A rank as it is written: twelve decimals, so the same graph answers the same number in every run and on every machine. */
 function rankValue(share: number): number {
   const scale = 10 ** RANK_DECIMALS;
   const rounded = Math.round(share * scale) / scale;

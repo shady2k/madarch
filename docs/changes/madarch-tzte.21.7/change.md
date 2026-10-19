@@ -34,11 +34,13 @@ importance from one PageRank over the repository's own resolved edges.
   (the module kind's own field already exists), the `file` kind's value shape to
   version 3 and the `symbol` kind's to 2, the stage list of both kinds gaining
   `5-modules`, a value check that an importance is a number in [0, 1], and
-  `FACT_RANKED_FIELDS` — the fields of a fact a later publication replaces.
+  `FACT_MEASURED_FIELDS` — the fields of a fact a later publication replaces.
 - **`src/fill/fact-store.ts`**: the one place that rule is honoured — a
-  publication of a fact id whose kind declares a ranked field replaces exactly
-  those fields of the stored value, and leaves every other field the way
-  madarch-tzte.20.2 fixed it.
+  publication of a fact id whose kind declares a measured field replaces exactly
+  those fields of the stored value, leaves every other field the way
+  madarch-tzte.20.2 fixed it, and moves the row's schema version with the value.
+- **`src/fill/orchestrator-store.ts`**: a tracked read's membership digest leaves
+  the measured fields out, so a re-ranking makes no unit that read the node stale.
 
 Nothing runs: no command constructs the stage registry, and the stage's facts are
 drafts the publication of madarch-tzte.20.2 applies.
@@ -67,6 +69,16 @@ drafts the publication of madarch-tzte.20.2 applies.
 - **The fill's capability text**: the requirement this stage serves is proposed
   by `fill-pipeline-monday`, not current, and the rebuild's own requirement text
   lands with the stage that closes decision 0026.
+- **A pinned repository that holds no file.** It is no cluster and no rank, so the
+  plan names no unit for it and this stage writes nothing about it; stage 0's
+  coverage already records what that tree held, so the absence is attributable and
+  not a silence of this stage.
+- **A rank that outlives the publication that measured it.** A rank is written
+  onto a fact the inventory and the syntax stage hold, so a row stays when the
+  modules unit that measured it drops its facts, and the graph keeps the last
+  measurement with no holding naming who measured it. That is a known limit of
+  writing a stage's measurement onto another stage's fact; the fix would be a
+  per-field record of the writer, which the holding table does not have.
 - **A migration of facts published before this change.** A stored `file` or
   `symbol` row keeps the schema version it was published with, and no run of this
   fill has published one (nothing constructs the registry), so there is nothing
@@ -96,11 +108,17 @@ all: a rank belongs to the node it ranks, and a page or an agent packet reads it
 off that node. The fact store is where such a field can be lost — madarch-tzte.20.2
 keeps the row of the publication that put a fact there first, because two units
 that publish one fact are two readers' observations of it. A rank is not an
-observation of that kind: decision 0026 makes it one measurement of the whole
-repository, so a re-ranking must move the value a row already holds, or every
-rank in the graph would be the one the first run measured, for ever. The
-declaration `FACT_RANKED_FIELDS` says which fields those are, and the store
-applies exactly those and nothing else.
+observation of that kind, and neither is the size of the cluster a rank belongs
+to: decision 0026 makes both one measurement of the whole repository, so a
+re-ranking must move the values a row already holds, or every rank — and every
+module's member count — would be the one the first run measured, for ever. The
+declaration `FACT_MEASURED_FIELDS` names exactly those fields, the store applies
+them from the publication that carries them, and a read that answered one of
+them leaves it out of the digest publication rechecks (`readMembership`): a read
+that answered a node was about the node, not about the number a later run gave
+it, so a re-ranking makes no unit that read a file or a symbol stale — neither
+stage 5's own nor stage 4's, whose symbol read would otherwise be invalidated by
+every re-ranking.
 
 ## Blocking questions
 
@@ -124,12 +142,15 @@ None.
   with the value and the place each stands at), the `symbol` facts stages 3 and 4
   published (a file's symbols, and the nodes a rank is written on), and the
   resolved edges — `import` from stage 3, `call`, `reference` and `inherits` from
-  stage 4, each with the site count stage 4 folded into it. Every row of every
-  read is read strictly: a key the read does not define, a kind the read does not
-  answer, a value that names another file or another repository, an id that is not
-  the digest of its value, a place that is no ascending range, an end that is no
-  fact id, a count on an edge that folds no sites, and a pair of ends answered
-  twice are each refused naming the read, the row, the repository and the field.
+  stage 4, each with the site count stage 4 folded into it. The read asks for the
+  imports *between files*: the schema also lets an import end at a module or a
+  package, and those ends are no node of the rank, so a row naming one is refused
+  and named rather than dropped. Every row of every read is read strictly: a key
+  the read does not define, a kind the read does not answer, a value that names
+  another file or another repository, an id that is not the digest of its value, a
+  place that is no ascending range, an end that is no fact id of the kind the edge
+  joins, a count on an edge that folds no sites, and a row answered twice are each
+  refused naming the read, the row, the repository and the field.
 - **A file belongs to the seed whose folder is the longest prefix of its path.**
   A package's folder is the folder its manifest stands in, so the innermost
   package holds its own files; two seeds claiming one folder (a `package.json`
@@ -146,9 +167,10 @@ None.
   folder below it as a cluster of its own and splits those by the same rule; the
   files standing directly in the cluster's folder stay in it. A cluster still
   over the threshold with no folder left to split by — a folder of fifty-one
-  files — is kept whole and named in the coverage with the reason `too-large`:
-  the fill is never silently smaller than the graph it read, and a boundary the
-  tree does not have is never invented.
+  files, or a folder of fifty-five files beside a subfolder it did split off — is
+  kept whole and named in the coverage with the reason `too-large`, counting the
+  files that stand directly in it: the fill is never silently smaller than the
+  graph it read, and a boundary the tree does not have is never invented.
 - **Fan-in is bounded by an intermediate grouping level.** A cluster with more
   children than `maxFanIn` (50 by default, 0026's "fan-in is bounded (~50
   children, else an intermediate grouping level)") groups them, in code point
@@ -157,7 +179,8 @@ None.
   the group's own ordinal and never depends on how many groups the folder happened
   to need. A group of groups is grouped again, so no module holds more than the
   bound of children at any depth; the modules the folders became keep the names
-  they had.
+  they had. A bound below two groups one child into one group and never ends, so
+  the stage's schema and its own configuration reader refuse it by name.
 - **Importance is one PageRank over the repository's own graph.** The nodes are
   every file and every symbol the reads answered, in code point order of their
   ids, so the walk is the same arithmetic in the same order in every run. The
@@ -169,15 +192,17 @@ None.
   whole graph (PageRank's own dangling rule, which keeps the vector a
   distribution of one whole), the walk stops when no node moved by more than
   1e-12, and it stops after 100 turns at the most. A rank is written with twelve
-  decimals: two nodes' values stay distinguishable, and the same graph answers the
-  same numbers on every machine.
+  decimals, and the same graph answers the same number on every machine: the walk
+  is the same arithmetic in the same order, so its residual at the turn it stopped
+  is the same residual, and the last digits are that residual and not noise.
 - **A module's importance is the share its members hold** — the sum of the ranks
   under it over the sum of every node's — which is why the modules of one
   repository sum to one and every rank is a number in [0, 1], the range the schema
   gives the field. The module's `members` counts the files and symbols under it
   for the same reason: a page that shows a module shows what is inside it, and a
   fan-in group with nothing directly in it still says how large the part it
-  groups is.
+  groups is. Both are measurements of the cluster, so both are measured fields: a
+  re-clustering moves the size with the rank it is computed beside.
 - **`file` and `symbol` are written here and not declared in `produces`.** A rank
   is written onto the fact it is about — the file and symbol facts stages 1, 3 and
   4 published, one id each, with `importance` added — because a rank belongs to
@@ -194,8 +219,14 @@ None.
   whole.** One `coverage` fact per repository, its scope the repository's own fact
   id, its `read` the seven scopes the four reads cover, and its `unread` every gap
   the clustering named — a workspace, a package with no manifest, a seed whose
-  folder holds no file, a cluster too large to split further — each with 0004's
-  reason. A complete coverage is the only ground for a claim of absence (0005).
+  folder holds no file, a cluster whose files are too many to split further — each
+  with 0004's reason. A complete coverage is the only ground for a claim of
+  absence (0005). Its reader is this stage, `madarch-fill`, and not git: a
+  coverage's identity is the repository, the scope and the reader, so a stage that
+  named git's reader would compute stage 0's coverage id for the same repository
+  and lose every gap it found to the row the store already holds. A stage that
+  reads the graph and no bytes names itself, which is the same rule that makes
+  stage 0's coverage and a compiler's two coverages of one repository.
 - **Two modules of one name under one parent are one fact, and are refused
   rather than published once of the two.** Two package seeds may carry one package
   name: each top-level module of a shared name then says which manifest it came
@@ -211,5 +242,46 @@ The checks and the independent review are recorded on task madarch-tzte.21.7:
 `bun run check`, the focused suites on the SkyPilot pod, the feature document
 gate, green CI on the exact SHA, and the review rounds with their answers.
 Mutation is not run as a Stryker job here: the owner's rule runs it once per
-assembled stage, and a bounded manual sample of mutants is recorded on the task
-instead.
+assembled stage, and a bounded manual sample of four mutants is recorded on the
+task instead — damping 0.85 to 0.5, the dangling-node spread removed, the size
+threshold's `<=` narrowed to `<`, and the code-point sort of the draft removed.
+Three of the four were killed by the suite on the first run; the threshold one
+survived, because no test held a cluster of exactly the threshold's size, and the
+test the answer added kills it.
+
+The first review round (a fresh `deepseek-v4.1-flash-auto` session over
+`git diff origin/main...HEAD`, read-only) answered `fix-before-ship` with two
+defects and six should-fix items, all of them answered here with the test that
+holds each:
+
+- **The coverage fact had stage 0's id, and its gaps were lost.** A coverage's
+  identity is the repository, the scope and the reader; this stage passed the
+  repository's own scope with `provenanceOf(reader)`'s git reader, so it computed
+  stage 0's coverage id for the same repository and the store kept stage 0's row.
+  The stage now names its own reader (`madarch-fill`, a stage that reads the graph
+  and no bytes), and a test holds that the two ids differ.
+- **A module's `members` was frozen while its `importance` moved.** The member
+  count is stage 5's own measurement of the cluster, the same kind of value as the
+  rank, so `FACT_MEASURED_FIELDS` names it and a re-clustering moves it; the
+  scenario holds both fields moving and a publication that carries no rank leaving
+  the rank it does not name.
+- **A fan-in bound of one recursed for ever.** `maxFanIn` is `2` or more in the
+  stage's schema, and its own configuration reader refuses anything below it by
+  name, with a test.
+- **The `too-large` gap was narrower than the record.** A cluster that split off
+  its subfolders and kept files that were still over the threshold said nothing;
+  it now names them, and a test holds the fifty-five-files-beside-a-subfolder
+  case in miniature.
+- **The stage's own publication invalidated its own tracked read**, and stage 4's
+  symbol read with it: the membership digest now leaves the measured fields out,
+  with a test that a rank moving is not a read moving and that another field still
+  is.
+- **A rank outlives the publication that measured it**: named as a limit of
+  writing a stage's measurement onto another stage's fact, in Out of scope.
+- **Tests that did not discriminate**: the seed rules (longest folder, the
+  one-folder tie-break by manifest path), the name-collision rename, an edge's
+  site count as a rank weight, the value check on a rank and a publication that
+  names no rank each have a test now.
+- **The file-to-file restriction of the imports read** is named in the read's own
+  declaration and in this record; the module header's grouping names, the "twelve
+  decimals" claim and `rangeIn`'s ascending check on one line are corrected.

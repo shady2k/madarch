@@ -45,14 +45,19 @@ export function factStoreChecks(facts: ScenarioFacts): readonly FactStoreCheck[]
       check: (report) => expect(report.sharedCountStored).toBe(bCount),
     },
     {
-      name: 'a rank is the one field a later publication replaces, and every other field keeps the first publication\'s row',
+      name: 'a measured field is what a later publication replaces, and every other field keeps the first publication\'s row',
       check: (report) => {
         expect(report.rankAfterFirst).toBe(0.5);
-        // The second publication of one id carries another rank and another member count: the rank moves
-        // (0026's "importance by PageRank" is measured over the whole graph, so a re-ranking must move it)
-        // and the count stays the first row's (madarch-tzte.20.2's rule for what an identity does not read).
+        // The second publication of one id carries another rank and another member count: both are stage 5's
+        // measurements of the cluster over the whole repository (0026's "importance by PageRank"), so a
+        // re-clustering must move them, and every field that is no measurement keeps the first row's
+        // (madarch-tzte.20.2's rule for what an identity does not read).
         expect(report.rankAfterSecond).toBe(0.25);
-        expect(report.membersAfterSecond).toBe(3);
+        expect(report.membersAfterSecond).toBe(5);
+        // A publication that carries no rank changes nothing it did not measure: the rank the row holds
+        // stands, and the size the publication does carry moves.
+        expect(report.rankAfterUnranked).toBe(0.25);
+        expect(report.membersAfterUnranked).toBe(3);
       },
     },
     {

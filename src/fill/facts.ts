@@ -1028,19 +1028,25 @@ export interface InteractionEdgeValue {
 
 /**
  * The fields of a fact's value that a later publication of the same id
- * replaces, by the kind and the field's own name (madarch-tzte.21.7): a rank
- * the graph measures over the whole repository, never one reader's observation
- * of a fact two units may publish. Every other field keeps the rule of
+ * replaces, by the kind and the field's own name (madarch-tzte.21.7): what the
+ * publishing stage *measures* of a node over the whole graph — a rank, and the
+ * size of the cluster that ranks it — rather than one reader's observation of a
+ * fact two units may publish. Every other field keeps the rule of
  * madarch-tzte.20.2 — the row of a fact id keeps what the publication that put
- * it there first said — so the fact store applies exactly these fields from
- * the publication that carries them (`applyPublishedFacts`, `fact-store.ts`)
- * and a re-ranking updates a rank without touching what the rank is about.
+ * it there first said — so the fact store applies exactly these fields from the
+ * publication that carries them (`applyPublishedFacts`, `fact-store.ts`), and a
+ * read that answered one of them is not made stale by it (a read's membership,
+ * `readMembership` in `orchestrator-store.ts`, leaves them out): a re-ranking
+ * moves a rank without touching what the rank is about, and without making
+ * every unit that read the node out of date.
  */
-export const FACT_RANKED_FIELDS: { readonly [K in FactKind]?: readonly (keyof FactValueOf<K> & string)[] } = {
+export const FACT_MEASURED_FIELDS: { readonly [K in FactKind]?: readonly (keyof FactValueOf<K> & string)[] } = {
   // Stage 5's PageRank over the resolved edges: a file's, a symbol's and a
-  // module's importance (decision 0026, "importance by PageRank").
+  // module's importance (decision 0026, "importance by PageRank") — and a
+  // module's member count, which is that same measurement of the cluster (how
+  // many files and symbols stand under it), so a re-clustering moves it too.
   'file': ['importance'],
-  'module': ['importance'],
+  'module': ['importance', 'members'],
   'symbol': ['importance'],
 };
 

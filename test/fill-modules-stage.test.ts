@@ -168,7 +168,10 @@ interface DraftFact {
   readonly kind: string;
   readonly id: string;
   readonly value: Record<string, unknown>;
-  readonly provenance: { readonly place?: { readonly file: string; readonly range: { readonly startLine: number } } };
+  readonly provenance: {
+    readonly source?: { readonly system: string; readonly version: string };
+    readonly place?: { readonly file: string; readonly range: { readonly startLine: number } };
+  };
 }
 
 /** The facts one draft set holds, in the order they were written; a write that is no fact is left out. */
@@ -432,6 +435,27 @@ describe('the modules stage clusters the graph recursively', () => {
     }
   });
 
+  test('a cluster holding exactly the size threshold is not split', async () => {
+    const f = await fixture();
+    try {
+      await f.write('a.ts');
+      await f.write('src/x.ts');
+      const commit = f.commit();
+      const a = fileFact('a.ts');
+      const x = fileFact('src/x.ts');
+      // Two files and a threshold of two: the cluster fits, and no boundary is
+      // drawn inside it (the rule splits a cluster that is *over* the threshold).
+      const recorder = await executed(sourceAt(f.root, commit), answerFor({ files: [a, x] }), { sizeThreshold: 2, maxFanIn: 50 });
+      const held = modules(recorder.writes);
+      expect(held).toHaveLength(1);
+      expect(held[0]!.members).toBe(2);
+      expect(contained(recorder.writes).map((edge) => edge.to).sort()).toEqual([a.id, x.id].sort());
+      expect(factOfKind(recorder.writes, 'coverage').value['complete']).toBe(true);
+    } finally {
+      await f.dispose();
+    }
+  });
+
   test('a cluster with no folder left to split by is a gap, never a smaller module', async () => {
     const f = await fixture();
     try {
@@ -454,6 +478,46 @@ describe('the modules stage clusters the graph recursively', () => {
       expect(unread).toHaveLength(1);
       expect(unread[0]!.reason).toBe('too-large');
       expect(unread[0]!.what).toContain('the size threshold is 1');
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('files standing directly in a split cluster are named when they are still over the threshold', async () => {
+    const f = await fixture();
+    try {
+      await f.write('package.json', '{ "name": "@acme/app" }\n');
+      await f.write('a.ts');
+      await f.write('b.ts');
+      await f.write('src/x.ts');
+      const commit = f.commit();
+      const recorder = await executed(sourceAt(f.root, commit), answerFor({
+        packages: [{ name: '@acme/app', form: 'package', manifest: 'package.json' }],
+        files: [fileFact('a.ts'), fileFact('b.ts'), fileFact('src/x.ts')],
+      }), { sizeThreshold: 1, maxFanIn: 50 });
+      // The package splits off `src`, and its own two files still stand over the
+      // threshold of one: the cluster says so, rather than standing as a module
+      // larger than the bound in a coverage that calls it whole.
+      expect(modules(recorder.writes).map((module) => module.name).sort()).toEqual(['@acme/app', 'src']);
+      const coverage = factOfKind(recorder.writes, 'coverage');
+      expect(coverage.value['complete']).toBe(false);
+      const unread = coverage.value['unread'] as readonly { readonly what: string; readonly reason: string }[];
+      expect(unread).toHaveLength(1);
+      expect(unread[0]!.reason).toBe('too-large');
+      expect(unread[0]!.what).toContain('2 files stand directly in this folder');
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a fan-in bound of one cannot group anything, and is refused by name', async () => {
+    const f = await fixture();
+    try {
+      await f.write('src/a.ts');
+      const commit = f.commit();
+      const message = await refusedBy(() => executed(sourceAt(f.root, commit), answerFor({ files: [fileFact('src/a.ts')] }), { maxFanIn: 1 }));
+      expect(message).toContain('maxFanIn');
+      expect(message).toContain('a module\'s fan-in bound is 2 or more');
     } finally {
       await f.dispose();
     }
@@ -511,6 +575,118 @@ describe('the modules stage clusters the graph recursively', () => {
       walk(root.id);
       expect([...reachable].filter((name) => name.startsWith('f')).sort()).toEqual(['f1', 'f2', 'f3', 'f4', 'f5']);
       expect(held.length).toBeGreaterThan(5);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a file belongs to the seed whose folder is the longest prefix of its path', async () => {
+    const f = await fixture();
+    try {
+      for (const path of ['package.json', 'index.ts', 'packages/api/package.json', 'packages/api/src/a.ts', 'packages/api/src/deep/b.ts']) await f.write(path);
+      const commit = f.commit();
+      const index = fileFact('index.ts');
+      const a = fileFact('packages/api/src/a.ts');
+      const b = fileFact('packages/api/src/deep/b.ts');
+      const recorder = await executed(sourceAt(f.root, commit), answerFor({
+        packages: [
+          // The same two packages, answered innermost *last*: the plan reads by
+          // the folder's length and not by the order the read answered in.
+          { name: '@acme/api', form: 'package', manifest: 'packages/api/package.json' },
+          { name: '@acme/root', form: 'package', manifest: 'package.json' },
+        ],
+        files: [index, a, b],
+      }));
+      const held = modules(recorder.writes);
+      const root = held.find((module) => module.name === '@acme/root')!;
+      const api = held.find((module) => module.name === '@acme/api')!;
+      const edges = contained(recorder.writes);
+      // The inner package holds the files under its folder; the root package
+      // holds what stands above it, and never reaches into the inner one.
+      expect(edges.filter((edge) => edge.from === api.id).map((edge) => edge.to).sort()).toEqual([a.id, b.id].sort());
+      expect(edges.filter((edge) => edge.from === root.id).map((edge) => edge.to)).toEqual([index.id]);
+      expect(root.members).toBe(1);
+      expect(api.members).toBe(2);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('two seeds claiming one folder are told apart by their manifest path, and two packages of one name say which manifest they came from', async () => {
+    const f = await fixture();
+    try {
+      await f.write('Cargo.toml');
+      await f.write('go.mod');
+      await f.write('index.ts');
+      await f.write('packages/web/package.json', '{ "name": "@acme/web" }\n');
+      await f.write('packages/site/Cargo.toml');
+      await f.write('packages/web/a.ts');
+      await f.write('packages/site/b.ts');
+      const commit = f.commit();
+      const index = fileFact('index.ts');
+      const web = fileFact('packages/web/a.ts');
+      const site = fileFact('packages/site/b.ts');
+      const recorder = await executed(sourceAt(f.root, commit), answerFor({
+        packages: [
+          // Two seeds of the root folder (`Cargo.toml` and `go.mod`) and two
+          // packages of one name in two forms: a package and a build target of
+          // one name are two facts of the schema, and each top-level module of a
+          // shared name says which manifest it came from.
+          { name: 'root-crate', form: 'package', manifest: 'Cargo.toml' },
+          { name: 'root-module', form: 'package', manifest: 'go.mod' },
+          { name: '@acme/web', form: 'package', manifest: 'packages/web/package.json' },
+          { name: '@acme/web', form: 'build-target', manifest: 'packages/site/Cargo.toml' },
+        ],
+        files: [index, web, site],
+      }));
+      const held = modules(recorder.writes);
+      expect(held.map((module) => module.name).sort()).toEqual([
+        '@acme/web (packages/site/Cargo.toml)',
+        '@acme/web (packages/web/package.json)',
+        'root-crate',
+      ]);
+      // The ids differ, so the two clusters of one package name are two facts
+      // and not one fact published twice.
+      expect(new Set(held.map((module) => module.id)).size).toBe(3);
+      // The two seeds of the root folder claim one file between them, and the
+      // manifest that stands first in code point order holds it.
+      const rootCrate = held.find((module) => module.name === 'root-crate')!;
+      expect(contained(recorder.writes).filter((edge) => edge.from === rootCrate.id).map((edge) => edge.to)).toEqual([index.id]);
+      // The seed that lost the file seeds no module, and the coverage says so.
+      const coverage = factOfKind(recorder.writes, 'coverage');
+      expect(coverage.value['complete']).toBe(false);
+      const unread = coverage.value['unread'] as readonly { readonly what: string }[];
+      expect(unread).toHaveLength(1);
+      expect(unread[0]!.what).toContain('root-module');
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a call edge\'s site count is the weight the rank gives it', async () => {
+    const f = await fixture();
+    try {
+      for (const path of ['src/a.ts', 'src/b.ts', 'src/c.ts']) await f.write(path);
+      const commit = f.commit();
+      const a = fileFact('src/a.ts');
+      const b = fileFact('src/b.ts');
+      const c = fileFact('src/c.ts');
+      const callA = symbolFact('src/a.ts', 'a');
+      const callB = symbolFact('src/b.ts', 'b');
+      const callC = symbolFact('src/c.ts', 'c');
+      const recorder = await executed(sourceAt(f.root, commit), answerFor({
+        files: [a, b, c],
+        symbols: [callA, callB, callC],
+        // One symbol calls two symbols, three sites into one and one into the
+        // other: the edge's weight is what stage 4 folded in, and the rank
+        // follows it. With the weight ignored the two would be equal, since
+        // nothing else tells them apart.
+        edges: [
+          { kind: 'call', from: callA.id, to: callB.id, count: 3 },
+          { kind: 'call', from: callA.id, to: callC.id, count: 1 },
+        ],
+      }));
+      expect(importanceOf(recorder.writes, 'symbol', callB.id)).toBeGreaterThan(importanceOf(recorder.writes, 'symbol', callC.id));
     } finally {
       await f.dispose();
     }
@@ -596,6 +772,18 @@ describe('the modules stage writes the coverage of what it read', () => {
       }));
       const coverage = factOfKind(recorder.writes, 'coverage');
       expect(coverage.value['repository']).toBe(REPOSITORY);
+      // The coverage's identity is the repository, the scope and the *reader*
+      // (facts.ts), and stage 0 writes its own coverage of the same repository
+      // under git's reader: two readers are two coverages, and a stage that
+      // named git's reader would have its gaps overwritten by stage 0's row,
+      // because the store keeps the first publication of an id.
+      expect(coverage.provenance.source?.system).toBe('madarch-fill');
+      const stage0 = factId({
+        kind: 'coverage',
+        value: { repository: REPOSITORY, scope: coverage.value['scope'] as string, complete: true, read: [], unread: [] },
+        provenance: { source: { system: 'git', version: '2.51.0' }, repository: { id: REPOSITORY, commit: COMMIT } },
+      });
+      expect(coverage.id).not.toBe(stage0);
       expect(coverage.value['read']).toEqual(['calls', 'files', 'imports', 'inherits', 'packages', 'references', 'symbols']);
       // The repository's own fact id, not a path: the scope a reader joins on.
       const repositoryId = factId({ kind: 'repository', value: { repository: REPOSITORY, form: 'code' }, provenance: placeAt('index.ts') });
@@ -627,6 +815,13 @@ describe('the reads are read strictly', () => {
     expect(await refusedBy(() => symbolRows([{ ...symbolRow(symbol), value: { ...symbolRow(symbol).value, repository: 'other-api' } }], REPOSITORY, read))).toContain('one fact is one repository');
     expect(await refusedBy(() => edgeRows([{ kind: 'import', from: symbol.id, to: file.id }], REPOSITORY, read))).toContain('is no file fact id');
     expect(await refusedBy(() => edgeRows([{ kind: 'import', from: file.id, to: file.id, count: 2 }], REPOSITORY, read))).toContain('an import edge folds no sites');
+    // One file, one symbol and one package are one fact each: a read that answers one twice is refused rather than counted twice.
+    expect(await refusedBy(() => fileRows([fileRow(file), fileRow(file)], REPOSITORY, read))).toContain('one file is one fact');
+    expect(await refusedBy(() => symbolRows([symbolRow(symbol), symbolRow(symbol)], REPOSITORY, read))).toContain('one symbol is one fact');
+    expect(await refusedBy(() => packageRows([
+      { kind: 'package', name: 'x', form: 'package' },
+      { kind: 'package', name: 'x', form: 'package' },
+    ], REPOSITORY, read))).toContain('a package is one fact');
     expect(await refusedBy(() => edgeRows([
       { kind: 'call', from: symbol.id, to: symbol.id, count: 1 },
       { kind: 'call', from: symbol.id, to: symbol.id, count: 3 },

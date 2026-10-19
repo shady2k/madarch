@@ -353,6 +353,26 @@ describe('the kinds the fill writes', () => {
     expect(FACT_KINDS['claim'].stages.every((stage) => AGENT_STAGES.includes(stage))).toBe(true);
   });
 
+  test('a rank the fill measures is a share of one whole, refused outside [0, 1]', () => {
+    // Stage 5's importance (madarch-tzte.21.7) is a share of the repository's
+    // PageRank: a value the graph could not compare with another node's — a
+    // negative one, one past the whole, one that is no number — is refused at
+    // its own field, and the ends of the range are read.
+    for (const kind of ['file', 'module', 'symbol'] as const) {
+      const sample = sampleFact(kind) as unknown as { readonly value: Record<string, unknown> };
+      const withRank = (importance: unknown): unknown => ({
+        ...(sample as unknown as Record<string, unknown>),
+        value: { ...sample.value, importance },
+      });
+      expect(checkFact(withRank(1))).toEqual([]);
+      expect(checkFact(withRank(0))).toEqual([]);
+      expect(checkFact(withRank(0.42))).toEqual([]);
+      for (const wrong of [-0.1, 1.5, 'half', null]) {
+        expect(checkFact(withRank(wrong)).map((problem) => problem.path)).toEqual(['value.importance']);
+      }
+    }
+  });
+
   test('every kind carries its value shape version, and only a moved kind stands past the schema version', () => {
     expect(Number.isInteger(FACTS_SCHEMA_VERSION)).toBe(true);
     // A kind whose value shape changes moves alone: `file` moved to 2 when the

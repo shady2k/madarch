@@ -14,11 +14,13 @@
  *   The row keeps the envelope of the publication that put it there first: the
  *   fields an identity does not read — a call's `count`, a source's `version` —
  *   are two readers' observations of one fact, never a second fact. The one
- *   exception is a field the kind declares as a rank (`FACT_RANKED_FIELDS`: a
- *   file's, a symbol's and a module's `importance`), which the publication that
- *   carries it replaces: a rank is the graph's own measurement of the whole
- *   repository (decision 0026, "importance by PageRank"), so a re-ranking moves
- *   it, and a publication that names no rank leaves the one the row holds.
+ *   exception is a field the kind declares as measured (`FACT_MEASURED_FIELDS`:
+ *   a file's, a symbol's and a module's `importance`, and a module's `members`),
+ *   which the publication that carries it replaces: a rank is the graph's own
+ *   measurement of the whole repository (decision 0026, "importance by
+ *   PageRank"), so a re-ranking moves it, and a publication that names no rank
+ *   leaves the one the row holds. The row's schema version moves with the value
+ *   it now holds.
  * - `fill_fact_holding`: one row per fact and publishing unit, with the stage,
  *   the generation and the publication digest that put it there, and a foreign
  *   key onto the fact it holds, so a holding without its fact is a state the
@@ -49,7 +51,7 @@
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
 import type { SqlExecutor } from '../query/sql-driver.js';
-import { FACT_EDGE_KINDS, FACT_RANKED_FIELDS, checkFact, type Fact } from './facts.js';
+import { FACT_EDGE_KINDS, FACT_MEASURED_FIELDS, checkFact, type Fact } from './facts.js';
 import { here, withLocation } from './fsm-core.js';
 import type { FactApplication } from './orchestrator.js';
 import { readPublicationIn, readUnitDraftIn, type UnitPlanRecord } from './orchestrator-store.js';
@@ -311,12 +313,12 @@ export async function applyPublishedFacts(input: FactApplicationInput): Promise<
     for (const fact of publishing) {
       // The fact's own row: the first publication of an id writes it, and a later one adds its holding
       // and leaves the row as it stands (the id is the fact's identity, so the difference is a reader's
-      // own observation of the same fact) — except the fields its kind declares as ranks
-      // (`FACT_RANKED_FIELDS`), which the publication that carries them replaces: stage 5 measures a
+      // own observation of the same fact) — except the fields its kind declares as measured
+      // (`FACT_MEASURED_FIELDS`), which the publication that carries them replaces: stage 5 measures a
       // file's, a symbol's and a module's importance over the whole repository, so a re-ranking must
       // move a rank the row already holds, and the rank is nobody's observation of somebody's fact.
-      const ranked = FACT_RANKED_FIELDS[fact.kind] ?? [];
-      if (ranked.length === 0) {
+      const measured = FACT_MEASURED_FIELDS[fact.kind] ?? [];
+      if (measured.length === 0) {
         await input.executor.query(
           `INSERT INTO fill_fact (id, kind, schema_version, provenance, layer, status, value)
            VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7::jsonb)
@@ -333,8 +335,9 @@ export async function applyPublishedFacts(input: FactApplicationInput): Promise<
              SET value = fill_fact.value || COALESCE((
                SELECT jsonb_object_agg(entry.key, entry.value) FROM jsonb_each(EXCLUDED.value) AS entry
                WHERE entry.key = ANY($8::text[])
-             ), '{}'::jsonb)`,
-          [fact.id, fact.kind, fact.schemaVersion, json(fact.provenance), fact.layer, fact.status, json(fact.value), ranked],
+             ), '{}'::jsonb),
+                 schema_version = EXCLUDED.schema_version`,
+          [fact.id, fact.kind, fact.schemaVersion, json(fact.provenance), fact.layer, fact.status, json(fact.value), measured],
         );
       }
       await input.executor.query(

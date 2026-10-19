@@ -77,13 +77,16 @@ export interface ScenarioFacts {
   /** A fact a unit publishes and then drops by publishing nothing: a renamed file's inventory fact. */
   readonly emptiedFact: Fact;
   /**
-   * One module fact at two rankings: stage 5 measures a rank over the whole
-   * repository and writes it onto the fact of the module it is about, so the id
-   * — its identity — is the same after a re-ranking, and only `importance`
-   * moves (madarch-tzte.21.7).
+   * One module fact at two rankings: stage 5 measures a rank and the size of the
+   * cluster over the whole repository and writes them onto the fact of the
+   * module it is about, so the id — its identity — is the same after a
+   * re-ranking, and only the measured fields move (madarch-tzte.21.7). A third
+   * publication of the same fact carries no rank at all, which is how a
+   * publication that measured nothing leaves the measurement the row holds.
    */
   readonly rankedModule: Fact;
   readonly rankedModuleReranked: Fact;
+  readonly rankedModuleUnranked: Fact;
   /** A folder unit's facts (a directory and the edge that holds a file in it), as stages 1 and 5 write them. */
   readonly folderDirectory: Fact;
   readonly folderFile: Fact;
@@ -113,6 +116,7 @@ export function scenarioFacts(): ScenarioFacts {
     return { directory, file: held, contains: makeEdgeFact({ kind: 'contains', value: { from: directory.id, to: held.id }, provenance: provenance(file), layer: 'extracted' }) };
   };
   const ranked = (importance: number, members: number): Fact => makeNodeFact({ kind: 'module', value: { repository: 'acme-shop', name: 'ranked', seed: 'package', members, importance }, provenance: provenance('src/ranked.ts'), layer: 'extracted' });
+  const unranked = (members: number): Fact => makeNodeFact({ kind: 'module', value: { repository: 'acme-shop', name: 'ranked', seed: 'package', members }, provenance: provenance('src/ranked.ts'), layer: 'extracted' });
   const folderA = folder('src', 'src/cart.ts');
   const folderB = folder('lib', 'lib/total.ts');
   const folderDirectory = folderA.directory;
@@ -124,6 +128,7 @@ export function scenarioFacts(): ScenarioFacts {
   return {
     rankedModule: ranked(0.5, 3),
     rankedModuleReranked: ranked(0.25, 5),
+    rankedModuleUnranked: unranked(3),
     symbolOne,
     symbolTwo,
     callEdgeOfA: call(9),
@@ -223,6 +228,9 @@ export interface FactStoreScenarioReport {
   readonly rankAfterFirst: number;
   readonly rankAfterSecond: number;
   readonly membersAfterSecond: number;
+  /** The same row after a publication that carries no rank: the rank it holds stands, and the size it carries moves. */
+  readonly rankAfterUnranked: number;
+  readonly membersAfterUnranked: number;
 }
 
 /** Raises the machine's own refusal, so a scenario step that cannot be taken says why. */
@@ -415,7 +423,7 @@ export async function runFactStoreScenario(owner: DatabaseOwner): Promise<FactSt
     (await readFact(owner, facts.otherFolderContains.id)) !== null,
   ];
 
-  // ---- a rank is the one field of a fact row a later publication replaces ----
+  // ---- a measured field is the one field of a fact row a later publication replaces ----
   const rankOf = async (id: string): Promise<number> => {
     const stored = (await readFact(owner, id))?.fact.value as { readonly importance?: number; readonly members?: number } | undefined;
     return stored?.importance ?? -1;
@@ -429,11 +437,16 @@ export async function runFactStoreScenario(owner: DatabaseOwner): Promise<FactSt
   await publishNextGeneration('unit-ranked', 2, [writeOf('fact', facts.rankedModuleReranked)], NOW + 13_100);
   const rankAfterSecond = await rankOf(facts.rankedModule.id);
   const membersAfterSecond = await membersOf(facts.rankedModule.id);
+  await publishNextGeneration('unit-ranked', 3, [writeOf('fact', facts.rankedModuleUnranked)], NOW + 13_200);
+  const rankAfterUnranked = await rankOf(facts.rankedModule.id);
+  const membersAfterUnranked = await membersOf(facts.rankedModule.id);
 
   return {
     rankAfterFirst,
     rankAfterSecond,
     membersAfterSecond,
+    rankAfterUnranked,
+    membersAfterUnranked,
     aHoldsAfterFirst,
     bHoldsAfterFirst,
     sharedPublishers,
