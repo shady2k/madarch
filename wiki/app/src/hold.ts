@@ -9,8 +9,18 @@
 import { createContext } from 'react';
 import type { Route } from './routes.js';
 
-/** What a rendered document needs to know to answer a link: the page it is on, and the open stage's id when the route is a stage's. */
-export type RouteData = { path?: string; stage?: string; group?: string; architecture?: { kind: string; title: string }; heldPaths: ReadonlySet<string> };
+/** What a rendered document needs to know to answer a link: the page it is on, the open stage's id when the route is a stage's, and the open graph node's id when the route is a graph page's. */
+export type RouteData = {
+  path?: string;
+  stage?: string;
+  group?: string;
+  architecture?: { kind: string; title: string };
+  /** The open graph node's id, when the route is a graph page's. */
+  graph?: string;
+  /** Whether the route is the graph's index page. */
+  graphIndex?: boolean;
+  heldPaths: ReadonlySet<string>;
+};
 
 export const routeContext = createContext<RouteData>({ heldPaths: new Set() });
 

@@ -1181,3 +1181,188 @@ main section h2 {
 .wizard-checklist { list-style: none; padding: 0; display: grid; gap: .55rem; }
 .wizard-checklist li { display: flex; gap: .65rem; align-items: baseline; }
 .wizard-notes { list-style: none; padding: 0; margin: 1rem 0 0; display: grid; gap: .35rem; color: var(--text-secondary); font-size: var(--fs-small); }
+
+/* ---------------------------------------------------------------------------
+ * The graph's pages (madarch-tzte.23.3; decision 0026, "Pages"): a node's page
+ * reads as a document — the same title block and field rows — with its facts,
+ * its assumptions, its relations, its coverage, its questions and its drafts in
+ * quiet sections. A chip names how a fact was obtained and where its status
+ * stands, so a reader tells a fact from an assumption by word and not by colour
+ * alone; a draft carries its own mark. Every place in code is a link where the
+ * repository's origin is declared and text where it is not.
+ * --------------------------------------------------------------------------- */
+
+.graph-chip {
+  display: inline-block;
+  padding: 0 0.45em;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-row, 8px);
+  font-size: var(--fs-small);
+  line-height: 1.5;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.graph-chip-draft {
+  border-color: var(--quote-border);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.graph-note,
+.graph-cut {
+  font-size: var(--fs-small);
+  color: var(--text-muted);
+  margin-block: 0 0.6em;
+}
+
+.graph-none,
+.graph-empty {
+  font-size: var(--fs-small);
+  color: var(--text-muted);
+}
+
+.graph-facts,
+.graph-assumptions,
+.graph-relations,
+.graph-coverage-section,
+.graph-questions,
+.graph-drafts,
+.graph-diagrams {
+  margin-block: 2em 0;
+}
+
+.graph-assumptions {
+  padding-inline-start: 0.9em;
+  border-inline-start: 2px solid var(--quote-border);
+}
+
+.graph-fact-list,
+.graph-relation-list,
+.graph-question-list,
+.graph-draft-list,
+.graph-coverage-rows,
+.graph-coverage-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.graph-fact,
+.graph-relation,
+.graph-question,
+.graph-draft,
+.graph-coverage {
+  padding-block: 0.55em;
+  border-block-end: 1px solid var(--border);
+}
+
+.graph-fact-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6em;
+}
+
+.graph-fact-label {
+  font-size: var(--fs-body);
+  color: var(--text);
+}
+
+.graph-fact-kind {
+  font-size: var(--fs-small);
+  color: var(--text-muted);
+}
+
+.graph-fact-meta,
+.graph-relation,
+.graph-coverage-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.55em;
+  margin-block-start: 0.25em;
+  font-size: var(--fs-small);
+  color: var(--text-secondary);
+}
+
+.graph-fact-ends {
+  margin-block: 0.35em 0;
+  font-size: var(--fs-small);
+  color: var(--text-secondary);
+}
+
+.graph-place {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3em;
+  font-size: var(--fs-small);
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+a.graph-place:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.graph-place-icon {
+  width: 0.9em;
+  height: 0.9em;
+  flex: none;
+}
+
+.graph-relation-arrow {
+  color: var(--text-muted);
+}
+
+.graph-relation-node {
+  color: var(--text-secondary);
+}
+
+.graph-relation-end {
+  color: var(--text-muted);
+}
+
+.graph-coverage-scope {
+  font-size: var(--fs-small);
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.graph-coverage-count {
+  font-size: var(--fs-small);
+  color: var(--text-muted);
+}
+
+.graph-coverage-list {
+  margin-block-start: 0.3em;
+}
+
+.graph-coverage-gaps h3 {
+  margin-block: 0.5em 0.2em;
+  font-size: var(--fs-small);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.graph-draft {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.55em;
+}
+
+.graph-draft-unit,
+.graph-draft-evidence {
+  font-size: var(--fs-small);
+  color: var(--text-muted);
+}
+
+.graph-diagrams-slot {
+  padding: 1.1em 1.2em;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-card, 10px);
+  font-size: var(--fs-small);
+  color: var(--text-muted);
+}
