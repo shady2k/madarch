@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -246,6 +247,23 @@ describe('where madarch installs its agents', () => {
     expect(adapterInstallCommand(claude, '/opt/madarch/agents/claude-code')).toBe('npm install --prefix /opt/madarch/agents/claude-code @agentclientprotocol/claude-agent-acp@0.93.0');
     const omp = ACP_ADAPTERS.find((adapter) => adapter.id === 'omp')!;
     expect(adapterInstallCommand(omp, '/opt/madarch/agents/omp')).toBe('install omp from its own project — it carries ACP itself, with no adapter package');
+  });
+
+  test('a folder the environment gave a space is quoted, so the shell hands npm one --prefix', () => {
+    const claude = ACP_ADAPTERS.find((adapter) => adapter.id === 'claude-code')!;
+    const folder = acpAgentFolder('claude', { HOME: '/srv/my home', MADARCH_HOME: '/srv/my home/madarch' }, '/srv/my home');
+    const command = adapterInstallCommand(claude, folder);
+    expect(command).toBe(`npm install --prefix '${folder}' @agentclientprotocol/claude-agent-acp@0.93.0`);
+    const words = execFileSync('bash', ['-c', `set -- ${command}; printf '%s\\n' "$@"`], { encoding: 'utf8' }).trim().split('\n');
+    expect(words).toEqual(['npm', 'install', '--prefix', folder, '@agentclientprotocol/claude-agent-acp@0.93.0']);
+  });
+
+  test('a folder holding a quote is quoted so the shell reads it whole', () => {
+    const claude = ACP_ADAPTERS.find((adapter) => adapter.id === 'claude-code')!;
+    const folder = "/srv/o'brien/agents/claude";
+    const command = adapterInstallCommand(claude, folder);
+    const words = execFileSync('bash', ['-c', `set -- ${command}; printf '%s\\n' "$@"`], { encoding: 'utf8' }).trim().split('\n');
+    expect(words).toEqual(['npm', 'install', '--prefix', folder, '@agentclientprotocol/claude-agent-acp@0.93.0']);
   });
 });
 
