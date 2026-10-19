@@ -58,6 +58,7 @@ import {
   readUnitDraft,
   readUnitReads,
   recordUnitDraft,
+  recordUnitRead,
   type RunSnapshot,
 } from '../src/fill/orchestrator-store.js';
 import { createFillOrchestratorService } from '../src/fill/orchestrator-host.js';
@@ -849,6 +850,49 @@ describe('publication: exactly once per generation', () => {
     // so nothing of the failed publication is left behind in the queue either.
     expect(await readPublications(opened.owner, 'snapshot/src')).toEqual([]);
     expect((await runEvidence(opened.orchestrator, runId)).pendingPublications).toBe(1);
+  });
+
+  test('a cancellation intent that lands while a publication is under way is refused by the publication itself', async () => {
+    const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
+    const { world: opened, runId } = await plannedWorld({ registry });
+    await admitUnits(opened.orchestrator, { runId });
+    // The unit as its attempt leaves it at the last step before publication: leased, running, drafted and
+    // validating, with the reads the draft stands on recorded.
+    expect((await leaseUnit(opened.owner, { unitId: 'snapshot/src', holder: 'worker-1', ttlMs: 60_000, at: NOW })).ok).toBe(true);
+    for (const event of [
+      { type: 'start', at: NOW, generation: 1, fence: 1 },
+      { type: 'submit-draft', at: NOW, generation: 1, fence: 1 },
+    ] as const) {
+      expect((await advanceUnit(opened.owner, { unitId: 'snapshot/src', event })).ok).toBe(true);
+    }
+    await recordUnitDraft(opened.owner, {
+      unitId: 'snapshot/src', generation: 1, at: NOW,
+      writes: [{ kind: 'fact', evidence: 'src:1', value: { kind: 'file-facts' } }],
+    });
+    expect((await advanceUnit(opened.owner, { unitId: 'snapshot/src', event: { type: 'validate-draft', at: NOW, generation: 1, fence: 1 } })).ok).toBe(true);
+    const membership = readMembership([]);
+    await recordUnitRead(opened.owner, { unitId: 'snapshot/src', generation: 1, query: 'select 1', rows: [], at: NOW });
+
+    // The order the race turns on: the publication read the run's control and is walking the reads its
+    // draft stands on, and the person's cancellation intent reaches the run's row in between. The
+    // recheck before the machine's step is what has to refuse it, whatever the control read saw.
+    let applied = 0;
+    const raced = await publishUnit(opened.owner, {
+      unitId: 'snapshot/src', generation: 1, fence: 1, at: NOW,
+      identity: { inputsDigest: (await readUnit(opened.owner, 'snapshot/src'))!.inputsDigest, stageId: 'snapshot', stageVersion: 1 },
+      revalidate: async (_read, executor) => {
+        await executor.query("UPDATE fill_run SET state = 'cancelling' WHERE run_id = $1", [runId]);
+        return { membership, members: 0 };
+      },
+      apply: async () => { applied += 1; return 1; },
+    });
+    expect(raced.outcome).toBe('refused');
+    expect(raced.outcome === 'refused' ? raced.code : '').toBe('fill-publication/authority-revoked');
+    expect(raced.outcome === 'refused' ? raced.reason : '').toContain('cancelling');
+    // Nothing of the refused publication stands: no record, no fact, and the generation is not published.
+    expect(await readPublications(opened.owner, 'snapshot/src')).toEqual([]);
+    expect(applied).toBe(0);
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('validating');
   });
 });
 

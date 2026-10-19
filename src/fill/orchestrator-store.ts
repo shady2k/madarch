@@ -494,28 +494,16 @@ export async function publishUnit(
   return run(at, database, `publishUnit(${options.unitId}/${options.generation})`, ['fill_publication', 'fill_unit_read', 'fill_unit_draft', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_run', 'fill_transition'], async (executor) => publishUnitIn(executor, options), 'write');
 }
 
-/**
- * Publishes one unit generation inside a transaction the caller already opened.
- * The order is the decision's own: the generation's identity, the run's control,
- * the reads the draft stands on, the machine's `publish` step — which takes the
- * generation's row `FOR UPDATE`, so two publishers of one generation are
- * serialized here — the facts, and the record. A step the machine refuses is a
- * value, and it is answered before anything is applied or written.
- */
-export async function publishUnitIn(executor: SqlExecutor, options: PublicationRequest): Promise<PublicationOutcome> {
-  // The run's own control, inside the same transaction: a run that is cancelling or cancelled revokes
-  // the authority of everything it planned, and a failed run publishes nothing. A pause drains, so a
-  // publication already under way is allowed to finish — the pause's settlement waits for it.
-  const control = await executor.query<{ state: string }>(
-    'SELECT r.state AS state FROM fill_run r JOIN fill_unit_generation g ON g.run_id = r.run_id WHERE g.unit_id = $1 AND g.generation = $2',
-    [options.unitId, options.generation],
-  );
-  const runState = control.rows[0]?.state;
+/** The statement that reads the run's control of one generation's unit; `share` takes the run row's lock. */
+const controlSql = (share: boolean): string => `SELECT r.state AS state FROM fill_run r JOIN fill_unit_generation g ON g.run_id = r.run_id WHERE g.unit_id = $1 AND g.generation = $2${share ? ' FOR SHARE OF r' : ''}`;
+
+/** The refusal a run state that revoked authority answers with, or null while the run's authority stands. */
+function revokedAuthority(unitId: string, generation: number, runState: string | undefined): PublicationOutcome | null {
   if (runState === undefined) {
     return {
       outcome: 'refused',
       code: 'fill-publication/no-run',
-      reason: `fill-publication: unit "${options.unitId}" generation ${options.generation} names a run that is not in fill_run, so nothing says whether its authority stands`,
+      reason: `fill-publication: unit "${unitId}" generation ${generation} names a run that is not in fill_run, so nothing says whether its authority stands`,
       record: null,
     };
   }
@@ -523,10 +511,31 @@ export async function publishUnitIn(executor: SqlExecutor, options: PublicationR
     return {
       outcome: 'refused',
       code: 'fill-publication/authority-revoked',
-      reason: `fill-publication: the run of unit "${options.unitId}" generation ${options.generation} is ${runState}, which revoked the authority of the units it planned, so this generation publishes nothing`,
+      reason: `fill-publication: the run of unit "${unitId}" generation ${generation} is ${runState}, which revoked the authority of the units it planned, so this generation publishes nothing`,
       record: null,
     };
   }
+  return null;
+}
+
+/**
+ * Publishes one unit generation inside a transaction the caller already opened.
+ * The order is the decision's own: the generation's identity, the run's control,
+ * the reads the draft stands on, the run's control again, the machine's `publish`
+ * step — which takes the generation's row `FOR UPDATE`, so two publishers of one
+ * generation are serialized here — the facts, and the record. A step the machine
+ * refuses is a value, and it is answered before anything is applied or written.
+ */
+export async function publishUnitIn(executor: SqlExecutor, options: PublicationRequest): Promise<PublicationOutcome> {
+  // The run's own control, inside the same transaction and under the run row's share lock: a run that is
+  // cancelling or cancelled revokes the authority of everything it planned, and a failed run publishes
+  // nothing. The lock is what makes the check hold for the whole transaction rather than for one instant:
+  // a cancellation's own write of the run's state waits for this publication to end, so an intent that
+  // lands while a publication is under way is refused here instead of racing it. A pause drains, so a
+  // publication already under way is allowed to finish — the pause's settlement waits for it.
+  const control = await executor.query<{ state: string }>(controlSql(true), [options.unitId, options.generation]);
+  const refusedControl = revokedAuthority(options.unitId, options.generation, control.rows[0]?.state);
+  if (refusedControl !== null) return refusedControl;
 
   // What this request would publish: the draft set as it stands in the same transaction.
   const draft = await readUnitDraftIn(executor, options.unitId, options.generation);
@@ -579,6 +588,14 @@ export async function publishUnitIn(executor: SqlExecutor, options: PublicationR
       };
     }
   }
+
+  // The run's control once more, after the reads were rechecked and before anything is written: a
+  // cancellation intent that reached the run's row while those reads were being walked is refused here,
+  // whatever this transaction read earlier, and the share lock above holds a later one off until this
+  // publication has ended.
+  const rechecked = await executor.query<{ state: string }>(controlSql(false), [options.unitId, options.generation]);
+  const refusedSince = revokedAuthority(options.unitId, options.generation, rechecked.rows[0]?.state);
+  if (refusedSince !== null) return refusedSince;
 
   // The machine's own step first, then the facts, then the record: a refusal here writes nothing at all,
   // and a failure of the facts rolls the step back with them.

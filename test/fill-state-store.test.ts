@@ -297,7 +297,7 @@ describe('a unit generation', () => {
     expect(second.refusal.code).toBe('fill-unit/no-transition');
     expect(second.refusal.reason).toContain('state "running"');
 
-    const retried = await advanceUnit(database, { unitId, event: { type: 'retry', at: NOW + 6, generation: 1, cause: 'lease-expired', retryAt: NOW + 60_000 } });
+    const retried = await advanceUnit(database, { unitId, event: { type: 'retry', at: NOW + 6, generation: 1, cause: 'lease-expired', retryAt: NOW + 60_000, fence: null } });
     expect(retried.ok).toBe(true);
     if (!retried.ok) return;
     expect(retried.record.state).toBe('retry_wait');
@@ -306,7 +306,7 @@ describe('a unit generation', () => {
     // The revocation is a storage write: the lease in force carries the moment it was revoked.
     expect(retried.record.lease?.revokedAt).toBe(NOW + 6);
 
-    const ready = await advanceUnit(database, { unitId, event: { type: 'retry', at: NOW + 70_000, generation: 1, cause: 'lease-expired', retryAt: NOW + 60_000 } });
+    const ready = await advanceUnit(database, { unitId, event: { type: 'retry', at: NOW + 70_000, generation: 1, cause: 'lease-expired', retryAt: NOW + 60_000, fence: null } });
     expect(ready.ok).toBe(true);
     const released = await leaseUnit(database, { unitId, holder: 'worker-b', ttlMs: 60_000, at: NOW + 80_000 });
     expect(released.ok).toBe(true);
@@ -441,8 +441,8 @@ describe('a unit generation', () => {
   test('a token of an attempt the unit left cannot fail it while it waits in ready', async () => {
     const unitId = 'unit-ready-fence';
     await runningUnit(unitId);
-    await advanceUnit(database, { unitId, event: { type: 'retry', at: NOW + 5, generation: 1, cause: 'lease-expired', retryAt: NOW + 6 } });
-    const ready = await advanceUnit(database, { unitId, event: { type: 'retry', at: NOW + 7, generation: 1, cause: 'lease-expired', retryAt: NOW + 6 } });
+    await advanceUnit(database, { unitId, event: { type: 'retry', at: NOW + 5, generation: 1, cause: 'lease-expired', retryAt: NOW + 6, fence: null } });
+    const ready = await advanceUnit(database, { unitId, event: { type: 'retry', at: NOW + 7, generation: 1, cause: 'lease-expired', retryAt: NOW + 6, fence: null } });
     expect(ready.ok).toBe(true);
     if (!ready.ok) return;
     expect(ready.record.state).toBe('ready');

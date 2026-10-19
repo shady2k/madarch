@@ -150,6 +150,18 @@ test('an enqueue inside the caller’s transaction commits with the fact log, an
       throw new Error('the caller gave up on the settlement');
     })).rejects.toThrow('the caller gave up on the settlement');
     expect(await queue.complete('publication', claimed[0]!)).toBe(true);
+
+    // A failure rolls back with the caller's transaction the same way, dead letter
+    // or retry included: the attempt is the one in force afterwards and settles,
+    // which an attempt the rolled-back failure had ended could not.
+    await queue.enqueue({ queue: 'publication', data: { unit: 'crate' } });
+    const second = (await queue.claim<{ unit: string }>({ queue: 'publication' }))[0]!;
+    expect(second.data.unit).toBe('crate');
+    await expect(sharedOwner.transaction('write', async (transaction) => {
+      expect(await queue.fail('publication', second, 'the caller gave up on the failure', transaction)).toBe('failed');
+      throw new Error('the caller gave up on the failure');
+    })).rejects.toThrow('the caller gave up on the failure');
+    expect(await queue.complete('publication', second)).toBe(true);
   } finally {
     await queue.stop();
     await history.close();
