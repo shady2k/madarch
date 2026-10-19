@@ -43,6 +43,11 @@
  * file and the line — and nothing of it is stored, so a generation is published
  * with its facts or not at all.
  *
+ * `fill_page_change` is the publication's own record of the pages it touched (one
+ * row per page and publication, `recordPagesTouched`): the graph's pages are read
+ * from these rows' facts (`graph-pages.ts`), and the change is a change only once
+ * the facts that caused it are committed.
+ *
  * A draft set is the orchestrator's own record (`fill_unit_draft`): this module
  * answers it as draft through `readUnitDraft`, reading the machine's rows and
  * never `fill_fact`, so a draft is never mixed with a published fact and a
@@ -52,6 +57,7 @@ import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
 import type { SqlExecutor } from '../query/sql-driver.js';
 import { FACT_EDGE_KINDS, FACT_MEASURED_FIELDS, checkFact, type Fact } from './facts.js';
+import { PAGE_CHANGE_SCHEMA, PAGE_CHANGE_TABLE, pagesTouchedBy } from './page-changes.js';
 import { here, withLocation } from './fsm-core.js';
 import type { FactApplication } from './orchestrator.js';
 import { readPublicationIn, readUnitDraftIn, type UnitPlanRecord } from './orchestrator-store.js';
@@ -59,7 +65,7 @@ import type { UnitRecord } from './state-store.js';
 import type { StageDraftWrite } from './stage.js';
 
 /** The fact store's own tables; `createFactStoreSchema` creates them and every error names the ones it touched. */
-export const FACT_STORE_TABLES = ['fill_fact', 'fill_fact_holding'] as const;
+export const FACT_STORE_TABLES = ['fill_fact', 'fill_fact_holding', PAGE_CHANGE_TABLE] as const;
 
 /**
  * The schema: one row per fact, one row per fact and publishing unit. The
@@ -97,6 +103,7 @@ const SCHEMA: readonly string[] = [
        ALTER TABLE fill_fact_holding ADD CONSTRAINT fill_fact_holding_id_fkey FOREIGN KEY (id) REFERENCES fill_fact (id);
      END IF;
    END $$`,
+  ...PAGE_CHANGE_SCHEMA,
 ];
 
 /** The narrow slice of the process's one database owner these tables borrow: the owner's `transaction`. */
@@ -307,9 +314,14 @@ export async function applyPublishedFacts(input: FactApplicationInput): Promise<
   await withLocation(at, `applyPublishedFacts(${unitId}/${generation})`, FACT_STORE_TABLES, async () => {
     // What the unit held before this publication, read before anything is written: the facts it does not
     // publish now are the only ones whose rows may be swept, so the sweep neither reads the whole table
-    // nor touches a fact another unit published.
+    // nor touches a fact another unit published. The ids are read first and the rows of the ones it stops
+    // holding afterwards, because a unit that publishes again usually keeps most of its facts.
     const { rows: held } = await input.executor.query<{ id: string }>('SELECT id FROM fill_fact_holding WHERE unit_id = $1', [unitId]);
     const dropped = held.map((row) => row.id).filter((id) => !ids.has(id)).sort(byCodePoint);
+    const droppedFacts = dropped.length === 0 ? [] : (await input.executor.query<FactRow>(
+      `SELECT f.id, f.kind, f.schema_version, f.provenance, f.layer, f.status, f.value FROM fill_fact f WHERE f.id = ANY($1::text[])`,
+      [dropped],
+    )).rows.map(storedFact);
     for (const fact of publishing) {
       // The fact's own row: the first publication of an id writes it, and a later one adds its holding
       // and leaves the row as it stands (the id is the fact's identity, so the difference is a reader's
@@ -366,13 +378,64 @@ export async function applyPublishedFacts(input: FactApplicationInput): Promise<
     // another unit is publishing right now is kept rather than removed from under its holding. Deleting
     // in the first statement's snapshot would remove it, and the holding's foreign key would then leave
     // neither a fact to read nor an error to see.
+    let deleted: readonly string[] = [];
     if (dropped.length > 0) {
       const orphans = 'f.id = ANY($1::text[]) AND NOT EXISTS (SELECT 1 FROM fill_fact_holding h WHERE h.id = f.id)';
       await input.executor.query(`SELECT f.id FROM fill_fact f WHERE ${orphans} FOR UPDATE`, [dropped]);
-      await input.executor.query(`DELETE FROM fill_fact f WHERE ${orphans}`, [dropped]);
+      const swept = await input.executor.query<{ id: string }>(`DELETE FROM fill_fact f WHERE ${orphans} RETURNING f.id`, [dropped]);
+      deleted = swept.rows.map((row) => row.id);
     }
+    // Which of the facts this unit stops holding this *product* no longer publishes: a fact still held by a unit of
+    // the same product keeps its page as it stands, and a fact only another product's units hold is gone from this
+    // product's graph — its page must disappear and its neighbours' pages lose a relation.
+    const stillHeld = dropped.length === 0 ? [] : (await input.executor.query<{ id: string }>(
+      `SELECT DISTINCT h.id FROM fill_fact_holding h JOIN fill_unit u ON u.unit_id = h.unit_id
+        WHERE h.id = ANY($1::text[]) AND u.product = $2`,
+      [dropped, input.unit.product],
+    )).rows.map((row) => row.id);
+    const goneFromProduct = new Set([...deleted, ...dropped.filter((id) => !stillHeld.includes(id))]);
+    // The pages this publication touched, in the publication's own transaction (decision 0026, "Pages";
+    // `page-changes.ts`): one row per page and publication, so a client subscribed to the product's live
+    // channel learns which pages to ask for again — and a publication that rolled back never announced one.
+    // A fact the unit stops holding but another unit still publishes is no change at all: the page it is
+    // shown on holds the same fact afterwards, so only the facts the sweep removed count with the written
+    // ones.
+    await recordPagesTouched(input.executor, {
+      unitId,
+      generation,
+      publication: input.digest,
+      facts: [...publishing, ...droppedFacts.filter((fact) => goneFromProduct.has(fact.id))],
+    });
   });
   return publishing.length;
+}
+
+/**
+ * The pages one publication touched, recorded in the publication's own
+ * transaction (decision 0026, "Pages"; `page-changes.ts`): one row per page and
+ * publication in `fill_page_change`, so the product's live channel (`GET
+ * /api/graph/events`, `src/server/graph-pages.ts`) can tell a subscribed client
+ * which pages to ask for again — and only those. The set is the facts the
+ * publication writes *and* the facts it stops holding, because a page changes when
+ * a fact about it arrives or when one goes: the rule is `pagesTouchedBy`, and this
+ * function only writes what it answers. A publication that rolls back writes no
+ * row, so a page is announced when its facts are committed and never before.
+ */
+async function recordPagesTouched(executor: SqlExecutor, publication: {
+  readonly unitId: string;
+  readonly generation: number;
+  readonly publication: string;
+  readonly facts: readonly Fact[];
+}): Promise<void> {
+  const pages = pagesTouchedBy(publication.facts);
+  if (pages.length === 0) return;
+  // One statement for the whole set: a publication touching hundreds of pages is one round trip, not hundreds
+  // inside a write transaction.
+  await executor.query(
+    `INSERT INTO ${PAGE_CHANGE_TABLE} (node_id, unit_id, generation, publication)
+     SELECT node, $2, $3, $4 FROM unnest($1::text[]) AS node`,
+    [pages, publication.unitId, publication.generation, publication.publication],
+  );
 }
 
 /**

@@ -720,6 +720,28 @@ describe('the text one read is recorded by', () => {
     expect(() => parseGraphRead('{"read":"fact"}')).toThrow(/names undefined: a fact id is the kind, a colon/);
     expect(() => parseGraphRead('{"read":')).toThrow(/opens a JSON object and does not parse as one/);
   });
+
+  test('a read scoped to a product is a read of its own, and is replayed as itself', () => {
+    // Two reads that differ only in the product they are scoped to are two reads: one text each, one digest each,
+    // and a replay that answers the set it asked for rather than the wider one.
+    const ids = [`symbol:${'a'.repeat(64)}`, `symbol:${'b'.repeat(64)}`];
+    const scoped: GraphRead[] = [
+      { read: 'fact', id: ids[0]!, product: 'shop' },
+      { read: 'facts', ids, product: 'shop' },
+      { read: 'adjacent', id: ids[0]!, kinds: ['call'], product: 'shop' },
+      { read: 'held', id: ids[0]!, via: ['contains'], product: 'shop' },
+      { read: 'facts-with', kind: 'claim', field: 'subject.id', value: ids[0]!, product: 'shop' },
+    ];
+    for (const request of scoped) {
+      const unscoped = { ...request } as GraphRead;
+      delete (unscoped as { product?: string }).product;
+      expect(readText(request)).not.toBe(readText(unscoped));
+      expect(readText(request)).toContain('"product":"shop"');
+      expect(parseGraphRead(readText(request))).toEqual(request);
+    }
+    // A product that is no name is refused, never answered as "no scope".
+    expect(() => parseGraphRead('{"read":"facts","ids":[],"product":""}')).toThrow(/names the product "": a product is named by its own name/);
+  });
 });
 
 describe('the reader over the store', () => {

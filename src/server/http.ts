@@ -38,6 +38,7 @@ import { createGraphs } from './graphs.js';
 import type { SourceStoreResult, SourceStores } from './sources.js';
 import { createSourceStores, sourceNameProblem } from './sources.js';
 import { createWikiPart, serveAppAssets, type WikiPart } from './wiki-app.js';
+import { createGraphPagesPart, emptyGraphPagesSource, type GraphPagesPart, type GraphPagesSource } from './graph-pages.js';
 import { openProductWiki, type ProductWiki } from '../product-wiki/pages.js';
 import { listProducts } from '../product/list.js';
 import { basename } from 'node:path';
@@ -81,6 +82,17 @@ export interface ServerOptions {
   allowNoManifest?: boolean;
   /** The folder the app's built files served from (stage 2's build); without it only the API answers. */
   appFolder?: string;
+  /**
+   * One product's graph pages (madarch-tzte.23.1; decision 0026, "Pages"), read
+   * from the fill's fact store: the page set, a page's model and the change every
+   * publication pushes. The background server passes the fill service's own source
+   * (`src/product/daemon.ts`); a server that holds no fill's graph passes none, and
+   * the routes answer the empty page set that says where the pages are served.
+   *
+   * The factory is asked once per served product, so a products home serves each
+   * product's own pages, never one product's under another's address.
+   */
+  graphPages?: (productFolder: string) => GraphPagesSource | undefined;
   /** The address to listen on; `127.0.0.1` unless said otherwise (decision 0012). */
   host?: string;
   /** The port to listen on; 4180 by default, 0 for a free port. */
@@ -122,6 +134,12 @@ export interface Refusal {
   message: string;
   field?: string;
   accepted?: string;
+  /**
+   * The refusal's own machine-readable name, when the route has one (`graph-pages/no-such-node`),
+   * so a client can branch on what went wrong instead of reading the words. It rides in the
+   * error envelope beside the message.
+   */
+  code?: string;
   /**
    * The same refusal as the log line may carry it — field paths, never
    * model values. Left out, the message itself is safe to log: it quotes
@@ -241,6 +259,15 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   const graphs = sources === undefined || queryDatabase === undefined
     ? undefined
     : createGraphs({ historyOf: (source) => sources.historyOf(source), database: queryDatabase });
+  /**
+   * One product's graph pages, over the source this server was given for it: the
+   * fill service's own in the background server, and — for a server that holds no
+   * fill's graph — the empty source that answers a page set with the message saying
+   * where the pages are served (0026: an empty graph answers a message, never an
+   * error).
+   */
+  const graphPagesOf = (productFolder: string, product: string): GraphPagesPart =>
+    createGraphPagesPart({ json: makeJson, refused: wikiRefused, errorLog }, options.graphPages?.(productFolder) ?? emptyGraphPagesSource(product));
   const handle = createHandler({
     sources,
     graphs,
@@ -251,6 +278,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     startFill: options.startFill,
     productFolder: options.productFolder,
     unitTool: options.orchestrator?.unitTool,
+    graphPages: productWiki === undefined ? undefined : graphPagesOf(productWiki.product.folder, productWiki.product.name),
   });
   // The products home is served by one server: the home page lists the
   // products, and each product's wiki answers under `/products/<folder>/`.
@@ -285,7 +313,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
       }
       next.set(basename(item.folder), {
         wiki: opened.wiki,
-        handler: createHandler({ sources, graphs, log, errorLog, wiki: createWikiPart(makeJson, wikiRefused, opened.wiki, appFolder), appFolder, startFill: options.startFill, productFolder: item.folder, unitTool: options.orchestrator?.unitTool }),
+        handler: createHandler({ sources, graphs, log, errorLog, wiki: createWikiPart(makeJson, wikiRefused, opened.wiki, appFolder), appFolder, startFill: options.startFill, productFolder: item.folder, unitTool: options.orchestrator?.unitTool, graphPages: graphPagesOf(item.folder, opened.wiki.product.name) }),
       });
     }
     productEntries.clear();
@@ -431,6 +459,8 @@ export function createHandler(dependencies: {
   productFolder?: string;
   /** The fill's unit tools, when this process serves them (`POST /api/fill/unit/tool`). */
   unitTool?: (request: UnitToolCall) => Promise<UnitToolAnswer | null>;
+  /** One product's graph pages (madarch-tzte.23.1): its page set, a node's page and the live channel of their changes. */
+  graphPages?: GraphPagesPart;
 }): ServerHandler {
   const { log, errorLog, wiki } = dependencies;
   // The model routes are put in the table only when a data folder was
@@ -491,6 +521,11 @@ export function createHandler(dependencies: {
       { method: 'GET', path: '/api/stages', handle: () => wiki.stages() },
       { method: 'GET', path: '/api/registry', handle: () => wiki.registry() },
       { method: 'GET', path: '/api/events', handle: wiki.events },
+      ...(dependencies.graphPages === undefined ? [] : ([
+        { method: 'GET', path: '/api/graph/pages', handle: () => dependencies.graphPages!.pages() },
+        { method: 'GET', path: '/api/graph/page', handle: (request: Request) => dependencies.graphPages!.page(request) },
+        { method: 'GET', path: '/api/graph/events', handle: (request: Request) => dependencies.graphPages!.events(request) },
+      ] as Route[])),
       { method: 'GET', path: '/api/fill', handle: () => wiki.fill() },
       { method: 'POST', path: '/api/fill/start', handle: async (request) => {
         if (!startFill || fillProductFolder === undefined) return refused(503, { message: 'The fill entry point is not configured for this server' });

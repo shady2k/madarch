@@ -83,11 +83,26 @@ Markdown file under `docs/` and `README.md` — shown by madarch's own app
 (`wiki/app/`, React built by Vite) and served by the server's product mode:
 started with a product folder it answers the app's built files, the page
 addresses `/p/<path>` and the wiki's API (`/api/product`, `/api/pages`,
-`/api/page?path=…`). Without an app folder named, the built app of the
+`/api/page?path=…`).
+
+Without an app folder named, the built app of the
 checkout (`wiki/app/dist`) is served; a checkout whose app was never built
 refuses to start, saying what to build. The server runs in three modes: with
 a data folder only it answers the model routes alone; with a product folder
 only it serves the wiki alone; with both, each is answered beside the other.
+
+**Graph pages** (`src/fill/graph-pages.ts`, `src/server/graph-pages.ts`): the
+graph's own pages, read from the fill's fact store and never from a file
+(decision 0026, "Pages"). A page exists for the fact kinds the product
+registry may be about (`REGISTRY_KIND_MAPPINGS`'s `subject` role, read once in
+`src/fill/page-changes.ts`); the server answers the page set of a product
+(`/api/graph/pages`), one node's page model — its facts with code links, its
+relations both ways, its coverage, its questions, its assumptions kept apart
+and its drafts marked (`/api/graph/page?id=…`) — and a live channel of the
+pages each publication touched (`/api/graph/events`, Server-Sent Events). The
+channel is woken by the orchestrator's own `unit-published` events, and the
+pages a publication touched are recorded in `fill_page_change` inside that
+publication's transaction (`src/fill/fact-store.ts`).
 
 ## From a document to a reader
 
