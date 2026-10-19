@@ -259,6 +259,17 @@ function described(problem: FactWriteProblem): string {
 // ---------------------------------------------------------------------------------------------
 
 /**
+ * How many facts one statement of a publication writes. A unit of the modules
+ * stage publishes tens of thousands of facts in one transaction, and a statement
+ * per fact and per holding — two for every fact — took the embedded store's
+ * memory up by about 700 MB for 60 000 facts, where statements of a few hundred
+ * took it up by about 200 MB, in a sixth of the time (madarch-tzte.21.11). A
+ * batch is small enough that one statement's parameters stay a few hundred
+ * kilobytes.
+ */
+export const PUBLICATION_BATCH = 500;
+
+/**
  * The facts of one unit's publication, in the order they are published: the
  * distinct ids of what its draft set wrote, in code point order. A stage that
  * saw one fact twice writes it once (a call folded from two sites is one edge),
@@ -322,50 +333,60 @@ export async function applyPublishedFacts(input: FactApplicationInput): Promise<
       `SELECT f.id, f.kind, f.schema_version, f.provenance, f.layer, f.status, f.value FROM fill_fact f WHERE f.id = ANY($1::text[])`,
       [dropped],
     )).rows.map(storedFact);
-    for (const fact of publishing) {
-      // The fact's own row: the first publication of an id writes it, and a later one adds its holding
+    for (let at = 0; at < publishing.length; at += PUBLICATION_BATCH) {
+      const batch = publishing.slice(at, at + PUBLICATION_BATCH);
+      // The facts' own rows: the first publication of an id writes it, and a later one adds its holding
       // and leaves the row as it stands (the id is the fact's identity, so the difference is a reader's
       // own observation of the same fact) — except the fields its kind declares as measured
       // (`FACT_MEASURED_FIELDS`), which the publication that carries them replaces: stage 5 measures a
       // file's, a symbol's and a module's importance over the whole repository, so a re-ranking must
-      // move a rank the row already holds, and the rank is nobody's observation of somebody's fact.
-      const measured = FACT_MEASURED_FIELDS[fact.kind] ?? [];
-      if (measured.length === 0) {
-        await input.executor.query(
-          `INSERT INTO fill_fact (id, kind, schema_version, provenance, layer, status, value)
-           VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7::jsonb)
-           ON CONFLICT (id) DO NOTHING`,
-          [fact.id, fact.kind, fact.schemaVersion, json(fact.provenance), fact.layer, fact.status, json(fact.value)],
-        );
-      } else {
-        // The fields the row does not carry in the new value keep what they hold, so a publication that
-        // names no rank of a kind that has one changes nothing: it has no rank to say.
-        await input.executor.query(
-          `INSERT INTO fill_fact (id, kind, schema_version, provenance, layer, status, value)
-           VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7::jsonb)
-           ON CONFLICT (id) DO UPDATE
-             SET value = fill_fact.value || COALESCE((
-               SELECT jsonb_object_agg(entry.key, entry.value) FROM jsonb_each(EXCLUDED.value) AS entry
-               WHERE entry.key = ANY($8::text[])
-             ), '{}'::jsonb),
-                 schema_version = EXCLUDED.schema_version,
-                 -- A publisher that measures a row it already cites — the same source system as the row's
-                 -- own provenance — is that reader measuring again, so the row's provenance moves with its
-                 -- value and a re-clustering at a later commit does not leave a module fact citing the
-                 -- commit of a measurement its value no longer holds. A publisher of another reader
-                 -- (stage 5 ranking the file fact stage 1 wrote) leaves the row's own provenance alone.
-                 provenance = CASE
-                   WHEN fill_fact.provenance->'source'->>'system' = EXCLUDED.provenance->'source'->>'system'
-                   THEN EXCLUDED.provenance ELSE fill_fact.provenance END`,
-          [fact.id, fact.kind, fact.schemaVersion, json(fact.provenance), fact.layer, fact.status, json(fact.value), measured],
-        );
+      // move a rank the row already holds, and the rank is nobody's observation of somebody's fact. One
+      // statement writes the facts of one kind of the batch, since the measured fields are the kind's.
+      const kinds = [...new Set(batch.map((fact) => fact.kind))].sort(byCodePoint);
+      for (const kind of kinds) {
+        const rows = json(batch.filter((fact) => fact.kind === kind).map((fact) => ({
+          id: fact.id, kind: fact.kind, schema_version: fact.schemaVersion, provenance: fact.provenance, layer: fact.layer, status: fact.status, value: fact.value,
+        })));
+        const measured = FACT_MEASURED_FIELDS[kind] ?? [];
+        if (measured.length === 0) {
+          await input.executor.query(
+            `INSERT INTO fill_fact (id, kind, schema_version, provenance, layer, status, value)
+             SELECT x.id, x.kind, x.schema_version, x.provenance, x.layer, x.status, x.value
+               FROM jsonb_to_recordset($1::jsonb) AS x(id text, kind text, schema_version integer, provenance jsonb, layer text, status text, value jsonb)
+             ON CONFLICT (id) DO NOTHING`,
+            [rows],
+          );
+        } else {
+          // The fields the row does not carry in the new value keep what they hold, so a publication that
+          // names no rank of a kind that has one changes nothing: it has no rank to say.
+          await input.executor.query(
+            `INSERT INTO fill_fact (id, kind, schema_version, provenance, layer, status, value)
+             SELECT x.id, x.kind, x.schema_version, x.provenance, x.layer, x.status, x.value
+               FROM jsonb_to_recordset($1::jsonb) AS x(id text, kind text, schema_version integer, provenance jsonb, layer text, status text, value jsonb)
+             ON CONFLICT (id) DO UPDATE
+               SET value = fill_fact.value || COALESCE((
+                 SELECT jsonb_object_agg(entry.key, entry.value) FROM jsonb_each(EXCLUDED.value) AS entry
+                 WHERE entry.key = ANY($2::text[])
+               ), '{}'::jsonb),
+                   schema_version = EXCLUDED.schema_version,
+                   -- A publisher that measures a row it already cites — the same source system as the row's
+                   -- own provenance — is that reader measuring again, so the row's provenance moves with its
+                   -- value and a re-clustering at a later commit does not leave a module fact citing the
+                   -- commit of a measurement its value no longer holds. A publisher of another reader
+                   -- (stage 5 ranking the file fact stage 1 wrote) leaves the row's own provenance alone.
+                   provenance = CASE
+                     WHEN fill_fact.provenance->'source'->>'system' = EXCLUDED.provenance->'source'->>'system'
+                     THEN EXCLUDED.provenance ELSE fill_fact.provenance END`,
+            [rows, measured],
+          );
+        }
       }
       await input.executor.query(
         `INSERT INTO fill_fact_holding (id, unit_id, stage_id, generation, publication)
-         VALUES ($1, $2, $3, $4, $5)
+         SELECT id, $2, $3, $4, $5 FROM unnest($1::text[]) AS id
          ON CONFLICT (id, unit_id) DO UPDATE
            SET stage_id = EXCLUDED.stage_id, generation = EXCLUDED.generation, publication = EXCLUDED.publication`,
-        [fact.id, unitId, input.plan.stageId, generation, input.digest],
+        [batch.map((fact) => fact.id), unitId, input.plan.stageId, generation, input.digest],
       );
     }
     // What the unit held and does not publish now: only this unit's own facts are replaced, and a fact

@@ -79,6 +79,7 @@ import {
   type GraphSnapshotSource,
 } from './graph-reads.js';
 import { here, raise, withLocation } from './fsm-core.js';
+import { withDraftParts } from './orchestrator-store.js';
 import type { StageDraftWrite } from './stage.js';
 
 // ---------------------------------------------------------------------------------------------
@@ -792,7 +793,7 @@ interface DraftSetRow extends Record<string, unknown> {
  * not one the schema's write path makes is refused by name, never skipped.
  */
 async function readPageDraftsIn(executor: SqlExecutor, product: string, id: string): Promise<readonly DraftRow[]> {
-  const { rows } = await executor.query<DraftSetRow>(
+  const { rows: heads } = await executor.query<DraftSetRow>(
     `SELECT d.unit_id, d.generation, d.writes, p.scope
        FROM fill_unit_draft d
        JOIN fill_unit_plan p ON p.unit_id = d.unit_id AND p.generation = d.generation
@@ -803,6 +804,7 @@ async function readPageDraftsIn(executor: SqlExecutor, product: string, id: stri
       ORDER BY d.unit_id ASC, d.generation ASC`,
     [product],
   );
+  const rows = await withDraftParts(executor, heads);
   const kept: DraftRow[] = [];
   for (const row of rows) {
     const unit = row.unit_id;

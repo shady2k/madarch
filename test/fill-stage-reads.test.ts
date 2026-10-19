@@ -22,7 +22,7 @@ import {
 } from '../src/fill/facts.js';
 import { createFactStoreSchema } from '../src/fill/fact-store.js';
 import { readText } from '../src/fill/graph-reads.js';
-import { parseStageRead, createStageReadReader, createStageReadSchema, STAGE_READ_NAMES } from '../src/fill/stage-reads.js';
+import { parseStageRead, createStageReadReader, createStageReadSchema, READ_PAGE_ROWS, STAGE_READ_NAMES } from '../src/fill/stage-reads.js';
 import { publishedTreeRead, publishedTreeRows } from '../src/fill/stages/inventory.js';
 import { publishedManifestsRead } from '../src/fill/stages/build-configuration.js';
 import { publishedDocuments, publishedDocumentsRead } from '../src/fill/stages/document-index.js';
@@ -364,4 +364,65 @@ describe('a stored fact this read cannot answer', () => {
     // It is this read's answer that is stopped; the facts of no other read move.
     expect((await query(publishedDocumentsRead(REPOSITORY))).length).toBe(1);
   });
+});
+
+describe('a read larger than one statement answers', () => {
+  // madarch-tzte.21.11: the modules stage reads every symbol of a repository at once, and PGlite holds a
+  // statement's whole answer in a buffer it grows and copies before the rows are parsed — the read of
+  // 28 392 symbols was where the walk over the current madarch tree ran out of memory. A read is asked in
+  // pages, so no statement answers more than one page; the answer is still every fact, once, in code point
+  // order of the ids, each with the place the fact stands at.
+  test('every fact is answered once, in id order, and no statement answers more than a page', async () => {
+    const BIG = 'big-api';
+    const count = READ_PAGE_ROWS * 2 + 1;
+    const file = node('file', { repository: BIG, path: 'src/big.ts', roles: ['source'], language: 'typescript', bytes: 10, blob: BLOB }, 'src/big.ts');
+    const symbols = Array.from({ length: count }, (_, at) => node('symbol', { repository: BIG, file: 'src/big.ts', qualifiedName: `f${String(at)}`, symbolKind: 'function' }, 'src/big.ts', 'extracted', at + 1));
+    // A call from each symbol to the next: one page of edges and one more.
+    const calls = symbols.slice(0, READ_PAGE_ROWS + 1).map((symbol, at) => edge('call', { from: symbol.id, to: symbols[at + 1]!.id, count: at + 1, precision: 'syntactic' }, 'src/big.ts'));
+    const big = createPGliteDatabaseOwner();
+    try {
+      await createFactStoreSchema(big);
+      await big.transaction('write', async (executor) => {
+        for (const fact of [file, ...symbols, ...calls]) {
+          await executor.query(
+            'INSERT INTO fill_fact (id, kind, schema_version, provenance, layer, status, value) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7::jsonb)',
+            [fact.id, fact.kind, fact.schemaVersion, JSON.stringify(fact.provenance), fact.layer, fact.status, JSON.stringify(fact.value)],
+          );
+        }
+      });
+      await createStageReadSchema(big);
+      // The owner the reader is lent, counting the rows each statement answered.
+      const answered: number[] = [];
+      const counting: Pick<DatabaseOwner, 'transaction'> = {
+        transaction: async (kind, work) => await big.transaction(kind, async (executor) => await work({
+          query: (async (sql: string, values?: readonly unknown[]) => {
+            const result = await executor.query(sql, values);
+            answered.push(result.rows.length);
+            return result;
+          }) as typeof executor.query,
+        })),
+      };
+      const paged = createStageReadReader({ database: counting, snapshot: { open: async () => { throw new Error('no stage read of this fixture reads a pinned tree'); } } });
+
+      const symbolsRead = moduleSymbolsRead(BIG);
+      const rows = moduleSymbolRows(await paged.query(symbolsRead), BIG, symbolsRead);
+      const expected = symbols.map((symbol) => symbol.id).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+      expect(rows.length).toBe(count);
+      expect(rows.map((row) => row.id)).toEqual(expected);
+      // The place each row stands at is the fact's own: symbol fN is declared on line N + 1.
+      expect(rows.every((row) => row.place.startLine === Number(row.value.qualifiedName.slice(1)) + 1)).toBe(true);
+      expect(answered.length).toBeGreaterThanOrEqual(3);
+      expect(Math.max(...answered)).toBeLessThanOrEqual(READ_PAGE_ROWS);
+
+      answered.length = 0;
+      const edgesRead = resolvedEdgesRead(BIG);
+      const edges = edgeRows(await paged.query(edgesRead), BIG, edgesRead);
+      expect(edges.length).toBe(READ_PAGE_ROWS + 1);
+      expect(edges.map((row) => row.weight).sort((left, right) => left - right)).toEqual(calls.map((_, at) => at + 1));
+      expect(answered.length).toBeGreaterThanOrEqual(2);
+      expect(Math.max(...answered)).toBeLessThanOrEqual(READ_PAGE_ROWS);
+    } finally {
+      await big.close();
+    }
+  }, 120_000);
 });

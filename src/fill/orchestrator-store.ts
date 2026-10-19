@@ -9,7 +9,9 @@
  *   list rather than as nothing — decision 0027 rechecks these at publication,
  *   empty results included.
  * - `fill_unit_draft`: the draft set a generation's stage wrote, recorded when
- *   the machine's `record-draft` effect runs and retracted by `retract-draft`.
+ *   the machine's `record-draft` effect runs and retracted by `retract-draft`;
+ *   its writes stand in `fill_unit_draft_part`, a few hundred to a row (a row
+ *   written before the parts existed keeps them in its own `writes`).
  * - `fill_unit_split`: the child set a split sealed, so a waiting parent knows
  *   exactly which child generations its join is for.
  * - `fill_publication`: one row per unit generation, uniquely constrained, with
@@ -37,7 +39,7 @@ import type { StageDraftWrite } from './stage.js';
 
 /** The orchestrator's own tables; `createOrchestratorSchema` creates them and every error names the ones it touched. */
 export const ORCHESTRATOR_TABLES = [
-  'fill_run_configuration', 'fill_unit_plan', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_split', 'fill_publication', 'fill_event',
+  'fill_run_configuration', 'fill_unit_plan', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit_split', 'fill_publication', 'fill_event',
 ] as const;
 
 const SCHEMA: readonly string[] = [
@@ -90,6 +92,17 @@ const SCHEMA: readonly string[] = [
     recorded_at bigint NOT NULL,
     retracted_at bigint,
     PRIMARY KEY (unit_id, generation)
+  )`,
+  // A draft set's writes, in parts of `DRAFT_PART_WRITES` (madarch-tzte.21.11): one jsonb value of a
+  // repository-wide unit's whole set — 34 MB for the modules stage over the madarch tree — took the
+  // embedded store's memory up by about 490 MB for good, where the same bytes in parts took it up by
+  // nothing measurable.
+  `CREATE TABLE IF NOT EXISTS fill_unit_draft_part (
+    unit_id text NOT NULL,
+    generation integer NOT NULL,
+    part integer NOT NULL,
+    writes jsonb NOT NULL,
+    PRIMARY KEY (unit_id, generation, part)
   )`,
   `CREATE TABLE IF NOT EXISTS fill_unit_split (
     parent_unit_id text NOT NULL,
@@ -188,7 +201,17 @@ const RANK_FIELD_NAMES: ReadonlySet<string> = new Set(Object.values(FACT_RANK_FI
  * a later read can turn false, and decision 0027 rechecks it like any other.
  */
 export function readMembership(rows: readonly unknown[]): string {
-  return canonicalJsonDigest(rows.map((row) => membershipValue(row, 'row')).sort((left, right) => byCodePoint(canonicalJsonDigest(left), canonicalJsonDigest(right))));
+  // Each row is serialized into its digest once and the digests decide the order (madarch-tzte.21.11):
+  // a read of a whole repository answers tens of thousands of rows, and a comparator that serialized its
+  // two sides again on every comparison did it O(n log n) times — gigabytes of transient strings for the
+  // modules stage's read of 28 392 symbols — where one pass is a digest per row. The order is the same
+  // one the comparator gave (equal digests are equal rows, and a stable sort keeps their order), so a
+  // membership recorded before this change still equals the one this computes.
+  const members = rows.map((row) => membershipValue(row, 'row'));
+  const ordered = members
+    .map((row) => ({ row, digest: canonicalJsonDigest(row) }))
+    .sort((left, right) => byCodePoint(left.digest, right.digest));
+  return canonicalJsonDigest(ordered.map((entry) => entry.row));
 }
 
 /** One tracked read of a unit generation, as it is persisted. */
@@ -300,6 +323,14 @@ function draftRecord(row: DraftRow): DraftRecord {
   };
 }
 
+/**
+ * What a published generation's draft set holds afterwards: nothing. The facts it published are the
+ * store's own rows (`fill_fact_holding`, by unit and generation), the row keeps the digest a repeated
+ * request of that generation is judged by, and its `writes` — a unit's whole fact set as JSON, the
+ * largest second copy of what the publication wrote — are dropped (madarch-tzte.21.11).
+ */
+export const PUBLISHED_DRAFT_WRITES = '[]';
+
 /** The digest of one draft set: what a publication names, so the same draft published twice is one publication. */
 export function draftDigest(writes: readonly StageDraftWrite[]): string {
   return canonicalJsonDigest(writes);
@@ -320,13 +351,22 @@ export async function recordUnitDraftIn(
   options: { readonly unitId: string; readonly generation: number; readonly writes: readonly StageDraftWrite[]; readonly at: number },
 ): Promise<DraftRecord> {
   const digest = draftDigest(options.writes);
+  // The row holds the digest and the times; the writes are its parts, replaced whole, so a set recorded
+  // again is the new set and nothing of the one before it.
   await executor.query(
     `INSERT INTO fill_unit_draft (unit_id, generation, digest, writes, recorded_at, retracted_at)
      VALUES ($1, $2, $3, $4::jsonb, $5, NULL)
      ON CONFLICT (unit_id, generation) DO UPDATE
        SET digest = EXCLUDED.digest, writes = EXCLUDED.writes, recorded_at = EXCLUDED.recorded_at, retracted_at = NULL`,
-    [options.unitId, options.generation, digest, json(options.writes), options.at],
+    [options.unitId, options.generation, digest, EMPTY_WRITES, options.at],
   );
+  await executor.query('DELETE FROM fill_unit_draft_part WHERE unit_id = $1 AND generation = $2', [options.unitId, options.generation]);
+  for (let at = 0, part = 0; at < options.writes.length; at += DRAFT_PART_WRITES, part += 1) {
+    await executor.query(
+      'INSERT INTO fill_unit_draft_part (unit_id, generation, part, writes) VALUES ($1, $2, $3, $4::jsonb)',
+      [options.unitId, options.generation, part, json(options.writes.slice(at, at + DRAFT_PART_WRITES))],
+    );
+  }
   return { unitId: options.unitId, generation: options.generation, digest, writes: options.writes, recordedAt: options.at, retractedAt: null };
 }
 
@@ -339,7 +379,91 @@ export async function readUnitDraft(database: OrchestratorDatabase, unitId: stri
 /** The draft set of one unit generation inside a transaction the caller already opened. */
 export async function readUnitDraftIn(executor: SqlExecutor, unitId: string, generation: number): Promise<DraftRecord | null> {
   const { rows } = await executor.query<DraftRow>('SELECT unit_id, generation, digest, writes, recorded_at, retracted_at FROM fill_unit_draft WHERE unit_id = $1 AND generation = $2', [unitId, generation]);
-  return rows[0] === undefined ? null : draftRecord(rows[0]);
+  if (rows[0] === undefined) return null;
+  const [whole] = await withDraftParts(executor, [rows[0]]);
+  return draftRecord(whole as DraftRow);
+}
+
+/**
+ * How many writes one part of a draft set holds: a part is one statement's
+ * parameter and one jsonb value, and a few hundred writes keep both a few hundred
+ * kilobytes however large the unit's set is.
+ */
+export const DRAFT_PART_WRITES = 500;
+
+/** The `writes` a draft row holds itself: none — its writes are its parts (`fill_unit_draft_part`). */
+const EMPTY_WRITES = '[]';
+
+/**
+ * Draft rows with their whole set of writes: the row's own `writes` (a row
+ * recorded before the parts existed holds them there) followed by its parts in
+ * order. Every reader of a draft set's writes reads them through this, in the
+ * transaction it holds; the parts are asked for in one statement per call.
+ */
+export async function withDraftParts<R extends { readonly unit_id: unknown; readonly generation: unknown; readonly writes: unknown }>(
+  executor: SqlExecutor,
+  rows: readonly R[],
+): Promise<readonly R[]> {
+  if (rows.length === 0) return rows;
+  const { rows: parts } = await executor.query<{ unit_id: string; generation: unknown; writes: unknown }>(
+    `SELECT p.unit_id, p.generation, p.writes
+       FROM fill_unit_draft_part p
+       JOIN unnest($1::text[], $2::integer[]) AS k(unit_id, generation) ON k.unit_id = p.unit_id AND k.generation = p.generation
+      ORDER BY p.unit_id, p.generation, p.part`,
+    [rows.map((row) => String(row.unit_id)), rows.map((row) => Number(row.generation))],
+  );
+  const byKey = new Map<string, unknown[]>();
+  for (const part of parts) {
+    const key = `${part.unit_id}\u0000${String(Number(part.generation))}`;
+    const writes = typeof part.writes === 'string' ? JSON.parse(part.writes) : part.writes;
+    if (!Array.isArray(writes)) raise(`table fill_unit_draft_part, row ${part.unit_id}/${String(part.generation)}: the writes are not a list`);
+    const held = byKey.get(key) ?? [];
+    for (const write of writes) held.push(write);
+    byKey.set(key, held);
+  }
+  return rows.map((row) => {
+    const extra = byKey.get(`${String(row.unit_id)}\u0000${String(Number(row.generation))}`);
+    if (extra === undefined) return row;
+    const own = typeof row.writes === 'string' ? JSON.parse(row.writes) : row.writes;
+    return { ...row, writes: Array.isArray(own) ? [...own, ...extra] : own };
+  });
+}
+
+/** What a draft set is judged by, without its writes: the digest, and when it was recorded and retracted. */
+export interface DraftHead {
+  readonly unitId: string;
+  readonly generation: number;
+  readonly digest: string;
+  readonly recordedAt: number;
+  readonly retractedAt: number | null;
+}
+
+interface DraftHeadRow extends Record<string, unknown> { unit_id: string; generation: unknown; digest: string; recorded_at: unknown; retracted_at: unknown }
+
+/**
+ * The head of one unit generation's draft set inside a transaction the caller
+ * already opened, or null when it holds none: its digest and its times, and not
+ * its writes. A publication judges a draft by its digest; reading a whole unit's
+ * fact set back as JSON to learn it is the copy madarch-tzte.21.11 measured as
+ * the largest allocation of a repository-wide unit's publication.
+ */
+export async function readUnitDraftHeadIn(executor: SqlExecutor, unitId: string, generation: number): Promise<DraftHead | null> {
+  const { rows } = await executor.query<DraftHeadRow>('SELECT unit_id, generation, digest, recorded_at, retracted_at FROM fill_unit_draft WHERE unit_id = $1 AND generation = $2', [unitId, generation]);
+  const row = rows[0];
+  if (row === undefined) return null;
+  return {
+    unitId: row.unit_id,
+    generation: millis(row.generation),
+    digest: row.digest,
+    recordedAt: millis(row.recorded_at),
+    retractedAt: row.retracted_at === null || row.retracted_at === undefined ? null : millis(row.retracted_at),
+  };
+}
+
+/** The head of one unit generation's draft set (`readUnitDraftHeadIn`), in a snapshot of its own. */
+export async function readUnitDraftHead(database: OrchestratorDatabase, unitId: string, generation: number): Promise<DraftHead | null> {
+  const at = here();
+  return run(at, database, `readUnitDraftHead(${unitId}/${generation})`, ['fill_unit_draft'], async (executor) => readUnitDraftHeadIn(executor, unitId, generation), 'snapshot');
 }
 
 /**
@@ -494,6 +618,18 @@ export interface PublicationRequest {
    * publication has.
    */
   readonly apply: (executor: SqlExecutor, writes: readonly StageDraftWrite[], digest: string) => Promise<number>;
+  /**
+   * The draft set the caller recorded for this generation and still holds, with
+   * the digest its record answered (`recordUnitDraft`). When that digest is the
+   * one the draft row carries in this transaction, these are the writes the row
+   * holds, and the publication applies them rather than reading the row's JSON
+   * back: a repository-wide unit's draft is tens of megabytes of JSON, and its
+   * second copy, parsed in the middle of the publication, is what pushed the
+   * modules stage's unit over a 4 GB pod (madarch-tzte.21.11). A digest that
+   * differs — another attempt recorded a draft since — is not trusted, and the
+   * row's own writes are read.
+   */
+  readonly held?: { readonly digest: string; readonly writes: readonly StageDraftWrite[] };
 }
 
 /**
@@ -556,8 +692,9 @@ export async function publishUnitIn(executor: SqlExecutor, options: PublicationR
   const refusedControl = revokedAuthority(options.unitId, options.generation, control.rows[0]?.state);
   if (refusedControl !== null) return refusedControl;
 
-  // What this request would publish: the draft set as it stands in the same transaction.
-  const draft = await readUnitDraftIn(executor, options.unitId, options.generation);
+  // What this request would publish: the draft set as it stands in the same transaction, judged by its
+  // digest; its writes are read only when they are applied, and only when the caller does not hold them.
+  const draft = await readUnitDraftHeadIn(executor, options.unitId, options.generation);
   if (draft === null) {
     return {
       outcome: 'refused',
@@ -625,11 +762,21 @@ export async function publishUnitIn(executor: SqlExecutor, options: PublicationR
   if (!step.ok) {
     return { outcome: 'refused', code: step.refusal.code, reason: step.refusal.reason, record: null };
   }
-  const facts = await options.apply(executor, draft.writes, digest);
+  const writes = options.held !== undefined && options.held.digest === draft.digest
+    ? options.held.writes
+    : (await readUnitDraftIn(executor, options.unitId, options.generation))?.writes ?? raise(`fill-publication: the draft set of unit "${options.unitId}" generation ${options.generation} was read for its digest and is gone when its writes are read, inside one transaction`);
+  const facts = await options.apply(executor, writes, digest);
   await executor.query(
     'INSERT INTO fill_publication (unit_id, generation, digest, facts, published_at) VALUES ($1, $2, $3, $4, $5)',
     [options.unitId, options.generation, digest, facts, options.at],
   );
+  // A publication does not keep both copies of what it published (madarch-tzte.21.11): the facts are
+  // `fill_fact_holding`'s rows for this unit and generation, and the draft set's `writes` was their input.
+  // The row stays — its digest is what a repeated request for this generation is judged by, so a replay
+  // still answers the existing record — and its JSON, a whole unit's fact set written twice, goes: the
+  // walk over the current madarch tree measured those copies at 43 MB of a 379 MB store.
+  await executor.query('UPDATE fill_unit_draft SET writes = $3::jsonb WHERE unit_id = $1 AND generation = $2', [options.unitId, options.generation, PUBLISHED_DRAFT_WRITES]);
+  await executor.query('DELETE FROM fill_unit_draft_part WHERE unit_id = $1 AND generation = $2', [options.unitId, options.generation]);
   return {
     outcome: 'published',
     record: { unitId: options.unitId, generation: options.generation, digest, facts, publishedAt: options.at },
