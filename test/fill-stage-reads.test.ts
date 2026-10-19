@@ -27,9 +27,10 @@ import { publishedTreeRead, publishedTreeRows } from '../src/fill/stages/invento
 import { publishedManifestsRead } from '../src/fill/stages/build-configuration.js';
 import { publishedDocuments, publishedDocumentsRead } from '../src/fill/stages/document-index.js';
 import {
-  compilerIndexRead, indexRows, publishedGapRows, publishedGapsRead, publishedImportRows, publishedImportsRead,
+  compilerIndexRead, indexRows,
   publishedReadsRead, publishedReadRows, publishedSymbolsRead, symbolRows as resolutionSymbolRows,
 } from '../src/fill/stages/semantic-resolution.js';
+import { publishedGapRows, publishedGapsRead, publishedImportRows, publishedImportsRead } from '../src/fill/stages/syntax-specifiers.js';
 import {
   edgeRows, fileRows, packageRows, publishedFilesRead, publishedPackagesRead, publishedSymbolsRead as moduleSymbolsRead,
   resolvedEdgesRead, symbolRows as moduleSymbolRows,
@@ -104,8 +105,13 @@ beforeAll(async () => {
     read: ['the pinned commit and its ancestry'], unread: [{ what: 'f'.repeat(40), reason: 'budget' }],
   }, 'src/cart.ts', 'extracted', 1, { system: 'git', version: '2.42.0' });
   const imported = edge('import', { from: fileId(REPOSITORY, 'src/cart.ts'), to: fileId(REPOSITORY, 'src/total.ts'), specifier: './total.js' }, 'src/cart.ts');
-  // An import whose to end is no file of the repository: the read asks for the
-  // imports between files and answers this one to nobody.
+  // An import whose target the graph holds no fact for: the state a resumed run
+  // finds when a deleted file's retraction published and its importers were not
+  // read again. The read answers it (madarch-tzte.21.9), because a plan that
+  // cannot see the edge cannot repair it.
+  const importedVanished = edge('import', { from: fileId(REPOSITORY, 'src/cart.ts'), to: fileId(REPOSITORY, 'src/vanished.ts'), specifier: './vanished.js' }, 'src/cart.ts');
+  // An import whose to end is no file at all — a package — which an `import`
+  // edge never joins: the read answers it to nobody.
   const importedPackage = edge('import', { from: fileId(REPOSITORY, 'src/cart.ts'), to: node('package', { repository: REPOSITORY, name: 'chalk', form: 'package', manifest: 'package.json' }, 'package.json').id, specifier: 'chalk' }, 'src/cart.ts');
   const called = edge('call', { from: cartClass.id, to: cartTotal.id, count: 2, precision: 'syntactic' }, 'src/cart.ts');
   const packageFact = node('package', { repository: REPOSITORY, name: 'shop', form: 'package', manifest: 'package.json' }, 'package.json');
@@ -133,7 +139,8 @@ beforeAll(async () => {
     { fact: folder, stage: 'inventory' }, { fact: other, stage: 'inventory' },
     { fact: packageFact, stage: 'build-configuration' }, { fact: manifestCoverage, stage: 'build-configuration' },
     { fact: cartClass, stage: 'syntax' }, { fact: cartTotal, stage: 'syntax' }, { fact: otherSymbol, stage: 'syntax' },
-    { fact: syntaxCoverage, stage: 'syntax' }, { fact: imported, stage: 'syntax' }, { fact: importedPackage, stage: 'syntax' },
+    { fact: syntaxCoverage, stage: 'syntax' }, { fact: imported, stage: 'syntax' },
+    { fact: importedVanished, stage: 'syntax' }, { fact: importedPackage, stage: 'syntax' },
     { fact: called, stage: 'semantic-resolution' }, { fact: resolutionCoverage, stage: 'semantic-resolution' },
     { fact: document, stage: 'document-index' }, { fact: commit, stage: 'history' }, { fact: historyCoverage, stage: 'history' },
   ]) FACTS.push(entry);
@@ -254,12 +261,22 @@ describe('the manifests, documents, packages and symbols the stages plan and rea
 });
 
 describe('the resolution stage\'s reads', () => {
-  test('the imports are the edges between two files of the repository, and no edge of another kind of end', async () => {
+  test('the imports are the edges a repository\'s files wrote, a target the graph holds no file fact for included, and no edge whose target is no file', async () => {
     const read = publishedImportsRead(REPOSITORY);
     const imports = publishedImportRows(await query(read), REPOSITORY, read);
-    expect(imports.map((row) => [row.from.startsWith('file:'), row.to.startsWith('file:'), row.specifier])).toEqual([
-      [true, true, './total.js'],
-    ]);
+    // The edge to `src/vanished.ts` stands although no `file` fact of that path
+    // is in the store, and its own id is the one `fileId` digests; the package's
+    // edge is left out, since an `import` joins two files.
+    const rows = imports.map((row) => [row.from.startsWith('file:'), row.to, row.specifier] as [boolean, string, string]);
+    const expected: [boolean, string, string][] = [
+      [true, fileId(REPOSITORY, 'src/total.ts'), './total.js'],
+      [true, fileId(REPOSITORY, 'src/vanished.ts'), './vanished.js'],
+    ];
+    // A comparator of the test's own, over the specifier each edge wrote, so the
+    // order is asserted in code point order and not by the engine's own default.
+    const bySpecifier = (left: [boolean, string, string], right: [boolean, string, string]): number =>
+      left[2] < right[2] ? -1 : left[2] > right[2] ? 1 : 0;
+    expect(rows.sort(bySpecifier)).toEqual(expected.sort(bySpecifier));
   });
 
   test('the gaps are the syntax stage\'s own, one row per gap, in the file it stands in', async () => {

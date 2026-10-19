@@ -14,7 +14,7 @@ import { checkFact, makeNodeFact, repositoryPath, type Fact, type FactRange, typ
 import { collectFileResolution, extractFileResolution } from '../src/fill/stages/resolution-extract.js';
 import { oneFactPerId, resolutionFacts, type ResolutionSymbolRow } from '../src/fill/stages/resolution-facts.js';
 import { extractFileSyntax, readSyntaxTree } from '../src/fill/stages/syntax-extract.js';
-import { SYNTAX_SOURCE } from '../src/fill/stages/syntax-facts.js';
+import { SYNTAX_SOURCE, syntaxFacts } from '../src/fill/stages/syntax-facts.js';
 
 const encoder = new TextEncoder();
 const COMMIT = '1'.repeat(40);
@@ -66,6 +66,21 @@ function factsOfFile(input: {
     index: input.index ?? new Map(),
     indexAnswered: input.indexAnswered ?? false,
   }));
+}
+
+/**
+ * The symbol rows stage 3 publishes for one file: the symbols its own extraction
+ * finds, with the ranges they stand at. Two modules' answers meet here, so a
+ * resolution test reads what the stage really publishes and not what the test
+ * hoped it would.
+ */
+async function symbolRowsOf(path: string, text: string): Promise<readonly ResolutionSymbolRow[]> {
+  const findings = await extractFileSyntax(path, bytesOf(text));
+  const set = syntaxFacts({ repository: REPOSITORY, commit: COMMIT, path: repositoryPath(path), findings, files: [path] });
+  return set.facts.filter((fact) => fact.kind === 'symbol').map((fact) => {
+    const value = fact.value as { readonly file: string; readonly qualifiedName: string; readonly symbolKind: SymbolKind };
+    return { id: fact.id, file: repositoryPath(value.file), qualifiedName: value.qualifiedName, symbolKind: value.symbolKind, range: fact.provenance.place!.range };
+  });
 }
 
 /** The one fact of a kind, refused where the answer holds another number of them. */
@@ -385,6 +400,31 @@ describe('what one file\'s findings become', () => {
     expect(answer.unresolvedMentions).toBe(0);
     const gaps = answer.coverage.unread.map((gap) => gap.what);
     expect(gaps.filter((what) => what.includes('lodash') && what.includes('names a package outside this repository')).length).toBe(1);
+  });
+
+  test('a method of an object literal is no name a bare mention of the file reaches', async () => {
+    const path = 'src/handlers.ts';
+    const text = [
+      'const handlers = {',
+      '  save(): void {},',
+      '};',
+      '',
+      'export function run(): void {',
+      '  save();',
+      '}',
+      '',
+    ].join('\n');
+    const fileSymbols = await symbolRowsOf(path, text);
+    // Stage 3 names the member by the value the literal stands in, and a
+    // constant is no lexical scope: a bare `save()` of the file binds no symbol.
+    expect(fileSymbols.map((row) => row.qualifiedName).sort()).toEqual(['handlers', 'handlers.save', 'run']);
+    const answer = await factsOfFile({ path, text, files: [path], fileSymbols });
+    expect(answer.facts.filter((fact) => fact.kind === 'call')).toEqual([]);
+    expect(answer.facts.filter((fact) => fact.kind === 'reference')).toEqual([]);
+    expect(answer.resolvedMentions).toBe(0);
+    // Nothing in the file binds `save`, so the mention is out of this reader's
+    // claim: no edge to a guess, and no gap either.
+    expect(answer.coverage.unread.some((gap) => gap.what.includes('save'))).toBe(false);
   });
 
   test('a compiler index resolves a name at precision compiler, and its absence is named in the coverage', async () => {

@@ -36,14 +36,16 @@
  *   and so retracts what an earlier run wrote for a file that was deleted or
  *   renamed away.
  *
- * The two rules about a specifier whose meaning moved are answered against this
- * stage's own last reading (`publishedReadsRead`): a target this stage already
- * read is one its edges already name — whatever stage 3's older gap or import
- * edge still says — so they plan a file once and not on every later run of an
- * unchanged commit. A graph that answers the gaps read with nothing has no gap to
- * fire the first of them on; a graph that answers the own reading with nothing
- * makes the second fire on every run of an unchanged commit — a re-plan, never a
- * wrong edge — so a wiring for this stage answers it.
+ * The two rules about a specifier whose meaning moved are one helper
+ * (`movedBySpecifiers`, `syntax-specifiers.ts`), which stage 3's own plan calls
+ * for the gap and the edge it published; here they are bounded by this stage's
+ * own last reading (`publishedReadsRead`): a target this stage already read is
+ * one its edges already name — whatever stage 3's older gap or import edge still
+ * says — so they plan a file once and not on every later run of an unchanged
+ * commit. A graph that answers the gaps read with nothing has no gap to fire the
+ * first of them on; a graph that answers the own reading with nothing makes the
+ * second fire on every run of an unchanged commit — a re-plan, never a wrong
+ * edge — so a wiring for this stage answers it.
  *
  * **What one unit reads.** The file's own bytes come from the pinned snapshot
  * (`SnapshotSource`, stage 0) and never from a working tree. The symbols it
@@ -71,12 +73,15 @@ import {
   type FillStage, type StageContext, type StageDraftSet, type StageExecutionResult,
   type StageGraphReader, type StagePlan, type StageUnit,
 } from '../stage.js';
-import { checkFactDraft, evidenceAt } from './draft.js';
+import { checkFactDraft, evidenceAt, refuseRow, rowRecord, unknownKeys } from './draft.js';
 import { publishedTreeRead, publishedTreeRows, rolesFor } from './inventory.js';
 import { extractFileResolution, unreadFileResolution, type ExtractedFileResolution } from './resolution-extract.js';
 import { resolutionFacts, type ResolutionFactSet, type ResolutionSymbolRow } from './resolution-facts.js';
 import { fileUnitId, plannedUnit } from './syntax.js';
 import { fileFactIdOf, resolveSpecifier } from './syntax-facts.js';
+import {
+  movedBySpecifiers, publishedGapRows, publishedGapsRead, publishedImportRows, publishedImportsRead,
+} from './syntax-specifiers.js';
 
 /** The stage's id, as it is registered and as its units are named. */
 export const SEMANTIC_RESOLUTION_STAGE_ID = 'semantic-resolution';
@@ -90,40 +95,14 @@ export const SEMANTIC_RESOLUTION_STAGE_VERSION = 1;
 /** The fact kinds the stage produces, in code point order. */
 export const SEMANTIC_RESOLUTION_STAGE_KINDS: readonly string[] = ['call', 'coverage', 'inherits', 'occurrence', 'reference'];
 
-/** The read the plan makes: the `import` edges the graph holds for one repository. */
-export const PUBLISHED_IMPORTS_READ = 'stage-4-published-imports';
-
 /** The read one unit makes: the `symbol` facts the graph holds for one file. */
 export const PUBLISHED_SYMBOLS_READ = 'stage-3-published-symbols';
 
 /** The optional read: what a compiler's index resolved for one file, by the place of each mention. */
 export const COMPILER_INDEX_READ = 'stage-4-compiler-index';
 
-/** The read the plan makes: what stage 3 could not tie to a node, by the file it stood in. */
-export const PUBLISHED_GAPS_READ = 'stage-3-coverage-gaps';
-
 /** The read the plan makes: what this stage's own last run read for one file. */
 export const PUBLISHED_READS_READ = 'stage-4-published-reads';
-
-/**
- * The read the plan makes: the `import` edges stage 3 published for one
- * repository, which tell which files' resolution read another file's symbols.
- * The text is a JSON document, so a wiring reads it as data and not as prose.
- */
-export function publishedImportsRead(repository: string): string {
-  return JSON.stringify({ read: PUBLISHED_IMPORTS_READ, repository });
-}
-
-/**
- * The read the plan makes: what stage 3 published as a gap for one repository —
- * a specifier it could not tie to a file among them. A file's resolution can
- * move without the file's own bytes moving: a specifier that named nothing when
- * stage 3 read the file names a file once one appears, and that file is one this
- * stage's resolution reads.
- */
-export function publishedGapsRead(repository: string): string {
-  return JSON.stringify({ read: PUBLISHED_GAPS_READ, repository });
-}
 
 /**
  * The read the plan makes: the files this stage's own last resolution read for
@@ -151,15 +130,6 @@ export function compilerIndexRead(repository: string, path: string): string {
   return JSON.stringify({ read: COMPILER_INDEX_READ, repository, path });
 }
 
-/** One row of the plan's read: an `import` edge between two files of the repository, by fact id. */
-export interface PublishedImportRow {
-  readonly kind: 'import';
-  readonly from: string;
-  readonly to: string;
-  /** The specifier the importer wrote (`./order.js`), which tells whether it names the same file at the pinned commit. */
-  readonly specifier: string;
-}
-
 /** One row of the plan's own read: what this stage's last run read for one file, the file itself among them. */
 export interface PublishedReadRow {
   readonly kind: 'coverage';
@@ -168,21 +138,6 @@ export interface PublishedReadRow {
   /** The files that resolution read, in code point order, each once. */
   readonly read: readonly string[];
 }
-
-/** One row of the plan's gap read: one thing stage 3 could not tie to a node, in the file it stood in. */
-export interface PublishedGapRow {
-  readonly kind: 'coverage';
-  /** The file the gap stands in. */
-  readonly file: string;
-  /** What could not be read: a specifier, a path, or a question the reader could not answer. */
-  readonly what: string;
-}
-
-/** The keys a row of the plan's read holds, and no others. */
-const IMPORT_ROW_FIELDS: readonly string[] = ['from', 'kind', 'specifier', 'to'];
-
-/** The keys a gap row holds, and no others. */
-const GAP_ROW_FIELDS: readonly string[] = ['file', 'kind', 'what'];
 
 /** The keys a read row holds, and no others. */
 const READ_ROW_FIELDS: readonly string[] = ['file', 'kind', 'read'];
@@ -289,30 +244,29 @@ async function planResolution(sources: SnapshotSource, graph: StageGraphReader):
     for (const path of published.keys()) pathById.set(fileFactIdOf(pin.id, path), path);
     const again = new Set<string>(moved);
     for (const edge of imports) {
-      const target = pathById.get(edge.to);
       const importer = pathById.get(edge.from);
-      // An edge whose file the tree no longer holds plans nothing: the file it
-      // names is gone, and stage 3's own plan retracts its facts.
-      if (target === undefined || importer === undefined) continue;
-      if (!present.has(importer)) continue;
-      if (moved.has(target)) {
-        again.add(importer);
-        continue;
-      }
-      // The specifier names another file of the pinned tree now: a file that
-      // appears beside the one an import resolved to (`./x.js` written beside
-      // the `x.ts` it named) moves the import's own resolution without moving
-      // any file the earlier run read.
-      const now = resolveSpecifier(importer, edge.specifier, held);
-      if (now !== undefined && now !== target && readOf.get(importer)?.has(now) !== true) again.add(importer);
+      if (importer === undefined || !present.has(importer)) continue;
+      const target = pathById.get(edge.to);
+      // A target whose blob moved or that the commit no longer holds takes the
+      // symbols the importer's resolution read with it. An edge whose `to` the
+      // graph holds no file fact for is the helper's below: its specifier
+      // answers no file of the pinned tree.
+      if (target !== undefined && moved.has(target)) again.add(importer);
     }
-    // A specifier stage 3 could not tie to a file names one now: a file appeared
-    // under it, so the file that wrote it reads symbols it did not read before.
-    for (const gap of gaps) {
-      if (!present.has(gap.file)) continue;
-      const now = resolveSpecifier(gap.file, gap.what, held);
-      if (now === undefined || readOf.get(gap.file)?.has(now) === true) continue;
-      again.add(gap.file);
+    // The two rules about a specifier whose answer moved — a gap that names a
+    // file now, and an edge whose specifier names another file than it did —
+    // are the helper stage 3's own plan calls. This stage's last reading is the
+    // bound: a target it already read is one its edges already name, whatever
+    // stage 3's older gap or edge still says.
+    for (const path of movedBySpecifiers({
+      repository: pin.id,
+      paths: held,
+      published: published.keys(),
+      imports,
+      gaps,
+      answered: (file, target) => readOf.get(file)?.has(target) === true,
+    })) {
+      again.add(path);
     }
     for (const path of again) {
       if (!present.has(path) || !isSourcePath(path)) continue;
@@ -446,57 +400,6 @@ function refuseWhenCancelled(unit: StageUnit, context: StageContext): void {
 // ---- reading a read's rows ------------------------------------------------
 
 /**
- * The plan's read, read: each row is an `import` edge of this repository, an
- * object naming the kind and the two file facts it joins. A row that names
- * another kind, an id that is no fact id of a `file`, or a key this read does
- * not define is refused, naming the read, the row and the field — a row read
- * past would plan a wrong unit in silence, and a row dropped would leave a
- * stale resolution behind.
- */
-export function publishedImportRows(rows: readonly unknown[], repository: string, read: string): readonly PublishedImportRow[] {
-  return rows.map((row, index) => {
-    const held = rowRecord(row, read, index, repository, 'an import edge of the repository');
-    unknownKeys(held, IMPORT_ROW_FIELDS, read, index, repository);
-    if (held['kind'] !== 'import') throw refuse(read, index, repository, `its kind is ${JSON.stringify(held['kind'])}, and this read answers "import" edges`);
-    const specifier = held['specifier'];
-    if (typeof specifier !== 'string' || specifier.trim() === '') {
-      throw refuse(read, index, repository, `its specifier ${JSON.stringify(specifier)} is no specifier: an import edge names the text the importing file wrote`);
-    }
-    return {
-      kind: 'import',
-      from: fileIdIn(held['from'], read, index, repository, 'from'),
-      to: fileIdIn(held['to'], read, index, repository, 'to'),
-      specifier,
-    };
-  });
-}
-
-/**
- * The plan's gap read, read: each row is one gap of stage 3's coverage of a file
- * — a specifier it could not tie to a file, a language it could not read, a
- * question it could not answer. A row naming another kind, a file that is no
- * repository path, or a key this read does not define is refused, naming the
- * read, the row and the field: a row read past would leave a file's resolution
- * stale in silence.
- */
-export function publishedGapRows(rows: readonly unknown[], repository: string, read: string): readonly PublishedGapRow[] {
-  return rows.map((row, index) => {
-    const held = rowRecord(row, read, index, repository, 'a gap of a file\'s coverage');
-    unknownKeys(held, GAP_ROW_FIELDS, read, index, repository);
-    if (held['kind'] !== 'coverage') throw refuse(read, index, repository, `its kind is ${JSON.stringify(held['kind'])}, and this read answers "coverage" gaps`);
-    const file = held['file'];
-    if (typeof file !== 'string' || !isRepositoryPath(file)) {
-      throw refuse(read, index, repository, `its file ${JSON.stringify(file)} is no repository path: a gap stands in a file of the repository`);
-    }
-    const what = held['what'];
-    if (typeof what !== 'string' || what.trim() === '') {
-      throw refuse(read, index, repository, `its what ${JSON.stringify(what)} is no gap: a gap names what the reader could not read`);
-    }
-    return { kind: 'coverage', file, what };
-  });
-}
-
-/**
  * The plan's own read, read: each row is one file's coverage as this stage
  * published it, with the files that resolution read. A row naming another kind,
  * a file that is no repository path, a list of paths that is not one, or a key
@@ -506,18 +409,18 @@ export function publishedReadRows(rows: readonly unknown[], repository: string, 
   return rows.map((row, index) => {
     const held = rowRecord(row, read, index, repository, 'what a file\'s resolution read');
     unknownKeys(held, READ_ROW_FIELDS, read, index, repository);
-    if (held['kind'] !== 'coverage') throw refuse(read, index, repository, `its kind is ${JSON.stringify(held['kind'])}, and this read answers "coverage" facts`);
+    if (held['kind'] !== 'coverage') throw refuseRow(read, index, repository, `its kind is ${JSON.stringify(held['kind'])}, and this read answers "coverage" facts`);
     const file = held['file'];
     if (typeof file !== 'string' || !isRepositoryPath(file)) {
-      throw refuse(read, index, repository, `its file ${JSON.stringify(file)} is no repository path: a coverage stands for a file of the repository`);
+      throw refuseRow(read, index, repository, `its file ${JSON.stringify(file)} is no repository path: a coverage stands for a file of the repository`);
     }
     const readFiles = held['read'];
     if (!Array.isArray(readFiles)) {
-      throw refuse(read, index, repository, `its read ${JSON.stringify(readFiles)} is no list of paths: a coverage names the files its resolution read`);
+      throw refuseRow(read, index, repository, `its read ${JSON.stringify(readFiles)} is no list of paths: a coverage names the files its resolution read`);
     }
     const paths = readFiles.map((entry, at) => {
       if (typeof entry !== 'string' || !isRepositoryPath(entry)) {
-        throw refuse(read, index, repository, `its read[${at}] ${JSON.stringify(entry)} is no repository path`);
+        throw refuseRow(read, index, repository, `its read[${at}] ${JSON.stringify(entry)} is no repository path`);
       }
       return entry;
     });
@@ -537,22 +440,22 @@ export function symbolRows(rows: readonly unknown[], repository: string, path: s
   return rows.map((row, index) => {
     const held = rowRecord(row, read, index, repository, `the symbols of ${JSON.stringify(path)}`);
     unknownKeys(held, SYMBOL_ROW_FIELDS, read, index, repository);
-    if (held['kind'] !== 'symbol') throw refuse(read, index, repository, `its kind is ${JSON.stringify(held['kind'])}, and this read answers "symbol" facts`);
+    if (held['kind'] !== 'symbol') throw refuseRow(read, index, repository, `its kind is ${JSON.stringify(held['kind'])}, and this read answers "symbol" facts`);
     const file = held['file'];
     if (file !== path) {
-      throw refuse(read, index, repository, `it is declared in ${JSON.stringify(file)}, and the read was for ${JSON.stringify(path)}: one read is one file's symbols`);
+      throw refuseRow(read, index, repository, `it is declared in ${JSON.stringify(file)}, and the read was for ${JSON.stringify(path)}: one read is one file's symbols`);
     }
     const id = held['id'];
     if (typeof id !== 'string' || !FACT_ID_PATTERN.test(id) || !id.startsWith('symbol:')) {
-      throw refuse(read, index, repository, `its id ${JSON.stringify(id)} is no symbol fact id: a symbol fact's id is "symbol:" and the digest of what the symbol is`);
+      throw refuseRow(read, index, repository, `its id ${JSON.stringify(id)} is no symbol fact id: a symbol fact's id is "symbol:" and the digest of what the symbol is`);
     }
     const qualifiedName = held['qualifiedName'];
     if (typeof qualifiedName !== 'string' || qualifiedName.trim() === '') {
-      throw refuse(read, index, repository, `its qualified name ${JSON.stringify(qualifiedName)} is no name`);
+      throw refuseRow(read, index, repository, `its qualified name ${JSON.stringify(qualifiedName)} is no name`);
     }
     const symbolKind = held['symbolKind'];
     if (typeof symbolKind !== 'string' || !SYMBOL_KINDS.includes(symbolKind)) {
-      throw refuse(read, index, repository, `its symbol kind ${JSON.stringify(symbolKind)} is no kind of symbol the schema names: ${SYMBOL_KINDS.join(', ')}`);
+      throw refuseRow(read, index, repository, `its symbol kind ${JSON.stringify(symbolKind)} is no kind of symbol the schema names: ${SYMBOL_KINDS.join(', ')}`);
     }
     return { id, file: repositoryPath(file), qualifiedName, symbolKind: symbolKind as SymbolKind, range: rangeIn(held, read, index, repository) };
   });
@@ -573,47 +476,23 @@ export function indexRows(rows: readonly unknown[], repository: string, path: st
     const line = held['line'];
     const column = held['column'];
     if (typeof line !== 'number' || !Number.isInteger(line) || line < 1) {
-      throw refuse(read, at, repository, `its line ${JSON.stringify(line)} is no line: a mention's line is a whole number from 1`);
+      throw refuseRow(read, at, repository, `its line ${JSON.stringify(line)} is no line: a mention's line is a whole number from 1`);
     }
     if (typeof column !== 'number' || !Number.isInteger(column) || column < 0) {
-      throw refuse(read, at, repository, `its column ${JSON.stringify(column)} is no column: a mention's column is a whole number from 0`);
+      throw refuseRow(read, at, repository, `its column ${JSON.stringify(column)} is no column: a mention's column is a whole number from 0`);
     }
     const symbol = held['symbol'];
     if (typeof symbol !== 'string' || !FACT_ID_PATTERN.test(symbol) || !symbol.startsWith('symbol:')) {
-      throw refuse(read, at, repository, `its symbol ${JSON.stringify(symbol)} is no symbol fact id: the index names the symbol fact the place resolves to`);
+      throw refuseRow(read, at, repository, `its symbol ${JSON.stringify(symbol)} is no symbol fact id: the index names the symbol fact the place resolves to`);
     }
     const key = `${line}:${column}`;
     const first = index.get(key);
     if (first !== undefined) {
-      throw refuse(read, at, repository, `its place ${key} stands in an earlier row of this answer, as ${JSON.stringify(first)}: one index answers one symbol per place`);
+      throw refuseRow(read, at, repository, `its place ${key} stands in an earlier row of this answer, as ${JSON.stringify(first)}: one index answers one symbol per place`);
     }
     index.set(key, symbol);
   });
   return index;
-}
-
-/** One row of a read, as an object; a row that is no object is refused, naming the read and the row. */
-function rowRecord(row: unknown, read: string, index: number, repository: string, what: string): Record<string, unknown> {
-  if (row === null || typeof row !== 'object' || Array.isArray(row)) {
-    throw refuse(read, index, repository, `${JSON.stringify(row)} is no row: this read answers ${what}, each an object naming its fields`);
-  }
-  return row as Record<string, unknown>;
-}
-
-/** A row's keys, none of them a key this read does not define. */
-function unknownKeys(held: Record<string, unknown>, fields: readonly string[], read: string, index: number, repository: string): void {
-  const unknown = Object.keys(held).filter((key) => !fields.includes(key)).sort(byCodePoint);
-  if (unknown.length > 0) {
-    throw refuse(read, index, repository, `it holds ${unknown.map((key) => JSON.stringify(key)).join(', ')}, and a row holds ${fields.join(', ')}: a run, a unit, an attempt or a session is none of them`);
-  }
-}
-
-/** A file fact id a row names, refused where it is no id of a `file` fact. */
-function fileIdIn(value: unknown, read: string, index: number, repository: string, field: string): string {
-  if (typeof value !== 'string' || !FACT_ID_PATTERN.test(value) || !value.startsWith('file:')) {
-    throw refuse(read, index, repository, `its ${field} ${JSON.stringify(value)} is no file fact id: an import edges two file facts of this repository`);
-  }
-  return value;
 }
 
 /** The declaration range a symbol row carries, refused where it is no range. */
@@ -622,17 +501,12 @@ function rangeIn(held: Record<string, unknown>, read: string, index: number, rep
   for (const field of ['startLine', 'startColumn', 'endLine', 'endColumn'] as const) {
     const value = held[field];
     if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
-      throw refuse(read, index, repository, `its ${field} ${JSON.stringify(value)} is no line or column: a declaration's range is whole numbers from 0`);
+      throw refuseRow(read, index, repository, `its ${field} ${JSON.stringify(value)} is no line or column: a declaration's range is whole numbers from 0`);
     }
     range[field] = value;
   }
   if (range.endLine < range.startLine) {
-    throw refuse(read, index, repository, `its range ends on line ${range.endLine} and starts on line ${range.startLine}: a range's end is never before its start`);
+    throw refuseRow(read, index, repository, `its range ends on line ${range.endLine} and starts on line ${range.startLine}: a range's end is never before its start`);
   }
   return range;
-}
-
-/** What one refusal says: the read, the row it answered, and what was wrong with it. */
-function refuse(read: string, index: number, repository: string, detail: string): Error {
-  return new Error(`the read ${read} answered row ${index + 1} for the repository ${JSON.stringify(repository)}, and ${detail}`);
 }

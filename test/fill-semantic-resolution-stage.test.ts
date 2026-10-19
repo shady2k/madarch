@@ -27,12 +27,15 @@ import { createGitSnapshotSource, type SnapshotSource } from '../src/fill/snapsh
 import { DEFAULT_STAGE_LIMITS, type StageContext, type StageDraftWrite, type StageUnit } from '../src/fill/stage.js';
 import { publishedTreeRead, createInventoryStage, type PublishedTreeRow } from '../src/fill/stages/inventory.js';
 import {
-  compilerIndexRead, createSemanticResolutionStage, indexRows, publishedGapRows, publishedGapsRead, publishedImportRows,
-  publishedImportsRead, publishedReadRows, publishedReadsRead, publishedSymbolsRead, symbolRows, SEMANTIC_RESOLUTION_STAGE_ID,
-  type PublishedImportRow,
+  compilerIndexRead, createSemanticResolutionStage, indexRows,
+  publishedReadRows, publishedReadsRead, publishedSymbolsRead, symbolRows, SEMANTIC_RESOLUTION_STAGE_ID,
 } from '../src/fill/stages/semantic-resolution.js';
 import { createStageRegistry } from '../src/fill/stages/index.js';
 import { createSyntaxStage } from '../src/fill/stages/syntax.js';
+import {
+  publishedGapRows, publishedGapsRead, publishedImportRows, publishedImportsRead,
+  type PublishedImportRow,
+} from '../src/fill/stages/syntax-specifiers.js';
 
 // ---- the test's own repository, context and graph ---------------------------
 
@@ -428,6 +431,13 @@ describe('the resolution stage plans the files a commit moves', () => {
       // unit writes the import's names as unresolved, at their places.
       const plan = await stage.plan({ query: graphOf(published, 'orders-api') });
       expect(unitIds(plan)).toEqual(['file:orders-api:src/a.ts', 'file:orders-api:src/b.ts']);
+      // The state a run resumes in when the retraction published and this
+      // stage's units did not: the tree read holds no `b.ts`, so the graph
+      // answers no `file` fact for the target and the edge itself is what plans
+      // the importer (the read answers such an edge, `stage-reads.ts`).
+      const settled = await publishedAt(sourceAt(f.root, second));
+      const resumed = await stage.plan({ query: graphOf({ tree: settled.tree, writes: published.writes }, 'orders-api') });
+      expect(unitIds(resumed)).toEqual(['file:orders-api:src/a.ts']);
       const importer = plan.units.find((unit) => unit.id === 'file:orders-api:src/a.ts')!;
       const run = await runUnit(sourceAt(f.root, second), importer, graphOf(published, 'orders-api'));
       expect(factsOfKind(run.run.recorder.writes, 'call')).toEqual([]);

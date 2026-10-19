@@ -1,7 +1,15 @@
 /**
  * What the deterministic stages here do the same way: what a write cites as the
  * bytes it stands on, the provenance of a fact read from a pinned repository,
- * and the reading of a draft back against the schema before it is published.
+ * the reading of a draft back against the schema before it is published, and
+ * the reading of one row of a tracked read back into the shape the consuming
+ * stage demands.
+ *
+ * The four row readers are the ones the syntax stage and the resolution stage
+ * read their answers with, and they share them because the two stages read the
+ * same two facts about specifiers (`syntax-specifiers.ts`). The modules stage
+ * keeps its own copy of three of them, which is the next change's to fold in —
+ * this module is not yet the only copy of the rule.
  *
  * A `fact` write's value is a whole fact envelope (`makeNodeFact` /
  * `makeEdgeFact` of `src/fill/facts.ts`): the kind, the schema version, the id
@@ -10,7 +18,8 @@
  * `checkFact`, and the id it checks is the one the fact store will hold, so a
  * stage writes nothing the schema has not read.
  */
-import { checkFact, type FactProvenance } from '../facts.js';
+import { byCodePoint } from '../../model/order.js';
+import { FACT_ID_PATTERN, checkFact, type FactProvenance } from '../facts.js';
 import type { SnapshotReader } from '../snapshot.js';
 import type { StageDraftSet, StageDraftWrite, StageValidation } from '../stage.js';
 
@@ -31,6 +40,42 @@ export function provenanceOf(reader: SnapshotReader): FactProvenance {
 export function evidenceAt(reader: SnapshotReader, path?: string): string {
   const at = `${reader.repository}@${reader.commit}`;
   return path === undefined ? at : `${at}:${path}`;
+}
+
+// ---- one row of a read ----------------------------------------------------
+
+/**
+ * What one refusal of a read says: the read, the row it answered and what was
+ * wrong with it. Every row reader of a stage names all three, so a planner that
+ * read a row past the shape it defined is told which answer and which row, and
+ * not only that something was a string where an object was expected.
+ */
+export function refuseRow(read: string, index: number, repository: string, detail: string): Error {
+  return new Error(`the read ${read} answered row ${index + 1} for the repository ${JSON.stringify(repository)}, and ${detail}`);
+}
+
+/** One row of a read, as an object; a row that is no object is refused, naming the read and the row. */
+export function rowRecord(row: unknown, read: string, index: number, repository: string, what: string): Record<string, unknown> {
+  if (row === null || typeof row !== 'object' || Array.isArray(row)) {
+    throw refuseRow(read, index, repository, `${JSON.stringify(row)} is no row: this read answers ${what}, each an object naming its fields`);
+  }
+  return row as Record<string, unknown>;
+}
+
+/** A row's keys, none of them a key this read does not define. */
+export function unknownKeys(held: Record<string, unknown>, fields: readonly string[], read: string, index: number, repository: string): void {
+  const unknown = Object.keys(held).filter((key) => !fields.includes(key)).sort(byCodePoint);
+  if (unknown.length > 0) {
+    throw refuseRow(read, index, repository, `it holds ${unknown.map((key) => JSON.stringify(key)).join(', ')}, and a row holds ${fields.join(', ')}: a run, a unit, an attempt or a session is none of them`);
+  }
+}
+
+/** A file fact id a row names, refused where it is no id of a `file` fact. */
+export function fileIdIn(value: unknown, read: string, index: number, repository: string, field: string): string {
+  if (typeof value !== 'string' || !FACT_ID_PATTERN.test(value) || !value.startsWith('file:')) {
+    throw refuseRow(read, index, repository, `its ${field} ${JSON.stringify(value)} is no file fact id: an import edges two file facts of this repository`);
+  }
+  return value;
 }
 
 /**
