@@ -28,6 +28,7 @@ import { mermaidOfDiagram } from '../src/product-wiki/graph-mermaid.js';
 import { graphArchifyPage, graphLikeC4Page } from '../src/product-wiki/graph-render.js';
 import { diagramWorkspace, webcomponentElement, webcomponentPrefix } from '../src/product-wiki/graph-workspace.js';
 import { checkLikeC4Workspaces } from '../scripts/likec4-check.js';
+import { LIKEC4_DRAWINGS_SOURCE } from '../src/product-wiki/likec4-drawings.js';
 import { DIAGRAM_FIXTURE, readsOf } from './fill-diagram-fixture.js';
 
 const fx = DIAGRAM_FIXTURE;
@@ -236,6 +237,50 @@ describe('one diagram as the app receives it', () => {
   });
 });
 
+/** One stand-in for a DOM node, as the drawings probe reads it: its descendants and its own open shadow root. */
+interface FakeNode {
+  /** Whether this node is an svg, which is what the probe counts. */
+  readonly svg?: boolean;
+  readonly children: readonly FakeNode[];
+  readonly shadowRoot?: FakeNode;
+  querySelectorAll(selector: string): readonly FakeNode[];
+}
+
+/** A stand-in node: its children, its shadow root and what a selector finds in them, the way a document answers. */
+function fakeNode(options: { readonly svg?: boolean; readonly children?: readonly FakeNode[]; readonly shadow?: FakeNode } = {}): FakeNode {
+  const children = options.children ?? [];
+  const svgsIn = (nodes: readonly FakeNode[]): readonly FakeNode[] => nodes.flatMap((node) => [...(node.svg === true ? [node] : []), ...svgsIn(node.children)]);
+  return {
+    ...(options.svg === true ? { svg: true } : {}),
+    children,
+    ...(options.shadow === undefined ? {} : { shadowRoot: options.shadow }),
+    querySelectorAll: (selector: string) => (selector === '*' ? children : svgsIn(children)),
+  };
+}
+
+/** The drawings probe as a page or a walk runs it: the very bytes the page carries. */
+function drawingsProbe(): (root: FakeNode) => readonly FakeNode[] {
+  return new Function(`return (${LIKEC4_DRAWINGS_SOURCE});`)() as (root: FakeNode) => readonly FakeNode[];
+}
+
+describe('the drawings a LikeC4 element holds', () => {
+  test('a drawing is found wherever LikeC4 put it: its own shadow root, or the one nested inside that', () => {
+    const drawings = drawingsProbe();
+    // Nothing drawn at all is the answer a browser where LikeC4 failed must still get.
+    expect(drawings(fakeNode())).toEqual([]);
+    // A drawing in the host's light DOM and one in its own shadow root are both the element's drawing.
+    expect(drawings(fakeNode({ children: [fakeNode({ svg: true })] }))).toHaveLength(1);
+    expect(drawings(fakeNode({ shadow: fakeNode({ children: [fakeNode({ svg: true })] }) }))).toHaveLength(1);
+    // LikeC4's own shape (likec4/react's `ShadowRootHost`): the element's shadow root holds a div that attaches a
+    // second shadow root, and the drawing is in *that* one. Asking the element's own shadow root finds nothing.
+    const likec4 = fakeNode({ shadow: fakeNode({ children: [fakeNode({ shadow: fakeNode({ children: [fakeNode({ svg: true })] }) })] }) });
+    expect(drawings(likec4)).toHaveLength(1);
+    expect(likec4.shadowRoot!.querySelectorAll('svg')).toEqual([]);
+    // Two drawings are two, so the walk collects them all and stops at nothing.
+    expect(drawings(fakeNode({ children: [fakeNode({ svg: true })], shadow: fakeNode({ children: [fakeNode({ svg: true })] }) }))).toHaveLength(2);
+  });
+});
+
 describe('the LikeC4 page of a diagram', () => {
   test('the document carries the element the bundle defines, the view and a word for a browser where LikeC4 draws nothing', async () => {
     const model = await buildDiagram({ type: 'c4-context', nodes: [] }, clean);
@@ -247,6 +292,11 @@ describe('the LikeC4 page of a diagram', () => {
     expect(page.html).toContain(`<script src="/api/graph/likec4.js?id=${encodeURIComponent(fx.shop.id)}&type=c4-context"></script>`);
     // A browser where LikeC4 draws nothing is told so, rather than shown an empty frame.
     expect(page.html).toContain('data-likec4-undrawn');
+    // The watchdog reads the whole composed tree: LikeC4 draws into a shadow root inside one, and a page that asked
+    // the element's own shadow root would announce a drawing nobody lacks (madarch-pdkl).
+    expect(page.html).toContain(`var likec4Drawings = ${LIKEC4_DRAWINGS_SOURCE};`);
+    expect(page.html).toContain('var drawings = element === null ? [] : likec4Drawings(element);');
+    expect(page.html).toContain('if (drawings.length > 0) return;');
     expect(page.html).toContain('C4 context: the whole product');
   });
 });
