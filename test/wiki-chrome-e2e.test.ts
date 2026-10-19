@@ -127,6 +127,41 @@ runDescribe('wiki reader chrome (built app and Chromium)', () => {
     // list loads: wait for the control before the screenshot.
     await page.waitForFunction(() => document.querySelectorAll('input[name="fill-agent"]').length > 0, { timeout: 15000 });
     await screenshot('agent');
+    // The agent step is read as a reader sees it: one stacked block per agent,
+    // every word at the reading size, and nothing overflowing the column.
+    const agentLayout = await page.evaluate(() => {
+      const step = document.querySelector('.wizard-step') as HTMLElement | null;
+      if (step === null) throw new Error('the agent step is missing');
+      const boxes = [...step.querySelectorAll<HTMLElement>('[data-agent]')].map((row) => {
+        const label = row.querySelector('label') as HTMLElement;
+        const state = row.querySelector('.wizard-adapter') as HTMLElement | null;
+        const login = row.querySelector('.wizard-login') as HTMLElement | null;
+        const rect = (element: Element | null): DOMRect | undefined => element === null ? undefined : element.getBoundingClientRect();
+        return {
+          agent: row.getAttribute('data-agent'),
+          row: rect(row)?.height ?? 0,
+          labelTop: rect(label)?.top ?? 0,
+          stateTop: rect(state)?.top ?? 0,
+          loginTop: rect(login)?.top ?? 0,
+        };
+      });
+      const small: string[] = [];
+      for (const element of [...step.querySelectorAll<HTMLElement>('p, label, button, b')]) {
+        const size = Number.parseFloat(window.getComputedStyle(element).fontSize);
+        if (Number.isFinite(size) && size < 12 && element.textContent !== null && element.textContent.trim() !== '') small.push(`${element.tagName.toLowerCase()}:${size.toFixed(1)}:${element.textContent.trim().slice(0, 24)}`);
+      }
+      const overflow = [...step.querySelectorAll<HTMLElement>('*')].filter((element) => element.scrollWidth > element.clientWidth + 1 && element.clientWidth > 0).map((element) => element.className || element.tagName.toLowerCase());
+      return { boxes, small, overflow, stepWidth: step.getBoundingClientRect().width, stepHeight: step.getBoundingClientRect().height };
+    });
+    console.info('wizard agent step', JSON.stringify(agentLayout));
+    for (const box of agentLayout.boxes) {
+      // The adapter's state and the person's sign-in read under the agent's
+      // name, not beside it: a flex row would run all three together.
+      expect(box.stateTop, `the adapter state of ${box.agent} sits under its name`).toBeGreaterThan(box.labelTop);
+      expect(box.loginTop, `the sign-in of ${box.agent} sits under its state`).toBeGreaterThan(box.stateTop);
+    }
+    expect(agentLayout.small, 'no word of the agent step is smaller than 12 px').toEqual([]);
+    expect(agentLayout.overflow, 'nothing in the agent step scrolls sideways').toEqual([]);
     const preselected = await page.evaluate(() => document.querySelector('input[name="fill-agent"]:checked'));
     if (preselected) throw new Error('an agent is preselected on first open');
     await page.evaluate(() => { const radio=document.querySelector('input[name="fill-agent"]:not(:disabled)') as HTMLInputElement|null; radio?.click(); });

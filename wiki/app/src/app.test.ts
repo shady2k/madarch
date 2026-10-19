@@ -91,6 +91,36 @@ function install(answerSupplier: Answer): { calls: string[]; set: (next: Answer)
   return { calls, set: (next: Answer) => { answer = next; } };
 }
 
+/** The wizard's answer with one adapter missing, one connected, one bundled and one the fill cannot drive. */
+const wizardWithProbe = {
+  agents: [
+    { name: 'claude', available: true, version: 'Claude 1.2.3' },
+    { name: 'codex', available: true, version: 'Codex 4.5.6' },
+    { name: 'omp', available: false, reason: 'not installed here' },
+  ],
+  chosen: '', auth: 'subscription', model: '', runExists: false,
+  acp: {
+    at: '2026-10-19T08:00:00.000Z',
+    path: '/usr/local/bin',
+    agentsFolder: '/srv/one/madarch/agents',
+    findings: [
+      { id: 'claude-code', label: 'Claude Code', fillAgent: 'claude', status: 'not-installed', detail: 'no ACP adapter for Claude Code is here', login: { state: 'signed-in', detail: '/srv/one/.claude/.credentials.json is there' }, apiKeyEnv: 'ANTHROPIC_API_KEY', install: { command: 'npm install --prefix /srv/one/madarch/agents/claude @agentclientprotocol/claude-agent-acp@0.93.0', kind: 'npm', package: '@agentclientprotocol/claude-agent-acp', version: '0.93.0', unpackedSize: '1.9 MiB', installedSize: '299 MiB', folder: '/srv/one/madarch/agents/claude', byMadarch: true }, evidence: 'test' },
+      { id: 'codex', label: 'Codex', fillAgent: 'codex', status: 'connected', detail: 'Codex connects over ACP', login: { state: 'not-signed-in', detail: 'nothing named .codex/auth.json' }, apiKeyEnv: 'OPENAI_API_KEY', evidence: 'test' },
+      { id: 'omp', label: 'omp', fillAgent: 'omp', status: 'not-installed', detail: 'no ACP adapter for omp is here', login: { state: 'unknown', detail: 'omp keeps no sign-in madarch knows' }, install: { command: 'install omp from its own project', kind: 'bundled', byMadarch: false, reason: 'omp carries ACP itself' }, evidence: 'test' },
+      { id: 'pi', label: 'pi', status: 'not-installed', detail: 'no ACP adapter for pi is here', login: { state: 'unknown', detail: 'pi keeps no sign-in madarch knows' }, install: { command: 'npm install --prefix /srv/one/madarch/agents/pi pi-acp@0.0.34', kind: 'npm', package: 'pi-acp', version: '0.0.34', byMadarch: true }, evidence: 'test' },
+    ],
+  },
+};
+
+/** The same machine after the person installed Claude Code's adapter. */
+const wizardWithProbeAfterInstall = {
+  ...wizardWithProbe,
+  acp: {
+    ...wizardWithProbe.acp,
+    findings: wizardWithProbe.acp.findings.map((finding) => finding.id === 'claude-code' ? { ...finding, status: 'connected', agentInfo: { name: 'Claude Agent', version: '0.93.0' } } : finding),
+  },
+};
+
 const product: Product = { id: 'b7f1', name: 'Draft Idea' };
 const listWithPages: PageList = {
   revision: 'r1',
@@ -175,6 +205,122 @@ describe('the home page', () => {
     expect(text()).toContain('claude, codex, or omp');
     // No empty frame stands where the agent list would be.
     expect(html()).not.toContain('name="fill-agent"');
+  });
+
+
+  test('the wizard shows the ACP probe\'s agents, who is signed in, and the install an adapter that is missing would need', async () => {
+    install((target) => {
+      const base = answerFor(product, listWithPages, pagesAtR1);
+      if (target === '/api/fill/wizard') return { body: wizardWithProbe };
+      return base(target);
+    });
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('.wizard-steps') !== null, 'the wizard steps');
+    (document.querySelectorAll('.wizard-steps button')[1] as HTMLButtonElement).click();
+    await until(() => document.querySelector('[data-agent="claude"]') !== null, 'the agent rows');
+    const claude = document.querySelector('[data-agent="claude"]')!;
+    // The probe's own report, as the person reads it: the adapter's state, the
+    // agent's sign-in, and the install with the size it really costs.
+    expect(claude.querySelector('[data-status]')?.getAttribute('data-status')).toBe('not-installed');
+    expect(claude.textContent).toContain('ACP adapter not installed');
+    expect(claude.querySelector('[data-login]')?.getAttribute('data-login')).toBe('signed-in');
+    expect(claude.textContent).toContain('signed in');
+    expect(claude.textContent).toContain('Install @agentclientprotocol/claude-agent-acp 0.93.0 — about 299 MiB with its dependencies.');
+    expect(claude.textContent).toContain('npm install --prefix /srv/one/madarch/agents/claude');
+    const codex = document.querySelector('[data-agent="codex"]')!;
+    expect(codex.textContent).toContain('ACP adapter ready');
+    expect(codex.textContent).toContain('not signed in');
+    // An agent that carries ACP itself has no install madarch runs for it, and
+    // an agent the fill cannot drive yet is no choice at all.
+    expect(document.querySelector('[data-agent="omp"] button')).toBeNull();
+    expect(document.querySelectorAll('input[name="fill-agent"]')).toHaveLength(3);
+    expect(document.body.textContent).not.toContain('pi-acp');
+  });
+
+  test('pressing Install asks madarch to install the adapter and the row follows the probe afterwards', async () => {
+    let connected = false;
+    const stub = install((target) => {
+      const base = answerFor(product, listWithPages, pagesAtR1);
+      if (target === '/api/fill/wizard') return { body: connected ? wizardWithProbeAfterInstall : wizardWithProbe };
+      if (target === '/api/fill/agent-install') { connected = true; return { body: { installed: { folder: '/srv/one/madarch/agents/claude' }, acp: wizardWithProbeAfterInstall.acp } }; }
+      return base(target);
+    });
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('.wizard-steps') !== null, 'the wizard steps');
+    (document.querySelectorAll('.wizard-steps button')[1] as HTMLButtonElement).click();
+    await until(() => document.querySelector('[data-agent="claude"] button') !== null, 'the install button');
+    const button = [...document.querySelectorAll('[data-agent="claude"] button')].find((item) => item.textContent === 'Install');
+    expect(button).toBeDefined();
+    (button as HTMLButtonElement).click();
+    await until(() => document.querySelector('[data-agent="claude"] [data-status]')?.getAttribute('data-status') === 'connected', 'the adapter connected after its install');
+    expect(document.querySelector('[data-agent="claude"]')?.textContent).toContain('ACP adapter ready');
+    expect(document.body.textContent).toContain('Claude Code is installed in madarch\'s own folder.');
+    expect(stub.calls).toContain('/api/fill/agent-install');
+  });
+
+  test('the API-key option names the variable the key comes from, and says madarch never asks for the key', async () => {
+    install((target) => {
+      const base = answerFor(product, listWithPages, pagesAtR1);
+      if (target === '/api/fill/wizard') return { body: wizardWithProbe };
+      return base(target);
+    });
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('.wizard-steps') !== null, 'the wizard steps');
+    (document.querySelectorAll('.wizard-steps button')[1] as HTMLButtonElement).click();
+    await until(() => document.querySelector('[data-agent="claude"]') !== null, 'the agent rows');
+    (document.querySelectorAll('input[name="fill-agent"]')[0] as HTMLInputElement).click();
+    await until(() => (document.querySelectorAll('input[name="fill-auth"]')[1] as HTMLInputElement | undefined)?.disabled === false, 'the API-key choice enabled');
+    const apiKey = [...document.querySelectorAll('input[name="fill-auth"]')][1] as HTMLInputElement;
+    apiKey.click();
+    await until(() => text().includes('The key comes from ANTHROPIC_API_KEY'), 'the key variable named');
+    expect(text()).toContain('madarch never asks for it, reads it or stores it');
+    // And the spending statement stands on the first step, before any choice.
+    (document.querySelectorAll('.wizard-steps button')[0] as HTMLButtonElement).click();
+    await until(() => text().includes('spends your agent plan'), 'the spending statement');
+  });
+
+  test('a machine with no agent command still lists the probe\'s rows, with the adapter state and the install offer', async () => {
+    const noCommands = {
+      ...wizardWithProbe,
+      agents: [
+        { name: 'claude', available: false, reason: 'Not installed' },
+        { name: 'codex', available: false, reason: 'Not installed' },
+        { name: 'omp', available: false, reason: 'Not installed' },
+      ],
+    };
+    install((target) => target === '/api/fill/wizard' ? { body: noCommands } : answerFor(product, listWithPages, pagesAtR1)(target));
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('.wizard-steps') !== null, 'the wizard steps');
+    (document.querySelectorAll('.wizard-steps button')[1] as HTMLButtonElement).click();
+    await until(() => document.querySelector('[data-agent="claude"]') !== null, 'the agent rows without any agent command');
+    // The note says nothing here can start a fill, and the rows under it still
+    // say what the probe found and offer what is missing.
+    expect(text()).toContain('No agent found on this machine');
+    const claude = document.querySelector('[data-agent="claude"]')!;
+    expect(claude.querySelector('input[name="fill-agent"]')?.hasAttribute('disabled')).toBe(true);
+    expect(claude.textContent).toContain('ACP adapter not installed');
+    expect(claude.textContent).toContain('about 299 MiB with its dependencies');
+    expect([...claude.querySelectorAll('button')].map((button) => button.textContent)).toContain('Install');
+  });
+
+  test('declining the install says nothing was installed and keeps the by-hand command', async () => {
+    const stub = install((target) => target === '/api/fill/wizard' ? { body: wizardWithProbe } : answerFor(product, listWithPages, pagesAtR1)(target));
+    goto('/');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('.wizard-steps') !== null, 'the wizard steps');
+    (document.querySelectorAll('.wizard-steps button')[1] as HTMLButtonElement).click();
+    await until(() => document.querySelector('[data-agent="claude"] button') !== null, 'the install offer');
+    const notNow = [...document.querySelectorAll('[data-agent="claude"] button')].find((button) => button.textContent === 'Not now');
+    expect(notNow).toBeDefined();
+    (notNow as HTMLButtonElement).click();
+    await until(() => text().includes('Nothing was installed'), 'the declined note');
+    expect(text()).toContain('npm install --prefix /srv/one/madarch/agents/claude');
+    expect([...document.querySelectorAll('[data-agent="claude"] button')].map((button) => button.textContent)).not.toContain('Install');
+    expect(stub.calls).not.toContain('/api/fill/agent-install');
   });
 
 

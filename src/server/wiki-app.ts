@@ -32,9 +32,11 @@ import { join as joinPath, normalize, resolve, sep } from 'node:path';
 import { readdirSync, readFileSync as readFillFileSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { fillStatePaths, withFillControlLock } from '../product/fill-runtime.js';
-import { detectFillAgents, readChosenAgent, readChosenModel, saveChosenAgent, testFillAgent } from '../product/fill-wizard.js';
-import type { WizardAgent } from '../product/fill-wizard.js';
+import { detectFillAgents, readChosenAgent, readChosenAuth, readChosenModel, saveChosenAgent, testFillAgent } from '../product/fill-wizard.js';
+import type { WizardAgent, WizardAuth } from '../product/fill-wizard.js';
 import { inventoryRepository } from '../product/fill-index.js';
+import { AGENT_API_KEY_ENV, type AgentKind } from '../product/fill-agents.js';
+import { homeFromEnv } from '../product/home.js';
 import { resolve as resolvePath } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import type { Handled, Refusal, ReplyMaker } from './http.js';
@@ -182,7 +184,8 @@ export interface WikiPart {
   /** `POST /api/fill/<run-id>/{pause|stop}`: persist a control request for the fill coordinator. */
   fillControl: (request: Request, runId: string, action: 'pause' | 'stop') => Promise<Handled>;
   fillWizard: (request: Request) => Promise<Handled>;
-  fillStart: (request: Request) => Promise<Handled>;
+  /** `POST /api/fill/agent-install`: install one agent's ACP adapter into madarch's own folder, on the person's yes. */
+  fillAgentInstall: (request: Request) => Promise<Handled>;
   fillInventory: () => Promise<Handled>;
   fillAgentTest: (request: Request) => Promise<Handled>;
   /** `GET /api/events`: the wiki's change stream, held open until the asker hangs up. */
@@ -227,8 +230,35 @@ export function createWikiPart(
   refused: ReplyMaker['refused'],
   wiki: ProductWiki,
   appFolder: string | undefined,
-  startFill?: (input: { agent: WizardAgent; maxUnits?: number }) => Promise<unknown>,
+  options: { env?: Readonly<Record<string, string | undefined>> } = {},
 ): WikiPart {
+  const env = options.env ?? process.env;
+  /**
+   * The last ACP report and when it was taken: the wizard's own page asks
+   * again after a start, and two loads within a couple of seconds are one
+   * machine, so the second answer is the first one rather than four more
+   * agent processes. An install and a start invalidate it.
+   */
+  let report: { at: number; value: unknown } | undefined;
+  const acpReport = async (fresh = false): Promise<unknown> => {
+    if (!fresh && report !== undefined && Date.now() - report.at < WIZARD_PROBE_CACHE_MS) return report.value;
+    const value = await wizardAcp(env);
+    report = { at: Date.now(), value };
+    return value;
+  };
+  /** One install at a time: two tabs must not write one agents folder together, and npm runs outside the model state's own lock. */
+  let installTail: Promise<void> = Promise.resolve();
+  const oneInstallAtATime = async <T,>(operation: () => Promise<T>): Promise<T> => {
+    const previous = installTail;
+    let release!: () => void;
+    installTail = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  };
   return {
     product: (): Handled => {
       // Every overview value comes from the product registry's declared page
@@ -502,26 +532,51 @@ export function createWikiPart(
       if (!value || typeof value !== 'object' || Array.isArray(value) || !['claude','codex','omp'].includes((value as {agent?:string}).agent ?? '')) return refused(400, { message: 'agent must be claude, codex, or omp' });
       const { agent, model } = value as { agent: WizardAgent; model?: unknown };
       if (model !== undefined && typeof model !== 'string') return refused(400, { message: 'model must be a string' });
-      return { response: json(200, { result: await testFillAgent(agent, undefined, model) }) };
+      return { response: json(200, { result: await testFillAgent(agent, env.PATH ?? process.env.PATH ?? '', model) }) };
     },
     async fillWizard(request: Request): Promise<Handled> {
-      const agents = await detectFillAgents();
-      const chosen = await readChosenAgent();
+      // One environment for one answer: the command list, the stored choice
+      // and the probe all read the server's own `env`, so a server given one
+      // never answers half from the machine it runs on.
+      const home = homeFromEnv(env);
+      const agents = await detectFillAgents(env.PATH ?? process.env.PATH ?? '');
+      const chosen = await readChosenAgent(home);
       const paths = fillStatePaths(wiki.product.folder);
       let runExists = false;
       try { readFillFileSync(paths.run, 'utf8'); runExists = true; }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return refused(500, { message: `could not read fill state: ${(error as Error).message}` }); }
-      return { response: json(200, { agents, chosen, model: await readChosenModel(), runExists }) };
+      const acp = await acpReport();
+      return { response: json(200, { agents, chosen, auth: await readChosenAuth(home), model: await readChosenModel(home), runExists, acp }) };
     },
-    async fillStart(request: Request): Promise<Handled> {
+    /**
+     * The person's yes to one adapter's install: madarch fetches the package,
+     * pinned, into its own folder, and answers with the probe's finding for
+     * that agent again, so the wizard shows what the probe now finds rather
+     * than what the install claimed.
+     */
+    async fillAgentInstall(request: Request): Promise<Handled> {
+      return oneInstallAtATime(async () => {
       let body: Record<string, unknown>;
       try { const parsed = await request.json(); if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('body must be an object'); body = parsed as Record<string, unknown>; }
-      catch (error) { return refused(400, { message: `invalid fill start request: ${(error as Error).message}` }); }
-      if (body.agent !== 'claude' && body.agent !== 'codex') return refused(400, { message: 'agent must be claude or codex' });
-      if (body.maxUnits !== undefined && (!Number.isSafeInteger(body.maxUnits) || (body.maxUnits as number) < 1)) return refused(400, { message: 'maxUnits must be a positive integer' });
-      if (!startFill) return refused(503, { message: 'the fill pipeline is not connected yet' });
-      try { await saveChosenAgent(body.agent); const result = await startFill({ agent: body.agent, ...(body.maxUnits === undefined ? {} : { maxUnits: body.maxUnits as number }) }); return { response: json(202, result) }; }
-      catch (error) { return refused(500, { message: `could not start fill: ${(error as Error).message}` }); }
+      catch (error) { return refused(400, { message: `invalid adapter install request: ${(error as Error).message}` }); }
+      const probe = await import('../fill/acp-probe.js');
+      const entry = probe.ACP_ADAPTERS.find((candidate) => candidate.id === body.agent);
+      if (entry === undefined) return refused(400, { message: `madarch has no ACP adapter named ${JSON.stringify(String(body.agent))}: it knows ${probe.ACP_ADAPTERS.map((candidate) => candidate.id).join(', ')}` });
+      const { installAcpAdapter } = await import('../fill/acp-install.js');
+      const installed = await installAcpAdapter(entry, { env });
+      if (installed.outcome === 'refused') return refused(409, { message: installed.message });
+      // The message carries npm's own, redacted words for the person; the log
+      // line names only what madarch itself knows — the folder, the package
+      // and the version — so npm's output never reaches the server's log.
+      if (installed.outcome === 'failed') {
+        const what = entry.install.kind === 'npm' ? `${entry.install.package}@${entry.install.version}` : entry.label;
+        return refused(500, { message: installed.message, logMessage: `the ACP adapter install of ${what} for ${entry.id} failed` });
+      }
+      const probed = await probe.probeAcpAgents({ cwd: process.cwd(), env, timeoutMs: WIZARD_PROBE_TIMEOUT_MS });
+      const value = wizardPayload(probed);
+      report = { at: Date.now(), value };
+      return { response: json(200, { installed: { folder: installed.folder, executable: installed.executable, command: installed.command }, finding: probed.findings.find((finding) => finding.id === entry.id) ?? null, acp: value }) };
+      });
     },
     fill: (): Handled => {
       const paths = fillStatePaths(wiki.product.folder);
@@ -639,6 +694,61 @@ function serveAppFiles(json: ReplyMaker['json'], refused: ReplyMaker['refused'],
       message: `no file answers "${pathname}" and the app folder ${JSON.stringify(appFolder)} holds no index.html: the app's built files were expected there (${(error as Error).message})`,
     });
   }
+}
+
+/**
+ * The ACP picture the wizard shows: which agents connect over ACP on this
+ * machine, whether each is signed in, and one that is missing with the install
+ * madarch would run for it. The ACP client and its protocol library are
+ * imported here rather than at the top of this module, so the server starts
+ * without them for every other route (`madarch fill --probe-acp` loads them
+ * the same way).
+ */
+async function wizardAcp(env: Readonly<Record<string, string | undefined>> = process.env): Promise<unknown> {
+  const probe = await import('../fill/acp-probe.js');
+  return wizardPayload(await probe.probeAcpAgents({ cwd: process.cwd(), env, timeoutMs: WIZARD_PROBE_TIMEOUT_MS }));
+}
+
+/**
+ * How long one agent's `initialize` may take while the wizard lists the
+ * machine: a person waiting for the agent step gets an answer in seconds, and
+ * an adapter that does not answer in that time is a row that says it did not
+ * connect — `madarch fill --probe-acp` keeps the client's own longer default.
+ */
+const WIZARD_PROBE_TIMEOUT_MS = 10_000;
+
+/** How long the wizard's own report stands before the machine is asked again. */
+const WIZARD_PROBE_CACHE_MS = 2_000;
+
+/**
+ * How a start pays for its fill, judged before anything is saved: the agent's
+ * own sign-in, or an API key — and a key exists only in the environment the
+ * agent reads it from, so an API-key start of an agent whose variable is not
+ * set is refused by its name. madarch never asks for the key, reads it or
+ * stores it; it only says which variable the agent's own client reads.
+ */
+export function fillAuth(agent: unknown, asked: unknown, env: Readonly<Record<string, string | undefined>> = process.env): { auth: WizardAuth } | { refusal: string } {
+  if (asked !== undefined && asked !== 'subscription' && asked !== 'api-key') return { refusal: `auth must be subscription or api-key, not ${JSON.stringify(asked)}` };
+  if (asked !== 'api-key') return { auth: 'subscription' };
+  // The variable's name only: the key stays in the environment the agent's own
+  // client reads, and no probe or ACP client is loaded to judge it.
+  const variable = typeof agent === 'string' && Object.hasOwn(AGENT_API_KEY_ENV, agent) ? AGENT_API_KEY_ENV[agent as AgentKind] : undefined;
+  if (variable === undefined) {
+    return { refusal: `${String(agent)} has no API key that madarch knows of: choose your own ${String(agent)} sign-in, or another agent` };
+  }
+  if ((env[variable] ?? '').trim() === '') {
+    return { refusal: `an API-key fill of ${String(agent)} reads the key from ${variable}, which is not set in the environment madarch runs in: madarch never asks for the key itself` };
+  }
+  return { auth: 'api-key' };
+}
+
+/**
+ * The ACP report as the wizard's own payload: every finding as the probe wrote
+ * it, the two places it searched, and where madarch installs its agents (the
+ * second of them).
+ */
+function wizardPayload(report: { at: string; path: string; agentsFolder: string; findings: readonly unknown[] }): unknown {
+  return { at: report.at, path: report.path, agentsFolder: report.agentsFolder, findings: report.findings };
 }
 
 /**

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';import { tmpdir } from 'node:os';
-import { agentSettingsPath, detectFillAgents, readChosenAgent, readChosenModel, saveChosenAgent, testFillAgent } from '../src/product/fill-wizard.js';
+import { agentSettingsPath, detectFillAgents, readChosenAgent, readChosenAuth, readChosenModel, saveChosenAgent, testFillAgent } from '../src/product/fill-wizard.js';
 let root='';afterEach(()=>{if(root)rmSync(root,{recursive:true,force:true});root='';});function setup(){root=mkdtempSync(join(tmpdir(),'madarch-wizard-'));const bin=join(root,'bin');mkdirSync(bin);return bin;}function fake(bin:string,name:string,script:string){const file=join(bin,name);writeFileSync(file,`#!/bin/sh\n${script}\n`);chmodSync(file,0o755);}
 describe('fill wizard agent discovery',()=>{
 test('discovers installed CLI versions using a temporary PATH',async()=>{const bin=setup();fake(bin,'claude','echo Claude 1.2.3');fake(bin,'codex','echo Codex 4.5.6');fake(bin,'omp','echo omp 0.1');const detected=await detectFillAgents(bin);expect(detected.map((agent)=>agent.name)).toEqual(['claude','codex','omp']);expect(detected.every((agent)=>agent.available)).toBe(true);expect(detected.find((agent)=>agent.name==='omp')).toEqual({name:'omp',available:true,version:'omp 0.1'});});
@@ -29,4 +29,27 @@ test('the settings file follows the home the environment names, never the accoun
   } finally {
     if (saved === undefined) delete process.env.HOME; else process.env.HOME = saved;
   }
+});
+
+test('how the fill pays is kept beside the agent, and a later save of one leaves the other', async () => {
+  const home = setup();
+  // Nothing chosen yet: the agent's own sign-in is what a start assumes.
+  expect(await readChosenAuth(home)).toBeUndefined();
+  await saveChosenAgent('claude', { auth: 'api-key' }, home);
+  expect(await readChosenAuth(home)).toBe('api-key');
+  expect(await readChosenAgent(home)).toBe('claude');
+  // A model saved afterwards keeps the auth choice, and a later auth keeps the model.
+  await saveChosenAgent('claude', { model: 'glm-5.3-flash-auto' }, home);
+  expect(await readChosenAuth(home)).toBe('api-key');
+  await saveChosenAgent('codex', { auth: 'subscription' }, home);
+  expect(await readChosenModel(home)).toBe('glm-5.3-flash-auto');
+  expect(await readChosenAuth(home)).toBe('subscription');
+  // Only madarch's own two words are a choice; anything else is no choice.
+  writeFileSync(agentSettingsPath(home), JSON.stringify({ agent: 'codex', auth: 'password' }));
+  expect(await readChosenAuth(home)).toBeUndefined();
+  // The file holds the choice and never a key.
+  await saveChosenAgent('claude', { auth: 'api-key' }, home);
+  const saved = readFileSync(agentSettingsPath(home), 'utf8');
+  expect(saved).toContain('api-key');
+  expect(saved).not.toMatch(/sk-|apiKey|api_key/);
 });

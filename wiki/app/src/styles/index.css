@@ -1170,7 +1170,22 @@ main section h2 {
 .wizard-step { min-height: 13rem; padding: 1rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-card); background: var(--surface-soft); }
 .wizard-estimates { list-style: none; padding: 0; }
 .wizard-estimates li { display:flex; justify-content:space-between; gap:1rem; padding:.45rem 0; border-bottom:1px solid var(--border-subtle); }
-.wizard-agent { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
+/* One agent per stacked block: its name and command, the adapter's state, the
+   person's sign-in, the install offer with the by-hand command, and the test
+   button. The fieldset's own flex row would run all of those together. */
+.fill-wizard .wizard-agent { display:block; padding:.6rem 0; border-bottom:1px solid var(--border-subtle); }
+.fill-wizard .wizard-agent:last-child { border-bottom:0; }
+.wizard-agent > label { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; font-weight:600; }
+.wizard-adapter, .wizard-login { margin:.25rem 0 0; font-size:var(--fs-small); color:var(--text-secondary); }
+.wizard-adapter[data-status="connected"] { color:var(--text); }
+.wizard-adapter[data-status="failed"] { color:var(--text); font-weight:600; }
+.wizard-install { display:block; margin:.45rem 0 .25rem; padding:.5rem .6rem; border:1px solid var(--border-subtle); border-radius:var(--radius-control); background:var(--surface-soft); }
+.wizard-install p { margin:0 0 .35rem; }
+.wizard-install button { margin:.15rem .35rem .15rem 0; }
+.wizard-decline { background:transparent; }
+.wizard-auth { display:block; margin:1rem 0 .25rem; }
+.wizard-auth p { margin:.35rem 0; }
+.wizard-auth label { display:flex; align-items:center; gap:.5rem; margin:.3rem 0; }
 .wizard-actions { display:flex; justify-content:space-between; margin-top:1rem; }
 @media (max-width: 700px) { .fill-wizard { width: calc(100% - 1rem); margin: .5rem auto; padding: .75rem; } .wizard-steps { grid-template-columns: 1fr; } .wizard-estimates li { display:grid; } .fill-wizard input { max-width: 100%; box-sizing: border-box; } .wizard-actions button { flex: 1 1 auto; } .wizard-run { width: 100%; } }
 

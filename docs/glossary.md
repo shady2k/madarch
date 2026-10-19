@@ -247,9 +247,26 @@ A product repository created by `madarch new`: a folder `idea-YYYY-MM-DD`
 under the products home, with a stable id, an empty `docs/`, and its wiki
 served from the working tree.
 
+**Madarch home**:
+Madarch's own folder on a machine (`~/madarch` by default), moved by
+`MADARCH_HOME`: the products home and everything madarch keeps for the person
+live under it.
+
 **Products home**:
 The folder holding the product repositories (`~/madarch/products` by default),
-moved by `MADARCH_HOME` or `--home`.
+`products` under the madarch home, moved by `MADARCH_HOME` or `--home`.
+
+**Agents folder**:
+`agents/<agent>` under the madarch home (`~/madarch/agents/claude` by default):
+where madarch installs the ACP adapter it fetched for an agent, one pinned
+version per folder, beside the products and never inside one.
+
+**ACP adapter**:
+The program that lets madarch drive a coding agent over the Agent Client
+Protocol (decision 0026). Claude Code and Codex need an npm package for it
+(`@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp`,
+pinned in `src/fill/acp-probe.ts`); omp carries ACP in its own program; the
+person's sign-in stays the agent's own, and madarch never asks for it.
 
 **Manifest**:
 The `workspace.yaml` of a product repository, carrying its `schemaVersion`,

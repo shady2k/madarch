@@ -1,20 +1,22 @@
 /** Machine-local agent choice and safe discovery helpers for the first-fill wizard. */
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { homeFromEnv } from './home.js';
 const exec = promisify(execFile);
 export type WizardAgent = 'claude' | 'codex' | 'omp';
-export interface DetectedAgent { name: WizardAgent; available: boolean; version?: string; reason?: string }
 /**
- * The user's home as this process reads it: the environment's `HOME`, which is
- * what `os.homedir()` reports when a process starts — and which is the only one
- * a run can point elsewhere, since Bun resolves `homedir()` once and a preload
- * cannot move it afterwards (madarch-1xq: the settings file must follow the
- * home a test run gives the process, not the account's own).
+ * How the chosen agent pays for a fill, as the person picked it: the agent's
+ * own subscription sign-in, or an API key. madarch keeps only this word — the
+ * key itself stays in the environment the agent reads it from, and madarch
+ * never asks for it, reads it or stores it (the owner's decision of
+ * 2026-10-19 recorded on madarch-tzte.6).
  */
-function defaultHome(): string { const named = process.env.HOME?.trim(); return named !== undefined && named !== '' ? named : homedir(); }
+export type WizardAuth = 'subscription' | 'api-key';
+export interface DetectedAgent { name: WizardAgent; available: boolean; version?: string; reason?: string }
+/** The person's home, read by the one module that reads madarch's homes (`home.ts`). */
+function defaultHome(): string { return homeFromEnv(); }
 export function agentSettingsPath(home = defaultHome()): string { return join(home,'.config','madarch','fill-agent.json'); }
 export async function detectFillAgents(pathValue = process.env.PATH ?? ''): Promise<DetectedAgent[]> {
  const result: DetectedAgent[]=[];
@@ -28,13 +30,15 @@ export async function testFillAgent(name:WizardAgent,pathValue=process.env.PATH?
  try{const {stdout,stderr}=await exec(name,args,{env:{...process.env,PATH:pathValue,CI:'1'},timeout:30000,maxBuffer:128*1024});const text=`${stdout}\n${stderr}`;return /not logged in|not authenticated|login required|not signed in/i.test(text)?{status:'not-signed-in',reason:'The agent CLI is installed but is not signed in.'}:{status:'ok'};}
  catch(error){const e=error as NodeJS.ErrnoException&{stderr?:string};const reason=(e.stderr||e.message||'Agent test failed').trim().slice(0,300);return /not logged in|not authenticated|login required|not signed in/i.test(reason)?{status:'not-signed-in',reason}:{status:'failed',reason};}
 }
-interface AgentChoice { agent?: unknown; model?: unknown }
+interface AgentChoice { agent?: unknown; model?: unknown; auth?: unknown }
 async function readAgentChoice(home:string):Promise<AgentChoice|undefined>{try{return JSON.parse(await readFile(agentSettingsPath(home),'utf8')) as AgentChoice;}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return undefined;throw error;}}
 export async function readChosenAgent(home=defaultHome()):Promise<WizardAgent|undefined>{const choice=await readAgentChoice(home);return choice!==undefined&&(choice.agent==='claude'||choice.agent==='codex'||choice.agent==='omp')?choice.agent:undefined;}
 export async function readChosenModel(home=defaultHome()):Promise<string|undefined>{const choice=await readAgentChoice(home);return typeof choice?.model==='string'?choice.model:undefined;}
-/** Save the agent choice; a given model (possibly '' for none) overrides, an omitted one keeps the saved value. */
-export async function saveChosenAgent(agent:WizardAgent,options:{model?:string}={},home=defaultHome()):Promise<void>{
+/** How the chosen agent pays for a fill, or `undefined` when the person never chose: the agent's own sign-in is the default. */
+export async function readChosenAuth(home=defaultHome()):Promise<WizardAuth|undefined>{const choice=await readAgentChoice(home);return choice?.auth==='subscription'||choice?.auth==='api-key'?choice.auth:undefined;}
+/** Save the agent choice; a given model (possibly '' for none) overrides an omitted one that keeps the saved value, and so does a given auth. */
+export async function saveChosenAgent(agent:WizardAgent,options:{model?:string;auth?:WizardAuth}={},home=defaultHome()):Promise<void>{
  const choice=await readAgentChoice(home);
- const merged={...(choice&&typeof choice.model==='string'?{model:choice.model}:{}),agent,...(options.model===undefined?{}:{model:options.model})};
+ const merged={...(choice&&typeof choice.model==='string'?{model:choice.model}:{}),...(choice?.auth==='subscription'||choice?.auth==='api-key'?{auth:choice.auth}:{}),agent,...(options.model===undefined?{}:{model:options.model}),...(options.auth===undefined?{}:{auth:options.auth})};
  const file=agentSettingsPath(home);await mkdir(dirname(file),{recursive:true});const temp=`${file}.${process.pid}.tmp`;await writeFile(temp,`${JSON.stringify(merged,null,2)}\n`,{mode:0o600});await rename(temp,file);
 }
