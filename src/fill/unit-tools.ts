@@ -29,12 +29,12 @@
  *   the unit's process holds no database, no snapshot and no scope of its own: it
  *   cannot answer anything this host does not answer for it, and a unit that
  *   loses its session loses its tools.
- * - **Bound to the unit.** A token names one session: the unit's identity (0027's
- *   unit generation), the run its drafts are read from, the reader its calls are
- *   recorded in, the write session that holds its scope, its pinned snapshot and
- *   its draft set, and the caps its answers are cut by. The child carries the
- *   token and nothing else, so a compromised or confused child can neither widen
- *   its scope nor answer another unit's question.
+ * - **Bound to the unit.** A token names one session, and the host holds what that
+ *   session is: the unit's identity (0027's unit generation), the run its drafts are
+ *   read from, the reader its calls are recorded in, the write session that holds
+ *   its scope, its pinned snapshot and its draft set, and the caps its answers are
+ *   cut by. The child carries the token and nothing else, so a compromised or
+ *   confused child can neither widen its scope nor answer another unit's question.
  * - **A refusal is a value.** The reads raise where a request is not a read of
  *   theirs and the writes answer their own refusals; both are handed back as the
  *   tool's answer with `isError`, never as a failure of the transport, so the
@@ -42,7 +42,6 @@
  *   marker that says what was cut (`src/fill/graph-reads.ts`), and never a
  *   smaller answer that says nothing.
  */
-import { byCodePoint } from '../model/order.js';
 import type { AcpMcpServer } from './acp.js';
 import {
   assertFact,
@@ -115,7 +114,7 @@ const PLACE_SCHEMA = {
 export const UNIT_TOOLS: readonly UnitToolDefinition[] = [
   {
     name: 'describe_scope',
-    description: 'What one scope (a repository, directory, file, package or module of the graph) is: the node, the kinds of node it holds by count, the edges touching it by kind and direction, its coverage, and the drafts other units of this run hold inside it, marked as drafts.',
+    description: 'What one scope (a repository, directory, file, package or module of the graph) is: the node, the kinds of node it holds by count, the edges touching it by kind and direction, its coverage, and the drafts other units of this run hold about it, marked as drafts. A repository, a folder and a file read their drafts by place (the writes that cite a place inside them); a module and a package read the writes that name the node, and the answer\'s draftScope says which.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -165,7 +164,7 @@ export const UNIT_TOOLS: readonly UnitToolDefinition[] = [
   },
   {
     name: 'coverage',
-    description: 'What is known about one scope and what could not be read: the coverage facts that name the scope, each with the count of what it read, a bounded sample and every gap it names.',
+    description: 'What is known about one scope and what could not be read: the coverage facts that name the scope, each with the count of what it read, a bounded sample and every gap it names. It shows no drafts: a coverage is a stage\'s published declaration of what it read whole, and a draft one is published with its unit.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -175,7 +174,7 @@ export const UNIT_TOOLS: readonly UnitToolDefinition[] = [
   },
   {
     name: 'evidence_span',
-    description: 'The bytes of one file at the pinned commit, as the lines a reader counts, at most about 200 lines: this is the only way this unit reads code.',
+    description: 'The bytes of one file at the pinned commit, as the lines a reader counts, at most about 200 lines: this is the only way this unit reads code. It shows no drafts: the bytes are the commit\'s own, and no draft can change them.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,

@@ -15,7 +15,6 @@ import { existsSync, openSync, readFileSync, unlinkSync, mkdirSync, writeFileSyn
 import { connect as netConnect, createServer as netServer } from 'node:net';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { productsHome, type DraftEnv } from './draft.js';
 import { listProducts } from './list.js';

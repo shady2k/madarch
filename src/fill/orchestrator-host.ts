@@ -359,7 +359,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
         await recordUnitRead(owner, { unitId: plan.unitId, generation: plan.generation, query: text, rows, at: (options.clock ?? Date.now)() });
         return rows;
       },
-    }, request.limits, { run: plan.runId } satisfies DraftReading);
+    }, request.limits, { run: plan.runId, unit: { unitId: plan.unitId, generation: plan.generation } } satisfies DraftReading);
     const snapshot = await sourceOf(wiring, request.product);
     const scope = writeScope(plan.scope);
     return {

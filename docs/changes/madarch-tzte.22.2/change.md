@@ -166,25 +166,56 @@ Taken from decisions 0026, 0027 and 0005; nothing here re-decides them.
   generation, scope, write, evidence, fact}`: the holding unit, the scope its plan
   gave it, the kind of write, what the write cites, and the fact it would publish.
   Never inside `rows`, so no reader can take a draft for a published fact, and the
-  same cap bounds it, with the marker saying what it cut. Which drafts a tool
-  shows is the question it was asked:
-  - `describe_scope` shows the writes of the run whose cited place stands inside
-    the scope's own place (a repository, or the folder or file it names), by the
-    write path's own rule for "inside a scope" (`scopeHolds`, one rule and no
-    second).
+  same cap bounds it, with a marker of its own saying what it cut.
+- **Three sets of the run are no draft of a read**, and each for its own reason:
+  - **A retracted set** (0027's `retract-draft`, which a rerun's attempt meets) is
+    the attempt before it, so a retried unit starts clean rather than seeing what
+    it already withdrew.
+  - **A published set** is not a draft: its facts stand in `fill_fact`, and nothing
+    keeps its set as a draft afterwards. Reading it as one would answer the same
+    fact twice in one answer — once in `rows`, once as a draft — and, worse, fill
+    the draft section with the deterministic stages' published output during an
+    agent run, crowding out what really is a draft. So the read excludes a
+    generation the publication record holds (`fill_publication`), and the
+    consequence is taken deliberately: a unit that read another unit's draft is
+    refused as stale when that other unit publishes (0027's recheck of recorded
+    reads), which is exactly what a graph that moved means.
+  - **The reading generation's own set** is not another unit's draft. 0026 says a
+    draft is "visible to *other* units as draft", and the alternative is a
+    self-inflicted staleness loop: a unit reads `neighbors(X)` (nothing of its own
+    set names X), then writes a claim about X through the machine's own port
+    (`recordedDraftSet`, which records while the attempt runs), and its own read's
+    membership has moved — so the publication refuses it, the attempt retries,
+    reads before writing, writes, and is refused again until the retries are gone.
+    Excluding the reader's generation is therefore the decision's own reading, not
+    an optimisation.
+- **Which drafts a tool shows is the question it was asked.**
   - `neighbors`, `references` and `claims_about` show the writes of the run that
     name the node asked about — as the fact's own id, or anywhere in its value
     (an edge's end, a claim's subject or object, a question's about).
-  - `coverage` and `evidence_span` show none, and say why: a coverage row is a
-    stage's published declaration of what it read whole, and an evidence span is
-    the commit's own bytes, which no draft can change.
+  - `describe_scope` shows a scope's drafts by its own place — a repository, a
+    folder or a file, whose value names one — by the write path's own rule for
+    "inside a scope" (`scopeHolds`, one rule and no second). A module and a package
+    name no place (a module's extent is its members, a package's is the manifest
+    its value cites), and a place filter for them would answer every draft of the
+    repository as "inside the module" and make a module unit stale on an unrelated
+    draft anywhere in that repository: their section is the writes that name the
+    node, and the answer's `draftScope` (`{by: 'place' | 'node', scope}`) says
+    which of the two it read.
+  - A write that cites no place — a `snapshot`, a `repository` or a `directory`
+    fact, which the schema asks for no place of — stands in no scope, so no scope's
+    section holds it. That is the rule the filter applies, and the module says so
+    rather than leaving a reader to guess.
+  - `coverage` and `evidence_span` show none, and their own descriptions say why,
+    so an agent can tell "no drafts are about this" from "this tool does not show
+    drafts": a coverage row is a stage's published declaration of what it read
+    whole, and an evidence span is the commit's own bytes, which no draft can
+    change.
   A read of drafts is a read of the pinned graph like any other: it is recorded
   with the query and the membership of the drafts it answered, so a draft that
   appears or moves marks the unit that read without it stale (0027's recheck), and
   a draft about another node does not. The reads are the run's own: another run's
-  unretracted draft sets are not this unit's business, and a retracted set
-  (0027's `retract-draft`, which a rerun's attempt meets) is read as none, which
-  is what lets a retried unit start clean rather than seeing the attempt before it.
+  unretracted draft sets are not this unit's business.
 - **Where a unit's scope and run come from.** The plan row (`fill_unit_plan`,
   0027) names both: the run whose drafts the unit sees and the scope text its
   writes are held to (`writeScope`, the write path's own reading of
@@ -221,14 +252,14 @@ Taken from decisions 0026, 0027 and 0005; nothing here re-decides them.
     happens in this process. A run of thousands of units pays thousands of rows per
     call; the alternative (a narrower statement) needs a text search inside a JSON
     value, which would be a guess where this is exact.
-  - **The unit's own recorded drafts are shown too.** A unit whose attempt wrote
-    through the machine's own port (`recordedDraftSet`) sees its own writes in the
-    `draft` section, marked with its own unit id. A unit whose attempt writes
-    through the stage's writer (`draftSetOf(context.draft)`) records its set when the
-    attempt ends, so its own writes are not in that section while it runs.
   - **Another unit's draft is no node a write may join** (madarch-tzte.20.4's
     decision, kept): an agent that reads a draft and links to it is refused, and the
     refusal names the node and the fact that it stands nowhere published.
+  - **A draft set whose plan row names another run, or none at all, is no row of a
+    read.** The statement joins the draft set to its plan row on the run, so a set
+    that no plan row attributes to this run cannot be read as this run's — a
+    defined rule rather than an omission, and the damaged case (a draft row with no
+    plan row at all) needs a store nobody's write path makes.
   - **A tool's `isError` is the answer's own, not the transport's.** An agent that
     ignores `isError` sees a refusal's JSON as if it were an answer; the protocol
     has no stronger way to say it.

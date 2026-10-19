@@ -71,6 +71,7 @@ const FILE = 'src/order.ts';
 const OTHER_FILE = 'README.md';
 const RUN = 'run-2026-10-18T21:00Z';
 const OTHER_RUN = 'run-2026-10-17T09:00Z';
+const DAMAGED_RUN = 'run-2026-10-16T09:00Z';
 /** The unit whose tools the suite drives. */
 const UNIT = { unitId: 'agent/unit-a', generation: 1 };
 const SNAPSHOT: RunSnapshot = { repository: 'example.com/acme/shop', defaultBranch: 'main', commit: 'b'.repeat(40), registryHash: 'sha256:registry' };
@@ -118,6 +119,7 @@ function claimAbout(subject: Fact, text: string, line: number): Fact {
 interface Graph {
   readonly repository: Fact;
   readonly file: Fact;
+  readonly module: Fact;
   readonly target: Fact;
   readonly callers: readonly Fact[];
 }
@@ -129,7 +131,7 @@ function graphFacts(graph: Graph): readonly Fact[] {
     provenance: provenance(FILE, held.provenance.place?.range.startLine ?? 1),
     layer: 'extracted',
   }));
-  return [graph.repository, graph.file, ...graph.callers, graph.target, ...defines, ...graph.callers.map((caller, index) => call(caller, graph.target, 13 + index * 10))];
+  return [graph.repository, graph.file, graph.module, ...graph.callers, graph.target, ...defines, ...graph.callers.map((caller, index) => call(caller, graph.target, 13 + index * 10))];
 }
 
 interface World {
@@ -173,6 +175,7 @@ async function openWorld(): Promise<World> {
   const graph: Graph = {
     repository: makeNodeFact({ kind: 'repository', value: { repository: REPOSITORY, form: 'code' }, provenance: provenance(OTHER_FILE, 1), layer: 'extracted' }),
     file: makeNodeFact({ kind: 'file', value: { repository: REPOSITORY, path: repositoryPath(FILE), roles: ['source'], language: 'typescript', bytes: 400, blob: 'c'.repeat(40) }, provenance: provenance(FILE, 1), layer: 'extracted' }),
+    module: makeNodeFact({ kind: 'module', value: { repository: REPOSITORY, name: 'checkout', seed: 'package', members: 4, importance: 0.5 }, provenance: provenance(FILE, 1), layer: 'extracted' }),
     target: symbol('OrderService.total', 40),
     callers: [symbol('OrderService.Zed', 12), symbol('OrderService.alpha', 20), symbol('OrderService.beta', 30)],
   };
@@ -186,6 +189,26 @@ async function openWorld(): Promise<World> {
   await recordUnitDraft(owner, { unitId: 'agent/unit-b', generation: 1, at: NOW, writes: [{ kind: 'fact', evidence: `${REPOSITORY}@${COMMIT}:${FILE}`, value: claimAbout(graph.target, 'The order total is the checkout total', 40) }] });
   await recordUnitPlan(owner, { unitId: 'agent/unit-c', generation: 1, runId: OTHER_RUN, stageId: 'agent', stageUnitId: 'unit-c', scope: `${REPOSITORY}:src`, stagePosition: 0, planPosition: 2, at: NOW });
   await recordUnitDraft(owner, { unitId: 'agent/unit-c', generation: 1, at: NOW, writes: [{ kind: 'fact', evidence: `${REPOSITORY}@${COMMIT}:${FILE}`, value: claimAbout(graph.target, 'A draft of another run', 40) }] });
+  // A unit of the same run whose set was published: 0027's publication writes the record, and its facts
+  // stand in the fact store, so its set is no draft any more.
+  await recordUnitPlan(owner, { unitId: 'agent/published', generation: 1, runId: RUN, stageId: 'agent', stageUnitId: 'published', scope: `${REPOSITORY}:src`, stagePosition: 0, planPosition: 3, at: NOW });
+  const publishedClaim = claimAbout(graph.target, 'A claim whose unit published', 40);
+  await recordUnitDraft(owner, { unitId: 'agent/published', generation: 1, at: NOW, writes: [{ kind: 'fact', evidence: `${REPOSITORY}@${COMMIT}:${FILE}`, value: publishedClaim }] });
+  await owner.transaction('write', async (executor) => {
+    await executor.query(
+      `INSERT INTO fill_publication (unit_id, generation, digest, facts, published_at) VALUES ($1, $2, $3, $4, $5)`,
+      ['agent/published', 1, 'published-digest', 1, NOW],
+    );
+  });
+  // A unit of a run whose draft set is damaged: the reader of drafts must refuse it by name rather than
+  // answer a draft the write path never made.
+  await recordUnitPlan(owner, { unitId: 'agent/damaged', generation: 1, runId: DAMAGED_RUN, stageId: 'agent', stageUnitId: 'damaged', scope: `${REPOSITORY}:src`, stagePosition: 0, planPosition: 4, at: NOW });
+  await recordUnitPlan(owner, { unitId: 'agent/damaged-reader', generation: 1, runId: DAMAGED_RUN, stageId: 'agent', stageUnitId: 'damaged-reader', scope: `${REPOSITORY}:src`, stagePosition: 0, planPosition: 5, at: NOW });
+  await recordUnitDraft(owner, { unitId: 'agent/damaged', generation: 1, at: NOW, writes: [{ kind: 'nonsense' as never, evidence: `${REPOSITORY}@${COMMIT}:${FILE}`, value: claimAbout(graph.target, 'A write of no kind', 40) }] });
+  // A unit of the same run as this suite's whose own recorded set says something about the target: 0026 makes
+  // a draft visible to *other* units, and a unit that read its own recorded set would move its own read the
+  // moment it wrote, so the read never answers it.
+  await recordUnitDraft(owner, { unitId: UNIT.unitId, generation: UNIT.generation, at: NOW, writes: [{ kind: 'fact', evidence: `${REPOSITORY}@${COMMIT}:${FILE}`, value: claimAbout(graph.target, 'This unit\'s own recorded draft', 40) }] });
 
   const pins: readonly RepositoryPin[] = [{ id: REPOSITORY, form: 'code', root: join(root!, 'orders-api'), commit: COMMIT }];
   const snapshot = createGitSnapshotSource(() => pins);
@@ -392,25 +415,89 @@ describe('one unit\'s tools, bound to its session', () => {
     expect(answer.draft.some((row) => row.unit === 'agent/unit-c')).toBe(false);
   });
 
+  test('a published unit\'s set is no draft, and neither is the reading unit\'s own', async () => {
+    const openedWorld = opened();
+    const handle = await openedWorld.tools();
+    const answered = await openedWorld.call(handle, 'claims_about', { id: openedWorld.graph.target.id });
+    const holders = (answered.answer as { draft: { unit: string }[] }).draft.map((row) => row.unit);
+    // Four sets of this run hold a claim about the target: unit-b's draft, this unit's own recorded set, the
+    // set of the unit that published, and a set of another run. Only the first is another unit's draft.
+    expect(holders).toEqual(['agent/unit-b']);
+  });
+
   test('a scope\'s drafts are the writes that stand inside it, and its published facts answer as they did', async () => {
     const openedWorld = opened();
     const handle = await openedWorld.tools();
     const answered = await openedWorld.call(handle, 'describe_scope', { scope: openedWorld.graph.file.id });
-    const answer = answered.answer as { holds: { kind: string; count: number }[]; draft: { unit: string; fact: { kind: string } }[] };
+    const answer = answered.answer as { holds: { kind: string; count: number }[]; draft: { unit: string; fact: { kind: string } }[]; draftScope: { by: string; scope: string } };
     expect(answer.holds).toEqual([{ kind: 'symbol', count: 4 }]);
     expect(answer.draft.map((row) => [row.unit, row.fact.kind])).toEqual([['agent/unit-b', 'claim']]);
+    // A folder and a file name a place: the drafts that bear on them are the writes that cite one inside it.
+    expect(answer.draftScope).toEqual({ by: 'place', scope: `${REPOSITORY}:${FILE}` });
   });
 
-  test('an answer over the unit\'s own cap is cut and says what it cut', async () => {
+  test('a module names no place, so its drafts are the writes that name the node, and the answer says which it read', async () => {
+    const openedWorld = opened();
+    const handle = await openedWorld.tools();
+    const answered = await openedWorld.call(handle, 'describe_scope', { scope: openedWorld.graph.module.id });
+    const answer = answered.answer as { draftScope: { by: string; scope: string }; draft: unknown[]; holds: unknown[] };
+    expect(answer.draftScope).toEqual({ by: 'node', scope: openedWorld.graph.module.id });
+    expect(answer.draft).toEqual([]);
+  });
+
+  test('a draft set the write path never made is refused by name rather than answered', async () => {
+    const openedWorld = opened();
+    // A unit of another run holds a set whose one write is no write of the four: the reader refuses it by the
+    // unit, its generation and the position, and never answers a draft the write path did not make.
+    const handle = await openedWorld.tools({ unitId: 'agent/damaged-reader', generation: 1 });
+    const answered = await openedWorld.call(handle, 'claims_about', { id: openedWorld.graph.target.id });
+    // The tool fails as a value the agent reads: the answer names the set, the generation and the position,
+    // and it holds no partial answer a reader could take for the whole graph.
+    expect(answered.isError).toBe(true);
+    const refusal = (answered.answer as { error: { code: string; message: string } }).error;
+    expect(refusal.code).toBe('refused');
+    expect(refusal.message).toContain('the draft set of agent/damaged/1 holds at position 1 the write "nonsense": a draft write is one of fact, entity, link, question');
+    // The refusal names where it was raised, as every failure of this fill does.
+    expect(refusal.message).toContain('src/fill/graph-reads.ts:');
+  });
+
+  test('a unit whose generation holds no plan row gets no session, and the refusal names it', async () => {
+    const openedWorld = opened();
+    await expect(openedWorld.tools({ unitId: 'agent/ghost', generation: 1 }))
+      .rejects.toThrow(/the unit "agent\/ghost" generation 1 of "fixture-product" holds no plan row/);
+  });
+
+  test('an answer over the unit\'s own cap is cut, holds no more than the cap, and says what it cut', async () => {
     const openedWorld = opened();
     // 0026's 8K-token cap, narrowed to a number this test can reach: the cap is the unit's own.
-    const handle = await openedWorld.tools(UNIT, { answerTokens: 120 });
+    const handle = await openedWorld.tools(UNIT, { answerTokens: 260 });
     const answered = await openedWorld.call(handle, 'neighbors', { id: openedWorld.graph.target.id });
     const answer = answered.answer as { truncated: boolean; marker: string | null; tokens: number; rows: unknown[] };
     expect(answer.truncated).toBe(true);
     expect(answer.marker).toContain('truncated:');
-    expect(answer.marker).toContain('120-token cap');
+    expect(answer.marker).toContain('260-token cap');
     expect(answer.rows.length).toBeLessThan(3);
+    // The cap is the whole answer: the request it echoes, the reads it names and the marker included.
+    expect(answer.tokens).toBeLessThanOrEqual(260);
+  });
+
+  test('the drafts are cut by the same cap and by a marker of their own', async () => {
+    const openedWorld = opened();
+    // Eight sets of this run hold a claim about one caller, so the cap has to cut the draft section. The cap
+    // lets the published rows (four of them, one neighbour) through and cuts the drafts behind them.
+    const caller = openedWorld.graph.callers[1]!;
+    for (let each = 1; each <= 8; each += 1) {
+      await recordUnitPlan(openedWorld.owner, { unitId: `agent/wide-${String(each)}`, generation: 1, runId: RUN, stageId: 'agent', stageUnitId: `wide-${String(each)}`, scope: `${REPOSITORY}:src`, stagePosition: 0, planPosition: 10 + each, at: NOW });
+      await recordUnitDraft(openedWorld.owner, { unitId: `agent/wide-${String(each)}`, generation: 1, at: NOW, writes: [{ kind: 'fact', evidence: `${REPOSITORY}@${openedWorld.commit}:${FILE}`, value: claimAbout(caller, `A draft about the caller, number ${String(each)}, long enough to cost a token or two of its own`, 20) }] });
+    }
+    const handle = await openedWorld.tools(UNIT, { answerTokens: 620 });
+    const answered = await openedWorld.call(handle, 'claims_about', { id: caller.id });
+    const answer = answered.answer as { truncated: boolean; marker: string | null; tokens: number; rows: unknown[]; draft: unknown[] };
+    expect(answer.truncated).toBe(true);
+    expect(answer.marker).toContain('the drafts about');
+    expect(answer.draft.length).toBeGreaterThan(0);
+    expect(answer.draft.length).toBeLessThan(8);
+    expect(answer.tokens).toBeLessThanOrEqual(620);
   });
 
   test('evidence_span answers the pinned commit\'s bytes, which is the only way this unit reads code', async () => {
@@ -433,20 +520,23 @@ describe('one unit\'s writes, bound to its session', () => {
   test('an accepted write lands in the unit\'s own draft set, and the answer names the fact and its place in the set', async () => {
     const openedWorld = opened();
     const handle = await openedWorld.tools();
+    const before = (await readUnitDraft(openedWorld.owner, UNIT.unitId, UNIT.generation))?.writes.length ?? 0;
     const answered = await openedWorld.call(handle, 'assert_fact', {
       kind: 'claim',
       value: { subject: { form: 'node', id: openedWorld.graph.target.id }, predicate: 'returns-the-order-total', object: { form: 'literal', text: 'the order total' } },
       place: { repository: REPOSITORY, file: FILE, startLine: 40 },
     });
     expect(answered.isError).toBe(false);
-    const landed = answered.answer as { ok: true; fact: { id: string; kind: string; layer: string; status: string }; position: number; evidence: string };
+    const landed = answered.answer as { ok: true; fact: { id: string; kind: string; layer: string; status: string }; position: number; evidence: string; writes: number };
     expect(landed.fact.kind).toBe('claim');
     // 0026 and 0005: an agent's statement is inferred and proposed, never accepted by the writing.
     expect([landed.fact.layer, landed.fact.status]).toEqual(['inferred', 'proposed']);
-    expect(landed.position).toBe(1);
+    // The set the unit already held (the world records one write of its own) plus this one, in order.
+    expect(landed.position).toBe(before + 1);
+    expect(landed.writes).toBe(before + 1);
     expect(landed.evidence).toBe(`${REPOSITORY}@${openedWorld.commit}:${FILE}`);
     const draft = await readUnitDraft(openedWorld.owner, UNIT.unitId, UNIT.generation);
-    expect(draft?.writes.map((write) => (write.value as { id: string }).id)).toEqual([landed.fact.id]);
+    expect(draft?.writes.map((write) => (write.value as { id: string }).id).at(-1)).toBe(landed.fact.id);
   });
 
   test('a write that cites a place outside the unit\'s scope is refused, naming the scope and the place', async () => {
@@ -519,6 +609,32 @@ describe('the token, and the host it names', () => {
     expect(server.args?.at(-1)).toBe('mcp-unit');
     expect(server.env?.[UNIT_TOOL_URL_VARIABLE]).toBe(`${openedWorld.server.url}/api/fill/unit/tool`);
     expect(String(server.env?.[UNIT_TOOL_TOKEN_VARIABLE]).length).toBeGreaterThan(0);
+  });
+
+  test('the route refuses a body it cannot read, a missing token, a missing tool and a field it does not take', async () => {
+    const openedWorld = opened();
+    const post = async (body: unknown): Promise<{ status: number; json: unknown }> => {
+      const response = await fetch(`${openedWorld.server.url}${UNIT_TOOL_PATH}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: typeof body === 'string' ? body : JSON.stringify(body),
+      });
+      return { status: response.status, json: await response.json() };
+    };
+    expect(await post('not json')).toMatchObject({ status: 400 });
+    expect(await post([1, 2])).toMatchObject({ status: 400, json: { error: { message: expect.stringContaining('body must be an object naming token, tool') } } });
+    expect(await post({ tool: 'neighbors' })).toMatchObject({ status: 400, json: { error: { field: 'token' } } });
+    expect(await post({ token: 't' })).toMatchObject({ status: 400, json: { error: { field: 'tool' } } });
+    expect(await post({ token: 't', tool: 'neighbors', unitId: 'agent/unit-a' })).toMatchObject({ status: 400, json: { error: { field: 'unitId' } } });
+  });
+
+  test('every session a host minted is forgotten when it closes them all', async () => {
+    const host = createUnitToolsHost();
+    const handle = host.open({ session: {} as never, url: 'http://127.0.0.1:1/api/fill/unit/tool' });
+    const token = tokenOf(handle);
+    expect(await host.call({ token, tool: 'coverage', arguments: { scope: REPOSITORY } })).not.toBeNull();
+    host.closeAll();
+    expect(await host.call({ token, tool: 'coverage', arguments: { scope: REPOSITORY } })).toBeNull();
   });
 
   test('the started server refuses to run without its host\'s address or its session\'s token', () => {
