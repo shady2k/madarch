@@ -23,6 +23,14 @@
  * left out of the findings; a *file* the walk cannot read at all is a coverage
  * gap, never a silence (see `unread`).
  *
+ * How a declaration is named: by what holds it (`OrderService.create`,
+ * `handlers.save`, `Worker.run`), never at the file's own scope when it stands
+ * inside something — a class, a function, a namespace, an interface, a type
+ * alias, an enum, a named expression, or an object literal held by a value
+ * (madarch-tzte.21.10). A name at the file's own scope is a name any bare
+ * mention of the file can reach, which is why the object literal's members are
+ * qualified by the value they stand in.
+ *
  * The grammars are the ones the landed `src/product/fill-index.ts` reads: the
  * same four wasm grammars of `tree-sitter-wasms` over the same runtime, so the
  * rebuild parses what the landed fill parsed (decision 0026 rebuilds that fill
@@ -320,7 +328,13 @@ export function spanFactory(text: string): (node: SyntaxNode) => SyntaxSpan {
 const TS_CONTAINERS: readonly string[] = [
   'abstract_class_declaration', 'arrow_function', 'class', 'class_declaration', 'enum_declaration',
   'function_declaration', 'function_expression', 'generator_function_declaration', 'interface_declaration',
-  'internal_module', 'method_definition', 'module', 'type_alias_declaration',
+  'internal_module', 'method_definition', 'module',
+  // An object literal holds its members, and no bare name of the file reaches
+  // them: a member is qualified by the value the literal stands in
+  // (`handlers.save`), which is what keeps a bare `save()` elsewhere in the file
+  // from resolving to it (madarch-tzte.21.10).
+  'object',
+  'type_alias_declaration',
 ];
 
 /**
@@ -804,14 +818,30 @@ function nameOf(node: SyntaxNode, text: string): string | undefined {
 }
 
 /**
- * The name that holds an anonymous expression (`const f = () => { … }`, a
- * class or function expression assigned to a variable, or a pair's value): the
- * declarations inside it are qualified by what the reader calls it, rather than
- * standing at the file's own scope under a name that exists nowhere.
+ * The expression kinds a reader names by the value that holds them: an
+ * anonymous function or class expression, and — since madarch-tzte.21.10 — an
+ * object literal, whose members are nothing the file's own scope reaches.
+ */
+const HELD_EXPRESSIONS: readonly string[] = ['arrow_function', 'class', 'function_expression', 'object'];
+
+/**
+ * The name that holds a value the file declares no name for (`const f = () =>
+ * { … }`, a class or function expression assigned to a variable, a pair's value,
+ * and `const handlers = { … }`): the declarations inside it are qualified by
+ * what the reader calls it, rather than standing at the file's own scope under a
+ * name that exists nowhere. A value no name holds — a call's argument, an
+ * array's element, an `export default { … }` — has no name to qualify its
+ * declarations by, and they keep the scope around them; that is the limit
+ * madarch-tzte.21.10's change record states.
  */
 function holderName(node: SyntaxNode, text: string): string | undefined {
-  if (node.type !== 'arrow_function' && !ANONYMOUS_EXPRESSIONS.includes(node.type)) return undefined;
-  const held = node.parent;
+  if (!HELD_EXPRESSIONS.includes(node.type)) return undefined;
+  // A value an assertion, a `satisfies`, a non-null assertion or a parenthesis
+  // wraps is the value that stands in the holder (`({ … }) as const`,
+  // `{ … } satisfies Handlers`): the wrappers are stepped through, as an
+  // anonymous default export's are.
+  let held = node.parent;
+  while (held !== null && VALUE_WRAPPERS.includes(held.type)) held = held.parent;
   if (held === null) return undefined;
   if (held.type === 'variable_declarator') return nameOf(held, text);
   if (held.type === 'pair' || held.type === 'public_field_definition' || held.type === 'field_definition') {
@@ -852,7 +882,7 @@ function anonymousDefaultKind(node: SyntaxNode, language: SyntaxLanguage): Symbo
   // `(class {}) satisfies unknown` write the expression inside something: the
   // statement is looked for above each of them.
   let parent = node.parent;
-  while (parent !== null && ANONYMOUS_DEFAULT_WRAPPERS.includes(parent.type)) parent = parent.parent;
+  while (parent !== null && VALUE_WRAPPERS.includes(parent.type)) parent = parent.parent;
   if (parent === null || parent.type !== 'export_statement') return undefined;
   // A named export's declaration stands in `declaration`; an anonymous one, which
   // is what this branch is for, stands in the statement's `value`.
@@ -864,8 +894,13 @@ function anonymousDefaultKind(node: SyntaxNode, language: SyntaxLanguage): Symbo
 /** The shapes an anonymous default export is written in: an expression of one of these. */
 const ANONYMOUS_DEFAULT_SHAPES: readonly string[] = ['arrow_function', 'class', 'function', 'function_expression', 'generator_function'];
 
-/** The wrappers an anonymous default export may stand inside, each walked through. */
-const ANONYMOUS_DEFAULT_WRAPPERS: readonly string[] = [
+/**
+ * The wrappers a value may stand inside, each walked through: a value an
+ * assertion, a `satisfies`, a non-null assertion or a parenthesis wraps is the
+ * same value, whether a name holds it (`({ … }) as const`) or it is a module's
+ * anonymous default export.
+ */
+const VALUE_WRAPPERS: readonly string[] = [
   'as_expression', 'non_null_expression', 'parenthesized_expression', 'satisfies_expression', 'type_assertion',
 ];
 

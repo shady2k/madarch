@@ -431,6 +431,38 @@ describe('the pure per-file extraction', () => {
     ]);
   });
 
+  test('a method of an object literal is qualified by the value the literal stands in', async () => {
+    const found = await extractFileSyntax('src/handlers.ts', bytesOf([
+      'const handlers = {',
+      '  save(order: string): void {},',
+      '  nested: { reset() {} },',
+      '};',
+      '',
+      'export class Store {',
+      '  handlers = { close() {} };',
+      '}',
+      '',
+      'const wrapped = ({ reset(): void {} }) as const;',
+      'const checked = { clear(): void {} } satisfies Record<string, unknown>;',
+      '',
+    ].join('\n')));
+    // A `pair` is no container and an object literal is: its members are named by
+    // the value the literal stands in, never at the file's own scope, which is
+    // what a bare name anywhere in the file would reach (madarch-tzte.21.10).
+    expect(found.symbols.map((symbol) => [symbol.qualifiedName, symbol.symbolKind])).toEqual([
+      ['Store', 'class'],
+      ['Store.handlers', 'field'],
+      ['Store.handlers.close', 'method'],
+      ['checked', 'constant'],
+      ['checked.clear', 'method'],
+      ['handlers', 'constant'],
+      ['handlers.nested.reset', 'method'],
+      ['handlers.save', 'method'],
+      ['wrapped', 'constant'],
+      ['wrapped.reset', 'method'],
+    ]);
+  });
+
   test('a Go file\'s declarations are read with the receiver they belong to', async () => {
     const text = [
       'package main',

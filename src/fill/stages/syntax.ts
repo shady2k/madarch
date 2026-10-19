@@ -64,7 +64,7 @@ import { movedBySpecifiers, publishedGapRows, publishedGapsRead, publishedImport
 export const SYNTAX_STAGE_ID = 'syntax';
 
 /** The stage's own version, bumped when what it writes or plans changes. */
-export const SYNTAX_STAGE_VERSION = 2;
+export const SYNTAX_STAGE_VERSION = 3;
 
 /** The fact kinds the stage produces, in code point order. */
 export const SYNTAX_STAGE_KINDS: readonly string[] = [
