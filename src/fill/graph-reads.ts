@@ -58,7 +58,7 @@ import {
 } from './facts.js';
 import { scopeHolds, scopeText, writeScope } from './checked-writes.js';
 import { here, raise, withLocation } from './fsm-core.js';
-import { queryDigest, recordUnitRead, recordUnitReadIn } from './orchestrator-store.js';
+import { queryDigest, recordUnitRead, recordUnitReadIn, withDraftParts } from './orchestrator-store.js';
 import type { SnapshotSource } from './snapshot.js';
 import type { StageDraftWrite } from './stage.js';
 
@@ -672,14 +672,14 @@ export async function answerGraphRead(options: FactGraphReaderOptions, request: 
         // recorded set would move its own read the moment it wrote). The writes are then filtered here,
         // so what the read answers — and what its membership digest covers — is exactly the drafts that
         // bear on the question asked.
-        const rows = await inTransaction(options, async (executor) => (await executor.query(
+        const rows = await inTransaction(options, async (executor) => await withDraftParts(executor, (await executor.query<DraftSetRow>(
           `SELECT d.unit_id, d.generation, d.writes, p.scope
              FROM fill_unit_draft d JOIN fill_unit_plan p ON p.unit_id = d.unit_id AND p.generation = d.generation
             WHERE p.run_id = $1 AND d.retracted_at IS NULL
               AND NOT (d.unit_id = $2 AND d.generation = $3)
               AND NOT EXISTS (SELECT 1 FROM fill_publication f WHERE f.unit_id = d.unit_id AND f.generation = d.generation)`,
           [request.run, request.reader.unitId, request.reader.generation],
-        )).rows);
+        )).rows));
         return draftRowsOf(rows, request, at);
       }
       case 'span': {

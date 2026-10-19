@@ -26,12 +26,16 @@ import {
 } from '../src/product-wiki/graph-diagrams.js';
 import { mermaidOfDiagram } from '../src/product-wiki/graph-mermaid.js';
 import { graphArchifyPage, graphLikeC4Page } from '../src/product-wiki/graph-render.js';
+import { layoutedViews } from '../src/wiki/archify-page.js';
 import { diagramWorkspace, webcomponentElement, webcomponentPrefix } from '../src/product-wiki/graph-workspace.js';
 import { checkLikeC4Workspaces } from '../scripts/likec4-check.js';
+import { LIKEC4_DRAWINGS_SOURCE } from '../src/product-wiki/likec4-drawings.js';
 import { DIAGRAM_FIXTURE, readsOf } from './fill-diagram-fixture.js';
 
 const fx = DIAGRAM_FIXTURE;
 const clean = readsOf(fx.facts.filter((fact) => fact.id !== fx.orphanImportsGone.id));
+/** The same graph with the import into the file no unit holds: the view that draws an end the graph does not hold. */
+const full = readsOf(fx.facts);
 
 /** The source's lines, for a test that reads it the way a reader does. */
 const linesOf = (source: string): readonly string[] => source.split('\n');
@@ -72,8 +76,10 @@ describe('the Mermaid source of a diagram', () => {
     expect(lines.filter((line) => line.includes('-.->'))).toHaveLength(3);
     expect(lines).toContain('  n0(["OrderStatus.new"])');
     expect(lines).toContain('  n1(["OrderStatus.paid"])');
-    // The state the graph does not hold has no name to draw, only the id it was cited by.
-    expect(lines).toContain(`  n3["${fx.refundedState.id}"]`);
+    // The state the graph does not hold is drawn by its kind and marked unresolved: a content-addressed id in a box
+    // says nothing a reader can act on (madarch-tzte.23.6).
+    expect(lines).toContain('  n3["state (unresolved)"]');
+    expect(source).not.toContain(fx.refundedState.id);
     expect(source).toContain('  class n0,n1,n2,n3 assumption');
   });
 
@@ -83,7 +89,7 @@ describe('the Mermaid source of a diagram', () => {
     // A table's name, then its columns with their types; a table the graph holds no fact of is a plain box, dashed.
     expect(lines).toContain('  n1[("acme-shop:public.orders: id bigint, total numeric")]');
     expect(lines).toContain('  n2[("acme-shop:public.payments: id bigint")]');
-    expect(lines).toContain('  n0["acme-shop:public.audit: id bigint"]');
+    expect(lines).toContain('  n0["acme-shop:public.audit (unresolved): id bigint"]');
     expect(lines).toContain('  class n0 assumption');
   });
 
@@ -173,6 +179,42 @@ describe('the LikeC4 workspace of a diagram', () => {
   });
 });
 
+describe('a node the graph does not hold, in every renderer', () => {
+  test('every renderer draws the name the graph gives it and never its content-addressed id', async () => {
+    const model = await buildDiagram({ type: 'module-dependency', nodes: [fx.shop.id] }, full);
+    const placeholder = model.elements.find((element) => element.kind === null);
+    expect(placeholder?.label).toBe('./gone.js (unresolved)');
+    // Mermaid draws the label in the box, dashed.
+    const mermaid = mermaidOfDiagram(model);
+    expect(mermaid).toContain('./gone.js (unresolved)');
+    expect(mermaid).not.toContain(fx.gone.id);
+    // LikeC4 draws it as the element of its own `unresolved` kind.
+    const held = diagramWorkspace(model, { pageAddress: (id) => `/p/graph/${id}` });
+    expect(held.workspace).toContain(`= unresolved "./gone.js (unresolved)"`);
+    expect(held.workspace).not.toContain(fx.gone.id);
+    // archify's document carries it as a component's own label, from the layout LikeC4 computes for that workspace.
+    const layouted = await layoutedViews(held.workspace);
+    const view = layouted.get(held.viewId);
+    expect(view).toBeDefined();
+    const document = archifyDocument(view!, { output: 'graph-diagram.html', dashed: new Set<string>() });
+    expect(JSON.stringify(document)).toContain('./gone.js (unresolved)');
+    expect(JSON.stringify(document)).not.toContain(fx.gone.id);
+  }, 120_000);
+
+  test('the page lists it under the same name, and keeps its id as the element the row stands for', async () => {
+    const model = await buildDiagram({ type: 'module-dependency', nodes: [fx.shop.id] }, full);
+    const answer = graphDiagramOf({ spec: { type: 'module-dependency', nodes: [fx.shop.id] }, model }, { node: fx.shop.id, chosen: 'mermaid' });
+    const listed = answer.elements.find((element) => element.kind === null);
+    expect(listed?.label).toBe('./gone.js (unresolved)');
+    // The id is what the app's row carries (and its tooltip): a reader tracing the arrow back to the fact still can.
+    expect(listed?.id).toBe(`unresolved:${fx.gone.id}`);
+    expect(listed?.page).toBeUndefined();
+    // The arrow list names both ends through the elements' labels, so an arrow into the placeholder reads as a name.
+    expect(answer.edges.map((edge) => edge.to)).toContain(`unresolved:${fx.gone.id}`);
+  });
+});
+
+
 describe('the tabs a page shows its diagrams under', () => {
   test('every type is offered on every renderer that supports it, in the one order the tabs stand in', () => {
     expect(DIAGRAM_RENDERERS_OF['c4-context']).toEqual(['likec4', 'mermaid', 'archify']);
@@ -236,6 +278,50 @@ describe('one diagram as the app receives it', () => {
   });
 });
 
+/** One stand-in for a DOM node, as the drawings probe reads it: its descendants and its own open shadow root. */
+interface FakeNode {
+  /** Whether this node is an svg, which is what the probe counts. */
+  readonly svg?: boolean;
+  readonly children: readonly FakeNode[];
+  readonly shadowRoot?: FakeNode;
+  querySelectorAll(selector: string): readonly FakeNode[];
+}
+
+/** A stand-in node: its children, its shadow root and what a selector finds in them, the way a document answers. */
+function fakeNode(options: { readonly svg?: boolean; readonly children?: readonly FakeNode[]; readonly shadow?: FakeNode } = {}): FakeNode {
+  const children = options.children ?? [];
+  const svgsIn = (nodes: readonly FakeNode[]): readonly FakeNode[] => nodes.flatMap((node) => [...(node.svg === true ? [node] : []), ...svgsIn(node.children)]);
+  return {
+    ...(options.svg === true ? { svg: true } : {}),
+    children,
+    ...(options.shadow === undefined ? {} : { shadowRoot: options.shadow }),
+    querySelectorAll: (selector: string) => (selector === '*' ? children : svgsIn(children)),
+  };
+}
+
+/** The drawings probe as a page or a walk runs it: the very bytes the page carries. */
+function drawingsProbe(): (root: FakeNode) => readonly FakeNode[] {
+  return new Function(`return (${LIKEC4_DRAWINGS_SOURCE});`)() as (root: FakeNode) => readonly FakeNode[];
+}
+
+describe('the drawings a LikeC4 element holds', () => {
+  test('a drawing is found wherever LikeC4 put it: its own shadow root, or the one nested inside that', () => {
+    const drawings = drawingsProbe();
+    // Nothing drawn at all is the answer a browser where LikeC4 failed must still get.
+    expect(drawings(fakeNode())).toEqual([]);
+    // A drawing in the host's light DOM and one in its own shadow root are both the element's drawing.
+    expect(drawings(fakeNode({ children: [fakeNode({ svg: true })] }))).toHaveLength(1);
+    expect(drawings(fakeNode({ shadow: fakeNode({ children: [fakeNode({ svg: true })] }) }))).toHaveLength(1);
+    // LikeC4's own shape (likec4/react's `ShadowRootHost`): the element's shadow root holds a div that attaches a
+    // second shadow root, and the drawing is in *that* one. Asking the element's own shadow root finds nothing.
+    const likec4 = fakeNode({ shadow: fakeNode({ children: [fakeNode({ shadow: fakeNode({ children: [fakeNode({ svg: true })] }) })] }) });
+    expect(drawings(likec4)).toHaveLength(1);
+    expect(likec4.shadowRoot!.querySelectorAll('svg')).toEqual([]);
+    // Two drawings are two, so the walk collects them all and stops at nothing.
+    expect(drawings(fakeNode({ children: [fakeNode({ svg: true })], shadow: fakeNode({ children: [fakeNode({ svg: true })] }) }))).toHaveLength(2);
+  });
+});
+
 describe('the LikeC4 page of a diagram', () => {
   test('the document carries the element the bundle defines, the view and a word for a browser where LikeC4 draws nothing', async () => {
     const model = await buildDiagram({ type: 'c4-context', nodes: [] }, clean);
@@ -247,6 +333,13 @@ describe('the LikeC4 page of a diagram', () => {
     expect(page.html).toContain(`<script src="/api/graph/likec4.js?id=${encodeURIComponent(fx.shop.id)}&type=c4-context"></script>`);
     // A browser where LikeC4 draws nothing is told so, rather than shown an empty frame.
     expect(page.html).toContain('data-likec4-undrawn');
+    // The watchdog reads the whole composed tree: LikeC4 draws into a shadow root inside one, and a page that asked
+    // the element's own shadow root would announce a drawing nobody lacks (madarch-pdkl).
+    expect(page.html).toContain(`var likec4Drawings = ${LIKEC4_DRAWINGS_SOURCE};`);
+    // The page asks that walk about the element it carries, and takes the sentence away when a drawing appears: what
+    // the page does with the answer, not which line of the script spells it.
+    expect(page.html).toContain('likec4Drawings(element)');
+    expect(page.html).toContain('if (said) said.remove();');
     expect(page.html).toContain('C4 context: the whole product');
   });
 });

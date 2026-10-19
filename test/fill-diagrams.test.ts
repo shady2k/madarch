@@ -25,7 +25,8 @@ import {
   type DiagramModel,
   type DiagramViewSpec,
 } from '../src/fill/diagrams.js';
-import { DIAGRAM_FIXTURE, readsOf } from './fill-diagram-fixture.js';
+import { makeEdgeFact, makeNodeFact } from '../src/fill/facts.js';
+import { DIAGRAM_FIXTURE, provenance, readsOf } from './fill-diagram-fixture.js';
 
 /** The fixture's graph, and the same graph with the edge into the file no unit holds left out — the normally published one. */
 const fx = DIAGRAM_FIXTURE;
@@ -71,15 +72,99 @@ describe('module dependencies', () => {
     expect(labels(model)).toEqual(['checkout', 'payment', 'web-api', 'web-app', 'web-shared']);
   });
 
-  test('an import whose file no unit holds any more is an unresolved end, drawn dashed', async () => {
+  test('an import whose file no unit holds any more is an unresolved end, drawn dashed and named by its specifier', async () => {
     const model = await buildDiagram({ type: 'module-dependency', nodes: [fx.shop.id] }, full);
     const unresolved = model.elements.find((element) => element.kind === null);
     expect(unresolved?.id).toBe(`${UNRESOLVED_PREFIX}${fx.gone.id}`);
+    // The graph keeps one name of a file whose own fact is gone: the specifier the importing file wrote, as written.
+    expect(unresolved?.label).toBe('./gone.js (unresolved)');
     expect(unresolved?.evidence).toBe('unresolved');
     expect(unresolved?.dashed).toBe(true);
     expect(unresolved?.page).toBeUndefined();
     const arrows = model.edges.filter((arrow) => arrow.to === unresolved?.id);
     expect(arrows.map(arrowLine)).toEqual(['import|unresolved|true']);
+  });
+});
+
+describe('a node the graph does not hold', () => {
+  /** One view that draws an end the graph does not hold, so every kind of placeholder the models make is covered. */
+  const views: ReadonlyArray<{ readonly type: DiagramModel['type']; readonly spec: DiagramViewSpec }> = [
+    { type: 'module-dependency', spec: { type: 'module-dependency', nodes: [fx.shop.id] } },
+    { type: 'state', spec: { type: 'state', nodes: [fx.newState.id] } },
+    { type: 'er', spec: { type: 'er', nodes: [fx.shop.id] } },
+  ];
+
+  test('is labelled by the name the graph gives it and marked unresolved, never by its content-addressed id', async () => {
+    const seen: string[] = [];
+    for (const view of views) {
+      const model = await buildDiagram(view.spec, full);
+      for (const element of model.elements) {
+        // A label is a name a person reads: no element of any view is labelled with a fact id, held or not.
+        expect(element.label).not.toMatch(/^[a-z-]+:[0-9a-f]{64}$/);
+        if (element.kind !== null) continue;
+        // An end the graph does not hold says so, in its label, under every renderer that draws the label.
+        expect(element.label.endsWith(' (unresolved)')).toBe(true);
+        // The id stays the element's own — the page lists the element with it as its tooltip, and nothing is hidden
+        // from a reader who needs to trace it back to the fact the edge cited — and a node with no page opens none.
+        expect(element.id.startsWith(UNRESOLVED_PREFIX)).toBe(true);
+        expect(element.page).toBeUndefined();
+        seen.push(element.label);
+      }
+    }
+    // The three shapes a placeholder takes: a specifier as written, a kind, and a repository's table.
+    expect(seen).toContain('./gone.js (unresolved)');
+    expect(seen).toContain('state (unresolved)');
+    expect(seen).toContain('acme-shop:public.audit (unresolved)');
+  });
+
+  test('a file the graph does not hold is named by the specifier its import wrote, whichever view draws it', async () => {
+    const model = await buildDiagram({ type: 'module-dependency', nodes: [fx.shop.id] }, full);
+    const placeholder = model.elements.find((element) => element.kind === null);
+    expect(placeholder?.label).toBe('./gone.js (unresolved)');
+    expect(placeholder?.id).toBe(`${UNRESOLVED_PREFIX}${fx.gone.id}`);
+    // The one import into that file is the one name the view holds, and the labels a view holds are a function of the
+    // graph alone: the name does not move between two walks of the same graph.
+    expect(model.elements.filter((element) => element.kind === null)).toHaveLength(1);
+    const again = await buildDiagram({ type: 'module-dependency', nodes: [fx.shop.id] }, full);
+    expect(labels(again)).toEqual(labels(model));
+  });
+
+  test('an end two imports name by different specifiers is labelled by the first of them in code point order', async () => {
+    // The rule the model states, and the one case only a second edge makes: `../x/gone.js` sorts before `./gone.js`
+    // (a full stop before a slash), so it is the name drawn — the same name on every machine and on every walk.
+    const second = makeEdgeFact({
+      kind: 'import',
+      value: { from: fx.cart.id, to: fx.gone.id, specifier: '../x/gone.js' },
+      provenance: provenance('acme-shop', 'src/cart.ts', 4),
+      layer: 'extracted',
+    });
+    const two = readsOf([...fx.facts, second]);
+    const model = await buildDiagram({ type: 'module-dependency', nodes: [fx.shop.id] }, two);
+    expect(model.elements.find((element) => element.kind === null)?.label).toBe('../x/gone.js (unresolved)');
+    // And the choice is an order, not a first-read: the same graph drawn again draws the same name.
+    expect(labels(await buildDiagram({ type: 'module-dependency', nodes: [fx.shop.id] }, two))).toEqual(labels(model));
+  });
+
+  test('two ends of one kind that no fact names read alike, and their ids still tell them apart', async () => {
+    // The decision the model records: the graph knows nothing that tells two nameless states apart, so neither label
+    // invents a name; the element ids differ, and the page lists each row with its own id as the tooltip.
+    const elsewhere = makeNodeFact({
+      kind: 'state',
+      value: { repository: 'acme-shop', machine: 'OrderStatus', name: 'OrderStatus.cancelled' },
+      provenance: provenance('acme-shop', 'src/cart.ts', 17),
+      layer: 'inferred',
+    });
+    const toNothing = makeEdgeFact({
+      kind: 'transition',
+      value: { from: fx.paidState.id, to: elsewhere.id, event: 'cancel' },
+      provenance: provenance('acme-shop', 'src/cart.ts', 18),
+      layer: 'inferred',
+    });
+    const model = await buildDiagram({ type: 'state', nodes: [fx.newState.id] }, readsOf([...fx.facts, toNothing]));
+    const nameless = model.elements.filter((element) => element.kind === null);
+    expect(nameless.map((element) => element.label)).toEqual(['state (unresolved)', 'state (unresolved)']);
+    expect(new Set(nameless.map((element) => element.id)).size).toBe(2);
+    expect(nameless.map((element) => element.id)).toContain(`${UNRESOLVED_PREFIX}${elsewhere.id}`);
   });
 });
 
@@ -126,14 +211,14 @@ describe('an entity-relationship view', () => {
   test('the tables of a repository carry their columns, and a column whose table no fact holds makes it dashed', async () => {
     const model = await buildDiagram({ type: 'er', nodes: [fx.shop.id] }, clean);
     expect(model.title).toBe('Data model: acme-shop');
-    expect(labels(model)).toEqual(['acme-shop:public.audit', 'acme-shop:public.orders', 'acme-shop:public.payments']);
+    expect(labels(model)).toEqual(['acme-shop:public.audit (unresolved)', 'acme-shop:public.orders', 'acme-shop:public.payments']);
     expect(model.edges).toEqual([]);
     const orders = model.elements.find((element) => element.id === fx.ordersTable.id);
     expect(orders?.columns?.map((column) => column.label)).toEqual(['id', 'total']);
     expect(orders?.columns?.map((column) => column.dataType)).toEqual(['bigint', 'numeric']);
     expect(orders?.columns?.[0]?.page?.href).toBe(`/p/graph/${fx.columns[0]!.id}`);
     expect(orders?.columns?.[0]?.place).toEqual({ repository: 'acme-shop', commit: 'a'.repeat(40), file: 'migrations/001.sql', line: 4, endLine: 4 });
-    const audit = model.elements.find((element) => element.label === 'acme-shop:public.audit');
+    const audit = model.elements.find((element) => element.label === 'acme-shop:public.audit (unresolved)');
     expect(audit?.kind).toBeNull();
     expect(audit?.evidence).toBe('unresolved');
     expect(audit?.dashed).toBe(true);
@@ -144,9 +229,9 @@ describe('an entity-relationship view', () => {
     // A table the graph holds and the view does not name is outside the view; a placeholder says the graph holds no such
     // table at all, so the one table it does not hold is drawn dashed and the one it does hold is not.
     const model = await buildDiagram({ type: 'er', nodes: [fx.ordersTable.id] }, clean);
-    expect(labels(model)).toEqual(['acme-shop:public.audit', 'acme-shop:public.orders']);
+    expect(labels(model)).toEqual(['acme-shop:public.audit (unresolved)', 'acme-shop:public.orders']);
     expect(model.elements.find((element) => element.id === fx.paymentsTable.id)).toBeUndefined();
-    expect(model.elements.find((element) => element.label === 'acme-shop:public.audit')?.dashed).toBe(true);
+    expect(model.elements.find((element) => element.label === 'acme-shop:public.audit (unresolved)')?.dashed).toBe(true);
     expect(model.elements.find((element) => element.id === fx.ordersTable.id)?.columns?.map((column) => column.label)).toEqual(['id', 'total']);
   });
 
@@ -163,7 +248,8 @@ describe('a state view', () => {
   test('the states of the machine and their transitions, each arrow named by its event and dashed as an agent read it', async () => {
     const model = await buildDiagram({ type: 'state', nodes: [fx.newState.id] }, clean);
     expect(model.title).toBe('States: OrderStatus.new');
-    expect(labels(model)).toEqual(['OrderStatus.new', 'OrderStatus.paid', 'OrderStatus.shipped', fx.refundedState.id]);
+    // The state no unit holds is named by its kind and marked unresolved, never by the content-addressed id it is cited by.
+    expect(labels(model)).toEqual(['OrderStatus.new', 'OrderStatus.paid', 'OrderStatus.shipped', 'state (unresolved)']);
     expect(model.edges.map(arrowLine).sort()).toEqual(['pay|assumption|true', 'refund|unresolved|true', 'ship|assumption|true']);
     const refund = model.edges.find((arrow) => arrow.label === 'refund');
     expect(refund?.to).toBe(`${UNRESOLVED_PREFIX}${fx.refundedState.id}`);
@@ -174,7 +260,8 @@ describe('a state view', () => {
 
   test('a repository draws every machine its states belong to', async () => {
     const model = await buildDiagram({ type: 'state', nodes: [fx.shop.id] }, clean);
-    expect(labels(model)).toEqual(['OrderStatus.new', 'OrderStatus.paid', 'OrderStatus.shipped', fx.refundedState.id]);
+    // The state no unit holds is named by its kind and marked unresolved, never by the content-addressed id it is cited by.
+    expect(labels(model)).toEqual(['OrderStatus.new', 'OrderStatus.paid', 'OrderStatus.shipped', 'state (unresolved)']);
     expect(model.title).toBe('States: acme-shop');
   });
 });
@@ -291,13 +378,13 @@ describe('the size of a view', () => {
     expect(labels(await buildDiagram(componentDrill.view, clean, { limits: { nodes: 40 } }))).toEqual(['checkout', 'payment']);
     const er = await buildDiagram({ type: 'er', nodes: [fx.shop.id] }, clean, { limits: { nodes: 2 } });
     // The two tables fold into their repository; the table no fact holds stands for nothing and stays as it is.
-    expect(labels(er)).toEqual(['acme-shop', 'acme-shop:public.audit']);
+    expect(labels(er)).toEqual(['acme-shop', 'acme-shop:public.audit (unresolved)']);
     const erDrill = er.elements[0]!.drillDown!;
     expect(erDrill).toEqual({
       view: { type: 'er', nodes: [fx.paymentsTable.id, fx.ordersTable.id].sort() },
       href: `/p/graph?diagram=er&node=${[fx.paymentsTable.id, fx.ordersTable.id].sort().join('&node=')}`,
     });
-    expect(labels(await buildDiagram(erDrill.view, clean, { limits: { nodes: 40 } }))).toEqual(['acme-shop:public.audit', 'acme-shop:public.orders', 'acme-shop:public.payments']);
+    expect(labels(await buildDiagram(erDrill.view, clean, { limits: { nodes: 40 } }))).toEqual(['acme-shop:public.audit (unresolved)', 'acme-shop:public.orders', 'acme-shop:public.payments']);
   });
 
   test('an element whose nearest level the graph does not hold goes on to the next level it does', async () => {

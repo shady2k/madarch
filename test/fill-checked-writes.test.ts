@@ -580,6 +580,83 @@ describe('the graph the write path reads', () => {
     expect((await factGraph(owner!).node(answer.fact.id))?.kind).toBe('claim');
   }, 60_000);
 
+  test('a publication keeps no second copy of what it published', async () => {
+    const unit = await runningUnit('understanding:acme-shop:src:published-copy');
+    const answer = await assertFact(unit.session, { kind: 'claim', value: CLAIM, place: LINES_3_TO_5 });
+    expect(settlement(answer)).toBe('accepted');
+    if (!answer.ok) return;
+    const before = await readUnitDraft(owner!, unit.unitId, unit.generation);
+    expect(before?.writes.map((write) => write.kind)).toEqual(['fact']);
+    expect(await publishRunning(unit, await unit.draft.writes())).toBe(1);
+    // madarch-tzte.21.11: the facts it published are the store's own rows by this unit and generation, so
+    // the draft keeps none of the JSON it was written from — what a unit's draft set answers afterwards is
+    // the empty set, and what it published is read as published facts.
+    const after = await readUnitDraft(owner!, unit.unitId, unit.generation);
+    expect(after).toBeNull();
+    const kept = await owner!.transaction('snapshot', async (executor) => (await executor.query<{ writes: unknown }>(
+      `SELECT d.writes FROM fill_unit_draft d WHERE d.unit_id = $1 AND d.generation = $2
+       UNION ALL SELECT p.writes FROM fill_unit_draft_part p WHERE p.unit_id = $1 AND p.generation = $2`,
+      [unit.unitId, unit.generation],
+    )).rows.map((row) => row.writes));
+    expect(kept).toEqual([[]]);
+    expect((await readUnitFacts(owner!, unit.unitId)).map((entry) => entry.fact.id)).toEqual([answer.fact.id]);
+    // A repeated request of the same generation answers the existing publication, not a second one: the
+    // row this publication left behind is what the repeat is judged by.
+    const record = await readUnit(owner!, unit.unitId);
+    const replay = await publishUnit(owner!, {
+      unitId: unit.unitId,
+      generation: unit.generation,
+      fence: unit.fence,
+      identity: { inputsDigest: record!.inputsDigest, stageId: 'understanding', stageVersion: 1 },
+      at: NOW + 10,
+      revalidate: async () => { throw new Error('a replay rechecks no read'); },
+      apply: async () => { throw new Error('a replay applies no fact'); },
+    });
+    expect(replay.outcome).toBe('replayed');
+  }, 60_000);
+
+  test('a publication applies the draft set its attempt holds, and reads the row\'s writes back only when the digest is not that one', async () => {
+    // madarch-tzte.21.11: a repository-wide unit's draft set is tens of megabytes of JSON, and reading it
+    // back inside the publication was a second copy of the whole set at the run's peak. The attempt that
+    // recorded the draft still holds it, and the digest the record answered says it is the same set.
+    for (const [name, trusted] of [['held', true], ['stale', false]] as const) {
+      const unit = await runningUnit(`understanding:acme-shop:src:${name}-draft`);
+      const answer = await assertFact(unit.session, { kind: 'claim', value: CLAIM, place: LINES_3_TO_5 });
+      expect(settlement(answer)).toBe('accepted');
+      const writes = await unit.draft.writes();
+      const recorded = await recordUnitDraft(owner!, { unitId: unit.unitId, generation: unit.generation, writes, at: NOW });
+      must(await advanceUnit(owner!, { unitId: unit.unitId, event: { type: 'submit-draft', at: NOW, generation: unit.generation, fence: unit.fence } }), `drafting ${unit.unitId}`);
+      must(await advanceUnit(owner!, { unitId: unit.unitId, event: { type: 'validate-draft', at: NOW, generation: unit.generation, fence: unit.fence } }), `validating ${unit.unitId}`);
+      const record = (await readUnit(owner!, unit.unitId))!;
+      const plan: UnitPlanRecord = { unitId: unit.unitId, generation: unit.generation, runId: RUN, stageId: 'understanding', stageUnitId: 'understanding', scope: 'understanding', stagePosition: 0, planPosition: 0, plannedAt: NOW };
+      // A copy of the same writes, so which of the two the publication applied is told apart by identity.
+      const held = writes.map((write) => ({ ...write }));
+      let applied: readonly StageDraftWrite[] | undefined;
+      const outcome = await publishUnit(owner!, {
+        unitId: unit.unitId,
+        generation: unit.generation,
+        fence: unit.fence,
+        identity: { inputsDigest: record.inputsDigest, stageId: 'understanding', stageVersion: 1 },
+        at: NOW,
+        held: { digest: trusted ? recorded.digest : `not ${recorded.digest}`, writes: held },
+        revalidate: async () => ({ membership: 'no reads', members: 0 }),
+        apply: async (executor, facts, digest) => {
+          applied = facts;
+          return await FACT_APPLICATION.apply({ executor, unit: record, plan, digest, writes: facts });
+        },
+      });
+      expect(outcome.outcome).toBe('published');
+      if (trusted) {
+        expect(applied).toBe(held);
+      } else {
+        // A held set whose digest is not the row's is not trusted: the row's own writes are what is published.
+        expect(applied).not.toBe(held);
+        expect(applied).toEqual(writes);
+      }
+      expect((await readUnitFacts(owner!, unit.unitId)).map((entry) => entry.fact.id)).toEqual(answer.ok ? [answer.fact.id] : []);
+    }
+  }, 60_000);
+
   test('a write after the generation\'s draft set was retracted lands: the retraction was the attempt before it', async () => {
     const unit = await runningUnit('understanding:acme-shop:src:retracted');
     const first = await assertFact(unit.session, { kind: 'claim', value: CLAIM, place: LINES_3_TO_5 });
