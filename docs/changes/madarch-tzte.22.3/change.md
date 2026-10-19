@@ -318,38 +318,41 @@ Taken from decisions 0026, 0027 and 0005; nothing here re-decides them.
 
 ## Acceptance evidence
 
-The checks, each command's own exit status, at hand-over:
+The checks, each command's own exit status, at hand-over. The branch was rebased
+onto `origin/main` twice: `fad2419e` (the modules stage) and `8482dbf0` (stage
+19.7, a worker whose step the unit machine refuses settles its job). The second
+rebase conflicted in `src/fill/orchestrator.ts` and both changes are kept: every
+step of an attempt — a block in `attemptUnit`, a block a split refuses, a draft, a
+validation, a sealed split — goes through 19.7's `takeAttemptStep`, which settles
+the worker's claim when the machine refuses it, and the split's refusal still
+records the parent's checkpoint before it blocks.
 
-- `bun run check` (`tsc --noEmit`) exit 0 at every commit of the branch, the
-  rebase onto `origin/main` `fad2419e` included.
+- `bun run check` (`tsc --noEmit`) exit 0 at every commit of the branch and after
+  both rebases.
 - The feature document gate (`node .shady2k/documents.mjs check --phase feature
   --change madarch-tzte.22.3 --candidate worktree --target origin/main`) exit 0,
-  clean, after every edit round (it runs in the pre-commit hook too).
+  clean, after every edit round and at hand-over (it runs in the pre-commit hook
+  too).
 - The focused suites run in SkyPilot, not on this machine (the owner's rule),
   `madarch-sky-test <worktree> <files>`, each with the tests' own exit status:
-  - `test/fill-unit-limits.test.ts` (11 tests) + `test/fill-agent-packet.test.ts`
-    (9) + `test/fill-agent-unit.test.ts` (15) — 35 pass, 0 fail, exit 0 at the
-    third review's answers. The earlier revisions ran the same files at 25
-    (first), 26 (first review's answers), 28 (second review's answers) and the
-    counts grew as the reviews' cases were added.
-  - `test/fill-unit-limits.test.ts` + `test/fill-agent-packet.test.ts` +
-    `test/fill-agent-unit.test.ts` + `test/fill-unit-tools.test.ts` +
-    `test/fill-orchestrator.test.ts` + `test/fill-crash-suite.test.ts` —
-    130 pass, 0 fail, exit 0, at the second review's answers (the split
-    transaction and the tools seam moved, and the crash suite kills workers
-    around exactly that transaction).
+  - After the second rebase, `test/fill-unit-limits.test.ts` (11 tests) +
+    `test/fill-agent-packet.test.ts` (9) + `test/fill-agent-unit.test.ts` (15) +
+    `test/fill-unit-tools.test.ts` + `test/fill-orchestrator.test.ts` +
+    `test/fill-crash-suite.test.ts` — **135 pass, 0 fail, exit 0**
+    (`run-20261019-085832`), which is the coordinator's ask: this change's files
+    with the orchestrator's and the crash suite's own, the two suites 19.7 moves.
+  - Before the second rebase, the same three files with `test/fill-unit-tools`
+    65 pass / 0 fail / exit 0, and with `test/fill-orchestrator` +
+    `test/fill-crash-suite` 130 pass / 0 fail / exit 0 (`run-20261019-082835`).
   - Every deterministic stage's own suite with `test/product-cli.test.ts`,
     `test/product-daemon.test.ts`, `test/fill-facts.test.ts` and
     `test/fill-state-store.test.ts` (the direct importers of `stage.ts`,
     `stages/index.ts` and `daemon.ts`) — 396 pass, 0 fail, exit 0.
-  - `test/fill-orchestrator.test.ts` + `test/fill-crash-suite.test.ts` +
-    `test/fill-registry.test.ts` + `test/fill-unit-tools.test.ts` +
-    `test/product-daemon.test.ts` + `test/fill-agent-unit.test.ts` — 175 pass,
-    0 fail, exit 0.
-  - After the rebase: `test/fill-unit-limits.test.ts` +
-    `test/fill-agent-packet.test.ts` + `test/fill-agent-unit.test.ts` +
-    `test/fill-registry.test.ts` + `test/fill-modules-stage.test.ts` +
-    `test/fill-orchestrator.test.ts` — 166 pass, 0 fail, exit 0.
+  - `test/fill-orchestrator` + `test/fill-crash-suite` + `test/fill-registry` +
+    `test/fill-unit-tools` + `test/product-daemon` + `test/fill-agent-unit` —
+    175 pass, 0 fail, exit 0; after the first rebase, `test/fill-registry` +
+    `test/fill-modules-stage` + `test/fill-orchestrator` with the three new files
+    — 166 pass, 0 fail, exit 0.
 - The independent review, fresh read-only
   `prime-agent --provider shady2k-gateway --model deepseek-v4.1-flash-auto`
   sessions over `git diff origin/main...HEAD`, each told not to run anything on
@@ -361,7 +364,7 @@ The checks, each command's own exit status, at hand-over:
     same, already published children for ever; and a unit's tool session leaked
     when the stage's configuration refused after the tools were opened — plus
     twelve findings. All four were answered **with the test that catches each**,
-    and the twelve with them (`f1bc846c` before the rebase, `469995cb` after it).
+    and the twelve with them.
   - Round 2 (`/tmp/review-223b.log`): verdict `fix-before-ship`; five defects —
     a file's scope (whose members are its symbols) was named by no unit at all;
     the re-seal refusal missed the run's `accept-partial` policy; the packet was
@@ -369,33 +372,27 @@ The checks, each command's own exit status, at hand-over:
     server returned were never counted, which 0026 requires ("the session and the
     server"); and `link` still invited the read kinds a tool description names as
     examples, which cost the unit its whole draft — plus eleven findings. All
-    five are answered in `a54c8acf` with their tests (the file-scope plan case,
-    the `accept-partial` end-to-end case, the packet counted once per prompt, the
+    five are answered with their tests (the file-scope plan case, the
+    `accept-partial` end-to-end case, the packet counted once per prompt, the
     host's per-session answer count with `test/fill-unit-tools.test.ts` proving
     it, and the two declared edge kinds named in the fixed part), and the findings
-    with them: the sealing transaction names `fill_unit_draft`; the attempt's
-    authority and tools are opened inside one `try`; the packet's lists are
-    charged in the currency the prompt is sent in; the marker names which cap cut;
-    a comment neighbour is named by its place; `validateDraft` is the landed
-    `checkFactDraft` with its four write kinds; `readUnitAnswer`, `coveredPlaces`,
-    `splitChildren` and `placesOfMembers` have unit tests; the packet test's
-    `relations` and `data` are filled by a graph that holds one of each.
+    with them.
   - Round 3 (`/tmp/review-223c.log`), a narrow re-check of the answers: it found
     all nine defects of the two rounds answered; its two blocking findings were
-    this record's own numbers (it re-derived them from `git log` and the test
-    files, and the counts above are the ones it asked for) and an attempt
-    cancelled before its session opened still running one uncancelled turn
-    (fixed: the loop reads the abort before any turn, and the listener is
-    registered whatever the signal says). Its thirteen smaller findings are
+    this record's own numbers (re-derived here from `git log` and the test files)
+    and an attempt cancelled before its session opened still running one
+    uncancelled turn (fixed: the loop reads the abort before any turn, and the
+    listener is registered whatever the signal says). Its smaller findings are
     answered too: the server's answers are counted before the turn is judged; a
     test proves the host's count; the refused split still records the checkpoint
-    it was meant to hand over; the wrap threshold is floored like the stop; the
-    form list comes from the schema's own `REPOSITORY_FORMS`; the test's worlds
-    are `mkdtemp` folders; the packet test no longer restates a bound the code
-    enforces by refusing; the words of `boundedText`'s own cut and of the
-    never-ending turn's bound are corrected.
-- CI on the exact SHA of the branch: named in the task's `check:` records and in
-  the queue entry (`## madarch-tzte.22.3 — READY …`).
+    it was meant to hand over — which is also the line the second rebase had to
+    keep beside 19.7's `takeAttemptStep`; the wrap threshold is floored like the
+    stop; the form list comes from the schema's own `REPOSITORY_FORMS`; the
+    test's worlds are `mkdtemp` folders; the packet test no longer restates a
+    bound the code enforces by refusing; the words of `boundedText`'s own cut and
+    of a never-ending turn's bound are corrected.
+- CI on the exact SHA of the branch: named in the queue entry
+  (`## madarch-tzte.22.3 — READY …`).
 
 ## DONE WHEN
 
