@@ -5,10 +5,11 @@
 # and CI's `bun test test/` — runs started from inside `test/` do not get it.
 [test]
 preload = ["./test/run-scratch.ts", "./test/deadline.ts"]
-# Every test has ten seconds instead of Bun's five (madarch-tzte.36): several
-# take 5.0-6.0 s on GitHub's runners, and each one that times out costs a shard
-# rerun. The bound is `setDefaultTimeout` in test/deadline.ts, not
-# `timeout = 10000` here: Bun 1.4.2 ignores that key, as a number or as "10s"
-# (measured: a test that sleeps 7 s still fails at 5 003 ms with it set), while
-# the preload's call takes effect. A test that sets its own bound keeps it. The
-# slow tests themselves are madarch-cznn, which brings the bound back down.
+# A test that names no bound of its own has ten seconds instead of Bun's five
+# (madarch-tzte.36): several take 5.0-6.0 s on GitHub's runners, and each one
+# that times out costs a shard rerun. The default is `setDefaultTimeout` in
+# test/deadline.ts, not `timeout = 10000` here: Bun 1.4.2 ignores that key, as a
+# number or as "10s" (measured: a test that sleeps 7 s still fails at 5 003 ms
+# with it set), while the preload's call takes effect. A test that names its own
+# bound keeps it, longer or shorter. The slow tests themselves are madarch-cznn,
+# which brings the default back down.

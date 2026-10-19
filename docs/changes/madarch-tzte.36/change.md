@@ -11,8 +11,8 @@ CI's suite fails merges at random. Several tests take 5.0-6.0 s on GitHub's
 runners against Bun's five-second default — `server-graphs`, `server-views`,
 `hub`, `requirements-resolve` — so a shard goes red on a test that passes on its
 own and a merge waits for a rerun it never needed. The owner's decision
-(2026-10-19 09:40 MSK, "make it ten seconds per test for now"): every test runs
-under a ten-second bound until the slow ones are fixed.
+(2026-10-19 09:40 MSK, "make it ten seconds per test for now"): a test that
+names no bound of its own gets ten seconds until the slow ones are fixed.
 
 Where the bound lives was measured, not assumed. Bun 1.4.2 does read
 `bunfig.toml`'s `[test]` section — the scratch preload declared there runs — but
@@ -30,8 +30,8 @@ moves, from 5 000 ms to 10 000 ms. A test that names its own bound keeps it —
 `test/product-cli.test.ts` (15 s and 12 s), `test/fill-claims.test.ts` (60 s) and
 the repeated-render test of `model-check/views` (15 s) run exactly as before.
 
-What moves besides the deadline is two preload lines and one new file of ten
-lines that states the bound: no product source, no fixture, no assertion.
+What moves besides the deadline is two preload lines and one new preload file
+that states it: no product source, no fixture, no assertion.
 
 The preserved references below are the requirements the suites that crossed the
 default prove, and the one whose own bound this change must not take away.
@@ -110,7 +110,8 @@ ACCEPTANCE
 
 ## DONE WHEN
 
-Every test of both suites runs under a ten-second bound: a test that sleeps 7 s
-passes, one that sleeps 12 s fails, and a test that names its own longer bound
-keeps it, in `bun test` of the engine and of the wiki app; CI is green on the
-change; madarch-cznn is named as the follow-up that brings the bound down.
+A test of either suite that names no bound of its own runs under a ten-second
+default: one that sleeps 7 s passes, one that sleeps 12 s fails, and a test that
+names its own longer bound keeps it, in `bun test` of the engine and of the wiki
+app; CI is green on the change; madarch-cznn is named as the follow-up that
+brings the default down.

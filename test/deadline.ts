@@ -1,6 +1,6 @@
 /**
- * The deadline every test runs under (madarch-tzte.36): ten seconds per test
- * instead of Bun's five.
+ * The default deadline of every test (madarch-tzte.36): ten seconds instead of
+ * Bun's five for a test that names no bound of its own.
  *
  * It is set here, in a preload both `bunfig.toml` files declare, because Bun
  * 1.4.2 does not apply `[test] timeout` from `bunfig.toml`: with that key set, a
