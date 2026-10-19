@@ -286,6 +286,29 @@ describe('the membership digest a tracked read stands on', () => {
     // A value no digest can hold is refused by name rather than collapsed into another value's digest.
     expect(() => readMembership([{ handler: () => undefined }])).toThrow(/a read answered function at row\.handler/);
   });
+
+  test('leaves out the fields a stage measures rather than observes, so a re-ranking makes no reader stale', () => {
+    // Stage 5 measures a file's, a symbol's and a module's importance over the whole graph and writes it
+    // onto the fact stages 1, 3 and 4 published (madarch-tzte.21.7, FACT_MEASURED_FIELDS). A read that
+    // answered that fact was about the node and not about the number a later run gave it, so the rank
+    // moving is not the read moving — otherwise every re-ranking would make every unit that read a file
+    // out of date, stage 5's own units included.
+    const ranked = readMembership([{ id: 'file:a', value: { repository: 'p', path: 'src/a.ts', roles: ['source'], importance: 0.5 } }]);
+    const unranked = readMembership([{ id: 'file:a', value: { repository: 'p', path: 'src/a.ts', roles: ['source'] } }]);
+    const reranked = readMembership([{ id: 'file:a', value: { repository: 'p', path: 'src/a.ts', roles: ['source'], importance: 0.25 } }]);
+    expect(ranked).toBe(unranked);
+    expect(reranked).toBe(unranked);
+    // Everything the read is about still moves it: another path, another role, another id.
+    expect(readMembership([{ id: 'file:a', value: { repository: 'p', path: 'src/b.ts', roles: ['source'] } }])).not.toBe(unranked);
+    expect(readMembership([{ id: 'file:b', value: { repository: 'p', path: 'src/a.ts', roles: ['source'] } }])).not.toBe(unranked);
+    // A module's member count is not a rank: it moves when the tree moves, which is what a read of that
+    // module is about, so a module that grew still makes its readers stale.
+    const module3 = readMembership([{ id: 'module:m', value: { repository: 'p', name: 'cart', seed: 'package', members: 3, importance: 0.4 } }]);
+    const module5 = readMembership([{ id: 'module:m', value: { repository: 'p', name: 'cart', seed: 'package', members: 5, importance: 0.4 } }]);
+    const moduleReranked = readMembership([{ id: 'module:m', value: { repository: 'p', name: 'cart', seed: 'package', members: 3, importance: 0.1 } }]);
+    expect(module5).not.toBe(module3);
+    expect(moduleReranked).toBe(module3);
+  });
 });
 
 describe('planning from the registry', () => {
