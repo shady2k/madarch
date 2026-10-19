@@ -278,12 +278,14 @@ describe('madarch new', () => {
     expect(stdout).toContain('madarch <command> --help'); expect(stdout).not.toContain('--home'); expect(stdout).not.toContain('bun link');
   });
 
+  // One child per command: a command added to the list adds its own start-up, and
+  // the default per-test limit is five seconds.
   test('every command has focused help with usage, flags and example', () => {
     for (const command of Object.keys(COMMANDS)) {
       const result = runCommand([command, '--help']);
       expect(result.status).toBe(0); expect(result.stdout).toContain(`madarch ${command}`); expect(result.stdout).toContain('Example:');
     }
-  });
+  }, 60_000);
 
   test("--port 0 serves on a free port, and --json keeps the daemon's facts on one line", async () => {
     const base = scratchFolder('madarch-cli-json-');

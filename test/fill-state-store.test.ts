@@ -562,6 +562,7 @@ describe('a stored record that does not hold the shape its guards read', () => {
     const runFailure = await expectAsyncError(() => readRun(database, 'run-corrupt'));
     expect(runFailure.message).toContain('table fill_run, row run-corrupt: planningClosed is not a boolean');
   });
+
 });
 
 describe('a failure of the borrowed database', () => {

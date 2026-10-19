@@ -567,25 +567,31 @@ export async function readUnitGeneration(database: FillStateDatabase, unitId: st
 export async function readRunUnits(database: FillStateDatabase, runId: string): Promise<readonly UnitRecord[]> {
   const at = here();
   return run(at, database, `readRunUnits(${runId})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease'], async (executor) => {
-    const units = await executor.query<UnitRow>(
-      `SELECT DISTINCT u.unit_id, u.product, u.stage_id, u.scope_key, u.generation, u.created_at
-         FROM fill_unit u JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation
+    // One join and not one query per row: a run of a few thousand units read this way costs three
+    // round trips per unit, which the walk of madarch-tzte.21.8 measured at 1.7–3.4 s per call — and
+    // the orchestrator makes this read several times a pass, so a pass spent seconds reading what it
+    // already knew. A generation's lease is the one its row's fence names, and a unit's generation is
+    // the one its own row names, so the join answers the same records as the per-row reads did.
+    const rows = await executor.query<UnitRow & GenerationRow & LeaseRow>(
+      `SELECT u.unit_id, u.product, u.stage_id, u.scope_key, u.generation AS unit_generation, u.created_at,
+              g.unit_id AS generation_unit_id, g.generation, g.run_id, g.state, g.inputs_digest, g.fence, g.context,
+              g.published_at, g.stale_at, g.updated_at,
+              l.attempt, l.fence AS lease_fence, l.holder, l.issued_at, l.expires_at, l.revoked_at, l.unit_id AS lease_unit_id
+         FROM fill_unit u LEFT JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation
+         LEFT JOIN fill_unit_lease l ON l.unit_id = u.unit_id AND l.generation = g.generation AND l.fence = g.fence
         WHERE g.run_id = $1`,
       [runId],
     );
     const records: UnitRecord[] = [];
-    for (const unit of units.rows) {
-      const generations = await executor.query<GenerationRow>(
-        'SELECT unit_id, generation, run_id, state, inputs_digest, fence, context, published_at, stale_at, updated_at FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2',
-        [unit.unit_id, millis(unit.generation)],
-      );
-      const generation = generations.rows[0];
-      if (generation === undefined) raise(`table fill_unit_generation: unit ${unit.unit_id} names generation ${String(unit.generation)}, which has no row`);
-      const leases = await executor.query<LeaseRow>(
-        'SELECT attempt, fence, holder, issued_at, expires_at, revoked_at FROM fill_unit_lease WHERE unit_id = $1 AND generation = $2 AND fence = $3',
-        [unit.unit_id, millis(generation.generation), millis(generation.fence)],
-      );
-      records.push(unitRecord(unit, generation, leases.rows[0]));
+    // Every row here names a generation the run holds — the join is on the run's
+    // own generations — so a unit whose row names a generation the store does not
+    // hold is no unit of this run and is not answered as one.
+    for (const row of rows.rows) {
+      const generation: GenerationRow = { ...row, generation: row.generation };
+      const lease: LeaseRow | undefined = row.lease_unit_id === null || row.lease_unit_id === undefined
+        ? undefined
+        : { ...row, attempt: row.attempt, fence: row.lease_fence, holder: row.holder, issued_at: row.issued_at, expires_at: row.expires_at, revoked_at: row.revoked_at };
+      records.push(unitRecord(row, generation, lease));
     }
     // The database's collation is not the code point order this repository's listing promises, so the
     // order is taken here, exactly as `readUnitGenerations` takes it by generation number.
