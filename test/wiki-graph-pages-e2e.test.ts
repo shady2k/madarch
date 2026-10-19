@@ -230,6 +230,19 @@ runDescribe('the graph’s pages in a browser', () => {
     expect(shown.linkedPages).toBe(2);
     expect(shown.diagramsSlot).toBe(true);
     console.log(`GRAPH_MODULE_PAGE ${JSON.stringify(shown)}`);
+    // What a reader reads, in order: the section headings and the rows under them.
+    const read = await page.evaluate(() => ({
+      headings: [...document.querySelectorAll('main#graph-node h1, main#graph-node h2')].map((heading) => heading.textContent ?? ''),
+      fields: [...document.querySelectorAll('main#graph-node .doc-field')].map((row) => (row.textContent ?? '').replace(/\s+/g, ' ').trim()),
+      facts: [...document.querySelectorAll('[data-testid="graph-facts"] [data-fact]')].map((row) => (row.textContent ?? '').replace(/\s+/g, ' ').trim()),
+      assumptions: [...document.querySelectorAll('[data-testid="graph-assumptions"] [data-fact]')].map((row) => (row.textContent ?? '').replace(/\s+/g, ' ').trim()),
+      relations: [...document.querySelectorAll('[data-testid="graph-relations"] [data-edge]')].map((row) => (row.textContent ?? '').replace(/\s+/g, ' ').trim()),
+      coverage: [...document.querySelectorAll('[data-testid="graph-coverage"] [data-scope]')].map((row) => (row.textContent ?? '').replace(/\s+/g, ' ').trim()),
+      questions: [...document.querySelectorAll('[data-testid="graph-questions"] [data-question]')].map((row) => (row.textContent ?? '').replace(/\s+/g, ' ').trim()),
+      drafts: [...document.querySelectorAll('[data-testid="graph-drafts"] [data-unit]')].map((row) => (row.textContent ?? '').replace(/\s+/g, ' ').trim()),
+      diagrams: document.querySelector('[data-testid="graph-diagrams"]')?.textContent ?? '',
+    }));
+    console.log(`GRAPH_MODULE_READ ${JSON.stringify(read)}`);
     await page.screenshot({ path: join(SHOTS, 'graph-module-page.png'), fullPage: true });
 
     // The document pages keep working beside the graph pages: the product's own

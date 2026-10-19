@@ -226,9 +226,23 @@ with the sizes and boxes the browser computed read out of the page.
   than 600 px and a navigation wider than 200 px, inside the 1150×900 window. The
   widths are held as floors, not as a stylesheet's figure: a padding change must not
   fail a page that still reads.
-- Screenshots (fetched from the pod with `--fetch`): `graph-index.png`,
-  `graph-node.png`, `graph-module-page.png`, `graph-index-after-publish.png` and
-  `document-beside-graph.png`, all 1150×900.
+- What a reader reads on the module's page, in order (`GRAPH_MODULE_READ`, printed by
+  the test): the title `checkout`; the fields Kind/Module, Obtained/extracted,
+  Status/proposed, Repository/acme-shop, In code/`acme-shop · src/checkout.ts:1-40`;
+  then `Diagrams` with the slot's own words; `1 fact` — the module's own fact with
+  its kind, layer, status and place; `2 assumptions` — the claim `the checkout module
+  places an order` (with its ends `checkout → acme-shop:src/checkout.ts#checkout.place`)
+  and the rule `an order is placed once`, both `inferred`; `2 relations` —
+  `contains → acme-shop:src/checkout.ts#checkout.place` and
+  `provides → http::POST::/orders/{}`; `1 coverage record` — the module's own scope,
+  `has a gap`, `1 thing read` `src/checkout.ts`, and `What could not be read`
+  `src/refunds.ts — reason: budget`; `1 open question` — `is the total used
+  anywhere?`, `assumption to check`, `inferred`; `0 drafts` — the fixture's unit
+  published its set, so no draft stands.
+- Screenshots (fetched from the pod with `--fetch` into a scratch folder outside the
+  checkout): `graph-index.png`, `graph-node.png`, `graph-module-page.png`,
+  `graph-index-after-publish.png` and `document-beside-graph.png`, all 1150×900.
+  They are taken from the same run as the numbers and the read text above.
 
 ### Known limitations
 
