@@ -26,8 +26,8 @@ import { createFactGraphReader } from '../src/fill/graph-reads.js';
 import {
   buildUnitPacket,
   unitFixedPart,
+  estimateOfMembers,
   MEMBER_ESTIMATE_TOKENS,
-  PACKET_SECTIONS,
   PACKET_TOKENS,
   pathOfNode,
   placeText,
@@ -260,6 +260,10 @@ describe('the fixed part every unit is told', () => {
     expect(fixed).toContain('Facts this unit may write: claim, coverage, question, rule.');
     // 0026: "The agent's own file tools are off".
     expect(fixed).toContain('You have no file, shell, network or terminal tools');
+    // The packet's own cut is part of what the agent reads: a short packet it was not told about would read as a
+    // short scope (D2 of the first review).
+    expect(fixed).toContain('The packet below ends with a `marker`');
+    expect(fixed).toContain('do not report a place you were not shown as covered');
     // A narrower window a product configured is told to the unit as it stands.
     const narrow = unitFixedPart({ limits: { ...DEFAULT_STAGE_LIMITS, contextTokens: 100_000, maxTurns: 5 }, kinds: ['claim'] });
     expect(narrow).toContain('a 100000-token context window');
@@ -272,8 +276,10 @@ describe('the fixed part every unit is told', () => {
 describe('the per-unit packet, assembled from the graph', () => {
   test('holds the scope and its place, its members ranked without bodies, and every section it reads', async () => {
     const { packet } = await build();
-    expect(packet.sections).toEqual([...PACKET_SECTIONS]);
+    // The sections of 0026's packet list, in the order the packet holds them, and the marker last.
+    expect(packet.sections).toEqual(['unit', 'place', 'scope', 'members', 'entryPoints', 'data', 'relations', 'history', 'writes']);
     const parsed = JSON.parse(packet.packet) as Record<string, unknown>;
+    expect(Object.keys(parsed)).toEqual([...packet.sections, 'marker']);
     function section<T>(name: string): T { return parsed[name] as T; }
     // The unit, its scope and the place the run pinned: 0026's "scope, place … the task".
     expect(section<Record<string, unknown>>('unit')).toEqual({ id: opened().graph.folder.id, scope: 'acme-shop:src', task: 'Understand the checkout folder and write what you establish.' });
@@ -306,8 +312,11 @@ describe('the per-unit packet, assembled from the graph', () => {
     expect(section<{ subject: string }[]>('history').map((row) => row.subject)).toEqual(['Split the cart from the order', 'Add the checkout total']);
     // The kinds this unit may write, in code point order.
     expect(section<Record<string, unknown>>('writes')).toMatchObject({ kinds: ['claim', 'coverage', 'question', 'rule'] });
-    // Nothing was cut and nothing is missing: a packet whose lists were cut says so in its own marker.
+    // Nothing was cut and nothing is missing: a packet whose lists were cut says so in its own marker, and the
+    // packet knows that its member list is the whole one (which is what lets a unit's coverage claim the scope).
     expect(packet.marker).toBeNull();
+    expect(JSON.parse(packet.packet)).toMatchObject({ marker: null });
+    expect(packet.membersCut).toBe(false);
     expect(packet.tokens).toBeLessThanOrEqual(PACKET_TOKENS);
   });
 
@@ -381,16 +390,22 @@ describe('the per-unit packet, assembled from the graph', () => {
     expect(String(packet.marker)).toContain(`${BIG_FILES} rows`);
     expect(String(packet.marker)).toMatch(/the (packet's 20000-token cap|answer's 8000-token cap)/);
     expect(String(packet.marker)).toMatch(/rows were cut|row was cut/);
-    const parsed = JSON.parse(packet.packet) as { members: unknown[] };
+    const parsed = JSON.parse(packet.packet) as { members: unknown[]; marker: string | null };
     expect(parsed.members.length).toBeLessThan(BIG_FILES);
     expect(parsed.members.length).toBeGreaterThan(0);
+    // The agent is told, and so is the unit's own coverage rule: a member list shorter than the graph's is not a
+    // scope a unit may call read whole.
+    expect(parsed.marker).toBe(String(packet.marker));
+    expect(packet.membersCut).toBe(true);
   });
 
   test('the plan\'s numbers are 0026\'s: ~50% of the window, and about one bounded span a member', () => {
     expect(PLANNED_FRACTION).toBe(0.5);
     expect(plannedTokens(DEFAULT_STAGE_LIMITS)).toBe(136_000);
-    // 0026 bounds an evidence span at about 200 lines, which is the estimate one member costs.
-    expect(MEMBER_ESTIMATE_TOKENS).toBe(2_000);
+    // 0026 bounds an evidence span at about 200 lines, which is the estimate one member costs: about ten tokens
+    // a line, which is the fill's own four-code-points-a-token estimate over real source.
+    expect(MEMBER_ESTIMATE_TOKENS).toBe(200 * 10);
+    expect(estimateOfMembers(3)).toBe(3 * MEMBER_ESTIMATE_TOKENS);
   });
 });
 

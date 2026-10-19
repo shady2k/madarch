@@ -188,6 +188,29 @@ Taken from decisions 0026, 0027 and 0005; nothing here re-decides them.
   recorded in the sealing transaction — 0027's checkpoint — so a person watching
   the graph sees what the unit established even though the unit publishes
   nothing; the parent's later attempt starts from the graph its children filled.
+- **The packet says what was cut, and a cut member list is no scope a unit may
+  call read whole.** The prompt's packet ends with a `marker`: the lists the 20K
+  cap or a read's own 8K-token cap cut, each with what it cut and which cap cut
+  it. A unit whose member list was cut was shown part of its scope, so its
+  coverage can never be `complete` however much of what it was shown it read: the
+  gap names the places its member list did not hold. 0026 and 0005 make a complete
+  coverage the only ground for a claim of absence, and a unit that could not
+  enumerate its scope has no ground for one.
+- **The plan collapses a scope rather than dropping one.** A scope whose estimate
+  is past 0026's planned size is planned as its member places, one level at a
+  time; a scope whose member list an answer's cap cut, or one whose enumeration
+  would take the plan past its own bound, stands as one unit instead — it splits
+  at run time, and its own coverage names what it did not read. A plan that named
+  a shorter list than the one it read would leave places no unit ever names, which
+  is the one thing 0026 forbids outright.
+- **A parent that already split does not seal the same children twice.** When a
+  unit's next attempt names exactly the child set its own generation already
+  sealed and published, the split is refused and the parent is blocked with the
+  children named: a parent whose children published builds on them (that is what
+  its join was for), and re-sealing published work would run it again and, for a
+  unit that stops at its limit every time, never end. A genuinely different split
+  is still allowed, and a person resolves the block the way 0027's blocked state
+  says.
 - **A coverage fact is written by every unit, and it is the unit's own
   declaration.** 0026 makes a scope's coverage the ground of every claim about
   absence (0005): a unit that read three of five places says so, `complete: false`
@@ -206,6 +229,13 @@ Taken from decisions 0026, 0027 and 0005; nothing here re-decides them.
   `plan(graph)`), so it estimates against 0026's default window: a product that
   narrows its window makes a unit split earlier at run time, never later, because
   the guard reads the resolved limits.
+- **A unit may draw the two agent-stage edges.** `link` is one of the unit's tools
+  (0026, "Agents and tools"), so `interaction` and `transition` are among the kinds
+  this stage declares it produces: a kind the stage did not declare would be refused
+  after the unit had done its work, and the refusal would spend the unit's draft
+  set. The consequence is named above with the read rule: a link that names the
+  unit's own scope node as an end moves the packet's own edge counts, and that costs
+  one replacement generation rather than a lost unit.
 - **A unit's tools are opened by the run, not by the stage.** 0026 makes the
   background server the only database writer and the units' servers thin proxies
   to it; the only thing that knows a unit's store identity, its generation, its
@@ -234,12 +264,33 @@ Taken from decisions 0026, 0027 and 0005; nothing here re-decides them.
     they are read by the unit through its tools; the fixed part tells it so. A
     stage whose units write no claim of their own may put them back in the packet
     without this cost.
-  - **A plan that cannot enumerate a scope names it as one unit.** The graph
-    reads answer within 0026's 8K-token cap, so a scope with more members than one
-    answer holds cannot be split by the plan: the unit runs, its member list is
-    what the answer held, and what it does not cover becomes the coverage's gaps
-    and the children of its own split. Nothing is silently smaller; the coverage
-    names every place nobody read.
+  - **A plan that cannot enumerate a scope names it as one unit**, and so does a
+    scope the plan's own bound would not fit: the graph reads answer within 0026's
+    8K-token cap, and the plan splits at most `MAX_PLAN_UNITS` places together. The
+    unit then runs, its member list is what the answer held, and its coverage names
+    the places the list did not hold; the plan may name up to one unit per
+    repository past its bound, because collapsing a scope to itself is what keeps
+    it from dropping one.
+  - **The history section reads every commit fact of the repository.** The read
+    grammar filters by one value field and has no window (madarch-tzte.20.3), so
+    the packet's history read answers all of a repository's commits — bounded by
+    the history stage's configured depth, a thousand by default — and keeps the
+    newest twenty. The read is a tracked dependency, so its whole membership is
+    replayed at each publication's recheck. A window in the read grammar would
+    make it cheaper; nothing here is wrong, it is only larger than it needs to be.
+  - **A unit's coverage is keyed by its scope node's fact id**, which is the unit's
+    own id, while the landed producers key a coverage by a path or a repository id
+    (`document-index` by a path, `history` by the unit's scope text, `snapshot` by
+    the repository's fact id). `describe_scope` of the node therefore shows this
+    unit's coverage and not the deterministic stages', and the `coverage` tool
+    answers by the token it is given. One vocabulary for a scope across the fill is
+    a later task's.
+  - **This stage names at most eight children in one split** (`SPLIT_CHILDREN`),
+    and the orchestrator's own bound is its own (`maxSplitChildren`, eight by
+    default). A product that lowers the orchestrator's bound below eight blocks
+    such a parent rather than sealing fewer children; a stage cannot read the run's
+    limits today, and a split that named more places than its bound is the reason
+    the coverage's gaps exist.
   - **A stop between turns is not seen until the next event.** A time limit that
     passes while an agent streams nothing and answers nothing is ended by the
     attempt's own end (0027's lease), not by this guard.

@@ -67,6 +67,7 @@ import {
 } from './graph-reads.js';
 import type { Fact, FactEdgeKind, FactKind } from './facts.js';
 import { UNIT_TOOLS } from './unit-tools.js';
+import { here, raise } from './fsm-core.js';
 import type { StageGraphReader, StageLimits } from './stage.js';
 
 /** 0026's cap on the prompt a unit starts with: "at most 20K tokens". */
@@ -140,6 +141,13 @@ export interface UnitPacket {
   readonly sections: readonly string[];
   /** The sections the cap left out or cut, each with the words of its cut. */
   readonly marker: string | null;
+  /**
+   * Whether the members list this packet holds is shorter than the graph's: the
+   * answer cap or the packet's own cap cut it. A unit that covered every place it
+   * was *shown* has not read a scope nobody enumerated, so this is what keeps its
+   * coverage from claiming one (madarch-tzte.22.3).
+   */
+  readonly membersCut: boolean;
   /** The scope's node, as the graph answers it. */
   readonly scope: PacketNode;
   /** The scope's members, ranked, as far as the packet holds them. */
@@ -199,6 +207,8 @@ export function unitFixedPart(options: { readonly limits: StageLimits; readonly 
     '',
     `Limits, which madarch enforces: a ${String(limits.contextTokens)}-token context window; a wrap-up message at 70% (${String(wrapAt)} tokens) — after it, stop reading new material and answer; a hard stop at 80% (${String(stopAt)} tokens), at ${String(limits.maxTurns)} turns, at ${String(Math.round(limits.maxDurationMs / 1000))} seconds and at ${String(limits.maxOutputTokens)} output tokens. A unit that reaches a limit is cancelled, and the part it covered is kept with its coverage; the rest of its scope is split into smaller units.`,
     '',
+    'The packet below ends with a `marker`: when it is not null, a list in it was cut by 0026\'s 20000-token cap or by a read\'s own cap, and the marker says what was cut. A cut list is a part of your scope nobody has enumerated: read the rest of the scope through the tools, and do not report a place you were not shown as covered.',
+    '',
     'Your answer: one message holding exactly this JSON object and nothing else — no prose around it, no code fence.',
     '{"status":"done"|"partial","covered":["<path inside your scope>"],"remaining":["<path inside your scope>"],"summary":"<one sentence>"}',
     '`covered` names every place of your scope you read to the end; `remaining` names the places you did not. A `done` answer whose `remaining` is not empty is read as `partial`: nothing you leave out is reported as covered.',
@@ -241,7 +251,10 @@ function memberOf(node: GraphNodeRef, repository: string): UnitMember {
   const path = pathOfNode(node);
   return {
     kind: node.kind,
-    label: node.label,
+    // A comment's own label is its text (`labelOf`, `graph-reads.ts`): it is the file's bytes, and 0026 pastes no
+    // file content, so a comment member is named by where it stands. Nothing draws a structure edge to a comment
+    // today; this is what keeps that from becoming a hole in "no file content is pasted" if one ever does.
+    label: node.kind === 'comment' ? (path === undefined ? node.id : placeText(repository, path)) : node.label,
     id: node.id,
     ...(path === undefined ? {} : { file: path }),
     ...(node.line === undefined ? {} : { line: node.line }),
@@ -356,7 +369,7 @@ export async function buildUnitPacket(request: UnitPacketRequest): Promise<UnitP
   const scopeFacts = factsOfRows(await reads.read(scopeRead), scopeRead);
   const node = scopeFacts[0];
   if (node === undefined) {
-    throw new Error(`src/fill/agent-packet.ts:buildUnitPacket: the unit "${request.unit.id}" covers the scope ${request.scopeId}, and the graph holds no fact of that id: a unit's scope is a node one of the deterministic stages published (src/fill/facts.ts)`);
+    raise(`the unit "${request.unit.id}" covers the scope ${request.scopeId}, and the graph holds no fact of that id: a unit's scope is a node one of the deterministic stages published (src/fill/facts.ts)`);
   }
   const scopeNode: PacketNode = {
     kind: node.kind,
@@ -371,7 +384,7 @@ export async function buildUnitPacket(request: UnitPacketRequest): Promise<UnitP
     const held = row as { kind?: unknown; count?: unknown };
     const count = typeof held.count === 'number' ? held.count : Number(held.count);
     if (typeof held.kind !== 'string' || !Number.isFinite(count)) {
-      throw new Error(`src/fill/agent-packet.ts:buildUnitPacket: the held read of ${request.scopeId} answered ${JSON.stringify(row)}, which is no count of a kind: a held read answers the kind of a node and how many of them`);
+      raise(`the held read of ${request.scopeId} answered ${JSON.stringify(row)}, which is no count of a kind: a held read answers the kind of a node and how many of them`);
     }
     return { kind: held.kind, count };
   }).sort((left, right) => byCodePoint(left.kind, right.kind));
@@ -392,38 +405,57 @@ export async function buildUnitPacket(request: UnitPacketRequest): Promise<UnitP
   const historyRead = { read: 'facts-with' as const, kind: 'commit' as const, field: 'repository', value: request.repository };
   const history = factsOfRows(await request.graph.query(readText(historyRead)), historyRead);
 
-  const sections: Section[] = [];
-  sections.push({ name: 'unit', value: { id: request.unit.id, scope: request.unit.scope, task: request.task }, marker: null });
-  sections.push({ name: 'place', value: { repository: request.repository, ...(request.path === undefined ? {} : { path: request.path }), commit: request.commit, scope: placeText(request.repository, request.path) }, marker: null });
-  sections.push({ name: 'scope', value: { ...renderNode(scopeNode), holds, edges }, marker: null });
-  sections.push(boundedList({ name: 'members', rows: members, render: (member) => ({ ...renderNode(member), ...(member.place === undefined ? {} : { place: member.place }) }), budget, what: `the members of ${request.scopeId}`, max: MAX_MEMBER_ROWS }));
+  // The sections whose shape does not depend on the budget are written first and measured, so the lists that follow
+  // are bounded by what is really left of 0026's cap: a graph with very many kinds would otherwise push the prompt
+  // past it and fail the unit rather than send a smaller, named packet.
+  const head: Section[] = [
+    { name: 'unit', value: { id: request.unit.id, scope: request.unit.scope, task: request.task }, marker: null },
+    { name: 'place', value: { repository: request.repository, ...(request.path === undefined ? {} : { path: request.path }), commit: request.commit, scope: placeText(request.repository, request.path) }, marker: null },
+    { name: 'scope', value: { ...renderNode(scopeNode), holds, edges }, marker: null },
+  ];
+  const tail: Section[] = [
+    { name: 'writes', value: { kinds: [...request.kinds].sort(byCodePoint), note: 'Every fact you write is a fact of one of these kinds, cited to the bytes it stands on; proposing an entity raises a draft a person accepts.' }, marker: null },
+  ];
+  // The sections whose shape does not depend on the budget are measured first, so the lists that follow are bounded
+  // by what is really left of 0026's cap: a graph with very many kinds would otherwise push the prompt past it and
+  // fail the unit rather than send a smaller, named packet.
+  budget.left -= estimateTokens(JSON.stringify([...head, ...tail].map((section) => [section.name, section.value])), DEFAULT_GRAPH_READ_LIMITS);
+  const sections: Section[] = [...head];
+  const membersSection = boundedList({ name: 'members', rows: members, render: (member) => ({ ...renderNode(member), ...(member.place === undefined ? {} : { place: member.place }) }), budget, what: `the members of ${request.scopeId}`, max: MAX_MEMBER_ROWS });
+  const membersHeld = (membersSection.value as readonly unknown[]).length;
+  sections.push(membersSection);
   // The members a unit is pointed at first, by the breadths of what it holds: the entry points it may call and the
   // data it may read are the members' own kinds, so they are named as sections of the same list.
   sections.push(boundedList({ name: 'entryPoints', rows: members.filter((member) => member.kind === 'entry-point' || member.kind === 'test'), render: renderNode, budget, what: `the entry points and tests of ${request.scopeId}`, max: MAX_SECTION_ROWS }));
   sections.push(boundedList({ name: 'data', rows: members.filter((member) => DATA_KINDS.includes(member.kind as string)), render: renderNode, budget, what: `the data nodes of ${request.scopeId}`, max: MAX_SECTION_ROWS }));
   sections.push(boundedList({ name: 'relations', rows: reaching.rows, render: (row: NeighborRow) => ({ kind: row.edge.kind, direction: row.direction, node: boundedText(row.neighbor.label), ...(row.edge.file === undefined ? {} : { file: row.edge.file }), ...(row.edge.line === undefined ? {} : { line: row.edge.line }) }), budget, what: `the relations reaching ${request.scopeId}`, max: MAX_SECTION_ROWS }));
   sections.push(boundedList({ name: 'history', rows: [...history].sort((left, right) => byCodePoint(String((right.value as { committedAt?: unknown }).committedAt ?? ''), String((left.value as { committedAt?: unknown }).committedAt ?? '')) || byCodePoint(left.id, right.id)), render: (fact) => ({ commit: String((fact.value as { commit?: unknown }).commit ?? ''), committedAt: String((fact.value as { committedAt?: unknown }).committedAt ?? ''), subject: boundedText(String((fact.value as { subject?: unknown }).subject ?? '')), id: fact.id }), budget, what: `the commits of ${request.repository}`, max: MAX_SECTION_ROWS }));
-  sections.push({ name: 'writes', value: { kinds: [...request.kinds].sort(byCodePoint), note: 'Every fact you write is a fact of one of these kinds, cited to the bytes it stands on; proposing an entity raises a draft a person accepts.' }, marker: null });
 
+  sections.push(...tail);
   // Every cut is named, the packet's own lists and the reads' own caps alike: an answer `neighbors` already cut holds
   // fewer rows than the graph does, and a packet that reported only its own bounds would read as a whole scope.
   const cuts = [
     ...[placed.marker, reaching.marker].filter((marker): marker is string => marker !== null),
     ...sections.map((section) => section.marker).filter((marker): marker is string => marker !== null),
   ];
+  const marker = cuts.length === 0 ? null : [...new Set(cuts)].join('; ');
   const held = new Map<string, unknown>();
   const present: string[] = [];
   for (const section of sections) {
     held.set(section.name, section.value);
     present.push(section.name);
   }
+  // The marker is part of what the agent reads: a unit told a short packet without being told the packet was cut
+  // would read a short scope (0026's "no silently smaller result"). It is the last key, and `unitFixedPart`'s own
+  // sentence points at it.
+  held.set('marker', marker);
   const packet = JSON.stringify(Object.fromEntries(held), null, 1);
   const prompt = `${fixed}\n\n${packet}`;
   const tokens = estimateTokens(prompt, DEFAULT_GRAPH_READ_LIMITS);
   if (tokens > PACKET_TOKENS) {
     // The budget above bounds every list, so this is a defect of the bound rather than a large graph: a packet
     // over 0026's cap must never be sent, and a silent trim would be a smaller packet nobody named.
-    throw new Error(`src/fill/agent-packet.ts:buildUnitPacket: the prompt of unit "${request.unit.id}" is ${String(tokens)} tokens, past 0026's ${String(PACKET_TOKENS)}-token starting packet: the sections' own bounds did not hold`);
+    raise(`the prompt of unit "${request.unit.id}" is ${String(tokens)} tokens, past 0026's ${String(PACKET_TOKENS)}-token starting packet: the sections' own bounds did not hold`);
   }
   return {
     fixed,
@@ -431,7 +463,8 @@ export async function buildUnitPacket(request: UnitPacketRequest): Promise<UnitP
     prompt,
     tokens,
     sections: present,
-    marker: cuts.length === 0 ? null : [...new Set(cuts)].join('; '),
+    marker,
+    membersCut: placed.truncated || membersHeld < members.length,
     scope: scopeNode,
     members,
     place: { repository: request.repository, ...(request.path === undefined ? {} : { path: request.path }), commit: request.commit },
@@ -472,5 +505,3 @@ export function rankedMembers(rows: readonly NeighborRow[], repository: string):
     || byCodePoint(left.id, right.id));
 }
 
-/** The section names a packet holds, in the order it holds them. */
-export const PACKET_SECTIONS: readonly string[] = ['unit', 'place', 'scope', 'members', 'entryPoints', 'data', 'relations', 'history', 'writes'];

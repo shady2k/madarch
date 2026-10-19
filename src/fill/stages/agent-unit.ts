@@ -62,7 +62,7 @@ import {
   plannedTokens,
   type UnitMember,
 } from '../agent-packet.js';
-import { writeScope, type WriteScope } from '../checked-writes.js';
+import { scopeText, writeScope, type WriteScope } from '../checked-writes.js';
 import { checkFact, FACT_KINDS, makeNodeFact, type CoverageGap, type CoverageValue, type Fact, type FactKind, type FactSource } from '../facts.js';
 import {
   DEFAULT_GRAPH_READ_LIMITS,
@@ -101,9 +101,17 @@ export const AGENT_UNIT_STAGE_VERSION = 1;
 /**
  * The fact kinds one agent unit may write: a claim (0004's atom at 0005's inferred
  * layer), a rule, a state of a machine, an entity a document could be about, a
- * question for a person, and the coverage every stage of the fill reports in.
+ * question for a person, the coverage every stage of the fill reports in, and the
+ * two edges an agent stage draws — `interaction` (one element uses another) and
+ * `transition` (one state goes to another). The edges are here because 0026 makes
+ * `link` one of the unit's tools: a kind the stage did not declare would be refused
+ * after the unit had done its work, and the refusal would spend the unit's draft.
+ * A link that names the unit's own scope node as an end does move the packet's own
+ * edge counts, which costs one replacement generation (the change record names it).
  */
-export const AGENT_UNIT_KINDS: readonly string[] = ['claim', 'coverage', 'entity-proposal', 'question', 'rule', 'state'];
+export const AGENT_UNIT_KINDS: readonly string[] = [
+  'claim', 'coverage', 'entity-proposal', 'interaction', 'question', 'rule', 'state', 'transition',
+];
 
 /** The task the unit's own prompt carries: what an agent unit is for, in one sentence. */
 export const AGENT_UNIT_TASK = 'Read the scope you are given, understand it, and write what you establish as facts of the graph, cited to the bytes you read.';
@@ -118,7 +126,14 @@ export const AGENT_UNIT_SOURCE_SYSTEM = 'madarch-fill-agent';
  */
 export const MAX_PLAN_DEPTH = 3;
 
-/** The most units one plan names for one repository: past it the repository stands as one unit, split at run time. */
+/**
+ * The most units one plan splits into, every repository together. Past it a scope
+ * stands as one unit — never a shorter list: the scope then splits at run time, and
+ * its own coverage names every place its member list did not hold. A plan that dropped
+ * the scopes past its bound would leave work no unit ever names, so a scope the bound
+ * cannot enumerate is collapsed to itself instead, and the plan may name up to one
+ * unit per repository more than this number.
+ */
 export const MAX_PLAN_UNITS = 256;
 
 /**
@@ -229,7 +244,7 @@ export function heldRead(scopeId: string): string {
  * the product's resolved limits. A product that narrows its window then makes a
  * unit split earlier at run time, never later.
  */
-export async function planUnits(graph: StageGraphReader, limits: StageLimits = DEFAULT_STAGE_LIMITS): Promise<StagePlan> {
+export async function planUnits(graph: StageGraphReader): Promise<StagePlan> {
   const reads = graphReadsOver(graph);
   const repositories = new Map<string, Fact>();
   for (const form of REPOSITORY_FORMS) {
@@ -238,20 +253,20 @@ export async function planUnits(graph: StageGraphReader, limits: StageLimits = D
   }
   const ordered = [...repositories.values()].sort((left, right) => byCodePoint(repositoryNameOf(left), repositoryNameOf(right)) || byCodePoint(left.id, right.id));
   const units: StageUnitScope[] = [];
+  // One budget for the whole plan: a scope that would take it past `MAX_PLAN_UNITS` stands as one unit instead of
+  // being enumerated, so the bound costs a split at run time and never a scope no unit names.
+  const budget = { left: MAX_PLAN_UNITS };
   for (const repository of ordered) {
     const name = repositoryNameOf(repository);
-    const planned = await planScope(reads, { scopeId: repository.id, repository: name, depth: 0, limits });
-    for (const unit of planned) {
-      if (units.length >= MAX_PLAN_UNITS) break;
-      units.push(unit);
-    }
+    const planned = await planScope(reads, { scopeId: repository.id, repository: name, depth: 0 }, budget);
+    units.push(...planned);
   }
   if (units.length === 0) {
     // No repository node stands in the graph: the snapshot stage found none, which is a run with nothing to fill
     // rather than a plan that failed. Its own coverage word says so (0027), so nobody reads it as "no producer".
     return { units: [], coverage: 'nothing-found' };
   }
-  return { units: units.slice(0, MAX_PLAN_UNITS), coverage: 'planned' };
+  return { units, coverage: 'planned' };
 }
 
 /** The name a repository fact stands under, as its own value carries it. */
@@ -266,31 +281,38 @@ interface PlanScope {
   readonly repository: string;
   readonly path?: string;
   readonly depth: number;
-  readonly limits: StageLimits;
+}
+
+/** How many units the whole plan may still name: a scope that would take it past the bound stands as one unit. */
+interface PlanBudget {
+  left: number;
 }
 
 /** One scope's units: the scope itself when it fits, its member places when it does not. */
-async function planScope(reads: GraphReadContext, scope: PlanScope): Promise<readonly StageUnitScope[]> {
+async function planScope(reads: GraphReadContext, scope: PlanScope, budget: PlanBudget): Promise<readonly StageUnitScope[]> {
   const members = await memberCount(reads, scope.scopeId);
   const estimate = estimateOfMembers(members);
   const place = placeText(scope.repository, scope.path);
-  if (estimate <= plannedTokens(scope.limits) || scope.depth >= MAX_PLAN_DEPTH) {
+  const one = (): readonly StageUnitScope[] => {
+    budget.left -= 1;
     return [{ id: scope.scopeId, scope: place, estimatedTokens: estimate }];
-  }
+  };
+  if (estimate <= plannedTokens(DEFAULT_STAGE_LIMITS) || scope.depth >= MAX_PLAN_DEPTH) return one();
   const places = await placeMembers(reads, scope.scopeId);
-  if (places === null) {
-    // The member list was cut by the answer's cap: this scope cannot be enumerated here, so it stands as one unit
-    // and the run's own split bounds decide what happens to it. Nothing is dropped silently: that unit's coverage
-    // names what it did not read.
-    return [{ id: scope.scopeId, scope: place, estimatedTokens: estimate }];
-  }
+  // No enumeration of a scope whose member list the answer's cap cut, and none when the bound has no room left:
+  // the scope stands as one unit either way, and its own coverage names what its member list did not hold. A plan
+  // never names a shorter list than the one it read.
+  if (places === null || budget.left < 1) return one();
+  const before = budget.left;
   const units: StageUnitScope[] = [];
   for (const member of places) {
-    const inner = await planScope(reads, { scopeId: member.id, repository: scope.repository, path: member.path, depth: scope.depth + 1, limits: scope.limits });
-    for (const unit of inner) {
-      if (units.length >= MAX_PLAN_UNITS) break;
-      units.push(unit);
-    }
+    units.push(...await planScope(reads, { scopeId: member.id, repository: scope.repository, path: member.path, depth: scope.depth + 1 }, budget));
+  }
+  if (budget.left < 0) {
+    // What this scope's enumeration would have cost is past the bound: it is undone and the scope stands as one
+    // unit, so the plan names at least one unit for every scope it read and drops none.
+    budget.left = before;
+    return one();
   }
   return units;
 }
@@ -446,6 +468,12 @@ export function coveredPlaces(options: {
     const path = pathOfPlace(named, options.repository);
     if (path !== '') cited.add(path);
   }
+  // The unit contract's own words: "a `done` answer whose `remaining` is not empty is read as `partial`". A place
+  // the agent names as remaining is no place it covered, whatever the same answer's `covered` list says.
+  for (const named of options.answer?.remaining ?? []) {
+    const path = pathOfPlace(named, options.repository);
+    if (path !== '') cited.delete(path);
+  }
   for (const write of options.writes) {
     const place = (write.value as { provenance?: { place?: { file?: unknown } } }).provenance?.place?.file;
     if (typeof place === 'string' && place !== '') cited.add(place);
@@ -501,7 +529,7 @@ async function pinnedCommit(snapshots: SnapshotSource, repository: string): Prom
   const pins = await snapshots.pins();
   const pin = pins.find((candidate) => candidate.id === repository);
   if (pin === undefined) {
-    throw new Error(`src/fill/stages/agent-unit.ts:executeUnit: the run pinned no repository named ${JSON.stringify(repository)}: this unit's scope is read at the run's own pin, and the run's pins are ${pins.map((candidate) => candidate.id).join(', ') || 'none'}`);
+    raise(`the run pinned no repository named ${JSON.stringify(repository)}: this unit's scope is read at the run's own pin, and the run's pins are ${pins.map((candidate) => candidate.id).join(', ') || 'none'}`);
   }
   // The reader resolves a pin that names a branch or a short id to the commit it stands at, which is the commit
   // a unit's evidence cites (`SnapshotReader.commit`).
@@ -519,7 +547,7 @@ async function executeUnit(wiring: AttemptWiring, unit: StageUnit, context: Stag
   if (tools === undefined) {
     // A unit that runs an agent reads and writes only through its own MCP server (0026, "Agents and tools"): a run
     // that opened none would start an agent with no way to read, which is a wiring failure and not a small unit.
-    throw new Error(`src/fill/stages/agent-unit.ts:executeUnit: the agent unit "${unit.id}" (${unit.scope}) was started with no MCP server: a stage whose units run an agent declares \`usesTools\`, and the run that opens units' tools wires them (src/fill/orchestrator-host.ts)`);
+    raise(`the agent unit "${unit.id}" (${unit.scope}) was started with no MCP server: a stage whose units run an agent declares \`usesTools\`, and the run that opens units' tools wires them (src/fill/orchestrator-host.ts)`);
   }
   const limits = context.config.limits;
   const scope = writeScope(unit.scope);
@@ -548,7 +576,6 @@ async function executeUnit(wiring: AttemptWiring, unit: StageUnit, context: Stag
   let stopCause: UnitLimitCause | undefined;
   let aborted = false;
   let answer: UnitAnswer | undefined;
-  let lastVerdict = guard.state();
   /** Whether the session has already shown the unit past 70%: the signal goes once, as its own turn. */
   let wrapPending = false;
   let wrapSent = false;
@@ -566,13 +593,13 @@ async function executeUnit(wiring: AttemptWiring, unit: StageUnit, context: Stag
     try {
       for (;;) {
         turns += 1;
+        guard.sent(estimateTokens(prompt, DEFAULT_GRAPH_READ_LIMITS));
         const result: AcpPromptResult = await session.prompt(prompt, {
           onUpdate: (update: AcpUpdate) => {
             if (update.kind !== 'usage') return;
             const judged = guard.observe({
               ...(update.contextUsed === undefined ? {} : { contextUsed: update.contextUsed }),
               ...(update.contextSize === undefined ? {} : { contextSize: update.contextSize }),
-              ...(update.cost === undefined || update.contextUsed === undefined ? {} : {}),
             });
             if (judged.kind === 'wrap') {
               // 0026's wrap-up signal, crossed while the turn runs: ACP cannot speak into a turn in flight, so the
@@ -592,7 +619,6 @@ async function executeUnit(wiring: AttemptWiring, unit: StageUnit, context: Stag
           turns,
           ...(result.usage?.outputTokens === undefined ? {} : { outputTokens: result.usage.outputTokens }),
         });
-        lastVerdict = judged.state;
         if (judged.kind === 'stop') { stopCause = judged.cause; break; }
         const read = readUnitAnswer(result.text);
         if (read !== undefined) { answer = read; break; }
@@ -619,11 +645,13 @@ async function executeUnit(wiring: AttemptWiring, unit: StageUnit, context: Stag
   const writes = context.draft.writes().writes;
   const covered = coveredPlaces({ answer, writes: [...writes], places, repository: scope.repository });
   const remaining = places.filter((place) => !covered.includes(place));
-  const complete = remaining.length === 0;
+  // A scope whose member list was cut is not a scope this unit can call read whole, whatever it covered of what it
+  // was shown: the places nobody enumerated are a gap the coverage names (0026 and 0005: a complete coverage is the
+  // only ground for a claim of absence).
+  const complete = remaining.length === 0 && !packet.membersCut;
   if (stopCause !== undefined) {
     // One line a watching person reads: which limit the unit stopped at, and what it had spent when it did.
     context.progress(`${unit.id} stopped: ${guard.describe({ kind: 'stop', cause: stopCause, state: guard.state() })}`, undefined);
-    void lastVerdict;
   }
   if (aborted) {
     // A cancelled run: the machine has already moved this generation (`cancelRun`), so the stage hands back a
@@ -640,7 +668,12 @@ async function executeUnit(wiring: AttemptWiring, unit: StageUnit, context: Stag
     source: wiring.source,
     complete,
     read: covered,
-    unread: remaining.map((what) => ({ what, reason: 'budget' as const })),
+    unread: [
+      ...remaining.map((what) => ({ what, reason: 'budget' as const })),
+      ...(packet.membersCut
+        ? [{ what: `the places of ${scopeText(scope)} its member list did not hold (the list was cut by the answer's cap)`, reason: 'budget' as const }]
+        : []),
+    ],
   }));
 
   if (complete) {
@@ -689,8 +722,13 @@ export function splitChildren(options: { readonly scope: WriteScope; readonly me
     // member cited there otherwise (an entry point in a file): a child's id is that member's own fact id.
     if (held === undefined || (!heldIsPlace && memberIsPlace)) byPath.set(member.file, member);
   }
+  const own = scopeText(options.scope);
   for (const path of options.remaining) {
     if (children.length >= SPLIT_CHILDREN) break;
+    // A place that is the unit's own scope is no child of it: a file's members stand at the file itself, and a child
+    // whose scope is its parent's would be the same unit again. Such a place stays a coverage gap, and the unit
+    // publishes what it has (a scope that is one place descends nowhere).
+    if (placeText(options.scope.repository, path) === own) continue;
     const member = byPath.get(path);
     if (member === undefined || seen.has(member.id)) continue;
     seen.add(member.id);

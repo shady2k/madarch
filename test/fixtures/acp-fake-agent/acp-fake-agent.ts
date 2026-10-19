@@ -65,7 +65,18 @@ const record = option('record');
 const scriptPath = option('script');
 
 /** One step of a `script` scenario's steps, as the file spells them (`--script <file>`). */
-interface ScriptStep { say?: string; thought?: string; usage?: { used?: number; size?: number }; call?: { tool?: string; arguments?: unknown }; answer?: unknown; end?: { stopReason?: string; usage?: unknown }; wait?: boolean }
+interface ScriptStep {
+  say?: string;
+  thought?: string;
+  usage?: { used?: number; size?: number };
+  call?: { tool?: string; arguments?: unknown };
+  answer?: unknown;
+  /** Answers the unit contract as if every place the prompt's packet listed had been read: the test's own way of
+   *  covering exactly what a unit was shown, which is what a cut member list must not read as a whole scope. */
+  answerMembers?: { summary?: string };
+  end?: { stopReason?: string; usage?: unknown };
+  wait?: boolean;
+}
 interface Script { byPrompt?: { matches?: string; steps?: ScriptStep[] }[]; steps?: ScriptStep[] }
 const script: Script | undefined = scriptPath === undefined ? undefined : JSON.parse(readFileSync(scriptPath, 'utf8')) as Script;
 const pidFile = option('pid-file');
@@ -81,6 +92,29 @@ function respond(id: number | string | undefined, result: unknown): void {
 }
 function notify(method: string, params: unknown): void {
   send({ jsonrpc: '2.0', method, params });
+}
+
+/** The index of the `}` that closes the object opening at `start`, or -1 when it never closes. */
+function balancedEndOf(text: string, start: number): number {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') inString = true;
+    else if (character === '{') depth += 1;
+    else if (character === '}') {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
 }
 
 /** A request the agent sends the client, answered by the message carrying its id. */
@@ -229,6 +263,24 @@ async function runScript(id: number | string, sessionId: string, text: string): 
       const answered = await client.call(String(step.call.tool), step.call.arguments ?? {});
       chunk(sessionId, JSON.stringify({ tool: step.call.tool, isError: answered.isError, text: answered.text }));
       continue;
+    }
+    if (step.answerMembers !== undefined) {
+      // The packet is the prompt's last balanced JSON object (the fixed part before it carries the answer object's
+      // own example, so the first `{` is not the packet): each candidate is tried from the last one backwards until
+      // one holds a `members` list.
+      let members: { file?: string }[] = [];
+      const starts = [...text.matchAll(/\{/gu)].map((match) => match.index);
+      for (let index = starts.length - 1; index >= 0 && members.length === 0; index -= 1) {
+        const end = balancedEndOf(text, starts[index]!);
+        if (end < 0) continue;
+        try {
+          const parsed = JSON.parse(text.slice(starts[index]!, end + 1)) as { members?: { file?: string }[] };
+          if (Array.isArray(parsed.members)) members = parsed.members;
+        } catch { /* not the packet */ }
+      }
+      chunk(sessionId, JSON.stringify({ status: 'done', covered: members.map((member) => String(member.file ?? '')), remaining: [], ...(step.answerMembers.summary === undefined ? {} : { summary: step.answerMembers.summary }) }));
+      respond(id, { stopReason: 'end_turn', usage: { totalTokens: 1200, inputTokens: 1000, outputTokens: 200 } });
+      return;
     }
     if (step.answer !== undefined) {
       chunk(sessionId, JSON.stringify(step.answer));

@@ -15,6 +15,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -36,9 +37,9 @@ import {
 } from '../src/fill/orchestrator.js';
 import { createOrchestratorSchema, readProgress, readUnitDraft, readUnitReads, type RunSnapshot } from '../src/fill/orchestrator-store.js';
 import { createStageRegistry } from '../src/fill/stages/index.js';
-import { AGENT_UNIT_STAGE_ID, createAgentUnitStage } from '../src/fill/stages/agent-unit.js';
+import { AGENT_UNIT_STAGE_ID, createAgentUnitStage, MAX_PLAN_UNITS, planUnits } from '../src/fill/stages/agent-unit.js';
 import { StageRegistry } from '../src/fill/registry.js';
-import { DEFAULT_STAGE_DEFAULTS, type FillStage } from '../src/fill/stage.js';
+import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageGraphReader } from '../src/fill/stage.js';
 import { FACT_KINDS } from '../src/fill/facts.js';
 import { Type } from 'typebox';
 import { createGitSnapshotSource, type RepositoryPin } from '../src/fill/snapshot.js';
@@ -77,9 +78,13 @@ interface Graph {
   facts(): readonly Fact[];
 }
 
-function fixture(): Graph {
+function fixture(wide: readonly string[] = []): Graph {
   const repository = makeNodeFact({ kind: 'repository', value: { repository: REPOSITORY, form: 'code' }, provenance: provenance('README.md', 1), layer: 'extracted' });
-  const folders = FOLDERS.map((folder) => makeNodeFact({ kind: 'directory', value: { repository: REPOSITORY, path: repositoryPath(folder) }, provenance: provenance(`${folder}/one.ts`, 1), layer: 'extracted' }));
+  // `wide` adds folders the repository holds and nothing more: a scope whose member list is longer than the graph
+  // read's own 8K-token cap answers, which is what a unit cannot enumerate from its packet.
+  // A folder's own path is its value's, not its provenance's (`pathOfNode`, `agent-packet.ts`): a wide folder cites
+  // the repository's README, which is a file of the pinned commit and no folder of its own.
+  const folders = [...FOLDERS, ...wide].map((folder) => makeNodeFact({ kind: 'directory', value: { repository: REPOSITORY, path: repositoryPath(folder) }, provenance: provenance(FOLDERS.includes(folder) ? `${folder}/one.ts` : 'README.md', 1), layer: 'extracted' }));
   const files = FOLDERS.map((folder) => makeNodeFact({
     kind: 'file',
     value: { repository: REPOSITORY, path: repositoryPath(FOLDER_FILES[folder]!), roles: ['source'], language: 'typescript', bytes: 24, blob: 'b'.repeat(40) },
@@ -140,6 +145,8 @@ interface WorldOptions {
   readonly clock?: () => number;
   /** The orchestrator's own limits, where a test holds them still (a jumpy clock against a short lease). */
   readonly limits?: Parameters<typeof createOrchestrator>[0]['limits'];
+  /** Folders the repository holds besides the fixture's three: a scope whose member list a read cannot enumerate. */
+  readonly wide?: readonly string[];
 }
 
 async function openWorld(options: WorldOptions): Promise<World> {
@@ -158,7 +165,7 @@ async function openWorld(options: WorldOptions): Promise<World> {
   const queue = await createPgBossQueue({ owner, supervise: false });
   await queue.declare({ name: 'fill-units', leaseSeconds: 3_600, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true });
 
-  const graph = fixture();
+  const graph = fixture(options.wide ?? []);
   await createUnit(owner, { unitId: 'graph/all', product: PRODUCT, runId: 'run-seed', stageId: 'graph', scopeKey: 'all', inputsDigest: 'graph-inputs', retries: 0, at: NOW });
   const record0 = await readUnit(owner, 'graph/all');
   if (record0 === null) throw new Error('the fixture unit was not created');
@@ -446,6 +453,17 @@ describe('one agent unit, end to end', () => {
       expect(swept.refused).toEqual([]);
       expect(swept.swept.map((entry) => [entry.unitId, entry.outcome])).toEqual([[unit.unitId, 'join-enqueued']]);
       expect((await readRunUnits(opened.owner, RUN)).find((record) => record.unitId === unit.unitId)?.state).toBe('ready');
+
+      // The parent's next attempt runs with the same agent, which stops at its limit again and names the same two
+      // children: sealing a set this generation already sealed and published would re-run published work and, for a
+      // unit that stops every time, never end. The split is refused with the children named, and the parent waits.
+      await schedulerPass(opened.orchestrator, { runId: RUN });
+      const again = await workOnce(opened.orchestrator, { worker: 'w1' });
+      expect(again.result).toBe('blocked');
+      expect(String(again.summary)).toContain('already sealed and published');
+      expect(String(again.summary)).toContain(`${AGENT_UNIT_STAGE_ID}/${secondFolder!.id}`);
+      expect(String(again.summary)).toContain(`${AGENT_UNIT_STAGE_ID}/${thirdFolder!.id}`);
+      expect((await readRunUnits(opened.owner, RUN)).find((record) => record.unitId === unit.unitId)?.state).toBe('blocked');
     } finally {
       await opened.close();
     }
@@ -509,7 +527,35 @@ describe('one agent unit, end to end', () => {
       await opened.close();
     }
   }, 180_000);
+  test('a unit whose member list was cut does not publish the scope as read whole', async () => {
+    // 150 folders in the repository: the member list the plan and the packet are given is cut by the graph read's
+    // own 8K-token cap, so no unit was ever shown the whole scope. The agent covers every place it was shown, and
+    // 0026 and 0005 make a complete coverage the only ground for a claim of absence: the coverage must say what it
+    // could not enumerate rather than claim a scope nobody read.
+    const folders = Array.from({ length: 150 }, (_unused, index) => `f${String(index).padStart(3, '0')}`);
+    const opened = await openWorld({
+      script: { byPrompt: [], steps: [{ say: 'reading what I was shown' }, { answerMembers: { summary: 'every place the packet listed was read' } }] },
+      wide: folders,
+    });
+    try {
+      const unit = await planAndAdmit(opened);
+      const worked = await workOnce(opened.orchestrator, { worker: 'w1' });
+      expect(worked.result).toBe('published');
+      const draft = await readUnitDraft(opened.owner, unit.unitId, unit.generation);
+      const coverage = draft?.writes[0]?.value as { kind: string; value: { complete: boolean; read: string[]; unread: { what: string; reason: string }[] } };
+      expect(coverage.kind).toBe('coverage');
+      expect(coverage.value.complete).toBe(false);
+      expect(coverage.value.read.length).toBeGreaterThan(0);
+      expect(coverage.value.read.length).toBeLessThan(150);
+      expect(coverage.value.unread.length).toBe(1);
+      expect(coverage.value.unread[0]?.reason).toBe('budget');
+      expect(coverage.value.unread[0]?.what).toContain('its member list did not hold');
+    } finally {
+      await opened.close();
+    }
+  }, 180_000);
 });
+
 
 describe('registering the agent unit stage', () => {
   test('a run that wires an agent registers the stage; a run that wires none holds no unit that could read nothing', () => {
@@ -520,7 +566,123 @@ describe('registering the agent unit stage', () => {
     const wired = createStageRegistry({ snapshots, agent: { agent: { id: 'fake-agent', command: 'bun' } } });
     expect(wired.get(AGENT_UNIT_STAGE_ID)?.usesTools).toBe(true);
     // It declares the kinds 0026's agent units write, each with the schema's own version.
-    expect(wired.get(AGENT_UNIT_STAGE_ID)?.produces.map((produced) => produced.kind)).toEqual(['claim', 'coverage', 'entity-proposal', 'question', 'rule', 'state']);
+    expect(wired.get(AGENT_UNIT_STAGE_ID)?.produces.map((produced) => produced.kind)).toEqual(['claim', 'coverage', 'entity-proposal', 'interaction', 'question', 'rule', 'state', 'transition']);
     expect(wired.get(AGENT_UNIT_STAGE_ID)?.produces.every((produced) => produced.schemaVersion === FACT_KINDS[produced.kind as 'claim'].version)).toBe(true);
+  });
+});
+
+describe('the plan of the agent unit stage', () => {
+  /**
+   * The reads a plan makes, answered from a fixture that stands for the graph,
+   * through the grammar's own read texts: the repositories by their form, what a
+   * scope holds, the edges that place its members, and the members' own facts
+   * (`neighbors` reads those to name what answered). A fixture whose member list is
+   * longer than the answer's 8K-token cap is cut by `neighbors` itself, which is
+   * what a real graph does.
+   */
+  function planReader(data: {
+    readonly repositories: readonly { readonly id: string; readonly name: string; readonly form: string }[];
+    readonly held: Readonly<Record<string, number>>;
+    readonly members: Readonly<Record<string, readonly { readonly id: string; readonly path: string }[]>>;
+  }): StageGraphReader {
+    const all = new Map<string, { readonly id: string; readonly path: string }>();
+    for (const members of Object.values(data.members)) for (const member of members) all.set(member.id, member);
+    return {
+      async query(text: string) {
+        const request = JSON.parse(text) as { read: string; field?: string; value?: string; id?: string; ids?: readonly string[] };
+        if (request.read === 'facts-with') {
+          return data.repositories
+            .filter((repository) => request.field === 'form' && repository.form === request.value)
+            .map((repository) => ({
+              id: repository.id,
+              kind: 'repository',
+              schema_version: 1,
+              provenance: { source: { system: 'fixture', version: '1' }, repository: { id: repository.name, commit: 'a'.repeat(40) } },
+              layer: 'extracted',
+              status: 'proposed',
+              value: { repository: repository.name, form: repository.form },
+            }))
+            .sort((left, right) => (left.id < right.id ? -1 : 1));
+        }
+        if (request.read === 'held') {
+          const count = data.held[String(request.id)];
+          return count === undefined ? [] : [{ kind: 'directory', count }];
+        }
+        if (request.read === 'adjacent') {
+          return (data.members[String(request.id)] ?? []).map((member) => ({
+            id: factId('contains', `${String(request.id)}->${member.id}`),
+            kind: 'contains',
+            schema_version: 1,
+            provenance: { source: { system: 'fixture', version: '1' }, repository: { id: 'acme-shop', commit: 'a'.repeat(40) } },
+            layer: 'extracted',
+            status: 'proposed',
+            value: { from: String(request.id), to: member.id },
+          }));
+        }
+        if (request.read === 'facts') {
+          return (request.ids ?? []).flatMap((id) => {
+            const member = all.get(id);
+            if (member === undefined) return [];
+            return [{
+              id,
+              kind: 'directory',
+              schema_version: 1,
+              provenance: { source: { system: 'fixture', version: '1' }, repository: { id: 'acme-shop', commit: 'a'.repeat(40) } },
+              layer: 'extracted',
+              status: 'proposed',
+              value: { repository: 'acme-shop', path: member.path },
+            }];
+          });
+        }
+        throw new Error(`the plan made a read this fixture does not answer: ${text}`);
+      },
+    };
+  }
+
+  /** A fact id of the schema's own form, from a seed the fixture names: the kind, a colon, and 64 lower-case hex. */
+  function factId(kind: string, seed: string): string {
+    return `${kind}:${createHash('sha256').update(seed).digest('hex')}`;
+  }
+
+  /** One repository holding `places` folders, which is what its `held` count and its members say. */
+  function repository(name: string, places: number): { repository: { id: string; name: string; form: string }; held: Record<string, number>; members: Record<string, { id: string; path: string }[]> } {
+    const id = factId('repository', name);
+    const members = Array.from({ length: places }, (_unused, index) => ({ id: factId('directory', `${name}-${String(index).padStart(3, '0')}`), path: `f${String(index).padStart(3, '0')}` }));
+    return { repository: { id, name, form: 'code' }, held: { [id]: places }, members: { [id]: members } };
+  }
+
+  test('a scope that fits 0026\'s planned size is one unit; one past it is planned as its member places', async () => {
+    const small = repository('small-shop', 3);
+    const planned = await planUnits(planReader({ repositories: [small.repository], held: small.held, members: small.members }));
+    // 3 members at 0026's ~2000 tokens a member is 6000, inside the 136000 a unit plans for: one unit, and the
+    // scope is the repository's own place.
+    expect(planned.units).toEqual([{ id: small.repository.id, scope: 'small-shop', estimatedTokens: 6_000 }]);
+    expect(planned.coverage).toBe('planned');
+
+    // 80 members estimate 160000, past the planned size: the repository is planned as its member places, each of
+    // them a unit of its own, in code point order of their paths.
+    const wide = repository('wide-shop', 80);
+    const split = await planUnits(planReader({ repositories: [wide.repository], held: wide.held, members: wide.members }));
+    expect(split.units.length).toBe(80);
+    expect(split.units[0]?.scope).toBe('wide-shop:f000');
+    expect(split.units.at(-1)?.scope).toBe('wide-shop:f079');
+    expect(split.units.every((unit) => unit.estimatedTokens === 0)).toBe(true);
+  });
+
+  test('a plan past its bound collapses a scope to itself rather than dropping it', async () => {
+    // Four repositories of 80 places each would be 320 units, past the plan's own bound. The scopes past it stand as
+    // one unit each — the run's split bounds take them from there, and their coverage names what they did not read —
+    // where a shorter list would leave places no unit ever names (0026: nothing silently smaller).
+    const shops = ['aa', 'bb', 'cc', 'dd'].map((name) => repository(`${name}-shop`, 80));
+    const planned = await planUnits(planReader({
+      repositories: shops.map((shop) => shop.repository),
+      held: Object.assign({}, ...shops.map((shop) => shop.held)),
+      members: Object.assign({}, ...shops.map((shop) => shop.members)),
+    }));
+    // Every repository is named by at least one unit: the first three by 80 places each, the fourth by itself.
+    const named = new Set(planned.units.map((unit) => unit.scope.split(':')[0]));
+    expect([...named].sort()).toEqual(['aa-shop', 'bb-shop', 'cc-shop', 'dd-shop']);
+    expect(planned.units.filter((unit) => unit.id === factId('repository', 'dd-shop')).map((unit) => unit.scope)).toEqual(['dd-shop']);
+    expect(planned.units.length).toBeLessThanOrEqual(MAX_PLAN_UNITS + shops.length);
   });
 });

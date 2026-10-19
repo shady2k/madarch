@@ -1154,13 +1154,16 @@ async function attemptUnit(
   // 0026's per-unit MCP server: the stage's units that declare they read and write through one are handed the
   // server a host opened for this generation, bound to this attempt's own draft set, and the attempt closes it
   // whatever it ends with.
+  // The stage's configuration is resolved first: reading it can refuse (a configuration that moved mid-run, a
+  // stage the graph does not hold), and a refusal here must not leave a unit's tool session open behind it.
+  const config = stageConfiguration(await currentGraph(orchestrator, unit.runId), unit.stageId);
   const tools = stage.usesTools === true && orchestrator.unitTools !== undefined
     ? await orchestrator.unitTools({ unit, plan, draft: draftWriter })
     : undefined;
   const context: StageContext = {
     unit: { id: plan.stageUnitId, scope: plan.scope },
     ...(tools === undefined ? {} : { tools }),
-    config: stageConfiguration(await currentGraph(orchestrator, unit.runId), unit.stageId),
+    config,
     graph: {
       query: async (text: string) => {
         const rows = await reader.query(text);
@@ -1387,6 +1390,21 @@ async function splitAttempt(
   }
   if (request.children.length > orchestrator.limits.maxSplitChildren) {
     return await refuse(`the split names ${request.children.length} children, more than the ${orchestrator.limits.maxSplitChildren} one split may seal`);
+  }
+  // A parent whose children already published is a parent that must build on them: sealing the same children again
+  // would re-run published work and, for a unit that stops at its limit every time, never end. The set is compared
+  // by the child generations this parent already sealed and their state, so a genuinely different split is allowed.
+  const sealedBefore = await readSealedChildren(database, unit.unitId, unit.generation);
+  if (sealedBefore.length > 0) {
+    const published = new Set<string>();
+    for (const child of sealedBefore) {
+      const record = await readUnitGeneration(database, child.unitId, child.generation);
+      if (record !== null && record.state === 'published') published.add(child.unitId);
+    }
+    const named = request.children.map((child) => unitIdFor(unit.stageId, child.id));
+    if (named.length > 0 && named.every((childUnitId) => published.has(childUnitId))) {
+      return await refuse(`the split names ${String(named.length)} ${named.length === 1 ? 'child' : 'children'} this generation already sealed and published (${named.sort(byCodePoint).join(', ')}): a parent whose children published builds on them rather than sealing them again`);
+    }
   }
   const depth = await splitDepth(orchestrator, unit.unitId, unit.generation);
   if (depth + 1 > orchestrator.limits.maxSplitDepth) {
