@@ -48,7 +48,7 @@ import {
 } from '../src/fill/orchestrator.js';
 import {
   createOrchestratorSchema,
-  DRAFT_PART_WRITES,
+  PUBLICATION_SNAPSHOT,
   publishUnit,
   readMembership,
   readProgress,
@@ -59,6 +59,7 @@ import {
   readUnitDraft,
   readUnitReads,
   recordUnitDraft,
+  retractUnitDraft,
   recordUnitRead,
   type RunSnapshot,
 } from '../src/fill/orchestrator-store.js';
@@ -274,6 +275,156 @@ async function plannedWorld(options: Parameters<typeof openWorld>[0], runId = 'r
   if (plan.outcome !== 'planned') throw new Error('the plan was expected to hold');
   return { world: opened, runId, plan };
 }
+
+describe('the snapshot a publication reads', () => {
+  // madarch-tzte.21.11 rechecks a unit's tracked reads inside the publication's own transaction, and a read
+  // is asked a page at a time: at READ COMMITTED a fact another unit committed between two pages of one
+  // read would stand outside the recheck's answer while the recorded membership still matched. The
+  // publication's transaction is one snapshot from its first statement.
+  test('is one snapshot: the publication transaction opens with the repeatable-read statement', async () => {
+    const owner = createPGliteDatabaseOwner();
+    const writes: string[][] = [];
+    const watching: DatabaseOwner = {
+      location: owner.location,
+      ready: owner.ready,
+      allowConcurrentSnapshots: owner.allowConcurrentSnapshots,
+      backend: owner.backend,
+      hasVector: owner.hasVector,
+      transaction: async (kind, work) => await owner.transaction(kind, async (transaction) => {
+        const seen: string[] = [];
+        if (kind === 'write') writes.push(seen);
+        const value = await work({
+          query: async (sql, values) => {
+            seen.push(sql);
+            return await transaction.query(sql, values);
+          },
+        });
+        return value;
+      }),
+      run: async (work) => await owner.run(work),
+      exec: async (text) => await owner.exec(text),
+      close: async () => await owner.close(),
+    };
+    try {
+      const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
+      const { world: opened, runId } = await plannedWorld({ registry, owner: watching });
+      await admitUnits(opened.orchestrator, { runId });
+      expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('published');
+      const publications = writes.filter((statements) => statements.some((sql) => sql.includes('INSERT INTO fill_publication')));
+      expect(publications).toHaveLength(1);
+      expect(publications[0]![0]).toBe(PUBLICATION_SNAPSHOT);
+    } finally {
+      await owner.close();
+    }
+  }, 60_000);
+
+  test('is repeatable read once the publication opens it, and the level is refused after the first statement', async () => {
+    const owner = createPGliteDatabaseOwner();
+    try {
+      const level = await owner.transaction('write', async (transaction) => {
+        await transaction.query(PUBLICATION_SNAPSHOT);
+        return (await transaction.query<{ transaction_isolation: string }>('SHOW transaction_isolation')).rows[0]?.transaction_isolation;
+      });
+      expect(level).toBe('repeatable read');
+      // Which is why it is set first: PostgreSQL answers a level set after a statement with an error.
+      await expect(owner.transaction('write', async (transaction) => {
+        await transaction.query('SELECT 1');
+        await transaction.query(PUBLICATION_SNAPSHOT);
+      })).rejects.toThrow(/must be called before any query/);
+    } finally {
+      await owner.close();
+    }
+  }, 30_000);
+});
+
+describe('a publication that loses its snapshot', () => {
+  test('is retried against the store as it now stands, rather than thrown out of the run', async () => {
+    // The publication is one snapshot (see `publishUnitIn`), so a writer that got to one of its rows first
+    // fails to serialize instead of waiting. That is the same event as a read that moved: the attempt is
+    // retried, and the worker does not die on the owner's error.
+    const owner = createPGliteDatabaseOwner();
+    let fail = true;
+    const losing: DatabaseOwner = {
+      location: owner.location,
+      ready: owner.ready,
+      allowConcurrentSnapshots: owner.allowConcurrentSnapshots,
+      backend: owner.backend,
+      hasVector: owner.hasVector,
+      transaction: async (kind, work) => await owner.transaction(kind, async (transaction) => {
+        const seen: string[] = [];
+        const value = await work({
+          query: async (sql, values) => {
+            seen.push(sql);
+            return await transaction.query(sql, values);
+          },
+        });
+        // A serialization failure is raised at COMMIT, after the work has run: the snapshot was taken and
+        // a row it read or wrote moved under it.
+        if (kind === 'write' && fail && seen[0] === PUBLICATION_SNAPSHOT) {
+          fail = false;
+          throw Object.assign(new Error('could not serialize access due to concurrent update'), { code: '40001' });
+        }
+        return value;
+      }),
+      run: async (work) => await owner.run(work),
+      exec: async (text) => await owner.exec(text),
+      close: async () => await owner.close(),
+    };
+    try {
+      const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
+      const { world: opened, runId } = await plannedWorld({ registry, owner: losing, limits: { retryDelayMs: 0 } });
+      await admitUnits(opened.orchestrator, { runId });
+      const lost = await workOnce(opened.orchestrator, { worker: 'worker-1' });
+      expect(lost.result).toBe('retried');
+      expect(lost.summary).toContain('lost its snapshot to a concurrent writer');
+      expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('retry_wait');
+      // The retry publishes: the second publication's snapshot is the one that stands.
+      opened.clock.advance(1_000);
+      const driven = await driveRun(opened.orchestrator, { runId, workers: 1 });
+      expect(driven.settled).toBe(true);
+      expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('published');
+    } finally {
+      await owner.close();
+    }
+  }, 60_000);
+});
+
+describe('a retraction of a draft set', () => {
+  test('answers the set\'s head and reads none of its writes back', async () => {
+    // A repository-wide unit's set is tens of megabytes of JSON, and every caller of a retraction discards
+    // what the set held: reading it back parsed the whole set at the run's memory peak.
+    const owner = createPGliteDatabaseOwner();
+    try {
+      await createOrchestratorSchema(owner);
+      const writes = Array.from({ length: 1_001 }, (_value, at) => ({ kind: 'fact' as const, evidence: `src/a.ts:${String(at + 1)}`, value: { at } }));
+      const recorded = await recordUnitDraft(owner, { unitId: 'modules:retracted', generation: 1, writes, at: NOW });
+      const statements: string[] = [];
+      const watching: DatabaseOwner = {
+        location: owner.location,
+        ready: owner.ready,
+        allowConcurrentSnapshots: owner.allowConcurrentSnapshots,
+        backend: owner.backend,
+        hasVector: owner.hasVector,
+        transaction: async (kind, work) => await owner.transaction(kind, async (transaction) => await work({
+          query: async (sql, values) => {
+            statements.push(sql);
+            return await transaction.query(sql, values);
+          },
+        })),
+        run: async (work) => await owner.run(work),
+        exec: async (text) => await owner.exec(text),
+        close: async () => await owner.close(),
+      };
+      const head = await retractUnitDraft(watching, { unitId: 'modules:retracted', generation: 1, at: NOW + 1 });
+      expect(head?.digest).toBe(recorded.digest);
+      expect(head?.retractedAt).toBe(NOW + 1);
+      expect(head === null ? [] : Object.keys(head).sort()).toEqual(['digest', 'generation', 'recordedAt', 'retractedAt', 'unitId']);
+      expect(statements.filter((sql) => sql.includes('fill_unit_draft_part'))).toEqual([]);
+    } finally {
+      await owner.close();
+    }
+  }, 60_000);
+});
 
 describe('the membership digest a tracked read stands on', () => {
   test('holds what a read can answer, and is the same for the same rows in another order', () => {
@@ -1881,6 +2032,46 @@ describe('a worker whose lease lapsed while it was still inside its stage', () =
   }, 30_000);
 });
 
+describe('a draft set a store recorded before the parts existed', () => {
+  // madarch-tzte.21.11 stores a draft set in parts, and a store recorded by the code before it holds the
+  // whole set in the row's own `writes` column. That row is a set like any other: a reader answers it
+  // whole, and a store that answered it empty would publish nothing for it.
+  test('is read back whole from its row, and a set recorded again is its parts alone', async () => {
+    const owner = createPGliteDatabaseOwner();
+    try {
+      await createOrchestratorSchema(owner);
+      const legacy = [
+        { kind: 'fact' as const, evidence: 'src/a.ts:1', value: { at: 1 } },
+        { kind: 'fact' as const, evidence: 'src/b.ts:2', value: { at: 2 } },
+      ];
+      await owner.transaction('write', async (transaction) => {
+        await transaction.query(
+          `INSERT INTO fill_unit_draft (unit_id, generation, digest, writes, recorded_at, retracted_at)
+           VALUES ($1, $2, $3, $4::jsonb, $5, NULL)`,
+          ['modules:legacy', 1, 'legacy-digest', JSON.stringify(legacy), NOW],
+        );
+      });
+      const read = await readUnitDraft(owner, 'modules:legacy', 1);
+      expect(read?.writes).toEqual(legacy as never);
+      expect(read?.digest).toBe('legacy-digest');
+
+      // Recorded again: the row keeps the digest and the times, its own column is emptied, and the set is
+      // the parts alone — nothing of the column the store before the parts wrote is read as a write.
+      const fewer = [legacy[0]!];
+      await recordUnitDraft(owner, { unitId: 'modules:legacy', generation: 1, writes: fewer, at: NOW + 1 });
+      const recorded = await readUnitDraft(owner, 'modules:legacy', 1);
+      expect(recorded?.writes).toEqual(fewer as never);
+      const own = await owner.transaction('snapshot', async (executor) => (await executor.query<{ writes: unknown }>(
+        'SELECT writes FROM fill_unit_draft WHERE unit_id = $1 AND generation = $2',
+        ['modules:legacy', 1],
+      )).rows[0]?.writes);
+      expect(own).toEqual([]);
+    } finally {
+      await owner.close();
+    }
+  }, 30_000);
+});
+
 describe('a draft set larger than one part', () => {
   // madarch-tzte.21.11: one jsonb value of a repository-wide unit's whole draft set — 34 MB for the
   // modules stage over the madarch tree — took the embedded store's memory up by about 490 MB for good.
@@ -1889,14 +2080,16 @@ describe('a draft set larger than one part', () => {
     const owner = createPGliteDatabaseOwner();
     try {
       await createOrchestratorSchema(owner);
-      const count = DRAFT_PART_WRITES * 2 + 1;
+      // The part is 500 writes (the requirement's own number, not the constant's): 1 001 writes are three
+      // parts, and a store that put them in one takes this test down.
+      const count = 1_001;
       const writes = Array.from({ length: count }, (_, at) => ({ kind: 'fact' as const, evidence: `src/a.ts:${String(at + 1)}`, value: { at } }));
       const recorded = await recordUnitDraft(owner, { unitId: 'modules:big', generation: 1, writes, at: NOW });
       const parts = await owner.transaction('snapshot', async (executor) => (await executor.query<{ part: unknown; size: unknown }>(
         'SELECT part, jsonb_array_length(writes) AS size FROM fill_unit_draft_part WHERE unit_id = $1 AND generation = $2 ORDER BY part',
         ['modules:big', 1],
       )).rows.map((row) => [Number(row.part), Number(row.size)]));
-      expect(parts).toEqual([[0, DRAFT_PART_WRITES], [1, DRAFT_PART_WRITES], [2, 1]]);
+      expect(parts).toEqual([[0, 500], [1, 500], [2, 1]]);
       const read = await readUnitDraft(owner, 'modules:big', 1);
       expect(read?.writes).toEqual(writes);
       expect(read?.digest).toBe(recorded.digest);

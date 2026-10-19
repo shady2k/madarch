@@ -102,9 +102,21 @@ and how large each is. No approval is therefore owed.
   (digest, times) and, when the caller's `held` set carries the digest the row has, applies that set
   rather than reading the JSON back; any other digest is not trusted and the row's parts are read.
 - **A read is asked in pages.** The stage reads of a repository's facts and edges ask in pages of 2 000
-  rows by fact id (`READ_PAGE_ROWS`), so no statement answers more than a page; they answer a fact's
-  value and its place (`provenance->'place'`), not its whole provenance. The answer is the same rows in
-  the same order.
+  rows by fact id (`READ_PAGE_ROWS`), so a repository-wide read of facts or edges answers a page at a
+  time, and each row carries a fact's value and its place (`provenance->'place'`), not its whole
+  provenance. The answer is the same rows in the same order. Three statements are not paged, and this
+  change did not page them: a scope's coverage facts (`stageCoverageFacts`, one row per file of the
+  scope — 1 238 over the current tree), a unit's own holding ids (`SELECT id FROM fill_fact_holding
+  WHERE unit_id = $1` — 59 549 for the modules unit, a few megabytes of ids) and the history stage's
+  ancestry read (`commitsHeldQuery`, one row per commit of the stage's bound of 1 000). Each answers ids
+  or small values rather than the tens of megabytes of provenance a repository-wide read of facts
+  answered, and the walk's peak held with them.
+- **The publication reads one snapshot.** The recheck of the tracked reads runs inside the publication's
+  transaction, and a read is now a page at a time: at the READ COMMITTED level a write transaction opens
+  at, a fact another unit committed between two pages of one read would stand outside the recheck's
+  answer while the recorded membership still matched — a publication on a graph that moved, which
+  fill-orchestrator/staleness refuses. The publication's transaction is opened at REPEATABLE READ
+  (`PUBLICATION_SNAPSHOT`, its first statement), so every page is one read of one graph.
 - **A publication writes in batches.** Facts are written 500 to a statement (`PUBLICATION_BATCH`), one
   statement per kind of the batch because the measured fields are the kind's, with the same
   `ON CONFLICT` rules as before; holdings 500 to a statement.
@@ -144,10 +156,68 @@ its WAL. Facts by kind: occurrence 112 004, reference 33 168, contains 31 424, d
 package 5, commit 2, repository 1, snapshot 1.
 
 Tests: a read larger than two pages answers every fact once, in id order, and no statement answers more
-than a page (`test/fill-stage-reads.test.ts`); a draft set larger than one part is recorded in parts no
-larger than a part, read back whole and in order, and replaced whole (`test/fill-orchestrator.test.ts`);
-a publication applies the set its attempt holds and reads the row back only when the digest is not that
-one, and keeps no second copy of what it published (`test/fill-checked-writes.test.ts`); the membership
-digest is the one the earlier implementation recorded (`test/fill-orchestrator.test.ts`); an agent unit's
-published coverage is read as the store's published facts, since a published draft keeps no copy
-(`test/fill-agent-unit.test.ts`).
+than one page of 2 000 rows (`test/fill-stage-reads.test.ts`); a draft set larger than one part is
+recorded in parts of 500, read back whole and in order, and replaced whole, and a row recorded before
+the parts existed still reads back whole (`test/fill-orchestrator.test.ts`); a publication writes 1 001
+facts in three statements (`test/fill-fact-store.test.ts`); a publication's transaction opens with the
+repeatable-read statement, and PostgreSQL answers `repeatable read` for it while refusing the same
+statement once a statement has run (`test/fill-orchestrator.test.ts`, "the snapshot a publication
+reads"); a publication that loses its snapshot to a concurrent writer is retried, not thrown
+(`test/fill-orchestrator.test.ts`); a retraction answers the set's head and reads none of its writes
+back (`test/fill-orchestrator.test.ts`); a publication applies the set its attempt holds and reads the row
+back only when the digest is not that one, and keeps no second copy of what it published
+(`test/fill-checked-writes.test.ts`); the membership digest is the one the earlier implementation
+recorded (`test/fill-orchestrator.test.ts`); an agent unit's published coverage is read as the store's
+published facts, since a published draft keeps no copy (`test/fill-agent-unit.test.ts`).
+
+ the independent review and its fixes
+
+The stage's own acceptance ran the independent read-only review this change landed without: two rounds
+of a fresh `prime-agent` session (`deepseek-v4.1-flash-auto`), the first over `929126d2` and the files as
+they stood (verdict `ship`, no blocker, six findings), the second over the fixes (verdict
+`fix-before-ship`, one finding on the commit's own split and seven more, all answered here and in the
+commit that carries them). What each round found and what this change does with it:
+
+- **A paged recheck at READ COMMITTED** (`src/fill/stage-reads.ts`, `src/fill/orchestrator.ts`): a fact
+  another unit committed between two pages of one read stood outside the recheck while the recorded
+  membership matched. Fixed: the publication's transaction is opened at REPEATABLE READ
+  (`PUBLICATION_SNAPSHOT`), tested in `test/fill-orchestrator.test.ts`.
+- **The compatibility path had no test** (`src/fill/orchestrator-store.ts`, `withDraftParts`): a row
+  recorded before the parts existed. Fixed: a test inserts such a row and reads it back whole, and holds
+  the column empty once the set is recorded again (`test/fill-orchestrator.test.ts`).
+- **Three bounds had no test of their own size**: `DRAFT_PART_WRITES` 500, `READ_PAGE_ROWS` 2 000 and
+  `PUBLICATION_BATCH` 500 were only read as the tests' own expectation, so a bound of 100 000 — the
+  defect itself — passed. Fixed: the tests pin 500 / 2 000 / three statements for 1 001 facts
+  (`test/fill-orchestrator.test.ts`, `test/fill-stage-reads.test.ts`, `test/fill-fact-store.test.ts`).
+- **"No statement answers more than a page" was not the code's shape**: a coverage fact and a unit's
+  holding ids are still answered in one statement. Fixed: the sentence above now says which reads page.
+- **A retraction read the whole set back** (`retractUnitDraftIn`): every caller discards it, and a
+  repository-wide unit's set is tens of megabytes. Fixed: it answers the set's head
+  (`DraftHead`), so a retry or a cancellation reads no writes.
+- **The tables an error names left out `fill_unit_draft_part`**, and the PostgreSQL scenario's own DROP
+  list did too. Fixed in `orchestrator-store.ts`, `orchestrator.ts`, `graph-reads.ts`, `graph-pages.ts`
+  and `test/fill-fact-store-postgres.test.ts`.
+
+The second round, over those fixes:
+
+- **The capability page and its index line belong to another change** (a blocker on the commit's shape):
+  `docs/system/capabilities/fill-history.md` and its line in `docs/system/index.md` are
+  `madarch-tzte-21-2`'s, not this change's. Fixed: they land in a commit of their own, `Task:
+  madarch-tzte.21.2`, and this commit carries no document of another change.
+- **Three more table lists still left `fill_unit_draft_part` out** (`src/fill/checked-writes.ts`,
+  `src/fill/fact-store.ts`, and the split's own transaction in `src/fill/orchestrator.ts`). Fixed.
+- **The statement stood only in the orchestrator's caller**: the store's own `publishUnit` still
+  rechecked at READ COMMITTED. Fixed: `publishUnitIn` issues it as its own first statement, so every
+  caller's transaction is one snapshot.
+- **The second control read's comment claimed a refusal a snapshot cannot give**: inside one snapshot it
+  answers what the first read answered, and an intent that comes later waits on the share lock. Fixed:
+  the comment says exactly that.
+- **A serialization failure had nowhere to go**: at REPEATABLE READ a concurrent writer makes the
+  publication fail to serialize rather than wait, and the error came out of the worker. Fixed: the
+  publication's transaction is wrapped, and SQLSTATE `40001`/`40P01` sends the attempt into the retry
+  path the stale read already takes (`isSerializationFailure`, tested).
+- **The retraction's head had no test**: reverting it left every suite green. Fixed: a test holds that a
+  retraction answers the head and issues no statement against the parts.
+- **The change record's paging claim and its test list were still wrong**: three reads that are not paged
+  are now named, the two snapshot tests are cited separately, and the count of round 1's findings is
+  right (`test/fill-orchestrator.test.ts` also lost an import the pinned literals made unused).

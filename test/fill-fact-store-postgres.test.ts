@@ -35,7 +35,7 @@ beforeAll(async () => {
   // A run that was killed leaves its tables behind: the store creates its own again, and nothing of the
   // old run is read. The fill's tables are named so only they go.
   await owner.run(async (transaction) => {
-    await transaction.query('DROP TABLE IF EXISTS fill_fact_holding, fill_fact, fill_unit_lease, fill_unit_read, fill_unit_draft, fill_unit_split, fill_publication, fill_unit_generation, fill_unit, fill_run, fill_chain, fill_transition, fill_event, fill_unit_plan, fill_run_configuration CASCADE');
+    await transaction.query('DROP TABLE IF EXISTS fill_fact_holding, fill_fact, fill_unit_lease, fill_unit_read, fill_unit_draft, fill_unit_draft_part, fill_unit_split, fill_publication, fill_unit_generation, fill_unit, fill_run, fill_chain, fill_transition, fill_event, fill_unit_plan, fill_run_configuration CASCADE');
   });
   report = await runFactStoreScenario(owner);
 }, 120_000);
@@ -43,7 +43,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (owner === undefined) return;
   await owner.run(async (transaction) => {
-    await transaction.query('DROP TABLE IF EXISTS fill_fact_holding, fill_fact, fill_unit_lease, fill_unit_read, fill_unit_draft, fill_unit_split, fill_publication, fill_unit_generation, fill_unit, fill_run, fill_chain, fill_transition, fill_event, fill_unit_plan, fill_run_configuration CASCADE');
+    await transaction.query('DROP TABLE IF EXISTS fill_fact_holding, fill_fact, fill_unit_lease, fill_unit_read, fill_unit_draft, fill_unit_draft_part, fill_unit_split, fill_publication, fill_unit_generation, fill_unit, fill_run, fill_chain, fill_transition, fill_event, fill_unit_plan, fill_run_configuration CASCADE');
   });
   await owner.close();
 }, 120_000);

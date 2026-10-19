@@ -22,7 +22,7 @@ import {
 } from '../src/fill/facts.js';
 import { createFactStoreSchema } from '../src/fill/fact-store.js';
 import { readText } from '../src/fill/graph-reads.js';
-import { parseStageRead, createStageReadReader, createStageReadSchema, READ_PAGE_ROWS, STAGE_READ_NAMES } from '../src/fill/stage-reads.js';
+import { parseStageRead, createStageReadReader, createStageReadSchema, STAGE_READ_NAMES } from '../src/fill/stage-reads.js';
 import { publishedTreeRead, publishedTreeRows } from '../src/fill/stages/inventory.js';
 import { publishedManifestsRead } from '../src/fill/stages/build-configuration.js';
 import { publishedDocuments, publishedDocumentsRead } from '../src/fill/stages/document-index.js';
@@ -374,11 +374,13 @@ describe('a read larger than one statement answers', () => {
   // order of the ids, each with the place the fact stands at.
   test('every fact is answered once, in id order, and no statement answers more than a page', async () => {
     const BIG = 'big-api';
-    const count = READ_PAGE_ROWS * 2 + 1;
+    // The page is 2 000 rows (the requirement's own number, not the constant's): 4 001 symbols are three
+    // statements, and a read that answered them in one takes this test down.
+    const count = 4_001;
     const file = node('file', { repository: BIG, path: 'src/big.ts', roles: ['source'], language: 'typescript', bytes: 10, blob: BLOB }, 'src/big.ts');
     const symbols = Array.from({ length: count }, (_, at) => node('symbol', { repository: BIG, file: 'src/big.ts', qualifiedName: `f${String(at)}`, symbolKind: 'function' }, 'src/big.ts', 'extracted', at + 1));
     // A call from each symbol to the next: one page of edges and one more.
-    const calls = symbols.slice(0, READ_PAGE_ROWS + 1).map((symbol, at) => edge('call', { from: symbol.id, to: symbols[at + 1]!.id, count: at + 1, precision: 'syntactic' }, 'src/big.ts'));
+    const calls = symbols.slice(0, 2_001).map((symbol, at) => edge('call', { from: symbol.id, to: symbols[at + 1]!.id, count: at + 1, precision: 'syntactic' }, 'src/big.ts'));
     const big = createPGliteDatabaseOwner();
     try {
       await createFactStoreSchema(big);
@@ -412,15 +414,15 @@ describe('a read larger than one statement answers', () => {
       // The place each row stands at is the fact's own: symbol fN is declared on line N + 1.
       expect(rows.every((row) => row.place.startLine === Number(row.value.qualifiedName.slice(1)) + 1)).toBe(true);
       expect(answered.length).toBeGreaterThanOrEqual(3);
-      expect(Math.max(...answered)).toBeLessThanOrEqual(READ_PAGE_ROWS);
+      expect(Math.max(...answered)).toBeLessThanOrEqual(2_000);
 
       answered.length = 0;
       const edgesRead = resolvedEdgesRead(BIG);
       const edges = edgeRows(await paged.query(edgesRead), BIG, edgesRead);
-      expect(edges.length).toBe(READ_PAGE_ROWS + 1);
+      expect(edges.length).toBe(2_001);
       expect(edges.map((row) => row.weight).sort((left, right) => left - right)).toEqual(calls.map((_, at) => at + 1));
       expect(answered.length).toBeGreaterThanOrEqual(2);
-      expect(Math.max(...answered)).toBeLessThanOrEqual(READ_PAGE_ROWS);
+      expect(Math.max(...answered)).toBeLessThanOrEqual(2_000);
     } finally {
       await big.close();
     }

@@ -582,7 +582,7 @@ export interface UnitDraftFacts {
  */
 export async function readUnitDraft(database: FactStoreDatabase, unitId: string, generation: number): Promise<UnitDraftFacts | null> {
   const at = here();
-  return await run(at, database, `readUnitDraft(${unitId}/${generation})`, ['fill_unit_draft', 'fill_publication'], async (executor) => {
+  return await run(at, database, `readUnitDraft(${unitId}/${generation})`, ['fill_unit_draft', 'fill_unit_draft_part', 'fill_publication'], async (executor) => {
     // The machine's own rows, read inside this store's transaction: the owner refuses a second
     // transaction on its connection, so a read of the draft or the publication is made here.
     const recorded = await readUnitDraftIn(executor, unitId, generation);

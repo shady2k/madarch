@@ -1286,29 +1286,40 @@ async function publishAttempt(
   const draft = await readUnitDraftHead(database, unit.unitId, unit.generation);
   if (draft === null) raise(`unit "${unit.unitId}" generation ${unit.generation} reached validation with no recorded draft set to publish`);
   const digest = publicationDigest({ inputsDigest: unit.inputsDigest, draft: draft.digest, stageId: request.stage.id, stageVersion: request.stage.version });
-  const outcome = await ownTransaction(here(), orchestrator, `publishUnit(${unit.unitId}/${unit.generation})`, ['fill_publication', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_lease', 'fill_unit_generation'], async (transaction) => {
-    const publication: PublicationOutcome = await publishUnitIn(transaction, {
-      unitId: unit.unitId,
-      generation: unit.generation,
-      fence: request.fence,
-      identity: { inputsDigest: unit.inputsDigest, stageId: request.stage.id, stageVersion: request.stage.version },
-      at,
-      // The reads are rechecked through the publication's own transaction: the process's owner refuses a
-      // second transaction on its connection, so the pinned graph answers from inside this one.
-      revalidate: async (read: TrackedRead, executor) => {
-        const reader = await orchestrator.graph(unitRef(unit, request.plan), executor);
-        const rows = await reader.query(read.query);
-        return { membership: readMembership(rows), members: rows.length };
-      },
-      held: request.held,
-      apply: async (executor, writes, digest) => await orchestrator.facts.apply({ executor, unit, plan: request.plan, digest, writes }),
+  // The publication is one snapshot (see `publishUnitIn`), so a writer that got to one of its rows first
+  // makes this transaction fail to serialize rather than wait — the READ COMMITTED alternative cannot
+  // refuse what a snapshot refuses. That race is the same event as a read that moved: the attempt is
+  // retried against the store as it now stands, its draft retracted, exactly as a stale read is.
+  let outcome: { readonly publication: PublicationOutcome; readonly settled: boolean };
+  try {
+    outcome = await ownTransaction(here(), orchestrator, `publishUnit(${unit.unitId}/${unit.generation})`, ['fill_publication', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit_lease', 'fill_unit_generation'], async (transaction) => {
+      const publication: PublicationOutcome = await publishUnitIn(transaction, {
+        unitId: unit.unitId,
+        generation: unit.generation,
+        fence: request.fence,
+        identity: { inputsDigest: unit.inputsDigest, stageId: request.stage.id, stageVersion: request.stage.version },
+        at,
+        // The reads are rechecked through the publication's own transaction: the process's owner refuses a
+        // second transaction on its connection, so the pinned graph answers from inside this one.
+        revalidate: async (read: TrackedRead, executor) => {
+          const reader = await orchestrator.graph(unitRef(unit, request.plan), executor);
+          const rows = await reader.query(read.query);
+          return { membership: readMembership(rows), members: rows.length };
+        },
+        held: request.held,
+        apply: async (executor, writes, digest) => await orchestrator.facts.apply({ executor, unit, plan: request.plan, digest, writes }),
+      });
+      if (publication.outcome === 'published' || publication.outcome === 'replayed') {
+        const settled = await orchestrator.queue.complete(orchestrator.queueName, request.job, { publication: { unitId: unit.unitId, generation: unit.generation, digest } }, transaction);
+        return { publication, settled };
+      }
+      return { publication, settled: false };
     });
-    if (publication.outcome === 'published' || publication.outcome === 'replayed') {
-      const settled = await orchestrator.queue.complete(orchestrator.queueName, request.job, { publication: { unitId: unit.unitId, generation: unit.generation, digest } }, transaction);
-      return { publication, settled };
-    }
-    return { publication, settled: false };
-  });
+  } catch (error) {
+    if (!isSerializationFailure(error)) throw error;
+    const reason = `the publication of "${unit.unitId}" generation ${unit.generation} lost its snapshot to a concurrent writer (${messageOf(error)}); the attempt is retried against the store as it now stands`;
+    return await retryAttempt(orchestrator, { unit, fence: request.fence, job: request.job, cause: 'validation-problem', reason, summary: reason });
+  }
 
   if (outcome.publication.outcome === 'published') {
     // The record's own digest, not the one this attempt computed before the transaction: they are the
@@ -1331,6 +1342,29 @@ async function publishAttempt(
   await orchestrator.queue.complete(orchestrator.queueName, request.job, { reason: refusal.reason });
   await emit(orchestrator, { runId: unit.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-blocked', summary: refusal.reason });
   return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'refused', refusal: { code: refusal.code, reason: refusal.reason }, job: 'completed' };
+}
+
+/**
+ * True for the failure a transaction raises when it lost a race: a serialization failure (`40001`, which a
+ * REPEATABLE READ transaction gets for a row another transaction committed under it) or a deadlock
+ * (`40P01`). SQLSTATE is what the database speaks on both owners, and it is the only thing this decides by.
+ */
+function isSerializationFailure(error: unknown): boolean {
+  // The located message a store operation raises carries the database's own error as its cause, and its
+  // cause carries SQLSTATE: the walk follows it, so a failure wrapped once or twice still answers.
+  for (let at: unknown = error, depth = 0; at !== undefined && at !== null && depth < 8; depth += 1) {
+    const code = (at as { code?: unknown }).code;
+    if (code === '40001' || code === '40P01') return true;
+    at = (at as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/** An error's own words, for a record or a refusal that must name what happened. */
+function messageOf(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'object' && error !== null && 'message' in error && typeof (error as { message?: unknown }).message === 'string') return (error as { message: string }).message;
+  return String(error);
 }
 
 /** Sends one attempt into a retry wait, or fails the generation when no retry is left. */
@@ -1450,7 +1484,7 @@ async function splitAttempt(
   if (work > orchestrator.limits.maxSplitWork) {
     return await refuse(`the split's children estimate ${work} tokens of work together, past the ${orchestrator.limits.maxSplitWork} one split may seal`);
   }
-  const sealed = await ownTransaction(here(), orchestrator, `sealSplit(${unit.unitId}/${unit.generation})`, ['fill_unit_split', 'fill_unit_plan', 'fill_unit_draft', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'], async (executor) => {
+  const sealed = await ownTransaction(here(), orchestrator, `sealSplit(${unit.unitId}/${unit.generation})`, ['fill_unit_split', 'fill_unit_plan', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'], async (executor) => {
     const children: { unitId: string; generation: number }[] = [];
     for (const [index, child] of request.children.entries()) {
       const childUnitId = unitIdFor(unit.stageId, child.id);

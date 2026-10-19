@@ -368,6 +368,9 @@ export async function withLocation<R>(site: string, what: string, tables: readon
     return await work();
   } catch (error) {
     if (error instanceof Error && isLocated(error.message)) throw error;
-    throw new Error(`${site}: ${what} failed on ${tables.join(', ')}: ${error instanceof Error ? error.message : String(error)}`);
+    // The database's own failure is carried beside the located message, not folded into it: SQLSTATE is
+    // what a caller decides by (a publication that lost its snapshot to a concurrent writer is a retry,
+    // not a defect), and a message is prose.
+    throw new Error(`${site}: ${what} failed on ${tables.join(', ')}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
 }

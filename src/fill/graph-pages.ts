@@ -464,7 +464,7 @@ export async function readPageModel(options: {
   // One transaction for the whole page: every read of it sees the same store, so a page can never show a fact
   // and then a relation that the publication in between took away, and one page read is one transaction of the
   // process's single connection rather than a dozen.
-  const read = await pageTransaction<PageReadOutcome>(at, options.database, `readPageModel(${id})`, ['fill_fact', 'fill_fact_holding', 'fill_unit', 'fill_unit_draft', 'fill_unit_plan', 'fill_publication'], async (executor) => {
+  const read = await pageTransaction<PageReadOutcome>(at, options.database, `readPageModel(${id})`, ['fill_fact', 'fill_fact_holding', 'fill_unit', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit_plan', 'fill_publication'], async (executor) => {
     // Every read of a page is scoped to its product: a home's store carries every product's facts, and two
     // products that declare a repository of the same name publish facts of one id.
     const scoped = (request: GraphRead): GraphRead => withProduct(request, options.product);

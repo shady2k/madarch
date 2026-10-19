@@ -103,6 +103,12 @@ Changed 2026-10-18 with the change fill-crash-suite (`docs/changes/fill-crash-su
 
 - fill-orchestrator: an attempt that never published is worked again by the run's own sweep, whatever step it had reached.
 
+Added 2026-10-19 with the change madarch-tzte-21-2 (`docs/changes/madarch-tzte-21-2/`):
+
+- [fill-history](capabilities/fill-history.md): the history stage reads the pinned commit's ancestry as commit facts, the task keys its messages name and the coverage of what it could not reach, and a run after one new commit writes that commit alone.
+
+Its run's decisions are in `docs/changes/madarch-tzte-21-2/change.md`, "Design and decisions".
+
 Changed 2026-10-19 with the change fill-acp-client (`docs/changes/fill-acp-client/`):
 
 - product-wiki: madarch drives a fill's agent unit over the Agent Client Protocol — one process per session with the unit's MCP servers, one prompt per turn, the updates the agent streams, the token figures it reports or the word that it reported none, a turn that can be cancelled, a connection whose close ends the agent and its helpers, and a probe that reports which agents on a machine connect over the protocol without sending a prompt.

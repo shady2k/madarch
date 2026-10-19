@@ -342,7 +342,7 @@ export async function recordUnitDraft(
   options: { readonly unitId: string; readonly generation: number; readonly writes: readonly StageDraftWrite[]; readonly at: number },
 ): Promise<DraftRecord> {
   const at = here();
-  return run(at, database, `recordUnitDraft(${options.unitId}/${options.generation})`, ['fill_unit_draft'], async (executor) => recordUnitDraftIn(executor, options), 'write');
+  return run(at, database, `recordUnitDraft(${options.unitId}/${options.generation})`, ['fill_unit_draft', 'fill_unit_draft_part'], async (executor) => recordUnitDraftIn(executor, options), 'write');
 }
 
 /** Records a draft set inside a transaction the caller already opened. */
@@ -373,7 +373,7 @@ export async function recordUnitDraftIn(
 /** The draft set of one unit generation, or null when it holds none. */
 export async function readUnitDraft(database: OrchestratorDatabase, unitId: string, generation: number): Promise<DraftRecord | null> {
   const at = here();
-  return run(at, database, `readUnitDraft(${unitId}/${generation})`, ['fill_unit_draft'], async (executor) => readUnitDraftIn(executor, unitId, generation), 'snapshot');
+  return run(at, database, `readUnitDraft(${unitId}/${generation})`, ['fill_unit_draft', 'fill_unit_draft_part'], async (executor) => readUnitDraftIn(executor, unitId, generation), 'snapshot');
 }
 
 /** The draft set of one unit generation inside a transaction the caller already opened. */
@@ -393,6 +393,19 @@ export const DRAFT_PART_WRITES = 500;
 
 /** The `writes` a draft row holds itself: none — its writes are its parts (`fill_unit_draft_part`). */
 const EMPTY_WRITES = '[]';
+
+/**
+ * What a publication's transaction is: one snapshot, from its first statement to
+ * its commit. A publication rechecks the tracked reads its unit was planned on
+ * (`fill-orchestrator/staleness`), and a read is asked a page at a time
+ * (`READ_PAGE_ROWS`), so at the READ COMMITTED level the owner's write
+ * transaction opens at, a fact another unit committed between two pages of one
+ * read would stand outside the recheck's answer while the recorded membership
+ * still matched — a publication on a graph that moved. The statement is issued
+ * before anything else runs in that transaction, which is the only moment
+ * PostgreSQL accepts a transaction's isolation level being set.
+ */
+export const PUBLICATION_SNAPSHOT = 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ';
 
 /**
  * Draft rows with their whole set of writes: the row's own `writes` (a row
@@ -470,16 +483,25 @@ export async function readUnitDraftHead(database: OrchestratorDatabase, unitId: 
  * Retracts a unit generation's draft set: the row stays as the record of what
  * was written, and `retracted_at` marks it unpublished, so a rerun starts clean
  * and a publication refuses a draft that was retracted after it was validated.
+ * It answers the set's head, never its writes: a repository-wide unit's set is
+ * tens of megabytes, and a retraction changes nothing of what it holds.
  */
-export async function retractUnitDraft(database: OrchestratorDatabase, options: { readonly unitId: string; readonly generation: number; readonly at: number }): Promise<DraftRecord | null> {
+export async function retractUnitDraft(database: OrchestratorDatabase, options: { readonly unitId: string; readonly generation: number; readonly at: number }): Promise<DraftHead | null> {
   const at = here();
   return run(at, database, `retractUnitDraft(${options.unitId}/${options.generation})`, ['fill_unit_draft'], async (executor) => retractUnitDraftIn(executor, options), 'write');
 }
 
-/** Retracts one unit generation's draft inside a transaction the caller already opened. */
-export async function retractUnitDraftIn(executor: SqlExecutor, options: { readonly unitId: string; readonly generation: number; readonly at: number }): Promise<DraftRecord | null> {
+/**
+ * Retracts one unit generation's draft inside a transaction the caller already
+ * opened, and answers its head. Nothing of the set's writes is read back: the
+ * row and its parts stay as the record of what was written, every caller of this
+ * retraction discards what the set held, and reading it back parsed the whole
+ * set — up to 34 MB for the modules stage's repository-wide unit — at the run's
+ * memory peak (madarch-tzte.21.11, the review of its publication path).
+ */
+export async function retractUnitDraftIn(executor: SqlExecutor, options: { readonly unitId: string; readonly generation: number; readonly at: number }): Promise<DraftHead | null> {
   await executor.query('UPDATE fill_unit_draft SET retracted_at = COALESCE(retracted_at, $3) WHERE unit_id = $1 AND generation = $2', [options.unitId, options.generation, options.at]);
-  return await readUnitDraftIn(executor, options.unitId, options.generation);
+  return await readUnitDraftHeadIn(executor, options.unitId, options.generation);
 }
 
 /** One sealed child of a split, as the parent's join reads it. */
@@ -646,7 +668,7 @@ export async function publishUnit(
   options: PublicationRequest,
 ): Promise<PublicationOutcome> {
   const at = here();
-  return run(at, database, `publishUnit(${options.unitId}/${options.generation})`, ['fill_publication', 'fill_unit_read', 'fill_unit_draft', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_run', 'fill_transition'], async (executor) => publishUnitIn(executor, options), 'write');
+  return run(at, database, `publishUnit(${options.unitId}/${options.generation})`, ['fill_publication', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_run', 'fill_transition'], async (executor) => publishUnitIn(executor, options), 'write');
 }
 
 /** The statement that reads the run's control of one generation's unit; `share` takes the run row's lock. */
@@ -682,6 +704,14 @@ function revokedAuthority(unitId: string, generation: number, runState: string |
  * refuses is a value, and it is answered before anything is applied or written.
  */
 export async function publishUnitIn(executor: SqlExecutor, options: PublicationRequest): Promise<PublicationOutcome> {
+  // One snapshot for the whole publication, set before any statement of it runs: the rechecks below read
+  // each tracked read again, and a read is asked a page at a time (`READ_PAGE_ROWS`), so at the READ
+  // COMMITTED level every caller's write transaction opens at, a fact another unit committed between two
+  // pages of one read would stand outside the recheck's answer while the recorded membership still
+  // matched. It is the first statement of the transaction, which is the only moment PostgreSQL accepts a
+  // level being set.
+  await executor.query(PUBLICATION_SNAPSHOT);
+
   // The run's own control, inside the same transaction and under the run row's share lock: a run that is
   // cancelling or cancelled revokes the authority of everything it planned, and a failed run publishes
   // nothing. The lock is what makes the check hold for the whole transaction rather than for one instant:
@@ -745,10 +775,11 @@ export async function publishUnitIn(executor: SqlExecutor, options: PublicationR
     }
   }
 
-  // The run's control once more, after the reads were rechecked and before anything is written: a
-  // cancellation intent that reached the run's row while those reads were being walked is refused here,
-  // whatever this transaction read earlier, and the share lock above holds a later one off until this
-  // publication has ended.
+  // The run's control once more, after the reads were rechecked and before anything is written: this
+  // reads the row the share lock above was taken on, inside the transaction's one snapshot, so it answers
+  // what the first read answered. It is kept as the statement that says so — an intent that reached the
+  // run's row before this transaction took the snapshot is refused by the first read, and one that comes
+  // after it waits on the share lock and lands once this publication has ended.
   const rechecked = await executor.query<{ state: string }>(controlSql(false), [options.unitId, options.generation]);
   const refusedSince = revokedAuthority(options.unitId, options.generation, rechecked.rows[0]?.state);
   if (refusedSince !== null) return refusedSince;

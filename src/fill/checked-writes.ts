@@ -372,7 +372,7 @@ export function recordedDraftSet(
   return {
     async append(write: StageDraftWrite): Promise<void> {
       const at = here();
-      await withLocation(at, `checkedWrite(${unit.unitId}/${unit.generation})`, ['fill_unit_draft'], async () => {
+      await withLocation(at, `checkedWrite(${unit.unitId}/${unit.generation})`, ['fill_unit_draft', 'fill_unit_draft_part'], async () => {
         await database.transaction('write', async (executor) => {
           // The row is held for the rest of this transaction, so a second append of the same generation
           // waits here instead of reading the same set and overwriting this one.
@@ -386,7 +386,7 @@ export function recordedDraftSet(
       });
     },
     async writes(): Promise<readonly StageDraftWrite[]> {
-      return await withLocation(here(), `checkedWrites(${unit.unitId}/${unit.generation})`, ['fill_unit_draft'], async () => await database.transaction('snapshot', async (executor) => await heldNow(executor)));
+      return await withLocation(here(), `checkedWrites(${unit.unitId}/${unit.generation})`, ['fill_unit_draft', 'fill_unit_draft_part'], async () => await database.transaction('snapshot', async (executor) => await heldNow(executor)));
     },
   };
 }
