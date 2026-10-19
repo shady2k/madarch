@@ -178,22 +178,29 @@ describe('the stages are registered', () => {
       // snapshot), and the resolution reads the syntax stage's symbols and
       // imports, so it runs after it. The graph is the one every registered
       // stage derives.
-      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'build-configuration', 'document-index', 'syntax', 'semantic-resolution']);
+      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'build-configuration', 'document-index', 'syntax', 'semantic-resolution', 'modules']);
       // The inventory reads the repository node and the snapshot; the history
       // reads the snapshot alone; the syntax stage reads the inventory's file
       // facts; the document index reads the snapshot and a link's `file` node,
       // and its own `document` facts, which draw no edge from itself to itself;
       // the resolution reads the syntax stage's symbols and imports.
       expect(read.graph.edges).toEqual([
+        { from: 'build-configuration', to: 'modules', via: 'package' },
         { from: 'inventory', to: 'build-configuration', via: 'file' },
         { from: 'inventory', to: 'document-index', via: 'file' },
+        { from: 'inventory', to: 'modules', via: 'file' },
         { from: 'inventory', to: 'semantic-resolution', via: 'file' },
         { from: 'inventory', to: 'syntax', via: 'file' },
+        { from: 'semantic-resolution', to: 'modules', via: 'call' },
+        { from: 'semantic-resolution', to: 'modules', via: 'inherits' },
+        { from: 'semantic-resolution', to: 'modules', via: 'reference' },
         { from: 'snapshot', to: 'build-configuration', via: 'snapshot' },
         { from: 'snapshot', to: 'document-index', via: 'snapshot' },
         { from: 'snapshot', to: 'history', via: 'snapshot' },
         { from: 'snapshot', to: 'inventory', via: 'repository' },
         { from: 'snapshot', to: 'inventory', via: 'snapshot' },
+        { from: 'syntax', to: 'modules', via: 'import' },
+        { from: 'syntax', to: 'modules', via: 'symbol' },
         { from: 'syntax', to: 'semantic-resolution', via: 'import' },
         { from: 'syntax', to: 'semantic-resolution', via: 'symbol' },
       ]);

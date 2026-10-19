@@ -76,6 +76,14 @@ export interface ScenarioFacts {
   readonly caseFact: Fact;
   /** A fact a unit publishes and then drops by publishing nothing: a renamed file's inventory fact. */
   readonly emptiedFact: Fact;
+  /**
+   * One module fact at two rankings: stage 5 measures a rank over the whole
+   * repository and writes it onto the fact of the module it is about, so the id
+   * — its identity — is the same after a re-ranking, and only `importance`
+   * moves (madarch-tzte.21.7).
+   */
+  readonly rankedModule: Fact;
+  readonly rankedModuleReranked: Fact;
   /** A folder unit's facts (a directory and the edge that holds a file in it), as stages 1 and 5 write them. */
   readonly folderDirectory: Fact;
   readonly folderFile: Fact;
@@ -104,6 +112,7 @@ export function scenarioFacts(): ScenarioFacts {
     const held = makeNodeFact({ kind: 'file', value: { repository: 'acme-shop', path: repositoryPath(file), roles: ['source'] }, provenance: provenance(file), layer: 'extracted' });
     return { directory, file: held, contains: makeEdgeFact({ kind: 'contains', value: { from: directory.id, to: held.id }, provenance: provenance(file), layer: 'extracted' }) };
   };
+  const ranked = (importance: number, members: number): Fact => makeNodeFact({ kind: 'module', value: { repository: 'acme-shop', name: 'ranked', seed: 'package', members, importance }, provenance: provenance('src/ranked.ts'), layer: 'extracted' });
   const folderA = folder('src', 'src/cart.ts');
   const folderB = folder('lib', 'lib/total.ts');
   const folderDirectory = folderA.directory;
@@ -113,6 +122,8 @@ export function scenarioFacts(): ScenarioFacts {
   const otherFolderFile = folderB.file;
   const otherFolderContains = folderB.contains;
   return {
+    rankedModule: ranked(0.5, 3),
+    rankedModuleReranked: ranked(0.25, 5),
     symbolOne,
     symbolTwo,
     callEdgeOfA: call(9),
@@ -204,6 +215,14 @@ export interface FactStoreScenarioReport {
   readonly folderAfterItsSecond: readonly string[];
   readonly otherFolderAfterTheFirstsSecond: readonly string[];
   readonly otherFolderFactsStillThere: readonly boolean[];
+  /**
+   * One module fact published twice under one id, at two rankings: the rank the
+   * second publication carries, the rank the row held after the first, and the
+   * field that is not a rank, which the first publication's row keeps.
+   */
+  readonly rankAfterFirst: number;
+  readonly rankAfterSecond: number;
+  readonly membersAfterSecond: number;
 }
 
 /** Raises the machine's own refusal, so a scenario step that cannot be taken says why. */
@@ -396,7 +415,25 @@ export async function runFactStoreScenario(owner: DatabaseOwner): Promise<FactSt
     (await readFact(owner, facts.otherFolderContains.id)) !== null,
   ];
 
+  // ---- a rank is the one field of a fact row a later publication replaces ----
+  const rankOf = async (id: string): Promise<number> => {
+    const stored = (await readFact(owner, id))?.fact.value as { readonly importance?: number; readonly members?: number } | undefined;
+    return stored?.importance ?? -1;
+  };
+  const membersOf = async (id: string): Promise<number> => {
+    const stored = (await readFact(owner, id))?.fact.value as { readonly members?: number } | undefined;
+    return stored?.members ?? -1;
+  };
+  await publishUnitFacts('unit-ranked', 'modules', 'ranked', [writeOf('fact', facts.rankedModule)], NOW + 13_000);
+  const rankAfterFirst = await rankOf(facts.rankedModule.id);
+  await publishNextGeneration('unit-ranked', 2, [writeOf('fact', facts.rankedModuleReranked)], NOW + 13_100);
+  const rankAfterSecond = await rankOf(facts.rankedModule.id);
+  const membersAfterSecond = await membersOf(facts.rankedModule.id);
+
   return {
+    rankAfterFirst,
+    rankAfterSecond,
+    membersAfterSecond,
     aHoldsAfterFirst,
     bHoldsAfterFirst,
     sharedPublishers,

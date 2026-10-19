@@ -358,10 +358,11 @@ describe('the kinds the fill writes', () => {
     // A kind whose value shape changes moves alone: `file` moved to 2 when the
     // blob its bytes stand under was added to it (madarch-tzte.21.1, stage 1),
     // `document` and `section` to 2 when their byte spans were added to them
-    // (madarch-tzte.21.4, stage 6), and the resolution edges `call`, `reference`
-    // and `inherits` to 2 when their precision was added to them
-    // (madarch-tzte.21.6, stage 4).
-    const moved: Readonly<Record<string, number>> = { 'call': 2, 'document': 2, 'file': 2, 'inherits': 2, 'reference': 2, 'section': 2 };
+    // (madarch-tzte.21.4, stage 6), the resolution edges `call`, `reference` and
+    // `inherits` to 2 when their precision was added to them (madarch-tzte.21.6,
+    // stage 4), and `file` to 3 and `symbol` to 2 when stage 5's importance was
+    // added to them (madarch-tzte.21.7).
+    const moved: Readonly<Record<string, number>> = { 'call': 2, 'document': 2, 'file': 3, 'inherits': 2, 'reference': 2, 'section': 2, 'symbol': 2 };
     for (const kind of FACT_KINDS_IN_ORDER) {
       expect(Number.isInteger(FACT_KINDS[kind].version)).toBe(true);
       // 0027: a stage declares the fact kind's version for what it produces,
