@@ -191,14 +191,14 @@ re-decides them.
   (`fill_fact_holding` joined onto `fill_unit.product`)", and the page's own reads add
   it to every request they make — including the ones the coverage read makes for
   itself. A unit's own reads name no product and are answered as they were: a run's
-  graph is one product's. The product is the name its manifest gives (the name a
-  fill's runs name it, `src/product/fill-stages.ts`), read from the product's folder
-  when the source is asked, and compared with `fill_unit.product`, which is the name the
-  *caller* of `service.run` gives the product (`FillProduct.name`). Today's one caller,
-  madarch-tzte.21.8's walk, passes the manifest's own name
-  (`src/product/fill-stages.ts` in that branch); a caller that named the product otherwise
-  would leave the pages answering the empty set, whose message names the product it read,
-  so a mismatch is visible rather than silent.
+  graph is one product's. The product is the name the product's own manifest gives it
+  (`readProduct(folder).product.name`, read when the source is asked), and the store's
+  `fill_unit.product` is the name the *caller* of `service.run` passes
+  (`FillProduct.name`). Today's one caller — madarch-tzte.21.8's walk, whose
+  `createStagesFill` names the product by its manifest's name — passes the same name.
+  A caller that named it otherwise would leave the pages answering the empty set, whose
+  message names the product it read (so the mismatch is visible, not silent), and tying
+  the two names together belongs to that caller's change.
 - **A page's address is a route the app answers.** `pageAddress` is `/graph/<the id,
   percent-escaped as one segment>`, and the wiki app's own route table takes `/graph/`
   (`src/server/wiki-app.ts`, `APP_ROUTE_PREFIXES`): the address a page set hands out
@@ -487,7 +487,7 @@ process — exact, and the cost of a product with many live sets.
 ### The checks
 
 - `bun run check` (`tsc --noEmit`) exit **0** after every edit round and at hand-over
-  (head `FINAL_HEAD`).
+  (head `1339f057`).
 - The feature document gate (`node .shady2k/documents.mjs check --phase feature
   --change madarch-tzte.23.1 --candidate worktree --target origin/main`) exit **0**,
   clean, after every edit round and at hand-over.
@@ -513,4 +513,9 @@ process — exact, and the cost of a product with many live sets.
     (`run-20261019-094311`): the crash suite, which holds a publication to one
     transaction and settles it every time, with the read layer this change reads
     through.
-- CI on the exact SHA of the branch: named in the queue entry.
+- CI on the exact SHA of the branch: run **39217311854 success** on **1339f057** —
+  `checks`, test shards 1–5 and the aggregate `test`, every job green — and Product
+  documents **39217311842 success** on the same SHA. The first push (`e09dc039`) was
+  green too (run 39214259907, Product documents 39214259775) before the second review
+  round's answers; the SHA that CI judged last is the one this record's evidence
+  above reports.
