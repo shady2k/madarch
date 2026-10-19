@@ -295,11 +295,13 @@ describe('the semantic resolution stage is registered', () => {
       const registry = createStageRegistry({ snapshots: sourceAt(f.root, commit) });
       const read = deriveStageGraph(registry);
       if (!read.ok) throw new Error(`the graph did not derive: ${JSON.stringify(read)}`);
-      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'document-index', 'syntax', 'semantic-resolution']);
+      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'build-configuration', 'document-index', 'syntax', 'semantic-resolution']);
       expect(read.graph.edges).toEqual([
+        { from: 'inventory', to: 'build-configuration', via: 'file' },
         { from: 'inventory', to: 'document-index', via: 'file' },
         { from: 'inventory', to: 'semantic-resolution', via: 'file' },
         { from: 'inventory', to: 'syntax', via: 'file' },
+        { from: 'snapshot', to: 'build-configuration', via: 'snapshot' },
         { from: 'snapshot', to: 'document-index', via: 'snapshot' },
         { from: 'snapshot', to: 'history', via: 'snapshot' },
         { from: 'snapshot', to: 'inventory', via: 'repository' },
