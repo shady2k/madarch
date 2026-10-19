@@ -131,7 +131,9 @@ describe('a node the graph does not hold', () => {
 
   test('an end two imports name by different specifiers is labelled by the first of them in code point order', async () => {
     // The rule the model states, and the one case only a second edge makes: `../x/gone.js` sorts before `./gone.js`
-    // (a full stop before a slash), so it is the name drawn — the same name on every machine and on every walk.
+    // (a full stop before a slash), so it is the name drawn — the same name on every machine and on every walk. The
+    // second edge is a fact only a stale resolution writes (a file removed and read again); the case is about the
+    // naming rule, not about what the resolver would publish today.
     const second = makeEdgeFact({
       kind: 'import',
       value: { from: fx.cart.id, to: fx.gone.id, specifier: '../x/gone.js' },

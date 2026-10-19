@@ -42,10 +42,11 @@ What changes:
   LikeC4 draw": a function expression that walks the element's whole composed tree —
   its own open shadow root and every shadow root inside it, at any depth — and
   answers with the svgs it finds. What that means exactly: any svg in that tree, which
-  includes LikeC4's own chrome (the icons of its controls). It therefore under-claims
-  only in the harmless direction — a page holding an icon and no drawing is not told
-  it drew — and the labels the walk reads, not the count alone, are what say a reader
-  has a diagram.
+  includes LikeC4's own chrome (the icons of its controls), so the count can only err
+  towards silence — a page holding an icon and no drawing stays silent instead of
+  saying it drew nothing. What catches that error is the label requirement beside it:
+  the walk accepts a drawing only with the labels it shows, because a drawing that
+  carries no text is no diagram a person reads.
 - **`src/product-wiki/graph-render.ts`** inlines that source into the LikeC4 page and
   asks it, so the watchdog speaks only for a browser where LikeC4 really drew
   nothing, and keeps naming which failure it saw (`not-loaded` when the bundle never
@@ -116,10 +117,21 @@ None.
   rather than showing an empty frame. It checks every 250 ms from the page's `load`,
   says its sentence once eight seconds have passed without a drawing (the bound
   madarch-tzte.23.4 chose), takes the sentence away again if a drawing appears later —
-  a slow first paint must not leave a sentence over a picture — and stops watching at
-  two minutes, so a page left open holds no timer. The walk's requirement
-  (`undrawn: null` together with a drawing) is therefore safe against a slow first
-  paint, which is why it can be a requirement and not a tolerance.
+  a slow first paint must not leave a sentence over a picture — and stops watching two
+  minutes in, so a page left open holds no timer. A drawing that arrives after that
+  bound leaves the sentence standing until the page is reloaded: the page has stopped
+  looking, and a reader who waited two minutes is told to reload rather than shown an
+  empty frame. The times are the clock's (`Date.now()`), not a count of ticks, so a
+  background tab whose timers the browser throttles still ends its watch on time. The
+  walk's requirement (`undrawn: null` together with a drawing and its labels) is
+  therefore safe against a slow first paint, which is why it can be a requirement and
+  not a tolerance.
+- **The watch is one source string with two callers**, like the drawings walk: the page
+  inlines it, and `test/graph-diagrams-render.test.ts` runs the same bytes against a
+  stand-in page (its element, document, timers and clock) and drives each path — silent
+  while drawn, `empty` after the grace, `not-loaded` without a bundle, the sentence
+  taken away by a late drawing, the watch ended at its bound, a check that throws
+  holding no timer.
 - **The tab keeps a document of its own.** Why the app frames a page is unchanged and
   is not what madarch-pdkl measured: the bundle is a script that defines the element,
   and the page is the way the static wiki already shows it.
@@ -140,9 +152,11 @@ over a real fill service and its PGlite store), read as numbers the browser comp
   "interaction","checkout","acme-shop · src/cart.ts:1-1","./gone.js (unresolved)",
   "payment","acme-shop · src/pay.ts:1-1",…],"undrawn":null}` and the same shape for
   `c4-context` (`svgs: 2`) and `c4-container` (`svgs: 1`) — a drawing in each, the
-  page's sentence in none. The pre-fix state of the same walk (commit `b2e48543` alone,
-  run `run-20261019-194926`) reads `undrawn: null` too, which is the fix working: the
-  sentence was what the old, wrong question produced.
+  page's sentence in none (the lines are elided with `…` where the accessibility texts
+  of LikeC4's own canvas follow). The walk of the branch's **first** commit alone
+  (`b2e48543`, run `run-20261019-194926`, so this fix already in and the second task's
+  fix not yet) reads `undrawn: null` too — which is this fix working: the sentence was
+  what the old, wrong question produced.
 - Screenshots of the three LikeC4 tabs (`diagram-{c4-context,c4-container,c4-component}-likec4.png`)
   fetched from the pod into `/home/dev/.cache/madarch-diagram-shots-2/` (`shots/` is the
   walk of the branch, `shots-pdkl/` the same walk of this commit alone).

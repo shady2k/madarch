@@ -279,20 +279,53 @@ async function shot(name: string): Promise<void> {
 interface LikeC4State {
   /** The drawings the element holds, counted through the shadow roots LikeC4 nests (`LIKEC4_DRAWINGS_SOURCE`). */
   readonly svgs: number;
-  /** What the drawing reads as: every label the composed tree shows, so a walk can read a name off the picture. */
+  /** What the drawing reads as: every label the element's composed tree shows, so a walk can read a name off it. */
   readonly texts: readonly string[];
   /** The failure the page itself states, or null when it drew. */
   readonly undrawn: string | null;
 }
 
 /**
- * The LikeC4 page of one diagram, measured the way the page measures itself: the
- * drawings are counted in the element's whole composed tree (`LIKEC4_DRAWINGS_SOURCE`),
- * the labels are the text that tree shows — LikeC4 draws its element boxes as HTML
- * over an svg of the arrows, so a count of svgs alone would read a diagram of boxes as
- * empty — and the page's own words are read beside them. The frame is looked up again
- * on every poll: a panel the app re-renders is a new document, and one address can be
- * two frames over one walk.
+ * What one LikeC4 frame holds right now, measured the way the page measures itself:
+ * the drawings are counted in the element's whole composed tree
+ * (`LIKEC4_DRAWINGS_SOURCE`), and the labels are the text that same tree shows —
+ * LikeC4 draws its element boxes as HTML over an svg of the arrows, so a count of
+ * svgs alone would read a diagram of boxes as empty.
+ */
+async function likec4Look(frame: Frame): Promise<LikeC4State | null> {
+  return await frame.evaluate((source: string) => {
+    const element = [...document.querySelectorAll('*')].find((child) => child.tagName.toLowerCase().endsWith('-view')) as HTMLElement | undefined;
+    const drawings = element === undefined ? [] : (new Function(`return (${source});`)() as (root: Element) => readonly Element[])(element);
+    const texts: string[] = [];
+    const collect = (root: Element | ShadowRoot): void => {
+      if (root instanceof Element && root.shadowRoot !== null) collect(root.shadowRoot);
+      for (const node of root.querySelectorAll('*')) {
+        const tag = node.tagName.toLowerCase();
+        if (tag === 'style' || tag === 'script') continue;
+        if (node.children.length === 0 && node.shadowRoot === null) {
+          const text = (node.textContent ?? '').trim();
+          if (text !== '') texts.push(text);
+        }
+        if (node.shadowRoot !== null) collect(node.shadowRoot);
+      }
+    };
+    if (element !== undefined) collect(element);
+    return {
+      svgs: drawings.length,
+      texts: [...new Set(texts)],
+      undrawn: document.querySelector('[data-likec4-undrawn]')?.getAttribute('data-likec4-undrawn') ?? null,
+    };
+  }, LIKEC4_DRAWINGS_SOURCE).catch(() => null);
+}
+
+/**
+ * The LikeC4 page of one diagram, waited for as a reader waits for it: a drawing and
+ * no sentence. The page says its sentence eight seconds in and takes it away again
+ * when a drawing arrives later, so a state with a drawing but the sentence still
+ * standing is not the answer yet — the walk keeps looking until the page's own watch
+ * has settled, and fails with the last state it saw rather than returning one nobody
+ * observed. The frame is looked up again on every poll: a panel the app re-renders is
+ * a new document, and one address can be two frames over one walk.
  */
 async function likec4State(node: string, type: string): Promise<LikeC4State> {
   const wanted = `/api/graph/likec4.html?id=${encodeURIComponent(node)}&type=${encodeURIComponent(type)}`;
@@ -300,55 +333,20 @@ async function likec4State(node: string, type: string): Promise<LikeC4State> {
   for (let attempt = 0; attempt < 300; attempt++) {
     const frame = page!.frames().find((candidate) => {
       try {
-        return decodeURIComponent(candidate.url()).includes(`/api/graph/likec4.html`) && decodeURIComponent(candidate.url()).includes(`id=${node}`) && decodeURIComponent(candidate.url()).includes(`type=${type}`);
+        return decodeURIComponent(candidate.url()).includes('/api/graph/likec4.html') && decodeURIComponent(candidate.url()).includes(`id=${node}`) && decodeURIComponent(candidate.url()).includes(`type=${type}`);
       } catch {
         return false;
       }
     });
     if (frame !== undefined) {
-      const held = await frame.evaluate((source: string) => {
-        const element = [...document.querySelectorAll('*')].find((child) => child.tagName.toLowerCase().endsWith('-view')) as HTMLElement | undefined;
-        const drawings = element === undefined ? [] : (new Function(`return (${source});`)() as (root: Element) => readonly Element[])(element);
-        // Every label the drawing shows: the text of each leaf of the composed tree, deduplicated and in document order.
-        const texts: string[] = [];
-        const collect = (root: ParentNode): void => {
-          for (const node of root.querySelectorAll('*')) {
-            const tag = node.tagName.toLowerCase();
-            if (tag === 'style' || tag === 'script') continue;
-            if (node.children.length === 0 && node.shadowRoot === null) {
-              const text = (node.textContent ?? '').trim();
-              if (text !== '') texts.push(text);
-            }
-            if (node.shadowRoot !== null) collect(node.shadowRoot);
-          }
-        };
-        if (element !== undefined && element.shadowRoot !== null) collect(element.shadowRoot);
-        return {
-          svgs: drawings.length,
-          texts: [...new Set(texts)],
-          undrawn: document.querySelector('[data-likec4-undrawn]')?.getAttribute('data-likec4-undrawn') ?? null,
-        };
-      }, LIKEC4_DRAWINGS_SOURCE).catch(() => null);
+      const held = await likec4Look(frame);
       if (held !== null) last = held;
-      // A drawing is what is waited for: the page says its sentence eight seconds in and takes it away again if the
-      // drawing arrives later, so a sentence on its own is not the answer yet, and one beside a drawing is the
-      // page's own timer doing its work — one more look settles it.
-      if (held !== null && held.svgs > 0) {
-        if (held.undrawn === null) return held;
-        await new Promise((rest) => setTimeout(rest, 400));
-        const again = await frame.evaluate((source: string) => {
-          const element = [...document.querySelectorAll('*')].find((child) => child.tagName.toLowerCase().endsWith('-view')) as HTMLElement | undefined;
-          const drawings = element === undefined ? [] : (new Function(`return (${source});`)() as (root: Element) => readonly Element[])(element);
-          return { svgs: drawings.length, undrawn: document.querySelector('[data-likec4-undrawn]')?.getAttribute('data-likec4-undrawn') ?? null };
-        }, LIKEC4_DRAWINGS_SOURCE).catch(() => null);
-        if (again !== null && again.svgs > 0 && again.undrawn === null) return { ...held, undrawn: null };
-        return held;
-      }
+      // A drawing with no label is a box nobody can read: the answer is a drawing, its labels and no sentence.
+      if (held !== null && held.svgs > 0 && held.texts.length > 0 && held.undrawn === null) return held;
     }
     await new Promise((rest) => setTimeout(rest, 200));
   }
-  console.error(`the LikeC4 page of ${type} drew no view within 60 s: ${wanted} (last seen ${JSON.stringify(last)})`);
-  return last ?? { svgs: 0, texts: [], undrawn: null };
+  throw new Error(`the LikeC4 page of ${type} never stood drawn and silent: ${wanted} last read ${JSON.stringify(last)}`);
 }
 
 /** Opens one of a diagram's tabs and waits for that renderer to draw. */

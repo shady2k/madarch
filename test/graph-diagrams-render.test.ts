@@ -30,6 +30,7 @@ import { layoutedViews } from '../src/wiki/archify-page.js';
 import { diagramWorkspace, webcomponentElement, webcomponentPrefix } from '../src/product-wiki/graph-workspace.js';
 import { checkLikeC4Workspaces } from '../scripts/likec4-check.js';
 import { LIKEC4_DRAWINGS_SOURCE } from '../src/product-wiki/likec4-drawings.js';
+import { LIKEC4_WATCH_END_MS, LIKEC4_WATCH_GRACE_MS, LIKEC4_WATCH_TICK_MS, likec4WatchSource } from '../src/product-wiki/likec4-watch.js';
 import { DIAGRAM_FIXTURE, readsOf } from './fill-diagram-fixture.js';
 
 const fx = DIAGRAM_FIXTURE;
@@ -322,6 +323,121 @@ describe('the drawings a LikeC4 element holds', () => {
   });
 });
 
+/** One stand-in page for the LikeC4 watchdog: its element, its document, its clock and its timers. */
+function watchPage(options: { readonly drawings?: readonly FakeNode[]; readonly element?: boolean; readonly defined?: boolean; readonly throws?: boolean } = {}) {
+  const sentences: { attribute: string; text: string; removed: boolean }[] = [];
+  const children = [...(options.drawings ?? [])];
+  const element = options.element === false ? null : fakeNode({ children });
+  if (options.throws === true) {
+    // A page whose check throws: the drawing of a foreign element, an api the browser refuses.
+    (element as unknown as { querySelectorAll: () => readonly FakeNode[] }).querySelectorAll = () => { throw new Error('the page refused the question'); };
+  }
+  let now = 0;
+  let tick: (() => void) | null = null;
+  let cleared = false;
+  const document = {
+    querySelector: () => element,
+    createElement: () => {
+      const sentence = { attribute: '', text: '', removed: false };
+      sentences.push(sentence);
+      return {
+        style: {} as Record<string, string>,
+        setAttribute: (_name: string, value: string) => { sentence.attribute = value; },
+        set textContent(value: string) { sentence.text = value; },
+        remove: () => { sentence.removed = true; },
+      };
+    },
+    body: { appendChild: () => undefined },
+  };
+  const window = {
+    setInterval: (fn: () => void) => { tick = fn; return 1; },
+    clearInterval: () => { cleared = true; },
+    customElements: { get: (asked: string) => (options.defined === false ? undefined : { name: asked }) },
+  };
+  return {
+    sentences,
+    stopped: () => cleared,
+    /** One tick of the watch, with the clock moved by the page's own cadence first. */
+    fire(times = 1) {
+      for (let at = 0; at < times; at += 1) {
+        now += LIKEC4_WATCH_TICK_MS;
+        tick?.();
+      }
+    },
+    /** A drawing that arrives while the page watches: the element gains one. */
+    draw() {
+      children.push(fakeNode({ svg: true }));
+    },
+    run() {
+      const source = likec4WatchSource({ name: 'likec4-view', title: 'C4 context: the whole product' });
+      const start = new Function('window', 'document', 'likec4Drawings', 'Date', source) as (window: unknown, document: unknown, drawings: unknown, clock: unknown) => void;
+      start(window, document, drawingsProbe(), { now: () => now });
+    },
+  };
+}
+
+/** The ticks the page's own bounds are worth. */
+const GRACE_TICKS = LIKEC4_WATCH_GRACE_MS / LIKEC4_WATCH_TICK_MS;
+const END_TICKS = LIKEC4_WATCH_END_MS / LIKEC4_WATCH_TICK_MS;
+
+describe('the LikeC4 page’s watch for a drawing', () => {
+  test('while a drawing stands the page says nothing, and it stops watching at once', () => {
+    const page = watchPage({ drawings: [fakeNode({ svg: true })] });
+    page.run();
+    page.fire(1);
+    expect(page.sentences).toEqual([]);
+    expect(page.stopped()).toBe(true);
+  });
+
+  test('eight seconds without a drawing is the sentence, and it names the defined-but-empty failure', () => {
+    const page = watchPage();
+    page.run();
+    // Nothing is said while the grace lasts: a first paint has that long.
+    page.fire(GRACE_TICKS - 1);
+    expect(page.sentences).toEqual([]);
+    page.fire(1);
+    expect(page.sentences).toHaveLength(1);
+    expect(page.sentences[0]!.attribute).toBe('empty');
+    expect(page.sentences[0]!.text).toContain('C4 context: the whole product');
+    expect(page.sentences[0]!.text).toContain('The Mermaid and archify tabs draw the same model.');
+    expect(page.stopped()).toBe(false);
+  });
+
+  test('a bundle that never arrived is told apart from a view that stands empty', () => {
+    const page = watchPage({ element: false, defined: false });
+    page.run();
+    page.fire(GRACE_TICKS);
+    expect(page.sentences.map((sentence) => sentence.attribute)).toEqual(['not-loaded']);
+  });
+
+  test('a drawing that arrives later takes the sentence away, and with it the watch', () => {
+    const page = watchPage();
+    page.run();
+    page.fire(GRACE_TICKS);
+    expect(page.sentences).toHaveLength(1);
+    page.draw();
+    page.fire(1);
+    expect(page.sentences[0]!.removed).toBe(true);
+    expect(page.stopped()).toBe(true);
+  });
+
+  test('the watch ends at its own bound: a page left open holds no timer', () => {
+    const page = watchPage();
+    page.run();
+    page.fire(END_TICKS);
+    expect(page.sentences).toHaveLength(1);
+    expect(page.stopped()).toBe(true);
+  });
+
+  test('a check that throws holds no timer either, and says nothing it cannot prove', () => {
+    const page = watchPage({ throws: true });
+    page.run();
+    page.fire(END_TICKS);
+    expect(page.stopped()).toBe(true);
+    expect(page.sentences).toEqual([]);
+  });
+});
+
 describe('the LikeC4 page of a diagram', () => {
   test('the document carries the element the bundle defines, the view and a word for a browser where LikeC4 draws nothing', async () => {
     const model = await buildDiagram({ type: 'c4-context', nodes: [] }, clean);
@@ -335,11 +451,9 @@ describe('the LikeC4 page of a diagram', () => {
     expect(page.html).toContain('data-likec4-undrawn');
     // The watchdog reads the whole composed tree: LikeC4 draws into a shadow root inside one, and a page that asked
     // the element's own shadow root would announce a drawing nobody lacks (madarch-pdkl).
+    // The page carries that walk, and the watch built for the element it draws (whose behaviour is its own describe).
     expect(page.html).toContain(`var likec4Drawings = ${LIKEC4_DRAWINGS_SOURCE};`);
-    // The page asks that walk about the element it carries, and takes the sentence away when a drawing appears: what
-    // the page does with the answer, not which line of the script spells it.
-    expect(page.html).toContain('likec4Drawings(element)');
-    expect(page.html).toContain('if (said) said.remove();');
+    expect(page.html).toContain(likec4WatchSource({ name: page.html.match(/<([a-z0-9-]+-view) view-id=/)?.[1] ?? '', title: model.title }));
     expect(page.html).toContain('C4 context: the whole product');
   });
 });
