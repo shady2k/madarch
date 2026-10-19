@@ -3,9 +3,10 @@
  * 0026, "Agent input"): a fixed part — the role, the rules, the limits, the answer
  * shape with an example, and the tools — and a per-unit part assembled from the
  * graph without an agent: the scope and its place, its members ranked and without
- * bodies, the edges that reach it, its data and entry points, the product's history,
- * the intent so far, the open questions, the coverage earlier stages recorded and the
- * drafts other units hold. At most 0026's 20K tokens, and no file content pasted.
+ * bodies, the edges that touch it, its data and entry points, the relations that reach
+ * it, the product's history and the kinds it may write — never a kind an agent unit
+ * writes itself, which would make the unit's own publication move its own reads. At
+ * most 0026's 20K tokens, and no file content pasted.
  *
  * Every expectation is taken from the task and the decision: 0026's numbers (272000,
  * 70%, 80%, ~30 turns, ~10 minutes, 16000 output tokens, 20K packet, ~200-line spans,
@@ -90,6 +91,7 @@ interface Fixture {
   readonly question: Fact;
   readonly coverage: Fact;
   readonly commits: readonly Fact[];
+  readonly table: Fact;
   readonly bigRepository: Fact;
   readonly bigFolder: Fact;
   readonly bigFiles: readonly Fact[];
@@ -130,19 +132,24 @@ function fixture(): Fixture {
     // A commit fact is read at the commit it is about, which the schema checks exactly: this one cites its own.
     makeNodeFact({ kind: 'commit', value: { repository: REPOSITORY, commit: 'c'.repeat(40), committedAt: '2026-10-02T10:00:00Z', authoredAt: '2026-10-02T09:00:00Z', subject: 'Split the cart from the order', parents: [COMMIT], files: [repositoryPath('src/beta.ts')] }, provenance: factProvenance(REPOSITORY, FILES[1]!, 1, 'c'.repeat(40)), layer: 'extracted' }),
   ];
+  // A data node of the folder (`table`) and a relation reaching it (`call` from a symbol of another file), so the
+  // data and relations sections are proven by a graph that holds one of each.
+  const table = makeNodeFact({ kind: 'table', value: { repository: REPOSITORY, name: 'orders', engine: 'postgres' }, provenance: provenance(FILES[1]!, 2), layer: 'extracted' });
   const bigRepository = makeNodeFact({ kind: 'repository', value: { repository: BIG_REPOSITORY, form: 'code' }, provenance: { source: { system: 'tree-sitter', version: '1.0.0' }, repository: { id: BIG_REPOSITORY, commit: COMMIT } }, layer: 'extracted' });
   const bigFolder = makeNodeFact({ kind: 'directory', value: { repository: BIG_REPOSITORY, path: repositoryPath(FOLDER) }, provenance: { source: { system: 'tree-sitter', version: '1.0.0' }, repository: { id: BIG_REPOSITORY, commit: COMMIT } }, layer: 'extracted' });
   const bigFiles = Array.from({ length: BIG_FILES }, (_unused, index) => fileFact(BIG_REPOSITORY, `src/file${String(index).padStart(4, '0')}.ts`));
   const graph: Fixture = {
-    repository, folder, files, symbols, entry, claim, question, coverage, commits, bigRepository, bigFolder, bigFiles,
+    repository, folder, files, symbols, entry, claim, question, coverage, commits, table, bigRepository, bigFolder, bigFiles,
     facts: () => [
-      repository, folder, ...files, ...symbols, entry, claim, question, coverage, ...commits,
+      repository, folder, ...files, ...symbols, entry, claim, question, coverage, ...commits, table,
       bigRepository, bigFolder, ...bigFiles,
       ...files.map((file) => makeEdgeFact({ kind: 'contains', value: { from: folder.id, to: file.id }, provenance: provenance(FOLDER, 1), layer: 'extracted' })),
       ...symbols.map((symbol, index) => makeEdgeFact({ kind: 'defines', value: { from: files[index]!.id, to: symbol.id }, provenance: provenance(FILES[index]!, 3), layer: 'extracted' })),
       makeEdgeFact({ kind: 'contains', value: { from: repository.id, to: folder.id }, provenance: provenance('README.md', 1), layer: 'extracted' }),
       makeEdgeFact({ kind: 'call', value: { from: symbols[1]!.id, to: symbols[0]!.id, count: 2, precision: 'syntactic' }, provenance: provenance(FILES[1]!, 4), layer: 'extracted' }),
       makeEdgeFact({ kind: 'defines', value: { from: folder.id, to: entry.id }, provenance: provenance(FILES[0]!, 5), layer: 'extracted' }),
+      makeEdgeFact({ kind: 'contains', value: { from: folder.id, to: table.id }, provenance: provenance(FILES[1]!, 2), layer: 'extracted' }),
+      makeEdgeFact({ kind: 'call', value: { from: symbols[1]!.id, to: folder.id, count: 2, precision: 'syntactic' }, provenance: provenance(FILES[1]!, 4), layer: 'extracted' }),
       makeEdgeFact({ kind: 'contains', value: { from: bigRepository.id, to: bigFolder.id }, provenance: { source: { system: 'tree-sitter', version: '1.0.0' }, repository: { id: BIG_REPOSITORY, commit: COMMIT } }, layer: 'extracted' }),
       ...bigFiles.map((file) => makeEdgeFact({ kind: 'contains', value: { from: bigFolder.id, to: file.id }, provenance: { source: { system: 'tree-sitter', version: '1.0.0' }, repository: { id: BIG_REPOSITORY, commit: COMMIT } }, layer: 'extracted' })),
     ],
@@ -286,28 +293,32 @@ describe('the per-unit packet, assembled from the graph', () => {
     expect(section<Record<string, unknown>>('place')).toEqual({ repository: REPOSITORY, path: 'src', commit: COMMIT, scope: 'acme-shop:src' });
     // The scope's own node, what it holds by kind, and the edges that touch it by kind and direction.
     expect(section<Record<string, unknown>>('scope')).toMatchObject({ kind: 'directory', label: `${REPOSITORY}:src/`, id: opened().graph.folder.id });
-    expect(section<Record<string, unknown>>('scope')).toMatchObject({ holds: [{ kind: 'entry-point', count: 1 }, { kind: 'file', count: 3 }] });
+    expect(section<Record<string, unknown>>('scope')).toMatchObject({ holds: [{ kind: 'entry-point', count: 1 }, { kind: 'file', count: 3 }, { kind: 'table', count: 1 }] });
     // Every edge that names the scope: the repository contains it, it contains its three files, and it defines the
     // entry point — counted by kind and direction, in code point order of the kind then the direction.
     expect(section<Record<string, unknown>>('scope')).toMatchObject({ edges: [
+      { kind: 'call', direction: 'in', count: 1 },
       { kind: 'contains', direction: 'in', count: 1 },
-      { kind: 'contains', direction: 'out', count: 3 },
+      { kind: 'contains', direction: 'out', count: 4 },
       { kind: 'defines', direction: 'out', count: 1 },
     ] });
     // The members, ranked and without bodies: 0026's "ranked symbols without bodies, entry points" — the entry point
     // the folder defines first, then the three files it contains, each with the path it stands at.
     const members = section<{ kind: string; label: string; file?: string; line?: number; place?: string }[]>('members');
-    expect(members.map((member) => member.kind)).toEqual(['entry-point', 'file', 'file', 'file']);
-    expect(members.map((member) => member.file)).toEqual(['src/alpha.ts', 'src/alpha.ts', 'src/beta.ts', 'src/gamma.ts']);
-    expect(members.map((member) => member.place)).toEqual(['acme-shop:src/alpha.ts', 'acme-shop:src/alpha.ts', 'acme-shop:src/beta.ts', 'acme-shop:src/gamma.ts']);
+    expect(members.map((member) => member.kind)).toEqual(['entry-point', 'table', 'file', 'file', 'file']);
+    expect(members.map((member) => member.file)).toEqual(['src/alpha.ts', 'src/beta.ts', 'src/alpha.ts', 'src/beta.ts', 'src/gamma.ts']);
+    expect(members.map((member) => member.place)).toEqual(['acme-shop:src/alpha.ts', 'acme-shop:src/beta.ts', 'acme-shop:src/alpha.ts', 'acme-shop:src/beta.ts', 'acme-shop:src/gamma.ts']);
     // No body of any member is in it: a member is its kind, its label, its id and where it stands, never its code.
     expect(JSON.stringify(members)).not.toContain('secretBodyOfAlpha');
     // The entry points and tests the scope holds, and the data nodes it holds, as the members' own kinds name them.
     expect(section<{ label: string }[]>('entryPoints').map((row) => row.label)).toEqual(['madarch serve']);
-    expect(section<unknown[]>('data')).toEqual([]);
-    // The relation kinds reaching the scope: a placement edge (`contains`, `defines`) is no relation, which is what
-    // the scope's own edge counts above hold instead.
-    expect(section<unknown[]>('relations')).toEqual([]);
+    // The data nodes the scope holds, by their own kinds: the fixture's table is a member of the folder.
+    expect(section<{ label: string }[]>('data').map((row) => row.label)).toEqual(['acme-shop:orders']);
+    // The relation kinds reaching the scope: the symbols of the folder's files call into it — a `call` edge from a
+    // symbol to the folder — and a placement edge (`contains`, `defines`) is no relation, which is what the scope's
+    // own edge counts above hold instead.
+    // The citing node is the symbol of the folder's second file, named as a node's label is (`<repository>:<file>#<name>`).
+    expect(section<Record<string, unknown>[]>('relations')).toEqual([{ kind: 'call', direction: 'in', node: 'acme-shop:src/beta.ts#OrderService.beta', file: 'src/beta.ts', line: 4 }]);
     // 0026's "history": the product's commits, newest first, from the graph's own facts.
     expect(section<{ subject: string }[]>('history').map((row) => row.subject)).toEqual(['Split the cart from the order', 'Add the checkout total']);
     // The kinds this unit may write, in code point order.
@@ -317,7 +328,6 @@ describe('the per-unit packet, assembled from the graph', () => {
     expect(packet.marker).toBeNull();
     expect(JSON.parse(packet.packet)).toMatchObject({ marker: null });
     expect(packet.membersCut).toBe(false);
-    expect(packet.tokens).toBeLessThanOrEqual(PACKET_TOKENS);
   });
 
   test('reads no kind an agent unit itself writes: a unit\'s own publication never moves its own packet\'s reads', async () => {

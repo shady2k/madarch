@@ -63,7 +63,7 @@ import {
   type UnitMember,
 } from '../agent-packet.js';
 import { scopeText, writeScope, type WriteScope } from '../checked-writes.js';
-import { checkFact, FACT_KINDS, makeNodeFact, type CoverageGap, type CoverageValue, type Fact, type FactKind, type FactSource } from '../facts.js';
+import { FACT_KINDS, makeNodeFact, type CoverageGap, type CoverageValue, type Fact, type FactKind, type FactSource } from '../facts.js';
 import {
   DEFAULT_GRAPH_READ_LIMITS,
   estimateTokens,
@@ -91,6 +91,7 @@ import {
   type StageValidation,
 } from '../stage.js';
 import { createUnitLimitGuard, type UnitLimitCause } from '../unit-limits.js';
+import { checkFactDraft } from './draft.js';
 
 /** The stage's id, as it is registered: one agent unit per scope, decision 0026's stages 8 to 13. */
 export const AGENT_UNIT_STAGE_ID = 'agent-unit';
@@ -302,7 +303,10 @@ async function planScope(reads: GraphReadContext, scope: PlanScope, budget: Plan
   // No enumeration of a scope whose member list the answer's cap cut, and none when the bound has no room left:
   // the scope stands as one unit either way, and its own coverage names what its member list did not hold. A plan
   // never names a shorter list than the one it read.
-  if (places === null || budget.left < 1) return one();
+  // A file's members are its symbols, and a symbol is no scope a unit could be given: `placeMembers` answers no
+  // place for such a scope, and enumerating nothing would name it by no unit at all. A scope whose places are not
+  // an enumeration of what it holds therefore stands as one unit, like the cut case above.
+  if (places === null || places.length === 0 || budget.left < 1) return one();
   const before = budget.left;
   const units: StageUnitScope[] = [];
   for (const member of places) {
@@ -564,7 +568,6 @@ async function executeUnit(wiring: AttemptWiring, unit: StageUnit, context: Stag
     task: AGENT_UNIT_TASK,
   });
   const guard = createUnitLimitGuard({ limits, clock: wiring.clock });
-  guard.sent(estimateTokens(packet.prompt, DEFAULT_GRAPH_READ_LIMITS));
   context.progress(`the packet for ${unit.scope} is ${String(packet.tokens)} tokens in ${String(packet.sections.length)} sections`, 0);
   if (packet.marker !== null) context.progress(`the packet of ${unit.scope} was cut by 0026's ${String(PACKET_TOKENS)}-token cap: ${packet.marker}`);
 
@@ -579,6 +582,8 @@ async function executeUnit(wiring: AttemptWiring, unit: StageUnit, context: Stag
   /** Whether the session has already shown the unit past 70%: the signal goes once, as its own turn. */
   let wrapPending = false;
   let wrapSent = false;
+  /** How much of what the unit's own server answered has already been added to the guard's count. */
+  let answeredCounted = 0;
   try {
     await connection.initialize();
     const session: AcpSession = await connection.newSession({ cwd: wiring.cwd ?? process.cwd(), mcpServers: [tools.mcpServer] });
@@ -593,6 +598,8 @@ async function executeUnit(wiring: AttemptWiring, unit: StageUnit, context: Stag
     try {
       for (;;) {
         turns += 1;
+        // What madarch itself puts into the session, counted once: the packet, the wrap-up message and every nudge
+        // are each sent as one turn, and the loop counts each at the moment it sends it.
         guard.sent(estimateTokens(prompt, DEFAULT_GRAPH_READ_LIMITS));
         const result: AcpPromptResult = await session.prompt(prompt, {
           onUpdate: (update: AcpUpdate) => {
@@ -619,6 +626,13 @@ async function executeUnit(wiring: AttemptWiring, unit: StageUnit, context: Stag
           turns,
           ...(result.usage?.outputTokens === undefined ? {} : { outputTokens: result.usage.outputTokens }),
         });
+        // 0026 counts "the session and the server": the answers this unit's own MCP server returned are in the same
+        // context, so what it has answered so far is added to madarch's own count before the turn is judged.
+        const answered = tools.answered?.() ?? 0;
+        if (answered > answeredCounted) {
+          guard.sent(answered - answeredCounted);
+          answeredCounted = answered;
+        }
         if (judged.kind === 'stop') { stopCause = judged.cause; break; }
         const read = readUnitAnswer(result.text);
         if (read !== undefined) { answer = read; break; }
@@ -763,31 +777,11 @@ export const MAX_NUDGE_PLACES = 40;
 
 /**
  * Judges one unit's draft before it is published: every write is a fact of an agent
- * unit's kinds, and the schema reads it. Every error names the write's place in the
- * draft, what it cites and the fact's own path and place, so a refusal is one line a
- * reader can act on. A write of one of the four kinds the tools make (`fact`,
- * `entity`, `link`, `question`) carries its fact in `value` (0026, "Writing"), so one
- * rule reads all four.
+ * unit's kinds, and the schema reads it. The rule is the landed one
+ * (`checkFactDraft`, `draft.ts`) over the four write kinds this stage's tools make —
+ * `fact`, `entity`, `link` and `question`, each carrying its whole fact in `value`
+ * (0026, "Writing") — so a stage's draft is read one way in the fill and not two.
  */
 export function validateDraft(draft: StageDraftSet): StageValidation {
-  const errors: string[] = [];
-  draft.writes.forEach((write: StageDraftWrite, index: number) => {
-    const at = `write ${String(index + 1)} (${write.evidence})`;
-    if (!['fact', 'entity', 'link', 'question'].includes(write.kind)) {
-      errors.push(`${at}: the agent unit's tools write facts, entities, links and questions, and a ${JSON.stringify(write.kind)} write is none of them`);
-      return;
-    }
-    const problems = checkFact(write.value);
-    const kind = write.value !== null && typeof write.value === 'object' ? (write.value as { kind?: unknown }).kind : undefined;
-    if (typeof kind === 'string' && !AGENT_UNIT_KINDS.includes(kind)) {
-      errors.push(`${at}: an agent unit does not write a ${JSON.stringify(kind)} fact: it writes ${AGENT_UNIT_KINDS.join(', ')}`);
-    }
-    if (kind === undefined) errors.push(`${at}: the write names no kind: every write carries its whole fact, kind and id included`);
-    for (const problem of problems) {
-      const from = problem.path === '' ? '' : `${problem.path}: `;
-      const where = problem.file === undefined ? '' : `${problem.file}:${String(problem.line ?? 1)} `;
-      errors.push(`${at}: ${where}${from}${problem.message}`);
-    }
-  });
-  return errors.length === 0 ? { ok: true } : { ok: false, errors };
+  return checkFactDraft(AGENT_UNIT_STAGE_ID, AGENT_UNIT_KINDS, draft, ['fact', 'entity', 'link', 'question']);
 }

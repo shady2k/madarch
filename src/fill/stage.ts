@@ -214,6 +214,12 @@ export interface ResolvedStageConfiguration {
 export interface StageUnitTools {
   /** The server to attach to the unit's ACP session (`connection.newSession({ mcpServers })`, `src/fill/acp.ts`). */
   readonly mcpServer: AcpMcpServer;
+  /**
+   * What the unit's server has answered so far, in tokens, where the host counts it: 0026's
+   * limits count "the session and the server", and a host that does not count answers
+   * nothing here (the unit's own agent report is then the only figure above the prompts).
+   */
+  answered?(): number;
   /** Forgets the session: called when the attempt ends, whatever it ended with. */
   close(): void;
 }

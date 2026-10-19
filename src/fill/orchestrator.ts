@@ -1141,9 +1141,6 @@ async function attemptUnit(
   await emit(orchestrator, { runId: unit.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-leased', summary: `${unit.unitId} is leased to ${request.worker} under fence ${fence}, attempt ${leased.record.context.attempt}` });
   await emit(orchestrator, { runId: unit.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-started', summary: `${unit.unitId} attempt ${leased.record.context.attempt} runs under fence ${fence}` });
 
-  // The attempt's authority: a cancellation aborts it here.
-  const controller = new AbortController();
-  orchestrator.authority.set(authorityKey(unit.unitId, unit.generation), controller);
   const writes: StageDraftWrite[] = [];
   const notes: { note: string; fraction: number | null; at: number }[] = [];
   const reader = await orchestrator.graph(unitRef(unit, plan));
@@ -1154,36 +1151,43 @@ async function attemptUnit(
   // 0026's per-unit MCP server: the stage's units that declare they read and write through one are handed the
   // server a host opened for this generation, bound to this attempt's own draft set, and the attempt closes it
   // whatever it ends with.
-  // The stage's configuration is resolved first: reading it can refuse (a configuration that moved mid-run, a
-  // stage the graph does not hold), and a refusal here must not leave a unit's tool session open behind it.
-  const config = stageConfiguration(await currentGraph(orchestrator, unit.runId), unit.stageId);
-  const tools = stage.usesTools === true && orchestrator.unitTools !== undefined
-    ? await orchestrator.unitTools({ unit, plan, draft: draftWriter })
-    : undefined;
-  const context: StageContext = {
-    unit: { id: plan.stageUnitId, scope: plan.scope },
-    ...(tools === undefined ? {} : { tools }),
-    config,
-    graph: {
-      query: async (text: string) => {
-        const rows = await reader.query(text);
-        await recordUnitRead(orchestrator.database, { unitId: unit.unitId, generation: unit.generation, query: text, rows, at: orchestrator.clock() });
-        await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-read', summary: `${unit.unitId} read "${text}" and answered ${rows.length} ${rows.length === 1 ? 'row' : 'rows'}` });
-        return rows;
-      },
+  // The graph this attempt's stage reads through: every read is recorded as the generation's dependency, and the
+  // same reader serves the stage's own reads and its `validate`, so nothing reads the graph unrecorded.
+  const attemptReader: StageGraphReader = {
+    query: async (text: string) => {
+      const rows = await reader.query(text);
+      await recordUnitRead(orchestrator.database, { unitId: unit.unitId, generation: unit.generation, query: text, rows, at: orchestrator.clock() });
+      await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-read', summary: `${unit.unitId} read "${text}" and answered ${rows.length} ${rows.length === 1 ? 'row' : 'rows'}` });
+      return rows;
     },
-    draft: draftWriter,
-    // A stage reports its progress synchronously; the notes are kept in order and written as the run's
-    // own durable events the moment the attempt ends, so a lost write is an error rather than a silence.
-    progress: (note: string, fraction?: number) => {
-      notes.push({ note, fraction: fraction ?? null, at: orchestrator.clock() });
-    },
-    signal: controller.signal,
   };
-
+  // Everything the attempt opens — its authority, the unit's tools, its progress notes — is opened inside one try:
+  // resolving the stage's configuration can refuse (a configuration that moved mid-run, a stage the graph does not
+  // hold), and a refusal there must leave neither an authority entry behind it nor a unit's tool session open.
+  const controller = new AbortController();
+  let tools: StageUnitTools | undefined;
+  let context: StageContext | undefined;
   let result: StageExecutionResult | undefined;
   let raised: Error | undefined;
   try {
+    const config = stageConfiguration(await currentGraph(orchestrator, unit.runId), unit.stageId);
+    orchestrator.authority.set(authorityKey(unit.unitId, unit.generation), controller);
+    tools = stage.usesTools === true && orchestrator.unitTools !== undefined
+      ? await orchestrator.unitTools({ unit, plan, draft: draftWriter })
+      : undefined;
+    context = {
+      unit: { id: plan.stageUnitId, scope: plan.scope },
+      ...(tools === undefined ? {} : { tools }),
+      config,
+      graph: attemptReader,
+      draft: draftWriter,
+      // A stage reports its progress synchronously; the notes are kept in order and written as the run's
+      // own durable events the moment the attempt ends, so a lost write is an error rather than a silence.
+      progress: (note: string, fraction?: number) => {
+        notes.push({ note, fraction: fraction ?? null, at: orchestrator.clock() });
+      },
+      signal: controller.signal,
+    };
     result = await stage.execute({ id: plan.stageUnitId, scope: plan.scope }, context);
   } catch (error) {
     raised = error as Error;
@@ -1221,7 +1225,7 @@ async function attemptUnit(
   if (!validating.ok) return validating.outcome;
   await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-validating', summary: `${unit.unitId} validates its draft` });
 
-  const validation = await stage.validate({ writes }, context.graph);
+  const validation = await stage.validate({ writes }, attemptReader);
   if (!validation.ok) {
     return await retryAttempt(orchestrator, {
       unit: validating.record, fence, job: request.job, cause: 'validation-problem',
@@ -1391,19 +1395,17 @@ async function splitAttempt(
   if (request.children.length > orchestrator.limits.maxSplitChildren) {
     return await refuse(`the split names ${request.children.length} children, more than the ${orchestrator.limits.maxSplitChildren} one split may seal`);
   }
-  // A parent whose children already published is a parent that must build on them: sealing the same children again
-  // would re-run published work and, for a unit that stops at its limit every time, never end. The set is compared
-  // by the child generations this parent already sealed and their state, so a genuinely different split is allowed.
+  // A parent that already split has settled its children — published, or failed under the run's own policy — and is
+  // running again because it joined them: sealing that same set again would re-run settled work and, for a unit that
+  // stops at its limit every time, never end. The comparison is against the child ids this generation sealed, never
+  // their state, so the failed child of an `accept-partial` run is covered too. A genuinely different split is
+  // allowed, because it names children this generation did not seal.
   const sealedBefore = await readSealedChildren(database, unit.unitId, unit.generation);
   if (sealedBefore.length > 0) {
-    const published = new Set<string>();
-    for (const child of sealedBefore) {
-      const record = await readUnitGeneration(database, child.unitId, child.generation);
-      if (record !== null && record.state === 'published') published.add(child.unitId);
-    }
+    const sealed = new Set(sealedBefore.map((child) => child.unitId));
     const named = request.children.map((child) => unitIdFor(unit.stageId, child.id));
-    if (named.length > 0 && named.every((childUnitId) => published.has(childUnitId))) {
-      return await refuse(`the split names ${String(named.length)} ${named.length === 1 ? 'child' : 'children'} this generation already sealed and published (${named.sort(byCodePoint).join(', ')}): a parent whose children published builds on them rather than sealing them again`);
+    if (named.length > 0 && named.every((childUnitId) => sealed.has(childUnitId))) {
+      return await refuse(`the split names ${String(named.length)} ${named.length === 1 ? 'child' : 'children'} this generation already sealed (${named.sort(byCodePoint).join(', ')}): a parent whose children settled builds on them rather than sealing them again`);
     }
   }
   const depth = await splitDepth(orchestrator, unit.unitId, unit.generation);
@@ -1414,7 +1416,7 @@ async function splitAttempt(
   if (work > orchestrator.limits.maxSplitWork) {
     return await refuse(`the split's children estimate ${work} tokens of work together, past the ${orchestrator.limits.maxSplitWork} one split may seal`);
   }
-  const sealed = await ownTransaction(here(), orchestrator, `sealSplit(${unit.unitId}/${unit.generation})`, ['fill_unit_split', 'fill_unit_plan', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'], async (executor) => {
+  const sealed = await ownTransaction(here(), orchestrator, `sealSplit(${unit.unitId}/${unit.generation})`, ['fill_unit_split', 'fill_unit_plan', 'fill_unit_draft', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'], async (executor) => {
     const children: { unitId: string; generation: number }[] = [];
     for (const [index, child] of request.children.entries()) {
       const childUnitId = unitIdFor(unit.stageId, child.id);

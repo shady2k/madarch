@@ -160,10 +160,15 @@ Taken from decisions 0026, 0027 and 0005; nothing here re-decides them.
   intent, coverage and questions through its tools (`claims_about`, `coverage`,
   `describe_scope`), which is what 0026's "Agents and tools" builds them for. The
   unit's declared kinds are the node kinds of understanding (a claim, a rule, a
-  state, an entity, a question, a coverage), so it draws no edge: an edge inside
-  its own scope would move the packet's own edge counts under it. 0026's `link`
-  tool stays offered and a write of an edge kind is refused by name, which is the
-  same refusal a stage gives a kind it does not produce.
+  state, an entity, a question, a coverage) and the two edges an agent stage draws
+  (`interaction`, `transition`). The edges are declared because 0026 makes `link`
+  one of the unit's tools: a kind the stage did not declare would be refused after
+  the unit had done its work, and the refusal would spend the unit's draft set. A
+  link of any other edge kind — the read kinds a tool description names as examples
+  (`call`, `import`, `dependency`) — is therefore refused, and the fixed part says
+  which two the unit may draw so an agent cannot fall into it by following the tool
+  description; a link that names the unit's own scope node as an end does move the
+  packet's own edge counts, and that costs one replacement generation.
 - **Where the two token counts come from.** 0026 says "madarch counts tokens from
   the session and the server". The session's own figure is the agent's
   `usage_update` (what the agent says is in its context); the server's is what
@@ -229,13 +234,12 @@ Taken from decisions 0026, 0027 and 0005; nothing here re-decides them.
   `plan(graph)`), so it estimates against 0026's default window: a product that
   narrows its window makes a unit split earlier at run time, never later, because
   the guard reads the resolved limits.
-- **A unit may draw the two agent-stage edges.** `link` is one of the unit's tools
-  (0026, "Agents and tools"), so `interaction` and `transition` are among the kinds
-  this stage declares it produces: a kind the stage did not declare would be refused
-  after the unit had done its work, and the refusal would spend the unit's draft
-  set. The consequence is named above with the read rule: a link that names the
-  unit's own scope node as an end moves the packet's own edge counts, and that costs
-  one replacement generation rather than a lost unit.
+- **A unit may draw the two agent-stage edges, and the fixed part says so.** `link`
+  is one of the unit's tools (0026, "Agents and tools"), so `interaction` and
+  `transition` are among the kinds this stage declares it produces, and the fixed
+  part names exactly those two: a kind the stage did not declare would be refused
+  after the unit had done its work, and the refusal would spend the unit's draft set.
+  The read consequence is named above with the read rule.
 - **A unit's tools are opened by the run, not by the stage.** 0026 makes the
   background server the only database writer and the units' servers thin proxies
   to it; the only thing that knows a unit's store identity, its generation, its
@@ -291,11 +295,76 @@ Taken from decisions 0026, 0027 and 0005; nothing here re-decides them.
     such a parent rather than sealing fewer children; a stage cannot read the run's
     limits today, and a split that named more places than its bound is the reason
     the coverage's gaps exist.
+  - **A parent blocked by the re-seal refusal waits for a person.** The block is
+    0027's own blocked state, so the run settles as `completed_partial` with that
+    unit named, and a resolution (`unblockUnit`) makes the unit runnable — but a
+    terminal run is not driven again by its own loop, so the unit's next attempt is
+    a worker's own claim rather than the run continuing by itself. That is the
+    consequence of a person's decision, never a silent stall: the run's evidence
+    and its progress events name the blocked unit and the children it refused to
+    seal again.
   - **A stop between turns is not seen until the next event.** A time limit that
     passes while an agent streams nothing and answers nothing is ended by the
     attempt's own end (0027's lease), not by this guard.
   - **No `mutation` receipt.** The owner's rule runs Stryker once per assembled
     stage, off the path; acceptance escalates per `mutationFallback: escalate`.
+
+## Acceptance evidence
+
+The checks, each command's own exit status, at hand-over:
+
+- `bun run check` (`tsc --noEmit`) exit 0 at every commit of the branch, the
+  rebase onto `origin/main` included.
+- The feature document gate (`node .shady2k/documents.mjs check --phase feature
+  --change madarch-tzte.22.3 --candidate worktree --target origin/main`) exit 0,
+  clean, after every edit round (it runs in the pre-commit hook too).
+- The focused suites run in SkyPilot, not on this machine (the owner's rule),
+  `madarch-sky-test <worktree> <files>`, each with the tests' own exit status:
+  - `test/fill-unit-limits.test.ts` + `test/fill-agent-packet.test.ts` +
+    `test/fill-agent-unit.test.ts` — 28 pass, 0 fail, exit 0 at the second
+    review's answers (25 pass at the first revision, 26 pass at the first
+    review's answers, 28 with the plan's own cases). The three files hold 11,
+    10 and 7 tests.
+  - `test/fill-orchestrator.test.ts` + `test/fill-crash-suite.test.ts` +
+    `test/fill-registry.test.ts` + `test/fill-unit-tools.test.ts` +
+    `test/product-daemon.test.ts` + `test/fill-agent-unit.test.ts` — 175 pass,
+    0 fail, exit 0, after the first review's answers (the split transaction and
+    the tools seam moved).
+  - After the rebase onto `origin/main` `fad2419e` (the modules stage landed):
+    `test/fill-unit-limits.test.ts` + `test/fill-agent-packet.test.ts` +
+    `test/fill-agent-unit.test.ts` + `test/fill-registry.test.ts` +
+    `test/fill-modules-stage.test.ts` + `test/fill-orchestrator.test.ts` —
+    166 pass, 0 fail, exit 0.
+  - Every deterministic stage's own suite with `test/product-cli.test.ts`,
+    `test/product-daemon.test.ts`, `test/fill-facts.test.ts` and
+    `test/fill-state-store.test.ts` (the direct importers of `stage.ts`,
+    `stages/index.ts` and `daemon.ts`) — 396 pass, 0 fail, exit 0, before the
+    review's answers; `test/fill-orchestrator.test.ts`,
+    `test/fill-crash-suite.test.ts`, `test/fill-registry.test.ts`,
+    `test/fill-graph-reads.test.ts`, `test/fill-unit-tools.test.ts`,
+    `test/product-daemon.test.ts` and `test/contract-serve.test.ts` — 221 pass,
+    0 fail, exit 0, at the first revision.
+- The independent review, fresh read-only
+  `prime-agent --provider shady2k-gateway --model deepseek-v4.1-flash-auto`
+  sessions over `git diff origin/main...HEAD`, each told not to run anything on
+  this machine.
+  - Round 1 (`/tmp/review-223.log`): verdict `fix-before-ship`; four defects and
+    twelve findings. The defects: the plan dropped the scopes past its bound and
+    reported `planned`; a member list cut by a read's cap could still publish
+    `coverage{complete: true}` while the cut never reached the agent; a parent
+    that joined could split into the same, already published children for ever;
+    and a unit's tool session leaked when the stage's configuration refused after
+    the tools were opened. All four are answered in `f1bc846c` **with the test
+    that catches each** (the plan's own cases in `test/fill-agent-unit.test.ts`,
+    an end-to-end unit that covers exactly what its cut packet showed, the second
+    attempt after a join, and the configuration read before the tools are opened),
+    and the twelve findings are answered too (the guard counts every prompt it
+    sends; the answer's own `remaining` is honoured; `link` is no longer a lost
+    unit; a comment member is named by its place; the fixed sections are counted
+    against 0026's cap; dead code, an unused parameter and a self-checked constant
+    are gone; refusals use `raise()`).
+- CI on the exact SHA of the branch: named in the task's `check:` records and in
+  the queue entry (`## madarch-tzte.22.3 — READY …`).
 
 ## DONE WHEN
 

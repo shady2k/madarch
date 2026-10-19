@@ -76,6 +76,8 @@ interface ScriptStep {
   answerMembers?: { summary?: string };
   end?: { stopReason?: string; usage?: unknown };
   wait?: boolean;
+  /** Ends the agent process with this exit code, without answering: a unit whose session fails mid-turn. */
+  exit?: number;
 }
 interface Script { byPrompt?: { matches?: string; steps?: ScriptStep[] }[]; steps?: ScriptStep[] }
 const script: Script | undefined = scriptPath === undefined ? undefined : JSON.parse(readFileSync(scriptPath, 'utf8')) as Script;
@@ -289,6 +291,10 @@ async function runScript(id: number | string, sessionId: string, text: string): 
     }
     if (step.end !== undefined) {
       respond(id, { stopReason: step.end.stopReason ?? 'end_turn', ...(step.end.usage === undefined ? {} : { usage: step.end.usage }) });
+      return;
+    }
+    if (step.exit !== undefined) {
+      setTimeout(() => process.exit(step.exit), 10);
       return;
     }
     if (step.wait === true) {

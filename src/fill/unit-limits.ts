@@ -17,13 +17,15 @@
  * **Where the token count comes from, and why it is two counts.** 0026 says
  * "madarch counts tokens from the session and the server". The session's own
  * figure is the agent's `usage_update` (`AcpUpdate.contextUsed`, the tokens the
- * agent says are in its context); the server's is what madarch itself put into
- * that context — the packet, the wrap-up message and every turn's prompt. The
- * unit's account is the larger of the two: an agent that reports a fuller context
- * than madarch's own sum is the one to believe, and an agent that reports nothing
- * at all leaves madarch's own sum as the floor, so "not reported" is never read
- * as "no room used". The two are never added: the session's figure already holds
- * what madarch sent, and a sum of the two would count the packet twice.
+ * agent says are in its context); the server's is what madarch itself put into that
+ * context — the packet, the wrap-up message and every turn's prompt (`sent`), and
+ * the answers the unit's own MCP server returned (`src/fill/unit-tools.ts` counts
+ * them per session, and the unit adds what it has answered since the last turn).
+ * The unit's account is the larger of the two counts: an agent that reports a fuller
+ * context than madarch's own sum is the one to believe, and an agent that reports
+ * nothing at all leaves madarch's own sum as the floor, so "not reported" is never
+ * read as "no room used". The two are never added: the session's figure already
+ * holds what madarch sent, and a sum of the two would count the packet twice.
  *
  * **Nothing here waits.** Every moment is read from the clock the caller passes,
  * and the guard is evaluated on the events a session produces — each streamed
@@ -88,7 +90,11 @@ export type UnitLimitVerdict =
 export interface UnitLimitGuard {
   /** One moment of the session: the agent's report, madarch's own count, and how many turns ran. */
   observe(moment: UnitMoment): UnitLimitVerdict;
-  /** Records what madarch itself put into the session (the packet, a wrap-up message, a turn's prompt), in tokens. */
+  /**
+   * Records what madarch itself put into the session, in tokens: the packet, a
+   * wrap-up message, a turn's prompt, and — as the unit adds them each turn — the
+   * answers the unit's own MCP server returned.
+   */
   sent(tokens: number): void;
   /** The limits as they stand, without observing anything. */
   state(): UnitLimitState;

@@ -41,12 +41,20 @@ export function evidenceAt(reader: SnapshotReader, path?: string): string {
  * passes: an empty fact set is how a stage retracts what an earlier run wrote
  * for a path the pinned commit no longer holds.
  */
-export function checkFactDraft(stageId: string, kinds: readonly string[], draft: StageDraftSet): StageValidation {
+export function checkFactDraft(
+  stageId: string,
+  kinds: readonly string[],
+  draft: StageDraftSet,
+  writeKinds: readonly StageDraftWrite['kind'][] = ['fact'],
+): StageValidation {
   const errors: string[] = [];
+  // How the refusal names what the stage writes: the deterministic stages write `fact` writes alone, and a stage
+  // whose tools write entities, links and questions says so (madarch-tzte.22.3).
+  const writesWord = writeKinds.length === 1 && writeKinds[0] === 'fact' ? 'facts' : `${writeKinds.join(', ')} writes`;
   draft.writes.forEach((write: StageDraftWrite, index: number) => {
     const at = `write ${index + 1} (${write.evidence})`;
-    if (write.kind !== 'fact') {
-      errors.push(`${at}: the ${stageId} stage writes facts, and a "${write.kind}" write is not one`);
+    if (!writeKinds.includes(write.kind)) {
+      errors.push(`${at}: the ${stageId} stage writes ${writesWord}, and a "${write.kind}" write is not one`);
       return;
     }
     const problems = checkFact(write.value);

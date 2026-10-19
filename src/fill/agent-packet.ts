@@ -3,13 +3,12 @@
  * madarch-tzte.22.3): a **fixed part** — the unit's role, its rules, its limits,
  * the shape of the answer it must give and the tools it has — and a **per-unit
  * packet** assembled from the graph without an agent: the scope and its place,
- * the members it holds ranked and without their bodies, the edges that reach it
- * and the ones it draws, its data and its entry points, the product's history
- * that touches it, what the graph already says about it (the intent so far, the
- * open questions, the coverage earlier stages recorded), the drafts other units
- * of the run hold about it, and the task itself. No file content is pasted: the
- * two reads that carry bytes (`evidence_span`, a span read) are the unit's own to
- * make, one bounded span at a time, and this module never makes one.
+ * the members it holds ranked and without their bodies, the edges that touch it,
+ * its data and its entry points, the relations that reach it, the product's history
+ * that touches it, the kinds it may write, and the task itself. No file content is
+ * pasted: the only read that carries bytes is the unit's own `evidence_span`, one
+ * bounded span at a time, and this module never makes one. The next paragraph says
+ * why the graph's own intent, questions and coverage are not in the packet.
  *
  * 0026 fixes the size: "a starting packet of at most 20K tokens". The cap is
  * counted the fill's own way (`estimateTokens`, four code points a token, the
@@ -65,9 +64,9 @@ import {
   type GraphReadContext,
   type NeighborRow,
 } from './graph-reads.js';
-import type { Fact, FactEdgeKind, FactKind } from './facts.js';
+import { FACT_EDGE_KINDS, type Fact, type FactEdgeKind, type FactKind } from './facts.js';
 import { UNIT_TOOLS } from './unit-tools.js';
-import { here, raise } from './fsm-core.js';
+import { raise } from './fsm-core.js';
 import type { StageGraphReader, StageLimits } from './stage.js';
 
 /** 0026's cap on the prompt a unit starts with: "at most 20K tokens". */
@@ -214,7 +213,7 @@ export function unitFixedPart(options: { readonly limits: StageLimits; readonly 
     '`covered` names every place of your scope you read to the end; `remaining` names the places you did not. A `done` answer whose `remaining` is not empty is read as `partial`: nothing you leave out is reported as covered.',
     'Example: {"status":"done","covered":["src/order.ts","src/cart.ts"],"remaining":[],"summary":"The checkout total is the cart total plus tax"}',
     '',
-    `Facts this unit may write: ${options.kinds.join(', ')}.`,
+    `Facts this unit may write: ${options.kinds.join(', ')}. A \`link\` draws one of the schema's edge kinds this unit produces — here ${options.kinds.filter((kind) => (FACT_EDGE_KINDS as readonly string[]).includes(kind)).join(' and ') || 'none'} — and a link of a read kind another tool description names as an example (\`call\`, \`import\`, \`dependency\`) is refused: a link this unit may not draw would cost it the whole turn.'`,
     '',
     'Tools:',
     tools,
@@ -247,14 +246,23 @@ export function placeText(repository: string, path?: string): string {
 }
 
 /** One member as the packet reads a neighbour row: the node, the path it stands at, and the place that path names. */
+/**
+ * The label a packet writes for one node. A comment's own label is its text (`labelOf`, `graph-reads.ts`) — the
+ * file's bytes, and 0026 pastes no file content — so anything whose label is content is named by where it stands
+ * instead. Nothing draws an edge to a comment today; this is what keeps that from becoming a hole in "no file
+ * content is pasted" if one ever does.
+ */
+function packetLabel(node: GraphNodeRef, repository: string): string {
+  if (node.kind !== 'comment') return boundedText(node.label);
+  const path = pathOfNode(node);
+  return boundedText(path === undefined ? node.id : placeText(repository, path));
+}
+
 function memberOf(node: GraphNodeRef, repository: string): UnitMember {
   const path = pathOfNode(node);
   return {
     kind: node.kind,
-    // A comment's own label is its text (`labelOf`, `graph-reads.ts`): it is the file's bytes, and 0026 pastes no
-    // file content, so a comment member is named by where it stands. Nothing draws a structure edge to a comment
-    // today; this is what keeps that from becoming a hole in "no file content is pasted" if one ever does.
-    label: node.kind === 'comment' ? (path === undefined ? node.id : placeText(repository, path)) : node.label,
+    label: packetLabel(node, repository),
     id: node.id,
     ...(path === undefined ? {} : { file: path }),
     ...(node.line === undefined ? {} : { line: node.line }),
@@ -307,25 +315,26 @@ function boundedList<T>(options: {
   const held: unknown[] = [];
   let taken = 0;
   let cut = Math.max(0, options.rows.length - options.max);
+  /** Why the list stopped short: the section's own count, or the packet's token budget. */
+  let by: 'count' | 'tokens' | null = cut === 0 ? null : 'count';
   for (const [index, row] of options.rows.entries()) {
     if (index >= options.max) break;
     const rendered = options.render(row);
-    const cost = estimateTokens(JSON.stringify(rendered) ?? 'null', DEFAULT_GRAPH_READ_LIMITS);
+    // Charged in the currency the prompt is sent in: the packet is pretty-printed (`JSON.stringify(…, null, 1)`),
+    // so a row costs what its own line of that text costs and not what its compact form does.
+    const cost = estimateTokens(JSON.stringify(rendered, null, 1) ?? 'null', DEFAULT_GRAPH_READ_LIMITS);
     if (cost > options.budget.left) {
       cut = options.rows.length - held.length;
+      by = 'tokens';
       break;
     }
     held.push(rendered);
     options.budget.left -= cost;
     taken += 1;
   }
-  const marker = cut === 0 ? null : `truncated: ${options.what} holds ${String(options.rows.length)} ${options.rows.length === 1 ? 'row' : 'rows'} and the packet's ${String(PACKET_TOKENS)}-token cap holds ${String(taken)}: ${String(cut)} ${cut === 1 ? 'row was' : 'rows were'} cut`;
+  const cap = by === 'tokens' ? `the packet's ${String(PACKET_TOKENS)}-token cap` : `this list's own bound of ${String(options.max)} rows`;
+  const marker = cut === 0 || by === null ? null : `truncated: ${options.what} holds ${String(options.rows.length)} ${options.rows.length === 1 ? 'row' : 'rows'} and ${cap} holds ${String(taken)}: ${String(cut)} ${cut === 1 ? 'row was' : 'rows were'} cut`;
   return { name: options.name, value: held, marker };
-}
-
-/** One end of a claim as a reader reads it: the node it names, or the literal or address it states. */
-function termText(term: { readonly label?: string; readonly id?: string; readonly url?: string; readonly text?: string }): string {
-  return boundedText(term.label ?? term.id ?? term.url ?? term.text ?? '');
 }
 
 /** One node as the packet writes it: its kind, its label, its id and where it stands. */
@@ -405,9 +414,6 @@ export async function buildUnitPacket(request: UnitPacketRequest): Promise<UnitP
   const historyRead = { read: 'facts-with' as const, kind: 'commit' as const, field: 'repository', value: request.repository };
   const history = factsOfRows(await request.graph.query(readText(historyRead)), historyRead);
 
-  // The sections whose shape does not depend on the budget are written first and measured, so the lists that follow
-  // are bounded by what is really left of 0026's cap: a graph with very many kinds would otherwise push the prompt
-  // past it and fail the unit rather than send a smaller, named packet.
   const head: Section[] = [
     { name: 'unit', value: { id: request.unit.id, scope: request.unit.scope, task: request.task }, marker: null },
     { name: 'place', value: { repository: request.repository, ...(request.path === undefined ? {} : { path: request.path }), commit: request.commit, scope: placeText(request.repository, request.path) }, marker: null },
@@ -419,7 +425,7 @@ export async function buildUnitPacket(request: UnitPacketRequest): Promise<UnitP
   // The sections whose shape does not depend on the budget are measured first, so the lists that follow are bounded
   // by what is really left of 0026's cap: a graph with very many kinds would otherwise push the prompt past it and
   // fail the unit rather than send a smaller, named packet.
-  budget.left -= estimateTokens(JSON.stringify([...head, ...tail].map((section) => [section.name, section.value])), DEFAULT_GRAPH_READ_LIMITS);
+  budget.left -= estimateTokens(JSON.stringify([...head, ...tail].map((section) => [section.name, section.value]), null, 1), DEFAULT_GRAPH_READ_LIMITS);
   const sections: Section[] = [...head];
   const membersSection = boundedList({ name: 'members', rows: members, render: (member) => ({ ...renderNode(member), ...(member.place === undefined ? {} : { place: member.place }) }), budget, what: `the members of ${request.scopeId}`, max: MAX_MEMBER_ROWS });
   const membersHeld = (membersSection.value as readonly unknown[]).length;
@@ -428,7 +434,7 @@ export async function buildUnitPacket(request: UnitPacketRequest): Promise<UnitP
   // data it may read are the members' own kinds, so they are named as sections of the same list.
   sections.push(boundedList({ name: 'entryPoints', rows: members.filter((member) => member.kind === 'entry-point' || member.kind === 'test'), render: renderNode, budget, what: `the entry points and tests of ${request.scopeId}`, max: MAX_SECTION_ROWS }));
   sections.push(boundedList({ name: 'data', rows: members.filter((member) => DATA_KINDS.includes(member.kind as string)), render: renderNode, budget, what: `the data nodes of ${request.scopeId}`, max: MAX_SECTION_ROWS }));
-  sections.push(boundedList({ name: 'relations', rows: reaching.rows, render: (row: NeighborRow) => ({ kind: row.edge.kind, direction: row.direction, node: boundedText(row.neighbor.label), ...(row.edge.file === undefined ? {} : { file: row.edge.file }), ...(row.edge.line === undefined ? {} : { line: row.edge.line }) }), budget, what: `the relations reaching ${request.scopeId}`, max: MAX_SECTION_ROWS }));
+  sections.push(boundedList({ name: 'relations', rows: reaching.rows, render: (row: NeighborRow) => ({ kind: row.edge.kind, direction: row.direction, node: packetLabel(row.neighbor, request.repository), ...(row.edge.file === undefined ? {} : { file: row.edge.file }), ...(row.edge.line === undefined ? {} : { line: row.edge.line }) }), budget, what: `the relations reaching ${request.scopeId}`, max: MAX_SECTION_ROWS }));
   sections.push(boundedList({ name: 'history', rows: [...history].sort((left, right) => byCodePoint(String((right.value as { committedAt?: unknown }).committedAt ?? ''), String((left.value as { committedAt?: unknown }).committedAt ?? '')) || byCodePoint(left.id, right.id)), render: (fact) => ({ commit: String((fact.value as { commit?: unknown }).commit ?? ''), committedAt: String((fact.value as { committedAt?: unknown }).committedAt ?? ''), subject: boundedText(String((fact.value as { subject?: unknown }).subject ?? '')), id: fact.id }), budget, what: `the commits of ${request.repository}`, max: MAX_SECTION_ROWS }));
 
   sections.push(...tail);

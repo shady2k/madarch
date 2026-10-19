@@ -37,9 +37,19 @@ import {
 } from '../src/fill/orchestrator.js';
 import { createOrchestratorSchema, readProgress, readUnitDraft, readUnitReads, type RunSnapshot } from '../src/fill/orchestrator-store.js';
 import { createStageRegistry } from '../src/fill/stages/index.js';
-import { AGENT_UNIT_STAGE_ID, createAgentUnitStage, MAX_PLAN_UNITS, planUnits } from '../src/fill/stages/agent-unit.js';
+import { MEMBER_ESTIMATE_TOKENS } from '../src/fill/agent-packet.js';
+import {
+  AGENT_UNIT_STAGE_ID,
+  coveredPlaces,
+  createAgentUnitStage,
+  MAX_PLAN_UNITS,
+  placesOfMembers,
+  planUnits,
+  readUnitAnswer,
+  splitChildren,
+} from '../src/fill/stages/agent-unit.js';
 import { StageRegistry } from '../src/fill/registry.js';
-import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageGraphReader } from '../src/fill/stage.js';
+import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageDraftWrite, type StageGraphReader } from '../src/fill/stage.js';
 import { FACT_KINDS } from '../src/fill/facts.js';
 import { Type } from 'typebox';
 import { createGitSnapshotSource, type RepositoryPin } from '../src/fill/snapshot.js';
@@ -460,7 +470,7 @@ describe('one agent unit, end to end', () => {
       await schedulerPass(opened.orchestrator, { runId: RUN });
       const again = await workOnce(opened.orchestrator, { worker: 'w1' });
       expect(again.result).toBe('blocked');
-      expect(String(again.summary)).toContain('already sealed and published');
+      expect(String(again.summary)).toContain('already sealed');
       expect(String(again.summary)).toContain(`${AGENT_UNIT_STAGE_ID}/${secondFolder!.id}`);
       expect(String(again.summary)).toContain(`${AGENT_UNIT_STAGE_ID}/${thirdFolder!.id}`);
       expect((await readRunUnits(opened.owner, RUN)).find((record) => record.unitId === unit.unitId)?.state).toBe('blocked');
@@ -527,6 +537,92 @@ describe('one agent unit, end to end', () => {
       await opened.close();
     }
   }, 180_000);
+
+  test('an answer that names a place among its remaining covers it no longer, and the place becomes a child', async () => {
+    // The unit contract's own words: a `done` answer whose `remaining` is not empty is read as `partial`. The
+    // coverage counts `a` and `b` and leaves `c` as a budget gap, and the gap is a child unit's own scope.
+    const opened = await openWorld({
+      script: {
+        byPrompt: [],
+        steps: [
+          { say: 'reading a and b' },
+          { answer: { status: 'done', covered: ['a', 'b', 'c'], remaining: ['c'], summary: 'b is done, c is not' } },
+        ],
+      },
+    });
+    try {
+      const unit = await planAndAdmit(opened);
+      const worked = await workOnce(opened.orchestrator, { worker: 'w1' });
+      expect(worked.result).toBe('split');
+      const draft = await readUnitDraft(opened.owner, unit.unitId, unit.generation);
+      const coverage = draft?.writes[0]?.value as { kind: string; value: { complete: boolean; read: string[]; unread: { what: string; reason: string }[] } };
+      expect(coverage.value.complete).toBe(false);
+      expect(coverage.value.read).toEqual(['a', 'b']);
+      expect(coverage.value.unread).toEqual([{ what: 'c', reason: 'budget' }]);
+      const children = (await readRunUnits(opened.owner, RUN)).filter((record) => record.unitId !== unit.unitId);
+      expect(children.map((record) => record.unitId)).toEqual([`${AGENT_UNIT_STAGE_ID}/${opened.graph.folders[2]!.id}`]);
+    } finally {
+      await opened.close();
+    }
+  }, 120_000);
+
+  test('a parent whose children settled — one failed, under the run\'s accept-partial policy — does not seal them again', async () => {
+    // 0027's third failed-child policy: a failed child is accepted, the parent joins, and the run carries on. A
+    // parent that then names the same children again would re-run settled work for ever, so the same refusal
+    // covers it: the comparison is against what this generation sealed, never against what published.
+    const ids = fixture();
+    const [, secondFolder, thirdFolder] = ids.folders;
+    const opened = await openWorld({
+      script: {
+        byPrompt: [
+          { matches: ids.repository.id, steps: [
+            { say: 'reading the scope' },
+            // The unit establishes one place of its scope before it is stopped: `a` is covered, and `b` and `c`
+            // are the children it splits into.
+            { call: { tool: 'raise_question', arguments: { type: 'assumption-check', prompt: 'Which folder owns the total?', place: { repository: REPOSITORY, file: 'a/one.ts', startLine: 1, endLine: 1 } } } },
+            { usage: { used: 220_000, size: 272_000 } },
+            { wait: true },
+          ] },
+          // The first child's agent dies mid-turn, and with no retry left that child fails for good.
+          { matches: secondFolder!.id, steps: [{ say: 'reading' }, { exit: 1 }] },
+          { matches: thirdFolder!.id, steps: [
+            { say: 'reading the child scope' },
+            { answer: { status: 'done', covered: ['c/one.ts'], remaining: [], summary: 'the child folder was read' } },
+          ] },
+        ],
+        steps: [],
+      },
+      limits: { failedChildPolicy: 'accept-partial', retries: 0, leaseMs: 86_400_000 },
+    });
+    try {
+      const unit = await planAndAdmit(opened);
+      expect((await workOnce(opened.orchestrator, { worker: 'w1' })).result).toBe('split');
+      // The children settle: one failed (its agent died and no retry is left), one published. The pass is driven by
+      // the units' own states, and the assertion names the unit that moved if one moves the wrong way.
+      const settledChildren = async (): Promise<readonly { unitId: string; state: string }[]> =>
+        (await readRunUnits(opened.owner, RUN)).filter((record) => record.unitId !== unit.unitId && (record.state === 'published' || record.state === 'failed'));
+      for (let pass = 0; pass < 4 && (await settledChildren()).length < 2; pass += 1) {
+        await schedulerPass(opened.orchestrator, { runId: RUN });
+        const worked = await workOnce(opened.orchestrator, { worker: 'w1' });
+        // A child that splits here is a child whose script never matched its place: the failure names the unit so a
+        // reader knows which child moved the wrong way.
+        expect(worked.claimed ? `${worked.unitId}:${String(worked.result)}` : 'no job').toMatch(/:(failed|published|nothing-to-do)$|^no job$/u);
+      }
+      expect((await settledChildren()).map((record) => record.state).sort()).toEqual(['failed', 'published']);
+      // `accept-partial` lets the parent join despite the failed child, so it is runnable again.
+      const swept = await sweepUnits(opened.orchestrator, { runId: RUN });
+      expect(swept.swept.map((entry) => [entry.unitId, entry.outcome])).toEqual([[unit.unitId, 'join-enqueued']]);
+      // And its next attempt, naming the same two children, is refused rather than sealed again.
+      await schedulerPass(opened.orchestrator, { runId: RUN });
+      const again = await workOnce(opened.orchestrator, { worker: 'w1' });
+      expect(again.result).toBe('blocked');
+      expect(String(again.summary)).toContain('already sealed');
+      expect((await readRunUnits(opened.owner, RUN)).find((record) => record.unitId === unit.unitId)?.state).toBe('blocked');
+    } finally {
+      await opened.close();
+    }
+  }, 180_000);
+
   test('a unit whose member list was cut does not publish the scope as read whole', async () => {
     // 150 folders in the repository: the member list the plan and the packet are given is cut by the graph read's
     // own 8K-token cap, so no unit was ever shown the whole scope. The agent covers every place it was shown, and
@@ -669,6 +765,49 @@ describe('the plan of the agent unit stage', () => {
     expect(split.units.every((unit) => unit.estimatedTokens === 0)).toBe(true);
   });
 
+  test('a scope whose members are no places of their own is named as one unit, never by nothing', async () => {
+    // A file's members are its symbols: `placeMembers` answers no place for such a scope, and enumerating nothing
+    // would leave the file named by no unit at all. It stands as one unit, which splits at run time.
+    const file = { id: factId('file', 'src/order.ts'), name: 'acme-shop', form: 'code' };
+    const symbols = Array.from({ length: 70 }, (_unused, index) => ({ id: factId('symbol', `symbol-${String(index)}`), path: `src/order.ts#symbol${String(index)}` }));
+    const reader: StageGraphReader = {
+      async query(text: string) {
+        const request = JSON.parse(text) as { read: string; field?: string; value?: string; id?: string; ids?: readonly string[] };
+        if (request.read === 'facts-with') {
+          // The repository is the file's parent in this fixture: the plan reads it once and answers one child.
+          return [{ id: factId('repository', 'acme-shop'), kind: 'repository', schema_version: 1, provenance: { source: { system: 'fixture', version: '1' }, repository: { id: 'acme-shop', commit: 'a'.repeat(40) } }, layer: 'extracted', status: 'proposed', value: { repository: 'acme-shop', form: 'code' } }];
+        }
+        if (request.read === 'held') {
+          // The repository holds the file and defines its 70 symbols: 71 members, past 0026's planned size, so the
+          // plan enumerates the repository and then the file.
+          return request.id === factId('repository', 'acme-shop')
+            ? [{ kind: 'file', count: 1 }, { kind: 'symbol', count: symbols.length }]
+            : [{ kind: 'symbol', count: symbols.length }];
+        }
+        if (request.read === 'adjacent') {
+          const from = String(request.id);
+          if (from !== factId('repository', 'acme-shop')) return [];
+          const provenance = { source: { system: 'fixture', version: '1' }, repository: { id: 'acme-shop', commit: 'a'.repeat(40) } };
+          return [
+            { id: factId('contains', 'repo->file'), kind: 'contains', schema_version: 1, provenance, layer: 'extracted', status: 'proposed', value: { from, to: file.id } },
+            ...symbols.map((symbol) => ({ id: factId('defines', `repo->${symbol.id}`), kind: 'defines', schema_version: 1, provenance, layer: 'extracted', status: 'proposed', value: { from, to: symbol.id } })),
+          ];
+        }
+        if (request.read === 'facts') {
+          return (request.ids ?? []).flatMap((id) => id === file.id ? [{ id, kind: 'file', schema_version: 2, provenance: { source: { system: 'fixture', version: '1' }, repository: { id: 'acme-shop', commit: 'a'.repeat(40) } }, layer: 'extracted', status: 'proposed', value: { repository: 'acme-shop', path: 'src/order.ts' } }] : []);
+        }
+        throw new Error(`the plan made a read this fixture does not answer: ${text}`);
+      },
+    };
+    const planned = await planUnits(reader);
+    // The repository holds one file whose estimate (70 × 2000) is past the planned size, so the plan enumerates the
+    // repository; the file has no place members, so it stands as one unit — and the plan names it.
+    expect(planned.units).toEqual([{ id: file.id, scope: 'acme-shop:src/order.ts', estimatedTokens: 140_000 }]);
+    void symbols;
+    void file.name;
+    void file.form;
+  });
+
   test('a plan past its bound collapses a scope to itself rather than dropping it', async () => {
     // Four repositories of 80 places each would be 320 units, past the plan's own bound. The scopes past it stand as
     // one unit each — the run's split bounds take them from there, and their coverage names what they did not read —
@@ -684,5 +823,58 @@ describe('the plan of the agent unit stage', () => {
     expect([...named].sort()).toEqual(['aa-shop', 'bb-shop', 'cc-shop', 'dd-shop']);
     expect(planned.units.filter((unit) => unit.id === factId('repository', 'dd-shop')).map((unit) => unit.scope)).toEqual(['dd-shop']);
     expect(planned.units.length).toBeLessThanOrEqual(MAX_PLAN_UNITS + shops.length);
+  });
+});
+
+describe('the unit contract, read', () => {
+  test('the answer is the last object of the contract in a turn, and a turn without one is no answer', () => {
+    // The agent is asked for one JSON object and nothing else; an agent that wraps it in prose is read by the
+    // object's own shape, and the last such object of the turn is the answer.
+    expect(readUnitAnswer('{"status":"done","covered":["a"],"remaining":[],"summary":"one"}')).toEqual({ status: 'done', covered: ['a'], remaining: [], summary: 'one' });
+    expect(readUnitAnswer('Here it is: {"status":"partial","covered":["a","b"],"remaining":["c"]} — done.')).toEqual({ status: 'partial', covered: ['a', 'b'], remaining: ['c'] });
+    expect(readUnitAnswer('{"status":"done","covered":["a"]}\n{"status":"partial","covered":[],"remaining":["a"]}')).toMatchObject({ status: 'partial', remaining: ['a'] });
+    // No object, an object of another shape, and an object cut in half are no answer: the unit is asked again.
+    expect(readUnitAnswer('still reading the scope')).toBeUndefined();
+    expect(readUnitAnswer('{"covered":["a"],"remaining":[]}')).toBeUndefined();
+    expect(readUnitAnswer('{"status":"done","covered":["a"')).toBeUndefined();
+    expect(readUnitAnswer('')).toBeUndefined();
+    // The lists are read as text entries only: a number or a nested object in them is no place.
+    expect(readUnitAnswer('{"status":"done","covered":["a",3,{"b":1}],"remaining":[]}')).toEqual({ status: 'done', covered: ['a'], remaining: [] });
+  });
+
+  test('a place counts as covered only inside the scope, and the answer\'s own `remaining` is a refusal to claim it', () => {
+    const places = ['a', 'b', 'c'];
+    const cite = (file: string): StageDraftWrite => ({ kind: 'fact', evidence: `acme-shop@${'a'.repeat(40)}:${file}`, value: { kind: 'question', value: { repository: 'acme-shop', type: 'assumption-check', prompt: 'why?' }, provenance: { source: { system: 'test', version: '1' }, repository: { id: 'acme-shop', commit: 'a'.repeat(40) }, place: { file, range: { startLine: 1, startColumn: 0, endLine: 1, endColumn: 1 } } } } });
+    // A write inside a place covers that place; a write outside every place covers none; a path named with the
+    // repository's prefix is read as its own path.
+    expect(coveredPlaces({ answer: undefined, writes: [cite('a/one.ts')], places, repository: 'acme-shop' })).toEqual(['a']);
+    expect(coveredPlaces({ answer: { status: 'done', covered: ['acme-shop:b', 'elsewhere/x.ts'], remaining: [] }, writes: [], places, repository: 'acme-shop' })).toEqual(['b']);
+    // The contract's own words: a `done` answer whose `remaining` is not empty is read as `partial`.
+    expect(coveredPlaces({ answer: { status: 'done', covered: ['a', 'b', 'c'], remaining: ['c'] }, writes: [], places, repository: 'acme-shop' })).toEqual(['a', 'b']);
+    // A place nothing names, and a write that cites nothing, are no cover.
+    expect(coveredPlaces({ answer: undefined, writes: [{ kind: 'fact', evidence: 'x', value: { kind: 'coverage' } }], places, repository: 'acme-shop' })).toEqual([]);
+  });
+
+  test('a split names one child per uncovered place, at most eight, and a place past that bound stays a gap; a scope is never its own child', () => {
+    const members = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'].map((path) => ({ kind: 'directory' as const, label: `acme-shop:${path}/`, id: `directory:${path}`, file: path, place: `acme-shop:${path}` }));
+    const eight = splitChildren({ scope: { repository: 'acme-shop' }, members, remaining: members.map((member) => String(member.file)) });
+    expect(eight.map((child) => child.scope)).toEqual(['acme-shop:a', 'acme-shop:b', 'acme-shop:c', 'acme-shop:d', 'acme-shop:e', 'acme-shop:f', 'acme-shop:g', 'acme-shop:h']);
+    expect(eight.map((child) => child.id)).toEqual(['directory:a', 'directory:b', 'directory:c', 'directory:d', 'directory:e', 'directory:f', 'directory:g', 'directory:h']);
+    // Each child is about one member's work, in 0026's own estimate.
+    expect(eight.every((child) => child.estimatedTokens === MEMBER_ESTIMATE_TOKENS)).toBe(true);
+    // A file's members stand at the file itself: such a place is no child of the scope it names.
+    expect(splitChildren({ scope: { repository: 'acme-shop', path: 'src/order.ts' }, members: [{ kind: 'symbol', label: 'OrderService.total', id: 'symbol:total', file: 'src/order.ts', place: 'acme-shop:src/order.ts' }], remaining: ['src/order.ts'] })).toEqual([]);
+    // A place the member list does not hold has no id to name a child by, and stays a coverage gap.
+    expect(splitChildren({ scope: { repository: 'acme-shop' }, members: [], remaining: ['a'] })).toEqual([]);
+  });
+
+  test('the places one packet\'s member list names are its paths, each once, in code point order', () => {
+    expect(placesOfMembers([
+      { kind: 'file', label: 'acme-shop:src/b.ts', id: 'file:b', file: 'src/b.ts', place: 'acme-shop:src/b.ts' },
+      { kind: 'file', label: 'acme-shop:src/a.ts', id: 'file:a', file: 'src/a.ts', place: 'acme-shop:src/a.ts' },
+      { kind: 'entry-point', label: 'serve', id: 'entry-point:serve', file: 'src/a.ts', place: 'acme-shop:src/a.ts' },
+      { kind: 'module', label: 'checkout', id: 'module:checkout' },
+    ])).toEqual(['src/a.ts', 'src/b.ts']);
+    expect(placesOfMembers([])).toEqual([]);
   });
 });
