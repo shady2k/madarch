@@ -1663,3 +1663,177 @@ describe('the window between a machine step and its enqueue', () => {
     expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(1);
   }, 30_000);
 });
+
+describe('a worker whose lease lapsed while it was still inside its stage', () => {
+  /** The run's unfinished jobs, by the unit each carries: a key no new job can take while it stands. */
+  async function unfinished(opened: World): Promise<string[]> {
+    const rows = await opened.owner.run(async (transaction) => (await transaction.query<{ singleton_key: string }>(
+      `SELECT singleton_key FROM ${QUEUE_SCHEMA}.job WHERE name = $1 AND state IN ('created', 'retry', 'active') ORDER BY singleton_key`,
+      [QUEUE],
+    )).rows);
+    return rows.map((row) => row.singleton_key);
+  }
+
+  /** Settles a unit's claim as the queue's own maintenance does: without the machine, and without the worker. */
+  async function settleClaimInQueue(opened: World, unitId: string): Promise<void> {
+    await opened.owner.run(async (transaction) => {
+      await transaction.query(
+        `UPDATE ${QUEUE_SCHEMA}.job SET state = 'completed', completed_on = now() WHERE name = $1 AND singleton_key = $2 AND state IN ('created', 'retry', 'active')`,
+        [QUEUE, unitId],
+      );
+    });
+  }
+
+  /** What the run said about the attempt it stopped: the refusal's step and what became of its claim. */
+  async function refusals(opened: World, runId: string): Promise<string[]> {
+    return (await readProgress(opened.owner, runId)).filter((event) => event.kind === 'unit-refused').map((event) => event.summary);
+  }
+
+  /**
+   * One stage with one unit whose `execute` opens the window the tests need: the run's
+   * own sweep, of another executor, retrying a lease that lapsed under this worker while
+   * it was still inside its stage. `lapse` is what the attempt does before it returns,
+   * so the steps it comes back to are the ones the machine has moved under it.
+   */
+  function lapsedStage(outcome: 'draft' | 'blocked'): { registry: StageRegistry; lapse: { now?: () => Promise<void> } } {
+    const lapse: { now?: () => Promise<void> } = {};
+    const registry = new StageRegistry().register(fakeStage('snapshot', {
+      produces: [{ kind: 'file-facts', schemaVersion: 1, scope: 'repository' }],
+      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
+      execute: async (_unit, context): Promise<StageExecutionResult> => {
+        const lapseNow = lapse.now;
+        lapse.now = undefined;
+        await lapseNow?.();
+        if (outcome === 'blocked') return { outcome: 'blocked', reason: 'the stage cannot continue with what it read' };
+        context.draft.write({ kind: 'fact', evidence: 'src:1', value: { kind: 'file-facts' } });
+        return { outcome: 'draft' };
+      },
+    }));
+    return { registry, lapse };
+  }
+
+  test('a step the machine refuses ends the attempt\'s claim, so the run reaches the unit again', async () => {
+    const { registry, lapse } = lapsedStage('draft');
+    const { world: opened, runId } = await plannedWorld({ registry, limits: { leaseMs: 1_000, retryDelayMs: 500, retries: 2 } });
+    await admitUnits(opened.orchestrator, { runId });
+    expect(await unfinished(opened)).toEqual(['snapshot/src']);
+    lapse.now = async () => {
+      opened.clock.advance(1_000);
+      expect((await sweepUnits(opened.orchestrator, { runId })).swept.map((unit) => unit.outcome)).toEqual(['retried']);
+      // The retry's own moment comes while the attempt still runs: the run wakes the
+      // generation to `ready`, and both jobs it asks for are answered "nothing created"
+      // — the state the failed CI run reported, where the unit stood ready with its
+      // retry spent and one unfinished job holding its key.
+      opened.clock.advance(500);
+      expect((await sweepUnits(opened.orchestrator, { runId })).swept.map((unit) => unit.outcome)).toEqual(['woken']);
+      expect(await unfinished(opened)).toEqual(['snapshot/src']);
+    };
+
+    const worked = await workOnce(opened.orchestrator, { worker: 'worker-1' });
+    // The unit stands `ready`, so the machine refuses `submit-draft`. The claim that
+    // attempt held is settled with the machine's own words, not kept: kept, it would
+    // hold the unit's key until the queue's real-time lease let go of it.
+    expect(worked).toMatchObject({ unitId: 'snapshot/src', result: 'refused', job: 'completed' });
+    expect(worked.refusal?.reason).toContain('"ready"');
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('ready');
+    expect(await unfinished(opened)).toEqual([]);
+    expect(await refusals(opened, runId)).toEqual([expect.stringContaining('refused submit-draft')]);
+
+    // The run's next offer of the unit reaches the queue, and the generation publishes
+    // exactly once.
+    expect((await sweepUnits(opened.orchestrator, { runId })).swept.map((unit) => unit.outcome)).toEqual(['requeued']);
+    expect(await unfinished(opened)).toEqual(['snapshot/src']);
+    expect(await workOnce(opened.orchestrator, { worker: 'worker-2' })).toMatchObject({ unitId: 'snapshot/src', result: 'published' });
+    expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(1);
+  }, 30_000);
+
+  test('a block the machine refuses ends the attempt\'s claim just the same', async () => {
+    const { registry, lapse } = lapsedStage('blocked');
+    const { world: opened, runId } = await plannedWorld({ registry, limits: { leaseMs: 1_000, retryDelayMs: 500, retries: 2 } });
+    await admitUnits(opened.orchestrator, { runId });
+    // The lapse lands before the retry's own moment, so the unit stands `retry_wait`
+    // when the stage asks to block: the table allows no block from there.
+    lapse.now = async () => {
+      opened.clock.advance(1_000);
+      expect((await sweepUnits(opened.orchestrator, { runId })).swept.map((unit) => unit.outcome)).toEqual(['retried']);
+    };
+    const worked = await workOnce(opened.orchestrator, { worker: 'worker-1' });
+    expect(worked).toMatchObject({ unitId: 'snapshot/src', result: 'refused', job: 'completed' });
+    expect(worked.refusal?.reason).toContain('"retry_wait"');
+    expect(await unfinished(opened)).toEqual([]);
+    expect(await refusals(opened, runId)).toEqual([expect.stringContaining('refused block')]);
+  }, 30_000);
+
+  test('a claim the queue no longer holds is reported as its own to settle, not settled twice', async () => {
+    const { registry, lapse } = lapsedStage('draft');
+    const { world: opened, runId } = await plannedWorld({ registry, limits: { leaseMs: 1_000, retryDelayMs: 500, retries: 2 } });
+    await admitUnits(opened.orchestrator, { runId });
+    lapse.now = async () => {
+      opened.clock.advance(1_000);
+      expect((await sweepUnits(opened.orchestrator, { runId })).swept.map((unit) => unit.outcome)).toEqual(['retried']);
+      // The queue's own maintenance gets to the claim first — what its real-time lease
+      // does to a worker that went quiet — and the attempt's settlement finds nothing.
+      await settleClaimInQueue(opened, 'snapshot/src');
+      expect(await unfinished(opened)).toEqual([]);
+    };
+    const worked = await workOnce(opened.orchestrator, { worker: 'worker-1' });
+    expect(worked).toMatchObject({ unitId: 'snapshot/src', result: 'refused', job: 'none' });
+    expect(await refusals(opened, runId)).toEqual([expect.stringContaining('The queue no longer held its claim')]);
+    // The unit is still the run's: the wake offers it, and it publishes once.
+    opened.clock.advance(500);
+    expect((await sweepUnits(opened.orchestrator, { runId })).swept.map((unit) => unit.outcome)).toEqual(['woken']);
+    expect(await unfinished(opened)).toEqual(['snapshot/src']);
+    expect(await workOnce(opened.orchestrator, { worker: 'worker-2' })).toMatchObject({ unitId: 'snapshot/src', result: 'published' });
+    expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(1);
+  }, 30_000);
+
+  test('a split whose suspension the machine refuses ends its claim, and the run still finishes', async () => {
+    // The same lapse, one step further: the stage splits, so the seal and the step that
+    // suspends the parent — `wait-for-children` — are one transaction, and the step is
+    // the one refused. The children that transaction wrote stand (a window of its own,
+    // madarch-tzte.19.7's finding: the step should be judged before anything is sealed);
+    // what this test holds is the claim: settled, so the run can reach the parent again.
+    const lapse: { now?: () => Promise<void> } = {};
+    const attempts: string[] = [];
+    const registry = new StageRegistry().register(fakeStage('modules', {
+      produces: [{ kind: 'module-facts', schemaVersion: 1, scope: 'cluster' }],
+      plan: () => ({ units: [{ id: 'root', scope: 'the repository' }], coverage: 'planned' }),
+      execute: async (unit, context): Promise<StageExecutionResult> => {
+        attempts.push(unit.id);
+        if (unit.id === 'root' && attempts.filter((id) => id === unit.id).length === 1) {
+          const lapseNow = lapse.now;
+          lapse.now = undefined;
+          await lapseNow?.();
+          return { outcome: 'split', children: [{ id: 'left', scope: 'the left half' }, { id: 'right', scope: 'the right half' }] };
+        }
+        context.draft.write({ kind: 'fact', evidence: `${unit.scope}:1`, value: { kind: 'module-facts' } });
+        return { outcome: 'draft' };
+      },
+    }));
+    const { world: opened, runId } = await plannedWorld({ registry, limits: { leaseMs: 1_000, retryDelayMs: 500, retries: 2 } });
+    await admitUnits(opened.orchestrator, { runId });
+    lapse.now = async () => {
+      opened.clock.advance(1_000);
+      expect((await sweepUnits(opened.orchestrator, { runId })).swept.map((unit) => unit.outcome)).toEqual(['retried']);
+    };
+
+    const worked = await workOnce(opened.orchestrator, { worker: 'worker-1' });
+    expect(worked).toMatchObject({ unitId: 'modules/root', result: 'refused', job: 'completed' });
+    expect(worked.refusal?.reason).toContain('wait-for-children');
+    expect((await readUnit(opened.owner, 'modules/root'))?.state).toBe('retry_wait');
+    expect(await unfinished(opened)).toEqual([]);
+
+    // The parent's retry comes due, and the run drives every generation it holds — the
+    // parent and the two children — to one publication each.
+    opened.clock.advance(2_000);
+    const driven = await driveRun(opened.orchestrator, { runId, workers: 1 });
+    if (!driven.settled) {
+      const status = await runStatus(opened.orchestrator, runId);
+      throw new Error(`the run did not settle (${driven.stoppedBecause ?? 'no reason'}): ${JSON.stringify(status?.units)}; queue ${JSON.stringify(await unfinished(opened))}; progress ${JSON.stringify(await refusals(opened, runId))}`);
+    }
+    expect(driven.run.state).toBe('succeeded');
+    for (const unitId of ['modules/root', 'modules/left', 'modules/right']) {
+      expect(await readPublications(opened.owner, unitId)).toHaveLength(1);
+    }
+  }, 30_000);
+});
