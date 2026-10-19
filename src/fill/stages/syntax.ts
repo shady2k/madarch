@@ -11,12 +11,23 @@
  * so a second run reads that file and no other.
  *
  * **The plan reads what the previous runs published.** Before it names a unit,
- * the plan makes one tracked read per repository — the same JSON document the
- * inventory's plan makes (`publishedTreeRead`) — and the graph answers the
- * `file` facts it already holds for that repository. So the plan holds:
+ * the plan makes three tracked reads per repository: the same JSON document the
+ * inventory's plan makes (`publishedTreeRead`, the `file` facts the graph holds
+ * for that repository and the blobs their bytes stood under), the `import` edges
+ * this stage published (`publishedImportsRead`) and the gaps of its own coverage
+ * (`publishedGapsRead`). So the plan holds:
  *
  * - a source file's unit when the file is new or its blob moved at the pinned
  *   commit: a file whose blob did not move is not re-planned (0026);
+ * - a source file whose published coverage names a specifier that ties to a file
+ *   of the pinned commit now, and one whose published `import` edge names a file
+ *   its specifier no longer names: a file that appears under a specifier an
+ *   unchanged file already wrote, or beside the file it resolved to (`./x.js`
+ *   written beside the `x.ts` it named), moves what that specifier answers
+ *   although no byte the file holds moved. These are the two rules stage 4's
+ *   plan applies, from the one helper both plans call (`movedBySpecifiers`,
+ *   `syntax-specifiers.ts`), so the two stages cannot answer differently about a
+ *   specifier whose answer moved;
  * - a published source path the commit no longer holds, which publishes nothing
  *   and so retracts the facts of a file that was deleted, renamed away or
  *   rewritten in another language.
@@ -47,12 +58,13 @@ import { checkFactDraft, evidenceAt } from './draft.js';
 import { publishedTreeRead, publishedTreeRows, rolesFor } from './inventory.js';
 import { extractFileSyntax, unreadFileSyntax, type ExtractedFileSyntax } from './syntax-extract.js';
 import { syntaxFacts, type SyntaxFactSet } from './syntax-facts.js';
+import { movedBySpecifiers, publishedGapRows, publishedGapsRead, publishedImportRows, publishedImportsRead } from './syntax-specifiers.js';
 
 /** The stage's id, as it is registered and as its units are named. */
 export const SYNTAX_STAGE_ID = 'syntax';
 
 /** The stage's own version, bumped when what it writes or plans changes. */
-export const SYNTAX_STAGE_VERSION = 1;
+export const SYNTAX_STAGE_VERSION = 2;
 
 /** The fact kinds the stage produces, in code point order. */
 export const SYNTAX_STAGE_KINDS: readonly string[] = [
@@ -105,11 +117,12 @@ export function createSyntaxStage(sources: SnapshotSource): FillStage {
 
 /**
  * The units one run of the syntax stage fills: a unit per source file whose
- * blob moved at the pinned commit (or that is new), and a retraction for a
- * published source path the commit no longer holds. A graph that answers
- * nothing for a repository plans its whole tree of source files, which is what
- * a first run is. The plan is in code point order of the unit ids, so two runs
- * of one commit plan the same units in the same order.
+ * blob moved at the pinned commit (or that is new), a unit per source file whose
+ * published gap or `import` edge no longer answers what its specifiers name at
+ * that commit, and a retraction for a published source path the commit no longer
+ * holds. A graph that answers nothing for a repository plans its whole tree of
+ * source files, which is what a first run is. The plan is in code point order of
+ * the unit ids, so two runs of one commit plan the same units in the same order.
  */
 async function planSyntax(sources: SnapshotSource, graph: StageGraphReader): Promise<StagePlan> {
   const pins = await sources.pins();
@@ -121,14 +134,40 @@ async function planSyntax(sources: SnapshotSource, graph: StageGraphReader): Pro
     // The same reader the inventory's own plan uses: one rule for the rows of
     // one read, so the two stages cannot accept different rows.
     const published = publishedTreeRows(await graph.query(read), pin.id, read).files;
+    // What this stage published about the specifiers it read: the gaps of its
+    // own coverage (a specifier it could not tie to a file) and the `import`
+    // edges it did tie. The row readers are the ones stage 4 reads them with
+    // (`syntax-specifiers.ts`), so the two plans see one answer.
+    const gapsRead = publishedGapsRead(pin.id);
+    const gaps = publishedGapRows(await graph.query(gapsRead), pin.id, gapsRead);
+    const importsRead = publishedImportsRead(pin.id);
+    const imports = publishedImportRows(await graph.query(importsRead), pin.id, importsRead);
     const mine = reader.files().filter((entry) => isSourcePath(entry.path));
     anySource = anySource || mine.length > 0;
     const present = new Set<string>(mine.map((entry) => entry.path));
+    const held = new Set<string>(reader.files().map((entry) => entry.path));
+    const again = new Set<string>();
     for (const entry of mine) {
       // The blob is what tells one reading of a file from the next: a file whose
       // blob did not move is already read, so this run plans no unit for it.
       if (published.get(entry.path) === entry.id) continue;
-      units.push({ id: fileUnitId(pin.id, entry.path), scope: scopeOf(pin.id, entry.path) });
+      again.add(entry.path);
+    }
+    // The two rules about a specifier whose answer moved, which stage 4's plan
+    // applies to the same published facts: a file that appeared under a gap this
+    // stage wrote, or beside the file an edge's specifier resolved to, moves what
+    // the file that wrote it imports although its own bytes did not move. No
+    // bound is passed: the reading these rules plan is what replaces the stale
+    // gap and edge, so the next run of an unchanged commit finds both agreeing.
+    for (const path of movedBySpecifiers({ repository: pin.id, paths: held, published: published.keys(), imports, gaps })) {
+      again.add(path);
+    }
+    for (const path of again) {
+      // A file the pinned commit does not hold is no unit of this stage: a
+      // published path it no longer holds is a retraction, below. Every path of
+      // `again` but a rule's is one of `mine`, which is already a source path.
+      if (!present.has(path)) continue;
+      units.push({ id: fileUnitId(pin.id, path), scope: scopeOf(pin.id, path) });
     }
     for (const [path] of published) {
       // A published source path the commit no longer holds: the unit publishes

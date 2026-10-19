@@ -29,6 +29,8 @@ import { createInventoryStage, publishedTreeRead, type PublishedTreeRow } from '
 import { createSnapshotStage } from '../src/fill/stages/snapshot.js';
 import { createStageRegistry } from '../src/fill/stages/index.js';
 import { createSyntaxStage, fileUnitId } from '../src/fill/stages/syntax.js';
+import { fileFactIdOf } from '../src/fill/stages/syntax-facts.js';
+import { publishedGapsRead, publishedImportsRead } from '../src/fill/stages/syntax-specifiers.js';
 
 // ---- the test's own repository, context and graph ---------------------------
 
@@ -161,6 +163,67 @@ async function inventoryFacts(root: string, commit: string, repository: string):
   return published;
 }
 
+/** What a fact store would answer for one repository's stage-3 gaps: one row per gap of a coverage fact a draft set holds. */
+function gapRows(writes: readonly StageDraftWrite[]): readonly { readonly kind: 'coverage'; readonly file: string; readonly what: string }[] {
+  const rows: { kind: 'coverage'; file: string; what: string }[] = [];
+  for (const fact of factsOf(writes)) {
+    if (fact.kind !== 'coverage') continue;
+    const unread = (fact.value['unread'] as readonly { readonly what: string }[] | undefined) ?? [];
+    for (const gap of unread) rows.push({ kind: 'coverage', file: String(fact.value['scope']), what: gap.what });
+  }
+  return rows;
+}
+
+/**
+ * What a fact store would answer for one repository's published imports: the
+ * `import` edges a draft set holds, an edge whose target the graph no longer
+ * holds among them (the read filters by the edge's importer,
+ * `src/fill/stage-reads.ts`).
+ */
+function importRows(writes: readonly StageDraftWrite[]): readonly { readonly kind: 'import'; readonly from: string; readonly to: string; readonly specifier: string }[] {
+  return factsOf(writes).filter((fact) => fact.kind === 'import').map((fact) => ({
+    kind: 'import' as const,
+    from: String(fact.value['from']),
+    to: String(fact.value['to']),
+    specifier: String(fact.value['specifier']),
+  }));
+}
+
+/**
+ * The graph one syntax plan reads of one repository: the published tree, and the
+ * two facts about specifiers this stage published. A read this test does not
+ * answer is refused rather than answered with nothing, so a plan that starts
+ * asking something new fails here instead of planning quietly.
+ */
+function graphOf(tree: readonly StageDraftWrite[], writes: readonly StageDraftWrite[], repository: string): (read: string) => Promise<readonly unknown[]> {
+  return async (read: string) => {
+    if (read === publishedTreeRead(repository)) return publishedRows(tree, repository);
+    if (read === publishedGapsRead(repository)) return gapRows(writes);
+    if (read === publishedImportsRead(repository)) return importRows(writes);
+    throw new Error(`the syntax stage's plan made the read ${read}, and this test answers the published tree and the two reads about specifiers`);
+  };
+}
+
+/** What the inventory and the syntax stages of one commit published: what this stage's own plan reads back. */
+async function publishedAt(root: string, commit: string, repository: string): Promise<{ readonly tree: readonly StageDraftWrite[]; readonly writes: readonly StageDraftWrite[] }> {
+  const tree = await inventoryFacts(root, commit, repository);
+  const stage = createSyntaxStage(createGitSnapshotSource([{ id: repository, form: 'code', root, commit }]));
+  const writes: StageDraftWrite[] = [];
+  for (const unit of (await stage.plan({ query: async () => [] })).units) {
+    const run = contextFor(unit);
+    await stage.execute(unit, run.context);
+    writes.push(...run.recorder.writes);
+  }
+  return { tree, writes };
+}
+
+/** The id the inventory published for one file of a repository, by the path it stands at. */
+function fileIdOf(tree: readonly StageDraftWrite[], path: string): string {
+  const held = factsOf(tree).filter((fact) => fact.kind === 'file' && fact.value['path'] === path);
+  if (held.length !== 1) throw new Error(`the inventory published ${held.length} file facts for ${path}, and this test needs exactly one`);
+  return held[0]!.id;
+}
+
 /** What a call refused with, so a test can read what it names; `answered` when it did not refuse. */
 async function refusedBy(call: () => unknown): Promise<string> {
   try {
@@ -238,7 +301,11 @@ describe('the syntax stage plans one unit per source file', () => {
       await f.write('scripts/run.py', 'print("hello")\n');
       const commit = f.commit();
       const stage = createSyntaxStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
-      const plan = await stage.plan({ query: async (read) => { expect(read).toBe(publishedTreeRead('orders-api')); return []; } });
+      // The three reads one repository's plan makes: the tree, and the two facts
+      // about specifiers this stage published (its gaps and its import edges).
+      const reads: string[] = [];
+      const plan = await stage.plan({ query: async (read) => { reads.push(read); return []; } });
+      expect(reads).toEqual([publishedTreeRead('orders-api'), publishedGapsRead('orders-api'), publishedImportsRead('orders-api')]);
       expect(unitIds(plan)).toEqual([
         'file:orders-api:scripts/run.py',
         'file:orders-api:src/helper.ts',
@@ -273,13 +340,13 @@ describe('the syntax stage plans one unit per source file', () => {
       // The first run read both files.
       expect(unitIds(await stage.plan({ query: async () => [] })).length).toBe(2);
       // A second run of the same commit has nothing left to read.
-      const again = await stage.plan({ query: async () => publishedRows(published, 'orders-api') });
+      const again = await stage.plan({ query: graphOf(published, [], 'orders-api') });
       expect(unitIds(again)).toEqual([]);
       expect(again.coverage).toBe('planned');
       // One file's bytes change: that file's unit, and no other.
       await f.write('src/orders.ts', 'export const orders = 2;\n');
       commit = f.commit();
-      const second = await stage.plan({ query: async () => publishedRows(published, 'orders-api') });
+      const second = await stage.plan({ query: graphOf(published, [], 'orders-api') });
       expect(unitIds(second)).toEqual(['file:orders-api:src/orders.ts']);
       const run = contextFor(second.units[0]!);
       await stage.execute(second.units[0]!, run.context);
@@ -301,7 +368,7 @@ describe('the syntax stage plans one unit per source file', () => {
       const published = await inventoryFacts(f.root, commit, 'orders-api');
       f.git('mv', 'src/orders.ts', 'src/moved.ts');
       commit = f.commit();
-      const plan = await stage.plan({ query: async () => publishedRows(published, 'orders-api') });
+      const plan = await stage.plan({ query: graphOf(published, [], 'orders-api') });
       expect(unitIds(plan)).toEqual(['file:orders-api:src/moved.ts', 'file:orders-api:src/orders.ts']);
       // The vanished path's unit publishes nothing: the publication retracts
       // every fact the first run wrote for that file.
@@ -316,6 +383,122 @@ describe('the syntax stage plans one unit per source file', () => {
       await stage.execute(moved, run.context);
       expect(factsOfKind(run.recorder.writes, 'symbol')[0]?.value['file']).toBe('src/moved.ts');
       expect(JSON.stringify(run.recorder.writes)).not.toContain('src/orders.ts');
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a specifier stage 3 could not tie to a file is read again once the file exists, and its coverage stops naming the gap', async () => {
+    const f = await fixture();
+    try {
+      // The first commit imports a file that does not exist yet: stage 3 writes
+      // the specifier as a gap of the importer's coverage and no import edge.
+      await f.write('src/a.ts', "import { create } from './b.js';\n\nexport function run(): void {\n  create();\n}\n");
+      await f.write('src/c.ts', 'export const other = 1;\n');
+      let commit = f.commit();
+      const stage = createSyntaxStage(createGitSnapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const first = await publishedAt(f.root, commit, 'orders-api');
+      expect(gapRows(first.writes)).toEqual([{ kind: 'coverage', file: 'src/a.ts', what: './b.js' }]);
+      expect(importRows(first.writes)).toEqual([]);
+      // A file appears under the specifier. No byte of `src/a.ts` moved.
+      await f.write('src/b.ts', 'export function create(): void {}\n');
+      commit = f.commit();
+      const plan = await stage.plan({ query: graphOf(first.tree, first.writes, 'orders-api') });
+      // The file that wrote the gap, and the file that appeared — not `src/c.ts`,
+      // which was not touched and imports nothing.
+      expect(unitIds(plan)).toEqual(['file:orders-api:src/a.ts', 'file:orders-api:src/b.ts']);
+      // The re-read publishes the edge the specifier names now, and a coverage
+      // with no gap left in it.
+      const importer = plan.units.find((unit) => unit.id === 'file:orders-api:src/a.ts')!;
+      const run = contextFor(importer);
+      await stage.execute(importer, run.context);
+      expect(factsOfKind(run.recorder.writes, 'import').map((fact) => fact.value['specifier'])).toEqual(['./b.js']);
+      expect(factOfKind(run.recorder.writes, 'coverage').value).toEqual({
+        repository: 'orders-api',
+        scope: 'src/a.ts',
+        complete: true,
+        read: ['src/a.ts'],
+        unread: [],
+      });
+      // A second run of an unchanged commit plans nothing: the facts the re-read
+      // published answer what the specifier names, so the rule does not fire.
+      const settled = await publishedAt(f.root, commit, 'orders-api');
+      expect(unitIds(await stage.plan({ query: graphOf(settled.tree, settled.writes, 'orders-api') }))).toEqual([]);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('an import edge that names a file the commit no longer holds is read again, and its specifier becomes a gap', async () => {
+    const f = await fixture();
+    try {
+      await f.write('src/b.ts', 'export function create(): void {}\n');
+      await f.write('src/a.ts', "import { create } from './b.js';\n\nexport function run(): void {\n  create();\n}\n");
+      let commit = f.commit();
+      const stage = createSyntaxStage(createGitSnapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const first = await publishedAt(f.root, commit, 'orders-api');
+      expect(importRows(first.writes).map((row) => row.to)).toEqual([fileIdOf(first.tree, 'src/b.ts')]);
+      // The file the specifier named is gone, and no byte of `src/a.ts` moved.
+      f.git('rm', '-q', 'src/b.ts');
+      commit = f.commit();
+      const plan = await stage.plan({ query: graphOf(first.tree, first.writes, 'orders-api') });
+      // The importer, and the vanished path's own retraction.
+      expect(unitIds(plan)).toEqual(['file:orders-api:src/a.ts', 'file:orders-api:src/b.ts']);
+      const importer = plan.units.find((unit) => unit.id === 'file:orders-api:src/a.ts')!;
+      const run = contextFor(importer);
+      await stage.execute(importer, run.context);
+      // The specifier names no file of the repository now: no edge is written,
+      // and the coverage says which specifier could not be tied.
+      expect(factsOfKind(run.recorder.writes, 'import')).toEqual([]);
+      expect(factOfKind(run.recorder.writes, 'coverage').value).toEqual({
+        repository: 'orders-api',
+        scope: 'src/a.ts',
+        complete: false,
+        read: ['src/a.ts'],
+        unread: [{ what: './b.js', reason: 'unsupported' }],
+      });
+      // A second run of that commit plans nothing.
+      const settled = await publishedAt(f.root, commit, 'orders-api');
+      expect(unitIds(await stage.plan({ query: graphOf(settled.tree, settled.writes, 'orders-api') }))).toEqual([]);
+      // The state a run that stopped between the retraction and the importer's
+      // reading resumes in: the tree holds no `b.ts` and the graph answers no
+      // `file` fact for it either, so the edge is the only witness of what
+      // `src/a.ts` imported. The read answers it (its filter is the edge's
+      // importer: test/fill-stage-reads.test.ts), and it is what plans the
+      // importer again.
+      const resumed = await stage.plan({ query: graphOf(settled.tree, first.writes, 'orders-api') });
+      expect(unitIds(resumed)).toEqual(['file:orders-api:src/a.ts']);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('an import edge whose specifier names a file that appeared beside its target is read again, and the edge follows the specifier', async () => {
+    const f = await fixture();
+    try {
+      // Stage 3 ties `./b.js` to the `b.ts` beside it, which is what the
+      // specifier names while nothing else stands there.
+      await f.write('src/b.ts', 'export function create(): void {}\n');
+      await f.write('src/a.ts', "import { create } from './b.js';\n\nexport function run(): void {\n  create();\n}\n");
+      let commit = f.commit();
+      const stage = createSyntaxStage(createGitSnapshotSource(() => [{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const first = await publishedAt(f.root, commit, 'orders-api');
+      expect(importRows(first.writes).map((row) => row.to)).toEqual([fileIdOf(first.tree, 'src/b.ts')]);
+      // A `src/b.js` appears beside it: the specifier names that file now, and no
+      // byte of `src/a.ts` moved. `src/b.ts` is not planned: its blob stood.
+      await f.write('src/b.js', 'export function create() {}\n');
+      commit = f.commit();
+      const plan = await stage.plan({ query: graphOf(first.tree, first.writes, 'orders-api') });
+      expect(unitIds(plan)).toEqual(['file:orders-api:src/a.ts', 'file:orders-api:src/b.js']);
+      // The re-read's edge names the file the specifier answers at this commit,
+      // which is the file fact the inventory published for `src/b.js`.
+      const settled = await publishedAt(f.root, commit, 'orders-api');
+      const importer = plan.units.find((unit) => unit.id === 'file:orders-api:src/a.ts')!;
+      const run = contextFor(importer);
+      await stage.execute(importer, run.context);
+      expect(factsOfKind(run.recorder.writes, 'import').map((fact) => fact.value['to'])).toEqual([fileIdOf(settled.tree, 'src/b.js')]);
+      // A second run of an unchanged commit plans nothing.
+      expect(unitIds(await stage.plan({ query: graphOf(settled.tree, settled.writes, 'orders-api') }))).toEqual([]);
     } finally {
       await f.dispose();
     }
@@ -544,6 +727,38 @@ describe('the syntax stage refuses what it cannot read', () => {
       cancelled.controller.abort();
       await expect(stage.execute({ id: fileUnitId('orders-api', 'src/orders.ts'), scope: 'orders-api:src/orders.ts' }, cancelled.context)).rejects.toThrow('was cancelled');
       expect(cancelled.recorder.writes).toEqual([]);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a gap row or an import row the plan cannot read is refused, naming the read, the row and the field', async () => {
+    const f = await fixture();
+    try {
+      await f.write('src/a.ts', "import { create } from './b.js';\n");
+      const commit = f.commit();
+      const stage = createSyntaxStage(createGitSnapshotSource([{ id: 'orders-api', form: 'code', root: f.root, commit }]));
+      const fileId = fileFactIdOf('orders-api', 'src/b.ts');
+      const gapsRead = publishedGapsRead('orders-api');
+      const importsRead = publishedImportsRead('orders-api');
+      const cases: readonly (readonly [string, unknown, string])[] = [
+        [gapsRead, { kind: 'import', file: 'src/a.ts', what: './b.js' }, 'answers "coverage" gaps'],
+        [gapsRead, { kind: 'coverage', file: '/etc/passwd', what: './b.js' }, 'no repository path'],
+        [gapsRead, { kind: 'coverage', file: 'src/a.ts', what: ' ' }, 'is no gap'],
+        [importsRead, { kind: 'coverage', from: fileId, to: fileId, specifier: './b.js' }, 'answers "import" edges'],
+        [importsRead, { kind: 'import', from: 'symbol:0', to: fileId, specifier: './b.js' }, 'no file fact id'],
+        [importsRead, { kind: 'import', from: fileId, to: fileId, specifier: ' ' }, 'is no specifier'],
+        [importsRead, { kind: 'import', from: fileId, to: fileId, specifier: './b.js', runId: 'run-7' }, 'a row holds'],
+      ];
+      for (const [read, row, expected] of cases) {
+        const refusal = await refusedBy(() => stage.plan({
+          query: async (asked: string) => (asked === read ? [row] : await graphOf([], [], 'orders-api')(asked)),
+        }));
+        expect(refusal).not.toBe('answered');
+        expect(refusal).toContain(read);
+        expect(refusal).toContain('row 1');
+        expect(refusal).toContain(expected);
+      }
     } finally {
       await f.dispose();
     }

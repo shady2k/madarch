@@ -16,14 +16,14 @@
  *
  * **The rows are built here, in JavaScript.** Each read answers the exact keys
  * the consuming stage's own reader demands (`publishedTreeRows`,
- * `publishedManifests`, `publishedDocuments`, `publishedImportRows`,
- * `publishedGapRows`, `publishedReadRows`, `symbolRows` and `indexRows` of
- * `semantic-resolution.ts`, `packageRows`, `fileRows`, `symbolRows` and
- * `edgeRows` of `modules.ts`): a row is built from the fact's own value, and a
- * key the fact does not hold is left out — never written as null — because those
- * readers refuse a key they do not define and a key a blob, a manifest or a
- * count holds as null. Building rows in SQL (`jsonb_build_object`) would write
- * exactly those nulls.
+ * `publishedManifests`, `publishedDocuments`, `publishedImportRows` and
+ * `publishedGapRows` of `syntax-specifiers.ts`, `publishedReadRows`, `symbolRows`
+ * and `indexRows` of `semantic-resolution.ts`, `packageRows`, `fileRows`,
+ * `symbolRows` and `edgeRows` of `modules.ts`): a row is built from the fact's
+ * own value, and a key the fact does not hold is left out — never written as
+ * null — because those readers refuse a key they do not define and a key a blob,
+ * a manifest or a count holds as null. Building rows in SQL
+ * (`jsonb_build_object`) would write exactly those nulls.
  *
  * **Order.** Every answer is in code point order of the fact id, so one graph
  * answers one set of rows in one order: the orchestrator records a read's
@@ -43,9 +43,13 @@
  * - `stage-3-published-symbols`: the `symbol` facts declared in one file, with
  *   the declaration's range flattened out of the fact's `provenance.place.range`.
  * - `stage-3-coverage-gaps`: the gaps of the syntax stage's `coverage` of a
- *   repository, one row per gap, each naming the file it stands in.
- * - `stage-4-published-imports`: the `import` edges between two files of the
- *   repository.
+ *   repository, one row per gap, each naming the file it stands in. Stage 3's own
+ *   plan reads it beside stage 4's (madarch-tzte.21.9), and so the next read: a
+ *   name says who first asked for an answer, not who may.
+ * - `stage-4-published-imports`: the `import` edges one repository's files
+ *   wrote whose target is a file fact's id, the graph holding a `file` fact for
+ *   it or not (a run that resumes after a retraction and before its importers
+ *   were read again).
  * - `stage-4-published-reads`: the resolution stage's own `coverage`, with the
  *   files each resolution read.
  * - `stage-4-compiler-index`: no rows at all. This build wires no compiler index,
@@ -65,14 +69,18 @@
  * `value.repository`, and a read answers the facts whose value names the
  * repository the read was made for — except the four edge kinds, whose values
  * name their two ends and no repository at all (`import`, `call`, `reference`
- * and `inherits`). An edge belongs to a repository when *both* its ends stand
- * among that repository's own facts of the kind the edge joins — a `file` fact
- * for an `import`, a `symbol` fact for the other three — which is the same rule
- * the consuming stage applies to the rows (`planResolution` maps an edge's ends
- * through the paths the tree read holds). A stored path that is no repository
- * path, wherever a read answers one, is refused by name rather than answered: a
- * fact the store holds damaged is named, never answered as a row the stage would
- * then plan a wrong unit from.
+ * and `inherits`). An edge belongs to a repository when the end its reader
+ * filters by stands among that repository's own facts of the kind the edge joins
+ * — the *importer* for an `import`, and *both* ends for the `call`, `reference`
+ * and `inherits` edges of the modules stage, which is the same rule the
+ * consuming stage applies to the rows (`planResolution` maps an edge's ends
+ * through the paths the tree read holds). An `import` edge's own target may be
+ * one the repository no longer holds: a run whose stages retracted a deleted
+ * file before its importers were read again holds such an edge, and a plan that
+ * cannot see it cannot repair it (madarch-tzte.21.9). A stored path that is no
+ * repository path, wherever a read answers one, is refused by name rather than
+ * answered: a fact the store holds damaged is named, never answered as a row the
+ * stage would then plan a wrong unit from.
  *
  * **Which stage published a coverage.** A repository's coverages are told apart
  * by the stage that published them (`fill_fact_holding.stage_id`) and not by
@@ -113,9 +121,10 @@ import { PUBLISHED_DOCUMENTS_READ } from './stages/document-index.js';
 import { PUBLISHED_TREE_READ } from './stages/inventory.js';
 import { PUBLISHED_FILES_READ, PUBLISHED_PACKAGES_READ, PUBLISHED_SYMBOLS_READ as MODULE_SYMBOLS_READ, RESOLVED_EDGES_READ } from './stages/modules.js';
 import {
-  COMPILER_INDEX_READ, PUBLISHED_GAPS_READ, PUBLISHED_IMPORTS_READ, PUBLISHED_READS_READ,
+  COMPILER_INDEX_READ, PUBLISHED_READS_READ,
   PUBLISHED_SYMBOLS_READ as RESOLUTION_SYMBOLS_READ, SEMANTIC_RESOLUTION_STAGE_ID,
 } from './stages/semantic-resolution.js';
+import { PUBLISHED_GAPS_READ, PUBLISHED_IMPORTS_READ } from './stages/syntax-specifiers.js';
 import { SYNTAX_STAGE_ID } from './stages/syntax.js';
 
 // ---------------------------------------------------------------------------------------------
@@ -430,14 +439,30 @@ async function stageCoverageFacts(executor: SqlExecutor, stage: string, reposito
   return inIdOrder(rows);
 }
 
-/** The `import` edges between two files of one repository, in code point order of their id. */
+/**
+ * The `import` edges one repository's files wrote, in code point order of their
+ * id. The importer must be a `file` fact of the repository; the target must be a
+ * file fact's *id*, not the fact itself, and that is deliberate
+ * (madarch-tzte.21.9): a run whose stage 1 has already retracted a deleted
+ * target's `file` fact while its importers were not read again leaves an
+ * `import` edge with nowhere to point, and only a read that answers the edge
+ * lets a plan repair it. An edge to another repository's file is answered here
+ * too, and the consuming plans tie it back to this repository's paths — an edge
+ * they cannot tie is one they read the importer again for. An edge whose target
+ * is no file fact's id at all — a `module:` or `package:` end, which the schema
+ * allows for an `import` (`EDGE_END_KINDS.import`) though stage 3 writes none —
+ * is no row of this read, because the two plans that read it plan file units and
+ * would refuse such a row by name. A damaged `file:…` id is a row here and the
+ * row reader refuses it, which is the module's own rule: a fact the store holds
+ * damaged is named, never dropped.
+ */
 async function importEdgeFacts(executor: SqlExecutor, repository: string): Promise<readonly FactRow[]> {
   const { rows } = await executor.query<FactRow>(
     `SELECT f.id, f.kind, f.value, f.provenance
        FROM fill_fact f
       WHERE f.kind = 'import'
         AND f.value->>'from' IN (SELECT id FROM fill_fact WHERE kind = 'file' AND value->>'repository' = $1)
-        AND f.value->>'to' IN (SELECT id FROM fill_fact WHERE kind = 'file' AND value->>'repository' = $1)`,
+        AND f.value->>'to' LIKE 'file:%'`,
     [repository],
   );
   return inIdOrder(rows);
@@ -553,11 +578,13 @@ function whatOf(gap: unknown): string {
 }
 
 /**
- * The imports between two files of the repository, with the specifier each wrote.
- * An `import` fact whose value carries no specifier is no row of this read: the
+ * The imports a repository's files wrote, with the specifier each wrote. An
+ * `import` fact whose value carries no specifier is no row of this read: the
  * reading stage refuses such a row (`publishedImportRows`, which names the
  * specifier it needs), and the read's own words are "the specifier each wrote",
  * so the row is left out here rather than answered as a shape the reader refuses.
+ * An edge whose target the graph holds no `file` fact for is a row all the same:
+ * it is the state a resumed run finds (see `importEdgeFacts`).
  */
 async function importRows(executor: SqlExecutor, request: StageReadRequest, at: string): Promise<readonly Row[]> {
   const facts = await importEdgeFacts(executor, request.repository);
