@@ -656,3 +656,78 @@ On a document page, selecting text offers a comment action. The app maps the ren
 - Given: a document with open and resolved threads
 - When: the reader replies, resolves, reveals resolved threads or views the page at a narrow width
 - Then: each action persists after reload, resolved threads are hidden by default, and discussions are available in a panel
+
+## Requirement: acp-agent — madarch drives an agent over the Agent Client Protocol
+When madarch runs an agent unit of the fill (decision 0026), it shall start the
+agent as a child process and speak the Agent Client Protocol to it over the
+process's standard input and output, using the protocol's version 1: one
+`initialize` request per process, carrying the protocol version madarch speaks
+and the capabilities it offers — no file system, no terminal — and, per unit,
+one `session/new` request carrying the unit's working folder and the MCP
+servers the unit reads and writes through. It shall send one `session/prompt`
+per turn with the unit's prompt as text content, deliver each `session/update`
+the agent streams to the reader in the order it arrives, and end the turn with
+the agent's stop reason. A turn shall be cancellable: madarch sends
+`session/cancel`, answers any permission request pending at that moment as
+cancelled, and reads the turn's end as cancelled whether the agent answers with
+the `cancelled` stop reason or with the protocol's request-cancelled error.
+Every request an agent makes of madarch shall be answered: a permission request
+as cancelled, and a file system call as an error naming the method and saying
+that code is read through the session's MCP server, since an agent's own file
+tools are off. A failure shall name the ACP method in flight, the agent's id,
+the program resolved to its full path, the folder it ran in and the end of what
+it wrote on standard error; a program the system refuses to run shall be named
+with the reason it gave. Closing the connection shall end the agent and the
+helper processes it started, and shall not wait for a helper that holds the
+connection's pipes; a turn in flight at that moment shall end as cancelled.
+
+For each session, madarch shall report the input and output tokens the agent
+reported, or say that token usage was not reported: it keeps the agent's latest
+report as the session's figure and never adds reports together. The token
+figures sit in a field the protocol's published v1 schema does not carry — the
+official library's generated schema has it, marked unstable — so an agent that
+conforms to v1 may never report them, and the session then reads "not
+reported". The context window an agent reports through `usage_update` is a
+stable part of the schema, and the unit's limits are read from it; madarch keeps
+it beside the session's figures. An update kind madarch does not name shall be
+kept as it arrived rather than dropped, and an update outside the protocol's
+schema shall not end the turn.
+
+A probe shall report, for a machine, which of the agents the fill considers
+connect over ACP: for each, whether an adapter is installed, and for one that
+is, the protocol version and agent identity its `initialize` answer carried; for
+one that is not, the command that installs it and the size of what that
+installs, or — for an agent that carries ACP in its own program — that program.
+The probe shall send no prompt and install nothing. `madarch fill --probe-acp`
+shall print that report, one block per agent, and with `--json` the same facts
+as one JSON object.
+
+### Scenario: acp-session-and-updates
+- Given: a fake ACP agent on this machine that answers `initialize` and `session/new`, and a unit whose MCP server is given
+- When: madarch connects to it and sends one prompt
+- Then: the agent was sent protocol version 1 with no file system or terminal capability, a session was created with the unit's MCP server, the session's prompt arrived as one text block, and the messages, thoughts, tool calls and context usage the agent streamed arrive in order, ending the turn with the agent's stop reason
+
+### Scenario: acp-token-accounting
+- Given: one fake agent that reports tokens each turn and one that reports none
+- When: a prompt turn ends in each session
+- Then: the first session reports the input and output tokens its agent gave last, the second says token usage was not reported, and neither is invented
+
+### Scenario: acp-cancel
+- Given: a fake agent holding a turn open until it is cancelled
+- When: madarch cancels the turn
+- Then: the turn ends as cancelled, whether the agent answers with the cancelled stop reason or with the protocol's request-cancelled error
+
+### Scenario: acp-close
+- Given: a fake agent that starts a helper process holding the connection's pipes and then holds a turn open
+- When: madarch closes the connection while that turn is in flight
+- Then: the turn ends as cancelled within the client's kill grace, and both the agent and its helper are gone
+
+### Scenario: acp-no-file-system
+- Given: a fake agent that asks the client to read text from a file, and one that asks for permission
+- When: the turn runs
+- Then: the file call receives an error naming the method and the permission request is answered cancelled, and the turn still ends
+
+### Scenario: acp-probe
+- Given: a machine on which one agent's ACP adapter is installed and another's is not
+- When: the probe runs
+- Then: the installed adapter is reported connected with the protocol version and agent identity its `initialize` answer carried, the missing one is reported with the command that installs it and that command's unpacked size, and no prompt was sent to either
