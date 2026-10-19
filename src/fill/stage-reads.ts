@@ -319,7 +319,13 @@ interface FactRow extends Record<string, unknown> {
   readonly id: string;
   readonly kind: string;
   readonly value: unknown;
-  readonly provenance: unknown;
+  /**
+   * The place the fact stands at (`provenance.place`), where the read answers
+   * one: the only part of a fact's provenance any row is built from, so a read
+   * does not carry the rest of it — the reader, the repository, the commit — out
+   * of the store for every row it answers (madarch-tzte.21.11).
+   */
+  readonly place?: unknown;
 }
 
 /** The tables a read of the facts touches. */
@@ -389,8 +395,7 @@ function fromValue(value: Record<string, unknown>, keys: readonly string[]): Row
  * declaration at no line at all.
  */
 function rangeRow(fact: FactRow, at: string): Row {
-  const provenance = column(fact.provenance);
-  const held = provenance !== null && typeof provenance === 'object' && !Array.isArray(provenance) ? (provenance as Record<string, unknown>)['place'] : undefined;
+  const held = column(fact.place ?? null);
   if (held === null || typeof held !== 'object' || Array.isArray(held)) {
     raise(`${at}: the stored fact ${fact.id} of kind "${fact.kind}" carries no place (provenance.place), and this read answers the range the fact stands at: a ${fact.kind} fact stands at a file and a range`);
   }
@@ -407,13 +412,49 @@ function rangeRow(fact: FactRow, at: string): Row {
 // What the store answers
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * The most rows one statement of a read answers. A read of a whole repository
+ * answers tens of thousands of facts, and PGlite gathers a statement's whole
+ * answer in one buffer it grows by half again each time it fills, then copies it
+ * once more before the rows are parsed: a single statement of 28 392 symbols held
+ * several copies of the answer's bytes at once, in the middle of the modules
+ * stage's unit, which is what the pod's memory limit killed (madarch-tzte.21.11).
+ * A read asks in pages of this many rows, by id, so what one statement holds is a
+ * page and the answer is the same rows.
+ */
+export const READ_PAGE_ROWS = 2000;
+
+/**
+ * Every row a statement answers, asked for in pages of `READ_PAGE_ROWS` by fact
+ * id. The statement is a `SELECT … FROM fill_fact f WHERE <condition>`, and its
+ * last two parameters are added here: the id the page starts after and the
+ * page's size. The pages follow the database's own order of the ids, which is the
+ * order the `>` that starts each page compares in, so no row is read twice or
+ * skipped; the answer's order is still `inIdOrder`'s.
+ */
+async function pagedFacts(executor: SqlExecutor, select: string, parameters: readonly unknown[]): Promise<readonly FactRow[]> {
+  const after = parameters.length + 1;
+  const limit = parameters.length + 2;
+  const statement = `${select} AND ($${after}::text IS NULL OR f.id > $${after}) ORDER BY f.id LIMIT $${limit}`;
+  const rows: FactRow[] = [];
+  let last: string | null = null;
+  for (;;) {
+    const { rows: page }: { rows: FactRow[] } = await executor.query<FactRow>(statement, [...parameters, last, READ_PAGE_ROWS]);
+    for (const row of page) rows.push(row);
+    const tail: FactRow | undefined = page[page.length - 1];
+    if (page.length < READ_PAGE_ROWS || tail === undefined) return rows;
+    last = tail.id;
+  }
+}
+
 /** The facts of one repository, by kind, in code point order of their id. */
 async function repositoryFacts(executor: SqlExecutor, kinds: readonly string[], repository: string, file?: string): Promise<readonly FactRow[]> {
   // The file is a filter of the store's own where the read names one: the
   // resolution stage reads one file's symbols once per unit and once per file
   // that unit imports, so a scan of every symbol per read is what a run pays.
-  const { rows } = await executor.query<FactRow>(
-    `SELECT f.id, f.kind, f.value, f.provenance
+  const rows = await pagedFacts(
+    executor,
+    `SELECT f.id, f.kind, f.value, f.provenance->'place' AS place
        FROM fill_fact f
       WHERE f.kind = ANY($1::text[]) AND f.value->>'repository' = $2
         AND ($3::text IS NULL OR f.value->>'file' = $3)`,
@@ -431,7 +472,7 @@ async function repositoryFacts(executor: SqlExecutor, kinds: readonly string[], 
  */
 async function stageCoverageFacts(executor: SqlExecutor, stage: string, repository: string): Promise<readonly FactRow[]> {
   const { rows } = await executor.query<FactRow>(
-    `SELECT DISTINCT f.id, f.kind, f.value, f.provenance
+    `SELECT DISTINCT f.id, f.kind, f.value
        FROM fill_fact f JOIN fill_fact_holding h ON h.id = f.id
       WHERE f.kind = 'coverage' AND h.stage_id = $1 AND f.value->>'repository' = $2`,
     [stage, repository],
@@ -457,8 +498,9 @@ async function stageCoverageFacts(executor: SqlExecutor, stage: string, reposito
  * damaged is named, never dropped.
  */
 async function importEdgeFacts(executor: SqlExecutor, repository: string): Promise<readonly FactRow[]> {
-  const { rows } = await executor.query<FactRow>(
-    `SELECT f.id, f.kind, f.value, f.provenance
+  const rows = await pagedFacts(
+    executor,
+    `SELECT f.id, f.kind, f.value
        FROM fill_fact f
       WHERE f.kind = 'import'
         AND f.value->>'from' IN (SELECT id FROM fill_fact WHERE kind = 'file' AND value->>'repository' = $1)
@@ -470,15 +512,16 @@ async function importEdgeFacts(executor: SqlExecutor, repository: string): Promi
 
 /** The resolved edges of one repository, in code point order of their id: the `import` edges between its files, and its `call`, `reference` and `inherits` edges between its symbols. */
 async function resolvedEdgeFacts(executor: SqlExecutor, repository: string, symbolKinds: readonly string[]): Promise<readonly FactRow[]> {
-  const { rows } = await executor.query<FactRow>(
-    `SELECT f.id, f.kind, f.value, f.provenance
+  const rows = await pagedFacts(
+    executor,
+    `SELECT f.id, f.kind, f.value
        FROM fill_fact f
-      WHERE (f.kind = 'import'
+      WHERE ((f.kind = 'import'
              AND f.value->>'from' IN (SELECT id FROM fill_fact WHERE kind = 'file' AND value->>'repository' = $1)
              AND f.value->>'to' IN (SELECT id FROM fill_fact WHERE kind = 'file' AND value->>'repository' = $1))
          OR (f.kind = ANY($2::text[])
              AND f.value->>'from' IN (SELECT id FROM fill_fact WHERE kind = 'symbol' AND value->>'repository' = $1)
-             AND f.value->>'to' IN (SELECT id FROM fill_fact WHERE kind = 'symbol' AND value->>'repository' = $1))`,
+             AND f.value->>'to' IN (SELECT id FROM fill_fact WHERE kind = 'symbol' AND value->>'repository' = $1)))`,
     [repository, symbolKinds],
   );
   return inIdOrder(rows);

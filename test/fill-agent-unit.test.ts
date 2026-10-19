@@ -21,7 +21,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
-import { createFactStoreSchema, applyPublishedFacts, FACT_APPLICATION } from '../src/fill/fact-store.js';
+import { createFactStoreSchema, applyPublishedFacts, FACT_APPLICATION, readUnitFacts } from '../src/fill/fact-store.js';
 import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact, type FactProvenance } from '../src/fill/facts.js';
 import { createFactGraphReader, estimateTokens, DEFAULT_GRAPH_READ_LIMITS } from '../src/fill/graph-reads.js';
 import { draftSetOf } from '../src/fill/checked-writes.js';
@@ -357,19 +357,19 @@ describe('one agent unit, end to end', () => {
       const reads = await readUnitReads(opened.owner, unit.unitId, unit.generation);
       expect(reads.filter((read) => (JSON.parse(read.query) as { read: string }).read === 'span').length).toBe(1);
 
-      // Its draft set is published in one transaction (0027): the coverage of what it read.
-      const draft = await readUnitDraft(opened.owner, unit.unitId, unit.generation);
-      expect(draft?.writes.length).toBe(1);
-      expect(draft?.writes[0]?.kind).toBe('fact');
-      const fact = draft?.writes[0]?.value as { kind: string; value: { scope: string; complete: boolean; read: string[]; unread: unknown[] } };
+      // Its draft set is published in one transaction (0027): the coverage of what it read. A published set is
+      // the store's own facts and no second copy of them (madarch-tzte.21.11), so it is read as published facts.
+      const published = (await readUnitFacts(opened.owner, unit.unitId)).map((entry) => entry.fact);
+      expect(published.length).toBe(1);
+      const fact = published[0] as unknown as { kind: string; value: { scope: string; complete: boolean; read: string[]; unread: unknown[] } };
       expect(fact.kind).toBe('coverage');
       expect(fact.value.scope).toBe(opened.graph.repository.id);
       expect(fact.value.complete).toBe(true);
       expect(fact.value.read).toEqual(['a', 'b', 'c']);
       expect(fact.value.unread).toEqual([]);
-      const factId = (draft!.writes[0]!.value as { id: string }).id;
-      const published = await opened.owner.transaction('snapshot', async (executor) => (await executor.query<{ count: number }>('SELECT count(*)::int AS count FROM fill_fact WHERE id = $1', [factId])).rows[0]?.count ?? 0);
-      expect(published).toBe(1);
+      const factId = (published[0] as unknown as { id: string }).id;
+      const stored = await opened.owner.transaction('snapshot', async (executor) => (await executor.query<{ count: number }>('SELECT count(*)::int AS count FROM fill_fact WHERE id = $1', [factId])).rows[0]?.count ?? 0);
+      expect(stored).toBe(1);
       const after = await readRunUnits(opened.owner, RUN);
       expect(after.map((record) => record.state)).toEqual(['published']);
     } finally {
@@ -455,8 +455,8 @@ describe('one agent unit, end to end', () => {
       for (const child of await readRunUnits(opened.owner, RUN)) {
         if (child.unitId === unit.unitId) continue;
         expect(child.state).toBe('published');
-        const childDraft = await readUnitDraft(opened.owner, child.unitId, child.generation);
-        expect((childDraft?.writes[0]?.value as { kind: string }).kind).toBe('coverage');
+        const childFacts = (await readUnitFacts(opened.owner, child.unitId)).map((entry) => entry.fact);
+        expect(childFacts.map((entry) => entry.kind)).toEqual(['coverage']);
       }
       // The children published and are fresh, so the waiting parent joins and is runnable again (0027's join).
       const swept = await sweepUnits(opened.orchestrator, { runId: RUN });
@@ -637,8 +637,9 @@ describe('one agent unit, end to end', () => {
       const unit = await planAndAdmit(opened);
       const worked = await workOnce(opened.orchestrator, { worker: 'w1' });
       expect(worked.result).toBe('published');
-      const draft = await readUnitDraft(opened.owner, unit.unitId, unit.generation);
-      const coverage = draft?.writes[0]?.value as { kind: string; value: { complete: boolean; read: string[]; unread: { what: string; reason: string }[] } };
+      const published = (await readUnitFacts(opened.owner, unit.unitId)).map((entry) => entry.fact);
+      expect(published.length).toBe(1);
+      const coverage = published[0] as unknown as { kind: string; value: { complete: boolean; read: string[]; unread: { what: string; reason: string }[] } };
       expect(coverage.kind).toBe('coverage');
       expect(coverage.value.complete).toBe(false);
       expect(coverage.value.read.length).toBeGreaterThan(0);

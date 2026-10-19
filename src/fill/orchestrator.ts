@@ -59,7 +59,7 @@ import {
   readRunPlans,
   readSealedChildren,
   readSplitParents,
-  readUnitDraft,
+  readUnitDraftHead,
   readUnitPlan,
   readUnitReads,
   recordUnitRead,
@@ -1243,7 +1243,7 @@ async function attemptUnit(
   // The draft: the machine's own `submit-draft` step, then the effect that records what was written.
   const drafted = await takeAttemptStep(orchestrator, { unit, step: 'submit-draft', job: request.job, event: { type: 'submit-draft', at: orchestrator.clock(), generation: unit.generation, fence } });
   if (!drafted.ok) return drafted.outcome;
-  await recordUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, writes, at: orchestrator.clock() });
+  const recorded = await recordUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, writes, at: orchestrator.clock() });
   await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-drafted', summary: `${unit.unitId} drafted ${writes.length} ${writes.length === 1 ? 'write' : 'writes'}` });
 
   const validating = await takeAttemptStep(orchestrator, { unit, step: 'validate-draft', job: request.job, event: { type: 'validate-draft', at: orchestrator.clock(), generation: unit.generation, fence } });
@@ -1258,7 +1258,7 @@ async function attemptUnit(
       summary: `${unit.unitId} was refused by validation: ${validation.errors.join('; ')}`,
     });
   }
-  return await publishAttempt(orchestrator, { unit: validating.record, plan, fence, job: request.job, reader, stage });
+  return await publishAttempt(orchestrator, { unit: validating.record, plan, fence, job: request.job, reader, stage, held: { digest: recorded.digest, writes } });
 }
 
 /**
@@ -1276,12 +1276,14 @@ async function publishAttempt(
     readonly job: ClaimedJob<{ unitId: string; generation: number }>;
     readonly reader: UnitGraphReader;
     readonly stage: FillStage;
+    /** The draft set this attempt recorded and still holds, published without reading its JSON back (`PublicationRequest.held`). */
+    readonly held: { readonly digest: string; readonly writes: readonly StageDraftWrite[] };
   },
 ): Promise<WorkOutcome> {
   const database = orchestrator.database;
   const unit = request.unit;
   const at = orchestrator.clock();
-  const draft = await readUnitDraft(database, unit.unitId, unit.generation);
+  const draft = await readUnitDraftHead(database, unit.unitId, unit.generation);
   if (draft === null) raise(`unit "${unit.unitId}" generation ${unit.generation} reached validation with no recorded draft set to publish`);
   const digest = publicationDigest({ inputsDigest: unit.inputsDigest, draft: draft.digest, stageId: request.stage.id, stageVersion: request.stage.version });
   const outcome = await ownTransaction(here(), orchestrator, `publishUnit(${unit.unitId}/${unit.generation})`, ['fill_publication', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_lease', 'fill_unit_generation'], async (transaction) => {
@@ -1298,6 +1300,7 @@ async function publishAttempt(
         const rows = await reader.query(read.query);
         return { membership: readMembership(rows), members: rows.length };
       },
+      held: request.held,
       apply: async (executor, writes, digest) => await orchestrator.facts.apply({ executor, unit, plan: request.plan, digest, writes }),
     });
     if (publication.outcome === 'published' || publication.outcome === 'replayed') {

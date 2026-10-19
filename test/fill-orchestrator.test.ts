@@ -48,6 +48,7 @@ import {
 } from '../src/fill/orchestrator.js';
 import {
   createOrchestratorSchema,
+  DRAFT_PART_WRITES,
   publishUnit,
   readMembership,
   readProgress,
@@ -288,6 +289,21 @@ describe('the membership digest a tracked read stands on', () => {
     expect(readMembership([])).not.toBe(readMembership([{ a: 1 }]));
     // A value no digest can hold is refused by name rather than collapsed into another value's digest.
     expect(() => readMembership([{ handler: () => undefined }])).toThrow(/a read answered function at row\.handler/);
+  });
+
+  test('is the membership an earlier build recorded, so this change stales no unit that already published', () => {
+    // madarch-tzte.21.11 changed how often a row is serialized into its digest, not what the digest says:
+    // the value below is the one the implementation that serialized both sides of every comparison
+    // answered for these rows (taken from it, before the change), and a store that recorded a membership
+    // under it still agrees with the one this computes — otherwise every unit of every product that ran
+    // before the change would be rechecked as a read that moved.
+    const rows = [
+      { id: 'symbol:a', value: { repository: 'madarch', path: 'src/a.ts', name: 'a', kind: 'function' } },
+      { id: 'file:a', value: { repository: 'madarch', path: 'src/a.ts', roles: ['source'] } },
+      { id: 'occurrence:1', value: { repository: 'madarch', path: 'src/a.ts', symbol: 'symbol:a', range: { startLine: 1, startColumn: 0, endLine: 1, endColumn: 3 } } },
+    ];
+    expect(readMembership(rows)).toBe('91692da8cc2cfbbc9f106d51552182e8747de6e7b261a98ee741432de760e0c4');
+    expect(readMembership([...rows].reverse())).toBe('91692da8cc2cfbbc9f106d51552182e8747de6e7b261a98ee741432de760e0c4');
   });
 
   test('leaves out the fields a stage measures rather than observes, so a re-ranking makes no reader stale', () => {
@@ -1863,4 +1879,36 @@ describe('a worker whose lease lapsed while it was still inside its stage', () =
       expect(await readPublications(opened.owner, unitId)).toHaveLength(1);
     }
   }, 30_000);
+});
+
+describe('a draft set larger than one part', () => {
+  // madarch-tzte.21.11: one jsonb value of a repository-wide unit's whole draft set — 34 MB for the
+  // modules stage over the madarch tree — took the embedded store's memory up by about 490 MB for good.
+  // A set is recorded in parts of a few hundred writes, and read back whole and in order.
+  test('is recorded in parts no larger than a part, read back whole and in order, and replaced whole', async () => {
+    const owner = createPGliteDatabaseOwner();
+    try {
+      await createOrchestratorSchema(owner);
+      const count = DRAFT_PART_WRITES * 2 + 1;
+      const writes = Array.from({ length: count }, (_, at) => ({ kind: 'fact' as const, evidence: `src/a.ts:${String(at + 1)}`, value: { at } }));
+      const recorded = await recordUnitDraft(owner, { unitId: 'modules:big', generation: 1, writes, at: NOW });
+      const parts = await owner.transaction('snapshot', async (executor) => (await executor.query<{ part: unknown; size: unknown }>(
+        'SELECT part, jsonb_array_length(writes) AS size FROM fill_unit_draft_part WHERE unit_id = $1 AND generation = $2 ORDER BY part',
+        ['modules:big', 1],
+      )).rows.map((row) => [Number(row.part), Number(row.size)]));
+      expect(parts).toEqual([[0, DRAFT_PART_WRITES], [1, DRAFT_PART_WRITES], [2, 1]]);
+      const read = await readUnitDraft(owner, 'modules:big', 1);
+      expect(read?.writes).toEqual(writes);
+      expect(read?.digest).toBe(recorded.digest);
+
+      // Recorded again with fewer writes: the set is the new one, and no part of the one before it stands.
+      const fewer = writes.slice(0, 3);
+      await recordUnitDraft(owner, { unitId: 'modules:big', generation: 1, writes: fewer, at: NOW + 1 });
+      expect((await readUnitDraft(owner, 'modules:big', 1))?.writes).toEqual(fewer);
+      // Another generation of the same unit is its own set.
+      expect(await readUnitDraft(owner, 'modules:big', 2)).toBeNull();
+    } finally {
+      await owner.close();
+    }
+  }, 60_000);
 });
