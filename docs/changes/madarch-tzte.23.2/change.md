@@ -227,11 +227,14 @@ None.
     component element.** The view is then empty rather than drawing the repository
     as if it were a module; a module with nothing below it *is* drawn as itself,
     because the finest cluster is the thing a reader asked to see.
-  - **A state and a sequence view cannot collapse.** No element of either has a
-    level above it in the graph (`StateValue.machine` is a name, not a node, and a
-    participant has no container), so past the budget such a view keeps its
-    elements and says the budget was not met. Collapsing a machine's states onto
-    the machine would need a machine node the schema does not have.
+  - **A state and a sequence view cannot collapse.** Not because the graph places
+    nothing above their elements — a state names its repository and a symbol sits
+    in its module — but because the type's own rule names no level above them:
+    `StateValue.machine` is a name and not a node, so a machine cannot be an element
+    a state folds into, and a sequence's participants are what the diagram shows.
+    Past the budget such a view keeps its elements and says the budget was not met,
+    naming the type's rule as the reason rather than blaming the graph. Collapsing a
+    machine's states onto the machine would need a machine node the schema lacks.
   - **An ER view has no arrows**, for the reason above: the schema holds no edge
     between two tables. A foreign key between them is a fact nobody writes yet.
 
@@ -245,6 +248,22 @@ None.
   named between deploy units — because a `call`, a `reference` or an `import` joins
   files or symbols, which are no containers, and a declared kind that can never
   produce an arrow would be a promise the model does not keep.
+- **A drill-down opens the view the element stands for, which is not always the
+  element list.** A C4 context, container or ER view draws the nodes its spec
+  names, so a collapsed element links a spec scoped by the elements it folded. A
+  module view (C4 component and module dependencies) draws what stands *below* the
+  scopes it names, so linking the folded modules would open the level below them:
+  its drill-down names the level above them — the module or repository they were
+  folded into — at depth 1, which draws exactly those modules. `DiagramDrillDown`
+  says which of the two a link is, and the tests read every kind of drill-down back
+  into a view.
+- **The ER view draws the tables it holds and marks only a table no fact holds.**
+  A column names its table by name, and a view of one table still reads its
+  repository's columns to fill it. A column whose table the graph holds but the view
+  does not draw is outside the view and is not drawn; a column whose table no fact
+  of the repository holds makes that table a dashed placeholder. The two are
+  different statements — "not in this view" and "not in the graph" — and only the
+  second is what a placeholder says.
 - **A sequence that names no participant takes them from its scenario.** 0026 gives
   a spec its nodes and its scenario, and a sequence names the same thing twice if it
   names both: a spec naming no participant therefore draws the ends of the steps it

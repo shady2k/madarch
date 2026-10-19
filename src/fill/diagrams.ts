@@ -123,11 +123,17 @@ export interface DiagramColumn {
   readonly place?: DiagramPlace;
 }
 
-/** The view a collapsed element stands for: the same diagram, scoped to the elements it folded. */
+/**
+ * The view a collapsed element opens: the same diagram, scoped to what it stands
+ * for. For the types whose elements are the nodes a view names (C4 context,
+ * container and ER) those are the elements it folded; for a type that draws what
+ * stands below its scopes (C4 component and module dependencies) it is the level
+ * above them, at depth 1, because that view draws exactly the folded elements.
+ */
 export interface DiagramDrillDown {
   readonly type: DiagramType;
   readonly level: number;
-  /** The elements the collapsed one stands for, in code point order. */
+  /** The nodes the view is scoped by, in code point order. */
   readonly nodes: readonly string[];
   readonly href: string;
 }
@@ -196,6 +202,14 @@ interface DiagramTypeDeclaration {
   readonly level: number | null;
   /** Whether the type takes a depth of its own as its `level`: module-dependency's, under each scope it names. */
   readonly depth: boolean;
+  /**
+   * Whether a view of the type draws what stands *below* the nodes it names (a
+   * module view draws the modules under its scopes) rather than the nodes
+   * themselves. A collapsed element's drill-down then names the scope whose
+   * contents are the folded elements, at depth 1, and not the elements: a
+   * drill-down naming them would open the level below the one it stands for.
+   */
+  readonly drawsBelow: boolean;
   /** The kinds of the nodes a view of this type may be scoped by. */
   readonly scopes: readonly FactNodeKind[];
   /** The kinds the view's elements are. */
@@ -230,6 +244,7 @@ export const DIAGRAM_TYPE_DECLARATIONS: { readonly [K in DiagramType]: DiagramTy
     edges: ['call', 'consumes', 'dependency', 'import', 'inherits', 'interaction', 'reference', 'resolves'],
     above: [],
     rollsUp: true,
+    drawsBelow: false,
     heading: 'C4 context',
   },
   'c4-container': {
@@ -245,6 +260,7 @@ export const DIAGRAM_TYPE_DECLARATIONS: { readonly [K in DiagramType]: DiagramTy
     edges: ['dependency', 'interaction'],
     above: ['repository'],
     rollsUp: false,
+    drawsBelow: false,
     heading: 'C4 containers',
   },
   'c4-component': {
@@ -255,6 +271,7 @@ export const DIAGRAM_TYPE_DECLARATIONS: { readonly [K in DiagramType]: DiagramTy
     edges: ['call', 'import', 'interaction', 'reference'],
     above: ['module', 'repository'],
     rollsUp: true,
+    drawsBelow: true,
     heading: 'C4 components',
   },
   'module-dependency': {
@@ -265,6 +282,7 @@ export const DIAGRAM_TYPE_DECLARATIONS: { readonly [K in DiagramType]: DiagramTy
     edges: ['dependency', 'import'],
     above: ['module', 'repository'],
     rollsUp: true,
+    drawsBelow: true,
     heading: 'Module dependencies',
   },
   'er': {
@@ -275,6 +293,7 @@ export const DIAGRAM_TYPE_DECLARATIONS: { readonly [K in DiagramType]: DiagramTy
     edges: [],
     above: ['repository'],
     rollsUp: false,
+    drawsBelow: false,
     heading: 'Data model',
   },
   'sequence': {
@@ -285,6 +304,7 @@ export const DIAGRAM_TYPE_DECLARATIONS: { readonly [K in DiagramType]: DiagramTy
     edges: ['interaction'],
     above: [],
     rollsUp: false,
+    drawsBelow: false,
     heading: 'Sequence',
   },
   'state': {
@@ -295,6 +315,7 @@ export const DIAGRAM_TYPE_DECLARATIONS: { readonly [K in DiagramType]: DiagramTy
     edges: ['transition'],
     above: [],
     rollsUp: false,
+    drawsBelow: false,
     heading: 'States',
   },
 };
@@ -501,19 +522,17 @@ function readsOver(
     edges: async (ids, kinds) => await read(`diagramEdges(${String(ids.length)} ids)`, async (executor) => {
       const wanted = [...new Set(ids)].sort(byCodePoint);
       if (wanted.length === 0 || kinds.length === 0) return [];
-      // Every field an edge value can name an end by (`EDGE_END_FIELDS`, graph-reads.ts): the statement asks the
-      // store which edges touch the ids, and the answers are read by `endsOf`, so a kind whose end stands in one of
-      // these fields is answered and a kind whose end is a term (`document-link`, `binds`) matches nothing.
+      // Each end is read out of the field its kind keeps it in (`EDGE_END_FIELDS`: `from` and `to`, an interaction's
+      // `caller` and `callee`, a consumed variable's `variable`, a document link's term), so an edge whose end stands in
+      // no plain field is answered here as readily as one that does.
+      const fromEnd = endExpression('from', kinds, 3);
+      const toEnd = endExpression('to', kinds, 3 + fromEnd.values.length);
       const { rows } = await executor.query<FactRow>(
-        `SELECT ${FACT_COLUMNS} FROM fill_fact
-          WHERE kind = ANY($1::text[])
-            AND (value ->> 'from' = ANY($2::text[])
-              OR value ->> 'to' = ANY($2::text[])
-              OR value ->> 'caller' = ANY($2::text[])
-              OR value ->> 'callee' = ANY($2::text[])
-              OR value ->> 'variable' = ANY($2::text[]))
+        `SELECT ${FACT_COLUMNS} FROM fill_fact e
+          WHERE e.kind = ANY($2::text[])
+            AND ((${fromEnd.sql}) = ANY($1::text[]) OR (${toEnd.sql}) = ANY($1::text[]))
           ORDER BY id ASC`,
-        [kinds, wanted],
+        [wanted, kinds, ...fromEnd.values, ...toEnd.values],
       );
       return rows.map(storedFact).sort((left, right) => byCodePoint(left.id, right.id));
     }),
@@ -1037,6 +1056,12 @@ async function gatherTables(checked: CheckedSpec, scoped: readonly Fact[], reads
   }
   const held = dedupedByFactId(tables);
   const repositories = [...new Set([...(scoped.length === 0 ? [] : scoped.map(repositoryNameOf)), ...held.map(repositoryNameOf)])].sort(byCodePoint);
+  // Every table of those repositories, by the name a column joins on: a column naming a table the view does not draw but
+  // the graph does hold is outside the view and is not a placeholder — a placeholder says the graph holds no such table.
+  const known = new Map<string, string>();
+  for (const repository of repositories) {
+    for (const table of await reads.factsWith('table', 'repository', repository)) known.set(`${repository}\u0000${textOf(table, 'name') ?? ''}`, table.id);
+  }
   const columnsByTable = new Map<string, DiagramColumn[]>();
   for (const repository of repositories) {
     for (const column of await reads.factsWith('column', 'repository', repository)) {
@@ -1048,15 +1073,15 @@ async function gatherTables(checked: CheckedSpec, scoped: readonly Fact[], reads
   }
   const columnsOf = (key: string): readonly DiagramColumn[] => [...(columnsByTable.get(key) ?? [])].sort((left, right) => byCodePoint(left.label, right.label) || byCodePoint(left.id, right.id));
   const elements: DiagramElement[] = [];
-  const claimed = new Set<string>();
+  const drawn = new Set(held.map((table) => `${repositoryNameOf(table)}\u0000${textOf(table, 'name') ?? ''}`));
   for (const table of held) {
     const key = `${repositoryNameOf(table)}\u0000${textOf(table, 'name') ?? ''}`;
-    claimed.add(key);
     const columns = columnsOf(key);
     elements.push({ ...elementOfFact(table), ...(columns.length === 0 ? {} : { columns }) });
   }
   for (const key of [...columnsByTable.keys()].sort(byCodePoint)) {
-    if (claimed.has(key)) continue;
+    if (drawn.has(key)) continue;
+    if (known.has(key)) continue;
     const [repository = '', table = ''] = key.split('\u0000');
     const columns = columnsOf(key);
     elements.push({
@@ -1142,6 +1167,9 @@ async function gatherSequence(checked: CheckedSpec, scoped: readonly Fact[], rea
       // A view that names no participant takes them from the scenario itself: 0026 makes the spec's nodes one way of
       // saying what a view shows, and a scenario's own steps the other. A view that does name them keeps to them.
       if (fact !== undefined && scoped.length === 0) {
+        // A participant a scenario names is whatever its interaction joins, and `EDGE_END_KINDS` limits an interaction's
+        // ends to a symbol and a deploy unit — the same two kinds a spec names. A view that names its participants keeps
+        // to them (a step leaving it is refused above); a view that names none takes them as the graph holds them.
         participants.set(end, fact);
         continue;
       }
@@ -1212,14 +1240,15 @@ function stoodFor(element: DiagramElement): readonly string[] {
 }
 
 /** Why a view the budget could not fit still holds too many elements, in the words the marker uses. */
-function whyStillTooLarge(stopped: 'no-level' | 'level-not-held' | 'no-move' | undefined): string {
+function whyStillTooLarge(stopped: 'type-has-none' | 'no-level' | undefined): string {
   switch (stopped) {
+    // The two reasons are different facts and the marker must not confuse them: a type whose own rule names no level
+    // above its elements (a state's machine is a name and no node; a sequence's participants are what it shows) cannot
+    // collapse whatever the graph holds, and a view whose elements the graph gives no level for cannot either.
+    case 'type-has-none':
+      return 'a diagram of this type has no level above its elements to collapse to';
     case 'no-level':
       return 'no element of it has a level above it in the graph';
-    case 'level-not-held':
-      return 'the level above its elements is a node the graph does not hold';
-    case 'no-move':
-      return 'nothing of it could stand for a level above';
     case undefined:
       return 'it could not be collapsed further';
   }
@@ -1253,20 +1282,27 @@ async function sizeView(
   let edges: readonly DiagramEdge[] = gathered.edges;
   const before = elements.length;
   let collapsed = false;
-  /** Why the collapse stopped with too many elements, once it has: which of the three ways out the loop took. */
-  let stopped: 'no-level' | 'level-not-held' | 'no-move' | undefined;
+  /** Why the collapse stopped with too many elements, once it has: which of the two ways out the loop took. */
+  let stopped: 'type-has-none' | 'no-level' | undefined;
   while (elements.length > budget) {
+    if (checked.declaration.above.length === 0) {
+      stopped = 'type-has-none';
+      break;
+    }
     const above = new Map<string, string>();
     const chains = await reads.ancestors(elements.map((element) => element.id));
     for (const element of elements) {
       const level = (chains.get(element.id) ?? []).find((ancestor) => checked.declaration.above.includes(ancestor.kind));
       if (level !== undefined) above.set(element.id, level.id);
     }
+    const levelFacts = await reads.facts([...new Set(above.values())].sort(byCodePoint));
+    // A level the graph names and holds no fact of is no level this view can stand on: the elements under it stay as
+    // they stand, which is the only way a view is never drawn smaller than the graph.
+    for (const [element, level] of [...above]) if (levelFacts.has(level) === false) above.delete(element);
     if (above.size === 0) {
       stopped = 'no-level';
       break;
     }
-    const levelFacts = await reads.facts([...new Set(above.values())].sort(byCodePoint));
     const groups = new Map<string, string[]>();
     const kept: DiagramElement[] = [];
     for (const element of elements) {
@@ -1282,11 +1318,11 @@ async function sizeView(
     const next: DiagramElement[] = [...kept];
     const moved = new Map<string, string>();
     for (const [level, stood] of [...groups].sort(([left], [right]) => byCodePoint(left, right))) {
+      // Every level of a group was read as a fact above, so a group is always drawable: nothing of a view is dropped
+      // here, and a group that could not be drawn was never made.
       const fact = levelFacts.get(level);
-      // The graph names the level above and no fact of it is held: the elements stay as they stand rather than
-      // being folded into a node nothing can be drawn for. The marker below says the budget was not met.
       if (fact === undefined) continue;
-      // What an element stands for never includes the element itself: a drill-down names the elements the level above
+      // What an element stands for never includes the element itself: the drill-down names what the level above
       // replaced, unless the level above was one of them and stands there alone.
       const seeding = stood.filter((id) => id !== level);
       const seedingIds = seeding.length === 0 ? stood : seeding;
@@ -1295,15 +1331,16 @@ async function sizeView(
         return element === undefined ? [id] : stoodFor(element);
       }))].sort(byCodePoint);
       for (const id of stood) moved.set(id, level);
+      // The view the element opens: the same type, scoped by the elements it stands for — or, for a type that draws what
+      // stands below its scopes, scoped by the level above them at depth 1, which draws exactly those elements.
+      const drill: DiagramViewSpec = checked.declaration.drawsBelow
+        ? { type: checked.type, level: 1, nodes: [level] }
+        : { type: checked.type, level: checked.level, nodes: stands };
       next.push({
         ...elementOfFact(fact),
         standsFor: stands,
-        drillDown: { type: checked.type, level: checked.level, nodes: stands, href: diagramHref({ type: checked.type, level: checked.level, nodes: stands }) },
+        drillDown: { type: drill.type, level: drill.level ?? checked.level, nodes: [...drill.nodes].sort(byCodePoint), href: diagramHref(drill) },
       });
-    }
-    if (moved.size === 0) {
-      stopped = levelFacts.size === 0 ? 'level-not-held' : 'no-move';
-      break;
     }
     elements = next.sort(byElementOrder);
     edges = refoldedArrows(edges, moved);

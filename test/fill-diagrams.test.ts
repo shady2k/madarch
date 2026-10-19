@@ -140,6 +140,16 @@ describe('an entity-relationship view', () => {
     expect(audit?.columns?.map((column) => column.label)).toEqual(['id']);
   });
 
+  test('a view of one table draws that table and the table no fact holds, and no other table of its repository', async () => {
+    // A table the graph holds and the view does not name is outside the view; a placeholder says the graph holds no such
+    // table at all, so the one table it does not hold is drawn dashed and the one it does hold is not.
+    const model = await buildDiagram({ type: 'er', nodes: [fx.ordersTable.id] }, clean);
+    expect(labels(model)).toEqual(['acme-shop:public.audit', 'acme-shop:public.orders']);
+    expect(model.elements.find((element) => element.id === fx.paymentsTable.id)).toBeUndefined();
+    expect(model.elements.find((element) => element.label === 'acme-shop:public.audit')?.dashed).toBe(true);
+    expect(model.elements.find((element) => element.id === fx.ordersTable.id)?.columns?.map((column) => column.label)).toEqual(['id', 'total']);
+  });
+
   test('a repository with no table is an empty model and not an error', async () => {
     const model = await buildDiagram({ type: 'er', nodes: [fx.web.id] }, clean);
     expect(model.elements).toEqual([]);
@@ -210,19 +220,38 @@ describe('the size of a view', () => {
     expect(model.marker).toBe('collapsed: the view holds 3 elements and the 2-element budget holds 1: each element stands for the level above it, and its link opens the view it stands for');
     const stood = [fx.webApp.id, fx.webApi.id, fx.webShared.id].sort();
     expect(model.elements[0]!.standsFor).toEqual(stood);
+    // A module view draws what stands below the scopes it names, so the link opens the scope the folded modules stand
+    // in, at depth 1 — naming the modules themselves would open the level below the one the element stands for.
     expect(model.elements[0]!.drillDown).toEqual({
       type: 'module-dependency',
       level: 1,
-      nodes: stood,
-      href: diagramHref({ type: 'module-dependency', level: 1, nodes: stood }),
+      nodes: [fx.web.id],
+      href: `/p/graph?diagram=module-dependency&level=1&node=${fx.web.id}`,
     });
-    expect(model.elements[0]!.drillDown?.href).toContain('diagram=module-dependency');
+  });
+
+  test('a module view is drawn a depth below its scopes, and folds into a module when the level above is one', async () => {
+    // A depth of two draws the clusters below the top-level ones, and only the web's api cluster is two levels deep.
+    const deep = await buildDiagram({ type: 'module-dependency', nodes: [fx.web.id], level: 2 }, clean);
+    expect(labels(deep)).toEqual(['web-api-handlers', 'web-api-routes']);
+    expect(deep.edges).toEqual([]);
+    const folded = await buildDiagram({ type: 'module-dependency', nodes: [fx.webApi.id] }, clean, { limits: { nodes: 1 } });
+    expect(labels(folded)).toEqual(['web-api']);
+    expect(folded.elements[0]!.id).toBe(fx.webApi.id);
+    expect(folded.collapsed).toBe(true);
+    expect(folded.elements[0]!.standsFor).toEqual([fx.webApiHandlers.id, fx.webApiRoutes.id].sort());
+    expect(folded.elements[0]!.drillDown).toEqual({
+      type: 'module-dependency',
+      level: 1,
+      nodes: [fx.webApi.id],
+      href: `/p/graph?diagram=module-dependency&level=1&node=${fx.webApi.id}`,
+    });
   });
 
   test('a view no element of which has a level above it says the budget was not met instead of drawing fewer nodes', async () => {
     const model = await buildDiagram({ type: 'state', nodes: [fx.newState.id] }, clean, { limits: { nodes: 1 } });
     expect(model.collapsed).toBe(false);
-    expect(model.marker).toBe('truncated: the view holds 4 elements and the 1-element budget holds 4: no element of it has a level above it in the graph');
+    expect(model.marker).toBe('truncated: the view holds 4 elements and the 1-element budget holds 4: a diagram of this type has no level above its elements to collapse to');
     expect(model.elements).toHaveLength(4);
   });
 
@@ -248,10 +277,10 @@ describe('the size of a view', () => {
   });
 
   test('a container view inside its budget says nothing about its size', async () => {
-    const model = await buildDiagram({ type: 'module-dependency', nodes: [fx.shop.id] }, clean, { limits: { nodes: 2 } });
+    const model = await buildDiagram({ type: 'c4-container', nodes: [fx.shop.id] }, clean, { limits: { nodes: 4 } });
     expect(model.collapsed).toBe(false);
     expect(model.marker).toBeNull();
-    expect(labels(model)).toEqual(['checkout', 'payment']);
+    expect(labels(model)).toEqual(['acme-shop:@acme/checkout', 'acme-shop:@acme/payments', 'acme-shop:public.orders', 'acme-shop:public.payments']);
   });
 
   test('a budget below one element is refused by name', async () => {
@@ -288,7 +317,7 @@ describe('what every element carries', () => {
           continue;
         }
         expect(element.page?.id).toBe(element.id);
-        expect(element.page?.href).toBe(graphPageHref(element.id));
+        expect(element.page?.href).toBe(`/p/graph/${element.id}`);
         // A place is the fact's own code position: the repository and the commit a reader opens it at, the file and the
         // lines. A fact whose provenance names none carries none, which the assertion below covers.
         if (element.place !== undefined) {

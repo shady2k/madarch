@@ -29,6 +29,8 @@ const MARKETING = 'src/marketing.ts';
 const WEB_APP_FILE = 'src/app.ts';
 const WEB_API_FILE = 'src/api.ts';
 const WEB_SHARED_FILE = 'src/shared.ts';
+const WEB_ROUTES_FILE = 'src/routes.ts';
+const WEB_HANDLERS_FILE = 'src/handlers.ts';
 
 /** One provenance: a fact read out of a file of a repository at the pinned commit, at its line. */
 export function provenance(repository: string, file: string, line = 1): FactProvenance {
@@ -70,12 +72,18 @@ export function diagramFixture() {
   const webAppFile = node('file', { repository: WEB, path: repositoryPath(WEB_APP_FILE), roles: ['source'], language: 'typescript' }, provenance(WEB, WEB_APP_FILE, 6));
   const webApiFile = node('file', { repository: WEB, path: repositoryPath(WEB_API_FILE), roles: ['source'], language: 'typescript' }, provenance(WEB, WEB_API_FILE, 7));
   const webSharedFile = node('file', { repository: WEB, path: repositoryPath(WEB_SHARED_FILE), roles: ['source'], language: 'typescript' }, provenance(WEB, WEB_SHARED_FILE, 8));
+  const webRoutesFile = node('file', { repository: WEB, path: repositoryPath(WEB_ROUTES_FILE), roles: ['source'], language: 'typescript' }, provenance(WEB, WEB_ROUTES_FILE, 9));
+  const webHandlersFile = node('file', { repository: WEB, path: repositoryPath(WEB_HANDLERS_FILE), roles: ['source'], language: 'typescript' }, provenance(WEB, WEB_HANDLERS_FILE, 10));
   // The modules stage 5 clusters: two top-level modules of the shop (the fixture 0026's own case names), three of the web.
   const checkout = node('module', { repository: SHOP, name: 'checkout', seed: 'package', members: 2, importance: 0.5 }, at(SHOP, CART));
   const payment = node('module', { repository: SHOP, name: 'payment', seed: 'package', members: 1, importance: 0.3 }, at(SHOP, PAY));
   const webApp = node('module', { repository: WEB, name: 'web-app', seed: 'package', members: 1 }, at(WEB, WEB_APP_FILE));
   const webApi = node('module', { repository: WEB, name: 'web-api', seed: 'package', members: 1 }, at(WEB, WEB_API_FILE));
   const webShared = node('module', { repository: WEB, name: 'web-shared', seed: 'package', members: 1 }, at(WEB, WEB_SHARED_FILE));
+  // Two clusters below one top-level cluster (stage 5 nests them, `ModuleValue.parent`): the depth a module view may ask
+  // for, and the level a collapsed view folds into when the level above is a module and not a repository.
+  const webApiRoutes = node('module', { repository: WEB, name: 'web-api-routes', parent: webApi.id, seed: 'cluster', members: 1 }, at(WEB, WEB_ROUTES_FILE));
+  const webApiHandlers = node('module', { repository: WEB, name: 'web-api-handlers', parent: webApi.id, seed: 'cluster', members: 1 }, at(WEB, WEB_HANDLERS_FILE));
   const contains = (from: Fact, to: Fact, place: FactProvenance): Fact => edge('contains', { from: from.id, to: to.id }, place);
   const containsEdges = [
     contains(shop, checkout, at(SHOP, CART)),
@@ -89,6 +97,12 @@ export function diagramFixture() {
     contains(webApp, webAppFile, provenance(WEB, WEB_APP_FILE)),
     contains(webApi, webApiFile, provenance(WEB, WEB_API_FILE)),
     contains(webShared, webSharedFile, provenance(WEB, WEB_SHARED_FILE)),
+    contains(webApi, webApiRoutes, provenance(WEB, WEB_ROUTES_FILE)),
+    contains(webApi, webApiHandlers, provenance(WEB, WEB_HANDLERS_FILE)),
+    contains(webApi, webRoutesFile, provenance(WEB, WEB_ROUTES_FILE)),
+    contains(webApi, webHandlersFile, provenance(WEB, WEB_HANDLERS_FILE)),
+    contains(webApiRoutes, webRoutesFile, provenance(WEB, WEB_ROUTES_FILE)),
+    contains(webApiHandlers, webHandlersFile, provenance(WEB, WEB_HANDLERS_FILE)),
     contains(web, marketing, provenance(WEB, MARKETING)),
   ];
   // The one import inside the shop: checkout's cart imports payment's pay — 0026's two modules with one dependency.
@@ -140,15 +154,15 @@ export function diagramFixture() {
     contains(payment, chargeSymbol, provenance(SHOP, PAY, 12)),
   ];
   return {
-    shop, web, cart, pay, orphan, gone, marketing, webAppFile, webApiFile, webSharedFile,
-    checkout, payment, webApp, webApi, webShared,
+    shop, web, cart, pay, orphan, gone, marketing, webAppFile, webApiFile, webSharedFile, webRoutesFile, webHandlersFile,
+    checkout, payment, webApp, webApi, webShared, webApiRoutes, webApiHandlers,
     cartImportsPay, orphanImportsGone, marketingImportsCart, packageDependency,
     checkoutPackage, paymentsPackage, ordersTable, paymentsTable, columns,
     newState, paidState, shippedState, refundedState, payTransition, shipTransition, refundTransition,
     placeSymbol, chargeSymbol, placeCalls, settled,
     facts: [
-      shop, web, cart, pay, orphan, marketing, webAppFile, webApiFile, webSharedFile,
-      checkout, payment, webApp, webApi, webShared,
+      shop, web, cart, pay, orphan, marketing, webAppFile, webApiFile, webSharedFile, webRoutesFile, webHandlersFile,
+      checkout, payment, webApp, webApi, webShared, webApiRoutes, webApiHandlers,
       ...containsEdges, ...containsSymbols,
       cartImportsPay, orphanImportsGone, marketingImportsCart, packageDependency,
       checkoutPackage, paymentsPackage, ordersTable, paymentsTable, ...columns,

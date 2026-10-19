@@ -13,9 +13,9 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
-import { buildDiagram, buildFactStoreDiagram, factStoreDiagramReads, type DiagramGraphReads } from '../src/fill/diagrams.js';
+import { UNRESOLVED_PREFIX, buildDiagram, buildFactStoreDiagram, factStoreDiagramReads, type DiagramGraphReads } from '../src/fill/diagrams.js';
 import { applyPublishedFacts, createFactStoreSchema } from '../src/fill/fact-store.js';
-import { makeEdgeFact, repositoryPath, type Fact } from '../src/fill/facts.js';
+import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact } from '../src/fill/facts.js';
 import { createOrchestratorSchema, type UnitPlanRecord } from '../src/fill/orchestrator-store.js';
 import { createFillStateSchema, createUnit, readUnit } from '../src/fill/state-store.js';
 import { DIAGRAM_FIXTURE } from './fill-diagram-fixture.js';
@@ -27,6 +27,8 @@ const BASE_UNIT = 'diagrams/base';
 const UNRESOLVED_UNIT = 'diagrams/unresolved';
 /** The unit that publishes a second module holding a file an arrow already rolls up: two ancestors at one depth. */
 const TIE_UNIT = 'diagrams/tie';
+/** The unit that publishes a document and the link it makes to a node. */
+const LINK_UNIT = 'diagrams/link';
 
 const fx = DIAGRAM_FIXTURE;
 let owner: DatabaseOwner | undefined;
@@ -61,7 +63,7 @@ beforeAll(async () => {
   await createFillStateSchema(database);
   await createOrchestratorSchema(database);
   await createFactStoreSchema(database);
-  for (const unitId of [BASE_UNIT, UNRESOLVED_UNIT, TIE_UNIT]) {
+  for (const unitId of [BASE_UNIT, UNRESOLVED_UNIT, TIE_UNIT, LINK_UNIT]) {
     await createUnit(database, { unitId, product: PRODUCT, runId: 'run-diagrams', stageId: 'diagrams', scopeKey: unitId, inputsDigest: `${unitId}-inputs`, retries: 0, at: NOW });
   }
   const published = await publish(database, BASE_UNIT, 'publication-base', fx.facts.filter((fact) => fact.id !== fx.orphanImportsGone.id));
@@ -134,15 +136,54 @@ describe('the relations an agent proposed', () => {
 });
 
 describe('an edge into a node no unit holds', () => {
-  test('the store answers the edge and not its end, and the view draws the end as unresolved', async () => {
-    const published = await publish(owner!, UNRESOLVED_UNIT, 'publication-unresolved', [fx.orphanImportsGone]);
-    expect(published).toBe(1);
+  test('the store answers the edge and not its end, whichever end is the missing one', async () => {
+    // Two edges whose other end no unit holds: one starts at a file the graph holds and ends at one it does not, the
+    // other starts at a file it does not hold and ends at one it does. The read answers both — left joins on each end —
+    // and the view draws each missing end as a dashed placeholder.
+    const intoNothing = fx.orphanImportsGone;
+    const fromNothing = makeEdgeFact({
+      kind: 'import',
+      value: { from: fx.gone.id, to: fx.cart.id, specifier: '../goner.js' },
+      provenance: { source: { system: 'tree-sitter', version: '1.0.0' }, repository: { id: 'acme-shop', commit: 'a'.repeat(40) }, place: { file: repositoryPath('src/orphan.ts'), range: { startLine: 3, startColumn: 0, endLine: 3, endColumn: 10 } } },
+      layer: 'extracted',
+    });
+    const published = await publish(owner!, UNRESOLVED_UNIT, 'publication-unresolved', [intoNothing, fromNothing]);
+    expect(published).toBe(2);
     const model = await buildDiagram({ type: 'module-dependency', nodes: [fx.shop.id] }, reads);
-    const unresolved = model.elements.find((element) => element.kind === null);
-    expect(unresolved?.label).toBe(fx.gone.id);
-    expect(unresolved?.dashed).toBe(true);
-    const arrow = model.edges.find((each) => each.to === unresolved?.id);
-    expect([arrow?.label, arrow?.evidence, arrow?.dashed]).toEqual(['import', 'unresolved', true]);
+    const placeholders = model.elements.filter((element) => element.kind === null);
+    // One placeholder, drawn once, however many arrows name the missing end.
+    expect(placeholders.map((element) => element.label)).toEqual([fx.gone.id]);
+    expect(placeholders[0]?.dashed).toBe(true);
+    expect(model.edges.map((arrow) => `${arrow.from}>${arrow.to}:${arrow.label}:${arrow.evidence}`).sort()).toEqual([
+      `${fx.checkout.id}>${fx.payment.id}:import:fact`,
+      `${fx.checkout.id}>${UNRESOLVED_PREFIX}${fx.gone.id}:import:unresolved`,
+      `${UNRESOLVED_PREFIX}${fx.gone.id}>${fx.checkout.id}:import:unresolved`,
+    ].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)));
+  });
+});
+
+describe('the edges read', () => {
+  test('answers an edge whose end is a term naming the node, which no plain field of its value holds', async () => {
+    // A document link keeps its to end as a term (`{form: 'node', id}`): a read that looked only at the plain fields
+    // would answer none, and the interface promises every edge that names one of the ids at one of its ends.
+    const document = makeNodeFact({
+      kind: 'document',
+      value: { repository: 'acme-shop', path: repositoryPath('docs/orders.md'), mediaType: 'text/markdown', title: 'Orders' },
+      provenance: { source: { system: 'tree-sitter', version: '1.0.0' }, repository: { id: 'acme-shop', commit: 'a'.repeat(40) }, place: { file: repositoryPath('docs/orders.md'), range: { startLine: 1, startColumn: 0, endLine: 1, endColumn: 10 } } },
+      layer: 'extracted',
+    });
+    const link = makeEdgeFact({
+      kind: 'document-link',
+      value: { from: document.id, to: { form: 'node', id: fx.pay.id } },
+      provenance: document.provenance,
+      layer: 'extracted',
+    });
+    const published = await publish(owner!, LINK_UNIT, 'publication-link', [document, link]);
+    expect(published).toBe(2);
+    const answered = await reads.edges([fx.pay.id], ['document-link']);
+    expect(answered.map((fact) => fact.id)).toEqual([link.id]);
+    // And an id that no end names is answered by nothing.
+    expect(await reads.edges([fx.shop.id], ['document-link'])).toEqual([]);
   });
 });
 
