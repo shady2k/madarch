@@ -11,8 +11,10 @@
  * are made of: two packages with a dependency, two tables with their columns and
  * a column whose table no fact holds, one state machine with a transition into a
  * state no unit holds, and two symbols an agent proposed an interaction between.
- * `acme-web` holds three modules (a view past its budget) and one import into the
- * shop, which is the relation a context view rolls up to the two repositories.
+ * `acme-web` holds three top-level modules and two clusters below one of them (a
+ * view past its budget, and the depth a module view may ask for) and one import
+ * into the shop, which is the relation a context view rolls up to the two
+ * repositories.
  */
 import type { DiagramGraphReads } from '../src/fill/diagrams.js';
 import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact, type FactEdgeKind, type FactProvenance } from '../src/fill/facts.js';

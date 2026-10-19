@@ -124,17 +124,17 @@ export interface DiagramColumn {
 }
 
 /**
- * The view a collapsed element opens: the same diagram, scoped to what it stands
- * for. For the types whose elements are the nodes a view names (C4 context,
- * container and ER) those are the elements it folded; for a type that draws what
- * stands below its scopes (C4 component and module dependencies) it is the level
- * above them, at depth 1, because that view draws exactly the folded elements.
+ * The view a collapsed element opens: the specification that draws what the
+ * element stands for — `buildDiagram` accepts it as it stands — and its address.
+ * For the types whose elements are the nodes a view names (C4 container and ER)
+ * that view is scoped by the elements it folded; for a type that draws what stands
+ * *below* the scopes it names (C4 component and module dependencies) it is scoped
+ * by the level above them at depth 1, which draws exactly the folded elements. A
+ * level is named only where the type takes one: C4 component, C4 container and ER
+ * stand at levels of their own, and a spec that named another would be refused.
  */
 export interface DiagramDrillDown {
-  readonly type: DiagramType;
-  readonly level: number;
-  /** The nodes the view is scoped by, in code point order. */
-  readonly nodes: readonly string[];
+  readonly view: DiagramViewSpec;
   readonly href: string;
 }
 
@@ -1289,16 +1289,20 @@ async function sizeView(
       stopped = 'type-has-none';
       break;
     }
-    const above = new Map<string, string>();
     const chains = await reads.ancestors(elements.map((element) => element.id));
+    const levels = new Map<string, readonly string[]>();
     for (const element of elements) {
-      const level = (chains.get(element.id) ?? []).find((ancestor) => checked.declaration.above.includes(ancestor.kind));
-      if (level !== undefined) above.set(element.id, level.id);
+      levels.set(element.id, (chains.get(element.id) ?? []).filter((ancestor) => checked.declaration.above.includes(ancestor.kind)).map((ancestor) => ancestor.id));
     }
-    const levelFacts = await reads.facts([...new Set(above.values())].sort(byCodePoint));
-    // A level the graph names and holds no fact of is no level this view can stand on: the elements under it stay as
-    // they stand, which is the only way a view is never drawn smaller than the graph.
-    for (const [element, level] of [...above]) if (levelFacts.has(level) === false) above.delete(element);
+    const levelFacts = await reads.facts([...new Set([...levels.values()].flat())].sort(byCodePoint));
+    // The nearest level the graph both names and holds a fact of. A level it names and holds no fact of is no level this
+    // view can stand on — the element goes on to the next one up, or stays as it stands, which is the only way a view is
+    // never drawn smaller than the graph.
+    const above = new Map<string, string>();
+    for (const [element, chain] of levels) {
+      const level = chain.find((ancestor) => levelFacts.has(ancestor));
+      if (level !== undefined) above.set(element, level);
+    }
     if (above.size === 0) {
       stopped = 'no-level';
       break;
@@ -1332,14 +1336,16 @@ async function sizeView(
       }))].sort(byCodePoint);
       for (const id of stood) moved.set(id, level);
       // The view the element opens: the same type, scoped by the elements it stands for — or, for a type that draws what
-      // stands below its scopes, scoped by the level above them at depth 1, which draws exactly those elements.
+      // stands below its scopes, scoped by the level above them at depth 1, which draws exactly those elements. Only
+      // module-dependency takes a level of its own; a C4 type or an ER view names none, and a spec naming one would be
+      // refused by this module's own check.
       const drill: DiagramViewSpec = checked.declaration.drawsBelow
-        ? { type: checked.type, level: 1, nodes: [level] }
-        : { type: checked.type, level: checked.level, nodes: stands };
+        ? { type: checked.type, nodes: [level], ...(checked.declaration.depth ? { level: 1 } : {}) }
+        : { type: checked.type, nodes: stands };
       next.push({
         ...elementOfFact(fact),
         standsFor: stands,
-        drillDown: { type: drill.type, level: drill.level ?? checked.level, nodes: [...drill.nodes].sort(byCodePoint), href: diagramHref(drill) },
+        drillDown: { view: { ...drill, nodes: [...drill.nodes].sort(byCodePoint) }, href: diagramHref(drill) },
       });
     }
     elements = next.sort(byElementOrder);

@@ -249,14 +249,17 @@ None.
   files or symbols, which are no containers, and a declared kind that can never
   produce an arrow would be a promise the model does not keep.
 - **A drill-down opens the view the element stands for, which is not always the
-  element list.** A C4 context, container or ER view draws the nodes its spec
-  names, so a collapsed element links a spec scoped by the elements it folded. A
-  module view (C4 component and module dependencies) draws what stands *below* the
-  scopes it names, so linking the folded modules would open the level below them:
-  its drill-down names the level above them — the module or repository they were
-  folded into — at depth 1, which draws exactly those modules. `DiagramDrillDown`
-  says which of the two a link is, and the tests read every kind of drill-down back
-  into a view.
+  element list.** A C4 container or ER view draws the nodes its spec names, so a
+  collapsed element links a spec scoped by the elements it folded. A module view
+  (C4 component and module dependencies) draws what stands *below* the scopes it
+  names, so linking the folded modules would open the level below them: its
+  drill-down names the level above them — the module or repository they were folded
+  into — at depth 1, which draws exactly those modules, and at the level that
+  `module-dependency` alone takes (a C4 component view is level 3 and an ER view
+  has none, and a spec naming another is refused). `DiagramDrillDown` carries that
+  specification as it stands, so a consumer reads it back with no assembly of its
+  own, and the tests of every type that collapses read their drill-down into a
+  view.
 - **The ER view draws the tables it holds and marks only a table no fact holds.**
   A column names its table by name, and a view of one table still reads its
   repository's columns to fill it. A column whose table the graph holds but the view
@@ -310,6 +313,64 @@ None.
     moves that one function.
   - **No `mutation` receipt.** The owner's rule runs Stryker once per assembled
     stage, off the path; acceptance escalates per `mutationFallback: escalate`.
+
+## Acceptance evidence
+
+The checks, each command's own exit status, at hand-over.
+
+- `bun run check` (`tsc --noEmit`) exit 0 at every commit of the branch and after
+  every edit round.
+- The feature document gate (`node .shady2k/documents.mjs check --phase feature
+  --change madarch-tzte.23.2 --candidate worktree --target origin/main`) exit 0,
+  clean, after every edit round and at hand-over (it runs in the pre-commit hook
+  too).
+- The focused suites run in SkyPilot, not on this machine (the owner's rule),
+  `madarch-sky-test <worktree> test/fill-diagrams.test.ts
+  test/fill-diagrams-store.test.ts`, each with the tests' own exit status:
+  - the change as first written: **36 pass, 0 fail, exit 0**
+    (`run-20261019-093557`), after three rounds of fixing the fixture's own
+    expectations;
+  - after the first review's answers: **44 pass, 0 fail, exit 0**
+    (`run-20261019-095519`);
+  - after the second review's answers: **47 pass, 0 fail, exit 0**
+    (`run-20261019-101351`);
+  - at hand-over, after the third review's answers: **49 pass, 0 fail, exit 0**
+    (`run-20261019-102403`).
+- The independent review, fresh read-only
+  `prime-agent --provider shady2k-gateway --model deepseek-v4.1-flash-auto`
+  sessions over `git diff origin/main...HEAD`, each told not to run anything on
+  this machine (no `bun`, no tests, no mutation).
+  - Round 1 (`/tmp/review-232.log`): verdict `fix-before-ship`; four defects —
+    the store's edge read joined the `from` field alone, so no `interaction` was
+    ever answered and a component view lost every arrow an agent drew; a
+    container view's drill-down was a spec the module itself refuses; the size
+    marker reported a budget the view did not meet; and a spec that is no object
+    threw a bare `TypeError` — plus fourteen findings. All four were answered
+    **with the test that catches each**, and the findings answered in code (a
+    place now carries its repository and commit, an arrow carries the place of
+    the first fact behind it, the ancestry walk orders ties here and not by the
+    database's collation, a sequence with no participants takes them from its
+    scenario, and one model is read inside one transaction) or named in the
+    limitations.
+  - Round 2 (`/tmp/review-232b.log`): verdict `fix-before-ship`; four defects —
+    an ER view scoped by one table drew the repository's other tables as
+    `unresolved` placeholders; a module view's drill-down opened the level below
+    the one it claimed; the marker's reason for a state or sequence view blamed
+    the graph for the type's own rule; and an element whose level above the graph
+    did not hold was dropped — plus seven findings. All four are answered with
+    their tests, the fixture gained the nested modules and the placeless
+    repository the findings asked for, and the findings that were not code were
+    written into the limitations.
+  - Round 3 (`/tmp/review-232c.log`), a narrow confirmation of the answers:
+    verdict `fix-before-ship`; two defects — a `c4-component` and an `er`
+    drill-down still carried a level their types refuse — and six findings, one of
+    them a claim in this record that the tests read every drill-down back (they
+    read one back). Both defects are answered structurally — the drill-down now
+    *is* the specification, level named only where the type takes one — and every
+    type that collapses now has its drill-down read back into a view. The record's
+    claims are corrected with them.
+- CI on the exact SHA of the branch: named in the queue entry
+  (`## madarch-tzte.23.2 — READY …`).
 
 ## DONE WHEN
 

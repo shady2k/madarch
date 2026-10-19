@@ -223,11 +223,11 @@ describe('the size of a view', () => {
     // A module view draws what stands below the scopes it names, so the link opens the scope the folded modules stand
     // in, at depth 1 — naming the modules themselves would open the level below the one the element stands for.
     expect(model.elements[0]!.drillDown).toEqual({
-      type: 'module-dependency',
-      level: 1,
-      nodes: [fx.web.id],
+      view: { type: 'module-dependency', level: 1, nodes: [fx.web.id] },
       href: `/p/graph?diagram=module-dependency&level=1&node=${fx.web.id}`,
     });
+    // The drill-down is a specification this module accepts, and it draws the modules the element stands for.
+    expect(labels(await buildDiagram(model.elements[0]!.drillDown!.view, clean, { limits: { nodes: 40 } }))).toEqual(['web-api', 'web-app', 'web-shared']);
   });
 
   test('a module view is drawn a depth below its scopes, and folds into a module when the level above is one', async () => {
@@ -241,11 +241,10 @@ describe('the size of a view', () => {
     expect(folded.collapsed).toBe(true);
     expect(folded.elements[0]!.standsFor).toEqual([fx.webApiHandlers.id, fx.webApiRoutes.id].sort());
     expect(folded.elements[0]!.drillDown).toEqual({
-      type: 'module-dependency',
-      level: 1,
-      nodes: [fx.webApi.id],
+      view: { type: 'module-dependency', level: 1, nodes: [fx.webApi.id] },
       href: `/p/graph?diagram=module-dependency&level=1&node=${fx.webApi.id}`,
     });
+    expect(labels(await buildDiagram(folded.elements[0]!.drillDown!.view, clean, { limits: { nodes: 40 } }))).toEqual(['web-api-handlers', 'web-api-routes']);
   });
 
   test('a view no element of which has a level above it says the budget was not met instead of drawing fewer nodes', async () => {
@@ -269,11 +268,59 @@ describe('the size of a view', () => {
     expect(labels(model)).toEqual(['acme-shop']);
     expect(model.collapsed).toBe(true);
     const drill = model.elements[0]!.drillDown!;
-    expect(drill.nodes).toEqual([fx.checkoutPackage.id, fx.paymentsPackage.id, fx.ordersTable.id, fx.paymentsTable.id].sort());
+    expect(drill).toEqual({
+      view: { type: 'c4-container', nodes: [fx.checkoutPackage.id, fx.paymentsPackage.id, fx.ordersTable.id, fx.paymentsTable.id].sort() },
+      href: `/p/graph?diagram=c4-container&node=${[fx.checkoutPackage.id, fx.paymentsPackage.id, fx.ordersTable.id, fx.paymentsTable.id].sort().join('&node=')}`,
+    });
     // The drill-down is a spec of this module's own: read back, it draws the containers it stands for.
-    const below = await buildDiagram({ type: drill.type, nodes: drill.nodes, level: drill.level }, clean, { limits: { nodes: 40 } });
+    const below = await buildDiagram(drill.view, clean, { limits: { nodes: 40 } });
     expect(labels(below)).toEqual(['acme-shop:@acme/checkout', 'acme-shop:@acme/payments', 'acme-shop:public.orders', 'acme-shop:public.payments']);
     expect(below.collapsed).toBe(false);
+  });
+
+  test('the other two types that collapse write a drill-down this module accepts as it stands', async () => {
+    // A component view folds its modules into the repository at level 3, and an ER view folds its tables into it: both
+    // links are specs with no level named, because neither type takes one of its own.
+    const component = await buildDiagram({ type: 'c4-component', nodes: [fx.shop.id] }, clean, { limits: { nodes: 1 } });
+    expect(labels(component)).toEqual(['acme-shop']);
+    const componentDrill = component.elements[0]!.drillDown!;
+    expect(componentDrill).toEqual({
+      view: { type: 'c4-component', nodes: [fx.shop.id] },
+      href: `/p/graph?diagram=c4-component&node=${fx.shop.id}`,
+    });
+    expect(labels(await buildDiagram(componentDrill.view, clean, { limits: { nodes: 40 } }))).toEqual(['checkout', 'payment']);
+    const er = await buildDiagram({ type: 'er', nodes: [fx.shop.id] }, clean, { limits: { nodes: 2 } });
+    // The two tables fold into their repository; the table no fact holds stands for nothing and stays as it is.
+    expect(labels(er)).toEqual(['acme-shop', 'acme-shop:public.audit']);
+    const erDrill = er.elements[0]!.drillDown!;
+    expect(erDrill).toEqual({
+      view: { type: 'er', nodes: [fx.paymentsTable.id, fx.ordersTable.id].sort() },
+      href: `/p/graph?diagram=er&node=${[fx.paymentsTable.id, fx.ordersTable.id].sort().join('&node=')}`,
+    });
+    expect(labels(await buildDiagram(erDrill.view, clean, { limits: { nodes: 40 } }))).toEqual(['acme-shop:public.audit', 'acme-shop:public.orders', 'acme-shop:public.payments']);
+  });
+
+  test('an element whose nearest level the graph does not hold goes on to the next level it does', async () => {
+    // A reader whose ancestry names a module no fact holds in front of the repository: the element must fold into the
+    // repository, which the graph does hold, and not be left in the view with the budget unmet.
+    const missing = `module:${'e'.repeat(64)}`;
+    const ghostly: DiagramGraphReads = {
+      ...clean,
+      ancestors: async (ids) => {
+        const chains = await clean.ancestors(ids);
+        const held = new Map(chains);
+        for (const id of ids) {
+          const chain = held.get(id) ?? [];
+          held.set(id, [{ id: missing, kind: 'module' }, ...chain]);
+        }
+        return held;
+      },
+    };
+    const model = await buildDiagram({ type: 'module-dependency', nodes: [fx.web.id] }, ghostly, { limits: { nodes: 1 } });
+    expect(labels(model)).toEqual(['acme-web']);
+    expect(model.collapsed).toBe(true);
+    expect(model.marker).toBe('collapsed: the view holds 3 elements and the 1-element budget holds 1: each element stands for the level above it, and its link opens the view it stands for');
+    expect(model.elements[0]!.standsFor).toEqual([fx.webApp.id, fx.webApi.id, fx.webShared.id].sort());
   });
 
   test('a container view inside its budget says nothing about its size', async () => {
