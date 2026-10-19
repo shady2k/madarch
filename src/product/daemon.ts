@@ -579,7 +579,19 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
   let address: string | undefined;
   const orchestrator = daemonFillOrchestrator(home, { toolUrl: () => (address === undefined ? undefined : `${address}${UNIT_TOOL_PATH}`) });
   try {
-    const server = await startServer({ productHome: home, appFolder: process.env.MADARCH_APP_DIST, port: options.port, host: '127.0.0.1', startFill, orchestrator });
+    // Each product's graph pages are read from this process's own fact store (madarch-tzte.23.1, decision
+    // 0026's "Pages"), which the fill service owns: the page set, a node's page and the change a publication
+    // pushes all answer from the database the fill writes, and a product whose fill never ran answers the
+    // empty page set with the message saying which fill writes it.
+    const server = await startServer({
+      productHome: home,
+      appFolder: process.env.MADARCH_APP_DIST,
+      port: options.port,
+      host: '127.0.0.1',
+      startFill,
+      orchestrator,
+      graphPages: (productFolder) => orchestrator.pages(productFolder),
+    });
     address = server.url;
     await new Promise<void>((resolveDone) => { process.once('SIGTERM', resolveDone); process.once('SIGINT', resolveDone); });
     await server.stop();

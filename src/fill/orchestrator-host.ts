@@ -17,15 +17,18 @@
  * set lands. A caller that has no wiring yet is refused with exactly what is
  * missing, never served a run that would publish nothing silently.
  */
+import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
+import { readProduct } from '../product/manifest.js';
 import { runningVersion } from '../product/version.js';
 import { createPgBossQueue } from '../adapters/pg-boss-queue.js';
 import { consumeFillControl } from '../product/fill-runtime.js';
 import { draftSetOf, factGraph, writeScope, type CheckedWriteDraft, type CheckedWriteGraph, type WriteSnapshots } from './checked-writes.js';
 import type { FillStageConfigurationRead } from './config.js';
 import { FACT_APPLICATION, createFactStoreSchema } from './fact-store.js';
+import { emptyPageSetMessage, readPageChanges, readPageModel, readPageSet, type GraphPagesSource } from './graph-pages.js';
 import type { FactLayer, FactSource } from './facts.js';
 import { graphReadsOver, type DraftReading, type GraphReadLimits } from './graph-reads.js';
 import {
@@ -180,6 +183,21 @@ export interface FillOrchestratorService {
    */
   unitTool(request: UnitToolCall): Promise<UnitToolAnswer | null>;
   /**
+   * One product's graph pages (madarch-tzte.23.1; decision 0026, "Pages"), read
+   * from the fill's fact store over the product's folder: the page-worthy nodes the
+   * product's units published, one node's page model, and the changes each
+   * publication makes — which is what the server's `GET /api/graph/pages`,
+   * `GET /api/graph/page` and `GET /api/graph/events` answer from.
+   *
+   * The pages are not opened with this service: a home whose fill never ran holds
+   * no database, and its page set is the empty set with the message naming the fill
+   * that would write it — an empty graph answers a message, never an error (0026).
+   * The channel is woken by this service's own publications: a run this process
+   * drives announces the pages its units' publications touched, in the same process
+   * that reads them (decision 0027's one owner and one writer).
+   */
+  pages(folder: string): GraphPagesSource;
+  /**
    * Stops the queue and closes the database this service opened; safe to call
    * twice and safe to call before anything was opened.
    */
@@ -326,7 +344,13 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
           });
         },
       }),
-      ...(options.sink === undefined ? {} : { sink: options.sink }),
+      // Every publication this process makes wakes the product's page channel (0026, "Pages"): the server's
+      // subscribers ask the store which pages the publication touched (`fill_page_change`), and a publication
+      // that touched no page wakes a stream that then writes nothing.
+      sink: async (event) => {
+        if (event.kind === 'unit-published') notifyPages();
+        await options.sink?.(event);
+      },
       limits,
       ...(options.log === undefined ? {} : { log: options.log }),
     });
@@ -412,7 +436,82 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
     };
   }
 
+  /** The page channels this process's server holds open: a publication wakes each of them, and each reads its own product's changes. */
+  const pageListeners = new Set<() => void>();
+
+  /** Every open page channel hears that a publication landed; a listener that fails is its own stream's business. */
+  function notifyPages(): void {
+    for (const listener of [...pageListeners]) {
+      try {
+        listener();
+      } catch {
+        // A stream that ended between the publication and this call is dropping out of the set itself.
+      }
+    }
+  }
+
+  /**
+   * The owner a product's pages are read through: the process's own when this
+   * service opened it on the first run asked for, and nothing at all when the fill
+   * never ran in this home — a server that serves wikis pays nothing for a graph
+   * nobody filled, and its page set is the empty one with the message saying so.
+   */
+  async function pageDatabase(): Promise<DatabaseOwner | undefined> {
+    // A stopped service reads nothing, and says so: answering the empty page set here would claim the product's
+    // graph holds nothing, which is a statement about the store this service no longer reads.
+    if (stopped) throw new Error('fill-orchestrator: the fill service was stopped, so it reads no graph: the pages are served while the service that owns the database runs');
+    if (options.owner === undefined && existsSync(databasePath) === false) return undefined;
+    return (await open()).owner;
+  }
+
+  /** The product's own name, as its manifest names it: the name a fill's runs name it, and the pages' scope (`fill_unit.product`). */
+  function productNameOf(folder: string): string {
+    const read = readProduct(folder);
+    if (!read.ok) {
+      throw new Error(`fill-orchestrator: the graph pages of ${folder} cannot name their product: ${read.message} (${read.file}, line ${read.line})`);
+    }
+    return read.product.name;
+  }
+
   return {
+    pages(folder: string): GraphPagesSource {
+      return {
+        async pageSet() {
+          const database = await pageDatabase();
+          if (database === undefined) {
+            return {
+              product: productNameOf(folder),
+              pages: [],
+              counts: [],
+              total: 0,
+              changeSeq: 0,
+              readAt: (options.clock ?? Date.now)(),
+              message: emptyPageSetMessage(productNameOf(folder)),
+            };
+          }
+          const product = productNameOf(folder);
+          return await readPageSet({ database, product, folder, at: (options.clock ?? Date.now)() });
+        },
+        async page(id: string) {
+          const database = await pageDatabase();
+          if (database === undefined) {
+            return { ok: false, code: 'graph-pages/no-graph', message: `this home holds no fill's graph yet: the pages are drawn from the graph a fill run writes — run a fill, and the page ${id} appears as its units publish` };
+          }
+          return await readPageModel({ database, product: productNameOf(folder), id, at: (options.clock ?? Date.now)() });
+        },
+        async changes(after: number) {
+          const database = await pageDatabase();
+          if (database === undefined) return { changes: [], lastSeq: 0, truncated: false, marker: null };
+          return await readPageChanges({ database, product: productNameOf(folder), after });
+        },
+        subscribe(listener: () => void): () => void {
+          pageListeners.add(listener);
+          return () => {
+            pageListeners.delete(listener);
+          };
+        },
+      };
+    },
     async unitTools(request: UnitToolsRequest): Promise<UnitToolsHandle> {
       return await openUnitTools(request);
     },
@@ -457,6 +556,9 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
     async stop(): Promise<void> {
       if (stopped) return;
       stopped = true;
+      // A channel's listeners are the server's streams, and this service hears nothing more: the streams end with
+      // the server's own connections (its stop closes them), and a stream whose read fails now says so in the log.
+      pageListeners.clear();
       // A unit's token is a capability: stopping the service ends every session it minted.
       units.closeAll();
       if (opening === undefined) return;

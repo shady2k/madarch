@@ -120,18 +120,26 @@ export function estimateTokens(text: string, limits: GraphReadLimits): number {
  * one as a parameter, and the recorded query is the canonical JSON of this
  * value, so a read is remembered by what it asked for and not by what it
  * answered.
+ *
+ * The four store reads take an optional `product`: the name a fill's runs name the
+ * product (`fill_unit.product`), which scopes the read to the facts *that*
+ * product's units published. A home's database carries every product's facts, and
+ * two products that declare a repository of the same name publish facts of the same
+ * content-addressed id — so a reader that answers one product's page asks for its
+ * product, and a unit's own reads (a run's graph, which is one product's) leave the
+ * field out and are answered as they always were.
  */
 export type GraphRead =
   /** One fact by id, whatever kind it is. */
-  | { readonly read: 'fact'; readonly id: string }
+  | { readonly read: 'fact'; readonly id: string; readonly product?: string }
   /** The facts of the given ids, in code point order of the id; an id the graph does not hold is not a row. */
-  | { readonly read: 'facts'; readonly ids: readonly string[] }
+  | { readonly read: 'facts'; readonly ids: readonly string[]; readonly product?: string }
   /** Every edge fact that names the id at one of its ends, in code point order of the edge's id. */
-  | { readonly read: 'adjacent'; readonly id: string; readonly kinds?: readonly FactEdgeKind[] }
+  | { readonly read: 'adjacent'; readonly id: string; readonly kinds?: readonly FactEdgeKind[]; readonly product?: string }
   /** The nodes the given edges of the id point at, counted by their kind: what one scope holds. */
-  | { readonly read: 'held'; readonly id: string; readonly via: readonly FactEdgeKind[] }
+  | { readonly read: 'held'; readonly id: string; readonly via: readonly FactEdgeKind[]; readonly product?: string }
   /** The facts of one kind whose value, at a dotted path, is exactly the given text. */
-  | { readonly read: 'facts-with'; readonly kind: FactKind; readonly field: string; readonly value: string }
+  | { readonly read: 'facts-with'; readonly kind: FactKind; readonly field: string; readonly value: string; readonly product?: string }
   /**
    * The writes *another* unit of one run holds as draft, each marked as a draft,
    * whose fact is the given id or names it anywhere in its value (0026: a draft
@@ -159,7 +167,7 @@ export const GRAPH_READ_KINDS = ['fact', 'facts', 'adjacent', 'held', 'facts-wit
  * row that names the scope its holder was planned for, and the publication record
  * that says whether that holder has published (a published set is no draft).
  */
-export const GRAPH_READ_TABLES = ['fill_fact', 'fill_publication', 'fill_unit_draft', 'fill_unit_plan'] as const;
+export const GRAPH_READ_TABLES = ['fill_fact', 'fill_fact_holding', 'fill_publication', 'fill_unit', 'fill_unit_draft', 'fill_unit_plan'] as const;
 
 /** The columns of one fact row, as the store holds them: the reader's own select list. */
 const FACT_COLUMNS = 'id, kind, schema_version, provenance, layer, status, value';
@@ -181,13 +189,16 @@ export function readText(request: GraphRead): string {
  * recorded dependency, and one membership rechecked at publication.
  */
 function canonicalSets(request: GraphRead): GraphRead {
+  // The product a read is scoped to is part of what it asks for: a scoped read and an unscoped one are two reads,
+  // recorded under two texts and replayed as themselves (a read that lost its scope would answer a wider set).
+  const product = 'product' in request && request.product !== undefined ? { product: request.product } : {};
   switch (request.read) {
     case 'facts':
-      return { read: 'facts', ids: [...new Set(request.ids)].sort(byCodePoint) };
+      return { read: 'facts', ids: [...new Set(request.ids)].sort(byCodePoint), ...product };
     case 'adjacent':
-      return { read: 'adjacent', id: request.id, ...(request.kinds === undefined ? {} : { kinds: [...new Set(request.kinds)].sort(byCodePoint) }) };
+      return { read: 'adjacent', id: request.id, ...(request.kinds === undefined ? {} : { kinds: [...new Set(request.kinds)].sort(byCodePoint) }), ...product };
     case 'held':
-      return { read: 'held', id: request.id, via: [...new Set(request.via)].sort(byCodePoint) };
+      return { read: 'held', id: request.id, via: [...new Set(request.via)].sort(byCodePoint), ...product };
     default:
       return request;
   }
@@ -226,15 +237,15 @@ export function parseGraphRead(text: string): GraphRead | null {
   }
   switch (kind as (typeof GRAPH_READ_KINDS)[number]) {
     case 'fact':
-      return { read: 'fact', id: readFactId(fields['id'], text) };
+      return { read: 'fact', id: readFactId(fields['id'], text), ...productField(fields['product'], text) };
     case 'facts':
-      return { read: 'facts', ids: readFactIds(fields['ids'], text) };
+      return { read: 'facts', ids: readFactIds(fields['ids'], text), ...productField(fields['product'], text) };
     case 'adjacent':
-      return { read: 'adjacent', id: readFactId(fields['id'], text), ...(fields['kinds'] === undefined ? {} : { kinds: readEdgeKinds(fields['kinds'], text) }) };
+      return { read: 'adjacent', id: readFactId(fields['id'], text), ...(fields['kinds'] === undefined ? {} : { kinds: readEdgeKinds(fields['kinds'], text) }), ...productField(fields['product'], text) };
     case 'held':
-      return { read: 'held', id: readFactId(fields['id'], text), via: readEdgeKinds(fields['via'], text) };
+      return { read: 'held', id: readFactId(fields['id'], text), via: readEdgeKinds(fields['via'], text), ...productField(fields['product'], text) };
     case 'facts-with':
-      return { read: 'facts-with', kind: readFactKind(fields['kind'], text), field: readPath(fields['field'], text), value: readValueText(fields['value'], text) };
+      return { read: 'facts-with', kind: readFactKind(fields['kind'], text), field: readPath(fields['field'], text), value: readValueText(fields['value'], text), ...productField(fields['product'], text) };
     case 'drafts': {
       const run = readRun(fields['run'], text);
       const reader = readReader(fields['reader'], text);
@@ -264,6 +275,13 @@ export function parseGraphRead(text: string): GraphRead | null {
 /** The reader's own templates over the store: the text of one read, for a failure to show. */
 function shown(value: unknown): string {
   return typeof value === 'string' ? JSON.stringify(value) : JSON.stringify(value) ?? String(value);
+}
+
+/** The product a read is scoped to, when it names one: a product's own name, as a fill's runs name it. */
+function productField(value: unknown, read: string): { readonly product?: string } {
+  if (value === undefined) return {};
+  if (typeof value !== 'string' || value.trim() === '') raise(`the read ${shown(read)} names the product ${shown(value)}: a product is named by its own name, a non-empty string (the name a fill's runs give it)`);
+  return { product: value };
 }
 
 /** A read's id: the schema's own form, never a guess. */
@@ -564,6 +582,22 @@ export interface SpanRow {
 }
 
 /**
+ * The clause that scopes one store read to a product, and the value it binds: the
+ * facts one of that product's units published (`fill_fact_holding` joined onto
+ * `fill_unit.product`). A read that names no product is answered from the whole
+ * store, which is what a unit's own graph is — one run's product — and what every
+ * read before this field existed was.
+ */
+function productScope(product: string | undefined, parameter: number): { readonly sql: string; readonly values: readonly string[] } {
+  if (product === undefined) return { sql: '', values: [] };
+  if (product.trim() === '') raise(`${here()}: a read of the store names the product "" to scope its facts: a product is named by the name its runs give it (src/fill/orchestrator-host.ts)`);
+  return {
+    sql: ` AND EXISTS (SELECT 1 FROM fill_fact_holding h JOIN fill_unit u ON u.unit_id = h.unit_id WHERE h.id = f.id AND u.product = $${parameter})`,
+    values: [product],
+  };
+}
+
+/**
  * One read of the pinned graph, answered: the same request answers the same rows
  * as long as the graph stands, which is what makes a read a dependency.
  */
@@ -572,12 +606,14 @@ export async function answerGraphRead(options: FactGraphReaderOptions, request: 
   return await withLocation(at, `answerGraphRead(${describedRead(request)})`, GRAPH_READ_TABLES, async () => {
     switch (request.read) {
       case 'fact': {
-        const rows = await inTransaction(options, async (executor) => (await executor.query(`SELECT ${FACT_COLUMNS} FROM fill_fact WHERE id = $1`, [request.id])).rows);
+        const scope = productScope(request.product, 2);
+        const rows = await inTransaction(options, async (executor) => (await executor.query(`SELECT ${FACT_COLUMNS} FROM fill_fact f WHERE f.id = $1${scope.sql}`, [request.id, ...scope.values])).rows);
         return rows;
       }
       case 'facts': {
         if (request.ids.length === 0) return [];
-        const rows = await inTransaction(options, async (executor) => (await executor.query(`SELECT ${FACT_COLUMNS} FROM fill_fact WHERE id = ANY($1::text[])`, [request.ids])).rows);
+        const scope = productScope(request.product, 2);
+        const rows = await inTransaction(options, async (executor) => (await executor.query(`SELECT ${FACT_COLUMNS} FROM fill_fact f WHERE f.id = ANY($1::text[])${scope.sql}`, [request.ids, ...scope.values])).rows);
         return byId(rows);
       }
       case 'adjacent': {
@@ -585,12 +621,14 @@ export async function answerGraphRead(options: FactGraphReaderOptions, request: 
         if (kinds.length === 0) raise(`${at}: the read ${describedRead(request)} names no edge kind: a read of edges answers the kinds it is given`);
         const groups = adjacencyGroups(kinds);
         const clause = groups.map((group, index) => `(kind = ANY($${index + 2}::text[]) AND ${group.expression} = $${groups.length + 2})`).join(' OR ');
-        const values: unknown[] = [kinds, ...groups.map((group) => group.kinds), request.id];
-        const rows = await inTransaction(options, async (executor) => (await executor.query(`SELECT ${FACT_COLUMNS} FROM fill_fact WHERE kind = ANY($1::text[]) AND (${clause})`, values)).rows);
+        const scope = productScope(request.product, groups.length + 3);
+        const values: unknown[] = [kinds, ...groups.map((group) => group.kinds), request.id, ...scope.values];
+        const rows = await inTransaction(options, async (executor) => (await executor.query(`SELECT ${FACT_COLUMNS} FROM fill_fact f WHERE f.kind = ANY($1::text[]) AND (${clause})${scope.sql}`, values)).rows);
         return byId(rows);
       }
       case 'held': {
         if (request.via.length === 0) raise(`${at}: the read ${describedRead(request)} names no edge kind: a read of what a scope holds counts the edges of the kinds it is given`);
+        const scope = productScope(request.product, 0);
         for (const kind of request.via) {
           // The count joins the store's own rows on the ends the edge value carries as a fact id, wherever the
           // kind keeps them (`to`, `variable`, `callee`), so a kind whose to end is no id cannot be counted:
@@ -606,9 +644,12 @@ export async function answerGraphRead(options: FactGraphReaderOptions, request: 
         // The parameters start after the kinds and the id (`$1`, `$2`): the first group of the to end is `$3`.
         const toEnd = endJoin('value->>\'to\'', request.via, 3);
         const fromEnd = endJoin('value->>\'from\'', request.via, 3 + toEnd.values.length);
+        // The edges counted are the ones this product's units published, when the read names a product: a scope's
+        // contents are that product's graph, never a home's.
+        const edgeScope = request.product === undefined ? '' : ` AND EXISTS (SELECT 1 FROM fill_fact_holding h JOIN fill_unit u ON u.unit_id = h.unit_id WHERE h.id = e.id AND u.product = $${3 + toEnd.values.length + fromEnd.values.length})`;
         const rows = await inTransaction(options, async (executor) => (await executor.query(
-          `SELECT n.kind AS kind, count(*)::int AS count FROM fill_fact e JOIN fill_fact n ON n.id = ${toEnd.sql} WHERE e.kind = ANY($1::text[]) AND ${fromEnd.sql} = $2 GROUP BY n.kind`,
-          [request.via, request.id, ...toEnd.values, ...fromEnd.values],
+          `SELECT n.kind AS kind, count(*)::int AS count FROM fill_fact e JOIN fill_fact n ON n.id = ${toEnd.sql} WHERE e.kind = ANY($1::text[]) AND ${fromEnd.sql} = $2${edgeScope} GROUP BY n.kind`,
+          [request.via, request.id, ...toEnd.values, ...fromEnd.values, ...scope.values.length === 0 ? [] : [request.product]],
         )).rows);
         // The order is read here and not left to the query: a database orders text by its own collation
         // (PostgreSQL's is `en_US.UTF-8` in CI, where `Unit-a` sorts before `unit-a`), and a read of this
@@ -616,9 +657,10 @@ export async function answerGraphRead(options: FactGraphReaderOptions, request: 
         return [...rows].sort((left, right) => byCodePoint(String((left as Record<string, unknown>)['kind']), String((right as Record<string, unknown>)['kind'])));
       }
       case 'facts-with': {
+        const scope = productScope(request.product, 4);
         const rows = await inTransaction(options, async (executor) => (await executor.query(
-          `SELECT ${FACT_COLUMNS} FROM fill_fact WHERE kind = $1 AND value #>> $2::text[] = $3`,
-          [request.kind, request.field.split('.'), request.value],
+          `SELECT ${FACT_COLUMNS} FROM fill_fact f WHERE f.kind = $1 AND f.value #>> $2::text[] = $3${scope.sql}`,
+          [request.kind, request.field.split('.'), request.value, ...scope.values],
         )).rows);
         return byId(rows);
       }
@@ -1211,7 +1253,7 @@ function readRef(request: GraphRead): GraphReadRef {
 }
 
 /** One list of rows as the cap holds it, with the sentence that says what it cut. */
-interface Bounded<T> {
+export interface Bounded<T> {
   readonly rows: readonly T[];
   readonly cut: number;
   readonly marker: string | null;
@@ -1223,8 +1265,12 @@ interface Bounded<T> {
  * for them, and the ones past it are counted and named. A row too large for the
  * cap on its own leaves the answer with none of them and a marker that says so —
  * a whole answer is smaller than a silent one.
+ *
+ * It is exported for the graph's pages (`graph-pages.ts`), whose lists are read
+ * under the page's own cap and must say what they cut the same way a tool's answer
+ * does.
  */
-function bounded<T>(rows: readonly T[], limits: GraphReadLimits, what: string, answerTokens: number): Bounded<T> {
+export function bounded<T>(rows: readonly T[], limits: GraphReadLimits, what: string, answerTokens: number): Bounded<T> {
   const held: T[] = [];
   let tokens = 0;
   for (const row of rows) {
@@ -1276,7 +1322,7 @@ function answered<A extends GraphReadEnvelope>(body: Omit<A, 'tokens'> & { reado
 }
 
 /** The one marker of an answer whose parts were cut, or null when none was. */
-function markerOf(...markers: readonly (string | null)[]): string | null {
+export function markerOf(...markers: readonly (string | null)[]): string | null {
   const cut = markers.filter((marker): marker is string => marker !== null);
   return cut.length === 0 ? null : cut.join('; ');
 }

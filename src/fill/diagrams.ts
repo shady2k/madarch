@@ -47,6 +47,7 @@ import { FACT_EDGE_KINDS, isFactId, type Fact, type FactEdgeKind, type FactNodeK
 import { FACT_STORE_TABLES, type FactStoreDatabase } from './fact-store.js';
 import { here, raise, withLocation } from './fsm-core.js';
 import { EDGE_END_FIELDS, endsOf, labelOf } from './graph-reads.js';
+import { pageAddress } from './page-changes.js';
 
 // ---------------------------------------------------------------------------------------------
 // What a diagram is
@@ -336,7 +337,7 @@ export const UNRESOLVED_PREFIX = 'unresolved:';
  */
 export function graphPageHref(id: string): string {
   if (typeof id !== 'string' || !isFactId(id)) raise(`${here()}: ${shown(id)} is no fact id: a page's address is the fact id of the node it is the page of (src/fill/facts.ts)`);
-  return `/p/graph/${id}`;
+  return pageAddress(id);
 }
 
 /** The address of one view of the graph (the same page prefix), its type, its level and the nodes it is scoped by. */
